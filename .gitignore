@@ -1,0 +1,69 @@
+# Git worktrees
+.worktrees/
+worktrees/
+
+# .NET
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+TestResults/
+coverage/
+
+# Node / React
+**/node_modules/
+**/dist/
+**/.vite/
+*.tsbuildinfo
+
+# Python
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# IDEs
+.idea/
+.vscode/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+secrets.json
+appsettings.*.Local.json
+
+# AI model weights / runtimes
+*.pt
+*.pth
+*.onnx
+*.engine
+*.plan
+*.safetensors
+*.gguf
+
+# CCTV / large media data
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.m4v
+*.webm
+
+# Generated evidence/data stores
+/data/
+/evidence/
+/media-store/
+/models/weights/
+
+# OS
+.DS_Store
+Thumbs.db
