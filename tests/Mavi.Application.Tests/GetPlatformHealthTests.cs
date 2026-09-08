@@ -5,7 +5,7 @@ namespace Mavi.Application.Tests;
 public sealed class GetPlatformHealthTests
 {
     [Fact]
-    public void Execute_ReturnsStablePlatformIdentity()
+    public void ExecuteReturnsStablePlatformIdentity()
     {
         var result = GetPlatformHealth.Execute("0.1.0-test");
 

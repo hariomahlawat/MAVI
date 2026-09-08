@@ -5,7 +5,7 @@ namespace Mavi.Domain.Tests;
 public sealed class ArchitectureBoundaryTests
 {
     [Fact]
-    public void ProjectReferences_FollowApprovedDependencyDirection()
+    public void ProjectReferencesFollowApprovedDependencyDirection()
     {
         var root = FindRepositoryRoot();
 
