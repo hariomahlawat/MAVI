@@ -1,0 +1,36 @@
+{
+  "$id": "urn:mavi:schema:vision-result:1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "status", "observations"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "jobId": { "type": "string", "format": "uuid" },
+    "status": { "type": "string", "enum": ["succeeded", "partial", "failed"] },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["trackId", "entityType", "timestampUtc", "confidence", "boundingBox"],
+        "properties": {
+          "trackId": { "type": "string", "minLength": 1 },
+          "entityType": { "type": "string", "enum": ["person", "vehicle", "unknown"] },
+          "timestampUtc": { "type": "string", "format": "date-time" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "boundingBox": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["x", "y", "width", "height"],
+            "properties": {
+              "x": { "type": "number", "minimum": 0 },
+              "y": { "type": "number", "minimum": 0 },
+              "width": { "type": "number", "exclusiveMinimum": 0 },
+              "height": { "type": "number", "exclusiveMinimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

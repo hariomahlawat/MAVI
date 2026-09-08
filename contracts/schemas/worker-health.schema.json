@@ -1,0 +1,12 @@
+{
+  "$id": "urn:mavi:schema:worker-health:1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "workerId", "status", "timestampUtc"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "workerId": { "type": "string", "format": "uuid" },
+    "status": { "type": "string", "enum": ["ready", "busy", "degraded"] },
+    "timestampUtc": { "type": "string", "format": "date-time" }
+  }
+}

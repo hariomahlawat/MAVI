@@ -1,0 +1,15 @@
+{
+  "$id": "urn:mavi:schema:vision-job:1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "videoAssetId", "cameraId", "mediaUri"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "jobId": { "type": "string", "format": "uuid" },
+    "videoAssetId": { "type": "string", "format": "uuid" },
+    "cameraId": { "type": "string", "minLength": 1 },
+    "mediaUri": { "type": "string", "minLength": 1 },
+    "startUtc": { "type": "string", "format": "date-time" },
+    "endUtc": { "type": "string", "format": "date-time" }
+  }
+}
