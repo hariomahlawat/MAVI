@@ -1,0 +1,81 @@
+using Mavi.Domain.Common;
+
+namespace Mavi.Domain.Media;
+
+public sealed class VideoAsset
+{
+    // Construction
+    private VideoAsset() { }
+
+    public static VideoAsset Create(
+        Guid cameraId,
+        Guid sourceArtifactId,
+        string originalFileName,
+        DateTimeOffset recordingStartUtc,
+        long durationMs,
+        int frameRateNumerator,
+        int frameRateDenominator,
+        int width,
+        int height,
+        string? codec,
+        TimestampSource timestampSource,
+        double timestampConfidence)
+    {
+        if (cameraId == Guid.Empty || sourceArtifactId == Guid.Empty)
+            throw new DomainValidationException("video_reference_required", "Camera and source artifact are required.");
+        if (string.IsNullOrWhiteSpace(originalFileName) || originalFileName.Trim().Length > 255)
+            throw new DomainValidationException("video_filename_invalid", "A valid original filename is required.");
+        if (durationMs <= 0)
+            throw new DomainValidationException("video_duration_invalid", "Video duration must be positive.");
+        if (frameRateNumerator <= 0 || frameRateDenominator <= 0)
+            throw new DomainValidationException("video_frame_rate_invalid", "Frame rate values must be positive.");
+        if (width <= 0 || height <= 0)
+            throw new DomainValidationException("video_dimensions_invalid", "Video dimensions must be positive.");
+        if (codec?.Length > 64)
+            throw new DomainValidationException("video_codec_too_long", "Codec must not exceed 64 characters.");
+        if (!double.IsFinite(timestampConfidence) || timestampConfidence is < 0 or > 1)
+            throw new DomainValidationException("video_timestamp_confidence_invalid", "Timestamp confidence must be between zero and one.");
+
+        var startUtc = recordingStartUtc.ToUniversalTime();
+        return new VideoAsset
+        {
+            Id = Guid.CreateVersion7(),
+            CameraId = cameraId,
+            SourceArtifactId = sourceArtifactId,
+            OriginalFileName = originalFileName.Trim(),
+            SourceType = VideoSourceType.UploadedFile,
+            RecordingStartUtc = startUtc,
+            RecordingEndUtc = startUtc.AddMilliseconds(durationMs),
+            DurationMs = durationMs,
+            FrameRateNumerator = frameRateNumerator,
+            FrameRateDenominator = frameRateDenominator,
+            Width = width,
+            Height = height,
+            Codec = codec,
+            TimestampSource = timestampSource,
+            TimestampConfidence = timestampConfidence,
+            ProcessingStatus = VideoProcessingStatus.NotQueued,
+            ImportedAtUtc = DateTimeOffset.UtcNow,
+        };
+    }
+
+    // Properties
+    public Guid Id { get; private set; }
+    public Guid CameraId { get; private set; }
+    public Guid SourceArtifactId { get; private set; }
+    public string OriginalFileName { get; private set; } = string.Empty;
+    public VideoSourceType SourceType { get; private set; }
+    public string? SourceReference { get; private set; }
+    public DateTimeOffset RecordingStartUtc { get; private set; }
+    public DateTimeOffset RecordingEndUtc { get; private set; }
+    public long DurationMs { get; private set; }
+    public int FrameRateNumerator { get; private set; }
+    public int FrameRateDenominator { get; private set; }
+    public int Width { get; private set; }
+    public int Height { get; private set; }
+    public string? Codec { get; private set; }
+    public TimestampSource TimestampSource { get; private set; }
+    public double TimestampConfidence { get; private set; }
+    public VideoProcessingStatus ProcessingStatus { get; private set; }
+    public DateTimeOffset ImportedAtUtc { get; private set; }
+}

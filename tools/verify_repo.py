@@ -53,6 +53,9 @@ PRODUCTION_SCAN_ROOTS = [
     ROOT / "src/web/mavi-web/src",
 ]
 PRODUCTION_SCAN_FILES = [ROOT / "src/web/mavi-web/index.html"]
+DEVELOPMENT_ONLY_FILES = {
+    ROOT / "src/platform/Mavi.Api/Properties/launchSettings.json",
+}
 URL_PATTERN = re.compile(r"https?://", re.IGNORECASE)
 
 
@@ -104,11 +107,15 @@ def check_contracts(errors: list[str]) -> None:
 
 
 def check_production_urls(errors: list[str]) -> None:
-    files: list[Path] = []
-    for root in PRODUCTION_SCAN_ROOTS:
-        if root.exists():
-            files.extend(path for path in root.rglob("*") if path.is_file())
-    files.extend(path for path in PRODUCTION_SCAN_FILES if path.exists())
+    files = [
+        path
+        for path in tracked_files()
+        if path not in DEVELOPMENT_ONLY_FILES
+        and (
+            path in PRODUCTION_SCAN_FILES
+            or any(path.is_relative_to(root) for root in PRODUCTION_SCAN_ROOTS)
+        )
+    ]
 
     for path in files:
         if path.suffix.lower() not in {".cs", ".json", ".py", ".ts", ".tsx", ".css", ".html"}:

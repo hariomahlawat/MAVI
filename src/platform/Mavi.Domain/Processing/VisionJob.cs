@@ -1,0 +1,72 @@
+using Mavi.Domain.Common;
+
+namespace Mavi.Domain.Processing;
+
+public sealed class VisionJob
+{
+    private const int MaximumAttempts = 3;
+
+    // Construction
+    private VisionJob() { }
+
+    public static VisionJob Create(Guid processingRunId, string pipeline, DateTimeOffset nowUtc)
+    {
+        if (processingRunId == Guid.Empty || string.IsNullOrWhiteSpace(pipeline) || pipeline.Trim().Length > 64) throw Invalid();
+        var now = nowUtc.ToUniversalTime();
+        return new VisionJob { Id = Guid.CreateVersion7(), ProcessingRunId = processingRunId, Pipeline = pipeline.Trim(), Status = VisionJobStatus.Queued, CreatedAtUtc = now, AvailableAtUtc = now };
+    }
+
+    // Leasing
+    public bool CanLease(DateTimeOffset nowUtc) => AttemptCount < MaximumAttempts &&
+        ((Status == VisionJobStatus.Queued && AvailableAtUtc <= nowUtc) || (Status == VisionJobStatus.Leased && LeaseExpiresAtUtc <= nowUtc));
+
+    public void Lease(string workerId, DateTimeOffset nowUtc, TimeSpan duration)
+    {
+        if (!CanLease(nowUtc) || string.IsNullOrWhiteSpace(workerId) || workerId.Trim().Length > 128 || duration <= TimeSpan.Zero) throw Invalid();
+        Status = VisionJobStatus.Leased; LeaseOwner = workerId.Trim(); LeaseExpiresAtUtc = nowUtc.ToUniversalTime().Add(duration); AttemptCount++;
+    }
+
+    public void Heartbeat(string workerId, double progressPercent, DateTimeOffset nowUtc, TimeSpan extension)
+    {
+        RequireValidLease(workerId, nowUtc);
+        if (!double.IsFinite(progressPercent) || progressPercent is < 0 or > 100 || extension <= TimeSpan.Zero) throw Invalid();
+        ProgressPercent = progressPercent; LastHeartbeatUtc = nowUtc.ToUniversalTime(); LeaseExpiresAtUtc = nowUtc.ToUniversalTime().Add(extension);
+    }
+
+    public void Complete(string workerId, DateTimeOffset nowUtc)
+    {
+        if (Status == VisionJobStatus.Completed) return;
+        RequireValidLease(workerId, nowUtc); Status = VisionJobStatus.Completed; ProgressPercent = 100; CompletedAtUtc = nowUtc.ToUniversalTime();
+    }
+
+    public void Fail(string workerId, string code, string details, DateTimeOffset nowUtc)
+    {
+        RequireValidLease(workerId, nowUtc);
+        if (string.IsNullOrWhiteSpace(code) || code.Length > 64 || details.Length > 4000) throw Invalid();
+        Status = VisionJobStatus.Failed; FailureCode = code; FailureDetails = details; CompletedAtUtc = nowUtc.ToUniversalTime();
+    }
+
+    // Properties
+    public Guid Id { get; private set; }
+    public Guid ProcessingRunId { get; private set; }
+    public string Pipeline { get; private set; } = string.Empty;
+    public VisionJobStatus Status { get; private set; }
+    public DateTimeOffset CreatedAtUtc { get; private set; }
+    public DateTimeOffset AvailableAtUtc { get; private set; }
+    public string? LeaseOwner { get; private set; }
+    public DateTimeOffset? LeaseExpiresAtUtc { get; private set; }
+    public int AttemptCount { get; private set; }
+    public double ProgressPercent { get; private set; }
+    public DateTimeOffset? LastHeartbeatUtc { get; private set; }
+    public DateTimeOffset? CompletedAtUtc { get; private set; }
+    public string? FailureCode { get; private set; }
+    public string? FailureDetails { get; private set; }
+
+    // Validation
+    private void RequireValidLease(string workerId, DateTimeOffset nowUtc)
+    {
+        if (Status != VisionJobStatus.Leased || LeaseOwner != workerId || LeaseExpiresAtUtc < nowUtc.ToUniversalTime()) throw Invalid();
+    }
+
+    private static DomainValidationException Invalid() => new("vision_job_transition_invalid", "The vision job operation is invalid.");
+}

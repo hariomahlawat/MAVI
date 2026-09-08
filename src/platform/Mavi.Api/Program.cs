@@ -2,7 +2,7 @@ using Mavi.Application.Health;
 using Mavi.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddMaviInfrastructure();
+builder.Services.AddMaviInfrastructure(builder.Configuration);
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
