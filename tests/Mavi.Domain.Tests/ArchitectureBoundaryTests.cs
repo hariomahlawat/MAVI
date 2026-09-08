@@ -21,7 +21,8 @@ public sealed class ArchitectureBoundaryTests
         var projectFile = Path.Combine(root, "src", "platform", projectName, $"{projectName}.csproj");
         var doc = XDocument.Load(projectFile);
         var actual = doc.Descendants("ProjectReference")
-            .Select(x => Path.GetFileNameWithoutExtension(x.Attribute("Include")?.Value ?? string.Empty))
+            .Select(x => x.Attribute("Include")?.Value.Replace('\\', '/') ?? string.Empty)
+            .Select(Path.GetFileNameWithoutExtension)
             .OrderBy(x => x)
             .ToArray();
 
