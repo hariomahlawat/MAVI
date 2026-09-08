@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Mavi.Api</RootNamespace>
+    <AssemblyName>Mavi.Api</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Mavi.Application\Mavi.Application.csproj" />
+    <ProjectReference Include="..\Mavi.Infrastructure\Mavi.Infrastructure.csproj" />
+    <ProjectReference Include="..\Mavi.Contracts\Mavi.Contracts.csproj" />
+  </ItemGroup>
+</Project>

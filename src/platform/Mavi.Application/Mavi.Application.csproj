@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Mavi.Application</RootNamespace>
+    <AssemblyName>Mavi.Application</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Mavi.Domain\Mavi.Domain.csproj" />
+    <ProjectReference Include="..\Mavi.Contracts\Mavi.Contracts.csproj" />
+  </ItemGroup>
+</Project>
