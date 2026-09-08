@@ -971,18 +971,17 @@ Required algorithm:
 ```text
 get active camera
 validate .mp4 filename
-write incoming stream to temp/<uuid>.upload
-ffprobe temp file
-compute/use media-store SHA-256
+generate VideoAsset UUIDv7 before writing source media
+build final source/<camera-id>/<yyyy>/<MM>/<dd>/<video-asset-id>.mp4 key from immutable IDs
+write incoming stream directly to the final logical key
+let IMediaStore.WriteAsync perform its own temp-sibling write and atomic final move
+ffprobe the managed file
 check duplicate SHA-256 in catalog
-create VideoAsset ID
-promote to source/<camera-code>/<yyyy>/<MM>/<dd>/<video-id>.mp4
 create Artifact + VideoAsset transaction
-cleanup temp in finally
-compensating-delete final media if DB transaction fails
+compensating-delete newly written managed media on duplicate, metadata failure, or DB failure
 ```
 
-Do not buffer the complete stream in memory.
+Do not buffer the complete stream in memory. Do not add a second whole-file copy to promote a staging object; `IMediaStore.WriteAsync` owns the temporary sibling and atomic move to the final key. This is an implementation refinement and does not change Phase-1 scope.
 
 - [ ] **Step 3: Write failing API integration test**
 

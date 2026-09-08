@@ -20,7 +20,47 @@ public sealed class VideoAsset
         string? codec,
         TimestampSource timestampSource,
         double timestampConfidence)
+        => CreateCore(
+            Guid.CreateVersion7(), cameraId, sourceArtifactId, originalFileName, recordingStartUtc,
+            durationMs, frameRateNumerator, frameRateDenominator, width, height, codec,
+            timestampSource, timestampConfidence);
+
+    public static VideoAsset Create(
+        Guid id,
+        Guid cameraId,
+        Guid sourceArtifactId,
+        string originalFileName,
+        DateTimeOffset recordingStartUtc,
+        long durationMs,
+        int frameRateNumerator,
+        int frameRateDenominator,
+        int width,
+        int height,
+        string? codec,
+        TimestampSource timestampSource,
+        double timestampConfidence)
+        => CreateCore(
+            id, cameraId, sourceArtifactId, originalFileName, recordingStartUtc,
+            durationMs, frameRateNumerator, frameRateDenominator, width, height, codec,
+            timestampSource, timestampConfidence);
+
+    private static VideoAsset CreateCore(
+        Guid id,
+        Guid cameraId,
+        Guid sourceArtifactId,
+        string originalFileName,
+        DateTimeOffset recordingStartUtc,
+        long durationMs,
+        int frameRateNumerator,
+        int frameRateDenominator,
+        int width,
+        int height,
+        string? codec,
+        TimestampSource timestampSource,
+        double timestampConfidence)
     {
+        if (id == Guid.Empty || id.Version != 7)
+            throw new DomainValidationException("video_id_invalid", "Video asset ID must be a non-empty UUID version 7.");
         if (cameraId == Guid.Empty || sourceArtifactId == Guid.Empty)
             throw new DomainValidationException("video_reference_required", "Camera and source artifact are required.");
         if (string.IsNullOrWhiteSpace(originalFileName) || originalFileName.Trim().Length > 255)
@@ -39,7 +79,7 @@ public sealed class VideoAsset
         var startUtc = recordingStartUtc.ToUniversalTime();
         return new VideoAsset
         {
-            Id = Guid.CreateVersion7(),
+            Id = id,
             CameraId = cameraId,
             SourceArtifactId = sourceArtifactId,
             OriginalFileName = originalFileName.Trim(),

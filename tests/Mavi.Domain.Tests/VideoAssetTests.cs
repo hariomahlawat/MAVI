@@ -5,6 +5,42 @@ namespace Mavi.Domain.Tests;
 
 public sealed class VideoAssetTests
 {
+    // Identifier creation
+    [Fact]
+    public void CreateGeneratesVersionSevenIdentifier()
+    {
+        var asset = CreateVideoAsset();
+
+        Assert.Equal(7, asset.Id.Version);
+    }
+
+    [Fact]
+    public void CreateWithExplicitIdentifierPreservesVersionSevenIdentifier()
+    {
+        var id = Guid.CreateVersion7();
+
+        var asset = CreateVideoAsset(id);
+
+        Assert.Equal(id, asset.Id);
+    }
+
+    [Fact]
+    public void CreateWithExplicitIdentifierRejectsEmptyIdentifier()
+    {
+        var exception = Assert.Throws<DomainValidationException>(() => CreateVideoAsset(Guid.Empty));
+
+        Assert.Equal("video_id_invalid", exception.Code);
+    }
+
+    [Fact]
+    public void CreateWithExplicitIdentifierRejectsNonVersionSevenIdentifier()
+    {
+        var exception = Assert.Throws<DomainValidationException>(() => CreateVideoAsset(Guid.NewGuid()));
+
+        Assert.Equal("video_id_invalid", exception.Code);
+    }
+
+    // Recording metadata
     [Fact]
     public void CreateDerivesRecordingEndFromDuration()
     {
@@ -34,5 +70,21 @@ public sealed class VideoAssetTests
     {
         Assert.Throws<DomainValidationException>(() => Artifact.Create(
             ArtifactType.SourceVideo, storageKey, "video/mp4", 1, new string('a', 64)));
+    }
+
+    // Test data
+    private static VideoAsset CreateVideoAsset(Guid? id = null)
+    {
+        var cameraId = Guid.CreateVersion7();
+        var artifactId = Guid.CreateVersion7();
+        var start = new DateTimeOffset(2026, 9, 8, 8, 30, 0, TimeSpan.Zero);
+
+        return id.HasValue
+            ? VideoAsset.Create(
+                id.Value, cameraId, artifactId, "gate01.mp4", start,
+                90_000, 25, 1, 1920, 1080, "h264", TimestampSource.Manual, 1.0)
+            : VideoAsset.Create(
+                cameraId, artifactId, "gate01.mp4", start,
+                90_000, 25, 1, 1920, 1080, "h264", TimestampSource.Manual, 1.0);
     }
 }
