@@ -119,6 +119,9 @@ public sealed class WorkerContractV2Tests
     [InlineData("gpu\\worker", false)]
     [InlineData("gpu\nworker", false)]
     [InlineData("gpu\tworker", false)]
+    [InlineData("gpu-sdd-01\n", false)]
+    [InlineData("gpu-sdd-01\r", false)]
+    [InlineData("gpu-sdd-01\r\n", false)]
     [InlineData("гпу", false)]
     public void WorkerIdentityUsesSafeAsciiAlphabet(string value, bool expected) =>
         Assert.Equal(expected, WorkerContractRules.TryNormalizeWorkerId(value, out _));
@@ -126,6 +129,10 @@ public sealed class WorkerContractV2Tests
     [Fact]
     public void WorkerIdentityRejectsMoreThan128Characters() =>
         Assert.False(WorkerContractRules.TryNormalizeWorkerId(new string('a', 129), out _));
+
+    [Fact]
+    public void WorkerIdentityRejects128LegalCharactersFollowedByLineFeed() =>
+        Assert.False(WorkerContractRules.TryNormalizeWorkerId(new string('a', 128) + "\n", out _));
 
     [Theory]
     [InlineData("2026-09-09T03:00:00+00:00")]
@@ -154,8 +161,15 @@ public sealed class WorkerContractV2Tests
     [InlineData("bad code", false)]
     [InlineData("https://failure", false)]
     [InlineData("UPPERCASE", false)]
+    [InlineData("worker_failed\n", false)]
+    [InlineData("worker_failed\r", false)]
+    [InlineData("worker_failed\r\n", false)]
     public void FailureCodeUsesCanonicalMachineSyntax(string value, bool expected) =>
         Assert.Equal(expected, WorkerContractRules.IsFailureCode(value));
+
+    [Fact]
+    public void FailureCodeRejects64LegalCharactersFollowedByLineFeed() =>
+        Assert.False(WorkerContractRules.IsFailureCode(new string('a', 64) + "\n"));
 
     [Theory]
     [InlineData(false)]

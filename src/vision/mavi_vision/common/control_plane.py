@@ -16,6 +16,7 @@ from pydantic import (
 
 
 _WORKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", re.ASCII)
+_FAILURE_CODE_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}", re.ASCII)
 
 
 def _snake_to_camel(name: str) -> str:
@@ -37,6 +38,12 @@ def _canonical_utc_wire(value: object, info: ValidationInfo) -> object:
 def _worker_id(value: str) -> str:
     if _WORKER_ID_PATTERN.fullmatch(value) is None:
         raise ValueError("workerId must use the canonical safe identifier syntax")
+    return value
+
+
+def _failure_code(value: str) -> str:
+    if _FAILURE_CODE_PATTERN.fullmatch(value) is None:
+        raise ValueError("failureCode must use the canonical machine-code syntax")
     return value
 
 
@@ -62,6 +69,7 @@ def _storage_key(value: str) -> str:
 
 
 WorkerId = Annotated[StrictStr, AfterValidator(_worker_id)]
+FailureCode = Annotated[StrictStr, AfterValidator(_failure_code)]
 LeaseToken = Annotated[StrictStr, AfterValidator(_lease_token)]
 StorageKey = Annotated[StrictStr, AfterValidator(_storage_key)]
 CanonicalUtcDateTime = Annotated[datetime, BeforeValidator(_canonical_utc_wire)]
@@ -134,7 +142,7 @@ class VisionJobFail(ControlPlaneModel):
     schema_version: Literal["2.0"]
     worker_id: WorkerId
     lease_token: LeaseToken
-    failure_code: StrictStr = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    failure_code: FailureCode
     failure_message: str | None = Field(default=None, max_length=4000)
 
 

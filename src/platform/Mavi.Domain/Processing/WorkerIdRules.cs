@@ -1,13 +1,21 @@
-using System.Text.RegularExpressions;
-
 namespace Mavi.Domain.Processing;
 
-internal static partial class WorkerIdRules
+internal static class WorkerIdRules
 {
     // Canonical worker identity
-    internal static bool IsCanonical(string? value) =>
-        value is not null && CanonicalPattern().IsMatch(value);
+    internal static bool IsCanonical(string? value)
+    {
+        if (value is not { Length: >= 1 and <= 128 } || !IsAsciiAlphaNumeric(value[0])) return false;
+        foreach (var character in value.AsSpan(1))
+        {
+            if (!IsContinuation(character)) return false;
+        }
+        return true;
+    }
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", RegexOptions.CultureInvariant)]
-    private static partial Regex CanonicalPattern();
+    private static bool IsContinuation(char value) =>
+        IsAsciiAlphaNumeric(value) || value is '.' or '_' or '-';
+
+    private static bool IsAsciiAlphaNumeric(char value) =>
+        value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9';
 }

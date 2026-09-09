@@ -649,6 +649,107 @@
     "direction": "worker-request"
   },
   {
+    "name": "trailing line feed worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing carriage return worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01\r"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing carriage return line feed worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01\r\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "maximum length worker id followed by line feed",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "malformed lease expiry date-time",
+    "schema": "vision-job-heartbeat-response-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "progressPercent": 50,
+      "leaseExpiresAtUtc": "garbageZ"
+    },
+    "direction": "platform-response"
+  },
+  {
+    "name": "malformed worker health date-time",
+    "schema": "worker-health-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "status": "ready",
+      "timestampUtc": "not-a-dateZ"
+    },
+    "direction": "platform-response"
+  },
+  {
+    "name": "trailing line feed failure code",
+    "schema": "vision-job-fail-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "failureCode": "worker_failed\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing carriage return failure code",
+    "schema": "vision-job-fail-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "failureCode": "worker_failed\r"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing carriage return line feed failure code",
+    "schema": "vision-job-fail-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "failureCode": "worker_failed\r\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "maximum length failure code followed by line feed",
+    "schema": "vision-job-fail-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "failureCode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    },
+    "direction": "worker-request"
+  },
+  {
     "name": "unsafe platform response worker id",
     "schema": "worker-health-v2",
     "payload": {
