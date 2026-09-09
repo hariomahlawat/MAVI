@@ -161,8 +161,15 @@ public sealed class WorkerContractV2Tests
     [InlineData("bad code", false)]
     [InlineData("https://failure", false)]
     [InlineData("UPPERCASE", false)]
+    [InlineData("worker_failed\n", false)]
+    [InlineData("worker_failed\r", false)]
+    [InlineData("worker_failed\r\n", false)]
     public void FailureCodeUsesCanonicalMachineSyntax(string value, bool expected) =>
         Assert.Equal(expected, WorkerContractRules.IsFailureCode(value));
+
+    [Fact]
+    public void FailureCodeRejects64LegalCharactersFollowedByLineFeed() =>
+        Assert.False(WorkerContractRules.IsFailureCode(new string('a', 64) + "\n"));
 
     [Theory]
     [InlineData(false)]
