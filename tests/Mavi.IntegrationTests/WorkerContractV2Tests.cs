@@ -139,6 +139,7 @@ public sealed class WorkerContractV2Tests
     [InlineData("2026-09-09T08:30:00+05:30")]
     [InlineData("2026-09-09T03:00:00")]
     [InlineData("2026-09-09T03:00:00z")]
+    [InlineData("2026-09-09 03:00:00Z")]
     public void WorkerTimestampRejectsNonCanonicalSyntax(string timestampUtc)
     {
         var json = $$"""{"schemaVersion":"2.0","workerId":"gpu-sdd-01","status":"ready","timestampUtc":"{{timestampUtc}}"}""";
