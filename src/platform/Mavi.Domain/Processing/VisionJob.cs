@@ -36,10 +36,9 @@ public sealed class VisionJob
         ProgressPercent = progressPercent; LastHeartbeatUtc = nowUtc.ToUniversalTime(); LeaseExpiresAtUtc = nowUtc.ToUniversalTime().Add(extension);
     }
 
-    public void Complete(string workerId, DateTimeOffset nowUtc)
+    public void Complete(string workerId, bool leaseTokenMatches, DateTimeOffset nowUtc)
     {
-        if (Status == VisionJobStatus.Completed) return;
-        RequireValidLease(workerId, true, nowUtc); Status = VisionJobStatus.Completed; ProgressPercent = 100; CompletedAtUtc = nowUtc.ToUniversalTime();
+        RequireValidLease(workerId, leaseTokenMatches, nowUtc); Status = VisionJobStatus.Completed; ProgressPercent = 100; CompletedAtUtc = nowUtc.ToUniversalTime();
     }
 
     public void Fail(string workerId, bool leaseTokenMatches, string code, string? details, DateTimeOffset nowUtc)
@@ -78,6 +77,7 @@ public sealed class VisionJob
         if (Status is not (VisionJobStatus.Queued or VisionJobStatus.Leased)) throw Invalid();
         Status = VisionJobStatus.Failed; FailureCode = "vision_job_attempts_exhausted";
         FailureDetails = null; CompletedAtUtc = nowUtc.ToUniversalTime();
+        LeaseOwner = null; LeaseTokenHash = null; LeaseExpiresAtUtc = null; LastHeartbeatUtc = null;
     }
 
     private static DomainValidationException Invalid() => new("vision_job_transition_invalid", "The vision job operation is invalid.");

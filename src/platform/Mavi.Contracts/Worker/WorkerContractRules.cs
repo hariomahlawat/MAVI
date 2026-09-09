@@ -1,24 +1,35 @@
 using System.Buffers.Text;
+using System.Text.RegularExpressions;
 
 namespace Mavi.Contracts.Worker;
 
-public static class WorkerContractRules
+public static partial class WorkerContractRules
 {
     public const string SchemaVersion = "2.0";
 
     // Worker boundary rules
     public static bool TryNormalizeWorkerId(string? value, out string normalized)
     {
-        normalized = value?.Trim() ?? string.Empty;
-        return normalized.Length is >= 1 and <= 128;
+        normalized = value ?? string.Empty;
+        return normalized.Length is >= 1 and <= 128 && string.Equals(normalized, normalized.Trim(), StringComparison.Ordinal);
     }
 
     public static bool IsCanonicalLeaseToken(string? value)
     {
         if (value is not { Length: 43 }) return false;
         Span<byte> decoded = stackalloc byte[32];
-        return Base64Url.TryDecodeFromChars(value, decoded, out var written) && written == 32;
+        try
+        {
+            return Base64Url.TryDecodeFromChars(value, decoded, out var written) && written == 32 &&
+                   string.Equals(Base64Url.EncodeToString(decoded), value, StringComparison.Ordinal);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
+
+    public static bool IsFailureCode(string? value) => value is not null && FailureCodePattern().IsMatch(value);
 
     public static bool IsLogicalStorageKey(string? value)
     {
@@ -26,4 +37,7 @@ public static class WorkerContractRules
             value.Contains('\\', StringComparison.Ordinal) || value.Contains(':', StringComparison.Ordinal)) return false;
         return value.Split('/').All(segment => segment.Length > 0 && segment is not "." and not "..");
     }
+
+    [GeneratedRegex("^[a-z][a-z0-9_]{0,63}$", RegexOptions.CultureInvariant)]
+    private static partial Regex FailureCodePattern();
 }

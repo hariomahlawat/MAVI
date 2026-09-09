@@ -30,10 +30,10 @@ public static class VisionJobEndpoints
     {
         if (request.SchemaVersion != WorkerContractRules.SchemaVersion) return VersionProblem();
         if (!WorkerContractRules.TryNormalizeWorkerId(request.WorkerId, out var workerId)) return WorkerProblem();
-        if (!WorkerContractRules.IsCanonicalLeaseToken(request.LeaseToken) || !double.IsFinite(request.ProgressPercent) ||
-            request.ProgressPercent is < 0 or > 100)
+        if (!WorkerContractRules.IsCanonicalLeaseToken(request.LeaseToken) || request.ProgressPercent is not { } progressPercent ||
+            !double.IsFinite(progressPercent) || progressPercent is < 0 or > 100)
             return Problem(400, "vision_job_heartbeat_invalid", "Heartbeat input is invalid.");
-        var result = await orchestrator.HeartbeatAsync(id, workerId, request.LeaseToken!, request.ProgressPercent, cancellationToken);
+        var result = await orchestrator.HeartbeatAsync(id, workerId, request.LeaseToken!, progressPercent, cancellationToken);
         return result.IsSuccess
             ? Results.Ok(new VisionJobHeartbeatResponse("2.0", result.ProgressPercent!.Value, result.LeaseExpiresAtUtc!.Value))
             : Result(result);
@@ -44,15 +44,16 @@ public static class VisionJobEndpoints
     {
         if (request.SchemaVersion != WorkerContractRules.SchemaVersion) return VersionProblem();
         if (!WorkerContractRules.TryNormalizeWorkerId(request.WorkerId, out var workerId)) return WorkerProblem();
-        if (!WorkerContractRules.IsCanonicalLeaseToken(request.LeaseToken) || string.IsNullOrWhiteSpace(request.FailureCode) ||
-            request.FailureCode.Trim().Length > 64 || request.FailureMessage?.Length > 4000)
+        if (!WorkerContractRules.IsCanonicalLeaseToken(request.LeaseToken) || !WorkerContractRules.IsFailureCode(request.FailureCode) ||
+            request.FailureMessage?.Length > 4000 || request.FailureCode!.Contains(request.LeaseToken!, StringComparison.Ordinal) ||
+            (request.FailureMessage?.Contains(request.LeaseToken!, StringComparison.Ordinal) ?? false))
             return Problem(400, "vision_job_failure_invalid", "Failure input is invalid.");
-        var result = await orchestrator.FailAsync(id, workerId, request.LeaseToken!, request.FailureCode.Trim(), request.FailureMessage, cancellationToken);
+        var result = await orchestrator.FailAsync(id, workerId, request.LeaseToken!, request.FailureCode, request.FailureMessage, cancellationToken);
         return Result(result);
     }
 
     // Public mapping and safe errors
-    private static VisionJobLeaseContract Map(VisionLeaseView lease) => new(lease.SchemaVersion, lease.JobId,
+    private static VisionJobLeaseContract Map(VisionLeaseView lease) => new(WorkerContractRules.SchemaVersion, lease.JobId,
         lease.ProcessingRunId, lease.VideoAssetId, lease.CameraId, lease.WorkerId, lease.LeaseToken, lease.AttemptCount,
         lease.LeaseExpiresAtUtc, lease.Pipeline, lease.PipelineVersion, lease.SourceStorageKey, lease.SourceSha256,
         lease.SourceSizeBytes, lease.RecordingStartUtc, lease.RecordingEndUtc, lease.DurationMs, lease.Width, lease.Height,

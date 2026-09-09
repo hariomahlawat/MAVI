@@ -47,6 +47,35 @@ public sealed class WorkerContractV2Tests
         }
     }
 
+    [Theory]
+    [InlineData("gpu-sdd-01", true)]
+    [InlineData(" gpu-sdd-01", false)]
+    [InlineData("gpu-sdd-01 ", false)]
+    [InlineData(" gpu-sdd-01 ", false)]
+    public void WorkerIdentityMustAlreadyBeCanonical(string value, bool expected) =>
+        Assert.Equal(expected, WorkerContractRules.TryNormalizeWorkerId(value, out _));
+
+    [Theory]
+    [InlineData("vision_dummy_not_implemented", true)]
+    [InlineData("ffmpeg_decode_failed", true)]
+    [InlineData("bad code", false)]
+    [InlineData("https://failure", false)]
+    [InlineData("UPPERCASE", false)]
+    public void FailureCodeUsesCanonicalMachineSyntax(string value, bool expected) =>
+        Assert.Equal(expected, WorkerContractRules.IsFailureCode(value));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailureMessageIsOptionalAndNullable(bool includeNull)
+    {
+        var suffix = includeNull ? ",\"failureMessage\":null" : string.Empty;
+        var json = $$"""{"schemaVersion":"2.0","workerId":"gpu-sdd-01","leaseToken":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","failureCode":"ffmpeg_decode_failed"{{suffix}}}""";
+        var request = JsonSerializer.Deserialize<VisionJobFailRequest>(json, JsonOptions());
+        Assert.NotNull(request);
+        Assert.Null(request.FailureMessage);
+    }
+
     private static JsonSerializerOptions JsonOptions() => new(JsonSerializerDefaults.Web)
     {
         UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow

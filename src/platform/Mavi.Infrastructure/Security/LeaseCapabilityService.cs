@@ -1,6 +1,7 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using Mavi.Application.Abstractions.Security;
+using Mavi.Contracts.Worker;
 
 namespace Mavi.Infrastructure.Security;
 
@@ -16,7 +17,7 @@ public sealed class LeaseCapabilityService : ILeaseCapabilityService
     // Constant-time verification
     public bool Matches(string token, byte[] expectedHash)
     {
-        if (expectedHash is not { Length: 32 } || token is not { Length: 43 }) return false;
+        if (expectedHash is not { Length: 32 } || !WorkerContractRules.IsCanonicalLeaseToken(token)) return false;
         Span<byte> bytes = stackalloc byte[32];
         if (!Base64Url.TryDecodeFromChars(token, bytes, out var bytesWritten) || bytesWritten != 32) return false;
         Span<byte> actualHash = stackalloc byte[32];

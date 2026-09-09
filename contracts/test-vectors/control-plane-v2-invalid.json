@@ -1,0 +1,11 @@
+[
+  {"name":"malformed trailing token bits","schema":"vision-job-heartbeat-v2","payload":{"schemaVersion":"2.0","workerId":"gpu-sdd-01","leaseToken":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB","progressPercent":0}},
+  {"name":"missing heartbeat progress","schema":"vision-job-heartbeat-v2","payload":{"schemaVersion":"2.0","workerId":"gpu-sdd-01","leaseToken":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}},
+  {"name":"padded worker id","schema":"vision-job-lease-request-v2","payload":{"schemaVersion":"2.0","workerId":" gpu-sdd-01 "}},
+  {"name":"wrong schema version","schema":"vision-job-lease-request-v2","payload":{"schemaVersion":"1.0","workerId":"gpu-sdd-01"}},
+  {"name":"missing schema version","schema":"vision-job-lease-request-v2","payload":{"workerId":"gpu-sdd-01"}},
+  {"name":"unknown member","schema":"vision-job-lease-request-v2","payload":{"schemaVersion":"2.0","workerId":"gpu-sdd-01","unknown":true}},
+  {"name":"invalid failure code","schema":"vision-job-fail-v2","payload":{"schemaVersion":"2.0","workerId":"gpu-sdd-01","leaseToken":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","failureCode":"https://failure"}},
+  {"name":"invalid storage key","schema":"vision-job-lease-v2","payload":{"schemaVersion":"2.0","jobId":"018f0000-0000-7000-8000-000000000001","processingRunId":"018f0000-0000-7000-8000-000000000002","videoAssetId":"018f0000-0000-7000-8000-000000000003","cameraId":"018f0000-0000-7000-8000-000000000004","workerId":"gpu-sdd-01","leaseToken":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","attemptCount":1,"leaseExpiresAtUtc":"2026-09-09T03:00:00Z","pipeline":"phase1","pipelineVersion":"v1","sourceStorageKey":"../video.mp4","sourceSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceSizeBytes":1,"recordingStartUtc":"2026-09-09T01:00:00Z","recordingEndUtc":"2026-09-09T01:00:01Z","durationMs":1000,"width":1,"height":1,"frameRateNumerator":1,"frameRateDenominator":1,"recordingTimeZoneId":"UTC","recordingUtcOffsetMinutes":0}},
+  {"name":"non UTC response timestamp","schema":"vision-job-heartbeat-response-v2","payload":{"schemaVersion":"2.0","progressPercent":0,"leaseExpiresAtUtc":"2026-09-09T08:30:00+05:30"}}
+]

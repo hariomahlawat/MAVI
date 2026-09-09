@@ -25,6 +25,6 @@ public sealed class ProcessingStateTests
         var job = VisionJob.Create(Guid.CreateVersion7(), "phase1-detection-tracking", now);
         job.Lease("worker-01", new byte[32], now, TimeSpan.FromSeconds(120), 3);
 
-        Assert.ThrowsAny<Exception>(() => job.Complete("worker-02", now.AddSeconds(10)));
+        Assert.ThrowsAny<Exception>(() => job.Complete("worker-02", true, now.AddSeconds(10)));
     }
 }
