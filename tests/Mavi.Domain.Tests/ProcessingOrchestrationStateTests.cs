@@ -43,6 +43,19 @@ public sealed class ProcessingOrchestrationStateTests
     [InlineData(" worker-a ")]
     [InlineData("worker-a ")]
     [InlineData(" worker-a")]
+    [InlineData("-worker")]
+    [InlineData("_worker")]
+    [InlineData(".worker")]
+    [InlineData("worker name")]
+    [InlineData("worker/name")]
+    [InlineData("worker:name")]
+    [InlineData("worker\\name")]
+    [InlineData("worker\nname")]
+    [InlineData("worker\tname")]
+    [InlineData("gpu-sdd-01\n")]
+    [InlineData("gpu-sdd-01\r")]
+    [InlineData("gpu-sdd-01\r\n")]
+    [InlineData("воркер")]
     public void ProcessingRunRejectsNonCanonicalWorkerIds(string workerId)
     {
         var assignRun = ProcessingRun.Create(Video().Id, "phase1-v1", "{}", Now);
@@ -52,12 +65,16 @@ public sealed class ProcessingOrchestrationStateTests
         Assert.Throws<DomainValidationException>(() => runningRun.MarkRunning(workerId, Now));
     }
 
-    [Fact]
-    public void ProcessingRunStoresCanonicalWorkerIdExactly()
+    [Theory]
+    [InlineData("gpu-sdd-01")]
+    [InlineData("gpu.sdd.01")]
+    [InlineData("gpu_sdd_01")]
+    [InlineData("A1")]
+    public void ProcessingRunStoresCanonicalWorkerIdExactly(string workerId)
     {
         var run = ProcessingRun.Create(Video().Id, "phase1-v1", "{}", Now);
-        run.AssignLease("worker-a", Now);
-        Assert.Equal("worker-a", run.WorkerId);
+        run.AssignLease(workerId, Now);
+        Assert.Equal(workerId, run.WorkerId);
     }
 
     // Job lease and heartbeat
@@ -75,6 +92,19 @@ public sealed class ProcessingOrchestrationStateTests
     [InlineData(" worker-a ")]
     [InlineData("worker-a ")]
     [InlineData(" worker-a")]
+    [InlineData("-worker")]
+    [InlineData("_worker")]
+    [InlineData(".worker")]
+    [InlineData("worker name")]
+    [InlineData("worker/name")]
+    [InlineData("worker:name")]
+    [InlineData("worker\\name")]
+    [InlineData("worker\nname")]
+    [InlineData("worker\tname")]
+    [InlineData("gpu-sdd-01\n")]
+    [InlineData("gpu-sdd-01\r")]
+    [InlineData("gpu-sdd-01\r\n")]
+    [InlineData("воркер")]
     public void VisionJobRejectsNonCanonicalWorkerIds(string workerId)
     {
         var job = VisionJob.Create(Guid.CreateVersion7(), "pipeline", Now);
@@ -88,12 +118,38 @@ public sealed class ProcessingOrchestrationStateTests
         Assert.Throws<DomainValidationException>(() => job.Fail(workerId, true, "failed", null, Now.AddSeconds(1)));
     }
 
-    [Fact]
-    public void VisionJobStoresCanonicalWorkerIdExactly()
+    [Theory]
+    [InlineData("gpu-sdd-01")]
+    [InlineData("gpu.sdd.01")]
+    [InlineData("gpu_sdd_01")]
+    [InlineData("A1")]
+    public void VisionJobStoresCanonicalWorkerIdExactly(string workerId)
     {
         var job = VisionJob.Create(Guid.CreateVersion7(), "pipeline", Now);
-        job.Lease("worker-a", Hash(1), Now, TimeSpan.FromSeconds(10), 3);
-        Assert.Equal("worker-a", job.LeaseOwner);
+        job.Lease(workerId, Hash(1), Now, TimeSpan.FromSeconds(10), 3);
+        Assert.Equal(workerId, job.LeaseOwner);
+    }
+
+    [Fact]
+    public void DomainRejectsWorkerIdsLongerThan128Characters()
+    {
+        var workerId = new string('a', 129);
+        var run = ProcessingRun.Create(Video().Id, "phase1-v1", "{}", Now);
+        var job = VisionJob.Create(Guid.CreateVersion7(), "pipeline", Now);
+
+        Assert.Throws<DomainValidationException>(() => run.AssignLease(workerId, Now));
+        Assert.Throws<DomainValidationException>(() => job.Lease(workerId, Hash(1), Now, TimeSpan.FromSeconds(10), 3));
+    }
+
+    [Fact]
+    public void DomainRejects128LegalWorkerIdCharactersFollowedByLineFeed()
+    {
+        var workerId = new string('a', 128) + "\n";
+        var run = ProcessingRun.Create(Video().Id, "phase1-v1", "{}", Now);
+        var job = VisionJob.Create(Guid.CreateVersion7(), "pipeline", Now);
+
+        Assert.Throws<DomainValidationException>(() => run.AssignLease(workerId, Now));
+        Assert.Throws<DomainValidationException>(() => job.Lease(workerId, Hash(1), Now, TimeSpan.FromSeconds(10), 3));
     }
 
     [Fact]

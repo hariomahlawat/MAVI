@@ -1,0 +1,113 @@
+name: MAVI Quality Gate
+
+on:
+  pull_request:
+    branches:
+      - feature/visual-intelligence-memory
+  push:
+    branches:
+      - feature/visual-intelligence-memory
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mavi-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mavi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d mavi_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      MAVI_TEST_DB_CONNECTION: Host=localhost;Port=5432;Database=mavi_test;Username=postgres;Password=postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: src/vision/pyproject.toml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/web/mavi-web/package-lock.json
+
+      - name: Ensure FFmpeg
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+            ffmpeg -version | head -n 1
+            exit 0
+          fi
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
+          sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python verification dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
+
+      - name: Verify toolchain
+        run: |
+          dotnet --info
+          python --version
+          node --version
+          npm --version
+          ffmpeg -version | head -n 1
+          psql --version
+          pg_isready -h localhost -p 5432 -U postgres -d mavi_test
+
+      - name: Build .NET
+        run: dotnet build MAVI.sln --configuration Release
+
+      - name: Test .NET
+        run: dotnet test MAVI.sln --configuration Release --no-build
+
+      - name: Verify repository
+        run: python tools/verify_repo.py
+
+      - name: Test Python contracts
+        working-directory: src/vision
+        run: python -m pytest -q
+
+      - name: Install frontend dependencies
+        working-directory: src/web/mavi-web
+        run: npm ci
+
+      - name: Test frontend
+        working-directory: src/web/mavi-web
+        run: npm test
+
+      - name: Typecheck frontend
+        working-directory: src/web/mavi-web
+        run: npm run typecheck
+
+      - name: Build frontend
+        working-directory: src/web/mavi-web
+        run: npm run build

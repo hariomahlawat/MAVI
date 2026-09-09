@@ -20,7 +20,7 @@ public sealed class VisionJob
 
     public void Lease(string workerId, byte[] leaseTokenHash, DateTimeOffset nowUtc, TimeSpan duration, int maximumAttempts)
     {
-        if (!CanLease(nowUtc, maximumAttempts) || !IsCanonicalWorkerId(workerId) ||
+        if (!CanLease(nowUtc, maximumAttempts) || !WorkerIdRules.IsCanonical(workerId) ||
             leaseTokenHash is not { Length: 32 } || duration <= TimeSpan.Zero) throw Invalid();
         Status = VisionJobStatus.Leased; LeaseOwner = workerId; LeaseTokenHash = [.. leaseTokenHash];
         LeaseExpiresAtUtc = nowUtc.ToUniversalTime().Add(duration); AttemptCount++;
@@ -68,7 +68,7 @@ public sealed class VisionJob
     // Validation
     private void RequireValidLease(string workerId, bool leaseTokenMatches, DateTimeOffset nowUtc)
     {
-        if (!IsCanonicalWorkerId(workerId) || Status != VisionJobStatus.Leased ||
+        if (!WorkerIdRules.IsCanonical(workerId) || Status != VisionJobStatus.Leased ||
             !string.Equals(LeaseOwner, workerId, StringComparison.Ordinal) ||
             !leaseTokenMatches || LeaseExpiresAtUtc <= nowUtc.ToUniversalTime()) throw Invalid();
     }
@@ -80,10 +80,6 @@ public sealed class VisionJob
         FailureDetails = null; CompletedAtUtc = nowUtc.ToUniversalTime();
         LeaseOwner = null; LeaseTokenHash = null; LeaseExpiresAtUtc = null; LastHeartbeatUtc = null;
     }
-
-    private static bool IsCanonicalWorkerId(string workerId) =>
-        !string.IsNullOrWhiteSpace(workerId) && workerId.Length <= 128 &&
-        string.Equals(workerId, workerId.Trim(), StringComparison.Ordinal);
 
     private static DomainValidationException Invalid() => new("vision_job_transition_invalid", "The vision job operation is invalid.");
 }
