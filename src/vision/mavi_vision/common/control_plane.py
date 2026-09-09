@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictStr, field_validator
 
 
 def _worker_id(value: str) -> str:
@@ -38,7 +38,13 @@ StorageKey = Annotated[StrictStr, AfterValidator(_storage_key)]
 
 
 class ControlPlaneModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True, alias_generator=lambda n: n.split("_")[0] + "".join(x.title() for x in n.split("_")[1:]))
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        populate_by_name=True,
+        strict=True,
+        alias_generator=lambda n: n.split("_")[0] + "".join(x.title() for x in n.split("_")[1:]),
+    )
 
     @field_validator("*", mode="after")
     @classmethod
@@ -63,8 +69,8 @@ class VisionJobLease(ControlPlaneModel):
     lease_token: LeaseToken
     attempt_count: int = Field(ge=1)
     lease_expires_at_utc: datetime
-    pipeline: str
-    pipeline_version: str
+    pipeline: str = Field(min_length=1, max_length=64)
+    pipeline_version: str = Field(min_length=1, max_length=64)
     source_storage_key: StorageKey
     source_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
     source_size_bytes: int = Field(ge=0)
@@ -75,7 +81,7 @@ class VisionJobLease(ControlPlaneModel):
     height: int = Field(gt=0)
     frame_rate_numerator: int = Field(gt=0)
     frame_rate_denominator: int = Field(gt=0)
-    recording_time_zone_id: str
+    recording_time_zone_id: str = Field(min_length=1, max_length=64)
     recording_utc_offset_minutes: int
 
 

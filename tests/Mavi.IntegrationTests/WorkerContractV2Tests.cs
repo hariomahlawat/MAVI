@@ -1,7 +1,14 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Mavi.Contracts.Worker;
+using Mavi.Domain.Cameras;
+using Mavi.Domain.Media;
+using Mavi.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Mavi.IntegrationTests;
 
@@ -47,6 +54,50 @@ public sealed class WorkerContractV2Tests
         }
     }
 
+    [Fact]
+    public async Task EverySharedWorkerRequestVectorIsRejectedByTheRealHttpBoundary()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        var videoId = await SeedVideoAsync(factory);
+        using var client = factory.CreateClient();
+        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
+        using var leaseResponse = await client.PostAsJsonAsync(
+            "/api/vision/jobs/lease",
+            new VisionJobLeaseRequest(WorkerContractRules.SchemaVersion, "gpu-sdd-01"));
+        leaseResponse.EnsureSuccessStatusCode();
+        var lease = (await leaseResponse.Content.ReadFromJsonAsync<VisionJobLeaseContract>())!;
+
+        var vectorsPath = Path.Combine(FindRepositoryRoot(), "contracts/test-vectors/control-plane-v2-invalid.json");
+        using var vectors = JsonDocument.Parse(await File.ReadAllTextAsync(vectorsPath));
+        foreach (var vector in vectors.RootElement.EnumerateArray()
+                     .Where(x => x.GetProperty("direction").GetString() == "worker-request"))
+        {
+            var name = vector.GetProperty("name").GetString()!;
+            var schema = vector.GetProperty("schema").GetString()!;
+            var payload = JsonNode.Parse(vector.GetProperty("payload").GetRawText())!.AsObject();
+            if (schema is "vision-job-heartbeat-v2" or "vision-job-fail-v2" &&
+                name != "malformed trailing token bits")
+            {
+                payload["leaseToken"] = lease.LeaseToken;
+            }
+
+            var endpoint = schema switch
+            {
+                "vision-job-lease-request-v2" => "/api/vision/jobs/lease",
+                "vision-job-heartbeat-v2" => $"/api/vision/jobs/{lease.JobId}/heartbeat",
+                "vision-job-fail-v2" => $"/api/vision/jobs/{lease.JobId}/fail",
+                _ => throw new InvalidOperationException($"No HTTP endpoint mapping exists for {schema}.")
+            };
+            using var response = await client.PostAsync(
+                endpoint,
+                new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"));
+
+            Assert.True((int)response.StatusCode is >= 400 and < 500,
+                $"Vector '{name}' returned unexpected HTTP {(int)response.StatusCode}.");
+        }
+    }
+
     [Theory]
     [InlineData("gpu-sdd-01", true)]
     [InlineData(" gpu-sdd-01", false)]
@@ -80,6 +131,27 @@ public sealed class WorkerContractV2Tests
     {
         UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
     };
+
+    private static async Task<Guid> SeedVideoAsync(ApiTestFactory factory)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        var nowUtc = new DateTimeOffset(2026, 9, 9, 2, 30, 0, TimeSpan.Zero);
+        var camera = Camera.Create("CAM-VECTORS", "Contract vectors", "UTC", nowUtc);
+        var artifact = Artifact.Create(
+            ArtifactType.SourceVideo,
+            $"source/{Guid.CreateVersion7()}.mp4",
+            "video/mp4",
+            100,
+            new string('c', 64),
+            createdAtUtc: nowUtc);
+        var video = VideoAsset.Create(
+            camera.Id, artifact.Id, "vectors.mp4", nowUtc, 1_000, 25, 1, 160, 90,
+            "h264", TimestampSource.Manual, 1, importedAtUtc: nowUtc);
+        db.AddRange(camera, artifact, video);
+        await db.SaveChangesAsync();
+        return video.Id;
+    }
 
     private static string FindRepositoryRoot()
     {

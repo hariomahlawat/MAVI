@@ -4,10 +4,14 @@ using Mavi.Application;
 using Mavi.Application.Modules.Media;
 using Mavi.Infrastructure;
 using Microsoft.AspNetCore.Http.Features;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddMaviInfrastructure(builder.Configuration);
 builder.Services.AddHealthChecks();
+// Worker boundary serialization
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict);
 var maximumFileSize = builder.Configuration.GetValue<long>($"{VideoImportOptions.SectionName}:MaximumFileSizeBytes");
 var multipartOverhead = builder.Configuration.GetValue<long>($"{VideoImportOptions.SectionName}:MultipartOverheadBytes");
 var maximumRequestSize = checked(maximumFileSize + multipartOverhead);

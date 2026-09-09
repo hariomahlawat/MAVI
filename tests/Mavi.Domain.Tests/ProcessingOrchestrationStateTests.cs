@@ -39,6 +39,27 @@ public sealed class ProcessingOrchestrationStateTests
         Assert.Equal("worker-b", run.WorkerId); Assert.Equal(Now, run.StartedAtUtc);
     }
 
+    [Theory]
+    [InlineData(" worker-a ")]
+    [InlineData("worker-a ")]
+    [InlineData(" worker-a")]
+    public void ProcessingRunRejectsNonCanonicalWorkerIds(string workerId)
+    {
+        var assignRun = ProcessingRun.Create(Video().Id, "phase1-v1", "{}", Now);
+        Assert.Throws<DomainValidationException>(() => assignRun.AssignLease(workerId, Now));
+
+        var runningRun = ProcessingRun.Create(Video().Id, "phase1-v1", "{}", Now);
+        Assert.Throws<DomainValidationException>(() => runningRun.MarkRunning(workerId, Now));
+    }
+
+    [Fact]
+    public void ProcessingRunStoresCanonicalWorkerIdExactly()
+    {
+        var run = ProcessingRun.Create(Video().Id, "phase1-v1", "{}", Now);
+        run.AssignLease("worker-a", Now);
+        Assert.Equal("worker-a", run.WorkerId);
+    }
+
     // Job lease and heartbeat
     [Fact]
     public void ExactExpiryCanReclaimAndIncrementsAttempt()
@@ -48,6 +69,31 @@ public sealed class ProcessingOrchestrationStateTests
         Assert.True(job.CanLease(Now.AddSeconds(10), 2));
         job.Lease("worker-b", Hash(2), Now.AddSeconds(10), TimeSpan.FromSeconds(10), 2);
         Assert.Equal(2, job.AttemptCount); Assert.False(job.CanLease(Now.AddSeconds(20), 2));
+    }
+
+    [Theory]
+    [InlineData(" worker-a ")]
+    [InlineData("worker-a ")]
+    [InlineData(" worker-a")]
+    public void VisionJobRejectsNonCanonicalWorkerIds(string workerId)
+    {
+        var job = VisionJob.Create(Guid.CreateVersion7(), "pipeline", Now);
+        Assert.Throws<DomainValidationException>(() =>
+            job.Lease(workerId, Hash(1), Now, TimeSpan.FromSeconds(10), 3));
+
+        job.Lease("worker-a", Hash(1), Now, TimeSpan.FromSeconds(10), 3);
+        Assert.Throws<DomainValidationException>(() =>
+            job.Heartbeat(workerId, true, 10, Now.AddSeconds(1), TimeSpan.FromSeconds(10)));
+        Assert.Throws<DomainValidationException>(() => job.Complete(workerId, true, Now.AddSeconds(1)));
+        Assert.Throws<DomainValidationException>(() => job.Fail(workerId, true, "failed", null, Now.AddSeconds(1)));
+    }
+
+    [Fact]
+    public void VisionJobStoresCanonicalWorkerIdExactly()
+    {
+        var job = VisionJob.Create(Guid.CreateVersion7(), "pipeline", Now);
+        job.Lease("worker-a", Hash(1), Now, TimeSpan.FromSeconds(10), 3);
+        Assert.Equal("worker-a", job.LeaseOwner);
     }
 
     [Fact]
