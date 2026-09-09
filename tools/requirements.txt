@@ -1,2 +1,2 @@
 # Repository verification dependencies; not part of the MAVI Vision runtime.
-jsonschema>=4.23,<5
+jsonschema[format-nongpl]>=4.23,<5

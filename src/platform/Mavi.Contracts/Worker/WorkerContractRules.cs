@@ -8,8 +8,15 @@ public static partial class WorkerContractRules
     public const string SchemaVersion = "2.0";
 
     // Worker identity rules
-    public static bool IsCanonicalWorkerId(string? value) =>
-        value is not null && WorkerIdPattern().IsMatch(value);
+    public static bool IsCanonicalWorkerId(string? value)
+    {
+        if (value is not { Length: >= 1 and <= 128 } || !IsAsciiAlphaNumeric(value[0])) return false;
+        foreach (var character in value.AsSpan(1))
+        {
+            if (!IsWorkerIdContinuation(character)) return false;
+        }
+        return true;
+    }
 
     public static bool TryNormalizeWorkerId(string? value, out string normalized)
     {
@@ -44,6 +51,9 @@ public static partial class WorkerContractRules
     [GeneratedRegex("^[a-z][a-z0-9_]{0,63}$", RegexOptions.CultureInvariant)]
     private static partial Regex FailureCodePattern();
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", RegexOptions.CultureInvariant)]
-    private static partial Regex WorkerIdPattern();
+    private static bool IsWorkerIdContinuation(char value) =>
+        IsAsciiAlphaNumeric(value) || value is '.' or '_' or '-';
+
+    private static bool IsAsciiAlphaNumeric(char value) =>
+        value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9';
 }

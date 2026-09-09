@@ -635,7 +635,7 @@
     "schema": "vision-job-lease-request-v2",
     "payload": {
       "schemaVersion": "2.0",
-      "workerId": "gpu-é"
+      "workerId": "gpu-\u00e9"
     },
     "direction": "worker-request"
   },
@@ -647,6 +647,63 @@
       "workerId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "direction": "worker-request"
+  },
+  {
+    "name": "trailing line feed worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing carriage return worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01\r"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing carriage return line feed worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01\r\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "maximum length worker id followed by line feed",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "malformed lease expiry date-time",
+    "schema": "vision-job-heartbeat-response-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "progressPercent": 50,
+      "leaseExpiresAtUtc": "garbageZ"
+    },
+    "direction": "platform-response"
+  },
+  {
+    "name": "malformed worker health date-time",
+    "schema": "worker-health-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "status": "ready",
+      "timestampUtc": "not-a-dateZ"
+    },
+    "direction": "platform-response"
   },
   {
     "name": "unsafe platform response worker id",

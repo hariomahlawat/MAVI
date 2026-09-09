@@ -52,6 +52,9 @@ public sealed class ProcessingOrchestrationStateTests
     [InlineData("worker\\name")]
     [InlineData("worker\nname")]
     [InlineData("worker\tname")]
+    [InlineData("gpu-sdd-01\n")]
+    [InlineData("gpu-sdd-01\r")]
+    [InlineData("gpu-sdd-01\r\n")]
     [InlineData("воркер")]
     public void ProcessingRunRejectsNonCanonicalWorkerIds(string workerId)
     {
@@ -98,6 +101,9 @@ public sealed class ProcessingOrchestrationStateTests
     [InlineData("worker\\name")]
     [InlineData("worker\nname")]
     [InlineData("worker\tname")]
+    [InlineData("gpu-sdd-01\n")]
+    [InlineData("gpu-sdd-01\r")]
+    [InlineData("gpu-sdd-01\r\n")]
     [InlineData("воркер")]
     public void VisionJobRejectsNonCanonicalWorkerIds(string workerId)
     {
@@ -128,6 +134,17 @@ public sealed class ProcessingOrchestrationStateTests
     public void DomainRejectsWorkerIdsLongerThan128Characters()
     {
         var workerId = new string('a', 129);
+        var run = ProcessingRun.Create(Video().Id, "phase1-v1", "{}", Now);
+        var job = VisionJob.Create(Guid.CreateVersion7(), "pipeline", Now);
+
+        Assert.Throws<DomainValidationException>(() => run.AssignLease(workerId, Now));
+        Assert.Throws<DomainValidationException>(() => job.Lease(workerId, Hash(1), Now, TimeSpan.FromSeconds(10), 3));
+    }
+
+    [Fact]
+    public void DomainRejects128LegalWorkerIdCharactersFollowedByLineFeed()
+    {
+        var workerId = new string('a', 128) + "\n";
         var run = ProcessingRun.Create(Video().Id, "phase1-v1", "{}", Now);
         var job = VisionJob.Create(Guid.CreateVersion7(), "pipeline", Now);
 
