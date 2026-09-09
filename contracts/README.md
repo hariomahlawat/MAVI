@@ -1,12 +1,7 @@
-# MAVI Cross-Language Contracts
+# MAVI cross-language contracts
 
-These JSON schemas define the initial wire boundary between the operational platform and independently deployable vision workers.
+The worker control plane uses only schema version **2.0**. UUIDs identify durable jobs, runs, videos, and cameras; `workerId` is a case-sensitive opaque stable string. The retired v1 `mediaUri` job and UUID worker-health shapes are not supported.
 
-## Rules
+Each `*-v2.schema.json` file has one matching canonical example. Lease responses expose a logical `sourceStorageKey`, never a physical path, and expose the raw lease capability only at issuance. Heartbeat and failure requests present that capability; responses never echo it. PostgreSQL persists only its SHA-256 hash.
 
-- Contracts use explicit `schemaVersion` fields.
-- UUIDs identify jobs, workers and authoritative video assets.
-- Cross-system timestamps are UTC ISO-8601 values.
-- Worker media input uses a logical `sourceStorageKey`; physical filesystem paths and public Internet URLs never cross the contract.
-- A vision result is analytical output. It does not by itself create an authoritative identity, investigation, relationship or mission decision.
-- Contract-breaking changes require a new schema version and an ADR when they affect architectural ownership.
+`vision-result` is a separate result-side scaffold and will be finalized when successful result acceptance is designed. It is not part of Task 7A worker execution.

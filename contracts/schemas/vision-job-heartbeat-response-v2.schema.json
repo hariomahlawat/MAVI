@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "vision-job-heartbeat-response-v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "progressPercent",
+    "leaseExpiresAtUtc"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0"
+    },
+    "progressPercent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "leaseExpiresAtUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  }
+}

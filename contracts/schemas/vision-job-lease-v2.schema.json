@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "vision-job-lease-v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "jobId",
+    "processingRunId",
+    "videoAssetId",
+    "cameraId",
+    "workerId",
+    "leaseToken",
+    "attemptCount",
+    "leaseExpiresAtUtc",
+    "pipeline",
+    "pipelineVersion",
+    "sourceStorageKey",
+    "sourceSha256",
+    "sourceSizeBytes",
+    "recordingStartUtc",
+    "recordingEndUtc",
+    "durationMs",
+    "width",
+    "height",
+    "frameRateNumerator",
+    "frameRateDenominator",
+    "recordingTimeZoneId",
+    "recordingUtcOffsetMinutes"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0"
+    },
+    "jobId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "processingRunId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "videoAssetId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "cameraId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "workerId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "leaseToken": {
+      "type": "string",
+      "minLength": 43,
+      "maxLength": 43,
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "attemptCount": {
+      "type": "integer"
+    },
+    "leaseExpiresAtUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "pipeline": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "pipelineVersion": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "sourceStorageKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\:]).+(?<!/)$"
+    },
+    "sourceSha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "sourceSizeBytes": {
+      "type": "integer"
+    },
+    "recordingStartUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "recordingEndUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "durationMs": {
+      "type": "integer"
+    },
+    "width": {
+      "type": "integer"
+    },
+    "height": {
+      "type": "integer"
+    },
+    "frameRateNumerator": {
+      "type": "integer"
+    },
+    "frameRateDenominator": {
+      "type": "integer"
+    },
+    "recordingTimeZoneId": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "recordingUtcOffsetMinutes": {
+      "type": "integer"
+    }
+  }
+}

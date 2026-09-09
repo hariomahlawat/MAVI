@@ -2030,3 +2030,9 @@ Manual acceptance is then performed against one controlled MP4:
 ```
 
 Phase 1 is not accepted merely because the detector produces boxes. It is accepted only when the complete evidence-linked searchable-memory workflow is repeatable and the automated verification suite is green.
+
+## Task 7A hardening checkpoint (completed before Task 8)
+
+The controlled Phase-1 sequence is **Task 7 → Task 7A Lease & Contract Hardening → architecture review → Task 8**. Task 7A establishes a fresh 256-bit Base64Url capability for every lease generation, persists only its SHA-256 hash, resets attempt-local progress/heartbeat state on reclaim, samples authoritative mutation time after PostgreSQL row locking, and makes identical terminal failure retries idempotent.
+
+The sole active worker control-plane generation is v2.0. Public payloads are owned by `Mavi.Contracts`, use an opaque case-sensitive string `workerId`, enforce logical storage keys, reject unknown fields, and are kept in parity with JSON Schema and Pydantic v2. Canonical deployment timezone configuration, camera-input normalization, and the partial expired-lease index complete this checkpoint. Task 8 worker execution remains gated on architecture review.

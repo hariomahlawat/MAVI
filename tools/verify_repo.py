@@ -28,9 +28,9 @@ REQUIRED_PATHS = [
     "src/platform/Mavi.Api/Mavi.Api.csproj",
     "src/web/mavi-web/package.json",
     "src/vision/pyproject.toml",
-    "contracts/schemas/vision-job.schema.json",
+    "contracts/schemas/vision-job-lease-v2.schema.json",
     "contracts/schemas/vision-result.schema.json",
-    "contracts/schemas/worker-health.schema.json",
+    "contracts/schemas/worker-health-v2.schema.json",
 ]
 
 ALLOWED_REFERENCES = {
@@ -92,11 +92,11 @@ def check_contracts(errors: list[str]) -> None:
         fail("Python package 'jsonschema' is required to validate contract examples.", errors)
         return
 
-    pairs = [
-        ("vision-job", "vision-job.example.json"),
-        ("vision-result", "vision-result.example.json"),
-        ("worker-health", "worker-health.example.json"),
+    stems = [
+        "vision-job-lease-request-v2", "vision-job-lease-v2", "vision-job-heartbeat-v2",
+        "vision-job-heartbeat-response-v2", "vision-job-fail-v2", "worker-health-v2", "vision-result",
     ]
+    pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:
         schema = json.loads((ROOT / "contracts/schemas" / f"{stem}.schema.json").read_text())
         example = json.loads((ROOT / "contracts/examples" / example_name).read_text())
@@ -160,7 +160,7 @@ def main() -> int:
     print("MAVI repository verification PASSED")
     print(f" - required paths: {len(REQUIRED_PATHS)}")
     print(f" - project boundaries: {len(ALLOWED_REFERENCES)}")
-    print(" - contract examples: 3")
+    print(" - contract examples: 7")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret scan: clean")
     return 0

@@ -37,6 +37,18 @@ public sealed class CameraServiceTests
         Assert.Equal(CameraErrorCodes.CodeDuplicate, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task CreateNormalizesInteractiveTimeZoneWhitespace()
+    {
+        var repository = new FakeCameraRepository();
+        var service = new CameraService(repository, new TestTimeZones(), TimeProvider.System);
+
+        var result = await service.CreateAsync(new CreateCameraCommand("CAM-0003", "Gate", " Asia/Kolkata "), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Asia/Kolkata", (await repository.ListAsync(CancellationToken.None)).Single().TimeZoneId);
+    }
+
     // Repository test double
     private sealed class FakeCameraRepository(params Camera[] cameras) : ICameraRepository
     {

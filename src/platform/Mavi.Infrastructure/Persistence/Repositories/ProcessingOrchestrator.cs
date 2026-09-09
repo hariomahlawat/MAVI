@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Mavi.Application.Modules.Intelligence;
+using Mavi.Application.Abstractions.Security;
 using Mavi.Domain.Common;
 using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
@@ -12,6 +13,7 @@ namespace Mavi.Infrastructure.Persistence.Repositories;
 public sealed class ProcessingOrchestrator(
     MaviDbContext db,
     TimeProvider timeProvider,
+    ILeaseCapabilityService leaseCapabilities,
     IOptions<VisionProcessingOptions> configuredOptions) : IProcessingOrchestrator
 {
     // Queue and status
@@ -52,18 +54,19 @@ public sealed class ProcessingOrchestrator(
     public async Task<VisionLeaseView?> LeaseAsync(string workerId, CancellationToken cancellationToken)
     {
         var options = configuredOptions.Value;
-        var nowUtc = timeProvider.GetUtcNow();
+        var selectionCutoffUtc = timeProvider.GetUtcNow();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         while (true)
         {
             var job = await db.VisionJobs.FromSqlInterpolated($"""
                 SELECT * FROM vision_jobs
-                WHERE (status = 'Queued' AND available_at_utc <= {nowUtc})
-                   OR (status = 'Leased' AND lease_expires_at_utc <= {nowUtc})
+                WHERE (status = 'Queued' AND available_at_utc <= {selectionCutoffUtc})
+                   OR (status = 'Leased' AND lease_expires_at_utc <= {selectionCutoffUtc})
                 ORDER BY available_at_utc, created_at_utc, id
                 FOR UPDATE SKIP LOCKED LIMIT 1
                 """).SingleOrDefaultAsync(cancellationToken);
             if (job is null) { await transaction.CommitAsync(cancellationToken); return null; }
+            var nowUtc = timeProvider.GetUtcNow();
             var run = await db.ProcessingRuns.SingleAsync(x => x.Id == job.ProcessingRunId, cancellationToken);
             var video = await db.VideoAssets.SingleAsync(x => x.Id == run.VideoAssetId, cancellationToken);
             if (!job.CanLease(nowUtc, options.MaximumAttempts))
@@ -72,13 +75,14 @@ public sealed class ProcessingOrchestrator(
                 await db.SaveChangesAsync(cancellationToken);
                 continue;
             }
-            job.Lease(workerId, nowUtc, TimeSpan.FromSeconds(options.LeaseSeconds), options.MaximumAttempts);
+            var capability = leaseCapabilities.Create();
+            job.Lease(workerId, capability.Hash, nowUtc, TimeSpan.FromSeconds(options.LeaseSeconds), options.MaximumAttempts);
             run.AssignLease(workerId, nowUtc);
             if (video.ProcessingStatus == VideoProcessingStatus.Queued) video.MarkProcessing();
             var artifact = await db.Artifacts.AsNoTracking().SingleAsync(x => x.Id == video.SourceArtifactId, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return new("1.0", job.Id, run.Id, video.Id, video.CameraId, job.Pipeline, run.PipelineVersion,
+            return new("2.0", job.Id, run.Id, video.Id, video.CameraId, workerId, capability.Token, job.Pipeline, run.PipelineVersion,
                 artifact.StorageKey, artifact.Sha256, artifact.SizeBytes, video.RecordingStartUtc, video.RecordingEndUtc,
                 video.DurationMs, video.Width, video.Height, video.FrameRateNumerator, video.FrameRateDenominator,
                 job.AttemptCount, job.LeaseExpiresAtUtc!.Value, video.RecordingTimeZoneId, video.RecordingUtcOffsetMinutes);
@@ -86,27 +90,37 @@ public sealed class ProcessingOrchestrator(
     }
 
     // Worker-owned mutations
-    public Task<OrchestrationResult> HeartbeatAsync(Guid jobId, string workerId, double progressPercent, CancellationToken cancellationToken) =>
-        MutateOwnedJobAsync(jobId, workerId, false, progressPercent, null, null, cancellationToken);
+    public Task<OrchestrationResult> HeartbeatAsync(Guid jobId, string workerId, string leaseToken, double progressPercent, CancellationToken cancellationToken) =>
+        MutateOwnedJobAsync(jobId, workerId, leaseToken, false, progressPercent, null, null, cancellationToken);
 
-    public Task<OrchestrationResult> FailAsync(Guid jobId, string workerId, string failureCode, string? failureMessage, CancellationToken cancellationToken) =>
-        MutateOwnedJobAsync(jobId, workerId, true, 0, failureCode, failureMessage, cancellationToken);
+    public Task<OrchestrationResult> FailAsync(Guid jobId, string workerId, string leaseToken, string failureCode, string? failureMessage, CancellationToken cancellationToken) =>
+        MutateOwnedJobAsync(jobId, workerId, leaseToken, true, 0, failureCode, failureMessage, cancellationToken);
 
-    private async Task<OrchestrationResult> MutateOwnedJobAsync(Guid jobId, string workerId, bool fail, double progress,
+    private async Task<OrchestrationResult> MutateOwnedJobAsync(Guid jobId, string workerId, string leaseToken, bool fail, double progress,
         string? failureCode, string? failureMessage, CancellationToken cancellationToken)
     {
-        var nowUtc = timeProvider.GetUtcNow();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var job = await db.VisionJobs.FromSqlInterpolated($"SELECT * FROM vision_jobs WHERE id = {jobId} FOR UPDATE").SingleOrDefaultAsync(cancellationToken);
         if (job is null) return OrchestrationResult.Failure("vision_job_not_found");
+        var nowUtc = timeProvider.GetUtcNow();
+        var tokenMatches = job.LeaseTokenHash is not null && leaseCapabilities.Matches(leaseToken, job.LeaseTokenHash);
+        if (job.Status == VisionJobStatus.Failed && fail && tokenMatches &&
+            string.Equals(job.LeaseOwner, workerId, StringComparison.Ordinal) &&
+            string.Equals(job.FailureCode, failureCode, StringComparison.Ordinal) &&
+            string.Equals(job.FailureDetails, failureMessage, StringComparison.Ordinal))
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return OrchestrationResult.Success();
+        }
         if (job.Status != VisionJobStatus.Leased) return OrchestrationResult.Failure("vision_job_not_leased");
-        if (job.LeaseOwner != workerId || job.LeaseExpiresAtUtc <= nowUtc) return OrchestrationResult.Failure("vision_job_lease_invalid");
+        if (!string.Equals(job.LeaseOwner, workerId, StringComparison.Ordinal) || !tokenMatches || job.LeaseExpiresAtUtc <= nowUtc)
+            return OrchestrationResult.Failure("vision_job_lease_invalid");
         try
         {
-            if (!fail) job.Heartbeat(workerId, progress, nowUtc, TimeSpan.FromSeconds(configuredOptions.Value.HeartbeatExtensionSeconds));
+            if (!fail) job.Heartbeat(workerId, tokenMatches, progress, nowUtc, TimeSpan.FromSeconds(configuredOptions.Value.HeartbeatExtensionSeconds));
             else
             {
-                job.Fail(workerId, failureCode!, failureMessage, nowUtc);
+                job.Fail(workerId, tokenMatches, failureCode!, failureMessage, nowUtc);
                 var run = await db.ProcessingRuns.SingleAsync(x => x.Id == job.ProcessingRunId, cancellationToken);
                 var video = await db.VideoAssets.SingleAsync(x => x.Id == run.VideoAssetId, cancellationToken);
                 run.MarkFailed(failureCode!, failureMessage, nowUtc); video.MarkProcessingFailed();
@@ -114,6 +128,6 @@ public sealed class ProcessingOrchestrator(
         }
         catch (DomainValidationException exception) { return OrchestrationResult.Failure(exception.Code); }
         await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken);
-        return OrchestrationResult.Success();
+        return !fail ? new(true, null, job.ProgressPercent, job.LeaseExpiresAtUtc) : OrchestrationResult.Success();
     }
 }
