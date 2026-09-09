@@ -7,6 +7,7 @@ namespace Mavi.Infrastructure.Storage;
 
 public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
 {
+    private const int MaximumStorageKeyLength = 512;
     private readonly string _rootPath;
     private readonly string _rootPrefix;
 
@@ -35,6 +36,7 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
         cancellationToken.ThrowIfCancellationRequested();
         var finalPath = ResolveLocalPath(storageKey);
         var parentPath = Path.GetDirectoryName(finalPath)!;
+        EnsureExistingPathDoesNotEscapeRoot(parentPath);
         Directory.CreateDirectory(parentPath);
         EnsureExistingPathDoesNotEscapeRoot(parentPath);
 
@@ -47,6 +49,7 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
         try
         {
             var writeResult = await WriteTemporaryFileAsync(temporaryPath, content, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporaryPath, finalPath, overwrite: false);
             return writeResult;
         }
@@ -139,7 +142,7 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
 
     private static void ValidateStorageKey(string storageKey)
     {
-        if (string.IsNullOrWhiteSpace(storageKey) || storageKey.StartsWith('/') ||
+        if (string.IsNullOrWhiteSpace(storageKey) || storageKey.Length > MaximumStorageKeyLength || storageKey.StartsWith('/') ||
             storageKey.Contains('\\') || storageKey.Contains(':') ||
             storageKey.Split('/').Any(segment => segment is "" or "." or ".."))
         {

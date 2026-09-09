@@ -74,6 +74,34 @@ public sealed class FfprobeVideoMetadataReaderTests : IDisposable
             reader.ReadAsync("video.mp4", cancellation.Token));
     }
 
+    [Fact]
+    public async Task InvalidFormatDurationFallsBackToVideoStreamDuration()
+    {
+        Directory.CreateDirectory(_root);
+        await File.WriteAllTextAsync(Path.Combine(_root, "video.mp4"), "content");
+        var executable = await CreateExecutableAsync(
+            "printf '%s' '{\"streams\":[{\"codec_type\":\"video\",\"codec_name\":\"h264\",\"width\":160,\"height\":90,\"avg_frame_rate\":\"25/1\",\"duration\":\"2.5\"}],\"format\":{\"duration\":\"N/A\"}}'");
+        var reader = CreateReader(executable);
+
+        var metadata = await reader.ReadAsync("video.mp4", CancellationToken.None);
+
+        Assert.Equal(2_500, metadata.DurationMs);
+    }
+
+    [Fact]
+    public async Task ConfiguredProbeTimeoutIsApplied()
+    {
+        Directory.CreateDirectory(_root);
+        await File.WriteAllTextAsync(Path.Combine(_root, "video.mp4"), "content");
+        var executable = await CreateExecutableAsync("sleep 5");
+        var reader = CreateReader(executable, timeoutSeconds: 1);
+
+        var exception = await Assert.ThrowsAsync<VideoMetadataException>(() =>
+            reader.ReadAsync("video.mp4", CancellationToken.None));
+
+        Assert.Contains("configured metadata timeout", exception.Message, StringComparison.Ordinal);
+    }
+
     // Test infrastructure
     public void Dispose()
     {
@@ -81,13 +109,26 @@ public sealed class FfprobeVideoMetadataReaderTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private FfprobeVideoMetadataReader CreateReader(string executable = "ffprobe")
+    private FfprobeVideoMetadataReader CreateReader(string executable = "ffprobe", int timeoutSeconds = 30)
     {
         var store = new LocalMediaStore(Options.Create(new MediaStorageOptions { RootPath = _root }));
         return new FfprobeVideoMetadataReader(
             store,
-            Options.Create(new MediaProcessingOptions { FfprobePath = executable }),
+            Options.Create(new MediaProcessingOptions { FfprobePath = executable, ProbeTimeoutSeconds = timeoutSeconds }),
             NullLogger<FfprobeVideoMetadataReader>.Instance);
+    }
+
+    private async Task<string> CreateExecutableAsync(string body)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException("Synthetic ffprobe scripts are used only on Unix test hosts.");
+        }
+
+        var executable = Path.Combine(_root, $"probe-{Guid.NewGuid():N}.sh");
+        await File.WriteAllTextAsync(executable, $"#!/bin/sh\n{body}\n");
+        File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return executable;
     }
 
     private static async Task GenerateVideoAsync(string outputPath)

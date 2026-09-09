@@ -1,10 +1,18 @@
 using Mavi.Api.Endpoints;
 using Mavi.Application.Health;
+using Mavi.Application.Modules.Media;
 using Mavi.Infrastructure;
+using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddMaviInfrastructure(builder.Configuration);
 builder.Services.AddHealthChecks();
+var maximumFileSize = builder.Configuration.GetValue<long>($"{VideoImportOptions.SectionName}:MaximumFileSizeBytes");
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maximumFileSize);
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = maximumFileSize;
+});
 
 var app = builder.Build();
 
@@ -16,6 +24,7 @@ app.MapGet("/api/health", () =>
 
 app.MapHealthChecks("/health/live");
 app.MapCameraEndpoints();
+app.MapVideoEndpoints();
 
 app.Run();
 
