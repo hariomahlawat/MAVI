@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SCHEMAS = ROOT / "contracts" / "schemas"
 EXAMPLES = ROOT / "contracts" / "examples"
 CANONICAL_UTC_PATTERN = (
-    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?Z(?![\s\S])"
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]{1,6})?Z(?![\s\S])"
 )
 
 
@@ -59,11 +59,26 @@ def test_worker_timestamp_schemas_use_exact_canonical_utc_grammar(
         ),
     ],
 )
-def test_python_wire_models_reject_lowercase_t_timestamp(
+def test_python_wire_models_reject_noncanonical_timestamp_precision_and_case(
     model: type, payload: dict[str, object], timestamp_field: str
 ) -> None:
-    invalid = dict(payload)
-    invalid[timestamp_field] = "2026-09-09t03:00:00Z"
+    for timestamp in (
+        "2026-09-09t03:00:00Z",
+        "2026-09-09T03:00:00.1234567Z",
+        "2026-09-09T03:00:00.11111111111111111Z",
+    ):
+        invalid = dict(payload)
+        invalid[timestamp_field] = timestamp
+        with pytest.raises(ValidationError):
+            model.model_validate_json(json.dumps(invalid))
 
-    with pytest.raises(ValidationError):
-        model.model_validate_json(json.dumps(invalid))
+
+def test_python_wire_models_accept_microsecond_precision() -> None:
+    payload = {
+        "schemaVersion": "2.0",
+        "workerId": "gpu-sdd-01",
+        "status": "ready",
+        "timestampUtc": "2026-09-09T03:00:00.123456Z",
+    }
+    model = WorkerHealth.model_validate_json(json.dumps(payload))
+    assert model.timestamp_utc.microsecond == 123456
