@@ -7,7 +7,7 @@ name = "mavi-vision"
 version = "0.1.0"
 description = "MAVI computer-vision worker contracts and processing interfaces"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = ["pydantic>=2.11,<3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.4"]

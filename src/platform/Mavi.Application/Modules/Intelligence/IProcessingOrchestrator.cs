@@ -6,11 +6,11 @@ public sealed record ProcessingRunStatusView(Guid ProcessingRunId, string Status
     string? WorkerId, DateTimeOffset QueuedAtUtc, DateTimeOffset? StartedAtUtc, DateTimeOffset? CompletedAtUtc,
     double ProgressPercent, int AttemptCount, string? FailureCode);
 public sealed record VisionLeaseView(string SchemaVersion, Guid JobId, Guid ProcessingRunId, Guid VideoAssetId,
-    Guid CameraId, string Pipeline, string PipelineVersion, string SourceStorageKey, string SourceSha256,
+    Guid CameraId, string WorkerId, string LeaseToken, string Pipeline, string PipelineVersion, string SourceStorageKey, string SourceSha256,
     long SourceSizeBytes, DateTimeOffset RecordingStartUtc, DateTimeOffset RecordingEndUtc, long DurationMs,
     int Width, int Height, int FrameRateNumerator, int FrameRateDenominator, int AttemptCount,
     DateTimeOffset LeaseExpiresAtUtc, string RecordingTimeZoneId, int RecordingUtcOffsetMinutes);
-public sealed record OrchestrationResult(bool IsSuccess, string? ErrorCode)
+public sealed record OrchestrationResult(bool IsSuccess, string? ErrorCode, double? ProgressPercent = null, DateTimeOffset? LeaseExpiresAtUtc = null)
 {
     public static OrchestrationResult Success() => new(true, null);
     public static OrchestrationResult Failure(string code) => new(false, code);
@@ -21,6 +21,6 @@ public interface IProcessingOrchestrator
     Task<QueueProcessingResult> QueueAsync(Guid videoId, CancellationToken cancellationToken);
     Task<ProcessingStatusResult> GetStatusAsync(Guid videoId, CancellationToken cancellationToken);
     Task<VisionLeaseView?> LeaseAsync(string workerId, CancellationToken cancellationToken);
-    Task<OrchestrationResult> HeartbeatAsync(Guid jobId, string workerId, double progressPercent, CancellationToken cancellationToken);
-    Task<OrchestrationResult> FailAsync(Guid jobId, string workerId, string failureCode, string? failureMessage, CancellationToken cancellationToken);
+    Task<OrchestrationResult> HeartbeatAsync(Guid jobId, string workerId, string leaseToken, double progressPercent, CancellationToken cancellationToken);
+    Task<OrchestrationResult> FailAsync(Guid jobId, string workerId, string leaseToken, string failureCode, string? failureMessage, CancellationToken cancellationToken);
 }

@@ -151,6 +151,26 @@ public sealed class MigrationTests(PostgresFixture fixture)
         Assert.Contains("Running", definition, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task HardenedLeaseMigrationCreatesHashConstraintAndExpiryIndex()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var db = fixture.CreateDbContext();
+        await db.Database.MigrateAsync();
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vision_jobs' AND column_name='lease_token_hash' AND data_type='bytea'),
+                   EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_vision_jobs_lease_token_hash'),
+                   EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='ix_vision_jobs_expired_lease');
+            """, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.True(reader.GetBoolean(0));
+        Assert.True(reader.GetBoolean(1));
+        Assert.True(reader.GetBoolean(2));
+    }
+
     private static async Task InsertLegacyVideoAsync(NpgsqlConnection connection, string code, string zone, DateTimeOffset startUtc)
     {
         var cameraId = Guid.CreateVersion7();

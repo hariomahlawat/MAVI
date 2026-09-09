@@ -18,15 +18,18 @@ public sealed class VisionJob
     public bool CanLease(DateTimeOffset nowUtc, int maximumAttempts) => maximumAttempts >= 1 && AttemptCount < maximumAttempts &&
         ((Status == VisionJobStatus.Queued && AvailableAtUtc <= nowUtc) || (Status == VisionJobStatus.Leased && LeaseExpiresAtUtc <= nowUtc));
 
-    public void Lease(string workerId, DateTimeOffset nowUtc, TimeSpan duration, int maximumAttempts)
+    public void Lease(string workerId, byte[] leaseTokenHash, DateTimeOffset nowUtc, TimeSpan duration, int maximumAttempts)
     {
-        if (!CanLease(nowUtc, maximumAttempts) || string.IsNullOrWhiteSpace(workerId) || workerId.Trim().Length > 128 || duration <= TimeSpan.Zero) throw Invalid();
-        Status = VisionJobStatus.Leased; LeaseOwner = workerId.Trim(); LeaseExpiresAtUtc = nowUtc.ToUniversalTime().Add(duration); AttemptCount++;
+        if (!CanLease(nowUtc, maximumAttempts) || string.IsNullOrWhiteSpace(workerId) || workerId.Trim().Length > 128 ||
+            leaseTokenHash is not { Length: 32 } || duration <= TimeSpan.Zero) throw Invalid();
+        Status = VisionJobStatus.Leased; LeaseOwner = workerId.Trim(); LeaseTokenHash = [.. leaseTokenHash];
+        LeaseExpiresAtUtc = nowUtc.ToUniversalTime().Add(duration); AttemptCount++;
+        ProgressPercent = 0; LastHeartbeatUtc = null;
     }
 
-    public void Heartbeat(string workerId, double progressPercent, DateTimeOffset nowUtc, TimeSpan extension)
+    public void Heartbeat(string workerId, bool leaseTokenMatches, double progressPercent, DateTimeOffset nowUtc, TimeSpan extension)
     {
-        RequireValidLease(workerId, nowUtc);
+        RequireValidLease(workerId, leaseTokenMatches, nowUtc);
         if (!double.IsFinite(progressPercent) || progressPercent is < 0 or > 100 || extension <= TimeSpan.Zero) throw Invalid();
         if (progressPercent < ProgressPercent)
             throw new DomainValidationException("vision_job_progress_regression", "Vision job progress cannot decrease.");
@@ -36,12 +39,12 @@ public sealed class VisionJob
     public void Complete(string workerId, DateTimeOffset nowUtc)
     {
         if (Status == VisionJobStatus.Completed) return;
-        RequireValidLease(workerId, nowUtc); Status = VisionJobStatus.Completed; ProgressPercent = 100; CompletedAtUtc = nowUtc.ToUniversalTime();
+        RequireValidLease(workerId, true, nowUtc); Status = VisionJobStatus.Completed; ProgressPercent = 100; CompletedAtUtc = nowUtc.ToUniversalTime();
     }
 
-    public void Fail(string workerId, string code, string? details, DateTimeOffset nowUtc)
+    public void Fail(string workerId, bool leaseTokenMatches, string code, string? details, DateTimeOffset nowUtc)
     {
-        RequireValidLease(workerId, nowUtc);
+        RequireValidLease(workerId, leaseTokenMatches, nowUtc);
         if (string.IsNullOrWhiteSpace(code) || code.Length > 64 || details?.Length > 4000) throw Invalid();
         Status = VisionJobStatus.Failed; FailureCode = code; FailureDetails = details; CompletedAtUtc = nowUtc.ToUniversalTime();
     }
@@ -54,6 +57,7 @@ public sealed class VisionJob
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset AvailableAtUtc { get; private set; }
     public string? LeaseOwner { get; private set; }
+    public byte[]? LeaseTokenHash { get; private set; }
     public DateTimeOffset? LeaseExpiresAtUtc { get; private set; }
     public int AttemptCount { get; private set; }
     public double ProgressPercent { get; private set; }
@@ -63,9 +67,10 @@ public sealed class VisionJob
     public string? FailureDetails { get; private set; }
 
     // Validation
-    private void RequireValidLease(string workerId, DateTimeOffset nowUtc)
+    private void RequireValidLease(string workerId, bool leaseTokenMatches, DateTimeOffset nowUtc)
     {
-        if (Status != VisionJobStatus.Leased || LeaseOwner != workerId || LeaseExpiresAtUtc <= nowUtc.ToUniversalTime()) throw Invalid();
+        if (Status != VisionJobStatus.Leased || !string.Equals(LeaseOwner, workerId, StringComparison.Ordinal) ||
+            !leaseTokenMatches || LeaseExpiresAtUtc <= nowUtc.ToUniversalTime()) throw Invalid();
     }
 
     public void Exhaust(DateTimeOffset nowUtc)

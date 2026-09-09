@@ -1,10 +1,12 @@
 using Mavi.Application.Abstractions.Storage;
+using Mavi.Application.Abstractions.Security;
 using Mavi.Application.Abstractions.Time;
 using Mavi.Application;
 using Mavi.Application.Modules.Cameras;
 using Mavi.Application.Modules.Media;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Infrastructure.Media;
+using Mavi.Infrastructure.Security;
 using Mavi.Infrastructure.Persistence;
 using Mavi.Infrastructure.Persistence.Repositories;
 using Mavi.Infrastructure.Storage;
@@ -34,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<IVideoCatalog, VideoCatalog>();
         services.AddScoped<VideoImportService>();
         services.AddScoped<IProcessingOrchestrator, ProcessingOrchestrator>();
+        services.AddSingleton<ILeaseCapabilityService, LeaseCapabilityService>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ITimeZoneService, SystemTimeZoneService>();
 

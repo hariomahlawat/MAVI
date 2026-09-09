@@ -9,6 +9,7 @@ public sealed class SystemTimeZoneService : ITimeZoneService
     {
         if (string.IsNullOrWhiteSpace(timeZoneId)) return false;
         var normalized = timeZoneId.Trim();
+        if (!string.Equals(timeZoneId, normalized, StringComparison.Ordinal)) return false;
         if (string.Equals(normalized, "UTC", StringComparison.Ordinal)) return true;
         if (!TimeZoneInfo.TryConvertIanaIdToWindowsId(normalized, out _)) return false;
         try { _ = TimeZoneInfo.FindSystemTimeZoneById(normalized); return true; }
