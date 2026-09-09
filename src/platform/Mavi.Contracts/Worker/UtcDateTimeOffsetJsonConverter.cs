@@ -16,9 +16,8 @@ public sealed class UtcDateTimeOffsetJsonConverter : JsonConverter<DateTimeOffse
         if (string.IsNullOrEmpty(raw) || !raw.EndsWith('Z'))
             throw new JsonException("Worker contract timestamps must use canonical UTC Z syntax.");
 
-        if (!DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var value) ||
-            value.Offset != TimeSpan.Zero)
-            throw new JsonException("Worker contract timestamps must be UTC.");
+        if (!reader.TryGetDateTimeOffset(out var value) || value.Offset != TimeSpan.Zero)
+            throw new JsonException("Worker contract timestamps must use canonical RFC3339 UTC Z syntax.");
 
         return value;
     }
