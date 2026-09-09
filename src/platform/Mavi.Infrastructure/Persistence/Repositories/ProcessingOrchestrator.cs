@@ -92,23 +92,28 @@ public sealed class ProcessingOrchestrator(
     }
 
     // Worker-owned mutations
-    public Task<OrchestrationResult> HeartbeatAsync(Guid jobId, string workerId, string leaseToken, double progressPercent, CancellationToken cancellationToken) =>
-        MutateOwnedJobAsync(jobId, workerId, leaseToken, false, progressPercent, null, null, cancellationToken);
+    public Task<HeartbeatResult> HeartbeatAsync(Guid jobId, string workerId, string leaseToken, double progressPercent, CancellationToken cancellationToken) =>
+        MutateOwnedJobAsync<HeartbeatResult>(jobId, workerId, leaseToken, false, progressPercent, null, null,
+            job => new HeartbeatResult.Success(job.ProgressPercent,
+                job.LeaseExpiresAtUtc ?? throw new InvalidOperationException("A successful heartbeat must retain an expiry.")),
+            code => new HeartbeatResult.Failure(code), cancellationToken);
 
     public Task<OrchestrationResult> FailAsync(Guid jobId, string workerId, string leaseToken, string failureCode, string? failureMessage, CancellationToken cancellationToken) =>
-        MutateOwnedJobAsync(jobId, workerId, leaseToken, true, 0, failureCode, failureMessage, cancellationToken);
+        MutateOwnedJobAsync(jobId, workerId, leaseToken, true, 0, failureCode, failureMessage,
+            _ => OrchestrationResult.Success(), OrchestrationResult.Failure, cancellationToken);
 
-    private async Task<OrchestrationResult> MutateOwnedJobAsync(Guid jobId, string workerId, string leaseToken, bool fail, double progress,
-        string? failureCode, string? failureMessage, CancellationToken cancellationToken)
+    private async Task<TResult> MutateOwnedJobAsync<TResult>(Guid jobId, string workerId, string leaseToken, bool fail, double progress,
+        string? failureCode, string? failureMessage, Func<VisionJob, TResult> success, Func<string, TResult> failure,
+        CancellationToken cancellationToken)
     {
         // Raw capabilities must never cross into persisted diagnostic fields.
         if (fail && ((failureCode?.Contains(leaseToken, StringComparison.Ordinal) ?? false) ||
                      (failureMessage?.Contains(leaseToken, StringComparison.Ordinal) ?? false)))
-            return OrchestrationResult.Failure("vision_job_failure_invalid");
+            return failure("vision_job_failure_invalid");
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var job = await db.VisionJobs.FromSqlInterpolated($"SELECT * FROM vision_jobs WHERE id = {jobId} FOR UPDATE").SingleOrDefaultAsync(cancellationToken);
-        if (job is null) return OrchestrationResult.Failure("vision_job_not_found");
+        if (job is null) return failure("vision_job_not_found");
         var nowUtc = timeProvider.GetUtcNow();
         var tokenMatches = job.LeaseTokenHash is not null && leaseCapabilities.Matches(leaseToken, job.LeaseTokenHash);
         if (job.Status == VisionJobStatus.Failed && fail && tokenMatches &&
@@ -117,11 +122,11 @@ public sealed class ProcessingOrchestrator(
             string.Equals(job.FailureDetails, failureMessage, StringComparison.Ordinal))
         {
             await transaction.CommitAsync(cancellationToken);
-            return OrchestrationResult.Success();
+            return success(job);
         }
-        if (job.Status != VisionJobStatus.Leased) return OrchestrationResult.Failure("vision_job_not_leased");
+        if (job.Status != VisionJobStatus.Leased) return failure("vision_job_not_leased");
         if (!string.Equals(job.LeaseOwner, workerId, StringComparison.Ordinal) || !tokenMatches || job.LeaseExpiresAtUtc <= nowUtc)
-            return OrchestrationResult.Failure("vision_job_lease_invalid");
+            return failure("vision_job_lease_invalid");
         try
         {
             if (!fail) job.Heartbeat(workerId, tokenMatches, progress, nowUtc, TimeSpan.FromSeconds(configuredOptions.Value.HeartbeatExtensionSeconds));
@@ -133,8 +138,8 @@ public sealed class ProcessingOrchestrator(
                 run.MarkFailed(failureCode!, failureMessage, nowUtc); video.MarkProcessingFailed();
             }
         }
-        catch (DomainValidationException exception) { return OrchestrationResult.Failure(exception.Code); }
+        catch (DomainValidationException exception) { return failure(exception.Code); }
         await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken);
-        return !fail ? new(true, null, job.ProgressPercent, job.LeaseExpiresAtUtc) : OrchestrationResult.Success();
+        return success(job);
     }
 }

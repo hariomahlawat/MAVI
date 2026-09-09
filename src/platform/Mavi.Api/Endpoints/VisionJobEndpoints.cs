@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Contracts.Worker;
 
@@ -34,9 +35,15 @@ public static class VisionJobEndpoints
             !double.IsFinite(progressPercent) || progressPercent is < 0 or > 100)
             return Problem(400, "vision_job_heartbeat_invalid", "Heartbeat input is invalid.");
         var result = await orchestrator.HeartbeatAsync(id, workerId, request.LeaseToken!, progressPercent, cancellationToken);
-        return result.IsSuccess
-            ? Results.Ok(new VisionJobHeartbeatResponse("2.0", result.ProgressPercent!.Value, result.LeaseExpiresAtUtc!.Value))
-            : Result(result);
+        return result switch
+        {
+            HeartbeatResult.Success success => Results.Ok(new VisionJobHeartbeatResponse(
+                WorkerContractRules.SchemaVersion, success.ProgressPercent, success.LeaseExpiresAtUtc)),
+            HeartbeatResult.Failure failure => Problem(
+                failure.ErrorCode == "vision_job_not_found" ? 404 : 409, failure.ErrorCode,
+                "The vision job operation was rejected."),
+            _ => throw new UnreachableException(),
+        };
     }
 
     private static async Task<IResult> FailAsync(Guid id, VisionJobFailRequest request,

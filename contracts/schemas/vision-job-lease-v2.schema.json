@@ -61,7 +61,8 @@
       "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
     },
     "attemptCount": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 1
     },
     "leaseExpiresAtUtc": {
       "type": "string",
@@ -70,10 +71,12 @@
     },
     "pipeline": {
       "type": "string",
+      "minLength": 1,
       "maxLength": 64
     },
     "pipelineVersion": {
       "type": "string",
+      "minLength": 1,
       "maxLength": 64
     },
     "sourceStorageKey": {
@@ -87,7 +90,8 @@
       "pattern": "^[A-Fa-f0-9]{64}$"
     },
     "sourceSizeBytes": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 0
     },
     "recordingStartUtc": {
       "type": "string",
@@ -100,22 +104,28 @@
       "pattern": "Z$"
     },
     "durationMs": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 0
     },
     "width": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 1
     },
     "height": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 1
     },
     "frameRateNumerator": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 1
     },
     "frameRateDenominator": {
-      "type": "integer"
+      "type": "integer",
+      "minimum": 1
     },
     "recordingTimeZoneId": {
       "type": "string",
+      "minLength": 1,
       "maxLength": 64
     },
     "recordingUtcOffsetMinutes": {

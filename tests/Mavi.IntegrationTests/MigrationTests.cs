@@ -1,8 +1,13 @@
 using Mavi.Infrastructure.Persistence;
+using Mavi.Application.Modules.Intelligence;
+using Mavi.Contracts.Worker;
 using Mavi.Domain.Media;
+using Mavi.Infrastructure.Persistence.Repositories;
+using Mavi.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Mavi.IntegrationTests;
@@ -202,7 +207,9 @@ public sealed class MigrationTests(PostgresFixture fixture)
             """);
             job.Parameters.AddWithValue(jobId); job.Parameters.AddWithValue(runId);
             job.Parameters.AddWithValue(new DateTimeOffset(2026, 9, 9, 0, 0, 0, TimeSpan.Zero));
-            seed.BatchCommands.Add(run); seed.BatchCommands.Add(job);
+            var video = new NpgsqlBatchCommand("UPDATE video_assets SET processing_status='Processing' WHERE id=$1");
+            video.Parameters.AddWithValue(videoId);
+            seed.BatchCommands.Add(video); seed.BatchCommands.Add(run); seed.BatchCommands.Add(job);
             await seed.ExecuteNonQueryAsync();
         }
 
@@ -226,6 +233,32 @@ public sealed class MigrationTests(PostgresFixture fixture)
         Assert.Contains("WHERE", indexDefinition, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("status", indexDefinition, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Leased", indexDefinition, StringComparison.Ordinal);
+        await reader.DisposeAsync();
+
+        // Operational acceptance: the current v2 orchestrator must reclaim the invalidated legacy lease.
+        var startedAtUtc = new DateTimeOffset(2026, 9, 9, 0, 0, 0, TimeSpan.Zero);
+        await using var reclaimDb = fixture.CreateDbContext();
+        var orchestrator = new ProcessingOrchestrator(
+            reclaimDb,
+            TimeProvider.System,
+            new LeaseCapabilityService(),
+            Options.Create(new VisionProcessingOptions()));
+
+        var lease = await orchestrator.LeaseAsync("upgrade-worker", CancellationToken.None);
+
+        Assert.NotNull(lease);
+        Assert.Equal("upgrade-worker", lease.WorkerId);
+        Assert.Equal(3, lease.AttemptCount);
+        Assert.True(WorkerContractRules.IsCanonicalLeaseToken(lease.LeaseToken));
+        var reclaimedJob = await reclaimDb.VisionJobs.AsNoTracking().SingleAsync(x => x.Id == jobId);
+        var reclaimedRun = await reclaimDb.ProcessingRuns.AsNoTracking().SingleAsync(x => x.Id == runId);
+        var reclaimedVideo = await reclaimDb.VideoAssets.AsNoTracking().SingleAsync(x => x.Id == videoId);
+        Assert.Equal(32, reclaimedJob.LeaseTokenHash?.Length);
+        Assert.Equal("upgrade-worker", reclaimedJob.LeaseOwner);
+        Assert.Equal(0, reclaimedJob.ProgressPercent);
+        Assert.Null(reclaimedJob.LastHeartbeatUtc);
+        Assert.Equal(startedAtUtc, reclaimedRun.StartedAtUtc);
+        Assert.Equal(VideoProcessingStatus.Processing, reclaimedVideo.ProcessingStatus);
     }
 
     private static async Task InsertLegacyVideoAsync(NpgsqlConnection connection, string code, string zone, DateTimeOffset startUtc,
