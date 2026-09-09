@@ -9,9 +9,17 @@ public sealed class UtcDateTimeOffsetJsonConverter : JsonConverter<DateTimeOffse
     // Contract timestamp handling
     public override DateTimeOffset Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        var value = reader.GetDateTimeOffset();
-        if (value.Offset != TimeSpan.Zero)
+        if (reader.TokenType != JsonTokenType.String)
+            throw new JsonException("Worker contract timestamps must be JSON strings.");
+
+        var raw = reader.GetString();
+        if (string.IsNullOrEmpty(raw) || !raw.EndsWith('Z'))
+            throw new JsonException("Worker contract timestamps must use canonical UTC Z syntax.");
+
+        if (!DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var value) ||
+            value.Offset != TimeSpan.Zero)
             throw new JsonException("Worker contract timestamps must be UTC.");
+
         return value;
     }
 

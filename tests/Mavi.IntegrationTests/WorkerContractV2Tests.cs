@@ -107,6 +107,48 @@ public sealed class WorkerContractV2Tests
         Assert.Equal(expected, WorkerContractRules.TryNormalizeWorkerId(value, out _));
 
     [Theory]
+    [InlineData("gpu.sdd.01", true)]
+    [InlineData("gpu_sdd_01", true)]
+    [InlineData("A1", true)]
+    [InlineData("-gpu", false)]
+    [InlineData("_gpu", false)]
+    [InlineData(".gpu", false)]
+    [InlineData("gpu worker", false)]
+    [InlineData("gpu/worker", false)]
+    [InlineData("gpu:worker", false)]
+    [InlineData("gpu\\worker", false)]
+    [InlineData("gpu\nworker", false)]
+    [InlineData("gpu\tworker", false)]
+    [InlineData("гпу", false)]
+    public void WorkerIdentityUsesSafeAsciiAlphabet(string value, bool expected) =>
+        Assert.Equal(expected, WorkerContractRules.TryNormalizeWorkerId(value, out _));
+
+    [Fact]
+    public void WorkerIdentityRejectsMoreThan128Characters() =>
+        Assert.False(WorkerContractRules.TryNormalizeWorkerId(new string('a', 129), out _));
+
+    [Theory]
+    [InlineData("2026-09-09T03:00:00+00:00")]
+    [InlineData("2026-09-09T08:30:00+05:30")]
+    [InlineData("2026-09-09T03:00:00")]
+    [InlineData("2026-09-09T03:00:00z")]
+    public void WorkerTimestampRejectsNonCanonicalSyntax(string timestampUtc)
+    {
+        var json = $$"""{"schemaVersion":"2.0","workerId":"gpu-sdd-01","status":"ready","timestampUtc":"{{timestampUtc}}"}""";
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<WorkerHealthContract>(json, JsonOptions()));
+    }
+
+    [Fact]
+    public void WorkerTimestampAcceptsAndWritesCanonicalUtcZ()
+    {
+        const string json = """{"schemaVersion":"2.0","workerId":"gpu-sdd-01","status":"ready","timestampUtc":"2026-09-09T03:00:00Z"}""";
+        var contract = JsonSerializer.Deserialize<WorkerHealthContract>(json, JsonOptions())!;
+
+        Assert.Equal(TimeSpan.Zero, contract.TimestampUtc.Offset);
+        Assert.Contains("\"timestampUtc\":\"2026-09-09T03:00:00Z\"", JsonSerializer.Serialize(contract, JsonOptions()));
+    }
+
+    [Theory]
     [InlineData("vision_dummy_not_implemented", true)]
     [InlineData("ffmpeg_decode_failed", true)]
     [InlineData("bad code", false)]

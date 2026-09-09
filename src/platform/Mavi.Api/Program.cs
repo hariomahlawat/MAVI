@@ -9,7 +9,7 @@ using System.Text.Json.Serialization;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddMaviInfrastructure(builder.Configuration);
 builder.Services.AddHealthChecks();
-// Worker boundary serialization
+// Canonical API JSON policy: numeric properties must be JSON numbers, not numeric strings.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict);
 var maximumFileSize = builder.Configuration.GetValue<long>($"{VideoImportOptions.SectionName}:MaximumFileSizeBytes");

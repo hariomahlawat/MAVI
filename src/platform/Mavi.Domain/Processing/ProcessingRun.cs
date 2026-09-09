@@ -23,13 +23,13 @@ public sealed class ProcessingRun
     // State transitions
     public void MarkRunning(string workerId, DateTimeOffset startedAtUtc)
     {
-        if (Status != ProcessingRunStatus.Queued || !IsCanonicalWorkerId(workerId)) throw Invalid("processing_transition_invalid");
+        if (Status != ProcessingRunStatus.Queued || !WorkerIdRules.IsCanonical(workerId)) throw Invalid("processing_transition_invalid");
         Status = ProcessingRunStatus.Running; WorkerId = workerId; StartedAtUtc = startedAtUtc.ToUniversalTime();
     }
 
     public void AssignLease(string workerId, DateTimeOffset nowUtc)
     {
-        if (!IsCanonicalWorkerId(workerId) ||
+        if (!WorkerIdRules.IsCanonical(workerId) ||
             Status is ProcessingRunStatus.Completed or ProcessingRunStatus.Failed or ProcessingRunStatus.Cancelled)
             throw Invalid("processing_transition_invalid");
         if (Status == ProcessingRunStatus.Queued)
@@ -74,10 +74,6 @@ public sealed class ProcessingRun
     public long? ProcessingDurationMs { get; private set; }
     public string? ErrorCode { get; private set; }
     public string? ErrorDetails { get; private set; }
-
-    private static bool IsCanonicalWorkerId(string workerId) =>
-        !string.IsNullOrWhiteSpace(workerId) && workerId.Length <= 128 &&
-        string.Equals(workerId, workerId.Trim(), StringComparison.Ordinal);
 
     private static DomainValidationException Invalid(string code) => new(code, "The processing run operation is invalid.");
 }

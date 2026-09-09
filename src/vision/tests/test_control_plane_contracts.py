@@ -10,6 +10,7 @@ from mavi_vision.common.control_plane import (
     VisionJobHeartbeatResponse,
     VisionJobLease,
     VisionJobLeaseRequest,
+    WorkerHealth,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -46,6 +47,7 @@ def test_shared_invalid_vectors_are_rejected() -> None:
         "vision-job-heartbeat-v2": VisionJobHeartbeat,
         "vision-job-heartbeat-response-v2": VisionJobHeartbeatResponse,
         "vision-job-fail-v2": VisionJobFail,
+        "worker-health-v2": WorkerHealth,
     }
     for vector in json.loads(INVALID_VECTORS.read_text()):
         with pytest.raises(ValidationError):
@@ -87,6 +89,99 @@ def test_heartbeat_accepts_json_numeric_progress() -> None:
     assert model.progress_percent == 50
 
 
+@pytest.mark.parametrize(
+    ("model", "canonical_payload", "snake_case_payload"),
+    [
+        (
+            VisionJobLeaseRequest,
+            {"schemaVersion": "2.0", "workerId": "gpu-sdd-01"},
+            {"schema_version": "2.0", "worker_id": "gpu-sdd-01"},
+        ),
+        (
+            VisionJobHeartbeat,
+            {
+                "schemaVersion": "2.0",
+                "workerId": "gpu-sdd-01",
+                "leaseToken": "A" * 43,
+                "progressPercent": 50,
+            },
+            {
+                "schemaVersion": "2.0",
+                "worker_id": "gpu-sdd-01",
+                "leaseToken": "A" * 43,
+                "progress_percent": 50,
+            },
+        ),
+        (
+            VisionJobFail,
+            {
+                "schemaVersion": "2.0",
+                "workerId": "gpu-sdd-01",
+                "leaseToken": "A" * 43,
+                "failureCode": "ffmpeg_decode_failed",
+            },
+            {
+                "schemaVersion": "2.0",
+                "workerId": "gpu-sdd-01",
+                "leaseToken": "A" * 43,
+                "failure_code": "ffmpeg_decode_failed",
+            },
+        ),
+    ],
+)
+def test_wire_json_accepts_only_canonical_aliases(
+    model: type, canonical_payload: dict[str, object], snake_case_payload: dict[str, object]
+) -> None:
+    model.model_validate_json(json.dumps(canonical_payload))
+
+    with pytest.raises(ValidationError):
+        model.model_validate_json(json.dumps(snake_case_payload))
+
+
+@pytest.mark.parametrize(
+    ("model", "payload", "timestamp_names"),
+    [
+        (
+            VisionJobLease,
+            json.loads(EXAMPLE.read_text()),
+            ("leaseExpiresAtUtc", "recordingStartUtc", "recordingEndUtc"),
+        ),
+        (
+            VisionJobHeartbeatResponse,
+            {
+                "schemaVersion": "2.0",
+                "progressPercent": 50,
+                "leaseExpiresAtUtc": "2026-09-09T03:00:00Z",
+            },
+            ("leaseExpiresAtUtc",),
+        ),
+        (
+            WorkerHealth,
+            {
+                "schemaVersion": "2.0",
+                "workerId": "gpu-sdd-01",
+                "status": "ready",
+                "timestampUtc": "2026-09-09T03:00:00Z",
+            },
+            ("timestampUtc",),
+        ),
+    ],
+)
+def test_timestamp_wire_json_requires_canonical_utc_z(
+    model: type, payload: dict[str, object], timestamp_names: tuple[str, ...]
+) -> None:
+    canonical = dict(payload)
+    for timestamp_name in timestamp_names:
+        canonical[timestamp_name] = "2026-09-09T03:00:00Z"
+    model.model_validate_json(json.dumps(canonical))
+
+    for timestamp_name in timestamp_names:
+        noncanonical = dict(canonical)
+        noncanonical[timestamp_name] = "2026-09-09T03:00:00+00:00"
+        with pytest.raises(ValidationError):
+            model.model_validate_json(json.dumps(noncanonical))
+
+
 @pytest.mark.parametrize("include_member,failure_message", [(False, None), (True, None), (True, "diagnostic")])
 def test_failure_message_is_optional_and_nullable(include_member: bool, failure_message: str | None) -> None:
     payload = {
@@ -97,4 +192,4 @@ def test_failure_message_is_optional_and_nullable(include_member: bool, failure_
     }
     if include_member:
         payload["failureMessage"] = failure_message
-    assert VisionJobFail.model_validate(payload).failure_message == failure_message
+    assert VisionJobFail.model_validate_json(json.dumps(payload)).failure_message == failure_message

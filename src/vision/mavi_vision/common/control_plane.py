@@ -1,13 +1,42 @@
+import re
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictStr, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StrictStr,
+    ValidationInfo,
+    field_validator,
+)
+
+
+_WORKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", re.ASCII)
+
+
+def _snake_to_camel(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(part.title() for part in parts[1:])
+
+
+def _canonical_utc_wire(value: object, info: ValidationInfo) -> object:
+    if info.mode == "json":
+        if not isinstance(value, str) or not value.endswith("Z"):
+            raise ValueError("worker contract timestamp must use canonical UTC Z syntax")
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("worker contract timestamp must be a valid ISO-8601 datetime") from exc
+    return value
 
 
 def _worker_id(value: str) -> str:
-    if value != value.strip() or not 1 <= len(value) <= 128:
-        raise ValueError("workerId must be canonical and contain 1..128 characters")
+    if _WORKER_ID_PATTERN.fullmatch(value) is None:
+        raise ValueError("workerId must use the canonical safe identifier syntax")
     return value
 
 
@@ -35,15 +64,18 @@ def _storage_key(value: str) -> str:
 WorkerId = Annotated[StrictStr, AfterValidator(_worker_id)]
 LeaseToken = Annotated[StrictStr, AfterValidator(_lease_token)]
 StorageKey = Annotated[StrictStr, AfterValidator(_storage_key)]
+CanonicalUtcDateTime = Annotated[datetime, BeforeValidator(_canonical_utc_wire)]
 
 
 class ControlPlaneModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
-        populate_by_name=True,
         strict=True,
-        alias_generator=lambda n: n.split("_")[0] + "".join(x.title() for x in n.split("_")[1:]),
+        validate_by_alias=True,
+        validate_by_name=False,
+        serialize_by_alias=True,
+        alias_generator=_snake_to_camel,
     )
 
     @field_validator("*", mode="after")
@@ -68,14 +100,14 @@ class VisionJobLease(ControlPlaneModel):
     worker_id: WorkerId
     lease_token: LeaseToken
     attempt_count: int = Field(ge=1)
-    lease_expires_at_utc: datetime
+    lease_expires_at_utc: CanonicalUtcDateTime
     pipeline: str = Field(min_length=1, max_length=64)
     pipeline_version: str = Field(min_length=1, max_length=64)
     source_storage_key: StorageKey
     source_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
     source_size_bytes: int = Field(ge=0)
-    recording_start_utc: datetime
-    recording_end_utc: datetime
+    recording_start_utc: CanonicalUtcDateTime
+    recording_end_utc: CanonicalUtcDateTime
     duration_ms: int = Field(ge=0)
     width: int = Field(gt=0)
     height: int = Field(gt=0)
@@ -95,7 +127,7 @@ class VisionJobHeartbeat(ControlPlaneModel):
 class VisionJobHeartbeatResponse(ControlPlaneModel):
     schema_version: Literal["2.0"]
     progress_percent: float = Field(ge=0, le=100, allow_inf_nan=False)
-    lease_expires_at_utc: datetime
+    lease_expires_at_utc: CanonicalUtcDateTime
 
 
 class VisionJobFail(ControlPlaneModel):
@@ -110,4 +142,4 @@ class WorkerHealth(ControlPlaneModel):
     schema_version: Literal["2.0"]
     worker_id: WorkerId
     status: Literal["ready"]
-    timestamp_utc: datetime
+    timestamp_utc: CanonicalUtcDateTime
