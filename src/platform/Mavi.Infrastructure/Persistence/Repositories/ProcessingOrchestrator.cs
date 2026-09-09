@@ -54,10 +54,10 @@ public sealed class ProcessingOrchestrator(
     public async Task<VisionLeaseView?> LeaseAsync(string workerId, CancellationToken cancellationToken)
     {
         var options = configuredOptions.Value;
-        var selectionCutoffUtc = timeProvider.GetUtcNow();
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         while (true)
         {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            var selectionCutoffUtc = timeProvider.GetUtcNow();
             var job = await db.VisionJobs.FromSqlInterpolated($"""
                 SELECT * FROM vision_jobs
                 WHERE (status = 'Queued' AND available_at_utc <= {selectionCutoffUtc})
@@ -73,6 +73,8 @@ public sealed class ProcessingOrchestrator(
             {
                 job.Exhaust(nowUtc); run.MarkFailed("vision_job_attempts_exhausted", null, nowUtc); video.MarkProcessingFailed();
                 await db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                db.ChangeTracker.Clear();
                 continue;
             }
             var capability = leaseCapabilities.Create();
@@ -82,7 +84,7 @@ public sealed class ProcessingOrchestrator(
             var artifact = await db.Artifacts.AsNoTracking().SingleAsync(x => x.Id == video.SourceArtifactId, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return new("2.0", job.Id, run.Id, video.Id, video.CameraId, workerId, capability.Token, job.Pipeline, run.PipelineVersion,
+            return new(job.Id, run.Id, video.Id, video.CameraId, workerId, capability.Token, job.Pipeline, run.PipelineVersion,
                 artifact.StorageKey, artifact.Sha256, artifact.SizeBytes, video.RecordingStartUtc, video.RecordingEndUtc,
                 video.DurationMs, video.Width, video.Height, video.FrameRateNumerator, video.FrameRateDenominator,
                 job.AttemptCount, job.LeaseExpiresAtUtc!.Value, video.RecordingTimeZoneId, video.RecordingUtcOffsetMinutes);
@@ -99,6 +101,11 @@ public sealed class ProcessingOrchestrator(
     private async Task<OrchestrationResult> MutateOwnedJobAsync(Guid jobId, string workerId, string leaseToken, bool fail, double progress,
         string? failureCode, string? failureMessage, CancellationToken cancellationToken)
     {
+        // Raw capabilities must never cross into persisted diagnostic fields.
+        if (fail && ((failureCode?.Contains(leaseToken, StringComparison.Ordinal) ?? false) ||
+                     (failureMessage?.Contains(leaseToken, StringComparison.Ordinal) ?? false)))
+            return OrchestrationResult.Failure("vision_job_failure_invalid");
+
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var job = await db.VisionJobs.FromSqlInterpolated($"SELECT * FROM vision_jobs WHERE id = {jobId} FOR UPDATE").SingleOrDefaultAsync(cancellationToken);
         if (job is null) return OrchestrationResult.Failure("vision_job_not_found");

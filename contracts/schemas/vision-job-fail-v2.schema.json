@@ -7,8 +7,7 @@
     "schemaVersion",
     "workerId",
     "leaseToken",
-    "failureCode",
-    "failureMessage"
+    "failureCode"
   ],
   "properties": {
     "schemaVersion": {
@@ -18,20 +17,25 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "pattern": "^\\S(?:.*\\S)?$"
+      "pattern": "^(?=.{1,128}$)\\S(?:.*\\S)?$"
     },
     "leaseToken": {
       "type": "string",
       "minLength": 43,
       "maxLength": 43,
-      "pattern": "^[A-Za-z0-9_-]{43}$"
+      "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
     },
     "failureCode": {
       "type": "string",
-      "maxLength": 64
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "minLength": 1
     },
     "failureMessage": {
-      "type": "string",
+      "type": [
+        "string",
+        "null"
+      ],
       "maxLength": 4000
     }
   }

@@ -18,7 +18,7 @@ public sealed record VisionJobLeaseContract(
     string RecordingTimeZoneId, int RecordingUtcOffsetMinutes);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record VisionJobHeartbeatRequest(string? SchemaVersion, string? WorkerId, string? LeaseToken, double ProgressPercent);
+public sealed record VisionJobHeartbeatRequest(string? SchemaVersion, string? WorkerId, string? LeaseToken, double? ProgressPercent);
 
 public sealed record VisionJobHeartbeatResponse(string SchemaVersion, double ProgressPercent,
     [property: JsonConverter(typeof(UtcDateTimeOffsetJsonConverter))] DateTimeOffset LeaseExpiresAtUtc);

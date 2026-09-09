@@ -5,7 +5,7 @@ public sealed record ProcessingStatusResult(bool Found, string VideoStatus, Proc
 public sealed record ProcessingRunStatusView(Guid ProcessingRunId, string Status, string Pipeline, string PipelineVersion,
     string? WorkerId, DateTimeOffset QueuedAtUtc, DateTimeOffset? StartedAtUtc, DateTimeOffset? CompletedAtUtc,
     double ProgressPercent, int AttemptCount, string? FailureCode);
-public sealed record VisionLeaseView(string SchemaVersion, Guid JobId, Guid ProcessingRunId, Guid VideoAssetId,
+public sealed record VisionLeaseView(Guid JobId, Guid ProcessingRunId, Guid VideoAssetId,
     Guid CameraId, string WorkerId, string LeaseToken, string Pipeline, string PipelineVersion, string SourceStorageKey, string SourceSha256,
     long SourceSizeBytes, DateTimeOffset RecordingStartUtc, DateTimeOffset RecordingEndUtc, long DurationMs,
     int Width, int Height, int FrameRateNumerator, int FrameRateDenominator, int AttemptCount,

@@ -1,18 +1,103 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text;
 using Mavi.Contracts.Worker;
 using Mavi.Domain.Cameras;
 using Mavi.Domain.Media;
 using Mavi.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace Mavi.IntegrationTests;
 
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class ProcessingOrchestrationApiTests
 {
+    [Fact]
+    public async Task InvalidHeartbeatAndFailureDiagnosticsCannotMutateOrLeakCapability()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        var videoId = await SeedVideoAsync(factory);
+        using var client = factory.CreateClient();
+        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
+        var leaseResponse = await client.PostAsJsonAsync("/api/vision/jobs/lease", new VisionJobLeaseRequest("2.0", "gpu-sdd-01"));
+        var lease = (await leaseResponse.Content.ReadFromJsonAsync<VisionJobLeaseContract>())!;
+
+        DateTimeOffset? expiryBefore;
+        using (var scope = factory.Services.CreateScope())
+            expiryBefore = await scope.ServiceProvider.GetRequiredService<MaviDbContext>().VisionJobs.Select(x => x.LeaseExpiresAtUtc).SingleAsync();
+
+        var missingProgress = $$"""{"schemaVersion":"2.0","workerId":"gpu-sdd-01","leaseToken":"{{lease.LeaseToken}}"}""";
+        using var heartbeat = await client.PostAsync($"/api/vision/jobs/{lease.JobId}/heartbeat", new StringContent(missingProgress, Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.BadRequest, heartbeat.StatusCode);
+
+        foreach (var message in new[] { lease.LeaseToken, $"prefix {lease.LeaseToken} suffix" })
+        {
+            using var rejected = await client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/fail",
+                new VisionJobFailRequest("2.0", "gpu-sdd-01", lease.LeaseToken, "ffmpeg_decode_failed", message));
+            Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        }
+        using (var rejectedCode = await client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/fail",
+                   new VisionJobFailRequest("2.0", "gpu-sdd-01", lease.LeaseToken, lease.LeaseToken, null)))
+            Assert.Equal(HttpStatusCode.BadRequest, rejectedCode.StatusCode);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+            var job = await db.VisionJobs.SingleAsync();
+            var run = await db.ProcessingRuns.SingleAsync();
+            Assert.Equal(expiryBefore, job.LeaseExpiresAtUtc);
+            Assert.DoesNotContain(lease.LeaseToken, job.FailureCode ?? string.Empty, StringComparison.Ordinal);
+            Assert.DoesNotContain(lease.LeaseToken, job.FailureDetails ?? string.Empty, StringComparison.Ordinal);
+            Assert.DoesNotContain(lease.LeaseToken, run.ErrorCode ?? string.Empty, StringComparison.Ordinal);
+            Assert.DoesNotContain(lease.LeaseToken, run.ErrorDetails ?? string.Empty, StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain(lease.LeaseToken, await client.GetStringAsync($"/api/videos/{videoId}/processing"), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LeaseValidityIsEvaluatedAfterWaitingForRowLock(bool fail)
+    {
+        var clock = new MutableTimeProvider(new DateTimeOffset(2026, 9, 9, 2, 30, 0, TimeSpan.Zero));
+        using var factory = new ApiTestFactory { Clock = clock };
+        await factory.ResetAndMigrateAsync();
+        var videoId = await SeedVideoAsync(factory);
+        using var client = factory.CreateClient();
+        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
+        var leaseResponse = await client.PostAsJsonAsync("/api/vision/jobs/lease", new VisionJobLeaseRequest("2.0", "worker-a"));
+        var lease = (await leaseResponse.Content.ReadFromJsonAsync<VisionJobLeaseContract>())!;
+
+        await using var blocker = new NpgsqlConnection(factory.ConnectionString);
+        await blocker.OpenAsync();
+        await using var blockerTransaction = await blocker.BeginTransactionAsync();
+        await using (var lockCommand = new NpgsqlCommand("SELECT id FROM vision_jobs WHERE id=$1 FOR UPDATE", blocker, blockerTransaction))
+        {
+            lockCommand.Parameters.AddWithValue(lease.JobId);
+            await lockCommand.ExecuteScalarAsync();
+        }
+
+        var operation = fail
+            ? client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/fail", new VisionJobFailRequest("2.0", "worker-a", lease.LeaseToken, "ffmpeg_decode_failed", null))
+            : client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/heartbeat", new VisionJobHeartbeatRequest("2.0", "worker-a", lease.LeaseToken, 50));
+        await WaitForBlockedVisionJobMutationAsync(factory.ConnectionString);
+        clock.Advance(lease.LeaseExpiresAtUtc - clock.GetUtcNow());
+        await blockerTransaction.CommitAsync();
+
+        using var response = await operation;
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("vision_job_lease_invalid", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        var job = await db.VisionJobs.SingleAsync();
+        Assert.Equal(lease.LeaseExpiresAtUtc, job.LeaseExpiresAtUtc);
+        Assert.Equal(Mavi.Domain.Processing.VisionJobStatus.Leased, job.Status);
+    }
+
     [Fact]
     public async Task QueueLeaseHeartbeatReclaimFailAndRequeuePreservesHistory()
     {
@@ -125,18 +210,28 @@ public sealed class ProcessingOrchestrationApiTests
         Assert.Single(queueResponses, x => x.StatusCode == HttpStatusCode.Conflict);
         foreach (var response in queueResponses) response.Dispose();
 
+        VisionJobLeaseContract? lastLease = null;
         for (var attempt = 1; attempt <= 3; attempt++)
         {
             using var lease = await a.PostAsJsonAsync("/api/vision/jobs/lease", new VisionJobLeaseRequest("2.0", $"worker-{attempt}"));
             Assert.Equal(HttpStatusCode.OK, lease.StatusCode);
+            lastLease = await lease.Content.ReadFromJsonAsync<VisionJobLeaseContract>();
             clock.Advance(TimeSpan.FromSeconds(120));
         }
         using var exhausted = await a.PostAsJsonAsync("/api/vision/jobs/lease", new VisionJobLeaseRequest("2.0", "worker-4"));
         Assert.Equal(HttpStatusCode.NoContent, exhausted.StatusCode);
         using var scope = factory.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
-        Assert.Equal("vision_job_attempts_exhausted", (await db.VisionJobs.SingleAsync()).FailureCode);
+        var exhaustedJob = await db.VisionJobs.SingleAsync();
+        Assert.Equal("vision_job_attempts_exhausted", exhaustedJob.FailureCode);
+        Assert.Null(exhaustedJob.LeaseOwner);
+        Assert.Null(exhaustedJob.LeaseTokenHash);
+        Assert.Null(exhaustedJob.LeaseExpiresAtUtc);
+        Assert.Null(exhaustedJob.LastHeartbeatUtc);
         Assert.Equal(VideoProcessingStatus.Failed, (await db.VideoAssets.SingleAsync()).ProcessingStatus);
         Assert.Equal(Mavi.Domain.Processing.ProcessingRunStatus.Failed, (await db.ProcessingRuns.SingleAsync()).Status);
+        using var replay = await a.PostAsJsonAsync($"/api/vision/jobs/{lastLease!.JobId}/fail",
+            new VisionJobFailRequest("2.0", "worker-3", lastLease.LeaseToken, "vision_job_attempts_exhausted", null));
+        Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
     }
 
     [Fact]
@@ -160,6 +255,24 @@ public sealed class ProcessingOrchestrationApiTests
         var video = VideoAsset.Create(camera.Id, artifact.Id, "source.mp4", now, 60_000, 25, 1, 1920, 1080,
             "h264", TimestampSource.Manual, 1, importedAtUtc: now);
         db.AddRange(camera, artifact, video); await db.SaveChangesAsync(); return video.Id;
+    }
+
+    private static async Task WaitForBlockedVisionJobMutationAsync(string connectionString)
+    {
+        await using var observer = new NpgsqlConnection(connectionString);
+        await observer.OpenAsync();
+        var timeout = System.Diagnostics.Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromSeconds(10))
+        {
+            await using var command = new NpgsqlCommand("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_stat_activity
+                    WHERE wait_event_type = 'Lock' AND query LIKE '%SELECT * FROM vision_jobs WHERE id%FOR UPDATE%');
+                """, observer);
+            if ((bool)(await command.ExecuteScalarAsync() ?? false)) return;
+            await Task.Yield();
+        }
+        throw new TimeoutException("Vision-job mutation did not block on the PostgreSQL row lock.");
     }
 }
 

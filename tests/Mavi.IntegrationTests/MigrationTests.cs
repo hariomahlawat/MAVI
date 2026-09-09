@@ -171,7 +171,65 @@ public sealed class MigrationTests(PostgresFixture fixture)
         Assert.True(reader.GetBoolean(2));
     }
 
-    private static async Task InsertLegacyVideoAsync(NpgsqlConnection connection, string code, string zone, DateTimeOffset startUtc)
+    [Fact]
+    public async Task HardenedLeaseMigrationUpgradesARealLegacyActiveLease()
+    {
+        const string historical = "20260909053831_AddProcessingOrchestration";
+        const string hardened = "20260909080708_HardenVisionJobLeases";
+        await fixture.ResetDatabaseAsync();
+        await using var db = fixture.CreateDbContext();
+        var migrator = db.GetService<IMigrator>();
+        await migrator.MigrateAsync(historical);
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await InsertLegacyVideoAsync(connection, "UPGRADE", "UTC", new DateTimeOffset(2026, 9, 9, 0, 0, 0, TimeSpan.Zero), includeProvenance: true);
+        var videoId = (Guid)(await new NpgsqlCommand("SELECT id FROM video_assets WHERE original_file_name='legacy.mp4'", connection).ExecuteScalarAsync())!;
+        var runId = Guid.CreateVersion7();
+        var jobId = Guid.CreateVersion7();
+        await using (var seed = new NpgsqlBatch(connection))
+        {
+            var run = new NpgsqlBatchCommand("""
+            INSERT INTO processing_runs(id,video_asset_id,status,pipeline_version,configuration_json,worker_id,
+                queued_at_utc,started_at_utc,frames_processed,tracks_created)
+            VALUES ($1,$2,'Running','phase1-v1','{}','legacy-worker',$3,$3,0,0)
+            """);
+            run.Parameters.AddWithValue(runId); run.Parameters.AddWithValue(videoId);
+            run.Parameters.AddWithValue(new DateTimeOffset(2026, 9, 9, 0, 0, 0, TimeSpan.Zero));
+            var job = new NpgsqlBatchCommand("""
+            INSERT INTO vision_jobs(id,processing_run_id,pipeline,status,created_at_utc,available_at_utc,lease_owner,
+                lease_expires_at_utc,attempt_count,progress_percent,last_heartbeat_utc)
+            VALUES ($1,$2,'phase1','Leased',$3,$3,'legacy-worker',$3 + interval '1 day',2,40,$3)
+            """);
+            job.Parameters.AddWithValue(jobId); job.Parameters.AddWithValue(runId);
+            job.Parameters.AddWithValue(new DateTimeOffset(2026, 9, 9, 0, 0, 0, TimeSpan.Zero));
+            seed.BatchCommands.Add(run); seed.BatchCommands.Add(job);
+            await seed.ExecuteNonQueryAsync();
+        }
+
+        await migrator.MigrateAsync(hardened);
+        await using var command = new NpgsqlCommand("""
+            SELECT attempt_count, lease_token_hash IS NULL, lease_expires_at_utc <= CURRENT_TIMESTAMP,
+                   (SELECT data_type='bytea' FROM information_schema.columns WHERE table_name='vision_jobs' AND column_name='lease_token_hash'),
+                   (SELECT pg_get_constraintdef(oid) LIKE '%octet_length(lease_token_hash) = 32%' FROM pg_constraint WHERE conname='ck_vision_jobs_lease_token_hash'),
+                   (SELECT indexdef FROM pg_indexes WHERE indexname='ix_vision_jobs_expired_lease')
+            FROM vision_jobs WHERE id=$1;
+            """, connection);
+        command.Parameters.AddWithValue(jobId);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(2, reader.GetInt32(0));
+        Assert.True(reader.GetBoolean(1));
+        Assert.True(reader.GetBoolean(2));
+        Assert.True(reader.GetBoolean(3));
+        Assert.True(reader.GetBoolean(4));
+        var indexDefinition = reader.GetString(5);
+        Assert.Contains("WHERE", indexDefinition, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("status", indexDefinition, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Leased", indexDefinition, StringComparison.Ordinal);
+    }
+
+    private static async Task InsertLegacyVideoAsync(NpgsqlConnection connection, string code, string zone, DateTimeOffset startUtc,
+        bool includeProvenance = false)
     {
         var cameraId = Guid.CreateVersion7();
         var artifactId = Guid.CreateVersion7();
@@ -190,7 +248,14 @@ public sealed class MigrationTests(PostgresFixture fixture)
         artifact.Parameters.AddWithValue(artifactId); artifact.Parameters.AddWithValue($"source/{code.ToLowerInvariant()}.mp4");
         artifact.Parameters.AddWithValue(new string(char.ToLowerInvariant(code[0]), 64));
         artifact.Parameters.AddWithValue(new DateTimeOffset(2026, 9, 9, 0, 0, 0, TimeSpan.Zero));
-        var video = new NpgsqlBatchCommand("""
+        var video = new NpgsqlBatchCommand(includeProvenance ? """
+            INSERT INTO video_assets(id,camera_id,source_artifact_id,original_file_name,source_type,
+                recording_start_utc,recording_end_utc,duration_ms,frame_rate_numerator,frame_rate_denominator,
+                width,height,codec,timestamp_source,timestamp_confidence,processing_status,imported_at_utc,
+                recording_time_zone_id,recording_utc_offset_minutes)
+            VALUES ($1,$2,$3,'legacy.mp4','UploadedFile',$4,$4 + interval '1 second',1000,25,1,160,90,
+                'h264','Manual',1,'NotQueued',$5,'UTC',0)
+            """ : """
             INSERT INTO video_assets(id,camera_id,source_artifact_id,original_file_name,source_type,
                 recording_start_utc,recording_end_utc,duration_ms,frame_rate_numerator,frame_rate_denominator,
                 width,height,codec,timestamp_source,timestamp_confidence,processing_status,imported_at_utc)

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, field_validator
 
 
 def _worker_id(value: str) -> str:
@@ -16,8 +16,9 @@ def _lease_token(value: str) -> str:
     if len(value) != 43 or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-" for c in value):
         raise ValueError("leaseToken must be canonical unpadded Base64Url")
     try:
-        if len(base64.urlsafe_b64decode(value + "=")) != 32:
-            raise ValueError("invalid decoded token length")
+        decoded = base64.b64decode(value + "=", altchars=b"-_", validate=True)
+        if len(decoded) != 32 or base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii") != value:
+            raise ValueError("invalid canonical token encoding")
     except Exception as exc:
         raise ValueError("leaseToken must encode 32 bytes") from exc
     return value
@@ -31,9 +32,9 @@ def _storage_key(value: str) -> str:
     return value
 
 
-WorkerId = Annotated[str, AfterValidator(_worker_id)]
-LeaseToken = Annotated[str, AfterValidator(_lease_token)]
-StorageKey = Annotated[str, AfterValidator(_storage_key)]
+WorkerId = Annotated[StrictStr, AfterValidator(_worker_id)]
+LeaseToken = Annotated[StrictStr, AfterValidator(_lease_token)]
+StorageKey = Annotated[StrictStr, AfterValidator(_storage_key)]
 
 
 class ControlPlaneModel(BaseModel):
@@ -95,7 +96,7 @@ class VisionJobFail(ControlPlaneModel):
     schema_version: Literal["2.0"]
     worker_id: WorkerId
     lease_token: LeaseToken
-    failure_code: str = Field(min_length=1, max_length=64)
+    failure_code: StrictStr = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     failure_message: str | None = Field(default=None, max_length=4000)
 
 

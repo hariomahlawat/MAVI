@@ -105,6 +105,15 @@ def check_contracts(errors: list[str]) -> None:
         except jsonschema.ValidationError as exc:
             fail(f"Contract example {example_name} is invalid: {exc.message}", errors)
 
+    vectors = json.loads((ROOT / "contracts/test-vectors/control-plane-v2-invalid.json").read_text())
+    for vector in vectors:
+        schema = json.loads((ROOT / "contracts/schemas" / f"{vector['schema']}.schema.json").read_text())
+        try:
+            jsonschema.validate(instance=vector["payload"], schema=schema, format_checker=jsonschema.FormatChecker())
+        except jsonschema.ValidationError:
+            continue
+        fail(f"Invalid contract vector was accepted: {vector['name']}", errors)
+
 
 def check_production_urls(errors: list[str]) -> None:
     files = [

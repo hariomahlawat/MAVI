@@ -87,6 +87,33 @@ public sealed class ProcessingOrchestrationStateTests
             job.Heartbeat("worker-b", false, 10, Now.AddSeconds(11), TimeSpan.FromSeconds(10)));
     }
 
+    [Fact]
+    public void CompletionRequiresMatchingCapability()
+    {
+        var job = VisionJob.Create(Guid.CreateVersion7(), "pipeline", Now);
+        job.Lease("worker-a", Hash(1), Now, TimeSpan.FromSeconds(10), 3);
+
+        Assert.Throws<DomainValidationException>(() => job.Complete("worker-a", false, Now.AddSeconds(1)));
+        job.Complete("worker-a", true, Now.AddSeconds(1));
+        Assert.Equal(VisionJobStatus.Completed, job.Status);
+    }
+
+    [Fact]
+    public void AttemptExhaustionRevokesActiveCapability()
+    {
+        var job = VisionJob.Create(Guid.CreateVersion7(), "pipeline", Now);
+        job.Lease("worker-a", Hash(1), Now, TimeSpan.FromSeconds(10), 1);
+        job.Exhaust(Now.AddSeconds(10));
+
+        Assert.Equal(1, job.AttemptCount);
+        Assert.Null(job.LeaseOwner);
+        Assert.Null(job.LeaseTokenHash);
+        Assert.Null(job.LeaseExpiresAtUtc);
+        Assert.Null(job.LastHeartbeatUtc);
+        Assert.Throws<DomainValidationException>(() =>
+            job.Fail("worker-a", true, "vision_job_attempts_exhausted", null, Now.AddSeconds(11)));
+    }
+
     private static byte[] Hash(byte value) => Enumerable.Repeat(value, 32).ToArray();
 
     private static VideoAsset Video() => VideoAsset.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), "v.mp4", Now,

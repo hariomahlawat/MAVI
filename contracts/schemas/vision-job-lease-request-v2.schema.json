@@ -15,7 +15,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "pattern": "^\\S(?:.*\\S)?$"
+      "pattern": "^(?=.{1,128}$)\\S(?:.*\\S)?$"
     }
   }
 }

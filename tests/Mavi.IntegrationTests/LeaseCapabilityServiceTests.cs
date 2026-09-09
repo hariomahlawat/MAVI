@@ -1,4 +1,5 @@
 using Mavi.Infrastructure.Security;
+using Mavi.Contracts.Worker;
 
 namespace Mavi.IntegrationTests;
 
@@ -19,5 +20,13 @@ public sealed class LeaseCapabilityServiceTests
         Assert.False(service.Matches("not-a-valid-token", first.Hash));
         Assert.NotEqual(first.Token, second.Token);
         Assert.NotEqual(first.Hash, second.Hash);
+    }
+
+    [Fact]
+    public void MalformedTrailingBitsAreRejectedWithoutThrowing()
+    {
+        var malformed = new string('A', 42) + "B";
+        Assert.False(WorkerContractRules.IsCanonicalLeaseToken(malformed));
+        Assert.False(new LeaseCapabilityService().Matches(malformed, new byte[32]));
     }
 }
