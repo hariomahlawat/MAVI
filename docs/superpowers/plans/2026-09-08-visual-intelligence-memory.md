@@ -931,6 +931,16 @@ git commit -m "feat: add managed media storage and video metadata"
 
 ## Task 6: Implement MP4 Import and Video Catalog API
 
+**Accepted hardening refinements (09 Sep 2026):**
+
+- Deployment-specific media roots, executable locations, probe timeout, import size, and extension allowlist live in strongly typed external configuration. Domain invariants remain in code/database constraints.
+- `LocalMediaStore`, `IMediaStore`, and the Infrastructure-internal `ILocalMediaPathResolver` resolve to one singleton. Writes validate existing ancestors before and after directory creation, reject storage keys longer than 512 characters before mutation, and observe cancellation immediately before atomic promotion.
+- ffprobe uses the configured timeout and falls back from missing or unusable `format.duration` to a positive video-stream duration.
+- Import rejects both ambiguous and invalid camera-local DST times. Browser filenames are untrusted and reduced to a safe leaf across slash styles; configured size and normalized extension limits are enforced.
+- Source-video SHA-256 duplication has an application pre-check and a PostgreSQL partial unique index limited to `SourceVideo` artifacts. A uniqueness race is translated to `video_duplicate`.
+- Once a uniquely keyed managed file is written, every later unsuccessful import attempts compensating deletion. Cleanup failure is logged without replacing the primary failure.
+- Source storage grouping uses the camera-local/operator date and immutable camera/video UUIDs; durable database timestamps remain UTC.
+
 **Files:**
 - Create: `src/platform/Mavi.Application/Modules/Media/IVideoCatalog.cs`
 - Create: `src/platform/Mavi.Application/Modules/Media/VideoImportService.cs`

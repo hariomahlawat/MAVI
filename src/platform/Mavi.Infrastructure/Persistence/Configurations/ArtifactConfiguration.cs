@@ -18,5 +18,9 @@ public sealed class ArtifactConfiguration : IEntityTypeConfiguration<Artifact>
         builder.Property(x => x.MetadataJson).HasColumnName("metadata_json").HasColumnType("jsonb");
         builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         builder.HasIndex(x => x.StorageKey).IsUnique();
+        builder.HasIndex(x => x.Sha256)
+            .HasDatabaseName("ux_artifacts_source_video_sha256")
+            .HasFilter("artifact_type = 'SourceVideo'")
+            .IsUnique();
     }
 }

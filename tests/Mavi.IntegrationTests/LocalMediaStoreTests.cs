@@ -118,12 +118,26 @@ public sealed class LocalMediaStoreTests : IDisposable
         {
             var store = CreateStore();
             await Assert.ThrowsAsync<ArgumentException>(() =>
-                store.WriteAsync("escape/video.mp4", new MemoryStream([1]), CancellationToken.None));
+                store.WriteAsync("escape/new-directory/video.mp4", new MemoryStream([1]), CancellationToken.None));
+            Assert.False(Directory.Exists(Path.Combine(outside, "new-directory")));
+            Assert.Empty(Directory.GetFiles(outside, "*.tmp", SearchOption.AllDirectories));
         }
         finally
         {
             Directory.Delete(outside, true);
         }
+    }
+
+    [Fact]
+    public async Task StorageKeyLongerThanDomainMaximumIsRejectedBeforeMutation()
+    {
+        var store = CreateStore();
+        var storageKey = $"{new string('a', 509)}.mp4";
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            store.WriteAsync(storageKey, new MemoryStream([1]), CancellationToken.None));
+
+        Assert.False(Directory.Exists(_root));
     }
 
     // Test lifecycle

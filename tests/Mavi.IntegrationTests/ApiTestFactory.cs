@@ -23,6 +23,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     }
 
     public string ConnectionString { get; }
+    public string MediaRoot => _mediaRoot;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -35,6 +36,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["ConnectionStrings:Mavi"] = ConnectionString,
                 ["MediaStorage:RootPath"] = _mediaRoot,
                 ["MediaProcessing:FfprobePath"] = "ffprobe",
+                ["MediaProcessing:FfmpegPath"] = "ffmpeg",
+                ["MediaProcessing:ProbeTimeoutSeconds"] = "30",
+                ["VideoImport:MaximumFileSizeBytes"] = "10737418240",
+                ["VideoImport:AllowedExtensions:0"] = ".mp4",
             });
         });
         builder.ConfigureServices(services =>

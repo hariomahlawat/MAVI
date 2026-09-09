@@ -13,7 +13,6 @@ internal sealed class FfprobeVideoMetadataReader(
     IOptions<MediaProcessingOptions> options,
     ILogger<FfprobeVideoMetadataReader> logger) : IVideoMetadataReader
 {
-    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(30);
     private static readonly Action<ILogger, int, string, Exception?> LogProbeFailure =
         LoggerMessage.Define<int, string>(
             LogLevel.Warning,
@@ -42,7 +41,7 @@ internal sealed class FfprobeVideoMetadataReader(
 
         var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
-        using var timeout = new CancellationTokenSource(ProbeTimeout);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(options.Value.ProbeTimeoutSeconds));
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
@@ -52,7 +51,7 @@ internal sealed class FfprobeVideoMetadataReader(
         {
             KillProcess(process);
             await ObserveOutputAsync(standardOutput, standardError);
-            throw new VideoMetadataException("ffprobe exceeded the 30-second metadata timeout.");
+            throw new VideoMetadataException("ffprobe exceeded the configured metadata timeout.");
         }
         catch (OperationCanceledException)
         {
@@ -208,25 +207,33 @@ internal sealed class FfprobeVideoMetadataReader(
 
     private static long ReadDurationMs(JsonElement root, JsonElement stream)
     {
-        string? value = null;
         if (root.TryGetProperty("format", out var format) && format.TryGetProperty("duration", out var formatDuration))
         {
-            value = formatDuration.GetString();
+            if (TryReadDurationMs(formatDuration.GetString(), out var formatMilliseconds))
+            {
+                return formatMilliseconds;
+            }
         }
 
-        if (string.IsNullOrWhiteSpace(value) && stream.TryGetProperty("duration", out var streamDuration))
+        if (stream.TryGetProperty("duration", out var streamDuration) &&
+            TryReadDurationMs(streamDuration.GetString(), out var streamMilliseconds))
         {
-            value = streamDuration.GetString();
+            return streamMilliseconds;
         }
 
+        throw InvalidMetadata("ffprobe returned a non-positive duration.");
+    }
+
+    private static bool TryReadDurationMs(string? value, out long milliseconds)
+    {
+        milliseconds = 0;
         if (!decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) || seconds <= 0)
         {
-            throw InvalidMetadata("ffprobe returned a non-positive duration.");
+            return false;
         }
 
-        var milliseconds = checked((long)decimal.Round(seconds * 1000m, MidpointRounding.AwayFromZero));
-        if (milliseconds <= 0) throw InvalidMetadata("ffprobe returned a non-positive duration.");
-        return milliseconds;
+        milliseconds = checked((long)decimal.Round(seconds * 1000m, MidpointRounding.AwayFromZero));
+        return milliseconds > 0;
     }
 
     private static VideoMetadataException InvalidMetadata(string message) => new(message);
