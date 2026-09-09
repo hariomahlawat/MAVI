@@ -54,3 +54,11 @@ Development may use the Internet. Release artifacts must be self-contained and s
 - Run `python tools/verify_repo.py` before committing.
 - Run language-specific tests/builds for every affected subsystem.
 - Document architectural changes as ADRs before implementation.
+
+## Time naming and semantics
+
+- `...Utc` identifies an absolute UTC system instant; persist these as PostgreSQL `timestamptz` and prefer `DateTimeOffset` in .NET.
+- `...Local` identifies timezone-less wall-clock input that must travel with an explicit `...TimeZoneId`.
+- `...TimeZoneId` is an IANA timezone identity. Camera timezones interpret source input; evidence records snapshot that interpretation.
+- `...OffsetMs` and `...DurationMs` are media-relative values and must never undergo timezone conversion.
+- Avoid ambiguous time names such as `CreatedAt`, `StartTime`, or `Timestamp`. Obtain current application time through injected .NET `TimeProvider`.

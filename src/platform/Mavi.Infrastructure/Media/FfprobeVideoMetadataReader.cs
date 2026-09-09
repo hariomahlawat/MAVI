@@ -131,7 +131,10 @@ internal sealed class FfprobeVideoMetadataReader(
             var codec = ReadRequiredString(stream, "codec_name");
             var frameRate = ReadFrameRate(stream);
             var durationMs = ReadDurationMs(document.RootElement, stream);
-            return new VideoMetadata(durationMs, width, height, frameRate.Numerator, frameRate.Denominator, codec);
+            if (!document.RootElement.TryGetProperty("format", out var format))
+                throw InvalidMetadata("ffprobe output did not contain format information.");
+            var formatName = ReadRequiredString(format, "format_name");
+            return new VideoMetadata(durationMs, width, height, frameRate.Numerator, frameRate.Denominator, codec, formatName);
         }
         catch (JsonException exception)
         {

@@ -1,5 +1,6 @@
 using Mavi.Api.Endpoints;
 using Mavi.Application.Health;
+using Mavi.Application;
 using Mavi.Application.Modules.Media;
 using Mavi.Infrastructure;
 using Microsoft.AspNetCore.Http.Features;
@@ -8,10 +9,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddMaviInfrastructure(builder.Configuration);
 builder.Services.AddHealthChecks();
 var maximumFileSize = builder.Configuration.GetValue<long>($"{VideoImportOptions.SectionName}:MaximumFileSizeBytes");
-builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maximumFileSize);
+var multipartOverhead = builder.Configuration.GetValue<long>($"{VideoImportOptions.SectionName}:MultipartOverheadBytes");
+var maximumRequestSize = checked(maximumFileSize + multipartOverhead);
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maximumRequestSize);
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.MultipartBodyLengthLimit = maximumFileSize;
+    options.MultipartBodyLengthLimit = maximumRequestSize;
 });
 
 var app = builder.Build();
@@ -25,6 +28,8 @@ app.MapGet("/api/health", () =>
 app.MapHealthChecks("/health/live");
 app.MapCameraEndpoints();
 app.MapVideoEndpoints();
+app.MapGet("/api/system/config", (Microsoft.Extensions.Options.IOptions<LocalizationOptions> options) =>
+    Results.Ok(new { displayTimeZoneId = options.Value.DefaultDisplayTimeZoneId }));
 
 app.Run();
 

@@ -1,5 +1,7 @@
 # MAVI Phase 1 — Searchable Visual Intelligence Memory Implementation Plan
 
+> Time and timezone behavior for every task is governed by [ADR-004](../../decisions/ADR-004-time-and-timezone-architecture.md): UTC APIs/storage, explicit source wall-clock interpretation, immutable recording timezone provenance, and timezone-independent media offsets.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the first operational MAVI vertical slice: managed MP4 import, person/vehicle detection and single-camera tracking, durable visual-intelligence memory, structured track search, and evidence-linked video playback.

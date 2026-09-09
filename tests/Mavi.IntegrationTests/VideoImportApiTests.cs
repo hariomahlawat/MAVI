@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -14,6 +15,7 @@ namespace Mavi.IntegrationTests;
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class VideoImportApiTests(PostgresFixture database)
 {
+    private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
     // End-to-end managed ownership
     [Fact]
     public async Task ImportOwnsMediaAndCatalogReturnsSafeMetadata()
@@ -32,6 +34,8 @@ public sealed class VideoImportApiTests(PostgresFixture database)
             Assert.NotNull(video);
             Assert.Equal($"/api/videos/{video.Id}", response.Headers.Location?.OriginalString);
             Assert.Equal("NotQueued", video.ProcessingStatus);
+            Assert.Equal("Asia/Kolkata", video.RecordingTimeZoneId);
+            Assert.Equal(330, video.RecordingUtcOffsetMinutes);
 
             File.Delete(sourcePath);
             using var scope = factory.Services.CreateScope();
@@ -53,6 +57,53 @@ public sealed class VideoImportApiTests(PostgresFixture database)
         {
             if (File.Exists(sourcePath)) File.Delete(sourcePath);
         }
+    }
+
+    [Fact]
+    public async Task RenamedNonMp4ContainerIsRejectedWithoutOrphans()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        using var client = factory.CreateClient();
+        var camera = await CreateCameraAsync(client);
+        var sourcePath = await GenerateVideoAsync(".mkv");
+        try
+        {
+            using var response = await ImportAsync(client, camera.Id, sourcePath, "renamed.mp4");
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("video_container_unsupported", await ReadCodeAsync(response));
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+            Assert.Empty(await db.VideoAssets.ToArrayAsync());
+            Assert.Empty(await db.Artifacts.ToArrayAsync());
+            Assert.Empty(Directory.GetFiles(factory.MediaRoot, "*", SearchOption.AllDirectories));
+        }
+        finally { File.Delete(sourcePath); }
+    }
+
+    [Fact]
+    public async Task VideoListIsDeterministicAndExposesOnlyOperatorDto()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        using var client = factory.CreateClient();
+        var camera = await CreateCameraAsync(client);
+        var firstPath = await GenerateVideoAsync();
+        var secondPath = await GenerateVideoAsync(durationSeconds: 2);
+        try
+        {
+            using var first = await ImportAsync(client, camera.Id, firstPath);
+            using var second = await ImportAsync(client, camera.Id, secondPath, "second.mp4", "2026-09-09T14:00:00");
+            first.EnsureSuccessStatusCode(); second.EnsureSuccessStatusCode();
+            var json = await client.GetStringAsync("/api/videos");
+            var videos = JsonSerializer.Deserialize<VideoAssetResponse[]>(json, WebJsonOptions)!;
+            Assert.Equal(2, videos.Length);
+            Assert.True(videos[0].RecordingStartUtc > videos[1].RecordingStartUtc);
+            Assert.DoesNotContain("storageKey", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("sha256", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(factory.MediaRoot, json, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { File.Delete(firstPath); File.Delete(secondPath); }
     }
 
     [Fact]
@@ -112,12 +163,13 @@ public sealed class VideoImportApiTests(PostgresFixture database)
         return (await response.Content.ReadFromJsonAsync<CameraResponse>())!;
     }
 
-    private static async Task<HttpResponseMessage> ImportAsync(HttpClient client, Guid cameraId, string path, string? fileName = null)
+    private static async Task<HttpResponseMessage> ImportAsync(HttpClient client, Guid cameraId, string path, string? fileName = null,
+        string recordingStartLocal = "2026-09-08T14:00:00")
     {
         var form = new MultipartFormDataContent
         {
             { new StringContent(cameraId.ToString("D")), "cameraId" },
-            { new StringContent("2026-09-08T14:00:00"), "recordingStartLocal" },
+            { new StringContent(recordingStartLocal), "recordingStartLocal" },
         };
         var stream = File.OpenRead(path);
         form.Add(new StreamContent(stream), "file", fileName ?? Path.GetFileName(path));
@@ -131,15 +183,15 @@ public sealed class VideoImportApiTests(PostgresFixture database)
         return document.RootElement.GetProperty("code").GetString()!;
     }
 
-    private static async Task<string> GenerateVideoAsync()
+    private static async Task<string> GenerateVideoAsync(string extension = ".mp4", int durationSeconds = 1)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"mavi-import-{Guid.NewGuid():N}.mp4");
+        var path = Path.Combine(Path.GetTempPath(), $"mavi-import-{Guid.NewGuid():N}{extension}");
         using var process = Process.Start(new ProcessStartInfo
         {
             FileName = "ffmpeg",
             UseShellExecute = false,
             RedirectStandardError = true,
-        }.AddArguments("-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=25", "-t", "1",
+        }.AddArguments("-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=25", "-t", durationSeconds.ToString(CultureInfo.InvariantCulture),
             "-pix_fmt", "yuv420p", path))!;
         var error = await process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();

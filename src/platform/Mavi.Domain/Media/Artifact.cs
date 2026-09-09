@@ -14,7 +14,8 @@ public sealed partial class Artifact
         string mimeType,
         long sizeBytes,
         string sha256,
-        string? metadataJson = null)
+        string? metadataJson = null,
+        DateTimeOffset? createdAtUtc = null)
     {
         ValidateStorageKey(storageKey);
         if (string.IsNullOrWhiteSpace(mimeType) || mimeType.Trim().Length > 128)
@@ -41,7 +42,7 @@ public sealed partial class Artifact
             SizeBytes = sizeBytes,
             Sha256 = sha256,
             MetadataJson = metadataJson,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
+            CreatedAtUtc = (createdAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime(),
         };
     }
 

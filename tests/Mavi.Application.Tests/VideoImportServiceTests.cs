@@ -1,5 +1,6 @@
 using System.Reflection;
 using Mavi.Application.Abstractions.Storage;
+using Mavi.Application.Abstractions.Time;
 using Mavi.Application.Modules.Cameras;
 using Mavi.Application.Modules.Media;
 using Mavi.Domain.Cameras;
@@ -22,7 +23,13 @@ public sealed class VideoImportServiceTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(new DateTimeOffset(2026, 9, 8, 8, 30, 0, TimeSpan.Zero), result.Video!.RecordingStartUtc);
+        Assert.Equal("Asia/Kolkata", result.Video.RecordingTimeZoneId);
+        Assert.Equal(330, result.Video.RecordingUtcOffsetMinutes);
         Assert.Contains("/2026/09/08/", context.Media.WrittenKey, StringComparison.Ordinal);
+
+        typeof(Camera).GetProperty(nameof(Camera.TimeZoneId))!.SetValue(context.Camera, "UTC");
+        Assert.Equal("Asia/Kolkata", result.Video.RecordingTimeZoneId);
+        Assert.Equal(330, result.Video.RecordingUtcOffsetMinutes);
     }
 
     [Theory]
@@ -92,12 +99,42 @@ public sealed class VideoImportServiceTests
         Assert.Null(context.Media.WrittenKey);
     }
 
+    [Theory]
+    [InlineData("bad\0.mp4")]
+    [InlineData("bad\u0001.mp4")]
+    public async Task ControlCharactersInFilenameAreRejected(string fileName)
+    {
+        var context = CreateContext();
+        var result = await context.Service.ImportAsync(Command(context.Camera, fileName: fileName), CancellationToken.None);
+        Assert.Equal(VideoImportErrorCodes.InvalidFileName, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ApplicationRejectsOversizeStreamBeforeMetadataOrPersistence()
+    {
+        var context = CreateContext(maximumBytes: 2);
+        var result = await context.Service.ImportAsync(Command(context.Camera), CancellationToken.None);
+        Assert.Equal(VideoImportErrorCodes.FileTooLarge, result.ErrorCode);
+        Assert.False(context.Catalog.Added);
+    }
+
+    [Fact]
+    public async Task NonMp4ContainerIsRejectedAndManagedMediaIsDeleted()
+    {
+        var context = CreateContext();
+        context.Metadata.Value = context.Metadata.Value with { FormatName = "matroska,webm" };
+        var result = await context.Service.ImportAsync(Command(context.Camera), CancellationToken.None);
+        Assert.Equal(VideoImportErrorCodes.ContainerUnsupported, result.ErrorCode);
+        Assert.True(context.Media.Deleted);
+        Assert.False(context.Catalog.Added);
+    }
+
     // Managed ownership and compensation
     [Fact]
     public async Task MetadataPopulatesVideoAndVideoIdExistsBeforeStorageWrite()
     {
         var context = CreateContext();
-        context.Metadata.Value = new VideoMetadata(2_500, 640, 360, 30000, 1001, "h264");
+        context.Metadata.Value = new VideoMetadata(2_500, 640, 360, 30000, 1001, "h264", "mov,mp4,m4a,3gp,3g2,mj2");
 
         var result = await context.Service.ImportAsync(Command(context.Camera), CancellationToken.None);
 
@@ -144,7 +181,7 @@ public sealed class VideoImportServiceTests
     private static ImportVideoCommand Command(Camera camera, DateTime? local = null, string fileName = "video.mp4") =>
         new(camera.Id, local ?? new DateTime(2026, 9, 8, 12, 0, 0, DateTimeKind.Unspecified), fileName, new MemoryStream([1, 2, 3]));
 
-    private static TestContext CreateContext(string timeZone = "UTC")
+    private static TestContext CreateContext(string timeZone = "UTC", long maximumBytes = 1024)
     {
         var camera = Camera.Create("CAM-SECRET", "Test", timeZone);
         var cameras = new FakeCameras { Camera = camera };
@@ -152,7 +189,8 @@ public sealed class VideoImportServiceTests
         var media = new FakeMediaStore();
         var metadata = new FakeMetadataReader();
         var service = new VideoImportService(cameras, catalog, media, metadata,
-            Options.Create(new VideoImportOptions()), NullLogger<VideoImportService>.Instance);
+            new TestTimeZones(), TimeProvider.System,
+            Options.Create(new VideoImportOptions { MaximumFileSizeBytes = maximumBytes }), NullLogger<VideoImportService>.Instance);
         return new TestContext(camera, cameras, catalog, media, metadata, service);
     }
 
@@ -173,8 +211,8 @@ public sealed class VideoImportServiceTests
     {
         public string? WrittenKey { get; private set; }
         public bool Deleted { get; private set; }
-        public Task<MediaWriteResult> WriteAsync(string storageKey, Stream content, CancellationToken cancellationToken)
-        { WrittenKey = storageKey; return Task.FromResult(new MediaWriteResult(3, new string('a', 64))); }
+        public async Task<MediaWriteResult> WriteAsync(string storageKey, Stream content, CancellationToken cancellationToken)
+        { WrittenKey = storageKey; using var sink = new MemoryStream(); await content.CopyToAsync(sink, cancellationToken); return new MediaWriteResult(sink.Length, new string('a', 64)); }
         public Task DeleteAsync(string storageKey, CancellationToken cancellationToken) { Deleted = true; return Task.CompletedTask; }
         public Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken) => Task.FromResult(true);
         public Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken) => Task.FromResult<Stream>(new MemoryStream());
@@ -182,20 +220,31 @@ public sealed class VideoImportServiceTests
 
     private sealed class FakeMetadataReader : IVideoMetadataReader
     {
-        public VideoMetadata Value { get; set; } = new(1_000, 160, 90, 25, 1, "h264");
+        public VideoMetadata Value { get; set; } = new(1_000, 160, 90, 25, 1, "h264", "mp4");
         public Exception? Exception { get; set; }
         public Task<VideoMetadata> ReadAsync(string storageKey, CancellationToken cancellationToken) =>
             Exception is null ? Task.FromResult(Value) : Task.FromException<VideoMetadata>(Exception);
     }
 
+    private sealed class TestTimeZones : ITimeZoneService
+    {
+        public TimeZoneInfo GetTimeZone(string id) => TimeZoneInfo.FindSystemTimeZoneById(id);
+        public DateTimeOffset ConvertLocalToUtc(DateTime value, string id) => new(TimeZoneInfo.ConvertTimeToUtc(value, GetTimeZone(id)), TimeSpan.Zero);
+        public DateTimeOffset ConvertUtcToZone(DateTimeOffset value, string id) => TimeZoneInfo.ConvertTime(value, GetTimeZone(id));
+        public bool IsAmbiguous(DateTime value, string id) => GetTimeZone(id).IsAmbiguousTime(value);
+        public bool IsInvalid(DateTime value, string id) => GetTimeZone(id).IsInvalidTime(value);
+        public TimeSpan GetUtcOffset(DateTime value, string id) => GetTimeZone(id).GetUtcOffset(value);
+    }
+
     private sealed class FakeCatalog : IVideoCatalog
     {
+        public bool Added { get; private set; }
         public VideoAsset? Duplicate { get; set; }
         public Exception? SaveException { get; set; }
         public Task<VideoAsset?> GetAsync(Guid id, CancellationToken cancellationToken) => Task.FromResult<VideoAsset?>(null);
         public Task<IReadOnlyList<VideoAsset>> ListAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<VideoAsset>>([]);
         public Task<VideoAsset?> FindSourceVideoBySha256Async(string sha256, CancellationToken cancellationToken) => Task.FromResult(Duplicate);
-        public Task AddAsync(Artifact artifact, VideoAsset video, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task AddAsync(Artifact artifact, VideoAsset video, CancellationToken cancellationToken) { Added = true; return Task.CompletedTask; }
         public Task SaveChangesAsync(CancellationToken cancellationToken) => SaveException is null ? Task.CompletedTask : Task.FromException(SaveException);
     }
 }
