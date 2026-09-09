@@ -17,6 +17,10 @@ from pydantic import (
 
 _WORKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", re.ASCII)
 _FAILURE_CODE_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}", re.ASCII)
+_CANONICAL_UTC_PATTERN = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z",
+    re.ASCII,
+)
 
 
 def _snake_to_camel(name: str) -> str:
@@ -26,8 +30,8 @@ def _snake_to_camel(name: str) -> str:
 
 def _canonical_utc_wire(value: object, info: ValidationInfo) -> object:
     if info.mode == "json":
-        if not isinstance(value, str) or not value.endswith("Z"):
-            raise ValueError("worker contract timestamp must use canonical UTC Z syntax")
+        if not isinstance(value, str) or _CANONICAL_UTC_PATTERN.fullmatch(value) is None:
+            raise ValueError("worker contract timestamp must use canonical RFC3339 UTC Z syntax")
         try:
             return datetime.fromisoformat(value)
         except ValueError as exc:
