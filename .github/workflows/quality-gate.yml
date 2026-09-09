@@ -63,7 +63,8 @@ jobs:
             ffmpeg -version | head -n 1
             exit 0
           fi
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.list.save
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
+          sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
           sudo apt-get update -o Acquire::Retries=3
           sudo apt-get install -y ffmpeg
 
