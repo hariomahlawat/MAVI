@@ -2,6 +2,7 @@ namespace Mavi.Application.Abstractions.Time;
 
 public interface ITimeZoneService
 {
+    bool IsValidIanaTimeZoneId(string? timeZoneId);
     TimeZoneInfo GetTimeZone(string timeZoneId);
     DateTimeOffset ConvertLocalToUtc(DateTime localDateTime, string timeZoneId);
     DateTimeOffset ConvertUtcToZone(DateTimeOffset utcInstant, string timeZoneId);

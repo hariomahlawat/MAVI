@@ -2,6 +2,9 @@ export type InstantInput = string | Date;
 
 // Input validation
 function parseInstant(value: InstantInput): Date {
+  if (typeof value === 'string' && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    throw new RangeError('Absolute timestamp must include an explicit UTC or numeric offset.');
+  }
   const instant = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   if (Number.isNaN(instant.getTime())) throw new RangeError('Invalid absolute timestamp.');
   return instant;

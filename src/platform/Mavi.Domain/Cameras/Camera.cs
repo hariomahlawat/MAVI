@@ -7,10 +7,10 @@ public sealed class Camera
     // Construction
     private Camera() { }
 
-    public static Camera Create(string code, string name, string timeZoneId) =>
+    public static Camera Create(string? code, string? name, string? timeZoneId) =>
         Create(code, name, timeZoneId, DateTimeOffset.UtcNow);
 
-    public static Camera Create(string code, string name, string timeZoneId, DateTimeOffset createdAtUtc)
+    public static Camera Create(string? code, string? name, string? timeZoneId, DateTimeOffset createdAtUtc)
     {
         var normalizedCode = Required(code, 32, "camera_code_required", "camera_code_too_long").ToUpperInvariant();
         var normalizedName = Required(name, 128, "camera_name_required", "camera_name_too_long");
@@ -41,7 +41,7 @@ public sealed class Camera
     public DateTimeOffset UpdatedAtUtc { get; private set; }
 
     // Validation
-    private static string Required(string value, int maximumLength, string requiredCode, string lengthCode)
+    private static string Required(string? value, int maximumLength, string requiredCode, string lengthCode)
     {
         if (string.IsNullOrWhiteSpace(value))
         {

@@ -6,6 +6,7 @@ using Mavi.Infrastructure.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Mavi.Application.Modules.Intelligence;
 
 namespace Mavi.IntegrationTests;
 
@@ -21,6 +22,7 @@ public sealed class ConfigurationValidationTests
         Assert.NotNull(provider.GetRequiredService<IOptions<MediaProcessingOptions>>().Value);
         Assert.NotNull(provider.GetRequiredService<IOptions<VideoImportOptions>>().Value);
         Assert.Equal("Asia/Kolkata", provider.GetRequiredService<IOptions<LocalizationOptions>>().Value.DefaultDisplayTimeZoneId);
+        Assert.Equal(3, provider.GetRequiredService<IOptions<VisionProcessingOptions>>().Value.MaximumAttempts);
     }
 
     // Invalid configuration
@@ -32,6 +34,13 @@ public sealed class ConfigurationValidationTests
     [InlineData("VideoImport:MaximumFileSizeBytes", "0")]
     [InlineData("VideoImport:MultipartOverheadBytes", "0")]
     [InlineData("Localization:DefaultDisplayTimeZoneId", "Invalid/Mavi")]
+    [InlineData("Localization:DefaultDisplayTimeZoneId", "India Standard Time")]
+    [InlineData("Localization:DefaultDisplayTimeZoneId", "")]
+    [InlineData("VisionProcessing:Pipeline", "")]
+    [InlineData("VisionProcessing:PipelineVersion", "")]
+    [InlineData("VisionProcessing:MaximumAttempts", "0")]
+    [InlineData("VisionProcessing:LeaseSeconds", "0")]
+    [InlineData("VisionProcessing:HeartbeatExtensionSeconds", "0")]
     public void InvalidConfigurationIsRejected(string key, string value)
     {
         using var provider = BuildProvider(new Dictionary<string, string?> { [key] = value });
@@ -42,6 +51,7 @@ public sealed class ConfigurationValidationTests
             _ = provider.GetRequiredService<IOptions<MediaProcessingOptions>>().Value;
             _ = provider.GetRequiredService<IOptions<VideoImportOptions>>().Value;
             _ = provider.GetRequiredService<IOptions<LocalizationOptions>>().Value;
+            _ = provider.GetRequiredService<IOptions<VisionProcessingOptions>>().Value;
         });
     }
 
@@ -77,6 +87,11 @@ public sealed class ConfigurationValidationTests
             ["VideoImport:MultipartOverheadBytes"] = "1048576",
             ["VideoImport:AllowedExtensions:0"] = ".mp4",
             ["Localization:DefaultDisplayTimeZoneId"] = "Asia/Kolkata",
+            ["VisionProcessing:Pipeline"] = "phase1-detection-tracking",
+            ["VisionProcessing:PipelineVersion"] = "phase1-v1",
+            ["VisionProcessing:MaximumAttempts"] = "3",
+            ["VisionProcessing:LeaseSeconds"] = "120",
+            ["VisionProcessing:HeartbeatExtensionSeconds"] = "120",
         };
         if (overrides is not null)
         {

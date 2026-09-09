@@ -1049,7 +1049,17 @@ git commit -m "feat: add managed mp4 ingestion"
 
 ---
 
+## Post-merge corrective checkpoint (completed before Task 7)
+
+- New camera and localization writes use one IANA-only policy; `UTC` is valid despite being slashless and Windows identifiers are rejected.
+- A narrow pre-release exception repairs `PreserveRecordingTimeProvenance` itself using a deterministic committed Windows-to-IANA table. Unknown legacy zones fail actionably rather than defaulting or corrupting evidence provenance.
+- Frontend instant parsing requires an explicit `Z` or numeric offset and never infers browser-local time.
+- Phase-1 MP4 validation combines ffprobe `format_name` with `major_brand`, rejecting QuickTime and clear 3GP/3G2 brands even when renamed.
+
 ## Task 7: Define Worker Transport Contracts and Job Leasing
+
+**Implemented orchestration decisions:** `VisionProcessingOptions` owns bounded attempt, lease, heartbeat, pipeline, and version policy. PostgreSQL removes the static attempt ceiling, enforces one active run with a partial unique index, and leasing uses a single transaction with `FOR UPDATE SKIP LOCKED`. Exact expiry is `LeaseExpiresAtUtc <= nowUtc`; heartbeats are monotonic and extend from current `TimeProvider` UTC. Reassignment changes the worker while preserving the original `StartedAtUtc`, and exhausted attempts atomically fail job, run, and video. Worker leases expose only logical `SourceStorageKey` plus evidence metadata. Successful result acceptance and persistence remain explicitly deferred.
+
 
 **Files:**
 - Replace/expand: `src/platform/Mavi.Contracts/Worker/WorkerContracts.cs`

@@ -3,7 +3,7 @@ using Mavi.Application.Abstractions.Time;
 
 namespace Mavi.Application.Modules.Cameras;
 
-public sealed record CreateCameraCommand(string Code, string Name, string TimeZoneId);
+public sealed record CreateCameraCommand(string? Code, string? Name, string? TimeZoneId);
 
 public sealed record CameraOperationResult(bool IsSuccess, Camera? Camera, string? ErrorCode)
 {
@@ -24,9 +24,12 @@ public sealed class CameraService(ICameraRepository repository, ITimeZoneService
         CreateCameraCommand command,
         CancellationToken cancellationToken)
     {
-        try { _ = timeZones.GetTimeZone(command.TimeZoneId); }
-        catch (MaviTimeZoneException)
-        { throw new Mavi.Domain.Common.DomainValidationException("camera_timezone_invalid", "The camera time zone is not recognized."); }
+        if (string.IsNullOrWhiteSpace(command.TimeZoneId))
+            throw new Mavi.Domain.Common.DomainValidationException("camera_timezone_required", "The camera time zone is required.");
+        if (command.TimeZoneId.Trim().Length > 64)
+            throw new Mavi.Domain.Common.DomainValidationException("camera_timezone_too_long", "The camera time zone must not exceed 64 characters.");
+        if (!timeZones.IsValidIanaTimeZoneId(command.TimeZoneId))
+            throw new Mavi.Domain.Common.DomainValidationException("camera_timezone_invalid", "The camera time zone must be a recognized IANA identifier.");
         var camera = Camera.Create(command.Code, command.Name, command.TimeZoneId, timeProvider.GetUtcNow());
         if (await repository.GetByCodeAsync(camera.Code, cancellationToken) is not null)
         {

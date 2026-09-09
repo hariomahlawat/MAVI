@@ -105,8 +105,7 @@ public sealed class VideoImportService(
             {
                 return VideoImportResult.Failure(VideoImportErrorCodes.MetadataInvalid);
             }
-            if (!metadata.FormatName.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                    .Contains("mp4", StringComparer.OrdinalIgnoreCase))
+            if (!PhaseOneMp4ContainerPolicy.IsSupported(metadata))
                 return VideoImportResult.Failure(VideoImportErrorCodes.ContainerUnsupported);
 
             if (await catalog.FindSourceVideoBySha256Async(write.Sha256, cancellationToken) is not null)
@@ -157,5 +156,19 @@ public sealed class VideoImportService(
         fileName = segments[^1].Trim();
         return fileName.Length is > 0 and <= 255 && fileName is not "." and not ".." &&
             !fileName.Any(char.IsControl);
+    }
+}
+
+internal static class PhaseOneMp4ContainerPolicy
+{
+    // Container identity is derived from both the demuxer and authoritative ISO base-media brand.
+    public static bool IsSupported(VideoMetadata metadata)
+    {
+        var formats = metadata.FormatName.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (!formats.Contains("mp4", StringComparer.OrdinalIgnoreCase)) return false;
+        var brand = metadata.MajorBrand?.Trim().TrimEnd('\0').ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(brand)) return false;
+        return brand != "qt" && !brand.StartsWith("3gp", StringComparison.Ordinal) &&
+            !brand.StartsWith("3g2", StringComparison.Ordinal);
     }
 }

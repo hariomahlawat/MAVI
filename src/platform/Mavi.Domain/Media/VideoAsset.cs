@@ -135,4 +135,26 @@ public sealed class VideoAsset
     public double TimestampConfidence { get; private set; }
     public VideoProcessingStatus ProcessingStatus { get; private set; }
     public DateTimeOffset ImportedAtUtc { get; private set; }
+
+    // Processing lifecycle
+    public void QueueProcessing()
+    {
+        if (ProcessingStatus is VideoProcessingStatus.Queued or VideoProcessingStatus.Processing)
+            throw new DomainValidationException("processing_already_active", "Video processing is already active.");
+        ProcessingStatus = VideoProcessingStatus.Queued;
+    }
+
+    public void MarkProcessing()
+    {
+        if (ProcessingStatus != VideoProcessingStatus.Queued)
+            throw new DomainValidationException("video_processing_transition_invalid", "Video is not queued.");
+        ProcessingStatus = VideoProcessingStatus.Processing;
+    }
+
+    public void MarkProcessingFailed()
+    {
+        if (ProcessingStatus is not (VideoProcessingStatus.Queued or VideoProcessingStatus.Processing))
+            throw new DomainValidationException("video_processing_transition_invalid", "Video processing is not active.");
+        ProcessingStatus = VideoProcessingStatus.Failed;
+    }
 }

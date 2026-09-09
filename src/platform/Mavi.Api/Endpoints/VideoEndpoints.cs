@@ -4,6 +4,8 @@ using Mavi.Domain.Common;
 using Mavi.Domain.Media;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Mavi.Application.Modules.Intelligence;
+using Mavi.Contracts.Api.Processing;
 
 namespace Mavi.Api.Endpoints;
 
@@ -16,6 +18,8 @@ public static class VideoEndpoints
         videos.MapPost("/import", ImportAsync).DisableAntiforgery();
         videos.MapGet("/", ListAsync);
         videos.MapGet("/{id:guid}", GetAsync).WithName("GetVideo");
+        videos.MapPost("/{id:guid}/process", ProcessAsync);
+        videos.MapGet("/{id:guid}/processing", ProcessingAsync);
         return endpoints;
     }
 
@@ -48,6 +52,22 @@ public static class VideoEndpoints
     }
 
     // Queries
+    private static async Task<IResult> ProcessAsync(Guid id, IProcessingOrchestrator orchestrator, CancellationToken cancellationToken)
+    {
+        var result = await orchestrator.QueueAsync(id, cancellationToken);
+        if (result.IsSuccess) return Results.Accepted($"/api/videos/{id}/processing", new QueueProcessingResponse(result.ProcessingRunId!.Value));
+        return result.ErrorCode == "video_not_found"
+            ? Problem(404, result.ErrorCode, "Video was not found.")
+            : Problem(409, result.ErrorCode!, "Video processing is already active.");
+    }
+
+    private static async Task<IResult> ProcessingAsync(Guid id, IProcessingOrchestrator orchestrator, CancellationToken cancellationToken)
+    {
+        var result = await orchestrator.GetStatusAsync(id, cancellationToken);
+        return result.Found ? Results.Ok(new { videoStatus = result.VideoStatus, latestRun = result.LatestRun })
+            : Problem(404, "video_not_found", "Video was not found.");
+    }
+
     private static async Task<IResult> GetAsync(Guid id, IVideoCatalog catalog, CancellationToken cancellationToken)
     {
         var video = await catalog.GetAsync(id, cancellationToken);
