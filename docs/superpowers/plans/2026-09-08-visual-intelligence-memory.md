@@ -825,16 +825,23 @@ public interface IMediaStore
     Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken);
     Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken);
     Task DeleteAsync(string storageKey, CancellationToken cancellationToken);
-    string GetLocalPath(string storageKey);
 }
 ```
 
 ```csharp
 public interface IVideoMetadataReader
 {
-    Task<VideoMetadata> ReadAsync(string localPath, CancellationToken cancellationToken);
+    Task<VideoMetadata> ReadAsync(string storageKey, CancellationToken cancellationToken);
 }
 ```
+
+**Accepted Task-5 implementation refinement:** Application and API contracts remain storage-key based.
+`IMediaStore` does not expose `GetLocalPath`, and `IVideoMetadataReader` receives a logical `storageKey`,
+not a physical local path. Physical-path resolution is an Infrastructure-only implementation detail
+shared internally by `LocalMediaStore` and `FfprobeVideoMetadataReader`. `LocalMediaStore` promotes a
+uniquely named temporary sibling with an atomic move, keeping temporary and final files on the same
+filesystem without creating a second full-size copy. This refinement preserves the approved Phase-1
+scope and storage abstraction.
 
 - [ ] **Step 1: Write failing LocalMediaStore path traversal test**
 
@@ -844,12 +851,13 @@ public interface IVideoMetadataReader
 [InlineData("/root/file.mp4")]
 [InlineData("C:\\secret.mp4")]
 [InlineData("source\\bad.mp4")]
-public void GetLocalPathRejectsUnsafeStorageKeys(string key)
+public async Task StorageOperationsRejectUnsafeStorageKeys(string key)
 {
     using var temp = new TemporaryDirectory();
     var store = new LocalMediaStore(temp.Path);
 
-    Assert.ThrowsAny<Exception>(() => store.GetLocalPath(key));
+    await Assert.ThrowsAnyAsync<Exception>(() =>
+        store.ExistsAsync(key, CancellationToken.None));
 }
 ```
 
@@ -870,7 +878,7 @@ ffmpeg -y -f lavfi -i "testsrc=size=640x360:rate=25" -t 2 -pix_fmt yuv420p test.
 Test assertion:
 
 ```csharp
-var metadata = await reader.ReadAsync(path, CancellationToken.None);
+var metadata = await reader.ReadAsync("source/test.mp4", CancellationToken.None);
 Assert.InRange(metadata.DurationMs, 1_900, 2_100);
 Assert.Equal(640, metadata.Width);
 Assert.Equal(360, metadata.Height);

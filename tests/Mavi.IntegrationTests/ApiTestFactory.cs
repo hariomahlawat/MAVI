@@ -11,6 +11,8 @@ namespace Mavi.IntegrationTests;
 
 public sealed class ApiTestFactory : WebApplicationFactory<Program>
 {
+    private readonly string _mediaRoot = Path.Combine(Path.GetTempPath(), $"mavi-api-media-{Guid.NewGuid():N}");
+
     // Configuration
     public ApiTestFactory()
     {
@@ -31,6 +33,8 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Mavi"] = ConnectionString,
+                ["MediaStorage:RootPath"] = _mediaRoot,
+                ["MediaProcessing:FfprobePath"] = "ffprobe",
             });
         });
         builder.ConfigureServices(services =>
@@ -39,6 +43,12 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
             services.AddDbContext<MaviDbContext>(options =>
                 options.UseNpgsql(ConnectionString, npgsql => npgsql.UseVector()));
         });
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing && Directory.Exists(_mediaRoot)) Directory.Delete(_mediaRoot, true);
     }
 
     // Database lifecycle

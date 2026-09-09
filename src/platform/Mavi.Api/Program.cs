@@ -1,3 +1,4 @@
+using Mavi.Api.Endpoints;
 using Mavi.Application.Health;
 using Mavi.Infrastructure;
 
@@ -14,6 +15,7 @@ app.MapGet("/api/health", () =>
 });
 
 app.MapHealthChecks("/health/live");
+app.MapCameraEndpoints();
 
 app.Run();
 
