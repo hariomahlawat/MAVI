@@ -27,6 +27,19 @@ public sealed class ProcessingRun
         Status = ProcessingRunStatus.Running; WorkerId = workerId.Trim(); StartedAtUtc = startedAtUtc.ToUniversalTime();
     }
 
+    public void AssignLease(string workerId, DateTimeOffset nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(workerId) || workerId.Trim().Length > 128 ||
+            Status is ProcessingRunStatus.Completed or ProcessingRunStatus.Failed or ProcessingRunStatus.Cancelled)
+            throw Invalid("processing_transition_invalid");
+        if (Status == ProcessingRunStatus.Queued)
+        {
+            Status = ProcessingRunStatus.Running;
+            StartedAtUtc = nowUtc.ToUniversalTime();
+        }
+        WorkerId = workerId.Trim();
+    }
+
     public void MarkCompleted(long framesProcessed, int tracksCreated, long durationMs, DateTimeOffset completedAtUtc)
     {
         if (Status != ProcessingRunStatus.Running || framesProcessed < 0 || tracksCreated < 0 || durationMs < 0) throw Invalid("processing_transition_invalid");
@@ -34,10 +47,10 @@ public sealed class ProcessingRun
         ProcessingDurationMs = durationMs; CompletedAtUtc = completedAtUtc.ToUniversalTime();
     }
 
-    public void MarkFailed(string errorCode, string details, DateTimeOffset failedAtUtc)
+    public void MarkFailed(string errorCode, string? details, DateTimeOffset failedAtUtc)
     {
         if (Status is ProcessingRunStatus.Completed or ProcessingRunStatus.Cancelled || string.IsNullOrWhiteSpace(errorCode)) throw Invalid("processing_transition_invalid");
-        if (errorCode.Length > 64 || details.Length > 4000) throw Invalid("processing_failure_invalid");
+        if (errorCode.Length > 64 || details?.Length > 4000) throw Invalid("processing_failure_invalid");
         Status = ProcessingRunStatus.Failed; ErrorCode = errorCode; ErrorDetails = details;
         CompletedAtUtc = failedAtUtc.ToUniversalTime();
     }

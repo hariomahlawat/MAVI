@@ -8,6 +8,19 @@ public sealed class SystemTimeZoneServiceTests
     private readonly SystemTimeZoneService _service = new();
 
     // Deterministic conversion matrix
+    [Theory]
+    [InlineData("Asia/Kolkata", true)]
+    [InlineData("America/New_York", true)]
+    [InlineData("Europe/London", true)]
+    [InlineData("UTC", true)]
+    [InlineData("India Standard Time", false)]
+    [InlineData("Eastern Standard Time", false)]
+    [InlineData("Pacific Standard Time", false)]
+    [InlineData("", false)]
+    [InlineData("unknown-invalid-zone", false)]
+    public void ValidatesOnlyPortableIanaIdentifiers(string id, bool expected) =>
+        Assert.Equal(expected, _service.IsValidIanaTimeZoneId(id));
+
     [Fact]
     public void ConvertsKolkataLocalToUtcAndReturnsActualOffset()
     {

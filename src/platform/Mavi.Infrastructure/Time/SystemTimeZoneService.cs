@@ -4,9 +4,22 @@ namespace Mavi.Infrastructure.Time;
 
 public sealed class SystemTimeZoneService : ITimeZoneService
 {
+    // Portable identifier policy
+    public bool IsValidIanaTimeZoneId(string? timeZoneId)
+    {
+        if (string.IsNullOrWhiteSpace(timeZoneId)) return false;
+        var normalized = timeZoneId.Trim();
+        if (string.Equals(normalized, "UTC", StringComparison.Ordinal)) return true;
+        if (!TimeZoneInfo.TryConvertIanaIdToWindowsId(normalized, out _)) return false;
+        try { _ = TimeZoneInfo.FindSystemTimeZoneById(normalized); return true; }
+        catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException) { return false; }
+    }
+
     // Zone resolution
     public TimeZoneInfo GetTimeZone(string timeZoneId)
     {
+        if (!IsValidIanaTimeZoneId(timeZoneId))
+            throw new MaviTimeZoneException("timezone_invalid", "The time zone must be a recognized IANA identifier.");
         try { return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId); }
         catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
         { throw new MaviTimeZoneException("timezone_invalid", "The time zone is not recognized.", exception); }

@@ -76,6 +76,7 @@ public sealed class CameraServiceTests
 
 internal sealed class TestTimeZones : ITimeZoneService
 {
+    public bool IsValidIanaTimeZoneId(string? id) => !string.IsNullOrWhiteSpace(id) && (id == "UTC" || TimeZoneInfo.TryConvertIanaIdToWindowsId(id, out _));
     public TimeZoneInfo GetTimeZone(string id) => TimeZoneInfo.FindSystemTimeZoneById(id);
     public DateTimeOffset ConvertLocalToUtc(DateTime value, string id) => new(TimeZoneInfo.ConvertTimeToUtc(value, GetTimeZone(id)), TimeSpan.Zero);
     public DateTimeOffset ConvertUtcToZone(DateTimeOffset value, string id) => TimeZoneInfo.ConvertTime(value, GetTimeZone(id));

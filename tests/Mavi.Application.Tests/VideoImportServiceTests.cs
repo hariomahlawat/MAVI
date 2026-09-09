@@ -134,7 +134,7 @@ public sealed class VideoImportServiceTests
     public async Task MetadataPopulatesVideoAndVideoIdExistsBeforeStorageWrite()
     {
         var context = CreateContext();
-        context.Metadata.Value = new VideoMetadata(2_500, 640, 360, 30000, 1001, "h264", "mov,mp4,m4a,3gp,3g2,mj2");
+        context.Metadata.Value = new VideoMetadata(2_500, 640, 360, 30000, 1001, "h264", "mov,mp4,m4a,3gp,3g2,mj2", "isom");
 
         var result = await context.Service.ImportAsync(Command(context.Camera), CancellationToken.None);
 
@@ -220,7 +220,7 @@ public sealed class VideoImportServiceTests
 
     private sealed class FakeMetadataReader : IVideoMetadataReader
     {
-        public VideoMetadata Value { get; set; } = new(1_000, 160, 90, 25, 1, "h264", "mp4");
+        public VideoMetadata Value { get; set; } = new(1_000, 160, 90, 25, 1, "h264", "mp4", "isom");
         public Exception? Exception { get; set; }
         public Task<VideoMetadata> ReadAsync(string storageKey, CancellationToken cancellationToken) =>
             Exception is null ? Task.FromResult(Value) : Task.FromException<VideoMetadata>(Exception);
@@ -228,7 +228,8 @@ public sealed class VideoImportServiceTests
 
     private sealed class TestTimeZones : ITimeZoneService
     {
-        public TimeZoneInfo GetTimeZone(string id) => TimeZoneInfo.FindSystemTimeZoneById(id);
+        public bool IsValidIanaTimeZoneId(string? id) => !string.IsNullOrWhiteSpace(id) && (id == "UTC" || TimeZoneInfo.TryConvertIanaIdToWindowsId(id, out _));
+    public TimeZoneInfo GetTimeZone(string id) => TimeZoneInfo.FindSystemTimeZoneById(id);
         public DateTimeOffset ConvertLocalToUtc(DateTime value, string id) => new(TimeZoneInfo.ConvertTimeToUtc(value, GetTimeZone(id)), TimeSpan.Zero);
         public DateTimeOffset ConvertUtcToZone(DateTimeOffset value, string id) => TimeZoneInfo.ConvertTime(value, GetTimeZone(id));
         public bool IsAmbiguous(DateTime value, string id) => GetTimeZone(id).IsAmbiguousTime(value);

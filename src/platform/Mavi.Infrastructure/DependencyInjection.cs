@@ -3,6 +3,7 @@ using Mavi.Application.Abstractions.Time;
 using Mavi.Application;
 using Mavi.Application.Modules.Cameras;
 using Mavi.Application.Modules.Media;
+using Mavi.Application.Modules.Intelligence;
 using Mavi.Infrastructure.Media;
 using Mavi.Infrastructure.Persistence;
 using Mavi.Infrastructure.Persistence.Repositories;
@@ -32,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<CameraService>();
         services.AddScoped<IVideoCatalog, VideoCatalog>();
         services.AddScoped<VideoImportService>();
+        services.AddScoped<IProcessingOrchestrator, ProcessingOrchestrator>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ITimeZoneService, SystemTimeZoneService>();
 
@@ -56,11 +58,21 @@ public static class DependencyInjection
                 options.AllowedExtensions.All(IsValidExtension),
                 "VideoImport:AllowedExtensions must contain normalized extensions such as '.mp4'.")
             .ValidateOnStart();
+        services.AddOptions<VisionProcessingOptions>()
+            .Bind(configuration.GetSection(VisionProcessingOptions.SectionName))
+            .Validate(x => !string.IsNullOrWhiteSpace(x.Pipeline) && x.Pipeline.Length <= 64,
+                "VisionProcessing:Pipeline is required and limited to 64 characters.")
+            .Validate(x => !string.IsNullOrWhiteSpace(x.PipelineVersion) && x.PipelineVersion.Length <= 64,
+                "VisionProcessing:PipelineVersion is required and limited to 64 characters.")
+            .Validate(x => x.MaximumAttempts is >= 1 and <= 100, "VisionProcessing:MaximumAttempts must be between 1 and 100.")
+            .Validate(x => x.LeaseSeconds is >= 1 and <= 86400, "VisionProcessing:LeaseSeconds must be between 1 and 86400.")
+            .Validate(x => x.HeartbeatExtensionSeconds is >= 1 and <= 86400,
+                "VisionProcessing:HeartbeatExtensionSeconds must be between 1 and 86400.")
+            .ValidateOnStart();
         services.AddOptions<LocalizationOptions>()
             .Bind(configuration.GetSection(LocalizationOptions.SectionName))
-            .Validate(options => IsResolvableTimeZone(options.DefaultDisplayTimeZoneId),
-                "Localization:DefaultDisplayTimeZoneId must be a resolvable IANA timezone ID.")
             .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<LocalizationOptions>, LocalizationOptionsValidator>();
         services.AddSingleton<LocalMediaStore>();
         services.AddSingleton<IMediaStore>(provider => provider.GetRequiredService<LocalMediaStore>());
         services.AddSingleton<ILocalMediaPathResolver>(provider => provider.GetRequiredService<LocalMediaStore>());
@@ -74,9 +86,12 @@ public static class DependencyInjection
         string.Equals(extension, extension.ToLowerInvariant(), StringComparison.Ordinal) &&
         extension.IndexOfAny(['/', '\\']) < 0;
 
-    private static bool IsResolvableTimeZone(string timeZoneId)
-    {
-        try { _ = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId); return timeZoneId.Contains('/'); }
-        catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException) { return false; }
-    }
+}
+
+internal sealed class LocalizationOptionsValidator(ITimeZoneService timeZones) : IValidateOptions<LocalizationOptions>
+{
+    public ValidateOptionsResult Validate(string? name, LocalizationOptions options) =>
+        timeZones.IsValidIanaTimeZoneId(options.DefaultDisplayTimeZoneId)
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail("Localization:DefaultDisplayTimeZoneId must be a recognized IANA timezone ID.");
 }

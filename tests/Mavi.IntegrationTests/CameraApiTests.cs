@@ -62,6 +62,21 @@ public sealed class CameraApiTests(PostgresFixture database)
         Assert.Equal("camera_timezone_invalid", await ReadProblemCodeAsync(response));
     }
 
+    [Theory]
+    [InlineData(null, "camera_timezone_required")]
+    [InlineData("", "camera_timezone_required")]
+    [InlineData("   ", "camera_timezone_required")]
+    [InlineData("India Standard Time", "camera_timezone_invalid")]
+    public async Task UntrustedTimezoneInputReturnsControlledValidation(string? timeZoneId, string code)
+    {
+        using var factory = await CreateFactoryAsync();
+        using var client = factory.CreateClient();
+        using var response = await client.PostAsJsonAsync("/api/cameras", new CreateCameraRequest("CAM-TZ", "Timezone", timeZoneId));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(code, await ReadProblemCodeAsync(response));
+    }
+
+
     [Fact]
     public async Task MissingCameraReturnsNotFoundCode()
     {

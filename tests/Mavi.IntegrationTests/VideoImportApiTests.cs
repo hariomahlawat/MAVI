@@ -82,6 +82,28 @@ public sealed class VideoImportApiTests(PostgresFixture database)
     }
 
     [Fact]
+    public async Task RenamedQuickTimeContainerIsRejectedWithoutOrphans()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        using var client = factory.CreateClient();
+        var camera = await CreateCameraAsync(client);
+        var sourcePath = await GenerateVideoAsync(".mov");
+        try
+        {
+            using var response = await ImportAsync(client, camera.Id, sourcePath, "renamed.mp4");
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("video_container_unsupported", await ReadCodeAsync(response));
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+            Assert.Empty(await db.VideoAssets.ToArrayAsync());
+            Assert.Empty(await db.Artifacts.ToArrayAsync());
+            Assert.Empty(Directory.GetFiles(factory.MediaRoot, "*", SearchOption.AllDirectories));
+        }
+        finally { File.Delete(sourcePath); }
+    }
+
+    [Fact]
     public async Task VideoListIsDeterministicAndExposesOnlyOperatorDto()
     {
         using var factory = new ApiTestFactory();
