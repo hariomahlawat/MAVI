@@ -39,17 +39,24 @@ public sealed class WorkerContractV2Tests
         Assert.Equal(expected, WorkerContractRules.IsLogicalStorageKey(value));
 
     [Fact]
-    public async Task WorkerRequestsRejectV1MissingVersionAndUnknownMembers()
+    public async Task WorkerRequestsRejectVersionDriftUnknownMembersAndNonCanonicalPropertyCasing()
     {
         using var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
         using var client = factory.CreateClient();
-        foreach (var json in new[] {
-            "{\"schemaVersion\":\"1.0\",\"workerId\":\"worker-a\"}",
-            "{\"workerId\":\"worker-a\"}",
-            "{\"schemaVersion\":\"2.0\",\"workerId\":\"worker-a\",\"unknown\":true}" })
+        foreach (var json in new[]
+                 {
+                     "{\"schemaVersion\":\"1.0\",\"workerId\":\"worker-a\"}",
+                     "{\"workerId\":\"worker-a\"}",
+                     "{\"schemaVersion\":\"2.0\",\"workerId\":\"worker-a\",\"unknown\":true}",
+                     "{\"SchemaVersion\":\"2.0\",\"WorkerId\":\"worker-a\"}",
+                     "{\"schemaVersion\":\"2.0\",\"WorkerID\":\"worker-a\"}",
+                     "{\"SCHEMAVERSION\":\"2.0\",\"workerId\":\"worker-a\"}"
+                 })
         {
-            using var response = await client.PostAsync("/api/vision/jobs/lease", new StringContent(json, Encoding.UTF8, "application/json"));
+            using var response = await client.PostAsync(
+                "/api/vision/jobs/lease",
+                new StringContent(json, Encoding.UTF8, "application/json"));
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
     }
