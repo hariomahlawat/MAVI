@@ -175,11 +175,18 @@ def test_timestamp_wire_json_requires_canonical_utc_z(
         canonical[timestamp_name] = "2026-09-09T03:00:00Z"
     model.model_validate_json(json.dumps(canonical))
 
+    invalid_timestamps = (
+        "2026-09-09T03:00:00+00:00",
+        "2026-09-09 03:00:00Z",
+        "2026-09-09T03:00:00",
+        "2026-09-09T03:00:00z",
+    )
     for timestamp_name in timestamp_names:
-        noncanonical = dict(canonical)
-        noncanonical[timestamp_name] = "2026-09-09T03:00:00+00:00"
-        with pytest.raises(ValidationError):
-            model.model_validate_json(json.dumps(noncanonical))
+        for invalid_timestamp in invalid_timestamps:
+            noncanonical = dict(canonical)
+            noncanonical[timestamp_name] = invalid_timestamp
+            with pytest.raises(ValidationError):
+                model.model_validate_json(json.dumps(noncanonical))
 
 
 @pytest.mark.parametrize("include_member,failure_message", [(False, None), (True, None), (True, "diagnostic")])
