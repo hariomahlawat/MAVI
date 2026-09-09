@@ -6,7 +6,8 @@ public sealed record VideoMetadata(
     int Height,
     int FrameRateNumerator,
     int FrameRateDenominator,
-    string CodecName);
+    string CodecName,
+    string FormatName);
 
 public sealed class VideoMetadataException(string message, Exception? innerException = null)
     : Exception(message, innerException);

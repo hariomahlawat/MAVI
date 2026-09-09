@@ -6,6 +6,8 @@ public sealed record VideoAssetResponse(
     string OriginalFileName,
     DateTimeOffset RecordingStartUtc,
     DateTimeOffset RecordingEndUtc,
+    string RecordingTimeZoneId,
+    int RecordingUtcOffsetMinutes,
     long DurationMs,
     int Width,
     int Height,

@@ -1,4 +1,5 @@
 using Mavi.Application.Modules.Cameras;
+using Mavi.Application.Abstractions.Time;
 using Mavi.Domain.Cameras;
 
 namespace Mavi.Application.Tests;
@@ -10,7 +11,7 @@ public sealed class CameraServiceTests
     public async Task CreateRejectsDuplicateNormalizedCameraCode()
     {
         var repository = new FakeCameraRepository(Camera.Create("CAM-0001", "Existing", "UTC"));
-        var service = new CameraService(repository);
+        var service = new CameraService(repository, new TestTimeZones(), TimeProvider.System);
 
         var result = await service.CreateAsync(
             new CreateCameraCommand(" cam-0001 ", "Main Gate", "UTC"),
@@ -26,7 +27,7 @@ public sealed class CameraServiceTests
     public async Task CreateTranslatesPersistenceDuplicateRace()
     {
         var repository = new FakeCameraRepository { ThrowDuplicateOnSave = true };
-        var service = new CameraService(repository);
+        var service = new CameraService(repository, new TestTimeZones(), TimeProvider.System);
 
         var result = await service.CreateAsync(
             new CreateCameraCommand("CAM-0002", "Side Gate", "UTC"),
@@ -71,4 +72,14 @@ public sealed class CameraServiceTests
                 : Task.CompletedTask;
         }
     }
+}
+
+internal sealed class TestTimeZones : ITimeZoneService
+{
+    public TimeZoneInfo GetTimeZone(string id) => TimeZoneInfo.FindSystemTimeZoneById(id);
+    public DateTimeOffset ConvertLocalToUtc(DateTime value, string id) => new(TimeZoneInfo.ConvertTimeToUtc(value, GetTimeZone(id)), TimeSpan.Zero);
+    public DateTimeOffset ConvertUtcToZone(DateTimeOffset value, string id) => TimeZoneInfo.ConvertTime(value, GetTimeZone(id));
+    public bool IsAmbiguous(DateTime value, string id) => GetTimeZone(id).IsAmbiguousTime(value);
+    public bool IsInvalid(DateTime value, string id) => GetTimeZone(id).IsInvalidTime(value);
+    public TimeSpan GetUtcOffset(DateTime value, string id) => GetTimeZone(id).GetUtcOffset(value);
 }

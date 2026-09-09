@@ -172,6 +172,8 @@ The detector and tracker are behind internal interfaces so model/runtime impleme
 
 ## 6. Identifier, Time and Coordinate Policy
 
+The system-wide interpretation and presentation rules in [ADR-004](../../decisions/ADR-004-time-and-timezone-architecture.md) are authoritative. Video evidence snapshots its source timezone identity and actual UTC offset at ingestion; operator display conversion is explicit and deployment-configured.
+
 ### 6.1 Identifiers
 
 All new Phase-1 aggregate and record IDs shall be UUID v7 generated application-side with `.NET Guid.CreateVersion7()` or an equivalent Python UUIDv7 implementation where a transport-only identifier is needed.

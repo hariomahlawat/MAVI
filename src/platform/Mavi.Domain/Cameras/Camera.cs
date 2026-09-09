@@ -7,26 +7,16 @@ public sealed class Camera
     // Construction
     private Camera() { }
 
-    public static Camera Create(string code, string name, string timeZoneId)
+    public static Camera Create(string code, string name, string timeZoneId) =>
+        Create(code, name, timeZoneId, DateTimeOffset.UtcNow);
+
+    public static Camera Create(string code, string name, string timeZoneId, DateTimeOffset createdAtUtc)
     {
         var normalizedCode = Required(code, 32, "camera_code_required", "camera_code_too_long").ToUpperInvariant();
         var normalizedName = Required(name, 128, "camera_name_required", "camera_name_too_long");
         var normalizedTimeZone = Required(timeZoneId, 64, "camera_timezone_required", "camera_timezone_too_long");
 
-        try
-        {
-            _ = TimeZoneInfo.FindSystemTimeZoneById(normalizedTimeZone);
-        }
-        catch (TimeZoneNotFoundException exception)
-        {
-            throw new DomainValidationException("camera_timezone_invalid", "The camera time zone is not recognized.") { Source = exception.Source };
-        }
-        catch (InvalidTimeZoneException exception)
-        {
-            throw new DomainValidationException("camera_timezone_invalid", "The camera time zone is invalid.") { Source = exception.Source };
-        }
-
-        var now = DateTimeOffset.UtcNow;
+        var now = createdAtUtc.ToUniversalTime();
         return new Camera
         {
             Id = Guid.CreateVersion7(),

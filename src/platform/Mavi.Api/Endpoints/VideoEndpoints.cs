@@ -67,12 +67,15 @@ public static class VideoEndpoints
         VideoImportErrorCodes.Duplicate => Problem(409, code, "Video has already been imported."),
         VideoImportErrorCodes.InvalidRecordingTime => Problem(400, code, "Recording time is invalid or ambiguous."),
         VideoImportErrorCodes.FormatUnsupported => Problem(400, code, "Video format is unsupported."),
+        VideoImportErrorCodes.ContainerUnsupported => Problem(400, code, "Video container is unsupported."),
+        VideoImportErrorCodes.FileTooLarge => Problem(400, code, "The uploaded video exceeds the configured limit."),
         VideoImportErrorCodes.InvalidFileName => Problem(400, code, "Video filename is invalid."),
         _ => Problem(400, VideoImportErrorCodes.MetadataInvalid, "Video metadata is invalid."),
     };
 
     private static VideoAssetResponse ToResponse(VideoAsset video) => new(
         video.Id, video.CameraId, video.OriginalFileName, video.RecordingStartUtc, video.RecordingEndUtc,
+        video.RecordingTimeZoneId, video.RecordingUtcOffsetMinutes,
         video.DurationMs, video.Width, video.Height, video.FrameRateNumerator, video.FrameRateDenominator,
         video.Codec, video.ProcessingStatus.ToString(), video.ImportedAtUtc);
 

@@ -10,6 +10,9 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
     private const int MaximumStorageKeyLength = 512;
     private readonly string _rootPath;
     private readonly string _rootPrefix;
+    private readonly StringComparison _pathComparison = OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
 
     // Configuration
     public LocalMediaStore(IOptions<MediaStorageOptions> options)
@@ -131,7 +134,7 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
     {
         ValidateStorageKey(storageKey);
         var resolvedPath = Path.GetFullPath(Path.Combine(_rootPath, storageKey.Replace('/', Path.DirectorySeparatorChar)));
-        if (!resolvedPath.StartsWith(_rootPrefix, StringComparison.Ordinal))
+        if (!resolvedPath.StartsWith(_rootPrefix, _pathComparison))
         {
             throw new ArgumentException("Storage key resolves outside the managed media root.", nameof(storageKey));
         }
@@ -153,14 +156,14 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
     private void EnsureExistingPathDoesNotEscapeRoot(string candidateDirectory)
     {
         var current = new DirectoryInfo(candidateDirectory);
-        while (current.FullName.StartsWith(_rootPrefix, StringComparison.Ordinal) &&
-               !string.Equals(current.FullName, _rootPath, StringComparison.Ordinal))
+        while (current.FullName.StartsWith(_rootPrefix, _pathComparison) &&
+               !string.Equals(current.FullName, _rootPath, _pathComparison))
         {
             if (current.Exists && current.LinkTarget is not null)
             {
                 var target = Path.GetFullPath(current.ResolveLinkTarget(returnFinalTarget: true)!.FullName);
-                if (!target.StartsWith(_rootPrefix, StringComparison.Ordinal) &&
-                    !string.Equals(target, _rootPath, StringComparison.Ordinal))
+                if (!target.StartsWith(_rootPrefix, _pathComparison) &&
+                    !string.Equals(target, _rootPath, _pathComparison))
                 {
                     throw new ArgumentException("Storage key resolves outside the managed media root.", nameof(candidateDirectory));
                 }

@@ -28,6 +28,7 @@ public sealed class FfprobeVideoMetadataReaderTests : IDisposable
         Assert.Equal(25, metadata.FrameRateNumerator);
         Assert.Equal(1, metadata.FrameRateDenominator);
         Assert.False(string.IsNullOrWhiteSpace(metadata.CodecName));
+        Assert.Contains("mp4", metadata.FormatName.Split(','), StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -80,7 +81,7 @@ public sealed class FfprobeVideoMetadataReaderTests : IDisposable
         Directory.CreateDirectory(_root);
         await File.WriteAllTextAsync(Path.Combine(_root, "video.mp4"), "content");
         var executable = await CreateExecutableAsync(
-            "printf '%s' '{\"streams\":[{\"codec_type\":\"video\",\"codec_name\":\"h264\",\"width\":160,\"height\":90,\"avg_frame_rate\":\"25/1\",\"duration\":\"2.5\"}],\"format\":{\"duration\":\"N/A\"}}'");
+            "printf '%s' '{\"streams\":[{\"codec_type\":\"video\",\"codec_name\":\"h264\",\"width\":160,\"height\":90,\"avg_frame_rate\":\"25/1\",\"duration\":\"2.5\"}],\"format\":{\"duration\":\"N/A\",\"format_name\":\"mp4\"}}'");
         var reader = CreateReader(executable);
 
         var metadata = await reader.ReadAsync("video.mp4", CancellationToken.None);

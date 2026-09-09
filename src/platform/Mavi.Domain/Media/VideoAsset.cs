@@ -19,11 +19,14 @@ public sealed class VideoAsset
         int height,
         string? codec,
         TimestampSource timestampSource,
-        double timestampConfidence)
+        double timestampConfidence,
+        string recordingTimeZoneId = "UTC",
+        int recordingUtcOffsetMinutes = 0,
+        DateTimeOffset? importedAtUtc = null)
         => CreateCore(
             Guid.CreateVersion7(), cameraId, sourceArtifactId, originalFileName, recordingStartUtc,
             durationMs, frameRateNumerator, frameRateDenominator, width, height, codec,
-            timestampSource, timestampConfidence);
+            timestampSource, timestampConfidence, recordingTimeZoneId, recordingUtcOffsetMinutes, importedAtUtc);
 
     public static VideoAsset Create(
         Guid id,
@@ -38,11 +41,14 @@ public sealed class VideoAsset
         int height,
         string? codec,
         TimestampSource timestampSource,
-        double timestampConfidence)
+        double timestampConfidence,
+        string recordingTimeZoneId = "UTC",
+        int recordingUtcOffsetMinutes = 0,
+        DateTimeOffset? importedAtUtc = null)
         => CreateCore(
             id, cameraId, sourceArtifactId, originalFileName, recordingStartUtc,
             durationMs, frameRateNumerator, frameRateDenominator, width, height, codec,
-            timestampSource, timestampConfidence);
+            timestampSource, timestampConfidence, recordingTimeZoneId, recordingUtcOffsetMinutes, importedAtUtc);
 
     private static VideoAsset CreateCore(
         Guid id,
@@ -57,7 +63,10 @@ public sealed class VideoAsset
         int height,
         string? codec,
         TimestampSource timestampSource,
-        double timestampConfidence)
+        double timestampConfidence,
+        string recordingTimeZoneId,
+        int recordingUtcOffsetMinutes,
+        DateTimeOffset? importedAtUtc)
     {
         if (id == Guid.Empty || id.Version != 7)
             throw new DomainValidationException("video_id_invalid", "Video asset ID must be a non-empty UUID version 7.");
@@ -75,6 +84,10 @@ public sealed class VideoAsset
             throw new DomainValidationException("video_codec_too_long", "Codec must not exceed 64 characters.");
         if (!double.IsFinite(timestampConfidence) || timestampConfidence is < 0 or > 1)
             throw new DomainValidationException("video_timestamp_confidence_invalid", "Timestamp confidence must be between zero and one.");
+        if (string.IsNullOrWhiteSpace(recordingTimeZoneId) || recordingTimeZoneId.Trim().Length > 64)
+            throw new DomainValidationException("video_recording_timezone_invalid", "Recording timezone is required.");
+        if (recordingUtcOffsetMinutes is < -840 or > 840)
+            throw new DomainValidationException("video_recording_offset_invalid", "Recording UTC offset is outside supported bounds.");
 
         var startUtc = recordingStartUtc.ToUniversalTime();
         return new VideoAsset
@@ -85,6 +98,8 @@ public sealed class VideoAsset
             OriginalFileName = originalFileName.Trim(),
             SourceType = VideoSourceType.UploadedFile,
             RecordingStartUtc = startUtc,
+            RecordingTimeZoneId = recordingTimeZoneId.Trim(),
+            RecordingUtcOffsetMinutes = recordingUtcOffsetMinutes,
             RecordingEndUtc = startUtc.AddMilliseconds(durationMs),
             DurationMs = durationMs,
             FrameRateNumerator = frameRateNumerator,
@@ -95,7 +110,7 @@ public sealed class VideoAsset
             TimestampSource = timestampSource,
             TimestampConfidence = timestampConfidence,
             ProcessingStatus = VideoProcessingStatus.NotQueued,
-            ImportedAtUtc = DateTimeOffset.UtcNow,
+            ImportedAtUtc = (importedAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime(),
         };
     }
 
@@ -107,6 +122,8 @@ public sealed class VideoAsset
     public VideoSourceType SourceType { get; private set; }
     public string? SourceReference { get; private set; }
     public DateTimeOffset RecordingStartUtc { get; private set; }
+    public string RecordingTimeZoneId { get; private set; } = string.Empty;
+    public int RecordingUtcOffsetMinutes { get; private set; }
     public DateTimeOffset RecordingEndUtc { get; private set; }
     public long DurationMs { get; private set; }
     public int FrameRateNumerator { get; private set; }

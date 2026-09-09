@@ -1,4 +1,5 @@
 using Mavi.Application.Abstractions.Storage;
+using Mavi.Application.Abstractions.Time;
 using Mavi.Application.Modules.Cameras;
 using Mavi.Domain.Common;
 using Mavi.Domain.Media;
@@ -28,6 +29,8 @@ public static class VideoImportErrorCodes
     public const string MetadataInvalid = "video_metadata_invalid";
     public const string Duplicate = "video_duplicate";
     public const string InvalidFileName = "video_filename_invalid";
+    public const string FileTooLarge = "video_file_too_large";
+    public const string ContainerUnsupported = "video_container_unsupported";
 }
 
 public sealed class VideoImportService(
@@ -35,6 +38,8 @@ public sealed class VideoImportService(
     IVideoCatalog catalog,
     IMediaStore mediaStore,
     IVideoMetadataReader metadataReader,
+    ITimeZoneService timeZones,
+    TimeProvider timeProvider,
     IOptions<VideoImportOptions> options,
     ILogger<VideoImportService> logger)
 {
@@ -59,11 +64,20 @@ public sealed class VideoImportService(
         if (command.RecordingStartLocal.Kind != DateTimeKind.Unspecified)
             return VideoImportResult.Failure(VideoImportErrorCodes.InvalidRecordingTime);
 
-        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(camera.TimeZoneId);
-        if (timeZone.IsAmbiguousTime(command.RecordingStartLocal) || timeZone.IsInvalidTime(command.RecordingStartLocal))
+        DateTimeOffset recordingStartUtc;
+        TimeSpan recordingOffset;
+        try
+        {
+            if (timeZones.IsAmbiguous(command.RecordingStartLocal, camera.TimeZoneId) ||
+                timeZones.IsInvalid(command.RecordingStartLocal, camera.TimeZoneId))
+                return VideoImportResult.Failure(VideoImportErrorCodes.InvalidRecordingTime);
+            recordingStartUtc = timeZones.ConvertLocalToUtc(command.RecordingStartLocal, camera.TimeZoneId);
+            recordingOffset = timeZones.GetUtcOffset(command.RecordingStartLocal, camera.TimeZoneId);
+        }
+        catch (MaviTimeZoneException)
+        {
             return VideoImportResult.Failure(VideoImportErrorCodes.InvalidRecordingTime);
-        var recordingStartUtc = new DateTimeOffset(
-            TimeZoneInfo.ConvertTimeToUtc(command.RecordingStartLocal, timeZone), TimeSpan.Zero);
+        }
 
         var videoId = Guid.CreateVersion7();
         var localDate = command.RecordingStartLocal;
@@ -71,7 +85,16 @@ public sealed class VideoImportService(
         var mediaWritten = false;
         try
         {
-            var write = await mediaStore.WriteAsync(storageKey, command.Content, cancellationToken);
+            MediaWriteResult write;
+            try
+            {
+                var boundedContent = new MaximumLengthReadStream(command.Content, options.Value.MaximumFileSizeBytes);
+                write = await mediaStore.WriteAsync(storageKey, boundedContent, cancellationToken);
+            }
+            catch (VideoFileTooLargeException)
+            {
+                return VideoImportResult.Failure(VideoImportErrorCodes.FileTooLarge);
+            }
             mediaWritten = true;
             VideoMetadata metadata;
             try
@@ -82,14 +105,20 @@ public sealed class VideoImportService(
             {
                 return VideoImportResult.Failure(VideoImportErrorCodes.MetadataInvalid);
             }
+            if (!metadata.FormatName.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                    .Contains("mp4", StringComparer.OrdinalIgnoreCase))
+                return VideoImportResult.Failure(VideoImportErrorCodes.ContainerUnsupported);
 
             if (await catalog.FindSourceVideoBySha256Async(write.Sha256, cancellationToken) is not null)
                 return VideoImportResult.Failure(VideoImportErrorCodes.Duplicate);
 
-            var artifact = Artifact.Create(ArtifactType.SourceVideo, storageKey, "video/mp4", write.SizeBytes, write.Sha256);
+            var nowUtc = timeProvider.GetUtcNow();
+            var artifact = Artifact.Create(ArtifactType.SourceVideo, storageKey, "video/mp4", write.SizeBytes, write.Sha256,
+                createdAtUtc: nowUtc);
             var video = VideoAsset.Create(videoId, camera.Id, artifact.Id, fileName, recordingStartUtc,
                 metadata.DurationMs, metadata.FrameRateNumerator, metadata.FrameRateDenominator,
-                metadata.Width, metadata.Height, metadata.CodecName, TimestampSource.Manual, 1.0);
+                metadata.Width, metadata.Height, metadata.CodecName, TimestampSource.Manual, 1.0,
+                camera.TimeZoneId, checked((int)recordingOffset.TotalMinutes), nowUtc);
             await catalog.AddAsync(artifact, video, cancellationToken);
             try
             {
@@ -126,6 +155,7 @@ public sealed class VideoImportService(
         if (string.IsNullOrWhiteSpace(original)) return false;
         var segments = original.Replace('\\', '/').Split('/');
         fileName = segments[^1].Trim();
-        return fileName.Length is > 0 and <= 255 && fileName is not "." and not "..";
+        return fileName.Length is > 0 and <= 255 && fileName is not "." and not ".." &&
+            !fileName.Any(char.IsControl);
     }
 }

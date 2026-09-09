@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react';
 import { getPlatformHealth, type PlatformHealth } from './api/platform';
+import { getSystemConfig, type SystemConfig } from './api/system';
 
 export default function App() {
   const [health, setHealth] = useState<PlatformHealth | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  const [, setSystemConfig] = useState<SystemConfig | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     getPlatformHealth(controller.signal)
       .then((result) => setHealth(result))
+      .catch(() => setUnavailable(true));
+    getSystemConfig(controller.signal)
+      .then(setSystemConfig)
       .catch(() => setUnavailable(true));
 
     return () => controller.abort();

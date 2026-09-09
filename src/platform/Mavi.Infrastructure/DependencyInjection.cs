@@ -1,10 +1,13 @@
 using Mavi.Application.Abstractions.Storage;
+using Mavi.Application.Abstractions.Time;
+using Mavi.Application;
 using Mavi.Application.Modules.Cameras;
 using Mavi.Application.Modules.Media;
 using Mavi.Infrastructure.Media;
 using Mavi.Infrastructure.Persistence;
 using Mavi.Infrastructure.Persistence.Repositories;
 using Mavi.Infrastructure.Storage;
+using Mavi.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,6 +32,8 @@ public static class DependencyInjection
         services.AddScoped<CameraService>();
         services.AddScoped<IVideoCatalog, VideoCatalog>();
         services.AddScoped<VideoImportService>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<ITimeZoneService, SystemTimeZoneService>();
 
         services.AddOptions<MediaStorageOptions>()
             .Bind(configuration.GetSection(MediaStorageOptions.SectionName))
@@ -44,9 +49,17 @@ public static class DependencyInjection
         services.AddOptions<VideoImportOptions>()
             .Bind(configuration.GetSection(VideoImportOptions.SectionName))
             .Validate(options => options.MaximumFileSizeBytes > 0, "VideoImport:MaximumFileSizeBytes must be positive.")
+            .Validate(options => options.MultipartOverheadBytes > 0 &&
+                options.MaximumFileSizeBytes <= long.MaxValue - options.MultipartOverheadBytes,
+                "VideoImport:MultipartOverheadBytes must be positive and the request limit must not overflow.")
             .Validate(options => options.AllowedExtensions is { Length: > 0 } &&
                 options.AllowedExtensions.All(IsValidExtension),
                 "VideoImport:AllowedExtensions must contain normalized extensions such as '.mp4'.")
+            .ValidateOnStart();
+        services.AddOptions<LocalizationOptions>()
+            .Bind(configuration.GetSection(LocalizationOptions.SectionName))
+            .Validate(options => IsResolvableTimeZone(options.DefaultDisplayTimeZoneId),
+                "Localization:DefaultDisplayTimeZoneId must be a resolvable IANA timezone ID.")
             .ValidateOnStart();
         services.AddSingleton<LocalMediaStore>();
         services.AddSingleton<IMediaStore>(provider => provider.GetRequiredService<LocalMediaStore>());
@@ -60,4 +73,10 @@ public static class DependencyInjection
         string.Equals(extension, extension.Trim(), StringComparison.Ordinal) &&
         string.Equals(extension, extension.ToLowerInvariant(), StringComparison.Ordinal) &&
         extension.IndexOfAny(['/', '\\']) < 0;
+
+    private static bool IsResolvableTimeZone(string timeZoneId)
+    {
+        try { _ = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId); return timeZoneId.Contains('/'); }
+        catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException) { return false; }
+    }
 }
