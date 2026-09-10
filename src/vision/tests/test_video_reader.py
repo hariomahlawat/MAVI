@@ -42,6 +42,15 @@ def test_frame_offset_normalizes_positive_and_negative_pts_origins() -> None:
     assert _frame_offset_ms(20, Fraction(1, 1000), 1, 25, 1, origin_pts=-20) == 40
 
 
+def test_pts_timeline_does_not_require_average_frame_rate() -> None:
+    timeline = _MediaTimeline(0, 1)
+
+    assert timeline.resolve(0, 100, Fraction(1, 1000)) == 0
+    assert timeline.resolve(1, 140, Fraction(1, 1000)) == 40
+    with pytest.raises(VideoReadError, match="frame_timestamp_unavailable"):
+        timeline.resolve(2, None, None)
+
+
 def test_late_pts_origin_is_anchored_to_existing_fallback_timeline() -> None:
     timeline = _MediaTimeline(25, 1)
 
