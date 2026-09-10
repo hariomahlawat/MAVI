@@ -74,6 +74,39 @@ def test_rejects_symlink_escape(tmp_path) -> None:
         store.write_bytes("escape/file.bin", b"x", "application/octet-stream")
 
 
+def test_rejected_intermediate_symlink_does_not_create_outside_directories(tmp_path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-tree"
+    outside.mkdir()
+    job_root = tmp_path / "staging" / str(JOB_ID)
+    job_root.mkdir(parents=True)
+    (job_root / "escape").symlink_to(outside, target_is_directory=True)
+    store = StagingArtifactStore(tmp_path, JOB_ID)
+
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.write_bytes("escape/new/file.bin", b"x", "application/octet-stream")
+
+    assert not (outside / "new").exists()
+
+
+def test_rejects_symlinked_job_root_and_cleanup_preserves_target(tmp_path) -> None:
+    target = tmp_path / "videos"
+    target.mkdir()
+    source = target / "keep.mp4"
+    source.write_bytes(b"keep")
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / str(JOB_ID)).symlink_to(target, target_is_directory=True)
+
+    store = StagingArtifactStore(tmp_path, JOB_ID)
+
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.write_bytes("thumbnails/a.jpg", b"x", "image/jpeg")
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.cleanup()
+
+    assert source.read_bytes() == b"keep"
+
+
 def test_cleanup_removes_only_current_job_staging_area(tmp_path) -> None:
     other = tmp_path / "staging" / "other-job" / "keep.bin"
     other.parent.mkdir(parents=True)
