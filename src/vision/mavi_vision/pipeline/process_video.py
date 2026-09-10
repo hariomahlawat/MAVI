@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from io import BytesIO
 from pathlib import Path
 from uuid import UUID
 
 import numpy as np
-from PIL import Image
 
 from mavi_vision.common.analytical import (
     NormalizedBoundingBox,
@@ -17,8 +14,11 @@ from mavi_vision.common.analytical import (
     TrajectoryPoint,
     VisionProcessingResult,
 )
+from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.detection.interfaces import Detector
+from mavi_vision.pipeline.finalization import prepare_track
 from mavi_vision.quality.scoring import representative_quality
+from mavi_vision.storage.artifact_publisher import ArtifactPublisher
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.integrity import (
     SourceIntegrityError,
@@ -27,7 +27,6 @@ from mavi_vision.storage.integrity import (
 )
 from mavi_vision.tracking.interfaces import Tracker
 from mavi_vision.video.reader import DecodedFrame, VideoReadError, iter_frames
-from mavi_vision.video.trajectory import serialize_trajectory
 
 
 class VideoProcessingError(RuntimeError):
@@ -54,6 +53,14 @@ class _TrackAccumulator:
 
 
 class VideoProcessor:
+    """Deterministic Task-9 orchestration for exactly one leased job attempt.
+
+    Lease ownership is represented by a shared ``LeaseGuard`` rather than scattered
+    boolean cancellation callbacks. CPU-only track preparation is separated from
+    filesystem publication, and all artifacts are written through the guarded
+    ``ArtifactPublisher`` into this processor's attempt-scoped staging namespace.
+    """
+
     def __init__(
         self,
         detector: Detector,
@@ -68,26 +75,27 @@ class VideoProcessor:
         self,
         *,
         job_id: UUID,
+        attempt_count: int,
         source_path: Path,
         expected_source_size_bytes: int,
         expected_source_sha256: str,
-        cancel_requested: Callable[[], bool] | None = None,
+        lease_guard: LeaseGuard,
     ) -> VisionProcessingResult:
-        if self._artifact_store.job_id != job_id:
+        if (
+            self._artifact_store.job_id != job_id
+            or self._artifact_store.attempt_count != attempt_count
+        ):
             raise VideoProcessingError("pipeline_configuration_invalid")
 
-        # Cleanup is a mutating operation on the job-scoped staging tree. A processor
-        # that starts after its lease has already been cancelled must therefore fail
-        # before touching staging; another attempt may already own and use that tree.
-        self._raise_if_cancelled(cancel_requested)
+        # Startup cleanup is confined to this exact attempt, but it is still a
+        # mutation. Never perform it once ownership is known to be lost or expired.
+        lease_guard.check_owned()
         try:
             self._artifact_store.cleanup()
         except Exception as exc:
             raise VideoProcessingError("pipeline_configuration_invalid") from exc
+        lease_guard.check_owned()
 
-        # Re-check after cleanup so cancellation that becomes visible during the
-        # bounded startup cleanup cannot proceed into source snapshot or analysis.
-        self._raise_if_cancelled(cancel_requested)
         tracks: dict[str, _TrackAccumulator] = {}
         frames_processed = 0
         try:
@@ -95,17 +103,21 @@ class VideoProcessor:
                 source_path,
                 expected_size_bytes=expected_source_size_bytes,
                 expected_sha256=expected_source_sha256,
-                cancel_requested=cancel_requested,
+                cancel_requested=lease_guard.is_lost,
             ) as verified:
                 if verified.stream is None:
                     raise SourceIntegrityError("source_read_failed")
+
                 for frame in iter_frames(verified.stream):
-                    self._raise_if_cancelled(cancel_requested)
+                    lease_guard.check_owned()
                     frames_processed += 1
+
                     detections = self._detector.detect(frame)
-                    self._raise_if_cancelled(cancel_requested)
+                    lease_guard.check_owned()
+
                     tracked = self._tracker.update(frame, detections)
-                    self._raise_if_cancelled(cancel_requested)
+                    lease_guard.check_owned()
+
                     for candidate in tracked:
                         accumulator = tracks.get(candidate.track_id)
                         if accumulator is None:
@@ -145,46 +157,72 @@ class VideoProcessor:
                                 crop=self._crop_rgb(frame, bbox),
                             )
         except SourceSnapshotCancelled as exc:
-            raise VideoProcessingError("lease_lost") from exc
+            # Snapshot cancellation is the source-integrity layer's cooperative
+            # representation of lease loss. Normalize it to the ownership exception.
+            raise LeaseLostError() from exc
+        except LeaseLostError:
+            raise
         except SourceIntegrityError:
-            self._cleanup_best_effort(cancel_requested)
+            self._cleanup_best_effort(lease_guard)
             raise
         except VideoReadError as exc:
-            self._cleanup_best_effort(cancel_requested)
+            self._cleanup_best_effort(lease_guard)
             raise VideoProcessingError("video_decode_failed") from exc
-        except VideoProcessingError as exc:
-            if exc.code != "lease_lost":
-                self._cleanup_best_effort(cancel_requested)
+        except VideoProcessingError:
+            self._cleanup_best_effort(lease_guard)
             raise
         except Exception as exc:
-            self._cleanup_best_effort(cancel_requested)
+            self._cleanup_best_effort(lease_guard)
             raise VideoProcessingError("pipeline_processing_failed") from exc
 
+        publisher = ArtifactPublisher(self._artifact_store, lease_guard)
         try:
             processed_tracks: list[ProcessedTrack] = []
             for track_id in sorted(tracks):
-                self._raise_if_cancelled(cancel_requested)
-                processed_tracks.append(self._finalize_track(track_id, tracks[track_id]))
-                self._raise_if_cancelled(cancel_requested)
+                lease_guard.check_owned()
+                accumulator = tracks[track_id]
+                representative = accumulator.representative
+
+                # Preparation is pure CPU work. If ownership expires during encoding
+                # or serialization, the following guard prevents publication. The
+                # low-level store then checks the same guard again immediately before
+                # each atomic destination replacement.
+                prepared = prepare_track(
+                    track_id=track_id,
+                    object_class=accumulator.object_class,
+                    start_offset_ms=accumulator.start_offset_ms,
+                    end_offset_ms=accumulator.end_offset_ms,
+                    confidence_sum=accumulator.confidence_sum,
+                    observation_count=accumulator.observation_count,
+                    representative=(
+                        None if representative is None else representative.observation
+                    ),
+                    representative_crop=(
+                        None if representative is None else representative.crop
+                    ),
+                    trajectory=tuple(accumulator.trajectory),
+                )
+                lease_guard.check_owned()
+                processed_tracks.append(publisher.publish_track(prepared))
+                lease_guard.check_owned()
+
+            lease_guard.check_owned()
             return VisionProcessingResult(
                 job_id=job_id,
                 frames_processed=frames_processed,
                 tracks=tuple(processed_tracks),
             )
-        except VideoProcessingError as exc:
-            if exc.code != "lease_lost":
-                self._cleanup_best_effort(cancel_requested)
+        except LeaseLostError:
+            # Never cleanup after ownership loss. This attempt is structurally
+            # isolated from replacements, and leaving its private subtree is safer
+            # than mutating shared filesystem state as a stale worker.
+            raise
+        except VideoProcessingError:
+            self._cleanup_best_effort(lease_guard)
             raise
         except Exception as exc:
-            self._cleanup_best_effort(cancel_requested)
+            self._cleanup_best_effort(lease_guard)
             raise VideoProcessingError("pipeline_processing_failed") from exc
-
-    @staticmethod
-    def _raise_if_cancelled(
-        cancel_requested: Callable[[], bool] | None,
-    ) -> None:
-        if cancel_requested is not None and cancel_requested():
-            raise VideoProcessingError("lease_lost")
 
     @staticmethod
     def _is_better_representative(
@@ -220,61 +258,11 @@ class VideoProcessor:
             raise ValueError("representative_crop_empty")
         return np.ascontiguousarray(crop.copy(), dtype=np.uint8)
 
-    @staticmethod
-    def _jpeg_bytes(crop: np.ndarray) -> bytes:
-        buffer = BytesIO()
-        Image.fromarray(crop).save(
-            buffer,
-            format="JPEG",
-            quality=90,
-            optimize=False,
-            progressive=False,
-            subsampling=2,
-        )
-        return buffer.getvalue()
-
-    def _finalize_track(
-        self,
-        track_id: str,
-        accumulator: _TrackAccumulator,
-    ) -> ProcessedTrack:
-        if accumulator.representative is None or accumulator.observation_count == 0:
-            raise ValueError("track_observation_missing")
-        self._artifact_store.thumbnail_key(track_id)
-        self._artifact_store.trajectory_key(track_id)
-        points = tuple(accumulator.trajectory)
-        trajectory_payload = serialize_trajectory(points)
-        thumbnail_payload = self._jpeg_bytes(accumulator.representative.crop)
-        thumbnail = self._artifact_store.write_bytes(
-            f"thumbnails/{track_id}.jpg",
-            thumbnail_payload,
-            "image/jpeg",
-        )
-        trajectory_artifact = self._artifact_store.write_bytes(
-            f"trajectories/{track_id}.msgpack",
-            trajectory_payload,
-            "application/msgpack",
-        )
-        return ProcessedTrack(
-            track_id=track_id,
-            object_class=accumulator.object_class,
-            start_offset_ms=accumulator.start_offset_ms,
-            end_offset_ms=accumulator.end_offset_ms,
-            confidence=accumulator.confidence_sum / accumulator.observation_count,
-            representative=accumulator.representative.observation,
-            trajectory=points,
-            thumbnail=thumbnail,
-            trajectory_artifact=trajectory_artifact,
-        )
-
-    def _cleanup_best_effort(
-        self,
-        cancel_requested: Callable[[], bool] | None = None,
-    ) -> None:
-        # Failure cleanup mutates a job-scoped tree that may be reused by a reclaimed
-        # lease. Re-check ownership at the mutation boundary; once cancellation is
-        # visible, lease loss takes precedence over the concurrent processing error.
-        self._raise_if_cancelled(cancel_requested)
+    def _cleanup_best_effort(self, lease_guard: LeaseGuard) -> None:
+        # Lease loss takes precedence over any concurrent processing error. The guard
+        # is checked immediately at the mutation boundary so a stale worker never
+        # cleans even its own attempt after authority has been lost.
+        lease_guard.check_owned()
         try:
             self._artifact_store.cleanup()
         except Exception:
