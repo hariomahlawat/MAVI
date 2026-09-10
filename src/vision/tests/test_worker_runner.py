@@ -102,6 +102,7 @@ class RecordingProcessor:
         source_path: Path,
         expected_source_size_bytes: int,
         expected_source_sha256: str,
+        cancel_requested=None,
     ) -> VisionProcessingResult:
         self.events.append("process")
         self.calls.append(
