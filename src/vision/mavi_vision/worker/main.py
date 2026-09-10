@@ -24,6 +24,7 @@ def build_runner(
         settings.poll_interval_seconds,
         processor,
         heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
+        heartbeat_request_timeout_seconds=settings.request_timeout_seconds,
     )
 
 
