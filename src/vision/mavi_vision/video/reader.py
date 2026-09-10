@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import Iterator
+from typing import BinaryIO, Iterator
 
 import av
 import numpy as np
@@ -63,11 +63,15 @@ def _frame_offset_ms(
     frame_number: int,
     frame_rate_num: int,
     frame_rate_den: int,
+    *,
+    origin_pts: int | None,
 ) -> int:
-    if pts is not None:
+    if pts is not None and origin_pts is not None:
         rational_time_base = _as_fraction(time_base)
         if rational_time_base is not None and rational_time_base > 0:
-            offset = _round_fraction_nearest(Fraction(pts) * rational_time_base * 1000)
+            offset = _round_fraction_nearest(
+                Fraction(pts - origin_pts) * rational_time_base * 1000
+            )
             if offset < 0:
                 raise VideoReadError("frame_timestamp_unavailable")
             return offset
@@ -80,9 +84,9 @@ def _frame_offset_ms(
     raise VideoReadError("frame_timestamp_unavailable")
 
 
-def iter_frames(path: Path) -> Iterator[DecodedFrame]:
+def iter_frames(source: Path | BinaryIO) -> Iterator[DecodedFrame]:
     try:
-        container = av.open(str(path), mode="r")
+        container = av.open(source if hasattr(source, "read") else str(source), mode="r")
     except (av.error.FFmpegError, OSError) as exc:
         raise VideoReadError("video_open_failed") from exc
 
@@ -99,15 +103,25 @@ def iter_frames(path: Path) -> Iterator[DecodedFrame]:
             frame_rate_num = average_rate.numerator
             frame_rate_den = average_rate.denominator
 
+        origin_pts: int | None = None
         try:
             for frame_number, frame in enumerate(container.decode(stream)):
                 time_base = frame.time_base if frame.time_base is not None else stream.time_base
+                rational_time_base = _as_fraction(time_base)
+                if (
+                    origin_pts is None
+                    and frame.pts is not None
+                    and rational_time_base is not None
+                    and rational_time_base > 0
+                ):
+                    origin_pts = frame.pts
                 offset_ms = _frame_offset_ms(
                     frame.pts,
                     time_base,
                     frame_number,
                     frame_rate_num,
                     frame_rate_den,
+                    origin_pts=origin_pts,
                 )
                 image = np.ascontiguousarray(frame.to_ndarray(format="rgb24"), dtype=np.uint8)
                 yield DecodedFrame(frame_number, offset_ms, image)
