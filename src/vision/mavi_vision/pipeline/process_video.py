@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
@@ -66,6 +67,7 @@ class VideoProcessor:
         source_path: Path,
         expected_source_size_bytes: int,
         expected_source_sha256: str,
+        cancel_requested: Callable[[], bool] | None = None,
     ) -> VisionProcessingResult:
         if self._artifact_store.job_id != job_id:
             raise VideoProcessingError("pipeline_configuration_invalid")
@@ -74,6 +76,7 @@ class VideoProcessor:
         except Exception as exc:
             raise VideoProcessingError("pipeline_configuration_invalid") from exc
 
+        self._raise_if_cancelled(cancel_requested)
         tracks: dict[str, _TrackAccumulator] = {}
         frames_processed = 0
         try:
@@ -85,9 +88,12 @@ class VideoProcessor:
                 if verified.stream is None:
                     raise SourceIntegrityError("source_read_failed")
                 for frame in iter_frames(verified.stream):
+                    self._raise_if_cancelled(cancel_requested)
                     frames_processed += 1
                     detections = self._detector.detect(frame)
+                    self._raise_if_cancelled(cancel_requested)
                     tracked = self._tracker.update(frame, detections)
+                    self._raise_if_cancelled(cancel_requested)
                     for candidate in tracked:
                         accumulator = tracks.get(candidate.track_id)
                         if accumulator is None:
@@ -132,25 +138,39 @@ class VideoProcessor:
         except VideoReadError as exc:
             self._cleanup_best_effort()
             raise VideoProcessingError("video_decode_failed") from exc
+        except VideoProcessingError as exc:
+            if exc.code != "lease_lost":
+                self._cleanup_best_effort()
+            raise
         except Exception as exc:
             self._cleanup_best_effort()
             raise VideoProcessingError("pipeline_processing_failed") from exc
 
         try:
-            processed_tracks = tuple(
-                self._finalize_track(track_id, tracks[track_id])
-                for track_id in sorted(tracks)
-            )
+            processed_tracks: list[ProcessedTrack] = []
+            for track_id in sorted(tracks):
+                self._raise_if_cancelled(cancel_requested)
+                processed_tracks.append(self._finalize_track(track_id, tracks[track_id]))
+                self._raise_if_cancelled(cancel_requested)
             return VisionProcessingResult(
                 job_id=job_id,
                 frames_processed=frames_processed,
-                tracks=processed_tracks,
+                tracks=tuple(processed_tracks),
             )
+        except VideoProcessingError as exc:
+            if exc.code != "lease_lost":
+                self._cleanup_best_effort()
+            raise
         except Exception as exc:
             self._cleanup_best_effort()
-            if isinstance(exc, VideoProcessingError):
-                raise
             raise VideoProcessingError("pipeline_processing_failed") from exc
+
+    @staticmethod
+    def _raise_if_cancelled(
+        cancel_requested: Callable[[], bool] | None,
+    ) -> None:
+        if cancel_requested is not None and cancel_requested():
+            raise VideoProcessingError("lease_lost")
 
     @staticmethod
     def _is_better_representative(
