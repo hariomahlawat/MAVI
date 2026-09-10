@@ -36,7 +36,7 @@ class FakeWorkerApiClient:
         self.heartbeats.append(progress_percent)
         return VisionJobHeartbeatResponse.model_validate_json(
             '{"schemaVersion":"2.0","progressPercent":5.0,'
-            '"leaseExpiresAtUtc":"2026-09-09T03:00:00Z"}'
+            '"leaseExpiresAtUtc":"2099-09-09T03:00:00Z"}'
         )
 
     async def fail(
