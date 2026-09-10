@@ -48,7 +48,7 @@ def verify_source(
         raise SourceIntegrityError("source_read_failed") from None
 
     actual_sha256 = digest.hexdigest()
-    if actual_sha256 != expected_sha256:
+    if actual_sha256 != expected_sha256.lower():
         raise SourceIntegrityError("source_sha256_mismatch")
 
     return VerifiedSource(path=path, size_bytes=stat.st_size, sha256=actual_sha256)
