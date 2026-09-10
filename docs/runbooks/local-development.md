@@ -64,8 +64,8 @@ Before running integration tests:
 
 ```powershell
 pg_isready -h localhost -p 5432 -U postgres -d mavi_test
-psql "Host=localhost Port=5432 Database=mavi_test User=postgres" -c "CREATE EXTENSION IF NOT EXISTS vector;"
-psql "Host=localhost Port=5432 Database=mavi_test User=postgres" -c "SELECT extname FROM pg_extension WHERE extname='vector';"
+psql -h localhost -p 5432 -U postgres -d mavi_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+psql -h localhost -p 5432 -U postgres -d mavi_test -c "SELECT extname FROM pg_extension WHERE extname='vector';"
 ```
 
 If `CREATE EXTENSION vector` is unavailable, install/enable pgvector for the same PostgreSQL major version before continuing.
