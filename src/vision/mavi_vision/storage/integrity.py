@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
+from tempfile import TemporaryFile
 from typing import BinaryIO, Iterator
 
 
@@ -22,35 +23,54 @@ class SourceIntegrityError(RuntimeError):
         super().__init__(code)
 
 
-def _verify_open_stream(
+def _snapshot_verified_source(
     path: Path,
-    stream: BinaryIO,
+    source_stream: BinaryIO,
     *,
     expected_size_bytes: int,
     expected_sha256: str,
 ) -> VerifiedSource:
     try:
-        stat = os.fstat(stream.fileno())
+        stat = os.fstat(source_stream.fileno())
     except OSError:
         raise SourceIntegrityError("source_read_failed") from None
 
     if stat.st_size != expected_size_bytes:
         raise SourceIntegrityError("source_size_mismatch")
 
+    snapshot = TemporaryFile(mode="w+b")
     digest = sha256()
+    copied_bytes = 0
     try:
-        stream.seek(0)
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        source_stream.seek(0)
+        while True:
+            chunk = source_stream.read(1024 * 1024)
+            if not chunk:
+                break
+            snapshot.write(chunk)
             digest.update(chunk)
-        stream.seek(0)
+            copied_bytes += len(chunk)
+        snapshot.flush()
+        snapshot.seek(0)
     except OSError:
+        snapshot.close()
         raise SourceIntegrityError("source_read_failed") from None
+
+    if copied_bytes != expected_size_bytes:
+        snapshot.close()
+        raise SourceIntegrityError("source_size_mismatch")
 
     actual_sha256 = digest.hexdigest()
     if actual_sha256 != expected_sha256.lower():
+        snapshot.close()
         raise SourceIntegrityError("source_sha256_mismatch")
 
-    return VerifiedSource(path=path, size_bytes=stat.st_size, sha256=actual_sha256, stream=stream)
+    return VerifiedSource(
+        path=path,
+        size_bytes=copied_bytes,
+        sha256=actual_sha256,
+        stream=snapshot,
+    )
 
 
 @contextmanager
@@ -61,21 +81,25 @@ def open_verified_source(
     expected_sha256: str,
 ) -> Iterator[VerifiedSource]:
     try:
-        stream = open(path, "rb")
+        source_stream = open(path, "rb")
     except FileNotFoundError:
         raise SourceIntegrityError("source_missing") from None
     except OSError:
         raise SourceIntegrityError("source_read_failed") from None
 
+    verified: VerifiedSource | None = None
     try:
-        yield _verify_open_stream(
+        verified = _snapshot_verified_source(
             path,
-            stream,
+            source_stream,
             expected_size_bytes=expected_size_bytes,
             expected_sha256=expected_sha256,
         )
+        yield verified
     finally:
-        stream.close()
+        source_stream.close()
+        if verified is not None and verified.stream is not None:
+            verified.stream.close()
 
 
 def verify_source(
