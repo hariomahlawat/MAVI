@@ -57,16 +57,24 @@ def _as_fraction(value: object) -> Fraction | None:
         return None
 
 
+def _frame_duration_ms(
+    frame_rate_num: int,
+    frame_rate_den: int,
+) -> Fraction | None:
+    if frame_rate_num <= 0 or frame_rate_den <= 0:
+        return None
+    return Fraction(1000 * frame_rate_den, frame_rate_num)
+
+
 def _fallback_offset_ms(
     frame_number: int,
     frame_rate_num: int,
     frame_rate_den: int,
 ) -> int | None:
-    if frame_number < 0 or frame_rate_num <= 0 or frame_rate_den <= 0:
+    duration = _frame_duration_ms(frame_rate_num, frame_rate_den)
+    if frame_number < 0 or duration is None:
         return None
-    return _round_fraction_nearest(
-        Fraction(frame_number * 1000 * frame_rate_den, frame_rate_num)
-    )
+    return _round_fraction_nearest(Fraction(frame_number) * duration)
 
 
 def _frame_offset_ms(
@@ -96,6 +104,75 @@ def _frame_offset_ms(
     raise VideoReadError("frame_timestamp_unavailable")
 
 
+class _MediaTimeline:
+    """Resolve decoded frames onto one strict media-relative integer-ms timeline."""
+
+    def __init__(self, frame_rate_num: int, frame_rate_den: int) -> None:
+        self._frame_duration_ms = _frame_duration_ms(frame_rate_num, frame_rate_den)
+        self._origin_presentation_ms: Fraction | None = None
+        self._origin_offset_ms: Fraction | None = None
+        self._last_exact_ms: Fraction | None = None
+        self._last_emitted_ms: int | None = None
+        self._last_frame_number: int | None = None
+
+    def resolve(
+        self,
+        frame_number: int,
+        pts: int | None,
+        time_base: object | None,
+    ) -> int:
+        if frame_number < 0:
+            raise VideoReadError("frame_timestamp_unavailable")
+        if self._last_frame_number is not None and frame_number <= self._last_frame_number:
+            raise VideoReadError("frame_timestamp_non_monotonic")
+
+        rational_time_base = _as_fraction(time_base)
+        usable_pts = (
+            pts is not None
+            and rational_time_base is not None
+            and rational_time_base > 0
+        )
+
+        if usable_pts:
+            presentation_ms = Fraction(pts) * rational_time_base * 1000
+            if self._origin_presentation_ms is None:
+                anchor = self._predicted_fallback_exact(frame_number)
+                self._origin_presentation_ms = presentation_ms
+                self._origin_offset_ms = anchor
+            assert self._origin_offset_ms is not None
+            exact_ms = (
+                self._origin_offset_ms
+                + presentation_ms
+                - self._origin_presentation_ms
+            )
+        else:
+            exact_ms = self._predicted_fallback_exact(frame_number)
+
+        if exact_ms < 0:
+            raise VideoReadError("frame_timestamp_unavailable")
+        if self._last_exact_ms is not None and exact_ms <= self._last_exact_ms:
+            raise VideoReadError("frame_timestamp_non_monotonic")
+
+        emitted_ms = _round_fraction_nearest(exact_ms)
+        if self._last_emitted_ms is not None and emitted_ms <= self._last_emitted_ms:
+            emitted_ms = self._last_emitted_ms + 1
+
+        self._last_exact_ms = exact_ms
+        self._last_emitted_ms = emitted_ms
+        self._last_frame_number = frame_number
+        return emitted_ms
+
+    def _predicted_fallback_exact(self, frame_number: int) -> Fraction:
+        if self._frame_duration_ms is None:
+            raise VideoReadError("frame_timestamp_unavailable")
+        if self._last_exact_ms is None or self._last_frame_number is None:
+            return Fraction(frame_number) * self._frame_duration_ms
+        frame_delta = frame_number - self._last_frame_number
+        if frame_delta <= 0:
+            raise VideoReadError("frame_timestamp_non_monotonic")
+        return self._last_exact_ms + Fraction(frame_delta) * self._frame_duration_ms
+
+
 def iter_frames(source: Path | BinaryIO) -> Iterator[DecodedFrame]:
     try:
         container = av.open(source if hasattr(source, "read") else str(source), mode="r")
@@ -115,33 +192,14 @@ def iter_frames(source: Path | BinaryIO) -> Iterator[DecodedFrame]:
             frame_rate_num = average_rate.numerator
             frame_rate_den = average_rate.denominator
 
-        origin_pts: int | None = None
-        origin_offset_ms = 0
+        timeline = _MediaTimeline(frame_rate_num, frame_rate_den)
         try:
             for frame_number, frame in enumerate(container.decode(stream)):
                 time_base = frame.time_base if frame.time_base is not None else stream.time_base
-                rational_time_base = _as_fraction(time_base)
-                if (
-                    origin_pts is None
-                    and frame.pts is not None
-                    and rational_time_base is not None
-                    and rational_time_base > 0
-                ):
-                    origin_pts = frame.pts
-                    fallback_anchor = _fallback_offset_ms(
-                        frame_number,
-                        frame_rate_num,
-                        frame_rate_den,
-                    )
-                    origin_offset_ms = fallback_anchor if fallback_anchor is not None else 0
-                offset_ms = _frame_offset_ms(
+                offset_ms = timeline.resolve(
+                    frame_number,
                     frame.pts,
                     time_base,
-                    frame_number,
-                    frame_rate_num,
-                    frame_rate_den,
-                    origin_pts=origin_pts,
-                    origin_offset_ms=origin_offset_ms,
                 )
                 image = np.ascontiguousarray(frame.to_ndarray(format="rgb24"), dtype=np.uint8)
                 yield DecodedFrame(frame_number, offset_ms, image)
