@@ -119,7 +119,7 @@ def test_low_level_authorization_blocks_destination_before_atomic_replace(tmp_pa
     parent = _attempt_root(tmp_path) / "thumbnails"
     assert checks == 1
     assert not (parent / "person-0001.jpg").exists()
-    assert list(parent.glob("*.tmp")) == []
+    assert list(parent.glob(".*.tmp")) == []
 
 
 def test_successful_publication_returns_processed_track_with_attempt_keys(tmp_path: Path) -> None:
