@@ -21,6 +21,7 @@ def test_settings_load_and_normalize(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert settings.worker_id == "dev-worker-01"
     assert settings.media_root == tmp_path
     assert settings.poll_interval_seconds == 2.0
+    assert settings.heartbeat_interval_seconds == 30.0
 
 
 def test_settings_reject_unsafe_worker_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
