@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import os
 from hashlib import sha256
 
 import pytest
 
-from mavi_vision.storage.integrity import SourceIntegrityError, verify_source
+from mavi_vision.storage.integrity import SourceIntegrityError, open_verified_source, verify_source
 
 
 def test_verify_source_accepts_matching_file(tmp_path) -> None:
@@ -31,6 +32,26 @@ def test_verify_source_accepts_uppercase_lease_sha_and_returns_canonical_lowerca
     )
 
     assert verified.sha256 == digest
+
+
+def test_open_verified_source_remains_bound_to_verified_file_instance(tmp_path) -> None:
+    source = tmp_path / "input.mp4"
+    replacement = tmp_path / "replacement.mp4"
+    source.write_bytes(b"original")
+    replacement.write_bytes(b"changed!")
+    digest = sha256(b"original").hexdigest()
+
+    with open_verified_source(
+        source,
+        expected_size_bytes=len(b"original"),
+        expected_sha256=digest,
+    ) as verified:
+        assert verified.stream is not None
+        os.replace(replacement, source)
+        verified.stream.seek(0)
+        assert verified.stream.read() == b"original"
+
+    assert source.read_bytes() == b"changed!"
 
 
 def test_verify_source_rejects_missing_file(tmp_path) -> None:
