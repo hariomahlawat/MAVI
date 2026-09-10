@@ -147,6 +147,9 @@ class WorkerRunner:
         if self._processor is None:
             raise RuntimeError("processor_missing")
 
+        # Prove that the first renewal deadline is still usable before expensive work
+        # is launched. Every subsequent response is validated immediately as well.
+        wait_seconds = self._heartbeat_wait_seconds(heartbeat)
         cancel_event = threading.Event()
         process_task = asyncio.create_task(
             asyncio.to_thread(
@@ -160,9 +163,7 @@ class WorkerRunner:
         )
 
         try:
-            current_heartbeat = heartbeat
             while True:
-                wait_seconds = self._heartbeat_wait_seconds(current_heartbeat)
                 done, _ = await asyncio.wait(
                     {process_task},
                     timeout=wait_seconds,
@@ -170,15 +171,16 @@ class WorkerRunner:
                 if process_task in done:
                     return process_task.result()
 
+                current_heartbeat = await self._api_client.heartbeat(lease, 5.0)
+                wait_seconds = self._heartbeat_wait_seconds(current_heartbeat)
+        except BaseException:
+            cancel_event.set()
+            if not process_task.done():
                 try:
-                    current_heartbeat = await self._api_client.heartbeat(lease, 5.0)
-                except Exception:
-                    cancel_event.set()
-                    try:
-                        await process_task
-                    except Exception:
-                        pass
-                    raise
+                    await process_task
+                except BaseException:
+                    pass
+            raise
         finally:
             if not process_task.done():
                 cancel_event.set()
@@ -193,8 +195,8 @@ class WorkerRunner:
             raise WorkerApiError("worker API returned expired lease deadline")
 
         # Start the request early enough that its configured timeout cannot consume the
-        # entire remaining lease. For very short leases, use at least half the
-        # remaining lifetime as the safety margin rather than scheduling at expiry.
+        # entire remaining lease. For a lease shorter than two request timeouts, reserve
+        # half of the remaining lifetime instead of waiting until expiry.
         safety_margin = min(
             self._heartbeat_request_timeout_seconds,
             remaining / 2.0,
