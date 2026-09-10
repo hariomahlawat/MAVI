@@ -21,9 +21,8 @@ class StagingArtifactStore:
     def __init__(self, media_root: Path, job_id: UUID) -> None:
         self._media_root = media_root.resolve()
         self._job_id = job_id
-        self._job_root = (self._media_root / "staging" / str(job_id)).resolve()
-        if not self._job_root.is_relative_to(self._media_root):
-            raise StagingArtifactError("staging_path_escape")
+        self._staging_root = self._media_root / "staging"
+        self._job_root = self._staging_root / str(job_id)
 
     @property
     def job_id(self) -> UUID:
@@ -44,23 +43,23 @@ class StagingArtifactStore:
         media_type: str,
     ) -> ArtifactDescriptor:
         parts = self._validate_relative_name(relative_name)
-        candidate = self._job_root.joinpath(*parts)
-        candidate.parent.mkdir(parents=True, exist_ok=True)
-        resolved_parent = candidate.parent.resolve()
-        if not resolved_parent.is_relative_to(self._job_root):
-            raise StagingArtifactError("staging_path_escape")
-
-        destination = resolved_parent / candidate.name
+        parent = self._ensure_safe_parent(parts[:-1])
+        destination = parent / parts[-1]
         if destination.is_symlink():
             raise StagingArtifactError("staging_path_escape")
 
-        temp_path = resolved_parent / f".{candidate.name}.{uuid4().hex}.tmp"
+        temp_path = parent / f".{destination.name}.{uuid4().hex}.tmp"
         try:
             with open(temp_path, "xb") as stream:
                 stream.write(content)
                 stream.flush()
                 os.fsync(stream.fileno())
+            if destination.is_symlink():
+                raise StagingArtifactError("staging_path_escape")
             os.replace(temp_path, destination)
+        except StagingArtifactError:
+            temp_path.unlink(missing_ok=True)
+            raise
         except OSError as exc:
             try:
                 temp_path.unlink(missing_ok=True)
@@ -77,11 +76,52 @@ class StagingArtifactStore:
         )
 
     def cleanup(self) -> None:
+        self._assert_existing_chain_safe(include_job_root=True)
         if self._job_root.exists():
-            resolved = self._job_root.resolve()
+            shutil.rmtree(self._job_root)
+
+    def _ensure_safe_parent(self, relative_parts: tuple[str, ...]) -> Path:
+        self._media_root.mkdir(parents=True, exist_ok=True)
+        current = self._media_root
+        for part in ("staging", str(self._job_id), *relative_parts):
+            candidate = current / part
+            if candidate.is_symlink():
+                raise StagingArtifactError("staging_path_escape")
+            if candidate.exists():
+                if not candidate.is_dir():
+                    raise StagingArtifactError("staging_path_escape")
+            else:
+                try:
+                    candidate.mkdir()
+                except FileExistsError:
+                    pass
+                except OSError as exc:
+                    raise StagingArtifactError("staging_write_failed") from exc
+                if candidate.is_symlink() or not candidate.is_dir():
+                    raise StagingArtifactError("staging_path_escape")
+            resolved = candidate.resolve()
             if not resolved.is_relative_to(self._media_root):
                 raise StagingArtifactError("staging_path_escape")
-            shutil.rmtree(resolved)
+            current = candidate
+        return current
+
+    def _assert_existing_chain_safe(self, *, include_job_root: bool) -> None:
+        current = self._media_root
+        parts = ["staging"]
+        if include_job_root:
+            parts.append(str(self._job_id))
+        for part in parts:
+            candidate = current / part
+            if candidate.is_symlink():
+                raise StagingArtifactError("staging_path_escape")
+            if not candidate.exists():
+                return
+            if not candidate.is_dir():
+                raise StagingArtifactError("staging_path_escape")
+            resolved = candidate.resolve()
+            if not resolved.is_relative_to(self._media_root):
+                raise StagingArtifactError("staging_path_escape")
+            current = candidate
 
     @staticmethod
     def _validate_track_id(track_id: str) -> None:
