@@ -140,6 +140,28 @@ def test_integrity_mismatch_cleans_job_staging(tmp_path: Path) -> None:
     assert not (tmp_path / "staging" / str(JOB_ID)).exists()
 
 
+def test_pre_cancelled_processor_preserves_existing_job_staging(tmp_path: Path) -> None:
+    source = tmp_path / "tiny.mp4"
+    _write_tiny_mp4(source)
+    size, digest = _source_facts(source)
+    store = StagingArtifactStore(tmp_path, JOB_ID)
+    descriptor = store.write_bytes("keep.bin", b"keep", "application/octet-stream")
+    keep_path = _artifact_path(tmp_path, descriptor.storage_key)
+    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), store)
+
+    with pytest.raises(VideoProcessingError) as exc_info:
+        processor.process(
+            job_id=JOB_ID,
+            source_path=source,
+            expected_source_size_bytes=size,
+            expected_source_sha256=digest,
+            cancel_requested=lambda: True,
+        )
+
+    assert exc_info.value.code == "lease_lost"
+    assert keep_path.read_bytes() == b"keep"
+
+
 def test_lease_cancellation_during_source_snapshot_maps_to_lease_lost(tmp_path: Path) -> None:
     source = tmp_path / "large-source.mp4"
     source.write_bytes(b"x" * (2 * 1024 * 1024))
