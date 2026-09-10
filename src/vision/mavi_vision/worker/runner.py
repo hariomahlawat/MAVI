@@ -1,4 +1,6 @@
 import asyncio
+import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
@@ -39,6 +41,7 @@ class VisionProcessor(Protocol):
         source_path: Path,
         expected_source_size_bytes: int,
         expected_source_sha256: str,
+        cancel_requested: Callable[[], bool] | None = None,
     ) -> VisionProcessingResult: ...
 
 
@@ -50,11 +53,15 @@ class WorkerRunner:
         media_store: MediaStore,
         poll_interval_seconds: float,
         processor: VisionProcessor | None = None,
+        heartbeat_interval_seconds: float = 30.0,
     ) -> None:
+        if heartbeat_interval_seconds <= 0:
+            raise ValueError("heartbeat_interval_seconds must be positive")
         self._api_client = api_client
         self._media_store = media_store
         self._poll_interval_seconds = poll_interval_seconds
         self._processor = processor
+        self._heartbeat_interval_seconds = heartbeat_interval_seconds
 
     async def run_once(self) -> bool:
         lease = await self._api_client.lease()
@@ -90,12 +97,7 @@ class WorkerRunner:
             return True
 
         try:
-            self._processor.process(
-                job_id=lease.job_id,
-                source_path=source_path,
-                expected_source_size_bytes=lease.source_size_bytes,
-                expected_source_sha256=lease.source_sha256,
-            )
+            await self._process_with_lease_heartbeats(lease, source_path)
         except SourceIntegrityError:
             await self._best_effort_fail(
                 lease,
@@ -126,6 +128,48 @@ class WorkerRunner:
             "Task 9 result submission is not implemented.",
         )
         return True
+
+    async def _process_with_lease_heartbeats(
+        self,
+        lease: VisionJobLease,
+        source_path: Path,
+    ) -> VisionProcessingResult:
+        if self._processor is None:
+            raise RuntimeError("processor_missing")
+
+        cancel_event = threading.Event()
+        process_task = asyncio.create_task(
+            asyncio.to_thread(
+                self._processor.process,
+                job_id=lease.job_id,
+                source_path=source_path,
+                expected_source_size_bytes=lease.source_size_bytes,
+                expected_source_sha256=lease.source_sha256,
+                cancel_requested=cancel_event.is_set,
+            )
+        )
+
+        try:
+            while True:
+                done, _ = await asyncio.wait(
+                    {process_task},
+                    timeout=self._heartbeat_interval_seconds,
+                )
+                if process_task in done:
+                    return process_task.result()
+
+                try:
+                    await self._api_client.heartbeat(lease, 5.0)
+                except Exception:
+                    cancel_event.set()
+                    try:
+                        await process_task
+                    except Exception:
+                        pass
+                    raise
+        finally:
+            if not process_task.done():
+                cancel_event.set()
 
     async def run_forever(self) -> None:
         while True:
