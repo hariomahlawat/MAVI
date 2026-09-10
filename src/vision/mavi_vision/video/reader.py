@@ -111,6 +111,7 @@ class _MediaTimeline:
         self._frame_duration_ms = _frame_duration_ms(frame_rate_num, frame_rate_den)
         self._origin_presentation_ms: Fraction | None = None
         self._origin_offset_ms: Fraction | None = None
+        self._last_authoritative_presentation_ms: Fraction | None = None
         self._last_exact_ms: Fraction | None = None
         self._last_emitted_ms: int | None = None
         self._last_frame_number: int | None = None
@@ -133,8 +134,19 @@ class _MediaTimeline:
             and rational_time_base > 0
         )
 
+        presentation_ms: Fraction | None = None
         if usable_pts:
             presentation_ms = Fraction(pts) * rational_time_base * 1000
+
+            # Average-rate fallback values are estimates, not authoritative media
+            # timestamps. A resumed VFR PTS may validly land behind an overshooting
+            # estimate, so detect true regression only against the last usable PTS.
+            if (
+                self._last_authoritative_presentation_ms is not None
+                and presentation_ms <= self._last_authoritative_presentation_ms
+            ):
+                raise VideoReadError("frame_timestamp_non_monotonic")
+
             if self._origin_presentation_ms is None:
                 anchor = (
                     Fraction(0)
@@ -154,13 +166,24 @@ class _MediaTimeline:
 
         if exact_ms < 0:
             raise VideoReadError("frame_timestamp_unavailable")
-        if self._last_exact_ms is not None and exact_ms <= self._last_exact_ms:
+        if (
+            not usable_pts
+            and self._last_exact_ms is not None
+            and exact_ms <= self._last_exact_ms
+        ):
             raise VideoReadError("frame_timestamp_non_monotonic")
 
         emitted_ms = _round_fraction_nearest(exact_ms)
         if self._last_emitted_ms is not None and emitted_ms <= self._last_emitted_ms:
+            # Keep the public integer-ms contract strictly monotonic. This also
+            # reconciles valid resumed PTS with already-emitted fallback estimates
+            # using the smallest possible adjustment; exact PTS remains authoritative
+            # for subsequent timing calculations.
             emitted_ms = self._last_emitted_ms + 1
 
+        if usable_pts:
+            assert presentation_ms is not None
+            self._last_authoritative_presentation_ms = presentation_ms
         self._last_exact_ms = exact_ms
         self._last_emitted_ms = emitted_ms
         self._last_frame_number = frame_number
