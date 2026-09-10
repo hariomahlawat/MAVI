@@ -162,6 +162,42 @@ def test_pre_cancelled_processor_preserves_existing_job_staging(tmp_path: Path) 
     assert keep_path.read_bytes() == b"keep"
 
 
+def test_processing_failure_after_lease_loss_preserves_reclaimed_staging(tmp_path: Path) -> None:
+    source = tmp_path / "tiny.mp4"
+    _write_tiny_mp4(source, frame_count=1)
+    size, digest = _source_facts(source)
+    store = StagingArtifactStore(tmp_path, JOB_ID)
+    cancelled = False
+    reclaimed_path: Path | None = None
+
+    class FailingDetector:
+        def detect(self, frame):
+            nonlocal cancelled, reclaimed_path
+            descriptor = store.write_bytes(
+                "reclaimed/keep.bin",
+                b"new-attempt",
+                "application/octet-stream",
+            )
+            reclaimed_path = _artifact_path(tmp_path, descriptor.storage_key)
+            cancelled = True
+            raise RuntimeError("processing failure after lease loss")
+
+    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store)
+
+    with pytest.raises(VideoProcessingError) as exc_info:
+        processor.process(
+            job_id=JOB_ID,
+            source_path=source,
+            expected_source_size_bytes=size,
+            expected_source_sha256=digest,
+            cancel_requested=lambda: cancelled,
+        )
+
+    assert reclaimed_path is not None
+    assert reclaimed_path.read_bytes() == b"new-attempt"
+    assert exc_info.value.code == "lease_lost"
+
+
 def test_lease_cancellation_during_source_snapshot_maps_to_lease_lost(tmp_path: Path) -> None:
     source = tmp_path / "large-source.mp4"
     source.write_bytes(b"x" * (2 * 1024 * 1024))
