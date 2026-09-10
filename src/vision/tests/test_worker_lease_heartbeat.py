@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -64,6 +65,15 @@ class ShortDeadlineApi(HeartbeatCountingApi):
         return heartbeat_response(0.30)
 
 
+class CompletionDeadlineApi(HeartbeatCountingApi):
+    async def heartbeat(
+        self, lease: VisionJobLease, progress_percent: float
+    ) -> VisionJobHeartbeatResponse:
+        self.heartbeats.append(progress_percent)
+        self.heartbeat_times.append(time.monotonic())
+        return heartbeat_response(0.05)
+
+
 class RenewalPastDeadlineApi(HeartbeatCountingApi):
     async def heartbeat(
         self, lease: VisionJobLease, progress_percent: float
@@ -103,6 +113,25 @@ class SlowProcessor:
         cancel_requested=None,
     ) -> VisionProcessingResult:
         self.cancel_probe_seen = callable(cancel_requested)
+        time.sleep(self.delay_seconds)
+        return VisionProcessingResult(job_id=job_id, frames_processed=1, tracks=())
+
+
+class EventLoopStallProcessor:
+    def __init__(self, delay_seconds: float = 0.02) -> None:
+        self.delay_seconds = delay_seconds
+        self.started = threading.Event()
+
+    def process(
+        self,
+        *,
+        job_id,
+        source_path: Path,
+        expected_source_size_bytes: int,
+        expected_source_sha256: str,
+        cancel_requested=None,
+    ) -> VisionProcessingResult:
+        self.started.set()
         time.sleep(self.delay_seconds)
         return VisionProcessingResult(job_id=job_id, frames_processed=1, tracks=())
 
@@ -182,6 +211,35 @@ def test_server_deadline_overrides_longer_configured_heartbeat_interval(
     assert len(client.heartbeat_times) >= 2
     assert client.heartbeat_times[1] - client.heartbeat_times[0] < 0.30
     assert client.failures == ["task9_result_submission_not_implemented"]
+
+
+def test_processor_completion_after_current_lease_deadline_is_rejected(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    _materialize_source(tmp_path, lease)
+    client = CompletionDeadlineApi(lease)
+    processor = EventLoopStallProcessor()
+    runner = WorkerRunner(
+        client,
+        LocalMediaStore(tmp_path),
+        2.0,
+        processor,
+        heartbeat_interval_seconds=30.0,
+        heartbeat_request_timeout_seconds=30.0,
+    )
+
+    async def run_with_stalled_event_loop() -> None:
+        run_task = asyncio.create_task(runner.run_once())
+        assert await asyncio.to_thread(processor.started.wait, 1.0)
+        # Simulate a suspended/blocked event loop while the worker thread completes.
+        time.sleep(0.10)
+        await run_task
+
+    with pytest.raises(WorkerApiError, match="lease deadline exceeded"):
+        asyncio.run(run_with_stalled_event_loop())
+
+    assert client.failures == []
 
 
 def test_heartbeat_response_must_arrive_before_current_lease_deadline(
