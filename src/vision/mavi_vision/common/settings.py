@@ -26,8 +26,8 @@ class WorkerSettings(BaseSettings):
         if (
             parts.scheme not in {"http", "https"}
             or not parts.netloc
-            or parts.query
-            or parts.fragment
+            or "?" in normalized
+            or "#" in normalized
         ):
             raise ValueError("MAVI_API_BASE_URL must be an absolute HTTP(S) URL")
         return normalized
