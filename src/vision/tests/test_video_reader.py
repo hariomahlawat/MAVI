@@ -80,6 +80,18 @@ def test_resumed_pts_reconciles_fallback_overshoot_without_rejecting_valid_vfr()
     assert timeline.resolve(3, 60, Fraction(1, 1000)) == 60
 
 
+def test_missing_pts_after_reconciled_pts_advances_from_emitted_anchor() -> None:
+    timeline = _MediaTimeline(25, 1)
+
+    assert timeline.resolve(0, 0, Fraction(1, 1000)) == 0
+    assert timeline.resolve(1, None, None) == 40
+    assert timeline.resolve(2, 30, Fraction(1, 1000)) == 41
+    # Once the resumed PTS has been reconciled to 41 ms, a following fallback must
+    # advance one full 25 fps frame from that emitted anchor rather than from the
+    # behind-the-anchor exact PTS value of 30 ms.
+    assert timeline.resolve(3, None, None) == 81
+
+
 def test_regressing_pts_fails_closed_instead_of_rewriting_evidence_time() -> None:
     timeline = _MediaTimeline(25, 1)
 
