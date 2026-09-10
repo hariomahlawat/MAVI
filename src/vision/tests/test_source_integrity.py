@@ -19,6 +19,20 @@ def test_verify_source_accepts_matching_file(tmp_path) -> None:
     assert verified.sha256 == digest
 
 
+def test_verify_source_accepts_uppercase_lease_sha_and_returns_canonical_lowercase(tmp_path) -> None:
+    source = tmp_path / "input.mp4"
+    source.write_bytes(b"video")
+    digest = sha256(b"video").hexdigest()
+
+    verified = verify_source(
+        source,
+        expected_size_bytes=5,
+        expected_sha256=digest.upper(),
+    )
+
+    assert verified.sha256 == digest
+
+
 def test_verify_source_rejects_missing_file(tmp_path) -> None:
     source = tmp_path / "missing.mp4"
 
