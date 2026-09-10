@@ -54,6 +54,27 @@ def test_open_verified_source_remains_bound_to_verified_file_instance(tmp_path) 
     assert source.read_bytes() == b"changed!"
 
 
+def test_open_verified_source_decodes_owned_snapshot_after_in_place_mutation(tmp_path) -> None:
+    source = tmp_path / "input.mp4"
+    source.write_bytes(b"original")
+    digest = sha256(b"original").hexdigest()
+
+    with open_verified_source(
+        source,
+        expected_size_bytes=len(b"original"),
+        expected_sha256=digest,
+    ) as verified:
+        assert verified.stream is not None
+        with source.open("r+b") as mutable:
+            mutable.seek(0)
+            mutable.write(b"changed!")
+            mutable.flush()
+        verified.stream.seek(0)
+        assert verified.stream.read() == b"original"
+
+    assert source.read_bytes() == b"changed!"
+
+
 def test_verify_source_rejects_missing_file(tmp_path) -> None:
     source = tmp_path / "missing.mp4"
 
