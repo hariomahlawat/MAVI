@@ -6,7 +6,13 @@ import av
 import numpy as np
 import pytest
 
-from mavi_vision.video.reader import DecodedFrame, VideoReadError, _frame_offset_ms, iter_frames
+from mavi_vision.video.reader import (
+    DecodedFrame,
+    VideoReadError,
+    _MediaTimeline,
+    _frame_offset_ms,
+    iter_frames,
+)
 
 
 def _write_tiny_mp4(path) -> None:
@@ -37,25 +43,37 @@ def test_frame_offset_normalizes_positive_and_negative_pts_origins() -> None:
 
 
 def test_late_pts_origin_is_anchored_to_existing_fallback_timeline() -> None:
-    assert _frame_offset_ms(None, None, 0, 25, 1, origin_pts=None) == 0
-    assert _frame_offset_ms(
-        100,
-        Fraction(1, 1000),
-        1,
-        25,
-        1,
-        origin_pts=100,
-        origin_offset_ms=40,
-    ) == 40
-    assert _frame_offset_ms(
-        140,
-        Fraction(1, 1000),
-        2,
-        25,
-        1,
-        origin_pts=100,
-        origin_offset_ms=40,
-    ) == 80
+    timeline = _MediaTimeline(25, 1)
+
+    assert timeline.resolve(0, None, None) == 0
+    assert timeline.resolve(1, 100, Fraction(1, 1000)) == 40
+    assert timeline.resolve(2, 140, Fraction(1, 1000)) == 80
+
+
+def test_missing_pts_after_established_pts_continues_from_last_media_offset() -> None:
+    timeline = _MediaTimeline(25, 1)
+
+    assert timeline.resolve(0, 0, Fraction(1, 1000)) == 0
+    assert timeline.resolve(1, 100, Fraction(1, 1000)) == 100
+    assert timeline.resolve(2, None, None) == 140
+    assert timeline.resolve(3, 180, Fraction(1, 1000)) == 180
+
+
+def test_regressing_pts_fails_closed_instead_of_rewriting_evidence_time() -> None:
+    timeline = _MediaTimeline(25, 1)
+
+    assert timeline.resolve(0, 0, Fraction(1, 1000)) == 0
+    assert timeline.resolve(1, 100, Fraction(1, 1000)) == 100
+    with pytest.raises(VideoReadError, match="frame_timestamp_non_monotonic"):
+        timeline.resolve(2, 80, Fraction(1, 1000))
+
+
+def test_rounding_collision_is_minimally_advanced_for_integer_ms_contract() -> None:
+    timeline = _MediaTimeline(2500, 1)
+
+    assert timeline.resolve(0, 0, Fraction(1, 10000)) == 0
+    assert timeline.resolve(1, 4, Fraction(1, 10000)) == 1
+    assert timeline.resolve(2, 8, Fraction(1, 10000)) == 2
 
 
 def test_frame_offset_falls_back_to_rational_frame_rate() -> None:
