@@ -9,6 +9,7 @@ import pytest
 from mavi_vision.common.analytical import VisionProcessingResult
 from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
+from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiError
 from mavi_vision.worker.runner import WorkerRunner
@@ -150,6 +151,26 @@ class EventLoopStallProcessor:
         return VisionProcessingResult(job_id=job_id, frames_processed=1, tracks=())
 
 
+class EventLoopStallFailingProcessor:
+    def __init__(self, delay_seconds: float = 0.08) -> None:
+        self.delay_seconds = delay_seconds
+        self.started = threading.Event()
+
+    def process(
+        self,
+        *,
+        job_id,
+        attempt_count: int,
+        source_path: Path,
+        expected_source_size_bytes: int,
+        expected_source_sha256: str,
+        lease_guard: LeaseGuard,
+    ) -> VisionProcessingResult:
+        self.started.set()
+        time.sleep(self.delay_seconds)
+        raise SourceIntegrityError("source_sha256_mismatch")
+
+
 class CancellationWaitingProcessor:
     def __init__(self) -> None:
         self.cancellation_observed = False
@@ -256,6 +277,34 @@ def test_event_loop_stall_cannot_bypass_processing_thread_lease_guard(
         asyncio.run(run_with_stalled_event_loop())
 
     assert processor.guard_rejected_publication is True
+    assert client.failures == []
+
+
+def test_event_loop_stall_reclassifies_ordinary_processor_error_after_expiry(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    _materialize_source(tmp_path, lease)
+    client = CompletionDeadlineApi(lease)
+    processor = EventLoopStallFailingProcessor()
+    runner = WorkerRunner(
+        client,
+        LocalMediaStore(tmp_path),
+        2.0,
+        processor,
+        heartbeat_interval_seconds=30.0,
+        heartbeat_request_timeout_seconds=30.0,
+    )
+
+    async def run_with_stalled_event_loop() -> None:
+        run_task = asyncio.create_task(runner.run_once())
+        assert await asyncio.to_thread(processor.started.wait, 1.0)
+        time.sleep(0.10)
+        await run_task
+
+    with pytest.raises(WorkerApiError, match="lease ownership lost"):
+        asyncio.run(run_with_stalled_event_loop())
+
     assert client.failures == []
 
 
