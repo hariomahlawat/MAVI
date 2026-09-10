@@ -19,6 +19,8 @@ from mavi_vision.tracking.fixture import FixtureTracker
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd761")
 OTHER_JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd762")
+ATTEMPT = 1
+ATTEMPT_NAME = "attempt-0001"
 
 
 def _write_tiny_mp4(path: Path, frame_count: int = 3) -> None:
@@ -59,12 +61,16 @@ def _processor(tmp_path: Path, detections: dict[int, tuple[DetectionCandidate, .
     return VideoProcessor(
         FixtureDetector(detections),
         FixtureTracker(associations),
-        StagingArtifactStore(tmp_path, JOB_ID),
+        StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT),
     )
 
 
 def _artifact_path(root: Path, storage_key: str) -> Path:
     return root.joinpath(*storage_key.split("/"))
+
+
+def _attempt_path(root: Path, job_id: UUID = JOB_ID, attempt: int = ATTEMPT) -> Path:
+    return root / "staging" / str(job_id) / f"attempt-{attempt:04d}"
 
 
 def test_process_builds_one_deterministic_track_and_artifacts(tmp_path: Path) -> None:
@@ -96,8 +102,8 @@ def test_process_builds_one_deterministic_track_and_artifacts(tmp_path: Path) ->
     trajectory_path = _artifact_path(tmp_path, track.trajectory_artifact.storage_key)
     assert thumbnail_path.exists()
     assert trajectory_path.exists()
-    assert "/thumbnails/" in track.thumbnail.storage_key
-    assert "/trajectories/" in track.trajectory_artifact.storage_key
+    assert "/attempt-0001/thumbnails/" in track.thumbnail.storage_key
+    assert "/attempt-0001/trajectories/" in track.trajectory_artifact.storage_key
     assert track.thumbnail.size_bytes == thumbnail_path.stat().st_size
     assert track.thumbnail.sha256 == sha256(thumbnail_path.read_bytes()).hexdigest()
     assert track.trajectory_artifact.size_bytes == trajectory_path.stat().st_size
@@ -118,14 +124,14 @@ def test_process_zero_detections_returns_no_tracks_or_track_artifacts(tmp_path: 
 
     assert result.frames_processed == 3
     assert result.tracks == ()
-    assert not (tmp_path / "staging" / str(JOB_ID)).exists()
+    assert not _attempt_path(tmp_path).exists()
 
 
-def test_integrity_mismatch_cleans_job_staging(tmp_path: Path) -> None:
+def test_integrity_mismatch_cleans_attempt_staging(tmp_path: Path) -> None:
     source = tmp_path / "tiny.mp4"
     _write_tiny_mp4(source)
     size, _ = _source_facts(source)
-    store = StagingArtifactStore(tmp_path, JOB_ID)
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
     store.write_bytes("stale.bin", b"stale", "application/octet-stream")
     processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), store)
 
@@ -137,14 +143,14 @@ def test_integrity_mismatch_cleans_job_staging(tmp_path: Path) -> None:
             expected_source_sha256="0" * 64,
         )
 
-    assert not (tmp_path / "staging" / str(JOB_ID)).exists()
+    assert not _attempt_path(tmp_path).exists()
 
 
-def test_pre_cancelled_processor_preserves_existing_job_staging(tmp_path: Path) -> None:
+def test_pre_cancelled_processor_preserves_existing_attempt_staging(tmp_path: Path) -> None:
     source = tmp_path / "tiny.mp4"
     _write_tiny_mp4(source)
     size, digest = _source_facts(source)
-    store = StagingArtifactStore(tmp_path, JOB_ID)
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
     descriptor = store.write_bytes("keep.bin", b"keep", "application/octet-stream")
     keep_path = _artifact_path(tmp_path, descriptor.storage_key)
     processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), store)
@@ -162,11 +168,11 @@ def test_pre_cancelled_processor_preserves_existing_job_staging(tmp_path: Path) 
     assert keep_path.read_bytes() == b"keep"
 
 
-def test_processing_failure_after_lease_loss_preserves_reclaimed_staging(tmp_path: Path) -> None:
+def test_processing_failure_after_lease_loss_preserves_attempt_staging(tmp_path: Path) -> None:
     source = tmp_path / "tiny.mp4"
     _write_tiny_mp4(source, frame_count=1)
     size, digest = _source_facts(source)
-    store = StagingArtifactStore(tmp_path, JOB_ID)
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
     cancelled = False
     reclaimed_path: Path | None = None
 
@@ -223,11 +229,11 @@ def test_lease_cancellation_during_source_snapshot_maps_to_lease_lost(tmp_path: 
     assert checks >= 2
 
 
-def test_corrupt_video_maps_to_stable_error_and_cleans(tmp_path: Path) -> None:
+def test_corrupt_video_maps_to_stable_error_and_cleans_attempt(tmp_path: Path) -> None:
     source = tmp_path / "corrupt.mp4"
     source.write_bytes(b"not-an-mp4")
     size, digest = _source_facts(source)
-    store = StagingArtifactStore(tmp_path, JOB_ID)
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
     store.write_bytes("stale.bin", b"stale", "application/octet-stream")
     processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), store)
 
@@ -240,14 +246,14 @@ def test_corrupt_video_maps_to_stable_error_and_cleans(tmp_path: Path) -> None:
         )
 
     assert exc_info.value.code == "video_decode_failed"
-    assert not (tmp_path / "staging" / str(JOB_ID)).exists()
+    assert not _attempt_path(tmp_path).exists()
 
 
-def test_detector_failure_maps_to_pipeline_error_and_cleans(tmp_path: Path) -> None:
+def test_detector_failure_maps_to_pipeline_error_and_cleans_attempt(tmp_path: Path) -> None:
     source = tmp_path / "tiny.mp4"
     _write_tiny_mp4(source)
     size, digest = _source_facts(source)
-    store = StagingArtifactStore(tmp_path, JOB_ID)
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
 
     class FailingDetector:
         def detect(self, frame):
@@ -264,14 +270,14 @@ def test_detector_failure_maps_to_pipeline_error_and_cleans(tmp_path: Path) -> N
         )
 
     assert exc_info.value.code == "pipeline_processing_failed"
-    assert not (tmp_path / "staging" / str(JOB_ID)).exists()
+    assert not _attempt_path(tmp_path).exists()
 
 
 def test_process_rejects_artifact_store_scoped_to_different_job_without_cleanup(tmp_path: Path) -> None:
     source = tmp_path / "tiny.mp4"
     _write_tiny_mp4(source)
     size, digest = _source_facts(source)
-    other_store = StagingArtifactStore(tmp_path, OTHER_JOB_ID)
+    other_store = StagingArtifactStore(tmp_path, OTHER_JOB_ID, ATTEMPT)
     descriptor = other_store.write_bytes("keep.bin", b"keep", "application/octet-stream")
     keep_path = _artifact_path(tmp_path, descriptor.storage_key)
     processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), other_store)
@@ -296,7 +302,7 @@ def test_unsafe_tracker_id_is_rejected_before_artifact_creation(tmp_path: Path) 
     processor = VideoProcessor(
         FixtureDetector(detections),
         FixtureTracker({(0, 0): "person/nested"}),
-        StagingArtifactStore(tmp_path, JOB_ID),
+        StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT),
     )
 
     with pytest.raises(VideoProcessingError) as exc_info:
@@ -308,4 +314,4 @@ def test_unsafe_tracker_id_is_rejected_before_artifact_creation(tmp_path: Path) 
         )
 
     assert exc_info.value.code == "pipeline_processing_failed"
-    assert not (tmp_path / "staging" / str(JOB_ID)).exists()
+    assert not _attempt_path(tmp_path).exists()
