@@ -8,7 +8,7 @@ import pytest
 
 from mavi_vision.common.analytical import VisionProcessingResult
 from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
-from mavi_vision.pipeline.process_video import VideoProcessingError
+from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiError
 from mavi_vision.worker.runner import WorkerRunner
@@ -101,38 +101,52 @@ class SlowProcessor:
     def __init__(self, lease: VisionJobLease, delay_seconds: float = 0.05) -> None:
         self.lease = lease
         self.delay_seconds = delay_seconds
-        self.cancel_probe_seen = False
+        self.guard_seen: LeaseGuard | None = None
+        self.attempt_count_seen: int | None = None
 
     def process(
         self,
         *,
         job_id,
+        attempt_count: int,
         source_path: Path,
         expected_source_size_bytes: int,
         expected_source_sha256: str,
-        cancel_requested=None,
+        lease_guard: LeaseGuard,
     ) -> VisionProcessingResult:
-        self.cancel_probe_seen = callable(cancel_requested)
+        self.guard_seen = lease_guard
+        self.attempt_count_seen = attempt_count
+        lease_guard.check_owned()
         time.sleep(self.delay_seconds)
+        lease_guard.check_owned()
         return VisionProcessingResult(job_id=job_id, frames_processed=1, tracks=())
 
 
 class EventLoopStallProcessor:
-    def __init__(self, delay_seconds: float = 0.02) -> None:
+    def __init__(self, delay_seconds: float = 0.08) -> None:
         self.delay_seconds = delay_seconds
         self.started = threading.Event()
+        self.guard_rejected_publication = False
 
     def process(
         self,
         *,
         job_id,
+        attempt_count: int,
         source_path: Path,
         expected_source_size_bytes: int,
         expected_source_sha256: str,
-        cancel_requested=None,
+        lease_guard: LeaseGuard,
     ) -> VisionProcessingResult:
         self.started.set()
         time.sleep(self.delay_seconds)
+        try:
+            # Model the ownership check immediately before artifact publication.
+            # This executes in the processing thread while the asyncio loop is stalled.
+            lease_guard.check_owned()
+        except LeaseLostError:
+            self.guard_rejected_publication = True
+            raise
         return VisionProcessingResult(job_id=job_id, frames_processed=1, tracks=())
 
 
@@ -144,19 +158,19 @@ class CancellationWaitingProcessor:
         self,
         *,
         job_id,
+        attempt_count: int,
         source_path: Path,
         expected_source_size_bytes: int,
         expected_source_sha256: str,
-        cancel_requested=None,
+        lease_guard: LeaseGuard,
     ) -> VisionProcessingResult:
-        assert callable(cancel_requested)
         deadline = time.monotonic() + 1.0
-        while not cancel_requested():
+        while not lease_guard.is_lost():
             if time.monotonic() >= deadline:
                 raise AssertionError("lease cancellation was not propagated")
             time.sleep(0.002)
         self.cancellation_observed = True
-        raise VideoProcessingError("lease_lost")
+        raise LeaseLostError()
 
 
 def _materialize_source(tmp_path: Path, lease: VisionJobLease) -> None:
@@ -182,7 +196,8 @@ def test_long_processing_renews_lease_periodically(tmp_path: Path) -> None:
     )
 
     assert result is True
-    assert processor.cancel_probe_seen is True
+    assert isinstance(processor.guard_seen, LeaseGuard)
+    assert processor.attempt_count_seen == lease.attempt_count
     assert len(client.heartbeats) >= 2
     assert client.heartbeats[0] == 5.0
     assert client.failures == ["task9_result_submission_not_implemented"]
@@ -213,7 +228,7 @@ def test_server_deadline_overrides_longer_configured_heartbeat_interval(
     assert client.failures == ["task9_result_submission_not_implemented"]
 
 
-def test_processor_completion_after_current_lease_deadline_is_rejected(
+def test_event_loop_stall_cannot_bypass_processing_thread_lease_guard(
     tmp_path: Path,
 ) -> None:
     lease = make_lease()
@@ -232,13 +247,15 @@ def test_processor_completion_after_current_lease_deadline_is_rejected(
     async def run_with_stalled_event_loop() -> None:
         run_task = asyncio.create_task(runner.run_once())
         assert await asyncio.to_thread(processor.started.wait, 1.0)
-        # Simulate a suspended/blocked event loop while the worker thread completes.
+        # Simulate a suspended/blocked event loop while the processing thread crosses
+        # the authoritative deadline and reaches its publication boundary.
         time.sleep(0.10)
         await run_task
 
-    with pytest.raises(WorkerApiError, match="lease deadline exceeded"):
+    with pytest.raises(WorkerApiError, match="lease ownership lost"):
         asyncio.run(run_with_stalled_event_loop())
 
+    assert processor.guard_rejected_publication is True
     assert client.failures == []
 
 
