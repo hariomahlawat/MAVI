@@ -72,7 +72,7 @@ def _encode_jpeg(crop: np.ndarray) -> bytes:
 
     image_data = np.ascontiguousarray(crop, dtype=np.uint8)
     buffer = BytesIO()
-    Image.fromarray(image_data, mode="RGB").save(
+    Image.fromarray(image_data).save(
         buffer,
         format="JPEG",
         quality=90,
