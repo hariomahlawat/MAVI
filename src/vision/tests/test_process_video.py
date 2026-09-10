@@ -184,15 +184,14 @@ def test_detector_failure_maps_to_pipeline_error_and_cleans(tmp_path: Path) -> N
     assert not (tmp_path / "staging" / str(JOB_ID)).exists()
 
 
-def test_process_rejects_artifact_store_scoped_to_different_job(tmp_path: Path) -> None:
+def test_process_rejects_artifact_store_scoped_to_different_job_without_cleanup(tmp_path: Path) -> None:
     source = tmp_path / "tiny.mp4"
     _write_tiny_mp4(source)
     size, digest = _source_facts(source)
-    processor = VideoProcessor(
-        FixtureDetector({}),
-        FixtureTracker({}),
-        StagingArtifactStore(tmp_path, OTHER_JOB_ID),
-    )
+    other_store = StagingArtifactStore(tmp_path, OTHER_JOB_ID)
+    descriptor = other_store.write_bytes("keep.bin", b"keep", "application/octet-stream")
+    keep_path = _artifact_path(tmp_path, descriptor.storage_key)
+    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), other_store)
 
     with pytest.raises(VideoProcessingError) as exc_info:
         processor.process(
@@ -203,7 +202,7 @@ def test_process_rejects_artifact_store_scoped_to_different_job(tmp_path: Path) 
         )
 
     assert exc_info.value.code == "pipeline_configuration_invalid"
-    assert not (tmp_path / "staging" / str(OTHER_JOB_ID)).exists()
+    assert keep_path.read_bytes() == b"keep"
 
 
 def test_unsafe_tracker_id_is_rejected_before_artifact_creation(tmp_path: Path) -> None:
