@@ -61,6 +61,26 @@ class FailingHeartbeatWorkerApiClient(FakeWorkerApiClient):
         raise WorkerApiError("worker API request failed")
 
 
+class BackoffProbeWorkerApiClient(FailingHeartbeatWorkerApiClient):
+    def __init__(self, leased_job: VisionJobLease) -> None:
+        super().__init__(leased_job)
+        self.lease_calls = 0
+        self.events: list[str] = []
+
+    async def lease(self) -> VisionJobLease | None:
+        self.lease_calls += 1
+        self.events.append("lease")
+        if self.lease_calls == 1:
+            return self.leased_job
+        raise RuntimeError("stop polling probe")
+
+    async def heartbeat(
+        self, lease: VisionJobLease, progress_percent: float
+    ) -> VisionJobHeartbeatResponse:
+        self.events.append("heartbeat")
+        return await super().heartbeat(lease, progress_percent)
+
+
 class ExplodingMediaStore:
     def resolve_file(self, storage_key: str) -> Path:
         raise RuntimeError(f"secret path and token: {storage_key}")
@@ -123,6 +143,28 @@ def test_heartbeat_api_error_propagates_for_polling_backoff(tmp_path: Path) -> N
 
     assert client.heartbeats == [5.0]
     assert client.failures == []
+
+
+def test_run_forever_sleeps_before_next_lease_after_worker_api_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = BackoffProbeWorkerApiClient(make_lease())
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+        client.events.append("sleep")
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(RuntimeError, match="stop polling probe"):
+        asyncio.run(WorkerRunner(client, LocalMediaStore(tmp_path), 2.0).run_forever())
+
+    assert sleep_calls == [2.0]
+    assert client.events == ["lease", "heartbeat", "sleep", "lease"]
 
 
 def test_missing_source_media_uses_controlled_failure(tmp_path: Path) -> None:
