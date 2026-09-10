@@ -18,6 +18,7 @@ from mavi_vision.tracking.fixture import FixtureTracker
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd761")
+OTHER_JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd762")
 
 
 def _write_tiny_mp4(path: Path, frame_count: int = 3) -> None:
@@ -87,16 +88,9 @@ def test_process_builds_one_deterministic_track_and_artifacts(tmp_path: Path) ->
     assert track.object_class is ObjectClass.PERSON
     assert track.start_offset_ms <= track.representative.offset_ms <= track.end_offset_ms
     assert track.representative.offset_ms == track.start_offset_ms
-    assert [p.offset_ms for p in track.trajectory] == sorted(
-        p.offset_ms for p in track.trajectory
-    )
-    assert all(
-        current > previous
-        for previous, current in zip(
-            [p.offset_ms for p in track.trajectory],
-            [p.offset_ms for p in track.trajectory][1:],
-        )
-    )
+    offsets = [point.offset_ms for point in track.trajectory]
+    assert offsets == sorted(offsets)
+    assert all(current > previous for previous, current in zip(offsets, offsets[1:]))
 
     thumbnail_path = _artifact_path(tmp_path, track.thumbnail.storage_key)
     trajectory_path = _artifact_path(tmp_path, track.trajectory_artifact.storage_key)
@@ -177,6 +171,51 @@ def test_detector_failure_maps_to_pipeline_error_and_cleans(tmp_path: Path) -> N
             raise RuntimeError("fixture failure")
 
     processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store)
+
+    with pytest.raises(VideoProcessingError) as exc_info:
+        processor.process(
+            job_id=JOB_ID,
+            source_path=source,
+            expected_source_size_bytes=size,
+            expected_source_sha256=digest,
+        )
+
+    assert exc_info.value.code == "pipeline_processing_failed"
+    assert not (tmp_path / "staging" / str(JOB_ID)).exists()
+
+
+def test_process_rejects_artifact_store_scoped_to_different_job(tmp_path: Path) -> None:
+    source = tmp_path / "tiny.mp4"
+    _write_tiny_mp4(source)
+    size, digest = _source_facts(source)
+    processor = VideoProcessor(
+        FixtureDetector({}),
+        FixtureTracker({}),
+        StagingArtifactStore(tmp_path, OTHER_JOB_ID),
+    )
+
+    with pytest.raises(VideoProcessingError) as exc_info:
+        processor.process(
+            job_id=JOB_ID,
+            source_path=source,
+            expected_source_size_bytes=size,
+            expected_source_sha256=digest,
+        )
+
+    assert exc_info.value.code == "pipeline_configuration_invalid"
+    assert not (tmp_path / "staging" / str(OTHER_JOB_ID)).exists()
+
+
+def test_unsafe_tracker_id_is_rejected_before_artifact_creation(tmp_path: Path) -> None:
+    source = tmp_path / "tiny.mp4"
+    _write_tiny_mp4(source, frame_count=1)
+    size, digest = _source_facts(source)
+    detections = {0: (_person(),)}
+    processor = VideoProcessor(
+        FixtureDetector(detections),
+        FixtureTracker({(0, 0): "person/nested"}),
+        StagingArtifactStore(tmp_path, JOB_ID),
+    )
 
     with pytest.raises(VideoProcessingError) as exc_info:
         processor.process(
