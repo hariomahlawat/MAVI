@@ -57,6 +57,18 @@ def _as_fraction(value: object) -> Fraction | None:
         return None
 
 
+def _fallback_offset_ms(
+    frame_number: int,
+    frame_rate_num: int,
+    frame_rate_den: int,
+) -> int | None:
+    if frame_number < 0 or frame_rate_num <= 0 or frame_rate_den <= 0:
+        return None
+    return _round_fraction_nearest(
+        Fraction(frame_number * 1000 * frame_rate_den, frame_rate_num)
+    )
+
+
 def _frame_offset_ms(
     pts: int | None,
     time_base: object | None,
@@ -65,21 +77,21 @@ def _frame_offset_ms(
     frame_rate_den: int,
     *,
     origin_pts: int | None,
+    origin_offset_ms: int = 0,
 ) -> int:
     if pts is not None and origin_pts is not None:
         rational_time_base = _as_fraction(time_base)
         if rational_time_base is not None and rational_time_base > 0:
-            offset = _round_fraction_nearest(
+            offset = origin_offset_ms + _round_fraction_nearest(
                 Fraction(pts - origin_pts) * rational_time_base * 1000
             )
             if offset < 0:
                 raise VideoReadError("frame_timestamp_unavailable")
             return offset
 
-    if frame_number >= 0 and frame_rate_num > 0 and frame_rate_den > 0:
-        return _round_fraction_nearest(
-            Fraction(frame_number * 1000 * frame_rate_den, frame_rate_num)
-        )
+    fallback = _fallback_offset_ms(frame_number, frame_rate_num, frame_rate_den)
+    if fallback is not None:
+        return fallback
 
     raise VideoReadError("frame_timestamp_unavailable")
 
@@ -104,6 +116,7 @@ def iter_frames(source: Path | BinaryIO) -> Iterator[DecodedFrame]:
             frame_rate_den = average_rate.denominator
 
         origin_pts: int | None = None
+        origin_offset_ms = 0
         try:
             for frame_number, frame in enumerate(container.decode(stream)):
                 time_base = frame.time_base if frame.time_base is not None else stream.time_base
@@ -115,6 +128,12 @@ def iter_frames(source: Path | BinaryIO) -> Iterator[DecodedFrame]:
                     and rational_time_base > 0
                 ):
                     origin_pts = frame.pts
+                    fallback_anchor = _fallback_offset_ms(
+                        frame_number,
+                        frame_rate_num,
+                        frame_rate_den,
+                    )
+                    origin_offset_ms = fallback_anchor if fallback_anchor is not None else 0
                 offset_ms = _frame_offset_ms(
                     frame.pts,
                     time_base,
@@ -122,6 +141,7 @@ def iter_frames(source: Path | BinaryIO) -> Iterator[DecodedFrame]:
                     frame_rate_num,
                     frame_rate_den,
                     origin_pts=origin_pts,
+                    origin_offset_ms=origin_offset_ms,
                 )
                 image = np.ascontiguousarray(frame.to_ndarray(format="rgb24"), dtype=np.uint8)
                 yield DecodedFrame(frame_number, offset_ms, image)
