@@ -25,6 +25,10 @@ class StagingArtifactStore:
         if not self._job_root.is_relative_to(self._media_root):
             raise StagingArtifactError("staging_path_escape")
 
+    @property
+    def job_id(self) -> UUID:
+        return self._job_id
+
     def thumbnail_key(self, track_id: str) -> str:
         self._validate_track_id(track_id)
         return f"staging/{self._job_id}/thumbnails/{track_id}.jpg"
