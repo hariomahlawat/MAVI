@@ -113,6 +113,7 @@ class _MediaTimeline:
         self._origin_offset_ms: Fraction | None = None
         self._last_authoritative_presentation_ms: Fraction | None = None
         self._last_exact_ms: Fraction | None = None
+        self._last_fallback_anchor_ms: Fraction | None = None
         self._last_emitted_ms: int | None = None
         self._last_frame_number: int | None = None
 
@@ -174,17 +175,26 @@ class _MediaTimeline:
             raise VideoReadError("frame_timestamp_non_monotonic")
 
         emitted_ms = _round_fraction_nearest(exact_ms)
+        reconciled_to_emitted = False
         if self._last_emitted_ms is not None and emitted_ms <= self._last_emitted_ms:
             # Keep the public integer-ms contract strictly monotonic. This also
             # reconciles valid resumed PTS with already-emitted fallback estimates
             # using the smallest possible adjustment; exact PTS remains authoritative
-            # for subsequent timing calculations.
+            # for subsequent PTS regression checks.
             emitted_ms = self._last_emitted_ms + 1
+            reconciled_to_emitted = True
 
         if usable_pts:
             assert presentation_ms is not None
             self._last_authoritative_presentation_ms = presentation_ms
         self._last_exact_ms = exact_ms
+        # Fallback must continue from the effective emitted timeline after a clamp;
+        # otherwise a missing-PTS frame immediately after reconciliation can advance
+        # by less than one declared frame duration. When no clamp occurred, retain
+        # exact rational precision instead of accumulating integer rounding drift.
+        self._last_fallback_anchor_ms = (
+            Fraction(emitted_ms) if reconciled_to_emitted else exact_ms
+        )
         self._last_emitted_ms = emitted_ms
         self._last_frame_number = frame_number
         return emitted_ms
@@ -192,12 +202,12 @@ class _MediaTimeline:
     def _predicted_fallback_exact(self, frame_number: int) -> Fraction:
         if self._frame_duration_ms is None:
             raise VideoReadError("frame_timestamp_unavailable")
-        if self._last_exact_ms is None or self._last_frame_number is None:
+        if self._last_fallback_anchor_ms is None or self._last_frame_number is None:
             return Fraction(frame_number) * self._frame_duration_ms
         frame_delta = frame_number - self._last_frame_number
         if frame_delta <= 0:
             raise VideoReadError("frame_timestamp_non_monotonic")
-        return self._last_exact_ms + Fraction(frame_delta) * self._frame_duration_ms
+        return self._last_fallback_anchor_ms + Fraction(frame_delta) * self._frame_duration_ms
 
 
 def iter_frames(source: Path | BinaryIO) -> Iterator[DecodedFrame]:
