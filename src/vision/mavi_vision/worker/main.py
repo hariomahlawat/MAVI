@@ -23,6 +23,7 @@ def build_runner(
         LocalMediaStore(settings.media_root),
         settings.poll_interval_seconds,
         processor,
+        heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
     )
 
 
