@@ -136,7 +136,11 @@ class _MediaTimeline:
         if usable_pts:
             presentation_ms = Fraction(pts) * rational_time_base * 1000
             if self._origin_presentation_ms is None:
-                anchor = self._predicted_fallback_exact(frame_number)
+                anchor = (
+                    Fraction(0)
+                    if self._last_exact_ms is None
+                    else self._predicted_fallback_exact(frame_number)
+                )
                 self._origin_presentation_ms = presentation_ms
                 self._origin_offset_ms = anchor
             assert self._origin_offset_ms is not None
