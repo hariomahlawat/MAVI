@@ -83,7 +83,7 @@ def _frame_offset_ms(
 def iter_frames(path: Path) -> Iterator[DecodedFrame]:
     try:
         container = av.open(str(path), mode="r")
-    except (av.AVError, OSError) as exc:
+    except (av.error.FFmpegError, OSError) as exc:
         raise VideoReadError("video_open_failed") from exc
 
     with container:
@@ -113,5 +113,5 @@ def iter_frames(path: Path) -> Iterator[DecodedFrame]:
                 yield DecodedFrame(frame_number, offset_ms, image)
         except VideoReadError:
             raise
-        except (av.AVError, OSError, ValueError) as exc:
+        except (av.error.FFmpegError, OSError, ValueError) as exc:
             raise VideoReadError("video_decode_failed") from exc
