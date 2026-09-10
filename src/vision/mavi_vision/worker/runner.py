@@ -1,6 +1,7 @@
 import asyncio
 import threading
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
@@ -54,14 +55,18 @@ class WorkerRunner:
         poll_interval_seconds: float,
         processor: VisionProcessor | None = None,
         heartbeat_interval_seconds: float = 30.0,
+        heartbeat_request_timeout_seconds: float = 30.0,
     ) -> None:
         if heartbeat_interval_seconds <= 0:
             raise ValueError("heartbeat_interval_seconds must be positive")
+        if heartbeat_request_timeout_seconds <= 0:
+            raise ValueError("heartbeat_request_timeout_seconds must be positive")
         self._api_client = api_client
         self._media_store = media_store
         self._poll_interval_seconds = poll_interval_seconds
         self._processor = processor
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
+        self._heartbeat_request_timeout_seconds = heartbeat_request_timeout_seconds
 
     async def run_once(self) -> bool:
         lease = await self._api_client.lease()
@@ -70,7 +75,7 @@ class WorkerRunner:
 
         try:
             source_path = self._media_store.resolve_file(lease.source_storage_key)
-            await self._api_client.heartbeat(lease, 5.0)
+            heartbeat = await self._api_client.heartbeat(lease, 5.0)
         except MediaStoreError:
             await self._best_effort_fail(
                 lease,
@@ -97,7 +102,11 @@ class WorkerRunner:
             return True
 
         try:
-            await self._process_with_lease_heartbeats(lease, source_path)
+            await self._process_with_lease_heartbeats(
+                lease,
+                source_path,
+                heartbeat,
+            )
         except SourceIntegrityError:
             await self._best_effort_fail(
                 lease,
@@ -133,6 +142,7 @@ class WorkerRunner:
         self,
         lease: VisionJobLease,
         source_path: Path,
+        heartbeat: VisionJobHeartbeatResponse,
     ) -> VisionProcessingResult:
         if self._processor is None:
             raise RuntimeError("processor_missing")
@@ -150,16 +160,18 @@ class WorkerRunner:
         )
 
         try:
+            current_heartbeat = heartbeat
             while True:
+                wait_seconds = self._heartbeat_wait_seconds(current_heartbeat)
                 done, _ = await asyncio.wait(
                     {process_task},
-                    timeout=self._heartbeat_interval_seconds,
+                    timeout=wait_seconds,
                 )
                 if process_task in done:
                     return process_task.result()
 
                 try:
-                    await self._api_client.heartbeat(lease, 5.0)
+                    current_heartbeat = await self._api_client.heartbeat(lease, 5.0)
                 except Exception:
                     cancel_event.set()
                     try:
@@ -170,6 +182,25 @@ class WorkerRunner:
         finally:
             if not process_task.done():
                 cancel_event.set()
+
+    def _heartbeat_wait_seconds(
+        self,
+        heartbeat: VisionJobHeartbeatResponse,
+    ) -> float:
+        now = datetime.now(timezone.utc)
+        remaining = (heartbeat.lease_expires_at_utc - now).total_seconds()
+        if remaining <= 0:
+            raise WorkerApiError("worker API returned expired lease deadline")
+
+        # Start the request early enough that its configured timeout cannot consume the
+        # entire remaining lease. For very short leases, use at least half the
+        # remaining lifetime as the safety margin rather than scheduling at expiry.
+        safety_margin = min(
+            self._heartbeat_request_timeout_seconds,
+            remaining / 2.0,
+        )
+        deadline_wait = remaining - safety_margin
+        return min(self._heartbeat_interval_seconds, deadline_wait)
 
     async def run_forever(self) -> None:
         while True:
