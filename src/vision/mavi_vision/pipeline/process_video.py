@@ -75,11 +75,18 @@ class VideoProcessor:
     ) -> VisionProcessingResult:
         if self._artifact_store.job_id != job_id:
             raise VideoProcessingError("pipeline_configuration_invalid")
+
+        # Cleanup is a mutating operation on the job-scoped staging tree. A processor
+        # that starts after its lease has already been cancelled must therefore fail
+        # before touching staging; another attempt may already own and use that tree.
+        self._raise_if_cancelled(cancel_requested)
         try:
             self._artifact_store.cleanup()
         except Exception as exc:
             raise VideoProcessingError("pipeline_configuration_invalid") from exc
 
+        # Re-check after cleanup so cancellation that becomes visible during the
+        # bounded startup cleanup cannot proceed into source snapshot or analysis.
         self._raise_if_cancelled(cancel_requested)
         tracks: dict[str, _TrackAccumulator] = {}
         frames_processed = 0
