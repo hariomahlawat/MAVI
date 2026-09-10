@@ -7,10 +7,12 @@ MAVI is a standalone, offline-production visual-intelligence platform. The proof
 - **Operational platform:** ASP.NET Core / C# / .NET 10 LTS
 - **Operator UI:** React + TypeScript + Vite
 - **Vision/AI:** Python workers, later hosted on Linux GPU nodes
-- **Authoritative data:** PostgreSQL + pgvector (integration follows in the next implementation phase)
+- **Authoritative data:** PostgreSQL 18 + pgvector
 - **Production deployment:** Windows Server/IIS for the operational plane; Ubuntu/Linux GPU servers for vision workers
 - **Scale target:** approximately 200–500 cameras per large establishment
 - **Production constraint:** no Internet connectivity required for installation or operation
+
+The current Phase-1 implementation already includes PostgreSQL persistence and migrations, managed MP4 ingestion, camera/video APIs, a lease/heartbeat/fail worker control plane, and the Task-8 Python dummy worker. Real detector/tracker processing and result completion remain later Phase-1 tasks.
 
 ## Repository layout
 
@@ -19,8 +21,8 @@ src/platform   .NET operational platform
 src/web        React operator application
 src/vision     Python vision-worker package
 contracts      language-neutral worker JSON schemas and examples
-tests          .NET tests and later end-to-end tests
-database       database design/migration notes
+tests          .NET unit/integration tests
+database       database scripts and notes
 models         model manifests only; weights are never committed
 infrastructure development/Windows/Linux/offline packaging notes
 docs           architecture decisions, specifications and runbooks
@@ -33,20 +35,30 @@ Install the following on a connected development workstation:
 
 - Visual Studio with the ASP.NET and web-development workloads
 - .NET 10 SDK
+- PostgreSQL 18 with pgvector
+- FFmpeg/ffprobe
 - Node.js 22 or later
 - Python 3.13 or later
 - Git
 
-PostgreSQL, pgvector, CUDA, PyTorch and computer-vision models are deliberately not introduced in this bootstrap. They will be added against specific PoC use cases rather than as speculative dependencies.
+For Windows/Visual Studio database and test setup, follow `docs/runbooks/local-development.md` before running the integration tests. The integration suite intentionally requires a dedicated `mavi_test` database and never falls back to the development database.
+
+CUDA, PyTorch and computer-vision model packages are introduced only when the corresponding vision-processing task requires them. Production runtime must not download models or other dependencies from the Internet.
 
 ## First checks
 
 ```bash
 python tools/verify_repo.py
-pytest src/vision/tests -q
 ```
 
-When the .NET 10 SDK is installed:
+For Python:
+
+```bash
+cd src/vision
+python -m pytest -q
+```
+
+For .NET after configuring `MAVI_TEST_DB_CONNECTION` as described in the local-development runbook:
 
 ```bash
 dotnet restore MAVI.sln
@@ -54,11 +66,12 @@ dotnet build MAVI.sln
 dotnet test MAVI.sln
 ```
 
-When npm registry access is available:
+For the frontend:
 
 ```bash
 cd src/web/mavi-web
-npm install
+npm ci
+npm test
 npm run typecheck
 npm run build
 ```
