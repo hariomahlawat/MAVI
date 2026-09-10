@@ -38,6 +38,8 @@ def test_settings_reject_unsafe_worker_id(monkeypatch: pytest.MonkeyPatch, tmp_p
         "https:///missing-host",
         "https://mavi-api.local?tenant=a",
         "https://mavi-api.local/#worker",
+        "https://mavi-api.local?",
+        "https://mavi-api.local#",
     ],
 )
 def test_settings_reject_invalid_api_url(
