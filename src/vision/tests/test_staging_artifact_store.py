@@ -5,10 +5,7 @@ from uuid import UUID
 
 import pytest
 
-from mavi_vision.storage.staging_artifact_store import (
-    StagingArtifactError,
-    StagingArtifactStore,
-)
+from mavi_vision.storage.artifact_store import StagingArtifactError, StagingArtifactStore
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd761")
