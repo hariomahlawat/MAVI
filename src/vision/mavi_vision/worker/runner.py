@@ -184,9 +184,21 @@ class WorkerRunner:
                     timeout=wait_seconds,
                 )
                 if process_task in done:
-                    result = process_task.result()
-                    # Defense in depth: even a processor that returns without a final
-                    # ownership check cannot have its stale result accepted.
+                    # Check ownership before interpreting either a successful result
+                    # or an ordinary processing exception. If the event loop resumes
+                    # after expiry, lease loss must take precedence and no stale
+                    # terminal failure may be submitted by run_once().
+                    lease_guard.check_owned()
+                    try:
+                        result = process_task.result()
+                    except LeaseLostError:
+                        raise
+                    except BaseException:
+                        # Close the narrow boundary between the first ownership check
+                        # and retrieving an already-completed exceptional result.
+                        lease_guard.check_owned()
+                        raise
+                    # Defense in depth for the equivalent success-path boundary.
                     lease_guard.check_owned()
                     return result
 
