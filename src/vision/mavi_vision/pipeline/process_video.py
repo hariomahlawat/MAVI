@@ -67,7 +67,17 @@ class VideoProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
     ) -> VisionProcessingResult:
-        self._artifact_store.cleanup()
+        try:
+            self._artifact_store.cleanup()
+            if self._artifact_store.job_id != job_id:
+                raise VideoProcessingError("pipeline_configuration_invalid")
+        except VideoProcessingError:
+            self._cleanup_best_effort()
+            raise
+        except Exception as exc:
+            self._cleanup_best_effort()
+            raise VideoProcessingError("pipeline_configuration_invalid") from exc
+
         try:
             verify_source(
                 source_path,
@@ -186,7 +196,7 @@ class VideoProcessor:
     @staticmethod
     def _jpeg_bytes(crop: np.ndarray) -> bytes:
         buffer = BytesIO()
-        Image.fromarray(crop, mode="RGB").save(
+        Image.fromarray(crop).save(
             buffer,
             format="JPEG",
             quality=90,
@@ -203,6 +213,8 @@ class VideoProcessor:
     ) -> ProcessedTrack:
         if accumulator.representative is None or accumulator.observation_count == 0:
             raise ValueError("track_observation_missing")
+        self._artifact_store.thumbnail_key(track_id)
+        self._artifact_store.trajectory_key(track_id)
         points = tuple(accumulator.trajectory)
         trajectory_payload = serialize_trajectory(points)
         thumbnail_payload = self._jpeg_bytes(accumulator.representative.crop)
