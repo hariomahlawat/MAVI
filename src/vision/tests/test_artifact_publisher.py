@@ -99,6 +99,29 @@ def test_loss_between_artifact_publications_stops_second_write(
     assert not trajectory.exists()
 
 
+def test_low_level_authorization_blocks_destination_before_atomic_replace(tmp_path: Path) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+    checks = 0
+
+    def deny_publish() -> None:
+        nonlocal checks
+        checks += 1
+        raise LeaseLostError()
+
+    with pytest.raises(LeaseLostError, match="lease_lost"):
+        store.write_bytes(
+            "thumbnails/person-0001.jpg",
+            b"jpeg-payload",
+            "image/jpeg",
+            authorize_publish=deny_publish,
+        )
+
+    parent = _attempt_root(tmp_path) / "thumbnails"
+    assert checks == 1
+    assert not (parent / "person-0001.jpg").exists()
+    assert list(parent.glob("*.tmp")) == []
+
+
 def test_successful_publication_returns_processed_track_with_attempt_keys(tmp_path: Path) -> None:
     publisher = ArtifactPublisher(
         StagingArtifactStore(tmp_path, JOB_ID, 2),
