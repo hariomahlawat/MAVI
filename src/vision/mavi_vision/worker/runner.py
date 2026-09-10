@@ -170,6 +170,8 @@ class WorkerRunner:
                     timeout=wait_seconds,
                 )
                 if process_task in done:
+                    if datetime.now(timezone.utc) >= current_deadline:
+                        raise WorkerApiError("lease deadline exceeded")
                     return process_task.result()
 
                 current_heartbeat = await self._heartbeat_before_deadline(
