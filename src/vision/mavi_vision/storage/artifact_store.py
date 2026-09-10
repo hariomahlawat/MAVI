@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import stat
+from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -77,6 +78,8 @@ class StagingArtifactStore:
         relative_name: str,
         content: bytes,
         media_type: str,
+        *,
+        authorize_publish: Callable[[], None] | None = None,
     ) -> ArtifactDescriptor:
         self._require_secure_dirfd()
         parts = self._validate_relative_name(relative_name)
@@ -110,6 +113,14 @@ class StagingArtifactStore:
                 raise StagingArtifactError("staging_write_failed") from exc
 
             self._reject_unsafe_destination(parent_fd, destination_name)
+
+            # The temporary file is complete and durable, but no destination has
+            # changed yet. Re-authorize at this exact side-effect boundary so an
+            # expired or cancelled lease cannot publish after expensive preparation
+            # or temporary-file I/O. Authorization exceptions propagate unchanged.
+            if authorize_publish is not None:
+                authorize_publish()
+
             try:
                 os.replace(
                     temp_name,
@@ -128,7 +139,11 @@ class StagingArtifactStore:
                 self._unlink_best_effort(parent_fd, destination_name)
                 destination_published = False
                 raise
-        except StagingArtifactError:
+        except Exception:
+            # This also covers an ownership guard rejecting publication. Never wrap
+            # that exception as a staging failure; remove any unpublished temporary
+            # file (or a publication we already know must be rolled back) and rethrow
+            # the original error so lease-loss semantics remain intact end-to-end.
             if temp_exists:
                 self._unlink_best_effort(parent_fd, temp_name)
             if destination_published:
