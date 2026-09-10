@@ -147,17 +147,17 @@ class VideoProcessor:
         except SourceSnapshotCancelled as exc:
             raise VideoProcessingError("lease_lost") from exc
         except SourceIntegrityError:
-            self._cleanup_best_effort()
+            self._cleanup_best_effort(cancel_requested)
             raise
         except VideoReadError as exc:
-            self._cleanup_best_effort()
+            self._cleanup_best_effort(cancel_requested)
             raise VideoProcessingError("video_decode_failed") from exc
         except VideoProcessingError as exc:
             if exc.code != "lease_lost":
-                self._cleanup_best_effort()
+                self._cleanup_best_effort(cancel_requested)
             raise
         except Exception as exc:
-            self._cleanup_best_effort()
+            self._cleanup_best_effort(cancel_requested)
             raise VideoProcessingError("pipeline_processing_failed") from exc
 
         try:
@@ -173,10 +173,10 @@ class VideoProcessor:
             )
         except VideoProcessingError as exc:
             if exc.code != "lease_lost":
-                self._cleanup_best_effort()
+                self._cleanup_best_effort(cancel_requested)
             raise
         except Exception as exc:
-            self._cleanup_best_effort()
+            self._cleanup_best_effort(cancel_requested)
             raise VideoProcessingError("pipeline_processing_failed") from exc
 
     @staticmethod
@@ -267,7 +267,14 @@ class VideoProcessor:
             trajectory_artifact=trajectory_artifact,
         )
 
-    def _cleanup_best_effort(self) -> None:
+    def _cleanup_best_effort(
+        self,
+        cancel_requested: Callable[[], bool] | None = None,
+    ) -> None:
+        # Failure cleanup mutates a job-scoped tree that may be reused by a reclaimed
+        # lease. Re-check ownership at the mutation boundary; once cancellation is
+        # visible, lease loss takes precedence over the concurrent processing error.
+        self._raise_if_cancelled(cancel_requested)
         try:
             self._artifact_store.cleanup()
         except Exception:
