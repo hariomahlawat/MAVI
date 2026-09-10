@@ -1,6 +1,4 @@
 import asyncio
-import threading
-from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
@@ -8,6 +6,7 @@ from uuid import UUID
 
 from mavi_vision.common.analytical import VisionProcessingResult
 from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
+from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.process_video import VideoProcessingError
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import MediaStoreError
@@ -39,10 +38,11 @@ class VisionProcessor(Protocol):
         self,
         *,
         job_id: UUID,
+        attempt_count: int,
         source_path: Path,
         expected_source_size_bytes: int,
         expected_source_sha256: str,
-        cancel_requested: Callable[[], bool] | None = None,
+        lease_guard: LeaseGuard,
     ) -> VisionProcessingResult: ...
 
 
@@ -107,6 +107,10 @@ class WorkerRunner:
                 source_path,
                 heartbeat,
             )
+        except LeaseLostError as exc:
+            # Ownership loss is not a processing failure. A stale attempt must not
+            # emit any terminal lifecycle request after its guard rejects work.
+            raise WorkerApiError("lease ownership lost") from exc
         except SourceIntegrityError:
             await self._best_effort_fail(
                 lease,
@@ -114,7 +118,12 @@ class WorkerRunner:
                 "Leased source media failed integrity verification.",
             )
             return True
-        except VideoProcessingError:
+        except VideoProcessingError as exc:
+            # Preserve compatibility with processors that still surface the stable
+            # Task-9 lease_lost processing code while the structural LeaseGuard path
+            # uses LeaseLostError directly.
+            if exc.code == "lease_lost":
+                raise WorkerApiError("lease ownership lost") from exc
             await self._best_effort_fail(
                 lease,
                 "vision_processing_failed",
@@ -147,50 +156,61 @@ class WorkerRunner:
         if self._processor is None:
             raise RuntimeError("processor_missing")
 
-        # Prove that the first renewal deadline is still usable before expensive work
-        # is launched. Every subsequent response is validated immediately as well.
+        # The server-returned heartbeat deadline is authoritative. One shared guard
+        # projects that deadline into the processing thread, where it protects every
+        # irreversible mutation boundary independently of asyncio scheduling.
         current_deadline = heartbeat.lease_expires_at_utc
         wait_seconds = self._heartbeat_wait_seconds(heartbeat)
-        cancel_event = threading.Event()
-        process_task = asyncio.create_task(
-            asyncio.to_thread(
-                self._processor.process,
-                job_id=lease.job_id,
-                source_path=source_path,
-                expected_source_size_bytes=lease.source_size_bytes,
-                expected_source_sha256=lease.source_sha256,
-                cancel_requested=cancel_event.is_set,
-            )
-        )
+        lease_guard = LeaseGuard(current_deadline)
+        process_task: asyncio.Task[VisionProcessingResult] | None = None
 
         try:
+            lease_guard.check_owned()
+            process_task = asyncio.create_task(
+                asyncio.to_thread(
+                    self._processor.process,
+                    job_id=lease.job_id,
+                    attempt_count=lease.attempt_count,
+                    source_path=source_path,
+                    expected_source_size_bytes=lease.source_size_bytes,
+                    expected_source_sha256=lease.source_sha256,
+                    lease_guard=lease_guard,
+                )
+            )
+
             while True:
                 done, _ = await asyncio.wait(
                     {process_task},
                     timeout=wait_seconds,
                 )
                 if process_task in done:
-                    if datetime.now(timezone.utc) >= current_deadline:
-                        raise WorkerApiError("lease deadline exceeded")
-                    return process_task.result()
+                    result = process_task.result()
+                    # Defense in depth: even a processor that returns without a final
+                    # ownership check cannot have its stale result accepted.
+                    lease_guard.check_owned()
+                    return result
 
                 current_heartbeat = await self._heartbeat_before_deadline(
                     lease,
                     current_deadline,
                 )
                 current_deadline = current_heartbeat.lease_expires_at_utc
+                lease_guard.update_deadline(current_deadline)
                 wait_seconds = self._heartbeat_wait_seconds(current_heartbeat)
         except BaseException:
-            cancel_event.set()
-            if not process_task.done():
+            # Explicit loss is irreversible. Heartbeat/API failure, deadline failure,
+            # task cancellation, and processor ownership failure all invalidate the
+            # same guard observed by the processing thread.
+            lease_guard.mark_lost()
+            if process_task is not None and not process_task.done():
                 try:
                     await process_task
                 except BaseException:
                     pass
             raise
         finally:
-            if not process_task.done():
-                cancel_event.set()
+            if process_task is not None and not process_task.done():
+                lease_guard.mark_lost()
 
     async def _heartbeat_before_deadline(
         self,
