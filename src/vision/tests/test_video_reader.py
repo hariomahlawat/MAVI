@@ -68,6 +68,18 @@ def test_missing_pts_after_established_pts_continues_from_last_media_offset() ->
     assert timeline.resolve(3, 180, Fraction(1, 1000)) == 180
 
 
+def test_resumed_pts_reconciles_fallback_overshoot_without_rejecting_valid_vfr() -> None:
+    timeline = _MediaTimeline(25, 1)
+
+    assert timeline.resolve(0, 0, Fraction(1, 1000)) == 0
+    assert timeline.resolve(1, None, None) == 40
+    # The declared 25 fps fallback overshoots the next authoritative VFR PTS.
+    # PTS still advanced from the prior authoritative 0 ms, so the frame is valid;
+    # preserve emitted ordering with the smallest possible monotonic adjustment.
+    assert timeline.resolve(2, 30, Fraction(1, 1000)) == 41
+    assert timeline.resolve(3, 60, Fraction(1, 1000)) == 60
+
+
 def test_regressing_pts_fails_closed_instead_of_rewriting_evidence_time() -> None:
     timeline = _MediaTimeline(25, 1)
 
