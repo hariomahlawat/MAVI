@@ -64,6 +64,18 @@ class ShortDeadlineApi(HeartbeatCountingApi):
         return heartbeat_response(0.30)
 
 
+class RenewalPastDeadlineApi(HeartbeatCountingApi):
+    async def heartbeat(
+        self, lease: VisionJobLease, progress_percent: float
+    ) -> VisionJobHeartbeatResponse:
+        self.heartbeats.append(progress_percent)
+        self.heartbeat_times.append(time.monotonic())
+        if len(self.heartbeats) == 1:
+            return heartbeat_response(0.12)
+        await asyncio.sleep(0.20)
+        return heartbeat_response(60.0)
+
+
 class LeaseLostApi(HeartbeatCountingApi):
     async def heartbeat(
         self, lease: VisionJobLease, progress_percent: float
@@ -170,6 +182,30 @@ def test_server_deadline_overrides_longer_configured_heartbeat_interval(
     assert len(client.heartbeat_times) >= 2
     assert client.heartbeat_times[1] - client.heartbeat_times[0] < 0.30
     assert client.failures == ["task9_result_submission_not_implemented"]
+
+
+def test_heartbeat_response_must_arrive_before_current_lease_deadline(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    _materialize_source(tmp_path, lease)
+    client = RenewalPastDeadlineApi(lease)
+    processor = CancellationWaitingProcessor()
+
+    with pytest.raises(WorkerApiError, match="heartbeat deadline exceeded"):
+        asyncio.run(
+            WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                processor,
+                heartbeat_interval_seconds=30.0,
+                heartbeat_request_timeout_seconds=30.0,
+            ).run_once()
+        )
+
+    assert processor.cancellation_observed is True
+    assert client.failures == []
 
 
 def test_lease_loss_cancels_processing_and_does_not_submit_terminal_failure(
