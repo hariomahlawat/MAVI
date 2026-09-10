@@ -149,6 +149,7 @@ class WorkerRunner:
 
         # Prove that the first renewal deadline is still usable before expensive work
         # is launched. Every subsequent response is validated immediately as well.
+        current_deadline = heartbeat.lease_expires_at_utc
         wait_seconds = self._heartbeat_wait_seconds(heartbeat)
         cancel_event = threading.Event()
         process_task = asyncio.create_task(
@@ -171,7 +172,11 @@ class WorkerRunner:
                 if process_task in done:
                     return process_task.result()
 
-                current_heartbeat = await self._api_client.heartbeat(lease, 5.0)
+                current_heartbeat = await self._heartbeat_before_deadline(
+                    lease,
+                    current_deadline,
+                )
+                current_deadline = current_heartbeat.lease_expires_at_utc
                 wait_seconds = self._heartbeat_wait_seconds(current_heartbeat)
         except BaseException:
             cancel_event.set()
@@ -184,6 +189,30 @@ class WorkerRunner:
         finally:
             if not process_task.done():
                 cancel_event.set()
+
+    async def _heartbeat_before_deadline(
+        self,
+        lease: VisionJobLease,
+        lease_deadline_utc: datetime,
+    ) -> VisionJobHeartbeatResponse:
+        remaining = (lease_deadline_utc - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            raise WorkerApiError("heartbeat deadline exceeded")
+
+        try:
+            heartbeat = await asyncio.wait_for(
+                self._api_client.heartbeat(lease, 5.0),
+                timeout=remaining,
+            )
+        except asyncio.TimeoutError as exc:
+            raise WorkerApiError("heartbeat deadline exceeded") from exc
+
+        # `wait_for` is driven by the event loop's monotonic timer. Re-check the
+        # authoritative UTC deadline so a response completing on the boundary, or
+        # after a wall-clock correction, is never accepted as a valid renewal.
+        if datetime.now(timezone.utc) >= lease_deadline_utc:
+            raise WorkerApiError("heartbeat deadline exceeded")
+        return heartbeat
 
     def _heartbeat_wait_seconds(
         self,
