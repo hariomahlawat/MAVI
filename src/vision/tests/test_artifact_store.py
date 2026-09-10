@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 
+import mavi_vision.storage.artifact_store as artifact_store_module
 from mavi_vision.storage.artifact_store import StagingArtifactError, StagingArtifactStore
 
 
@@ -105,6 +106,46 @@ def test_rejects_symlinked_job_root_and_cleanup_preserves_target(tmp_path) -> No
         store.cleanup()
 
     assert source.read_bytes() == b"keep"
+
+
+def test_directory_swap_during_write_cannot_redirect_artifact_outside_root(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID)
+    store.write_bytes("safe/seed.bin", b"seed", "application/octet-stream")
+
+    job_root = tmp_path / "staging" / str(JOB_ID)
+    safe_parent = job_root / "safe"
+    detached_parent = job_root / "safe-detached"
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-race"
+    outside.mkdir()
+
+    real_open = artifact_store_module.os.open
+    swapped = False
+
+    def racing_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal swapped
+        if (
+            not swapped
+            and isinstance(path, str)
+            and path.startswith(".race.bin.")
+            and dir_fd is not None
+        ):
+            safe_parent.rename(detached_parent)
+            safe_parent.symlink_to(outside, target_is_directory=True)
+            swapped = True
+        if dir_fd is None:
+            return real_open(path, flags, mode)
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(artifact_store_module.os, "open", racing_open)
+
+    with pytest.raises(StagingArtifactError, match="staging_path_(?:race|escape)"):
+        store.write_bytes("safe/race.bin", b"payload", "application/octet-stream")
+
+    assert swapped is True
+    assert not (outside / "race.bin").exists()
+    assert not (detached_parent / "race.bin").exists()
 
 
 def test_cleanup_removes_only_current_job_staging_area(tmp_path) -> None:
