@@ -22,7 +22,7 @@ src/web        React operator application
 src/vision     Python vision-worker package
 contracts      language-neutral worker JSON schemas and examples
 tests          .NET unit/integration tests
- database      database scripts and notes
+database       database scripts and notes
 models         model manifests only; weights are never committed
 infrastructure development/Windows/Linux/offline packaging notes
 docs           architecture decisions, specifications and runbooks
