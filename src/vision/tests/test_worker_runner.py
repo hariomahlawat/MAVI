@@ -2,6 +2,8 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+
 from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiError
@@ -51,6 +53,14 @@ class FailingTerminalWorkerApiClient(FakeWorkerApiClient):
         raise WorkerApiError("worker API request failed")
 
 
+class FailingHeartbeatWorkerApiClient(FakeWorkerApiClient):
+    async def heartbeat(
+        self, lease: VisionJobLease, progress_percent: float
+    ) -> VisionJobHeartbeatResponse:
+        self.heartbeats.append(progress_percent)
+        raise WorkerApiError("worker API request failed")
+
+
 class ExplodingMediaStore:
     def resolve_file(self, storage_key: str) -> Path:
         raise RuntimeError(f"secret path and token: {storage_key}")
@@ -93,13 +103,26 @@ def test_terminal_fail_error_is_not_followed_by_second_fail(tmp_path: Path) -> N
     media.write_bytes(b"video")
     client = FailingTerminalWorkerApiClient(make_lease())
 
-    result = asyncio.run(WorkerRunner(client, LocalMediaStore(tmp_path), 2.0).run_once())
+    with pytest.raises(WorkerApiError):
+        asyncio.run(WorkerRunner(client, LocalMediaStore(tmp_path), 2.0).run_once())
 
-    assert result is True
     assert client.heartbeats == [5.0]
     assert client.failures == [
         ("dummy_processing_not_implemented", "Dummy processing is not implemented.")
     ]
+
+
+def test_heartbeat_api_error_propagates_for_polling_backoff(tmp_path: Path) -> None:
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FailingHeartbeatWorkerApiClient(make_lease())
+
+    with pytest.raises(WorkerApiError):
+        asyncio.run(WorkerRunner(client, LocalMediaStore(tmp_path), 2.0).run_once())
+
+    assert client.heartbeats == [5.0]
+    assert client.failures == []
 
 
 def test_missing_source_media_uses_controlled_failure(tmp_path: Path) -> None:

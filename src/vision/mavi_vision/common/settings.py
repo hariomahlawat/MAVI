@@ -23,6 +23,11 @@ class WorkerSettings(BaseSettings):
     def validate_api_base_url(cls, value: str) -> str:
         normalized = value.rstrip("/")
         parts = urlsplit(normalized)
-        if parts.scheme not in {"http", "https"} or not parts.netloc:
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.netloc
+            or parts.query
+            or parts.fragment
+        ):
             raise ValueError("MAVI_API_BASE_URL must be an absolute HTTP(S) URL")
         return normalized

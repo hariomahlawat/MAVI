@@ -30,7 +30,16 @@ def test_settings_reject_unsafe_worker_id(monkeypatch: pytest.MonkeyPatch, tmp_p
         WorkerSettings()
 
 
-@pytest.mark.parametrize("url", ["mavi-api.local", "ftp://mavi-api.local", "https:///missing-host"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "mavi-api.local",
+        "ftp://mavi-api.local",
+        "https:///missing-host",
+        "https://mavi-api.local?tenant=a",
+        "https://mavi-api.local/#worker",
+    ],
+)
 def test_settings_reject_invalid_api_url(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, url: str
 ) -> None:

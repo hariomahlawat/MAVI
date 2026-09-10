@@ -54,6 +54,8 @@ class WorkerRunner:
                 "Leased source media is unavailable.",
             )
             return True
+        except WorkerApiError:
+            raise
         except Exception:
             await self._best_effort_fail(
                 lease,
@@ -62,14 +64,11 @@ class WorkerRunner:
             )
             return True
 
-        try:
-            await self._api_client.fail(
-                lease,
-                "dummy_processing_not_implemented",
-                "Dummy processing is not implemented.",
-            )
-        except WorkerApiError:
-            pass
+        await self._api_client.fail(
+            lease,
+            "dummy_processing_not_implemented",
+            "Dummy processing is not implemented.",
+        )
         return True
 
     async def run_forever(self) -> None:
@@ -89,5 +88,7 @@ class WorkerRunner:
     ) -> None:
         try:
             await self._api_client.fail(lease, failure_code, failure_message)
+        except WorkerApiError:
+            raise
         except Exception:
             return
