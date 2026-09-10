@@ -36,6 +36,28 @@ def test_frame_offset_normalizes_positive_and_negative_pts_origins() -> None:
     assert _frame_offset_ms(20, Fraction(1, 1000), 1, 25, 1, origin_pts=-20) == 40
 
 
+def test_late_pts_origin_is_anchored_to_existing_fallback_timeline() -> None:
+    assert _frame_offset_ms(None, None, 0, 25, 1, origin_pts=None) == 0
+    assert _frame_offset_ms(
+        100,
+        Fraction(1, 1000),
+        1,
+        25,
+        1,
+        origin_pts=100,
+        origin_offset_ms=40,
+    ) == 40
+    assert _frame_offset_ms(
+        140,
+        Fraction(1, 1000),
+        2,
+        25,
+        1,
+        origin_pts=100,
+        origin_offset_ms=40,
+    ) == 80
+
+
 def test_frame_offset_falls_back_to_rational_frame_rate() -> None:
     assert _frame_offset_ms(None, None, 3, 25, 1, origin_pts=None) == 120
     assert _frame_offset_ms(None, None, 1, 24, 1, origin_pts=None) == 42
