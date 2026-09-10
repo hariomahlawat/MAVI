@@ -40,23 +40,37 @@ class StagingArtifactError(RuntimeError):
 
 
 class StagingArtifactStore:
-    def __init__(self, media_root: Path, job_id: UUID) -> None:
+    """Hardened filesystem store scoped to exactly one job lease attempt."""
+
+    def __init__(self, media_root: Path, job_id: UUID, attempt_count: int) -> None:
+        if attempt_count < 1:
+            raise ValueError("attempt_count_must_be_positive")
         self._media_root = media_root.resolve()
         self._job_id = job_id
-        self._staging_root = self._media_root / "staging"
-        self._job_root = self._staging_root / str(job_id)
+        self._attempt_count = attempt_count
+        self._attempt_name = f"attempt-{attempt_count:04d}"
 
     @property
     def job_id(self) -> UUID:
         return self._job_id
 
+    @property
+    def attempt_count(self) -> int:
+        return self._attempt_count
+
     def thumbnail_key(self, track_id: str) -> str:
         self._validate_track_id(track_id)
-        return f"staging/{self._job_id}/thumbnails/{track_id}.jpg"
+        return (
+            f"staging/{self._job_id}/{self._attempt_name}/"
+            f"thumbnails/{track_id}.jpg"
+        )
 
     def trajectory_key(self, track_id: str) -> str:
         self._validate_track_id(track_id)
-        return f"staging/{self._job_id}/trajectories/{track_id}.msgpack"
+        return (
+            f"staging/{self._job_id}/{self._attempt_name}/"
+            f"trajectories/{track_id}.msgpack"
+        )
 
     def write_bytes(
         self,
@@ -123,7 +137,9 @@ class StagingArtifactStore:
         finally:
             self._close_fds(opened_fds)
 
-        storage_key = f"staging/{self._job_id}/{'/'.join(parts)}"
+        storage_key = (
+            f"staging/{self._job_id}/{self._attempt_name}/{'/'.join(parts)}"
+        )
         return ArtifactDescriptor(
             storage_key=storage_key,
             media_type=media_type,
@@ -132,9 +148,16 @@ class StagingArtifactStore:
         )
 
     def cleanup(self) -> None:
+        """Delete only this lease attempt's staging subtree.
+
+        The job directory is intentionally retained. Removing it would create a race
+        with another lease attempt whose sibling subtree is already active.
+        """
+
         self._require_secure_dirfd(require_safe_rmtree=True)
         root_fd = self._open_media_root_fd()
         staging_fd: int | None = None
+        job_fd: int | None = None
         try:
             try:
                 staging_fd = os.open("staging", _DIR_FLAGS, dir_fd=root_fd)
@@ -145,11 +168,19 @@ class StagingArtifactStore:
                     raise StagingArtifactError("staging_path_escape") from exc
                 raise StagingArtifactError("staging_cleanup_failed") from exc
 
-            job_name = str(self._job_id)
             try:
-                job_stat = os.stat(
-                    job_name,
-                    dir_fd=staging_fd,
+                job_fd = os.open(str(self._job_id), _DIR_FLAGS, dir_fd=staging_fd)
+            except FileNotFoundError:
+                return
+            except OSError as exc:
+                if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                    raise StagingArtifactError("staging_path_escape") from exc
+                raise StagingArtifactError("staging_cleanup_failed") from exc
+
+            try:
+                attempt_stat = os.stat(
+                    self._attempt_name,
+                    dir_fd=job_fd,
                     follow_symlinks=False,
                 )
             except FileNotFoundError:
@@ -157,16 +188,18 @@ class StagingArtifactStore:
             except OSError as exc:
                 raise StagingArtifactError("staging_cleanup_failed") from exc
 
-            if not stat.S_ISDIR(job_stat.st_mode):
+            if not stat.S_ISDIR(attempt_stat.st_mode):
                 raise StagingArtifactError("staging_path_escape")
 
             try:
-                shutil.rmtree(job_name, dir_fd=staging_fd)
+                shutil.rmtree(self._attempt_name, dir_fd=job_fd)
             except FileNotFoundError:
                 return
             except OSError as exc:
                 raise StagingArtifactError("staging_cleanup_failed") from exc
         finally:
+            if job_fd is not None:
+                os.close(job_fd)
             if staging_fd is not None:
                 os.close(staging_fd)
             os.close(root_fd)
@@ -181,7 +214,12 @@ class StagingArtifactStore:
         opened_fds = [root_fd]
         current_fd = root_fd
         try:
-            for part in ("staging", str(self._job_id), *relative_parts):
+            for part in (
+                "staging",
+                str(self._job_id),
+                self._attempt_name,
+                *relative_parts,
+            ):
                 next_fd = self._open_directory_at(current_fd, part, create=create)
                 opened_fds.append(next_fd)
                 current_fd = next_fd
@@ -229,7 +267,6 @@ class StagingArtifactStore:
         relative_parts: tuple[str, ...],
         expected_parent: os.stat_result,
     ) -> None:
-        parent_fd: int | None = None
         opened_fds: list[int] = []
         try:
             parent_fd, opened_fds = self._open_parent_chain(
