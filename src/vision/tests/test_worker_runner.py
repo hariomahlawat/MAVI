@@ -6,6 +6,7 @@ import pytest
 
 from mavi_vision.common.analytical import VisionProcessingResult
 from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
+from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.process_video import VideoProcessingError
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import LocalMediaStore
@@ -99,18 +100,21 @@ class RecordingProcessor:
         self,
         *,
         job_id,
+        attempt_count: int,
         source_path: Path,
         expected_source_size_bytes: int,
         expected_source_sha256: str,
-        cancel_requested=None,
+        lease_guard: LeaseGuard,
     ) -> VisionProcessingResult:
         self.events.append("process")
         self.calls.append(
             {
                 "job_id": job_id,
+                "attempt_count": attempt_count,
                 "source_path": source_path,
                 "expected_source_size_bytes": expected_source_size_bytes,
                 "expected_source_sha256": expected_source_sha256,
+                "lease_guard": lease_guard,
             }
         )
         if self.error is not None:
@@ -143,7 +147,7 @@ def test_no_work_iteration_returns_false_without_lifecycle_calls(tmp_path: Path)
     assert processor.calls == []
 
 
-def test_task9_pipeline_heartbeats_then_processes_and_reports_submission_deferred(
+def test_task9_pipeline_heartbeats_then_processes_with_shared_attempt_guard(
     tmp_path: Path,
 ) -> None:
     lease = make_lease()
@@ -160,12 +164,14 @@ def test_task9_pipeline_heartbeats_then_processes_and_reports_submission_deferre
     assert result is True
     assert client.heartbeats == [5.0]
     assert len(processor.calls) == 1
-    assert processor.calls[0] == {
-        "job_id": lease.job_id,
-        "source_path": media,
-        "expected_source_size_bytes": lease.source_size_bytes,
-        "expected_source_sha256": lease.source_sha256,
-    }
+    call = processor.calls[0]
+    assert call["job_id"] == lease.job_id
+    assert call["attempt_count"] == lease.attempt_count
+    assert call["source_path"] == media
+    assert call["expected_source_size_bytes"] == lease.source_size_bytes
+    assert call["expected_source_sha256"] == lease.source_sha256
+    assert isinstance(call["lease_guard"], LeaseGuard)
+    assert call["lease_guard"].is_lost() is False
     assert client.failures == [
         (
             "task9_result_submission_not_implemented",
@@ -230,6 +236,24 @@ def test_video_processing_failure_is_controlled_once(tmp_path: Path) -> None:
 
     assert result is True
     assert client.failures == [("vision_processing_failed", "Vision processing failed.")]
+
+
+def test_processor_lease_loss_is_api_error_without_terminal_failure(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    processor = RecordingProcessor(error=LeaseLostError())
+
+    with pytest.raises(WorkerApiError, match="lease ownership lost"):
+        asyncio.run(
+            WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+        )
+
+    assert client.heartbeats == [5.0]
+    assert len(processor.calls) == 1
+    assert client.failures == []
 
 
 def test_terminal_fail_error_is_not_followed_by_second_fail(tmp_path: Path) -> None:
