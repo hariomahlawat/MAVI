@@ -20,7 +20,11 @@ from mavi_vision.common.analytical import (
 from mavi_vision.detection.interfaces import Detector
 from mavi_vision.quality.scoring import representative_quality
 from mavi_vision.storage.artifact_store import StagingArtifactStore
-from mavi_vision.storage.integrity import SourceIntegrityError, open_verified_source
+from mavi_vision.storage.integrity import (
+    SourceIntegrityError,
+    SourceSnapshotCancelled,
+    open_verified_source,
+)
 from mavi_vision.tracking.interfaces import Tracker
 from mavi_vision.video.reader import DecodedFrame, VideoReadError, iter_frames
 from mavi_vision.video.trajectory import serialize_trajectory
@@ -84,6 +88,7 @@ class VideoProcessor:
                 source_path,
                 expected_size_bytes=expected_source_size_bytes,
                 expected_sha256=expected_source_sha256,
+                cancel_requested=cancel_requested,
             ) as verified:
                 if verified.stream is None:
                     raise SourceIntegrityError("source_read_failed")
@@ -132,6 +137,8 @@ class VideoProcessor:
                                 observation=observation,
                                 crop=self._crop_rgb(frame, bbox),
                             )
+        except SourceSnapshotCancelled as exc:
+            raise VideoProcessingError("lease_lost") from exc
         except SourceIntegrityError:
             self._cleanup_best_effort()
             raise
