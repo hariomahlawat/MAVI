@@ -19,7 +19,7 @@ from mavi_vision.common.analytical import (
 from mavi_vision.detection.interfaces import Detector
 from mavi_vision.quality.scoring import representative_quality
 from mavi_vision.storage.artifact_store import StagingArtifactStore
-from mavi_vision.storage.integrity import SourceIntegrityError, verify_source
+from mavi_vision.storage.integrity import SourceIntegrityError, open_verified_source
 from mavi_vision.tracking.interfaces import Tracker
 from mavi_vision.video.reader import DecodedFrame, VideoReadError, iter_frames
 from mavi_vision.video.trajectory import serialize_trajectory
@@ -67,78 +67,71 @@ class VideoProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
     ) -> VisionProcessingResult:
+        if self._artifact_store.job_id != job_id:
+            raise VideoProcessingError("pipeline_configuration_invalid")
         try:
             self._artifact_store.cleanup()
-            if self._artifact_store.job_id != job_id:
-                raise VideoProcessingError("pipeline_configuration_invalid")
-        except VideoProcessingError:
-            self._cleanup_best_effort()
-            raise
         except Exception as exc:
-            self._cleanup_best_effort()
             raise VideoProcessingError("pipeline_configuration_invalid") from exc
-
-        try:
-            verify_source(
-                source_path,
-                expected_size_bytes=expected_source_size_bytes,
-                expected_sha256=expected_source_sha256,
-            )
-        except SourceIntegrityError:
-            self._cleanup_best_effort()
-            raise
 
         tracks: dict[str, _TrackAccumulator] = {}
         frames_processed = 0
         try:
-            for frame in iter_frames(source_path):
-                frames_processed += 1
-                detections = self._detector.detect(frame)
-                tracked = self._tracker.update(frame, detections)
-                for candidate in tracked:
-                    accumulator = tracks.get(candidate.track_id)
-                    if accumulator is None:
-                        accumulator = _TrackAccumulator(
-                            object_class=candidate.object_class,
-                            start_offset_ms=frame.offset_ms,
-                            end_offset_ms=frame.offset_ms,
-                        )
-                        tracks[candidate.track_id] = accumulator
-                    elif accumulator.object_class is not candidate.object_class:
-                        raise ValueError("track_object_class_changed")
+            with open_verified_source(
+                source_path,
+                expected_size_bytes=expected_source_size_bytes,
+                expected_sha256=expected_source_sha256,
+            ) as verified:
+                if verified.stream is None:
+                    raise SourceIntegrityError("source_read_failed")
+                for frame in iter_frames(verified.stream):
+                    frames_processed += 1
+                    detections = self._detector.detect(frame)
+                    tracked = self._tracker.update(frame, detections)
+                    for candidate in tracked:
+                        accumulator = tracks.get(candidate.track_id)
+                        if accumulator is None:
+                            accumulator = _TrackAccumulator(
+                                object_class=candidate.object_class,
+                                start_offset_ms=frame.offset_ms,
+                                end_offset_ms=frame.offset_ms,
+                            )
+                            tracks[candidate.track_id] = accumulator
+                        elif accumulator.object_class is not candidate.object_class:
+                            raise ValueError("track_object_class_changed")
 
-                    accumulator.end_offset_ms = frame.offset_ms
-                    accumulator.confidence_sum += candidate.confidence
-                    accumulator.observation_count += 1
-                    bbox = candidate.bounding_box
-                    accumulator.trajectory.append(
-                        TrajectoryPoint(
-                            frame.offset_ms,
-                            bbox.x + bbox.width / 2.0,
-                            bbox.y + bbox.height / 2.0,
+                        accumulator.end_offset_ms = frame.offset_ms
+                        accumulator.confidence_sum += candidate.confidence
+                        accumulator.observation_count += 1
+                        bbox = candidate.bounding_box
+                        accumulator.trajectory.append(
+                            TrajectoryPoint(
+                                frame.offset_ms,
+                                bbox.x + bbox.width / 2.0,
+                                bbox.y + bbox.height / 2.0,
+                            )
                         )
-                    )
-                    observation = RepresentativeObservation(
-                        offset_ms=frame.offset_ms,
-                        source_frame_number=frame.source_frame_number,
-                        confidence=candidate.confidence,
-                        bounding_box=bbox,
-                        quality_score=representative_quality(frame, bbox),
-                    )
-                    if self._is_better_representative(
-                        observation,
-                        accumulator.representative,
-                    ):
-                        accumulator.representative = _RepresentativeCandidate(
-                            observation=observation,
-                            crop=self._crop_rgb(frame, bbox),
+                        observation = RepresentativeObservation(
+                            offset_ms=frame.offset_ms,
+                            source_frame_number=frame.source_frame_number,
+                            confidence=candidate.confidence,
+                            bounding_box=bbox,
+                            quality_score=representative_quality(frame, bbox),
                         )
-        except VideoReadError as exc:
-            self._cleanup_best_effort()
-            raise VideoProcessingError("video_decode_failed") from exc
+                        if self._is_better_representative(
+                            observation,
+                            accumulator.representative,
+                        ):
+                            accumulator.representative = _RepresentativeCandidate(
+                                observation=observation,
+                                crop=self._crop_rgb(frame, bbox),
+                            )
         except SourceIntegrityError:
             self._cleanup_best_effort()
             raise
+        except VideoReadError as exc:
+            self._cleanup_best_effort()
+            raise VideoProcessingError("video_decode_failed") from exc
         except Exception as exc:
             self._cleanup_best_effort()
             raise VideoProcessingError("pipeline_processing_failed") from exc
