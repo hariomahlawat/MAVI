@@ -140,6 +140,31 @@ def test_integrity_mismatch_cleans_job_staging(tmp_path: Path) -> None:
     assert not (tmp_path / "staging" / str(JOB_ID)).exists()
 
 
+def test_lease_cancellation_during_source_snapshot_maps_to_lease_lost(tmp_path: Path) -> None:
+    source = tmp_path / "large-source.mp4"
+    source.write_bytes(b"x" * (2 * 1024 * 1024))
+    size, digest = _source_facts(source)
+    processor = _processor(tmp_path, {})
+    checks = 0
+
+    def cancel_requested() -> bool:
+        nonlocal checks
+        checks += 1
+        return checks >= 2
+
+    with pytest.raises(VideoProcessingError) as exc_info:
+        processor.process(
+            job_id=JOB_ID,
+            source_path=source,
+            expected_source_size_bytes=size,
+            expected_source_sha256=digest,
+            cancel_requested=cancel_requested,
+        )
+
+    assert exc_info.value.code == "lease_lost"
+    assert checks >= 2
+
+
 def test_corrupt_video_maps_to_stable_error_and_cleans(tmp_path: Path) -> None:
     source = tmp_path / "corrupt.mp4"
     source.write_bytes(b"not-an-mp4")
