@@ -1,3 +1,4 @@
+using System.Globalization;
 using Mavi.Application.Abstractions.Storage;
 using Mavi.Application.Abstractions.Time;
 using Mavi.Application.Modules.Cameras;
@@ -81,7 +82,8 @@ public sealed class VideoImportService(
 
         var videoId = Guid.CreateVersion7();
         var localDate = command.RecordingStartLocal;
-        var storageKey = $"source/{camera.Id:D}/{localDate:yyyy/MM/dd}/{videoId:D}.mp4".ToLowerInvariant();
+        var storageDate = localDate.ToString("yyyy'/'MM'/'dd", CultureInfo.InvariantCulture);
+        var storageKey = $"source/{camera.Id:D}/{storageDate}/{videoId:D}.mp4".ToLowerInvariant();
         var mediaWritten = false;
         try
         {
