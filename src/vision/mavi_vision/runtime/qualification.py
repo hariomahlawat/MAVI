@@ -8,6 +8,7 @@ from typing import Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from mavi_vision.runtime.manifest import (
+    ArtifactRef,
     ModelManifest,
     ReleaseMetadataError,
     load_model_manifest,
@@ -455,6 +456,29 @@ def load_runtime_identity(path: Path) -> tuple[str, str, str]:
     )
 
 
+def verify_runtime_release_locks(
+    runtime_profile_path: Path,
+    profile: _RuntimeProfileSchema,
+) -> Mapping[str, Path]:
+    """Verify every qualified runtime lock against exact local bytes."""
+    verified: dict[str, Path] = {}
+    root = runtime_profile_path.parent
+
+    for variant, lock in profile.release_locks.items():
+        if lock.status != "qualified-offline-lock":
+            continue
+        if lock.artifact is None or lock.sha256 is None:
+            raise ReleaseMetadataError("runtime_release_lock_evidence_required")
+
+        artifact = ArtifactRef(relative_path=lock.artifact, sha256=lock.sha256)
+        lock_path = resolve_release_artifact(root, artifact)
+        if sha256_release_file(lock_path) != lock.sha256:
+            raise ReleaseMetadataError("runtime_release_lock_hash_mismatch")
+        verified[variant] = lock_path
+
+    return MappingProxyType(verified)
+
+
 def verify_qualification_relationships(
     *,
     qualification: QualificationRecord,
@@ -526,6 +550,7 @@ def verify_release_selection(
     profile_sha256 = sha256_release_file(profile_path)
     runtime_profile_sha256 = sha256_release_file(runtime_profile_path)
     runtime_profile = load_runtime_profile(runtime_profile_path)
+    verify_runtime_release_locks(runtime_profile_path, runtime_profile)
     runtime_profile_id = runtime_profile.runtime_profile_id
     runtime_checkpoint_sha256 = runtime_profile.checkpoint.sha256
     runtime_config_sha256 = runtime_profile.resolved_config.sha256
