@@ -73,14 +73,21 @@ def reviewed_checkpoint_globals() -> list[object]:
     from mmengine.logging.history_buffer import HistoryBuffer
     from numpy._core.multiarray import _reconstruct, scalar
 
+    # The official RTMDet-M checkpoint was produced with the historical
+    # numpy.core module identity, while NumPy 2.x serializes the same reviewed
+    # callables under numpy._core. PyTorch 2.6 matches the serialized global
+    # name exactly, so both explicit aliases are required. This remains a finite
+    # reviewed allowlist; no discovered-name or process-global permissions are used.
     return [
         HistoryBuffer,
         (_reconstruct, "numpy.core.multiarray._reconstruct"),
+        (_reconstruct, "numpy._core.multiarray._reconstruct"),
         np.ndarray,
         np.dtype,
         type(np.dtype(np.float64)),
         type(np.dtype(np.int64)),
         (scalar, "numpy.core.multiarray.scalar"),
+        (scalar, "numpy._core.multiarray.scalar"),
     ]
 
 
