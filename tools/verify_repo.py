@@ -187,7 +187,7 @@ def check_vision_release_metadata(errors: list[str]) -> None:
         )
         from mavi_vision.runtime.qualification import (
             load_qualification_record,
-            load_runtime_identity,
+            load_runtime_profile,
             verify_qualification_relationships,
         )
     except ImportError as exc:
@@ -243,7 +243,7 @@ def check_vision_release_metadata(errors: list[str]) -> None:
     manifests: dict[str, tuple[Path, object, str]] = {}
     profiles: dict[str, tuple[Path, object, str]] = {}
     qualifications: dict[str, tuple[Path, object, str]] = {}
-    runtimes: dict[str, tuple[Path, str, str, str, str]] = {}
+    runtimes: dict[str, tuple[Path, str, str, str, str, str]] = {}
 
     for path in manifest_paths:
         try:
@@ -300,7 +300,7 @@ def check_vision_release_metadata(errors: list[str]) -> None:
 
     for path in runtime_paths:
         try:
-            runtime_id, checkpoint_hash, config_hash = load_runtime_identity(path)
+            runtime_profile = load_runtime_profile(path)
             runtime_hash = sha256_release_file(path)
         except ReleaseMetadataError as exc:
             fail(
@@ -308,15 +308,17 @@ def check_vision_release_metadata(errors: list[str]) -> None:
                 errors,
             )
             continue
+        runtime_id = runtime_profile.runtime_profile_id
         if runtime_id in runtimes:
             fail(f"Duplicate runtimeProfileId: {runtime_id}", errors)
             continue
         runtimes[runtime_id] = (
             path,
             runtime_hash,
-            checkpoint_hash,
-            config_hash,
+            runtime_profile.checkpoint.sha256,
+            runtime_profile.resolved_config.sha256,
             runtime_id,
+            runtime_profile.qualification_status,
         )
 
     for profile_path, profile, _profile_hash in profiles.values():
@@ -347,7 +349,14 @@ def check_vision_release_metadata(errors: list[str]) -> None:
             )
             continue
 
-        _runtime_path, _runtime_hash, checkpoint_hash, config_hash, _runtime_id = runtime_entry
+        (
+            _runtime_path,
+            _runtime_hash,
+            checkpoint_hash,
+            config_hash,
+            _runtime_id,
+            runtime_qualification_status,
+        ) = runtime_entry
         if checkpoint_hash != manifest.checkpoint.sha256:
             fail(
                 f"Runtime checkpoint hash does not match manifest {manifest.model_id}.",
@@ -366,6 +375,13 @@ def check_vision_release_metadata(errors: list[str]) -> None:
             )
 
         if manifest.verification_status == "verified":
+            if runtime_qualification_status != "qualified":
+                fail(
+                    f"Verified manifest {manifest.model_id} requires a qualified runtime "
+                    f"profile; found {runtime_qualification_status}.",
+                    errors,
+                )
+                continue
             qualification_entry = qualifications.get(manifest.qualification_id or "")
             if qualification_entry is None:
                 fail(
