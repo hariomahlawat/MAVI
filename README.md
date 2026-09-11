@@ -12,7 +12,7 @@ MAVI is a standalone, offline-production visual-intelligence platform. The proof
 - **Scale target:** approximately 200–500 cameras per large establishment
 - **Production constraint:** no Internet connectivity required for installation or operation
 
-The current Phase-1 implementation already includes PostgreSQL persistence and migrations, managed MP4 ingestion, camera/video APIs, a lease/heartbeat/fail worker control plane, and the Task-8 Python dummy worker. Real detector/tracker processing and result completion remain later Phase-1 tasks.
+The current Phase-1 implementation includes PostgreSQL persistence and migrations, managed MP4 ingestion, camera/video APIs, the lease/heartbeat/fail worker control plane, and the deterministic Task-9 track-processing pipeline with attempt-scoped secure artifact staging. Task 10 is in progress: the self-contained RTMDet-M hosted CPU runtime candidate is frozen and has passed real Linux/Windows CPU inference, and security-equivalent POSIX/native-Windows staging is implemented. Production RTMDet/ByteTrack adapters, GPU qualification, hashed offline runtime bundles, result persistence/completion, and searchable evidence UI remain later Phase-1 work.
 
 ## Repository layout
 
@@ -38,7 +38,7 @@ Install the following on a connected development workstation:
 - PostgreSQL 18 with pgvector
 - FFmpeg/ffprobe
 - Node.js 22 or later
-- Python 3.13 or later
+- Python 3.13 for the current core development/test baseline; the Task-10 qualified RTMDet runtime candidate uses Python 3.12
 - Git
 
 For Windows/Visual Studio database and test setup, follow `docs/runbooks/local-development.md` before running the integration tests. The integration suite intentionally requires a dedicated `mavi_test` database and never falls back to the development database.
