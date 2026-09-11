@@ -6,7 +6,11 @@ on:
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'tools/vision/probe_runtime.py'
+      - 'tools/vision/resolve_mmdet_config.py'
       - 'src/vision/tests/test_runtime_probe.py'
+      - 'src/vision/tests/test_resolve_mmdet_config.py'
+      - 'src/vision/tests/test_runtime_metadata.py'
+      - 'src/vision/runtime/mmdetection-phase1-v1/runtime.json'
       - '.github/workflows/task10-runtime-qualification.yml'
       - 'docs/decisions/ADR-005-qualified-vision-runtime.md'
       - 'docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md'
@@ -16,7 +20,11 @@ on:
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'tools/vision/probe_runtime.py'
+      - 'tools/vision/resolve_mmdet_config.py'
       - 'src/vision/tests/test_runtime_probe.py'
+      - 'src/vision/tests/test_resolve_mmdet_config.py'
+      - 'src/vision/tests/test_runtime_metadata.py'
+      - 'src/vision/runtime/mmdetection-phase1-v1/runtime.json'
       - '.github/workflows/task10-runtime-qualification.yml'
       - 'docs/decisions/ADR-005-qualified-vision-runtime.md'
       - 'docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md'
@@ -57,10 +65,15 @@ jobs:
           ninja
           psutil
           pytest
-          "numpy>=2.2,<3"
+          "numpy==2.5.3"
 
-      - name: Run runtime probe unit tests
-        run: python -m pytest src/vision/tests/test_runtime_probe.py -q
+      - name: Run runtime qualification tooling unit tests
+        run: >-
+          python -m pytest
+          src/vision/tests/test_runtime_probe.py
+          src/vision/tests/test_resolve_mmdet_config.py
+          src/vision/tests/test_runtime_metadata.py
+          -q
 
       - name: Install candidate PyTorch CPU build
         run: >-
@@ -97,8 +110,11 @@ jobs:
           mmengine==0.10.7
           mmdet==3.3.0
           trackers==2.6.0
-          "av>=15,<17"
-          "Pillow>=11,<12"
+          supervision==0.30.2
+          scipy==1.18.1
+          opencv-python==5.0.0.93
+          av==16.1.0
+          Pillow==11.3.0
 
       - name: Test real PyTorch restricted checkpoint loading
         run: python -m pytest src/vision/tests/test_runtime_probe.py -q -k real_torch
@@ -107,7 +123,52 @@ jobs:
         run: >-
           python -c "import mmcv, mmengine, mmdet, torch, torchvision, trackers, supervision, scipy, numpy, cv2, av; from mmcv.ops import nms; print('imports-ok', mmcv.__version__, torch.__version__, numpy.__version__)"
 
-      - name: Fetch official RTMDet-M config tree and checkpoint
+      - name: Verify candidate semantic graph matches runtime metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          import json
+          import av
+          import cv2
+          import mmcv
+          import mmdet
+          import mmengine
+          import numpy
+          import scipy
+          import supervision
+          import torch
+          import torchvision
+
+          profile = json.load(open(
+              "src/vision/runtime/mmdetection-phase1-v1/runtime.json",
+              encoding="utf-8",
+          ))
+          expected = profile["semanticGraph"]
+          actual = {
+              "torch": torch.__version__.split("+", 1)[0],
+              "torchvision": torchvision.__version__.split("+", 1)[0],
+              "mmcv": mmcv.__version__,
+              "mmengine": mmengine.__version__,
+              "mmdet": mmdet.__version__,
+              "trackers": importlib.metadata.version("trackers"),
+              "supervision": supervision.__version__,
+              "scipy": scipy.__version__,
+              "numpy": numpy.__version__,
+              "opencv": cv2.__version__,
+              "opencvPython": importlib.metadata.version("opencv-python"),
+              "pillow": importlib.metadata.version("Pillow"),
+              "av": av.__version__,
+          }
+          if actual != expected:
+              raise SystemExit(
+                  "runtime_semantic_graph_mismatch:"
+                  + json.dumps({"actual": actual, "expected": expected}, sort_keys=True)
+              )
+          print("runtime-semantic-graph-ok", json.dumps(actual, sort_keys=True))
+          PY
+
+      - name: Resolve official RTMDet-M config and fetch checkpoint
         shell: bash
         run: |
           git clone --depth 1 --branch v3.3.0 https://github.com/open-mmlab/mmdetection.git .qualification-mmdet
@@ -116,13 +177,26 @@ jobs:
           import urllib.request
           urllib.request.urlretrieve(os.environ['RTMDET_CHECKPOINT_URL'], '.qualification-rtmdet-m.pth')
           PY
+          python tools/vision/resolve_mmdet_config.py \
+            --input .qualification-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
+            --output .qualification-rtmdet-m-resolved.py \
+            > resolved-config.json
+          python - <<'PY'
+          import json
+          record = json.load(open("resolved-config.json", encoding="utf-8"))
+          assert record["status"] == "passed"
+          assert record["selfContained"] is True
+          print("resolved-config-ok", record["resolvedConfig"]["sha256"])
+          PY
+          rm -rf .qualification-mmdet
+          test -f .qualification-rtmdet-m-resolved.py
 
       - name: Prove missing checkpoint fails before runtime loading
         shell: bash
         run: |
           set +e
           python tools/vision/probe_runtime.py \
-            --config .qualification-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
+            --config .qualification-rtmdet-m-resolved.py \
             --checkpoint .qualification-missing.pth \
             --checkpoint-sha256 "$RTMDET_CHECKPOINT_SHA256" \
             --device cpu 2> missing.err
@@ -136,7 +210,7 @@ jobs:
         run: |
           set +e
           python tools/vision/probe_runtime.py \
-            --config .qualification-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
+            --config .qualification-rtmdet-m-resolved.py \
             --checkpoint .qualification-rtmdet-m.pth \
             --checkpoint-sha256 "$RTMDET_CHECKPOINT_SHA256" \
             --device cpu > runtime-probe.json 2> runtime-probe.err
@@ -155,5 +229,8 @@ jobs:
             runtime-probe.json
             runtime-probe.err
             runtime-probe.exitcode
+            resolved-config.json
+            .qualification-rtmdet-m-resolved.py
+            src/vision/runtime/mmdetection-phase1-v1/runtime.json
             missing.err
           if-no-files-found: ignore
