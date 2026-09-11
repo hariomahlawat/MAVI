@@ -39,6 +39,21 @@ def test_rejects_missing_checkpoint_before_heavy_imports(tmp_path: Path) -> None
         )
 
 
+def test_rejects_malformed_checkpoint_digest_before_heavy_imports(tmp_path: Path) -> None:
+    probe = _load_probe()
+    config = tmp_path / "resolved.py"
+    checkpoint = tmp_path / "model.pth"
+    config.write_text("model = {}\n", encoding="utf-8")
+    checkpoint.write_bytes(b"model")
+
+    with pytest.raises(probe.ProbeConfigurationError, match="checkpoint_digest_invalid"):
+        probe.validate_local_artifacts(
+            config,
+            checkpoint,
+            expected_checkpoint_sha256="not-a-sha256",
+        )
+
+
 def test_rejects_digest_mismatch_before_heavy_imports(tmp_path: Path) -> None:
     probe = _load_probe()
     config = tmp_path / "resolved.py"
