@@ -50,7 +50,14 @@ jobs:
           python-version: '3.12'
 
       - name: Install compatible build tooling
-        run: python -m pip install --upgrade pip "setuptools==80.9.0" wheel ninja psutil pytest
+        run: >-
+          python -m pip install --upgrade pip
+          "setuptools==80.9.0"
+          wheel
+          ninja
+          psutil
+          pytest
+          "numpy>=2.2,<3"
 
       - name: Run runtime probe unit tests
         run: python -m pytest src/vision/tests/test_runtime_probe.py -q
