@@ -186,3 +186,63 @@ def test_windows_denied_authority_leaves_no_destination_or_temp(
     parent = _attempt_root(tmp_path) / "secure"
     assert not (parent / "blocked.bin").exists()
     assert list(parent.glob(".blocked.bin.*.tmp")) == []
+
+def test_windows_post_replace_parent_swap_rolls_back_exact_published_handle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+    store.write_bytes("safe/seed.bin", b"seed", "application/octet-stream")
+
+    attempt_root = _attempt_root(tmp_path)
+    safe_parent = attempt_root / "safe"
+    detached_parent = attempt_root / "safe-detached"
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-post-replace"
+    outside.mkdir()
+
+    real_replace = windows_backend._replace_child_file
+    swapped = False
+
+    def racing_replace(parent, temporary, destination_name):
+        nonlocal swapped
+        real_replace(parent, temporary, destination_name)
+        if destination_name == "race.bin":
+            safe_parent.rename(detached_parent)
+            _junction(safe_parent, outside)
+            swapped = True
+
+    monkeypatch.setattr(windows_backend, "_replace_child_file", racing_replace)
+
+    with pytest.raises(StagingArtifactError, match="staging_path_(?:race|escape)"):
+        store.write_bytes(
+            "safe/race.bin",
+            b"payload",
+            "application/octet-stream",
+        )
+
+    assert swapped is True
+    assert not (outside / "race.bin").exists()
+    assert not (detached_parent / "race.bin").exists()
+    assert list(detached_parent.glob(".race.bin.*.tmp")) == []
+
+
+def test_windows_rejects_component_before_unicode_string_length_wrap(
+    tmp_path: Path,
+) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+    oversized_component = "x" * 32768
+
+    with pytest.raises(
+        StagingArtifactError,
+        match="staging_relative_name_invalid",
+    ):
+        store.write_bytes(
+            oversized_component,
+            b"payload",
+            "application/octet-stream",
+        )
+
+    attempt_root = _attempt_root(tmp_path)
+    assert attempt_root.is_dir()
+    assert list(attempt_root.iterdir()) == []
+
