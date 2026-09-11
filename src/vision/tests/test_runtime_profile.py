@@ -51,6 +51,12 @@ def _runtime_payload() -> dict:
                 "jobId": "2001",
                 "evidenceHeadSha": "1" * 40,
                 "resolvedConfigSha256": config_hash,
+                "pythonIdentity": {
+                    "version": "3.12.14",
+                    "implementation": "CPython",
+                    "build": ["main", "fixture"],
+                    "compiler": "GCC fixture",
+                },
             },
             "windows-x86_64-cpu": {
                 "status": "qualified-hosted-cpu",
@@ -58,6 +64,12 @@ def _runtime_payload() -> dict:
                 "jobId": "2002",
                 "evidenceHeadSha": "2" * 40,
                 "resolvedConfigSha256": config_hash,
+                "pythonIdentity": {
+                    "version": "3.12.10",
+                    "implementation": "CPython",
+                    "build": ["fixture", "fixture"],
+                    "compiler": "MSC fixture",
+                },
             },
             "linux-x86_64-cuda": {
                 "status": "pending-hardware-qualification",
@@ -207,4 +219,23 @@ def test_qualified_runtime_lock_tamper_fails_closed(tmp_path: Path) -> None:
 
     with pytest.raises(ReleaseMetadataError, match="runtime_release_lock_hash_mismatch"):
         verify_runtime_release_locks(runtime_path, profile)
+
+def test_qualified_platform_requires_exact_python_identity(tmp_path: Path) -> None:
+    payload = _runtime_payload()
+    payload["platformVariants"]["linux-x86_64-cpu"].pop("pythonIdentity")
+    path = tmp_path / "runtime.json"
+    _write(path, payload)
+
+    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+        load_runtime_profile(path)
+
+
+def test_python_identity_must_match_declared_minor(tmp_path: Path) -> None:
+    payload = _runtime_payload()
+    payload["platformVariants"]["linux-x86_64-cpu"]["pythonIdentity"]["version"] = "3.11.9"
+    path = tmp_path / "runtime.json"
+    _write(path, payload)
+
+    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+        load_runtime_profile(path)
 
