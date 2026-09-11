@@ -104,6 +104,16 @@ def _distribution_version(name: str) -> str:
     return importlib.metadata.version(name)
 
 
+def python_runtime_identity() -> dict[str, Any]:
+    """Return the exact interpreter identity used for qualification."""
+    return {
+        "python": platform.python_version(),
+        "pythonImplementation": platform.python_implementation(),
+        "pythonBuild": list(platform.python_build()),
+        "pythonCompiler": platform.python_compiler(),
+    }
+
+
 def _version_record(*, device: str) -> dict[str, Any]:
     # Heavy imports are intentionally delayed until after local artifact preflight.
     import av
@@ -118,7 +128,7 @@ def _version_record(*, device: str) -> dict[str, Any]:
     import torchvision
 
     record: dict[str, Any] = {
-        "python": platform.python_version(),
+        **python_runtime_identity(),
         "platform": platform.platform(),
         "torch": torch.__version__,
         "torchvision": torchvision.__version__,
