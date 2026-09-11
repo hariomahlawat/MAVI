@@ -10,6 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md`
 
+## Current Execution Status — 2026-09-11
+
+- **Task 1 remains open as a release-qualification task.** Bounded Tasks 1A/1B are complete: the frozen Python 3.12 hosted CPU semantic graph, self-contained resolved RTMDet-M config, restricted checkpoint loading, and real Linux/Windows CPU inference are verified. Linux/Windows NVIDIA qualification and hashed offline wheelhouse locks remain pending and must not be inferred.
+- **Task 2 baseline is complete; a bounded corrective checkpoint is now being applied before Task 3.** The checkpoint enforces the frozen resolved-config hash in CI, preserves a complete non-hidden evidence set, hardens resolver source/output identity and atomic publication, and adds native Windows post-replace rollback plus native-name length regressions.
+- **Tasks 3–11 and Task 13 are framework-neutral implementation work and may proceed after the corrective checkpoint is green.** They must continue to mark the runtime as partially qualified and must not claim production `verified` status.
+- **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
+- **Next implementation task after this checkpoint:** Task 3 — model manifest, pipeline profile, qualification record, and exact-byte integrity.
+
 ## Global Constraints
 
 - Production reference detector is RTMDet-M; do not silently substitute another detector size or backend.
@@ -463,6 +471,23 @@ PR #17 (`feat: add secure native Windows attempt staging`) was verified on exact
 The public `StagingArtifactStore` constructor and methods remain unchanged. Shared logical validation and descriptor generation stay in the facade; POSIX retains `dir_fd`/`O_NOFOLLOW`, while Windows uses validated no-follow handles, stable volume/file identities, NT root-relative descendant opens, handle-relative rename, and handle-based cleanup.
 
 **Reviewer gate:** If link/reparse and directory-substitution safety cannot be demonstrated on native Windows, stop and revisit the formal Windows-support decision; do not weaken the POSIX backend.
+
+### Task 2A — Corrective Qualification/Evidence and Staging Hardening Checkpoint
+
+**Status:** IMPLEMENTED on the corrective branch; hosted exact-head verification is required before merge and before Task 3 begins.
+
+This checkpoint is intentionally bounded. It does not redesign Task 1 or Task 2 and does not add production detector/tracker functionality.
+
+- [x] Runtime qualification CI compares the generated resolved-config SHA-256 against `runtime.json.resolvedConfig.sha256` and fails closed on mismatch before real inference.
+- [x] Runtime qualification evidence is emitted under the non-hidden `qualification-evidence/` directory; the workflow verifies the expected evidence set, probe success, exit code, and resolved-config identity before artifact upload.
+- [x] `resolve_mmdet_config.py` rejects relative/absolute, symlink and hard-link aliases of the source using file identity where available and canonical path identity otherwise.
+- [x] Resolver validation/reload/equivalence checks occur entirely against a temporary candidate; only a validated candidate is atomically promoted with `os.replace`, so failed validation cannot destroy a previously valid output.
+- [x] Native Windows staging validates UTF-16 component length before populating the 16-bit `UNICODE_STRING` length fields and rejects embedded NUL/oversized components with the shared logical error boundary.
+- [x] Native Windows regression coverage now substitutes the logical parent **after** handle-relative replacement and proves rollback deletes the exact published handle rather than any redirected logical path.
+- [ ] Hosted MAVI Quality Gate passes on the exact corrective head.
+- [ ] Task 10 Runtime Qualification passes on Linux and Windows on the exact corrective head.
+- [ ] Task 10 Staging Security passes on Linux and native Windows on the exact corrective head.
+- [ ] Post-green evidence IDs/head SHA are recorded here before the checkpoint is declared COMPLETE.
 
 ---
 
@@ -1382,9 +1407,9 @@ Only then use the normal finishing/merge workflow.
 ## Dependency and Task Ordering
 
 ```text
-Task 1  Runtime matrix + resolved-config feasibility ----------------┐
-Task 2  Cross-platform secure staging -------------------------------┤
-                                                                     v
+Task 1A/1B  Hosted CPU runtime + resolved-config software gate -------┐
+Task 2/2A   Cross-platform secure staging + corrective checkpoint ----┤
+                                                                      v
 Task 3  Manifest/profile/qualification integrity
         |
         +--> Task 4 Runtime contracts/provenance/settings
@@ -1403,15 +1428,17 @@ Task 3  Manifest/profile/qualification integrity
                                                     |
                                                     +--> Task 11 Supervisor/watchdog/main
                                                              |
-                                                             +--> Task 12 Offline bundle
-                                                             +--> Task 13 Hosted CI
+                                                             +--> Task 13 Hosted adapter CI
                                                                       |
-                                                                      +--> Task 14 Real qualification
-                                                                               |
-                                                                               +--> Task 15 Closure
+                                                                      +-------------------┐
+                                                                                          |
+Task 1 GPU qualification ------------------------------┐                                  |
+Task 1 hashed wheelhouse/release locks ----------------+--> Task 12 Offline bundle -------+--> Task 14 Real qualification
+                                                                                                  |
+                                                                                                  +--> Task 15 Closure
 ```
 
-Tasks 1 and 2 are explicit feasibility gates. Do not bury failure of either gate under downstream implementation.
+The completed hosted-CPU/config gate and cross-platform staging gate are sufficient to begin framework-neutral Tasks 3–11 and Task 13 after Task 2A is green. The still-open Task-1 hardware/release evidence is an explicit blocker for Task 12/14 and therefore for final Task-15 closure; it must never be converted into an inferred qualification.
 
 ## Self-Review / Spec Coverage Matrix
 
