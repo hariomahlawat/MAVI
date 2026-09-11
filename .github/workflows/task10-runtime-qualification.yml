@@ -108,10 +108,17 @@ jobs:
       - name: Run real RTMDet-M CPU probe
         shell: bash
         run: |
+          set +e
           python tools/vision/probe_runtime.py \
             --config .qualification-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
             --checkpoint .qualification-rtmdet-m.pth \
-            --device cpu | tee runtime-probe.json
+            --device cpu > runtime-probe.json 2> runtime-probe.err
+          code=$?
+          printf '%s\n' "$code" > runtime-probe.exitcode
+          cat runtime-probe.json
+          cat runtime-probe.err >&2
+          set -e
+          exit "$code"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -119,5 +126,7 @@ jobs:
           name: runtime-probe-${{ matrix.os }}-py3.12-torch2.6.0
           path: |
             runtime-probe.json
+            runtime-probe.err
+            runtime-probe.exitcode
             missing.err
           if-no-files-found: ignore
