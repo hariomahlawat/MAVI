@@ -48,8 +48,8 @@ _FILE_OPEN_REPARSE_POINT = 0x00200000
 
 _OBJ_CASE_INSENSITIVE = 0x00000040
 
-_FILE_RENAME_INFO_CLASS = 3
-_FILE_DISPOSITION_INFO_CLASS = 4
+_FILE_RENAME_INFORMATION_CLASS = 10
+_FILE_DISPOSITION_INFORMATION_CLASS = 13
 _FILE_NAMES_INFORMATION_CLASS = 12
 
 _STATUS_OBJECT_NAME_NOT_FOUND = 0xC0000034
@@ -135,17 +135,17 @@ class _BY_HANDLE_FILE_INFORMATION(ctypes.Structure):
     ]
 
 
-class _FILE_RENAME_INFO(ctypes.Structure):
+class _FILE_RENAME_INFORMATION(ctypes.Structure):
     _fields_ = [
-        ("ReplaceIfExists", wintypes.BOOL),
+        ("ReplaceIfExists", ctypes.c_ubyte),
         ("RootDirectory", wintypes.HANDLE),
-        ("FileNameLength", wintypes.DWORD),
+        ("FileNameLength", wintypes.ULONG),
         ("FileName", wintypes.WCHAR * 1),
     ]
 
 
-class _FILE_DISPOSITION_INFO(ctypes.Structure):
-    _fields_ = [("DeleteFile", wintypes.BOOL)]
+class _FILE_DISPOSITION_INFORMATION(ctypes.Structure):
+    _fields_ = [("DeleteFile", ctypes.c_ubyte)]
 
 
 class _FILE_NAMES_INFORMATION(ctypes.Structure):
@@ -198,15 +198,6 @@ if _IS_WINDOWS:
     _FlushFileBuffers.argtypes = [wintypes.HANDLE]
     _FlushFileBuffers.restype = wintypes.BOOL
 
-    _SetFileInformationByHandle = _kernel32.SetFileInformationByHandle
-    _SetFileInformationByHandle.argtypes = [
-        wintypes.HANDLE,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-    ]
-    _SetFileInformationByHandle.restype = wintypes.BOOL
-
     _NtCreateFile = _ntdll.NtCreateFile
     _NtCreateFile.argtypes = [
         ctypes.POINTER(wintypes.HANDLE),
@@ -222,6 +213,16 @@ if _IS_WINDOWS:
         wintypes.ULONG,
     ]
     _NtCreateFile.restype = ctypes.c_long
+
+    _NtSetInformationFile = _ntdll.NtSetInformationFile
+    _NtSetInformationFile.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(_IO_STATUS_BLOCK),
+        ctypes.c_void_p,
+        wintypes.ULONG,
+        wintypes.ULONG,
+    ]
+    _NtSetInformationFile.restype = ctypes.c_long
 
     _NtQueryDirectoryFile = _ntdll.NtQueryDirectoryFile
     _NtQueryDirectoryFile.argtypes = [
@@ -528,11 +529,14 @@ def _replace_child_file(
     destination_name: str,
 ) -> None:
     encoded_name = destination_name.encode("utf-16-le")
-    name_offset = _FILE_RENAME_INFO.FileName.offset
+    name_offset = _FILE_RENAME_INFORMATION.FileName.offset
     size = name_offset + len(encoded_name)
     buffer = ctypes.create_string_buffer(size)
-    info = ctypes.cast(buffer, ctypes.POINTER(_FILE_RENAME_INFO)).contents
-    info.ReplaceIfExists = True
+    info = ctypes.cast(
+        buffer,
+        ctypes.POINTER(_FILE_RENAME_INFORMATION),
+    ).contents
+    info.ReplaceIfExists = 1
     info.RootDirectory = wintypes.HANDLE(parent.value)
     info.FileNameLength = len(encoded_name)
     ctypes.memmove(
@@ -541,24 +545,36 @@ def _replace_child_file(
         len(encoded_name),
     )
 
-    if not _SetFileInformationByHandle(
+    io_status = _IO_STATUS_BLOCK()
+    status = _NtSetInformationFile(
         wintypes.HANDLE(temporary.value),
-        _FILE_RENAME_INFO_CLASS,
+        ctypes.byref(io_status),
         buffer,
         size,
-    ):
-        _raise_last_error("staging_write_failed")
+        _FILE_RENAME_INFORMATION_CLASS,
+    )
+    if status < 0:
+        code = _status_code(status)
+        raise StagingArtifactError("staging_write_failed") from OSError(
+            f"NtSetInformationFile(rename) failed with NTSTATUS 0x{code:08X}"
+        )
 
 
 def _mark_delete(handle: _WindowsHandle, *, error_code: str) -> None:
-    info = _FILE_DISPOSITION_INFO(DeleteFile=True)
-    if not _SetFileInformationByHandle(
+    info = _FILE_DISPOSITION_INFORMATION(DeleteFile=1)
+    io_status = _IO_STATUS_BLOCK()
+    status = _NtSetInformationFile(
         wintypes.HANDLE(handle.value),
-        _FILE_DISPOSITION_INFO_CLASS,
+        ctypes.byref(io_status),
         ctypes.byref(info),
         ctypes.sizeof(info),
-    ):
-        _raise_last_error(error_code)
+        _FILE_DISPOSITION_INFORMATION_CLASS,
+    )
+    if status < 0:
+        code = _status_code(status)
+        raise StagingArtifactError(error_code) from OSError(
+            f"NtSetInformationFile(disposition) failed with NTSTATUS 0x{code:08X}"
+        )
 
 
 def _directory_entries(handle: _WindowsHandle) -> Iterator[str]:
