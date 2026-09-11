@@ -494,9 +494,11 @@ This checkpoint is intentionally bounded. It does not redesign Task 1 or Task 2 
 
 ### Task 3: Add Model Manifest, Pipeline Profile, Qualification Record, and Exact-Byte Integrity
 
-**Status (verified 2026-09-11): COMPLETE.** The implementation head `21d1358a56b7c4eeeaa08c3115195e40efbccdc7` passed MAVI Quality Gate #171 (run `34627126183`, job `103354820638`). The full gate reported .NET Domain 71/71, Application 23/23, Integration 150/150, Python 223 passed with 11 platform skips, frontend 9/9, repository verification green, and release metadata explicitly reported as `unverified/pending`.
+**Status (verified 2026-09-11): COMPLETE, including post-review hardening.** The Task-3 implementation and review corrections passed MAVI Quality Gate #195 (run `34631805521`), Task 10 Staging Security #32 (run `34631805597`), and Task 10 Runtime Qualification #52 (run `34631805690`) on exact implementation head `da44c41976ae15a44efa4178cbc41961e79b168e`.
 
-The committed Phase-1 manifest deliberately remains `verificationStatus="unverified"`; the qualification record records the already-executed Linux/Windows hosted CPU evidence but keeps CUDA, offline-install, CCTV-quality and Linux NVIDIA recovery/performance gates `pending`. The initial analytical thresholds/ByteTrack values are therefore candidate profile values, not production-qualified tuning. Task 14 owns final tuning/acceptance and the evidence-backed transition to `verified`.
+Post-review hardening is part of the Task-3 acceptance boundary: every passed qualification gate now requires integrity-backed evidence; repository verification validates every tracked manifest/profile/qualification/runtime metadata record and all cross-record identities; `runtime.json` is strictly schema-validated; every qualified offline lock is resolved from the trusted runtime root and exact-byte SHA-256 checked; and every qualified platform carries an exact Python interpreter identity. Hosted CPU qualification is pinned to Linux CPython 3.12.14 and Windows CPython 3.12.10, and CI verifies those frozen interpreter identities before inference.
+
+The committed Phase-1 manifest deliberately remains `verificationStatus="unverified"`; the qualification record keeps CUDA, offline-install, CCTV-quality and Linux NVIDIA recovery/performance gates `pending`. The initial analytical thresholds/ByteTrack values are therefore candidate profile values, not production-qualified tuning. Task 14 owns final tuning/acceptance and the evidence-backed transition to `verified`.
 
 **Files:**
 - Create: `src/vision/mavi_vision/runtime/manifest.py`
