@@ -36,11 +36,17 @@ permissions:
 
 jobs:
   cpu-candidate:
-    name: CPU ${{ matrix.os }} Python 3.12 Torch 2.6.0
+    name: CPU ${{ matrix.os }} Python ${{ matrix.python-version }} Torch 2.6.0
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            python-version: '3.12.14'
+            runtime-variant: linux-x86_64-cpu
+          - os: windows-latest
+            python-version: '3.12.10'
+            runtime-variant: windows-x86_64-cpu
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -55,7 +61,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install compatible build tooling
         run: >-
