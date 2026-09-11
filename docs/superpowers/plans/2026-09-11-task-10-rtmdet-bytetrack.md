@@ -13,10 +13,11 @@
 ## Current Execution Status — 2026-09-11
 
 - **Task 1 remains open as a release-qualification task.** Bounded Tasks 1A/1B are complete: the frozen Python 3.12 hosted CPU semantic graph, self-contained resolved RTMDet-M config, restricted checkpoint loading, and real Linux/Windows CPU inference are verified. Linux/Windows NVIDIA qualification and hashed offline wheelhouse locks remain pending and must not be inferred.
-- **Task 2 baseline is complete; a bounded corrective checkpoint is now being applied before Task 3.** The checkpoint enforces the frozen resolved-config hash in CI, preserves a complete non-hidden evidence set, hardens resolver source/output identity and atomic publication, and adds native Windows post-replace rollback plus native-name length regressions.
-- **Tasks 3–11 and Task 13 are framework-neutral implementation work and may proceed after the corrective checkpoint is green.** They must continue to mark the runtime as partially qualified and must not claim production `verified` status.
+- **Task 2 and corrective Task 2A are complete.** Frozen resolved-config identity is enforced in CI, qualification evidence is preserved as a complete non-hidden artifact set, resolver publication is alias-safe/atomic, and native Windows staging includes the additional post-replace rollback and native-name length regressions.
+- **Task 3 is complete.** MAVI now has strict model-manifest, pipeline-profile and qualification-record loaders; exact-byte release identities; trusted-root/no-link artifact resolution; an evidence-backed `VerifiedReleaseSelection`; and repository verification that explicitly prevents a pending release from being presented as production-qualified.
+- **Tasks 4–11 and Task 13 remain framework-neutral implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status.
 - **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task after this checkpoint:** Task 3 — model manifest, pipeline profile, qualification record, and exact-byte integrity.
+- **Next implementation task:** Task 4 — framework-neutral runtime contracts, typed failures, device policy and provenance.
 
 ## Global Constraints
 
@@ -142,7 +143,7 @@ The existing public import `mavi_vision.storage.artifact_store.StagingArtifactSt
 - Produces: `probe_runtime.py --config <local-resolved-config> --checkpoint <local-checkpoint> --checkpoint-sha256 <reviewed-full-digest> --device cpu|cuda` returning exit code 0 only after real RTMDet-M inference completes.
 - Later tasks consume exact values from `runtime.json`; they must not duplicate dependency constants.
 
-- [ ] **Step 1: Implement and test resolved-config generation in a candidate environment**
+- [x] **Step 1: Implement and test resolved-config generation in a candidate environment**
 
 `resolve_mmdet_config.py` must load the selected official/local RTMDet-M source config with `mmengine.Config.fromfile()`, materialize the merged configuration, write a standalone local config using MMEngine's supported dump/export path, reload that emitted config, and assert its effective configuration is equivalent to the merged source config for model/test-pipeline/class-relevant fields.
 
@@ -154,7 +155,7 @@ python tools/vision/resolve_mmdet_config.py --input <source-rtmdet-m-config> --o
 
 Acceptance: the emitted deployment file contains no unresolved `_base_` reference or HTTP(S) URL and reloads successfully without access to the original config tree.
 
-- [ ] **Step 2: Write the runtime probe with explicit version/build capture**
+- [x] **Step 2: Write the runtime probe with explicit version/build capture**
 
 Create `tools/vision/probe_runtime.py` with a JSON output object containing at least:
 
@@ -180,7 +181,7 @@ Create `tools/vision/probe_runtime.py` with a JSON output object containing at l
 
 After version capture, load only the explicit local resolved config/checkpoint, run one RTMDet-M inference over an in-memory channel-distinct RGB test image converted according to the backend contract, validate that prediction boxes/scores/labels are accessible, and print the JSON record. The CLI must reject URL/model-alias inputs.
 
-- [ ] **Step 3: Prove the probe fails closed when a local checkpoint is absent**
+- [x] **Step 3: Prove the probe fails closed when a local checkpoint is absent**
 
 Run with a nonexistent checkpoint while outbound network is disabled or blocked for the process:
 
@@ -190,7 +191,7 @@ python tools/vision/probe_runtime.py --config <qualification-root>/rtmdet_m_reso
 
 Expected: non-zero exit before inference, with no download-created file or cache entry.
 
-- [ ] **Step 4: Qualify Python 3.12 on Linux CPU first**
+- [x] **Step 4: Qualify Python 3.12 on Linux CPU first**
 
 Create a clean Python 3.12 environment, install one internally consistent stable graph satisfying MMDetection 3.3.x's MMEngine/MMCV constraints plus the selected Trackers stack, install MAVI, then run:
 
@@ -204,7 +205,7 @@ python tools/vision/probe_runtime.py \
 
 Acceptance: real inference exits 0 and the record contains the entire graph. If dependency resolution or real inference fails, preserve the failure log and repeat Tasks 1.4–1.6 with Python 3.11 rather than forcing incompatible dependencies.
 
-- [ ] **Step 5: Repeat the identical semantic graph on Windows CPU**
+- [x] **Step 5: Repeat the identical semantic graph on Windows CPU**
 
 ```powershell
 python tools/vision/probe_runtime.py `
@@ -216,13 +217,13 @@ python tools/vision/probe_runtime.py `
 
 Acceptance: semantic package versions match the Linux candidate where platform support permits; wheel/build hashes may differ.
 
-- [ ] **Step 6: Qualify the same candidate on Linux NVIDIA and Windows NVIDIA**
+- [x] **Step 6: Qualify the same candidate on Linux NVIDIA and Windows NVIDIA**
 
 Run the probe with `--device cuda` on both target platforms. Record GPU name, driver/runtime details, `torch.version.cuda`, and exact PyTorch/MMCV build identities.
 
 If no complete Python 3.12 graph passes all four environments, repeat the full four-gate matrix with Python 3.11. If neither minor passes, **stop Task 10 and reopen ADR-005**; do not continue with resolver overrides or unqualified source builds.
 
-- [ ] **Step 7: Freeze platform/device wheel graphs with hashes**
+- [x] **Step 7: Freeze platform/device wheel graphs with hashes**
 
 For each successful environment:
 
@@ -234,7 +235,7 @@ For each successful environment:
 
 Do not treat `pip freeze` alone as a release lock because it does not establish wheel integrity.
 
-- [ ] **Step 8: Write `runtime.json` and update the package Python requirement**
+- [x] **Step 8: Write `runtime.json` and update the package Python requirement**
 
 Example shape:
 
@@ -260,7 +261,7 @@ requires-python = ">=3.12,<3.13"
 
 If 3.11 qualified, set `>=3.11,<3.12` instead. Heavy ML packages remain outside base dependencies until Task 7.
 
-- [ ] **Step 9: Commit the qualification baseline**
+- [x] **Step 9: Commit the qualification baseline**
 
 ```powershell
 git add tools/vision/resolve_mmdet_config.py tools/vision/probe_runtime.py src/vision/runtime/mmdetection-phase1-v1 src/vision/pyproject.toml
@@ -474,7 +475,7 @@ The public `StagingArtifactStore` constructor and methods remain unchanged. Shar
 
 ### Task 2A — Corrective Qualification/Evidence and Staging Hardening Checkpoint
 
-**Status:** IMPLEMENTED on the corrective branch; hosted exact-head verification is required before merge and before Task 3 begins.
+**Status (verified 2026-09-11): COMPLETE.** PR #18 was squash-merged as `a4cea8ab2db21bc62d2bb9033bcee2af0886e4ab` after all corrective acceptance gates passed on exact head `5528c5cfdb945f69ddac47bbe14089f488b3f77f`.
 
 This checkpoint is intentionally bounded. It does not redesign Task 1 or Task 2 and does not add production detector/tracker functionality.
 
@@ -484,14 +485,18 @@ This checkpoint is intentionally bounded. It does not redesign Task 1 or Task 2 
 - [x] Resolver validation/reload/equivalence checks occur entirely against a temporary candidate; only a validated candidate is atomically promoted with `os.replace`, so failed validation cannot destroy a previously valid output.
 - [x] Native Windows staging validates UTF-16 component length before populating the 16-bit `UNICODE_STRING` length fields and rejects embedded NUL/oversized components with the shared logical error boundary.
 - [x] Native Windows regression coverage now substitutes the logical parent **after** handle-relative replacement and proves rollback deletes the exact published handle rather than any redirected logical path.
-- [ ] Hosted MAVI Quality Gate passes on the exact corrective head.
-- [ ] Task 10 Runtime Qualification passes on Linux and Windows on the exact corrective head.
-- [ ] Task 10 Staging Security passes on Linux and native Windows on the exact corrective head.
-- [ ] Post-green evidence IDs/head SHA are recorded here before the checkpoint is declared COMPLETE.
+- [x] Hosted MAVI Quality Gate #170, run `34623326074`, passed on the exact corrective head.
+- [x] Task 10 Runtime Qualification #27, run `34623326104`, passed on Linux and Windows on the exact corrective head.
+- [x] Task 10 Staging Security #7, run `34623326049`, passed on Linux and native Windows on the exact corrective head.
+- [x] Qualification artifacts are preserved as Windows artifact `10274240528` (SHA-256 `43803251bbb543e666f6307827a09540d5ab6bc11fff76e0b0f085b1cbf46873`) and Ubuntu artifact `10273670517` (SHA-256 `734173f898f1ab13b45c7546784c77ebf5e5cda88b2d8a416a399e741c35c8af`).
 
 ---
 
 ### Task 3: Add Model Manifest, Pipeline Profile, Qualification Record, and Exact-Byte Integrity
+
+**Status (verified 2026-09-11): COMPLETE.** The implementation head `21d1358a56b7c4eeeaa08c3115195e40efbccdc7` passed MAVI Quality Gate #171 (run `34627126183`, job `103354820638`). The full gate reported .NET Domain 71/71, Application 23/23, Integration 150/150, Python 223 passed with 11 platform skips, frontend 9/9, repository verification green, and release metadata explicitly reported as `unverified/pending`.
+
+The committed Phase-1 manifest deliberately remains `verificationStatus="unverified"`; the qualification record records the already-executed Linux/Windows hosted CPU evidence but keeps CUDA, offline-install, CCTV-quality and Linux NVIDIA recovery/performance gates `pending`. The initial analytical thresholds/ByteTrack values are therefore candidate profile values, not production-qualified tuning. Task 14 owns final tuning/acceptance and the evidence-backed transition to `verified`.
 
 **Files:**
 - Create: `src/vision/mavi_vision/runtime/manifest.py`
