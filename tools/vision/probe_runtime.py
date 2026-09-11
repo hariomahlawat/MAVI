@@ -13,6 +13,7 @@ import importlib.metadata
 import json
 import platform
 import sys
+import traceback
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -136,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     except Exception as exc:
         print(f"runtime_probe_failed:{type(exc).__name__}:{exc}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         return 1
 
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
