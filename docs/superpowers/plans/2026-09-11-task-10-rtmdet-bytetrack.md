@@ -353,6 +353,8 @@ Task 1 remains **OPEN** for two evidence classes that cannot be honestly inferre
 
 ### Task 2: Make Attempt Staging Secure on Both POSIX and Native Windows
 
+**Status (verified 2026-09-11): COMPLETE.** Security-equivalent attempt staging is now proven on hosted Linux and native Windows without weakening the Task-9 POSIX no-follow boundary.
+
 **Files:**
 - Modify: `src/vision/mavi_vision/storage/artifact_store.py`
 - Create: `src/vision/mavi_vision/storage/artifact_store_posix.py`
@@ -366,7 +368,7 @@ Task 1 remains **OPEN** for two evidence classes that cannot be honestly inferre
 - Preserve `job_id`, `attempt_count`, `thumbnail_key()`, `trajectory_key()`, `write_bytes()`, and `cleanup()`.
 - `artifact_store.py` becomes the platform facade and owns shared logical validation/error codes; POSIX and Windows backends implement the same internal protocol.
 
-- [ ] **Step 1: Lock existing POSIX behaviour before moving code**
+- [x] **Step 1: Lock existing POSIX behaviour before moving code**
 
 Add any missing assertions needed to preserve exact existing key/error semantics, then run:
 
@@ -379,7 +381,7 @@ Expected: PASS against the pre-refactor implementation.
 
 Move the current hardened `dir_fd`/`O_NOFOLLOW` implementation to `artifact_store_posix.py`; keep shared logical validation and `StagingArtifactError` in `artifact_store.py`; delegate by `os.name`. Re-run the same suite and require identical results.
 
-- [ ] **Step 2: Write Windows path/reparse tests before implementing the backend**
+- [x] **Step 2: Write Windows path/reparse tests before implementing the backend**
 
 Create Windows-only tests guarded by `os.name == "nt"`:
 
@@ -395,7 +397,7 @@ Use a real NTFS junction via `cmd /c mklink /J <link> <target>` for the mandator
 
 Run on native Windows; expected result before implementation is failure because secure Windows publication is unavailable.
 
-- [ ] **Step 3: Implement a small isolated handle-relative Windows helper layer**
+- [x] **Step 3: Implement a small isolated handle-relative Windows helper layer**
 
 Expose internal helpers:
 
@@ -415,13 +417,13 @@ def _remove_attempt_tree_no_reparse(parent: _WindowsHandle, name: str) -> None: 
 
 Use platform handle APIs with reparse-point rejection, directory-handle identity checks, and handle-relative child operations. Path-string normalization alone is not accepted as the security boundary.
 
-- [ ] **Step 4: Implement Windows `write_bytes()` and `cleanup()` with the same authority boundary as POSIX**
+- [x] **Step 4: Implement Windows `write_bytes()` and `cleanup()` with the same authority boundary as POSIX**
 
 `write_bytes()` must validate the logical name, traverse/create only the attempt ancestry without following reparse points, create an exclusive temp sibling, write+flush, revalidate parent identity, call `authorize_publish()` immediately before replacement, replace inside that same validated directory, revalidate identity again, and roll back a publication known to have raced.
 
 `cleanup()` removes only the current attempt subtree and never traverses a reparse point.
 
-- [ ] **Step 5: Run platform security tests**
+- [x] **Step 5: Run platform security tests**
 
 Linux/POSIX:
 
@@ -439,12 +441,26 @@ python -m pytest tests/test_artifact_store.py tests/test_artifact_store_windows.
 
 Expected: all applicable tests pass; normal Windows staging no longer raises `secure_staging_unavailable`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src/vision/mavi_vision/storage src/vision/tests/test_artifact_store.py src/vision/tests/test_artifact_store_windows.py
 git commit -m "feat: add secure windows attempt staging"
 ```
+
+#### Verification evidence
+
+PR #17 (`feat: add secure native Windows attempt staging`) was verified on exact head `0c74fc97aab8765931ceeed023c76c6610f6cce2` and squash-merged as `1045031fba4927db48df55825b5b6bd00186a5f3`.
+
+- MAVI Quality Gate #166, run `34620478019`: **PASS**.
+- Task 10 Staging Security #2, run `34620477979`: **PASS**.
+- Ubuntu job `103332917805`: **14 passed, 6 Windows-only skips**.
+- Windows job `103332918374`: **16 passed, 4 POSIX-only skips**.
+- Native Windows coverage exercised a real NTFS junction in attempt ancestry, directory substitution during publication, nested reparse-point cleanup, sibling-attempt isolation, immediate pre-replace lease authorization, and denied-authority rollback.
+- The first Windows run exposed `ERROR_INVALID_PARAMETER` in the Win32 rename primitive. The implementation was corrected to native `NtSetInformationFile(FileRenameInformation)` and native disposition handling; no test or security requirement was weakened.
+- Post-merge Task 10 Staging Security #3, run `34620795230`, passed again on merge commit `1045031fba4927db48df55825b5b6bd00186a5f3` with Ubuntu job `103333970486` and Windows job `103333970884` both green.
+
+The public `StagingArtifactStore` constructor and methods remain unchanged. Shared logical validation and descriptor generation stay in the facade; POSIX retains `dir_fd`/`O_NOFOLLOW`, while Windows uses validated no-follow handles, stable volume/file identities, NT root-relative descendant opens, handle-relative rename, and handle-based cleanup.
 
 **Reviewer gate:** If link/reparse and directory-substitution safety cannot be demonstrated on native Windows, stop and revisit the formal Windows-support decision; do not weaken the POSIX backend.
 
