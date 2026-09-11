@@ -26,17 +26,35 @@
   "platformVariants": {
     "linux-x86_64-cpu": {
       "status": "qualified-hosted-cpu",
-      "workflowRunId": "34614293246",
-      "jobId": "103312235001",
-      "evidenceHeadSha": "8ffc2adba6618b3c7cdc05df5db3b659d029870b",
-      "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
+      "workflowRunId": "34630472797",
+      "jobId": "103365765296",
+      "evidenceHeadSha": "6aac1566e4d8118e394341bd1a2feabc5f642955",
+      "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+      "pythonIdentity": {
+        "version": "3.12.14",
+        "implementation": "CPython",
+        "build": [
+          "main",
+          "Aug 13 2026 02:47:42"
+        ],
+        "compiler": "GCC 13.3.0"
+      }
     },
     "windows-x86_64-cpu": {
       "status": "qualified-hosted-cpu",
-      "workflowRunId": "34614293246",
-      "jobId": "103312234588",
-      "evidenceHeadSha": "8ffc2adba6618b3c7cdc05df5db3b659d029870b",
-      "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
+      "workflowRunId": "34630472797",
+      "jobId": "103365765642",
+      "evidenceHeadSha": "6aac1566e4d8118e394341bd1a2feabc5f642955",
+      "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+      "pythonIdentity": {
+        "version": "3.12.10",
+        "implementation": "CPython",
+        "build": [
+          "tags/v3.12.10:0cc8128",
+          "Apr  8 2025 12:21:36"
+        ],
+        "compiler": "MSC v.1943 64 bit (AMD64)"
+      }
     },
     "linux-x86_64-cuda": {
       "status": "pending-hardware-qualification"
