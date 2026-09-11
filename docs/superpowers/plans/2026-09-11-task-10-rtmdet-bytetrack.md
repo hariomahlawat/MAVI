@@ -265,52 +265,47 @@ git commit -m "build: qualify phase1 vision runtime matrix"
 
 ### Task 1A — Checkpoint-loading compatibility and dual-platform CPU smoke gate
 
-**Status (reviewed 2026-09-11): INCOMPLETE — remediate and verify before merge.** This subsection is the immediate implementation handoff. It does not authorize proceeding to the remaining Task-10 work.
+**Status (verified 2026-09-11): COMPLETE for the bounded Task 1A gate.** This establishes the checkpoint-loading correction and dual-platform hosted CPU smoke evidence only. It does **not** claim complete Task-10 qualification; Tasks 1 and 2–15 retain their own acceptance gates.
 
-#### Baseline and historical failure
+#### Final correction
 
-Task 9 commit `f151a70ac2f1d702e25bb504ddb9c4ce144d46d8` remains the accepted integration baseline. The Task-10 branch was at `f544282b0973f702c26ae8f264529bf3143d2e2f` when [PR #15](https://github.com/hariomahlawat/MAVI/pull/15) was reviewed. PR #15 proposes commit `12e9b0520dd0c5246343d94556982faf4afd85ba` from `harioahlawat/update-documentation-and-fix-checkpoint-loading` into `feature/task-10-rtmdet-bytetrack`. Recheck the live refs before continuing; these identifiers describe the reviewed snapshot, not an instruction to reset later work.
+Task 9 commit `f151a70ac2f1d702e25bb504ddb9c4ce144d46d8` remains the accepted integration baseline. The Task-10 target branch was `f544282b0973f702c26ae8f264529bf3143d2e2f` when this bounded remediation started. PR #15 was verified at head `9027fc056a8a3a340fdcf4e9db472ec4cc2d3b74`.
 
-Historical GitHub Actions run [34586855486](https://github.com/hariomahlawat/MAVI/actions/runs/34586855486), Linux job [103222954195](https://github.com/hariomahlawat/MAVI/actions/runs/34586855486/job/103222954195), and Windows job [103222954416](https://github.com/hariomahlawat/MAVI/actions/runs/34586855486/job/103222954416) passed the five then-current probe tests, PyTorch/NumPy bridge, MMCV build, dependency imports, official artifact download, and missing-checkpoint rejection. Both failed before inference: MMEngine 0.10.7 called `torch.load` without `weights_only`, and PyTorch 2.6 restricted loading rejected `mmengine.logging.history_buffer.HistoryBuffer`. Preserve this evidence until superseded by identified passing runs.
+The PyTorch 2.6 restricted-loading failure was caused by an exact serialized-global identity mismatch across NumPy generations. The official RTMDet-M checkpoint uses historical `numpy.core.multiarray` identities, while the hosted NumPy 2.x fixture serializes the same reviewed callables under `numpy._core.multiarray`. The final lexical `torch.serialization.safe_globals(...)` scope therefore contains a finite nine-entry reviewed set: `mmengine.logging.history_buffer.HistoryBuffer`; `_reconstruct` under both legacy and NumPy-2 names; `numpy.ndarray`; `numpy.dtype`; the concrete Float64 and Int64 dtype classes; and `scalar` under both legacy and NumPy-2 names. The scope is temporary and restores the prior safe-global state after success or failure.
 
-#### Implemented correction and evidence limits
+The security boundary remains unchanged: no `weights_only=False`, environment bypass, process-global monkey patch, permanent allowlist, automatic unsafe-global discovery, checkpoint conversion, model/backend substitution, or job-controlled model/config input was introduced. The official OpenMMLab checkpoint remains pinned to SHA-256 `229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b`.
 
-PR #15 adds pre-load SHA-256 validation, an explicit seven-entry `safe_globals` scope around `init_detector`, structured probe output, and prediction shape/box/score checks. It changes qualification tooling and documentation only; production RTMDet/ByteTrack adapters remain absent.
+#### Hosted verification evidence
 
-The implementation's scoped set is `mmengine.logging.history_buffer.HistoryBuffer`, NumPy's legacy-named `_reconstruct` and `scalar` callables, `numpy.ndarray`, `numpy.dtype`, and the constructed `Float64DType` and `Int64DType` classes. The author reports establishing this set through iterative restricted loads, not bulk-importing discovered names. The official artifact is `rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth`, with workflow-pinned SHA-256 `229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b`. Retain the official OpenMMLab source and reviewed expected digest; a newly computed digest alone does not authenticate arbitrary downloaded bytes.
+GitHub Actions **Task 10 Runtime Qualification #13**, run `34610780805`, completed successfully on PR head `9027fc056a8a3a340fdcf4e9db472ec4cc2d3b74`. The default PR checkout tested synthetic merge commit `76853ba4ae31896111c864c4322a346839b31fe3`; the probe separately recorded `pullRequestHeadSha=9027fc056a8a3a340fdcf4e9db472ec4cc2d3b74` on both platforms.
 
-| Evidence at reviewed PR head | Status and interpretation |
-| --- | --- |
-| Eight probe unit tests; 159 Python tests under Python 3.13; repository verifier | Reported by the implementation author. The review did not independently rerun these suites. |
-| Restricted load of all 694 state-dict entries; safe-global set unchanged on exit | Author-reported local inspection on Python 3.12.13 / PyTorch 2.6.0+cpu / MMEngine 0.10.7. Not a committed real-library regression test. |
-| Full Linux CPU probe with MMCV 2.1.0, MMDetection 3.3.0 and torchvision 0.21.0+cpu | Author-reported local success with parseable JSON. No hosted two-platform acceptance evidence was available. |
-| GitHub checks and workflow runs for `12e9b0520dd0c5246343d94556982faf4afd85ba` | Independently checked: zero checks and zero workflow runs. This is absence of verification, not success. |
-| Selected probe validation/output paths | Review exercised actual probe code with simulated inference outputs: malformed/mismatched digests and NaN scores were rejected; NaN and fractional labels incorrectly returned success; simulated loader diagnostics were separated from JSON. These are not model-inference tests. |
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| MAVI core quality gate | PASS | `MAVI Quality Gate #156`, run `34610780738` |
+| Linux hosted CPU | PASS | job `103300442180`; Python 3.12.14; PyTorch 2.6.0+cpu; MMCV 2.1.0; MMEngine 0.10.7; MMDetection 3.3.0; NumPy 2.5.3 |
+| Windows hosted CPU | PASS | job `103300442432`; Python 3.12.10; PyTorch 2.6.0+cpu; MMCV 2.1.0; MMEngine 0.10.7; MMDetection 3.3.0; NumPy 2.5.3 |
+| Real restricted-load regression | PASS on both | approved NumPy metadata loads only inside the reviewed lexical scope; an unapproved type remains rejected; safe-global state is restored |
+| Official checkpoint preflight | PASS on both | missing checkpoint fails before heavyweight loading; expected SHA-256 is required and verified before deserialization |
+| Real RTMDet-M inference | PASS on both | probe returned `status="passed"`, `predictionType="DetDataSample"`, `predictionCount=300` |
+| Linux evidence artifact | PASS | artifact `10268436863`, archive digest `sha256:d8ae5e6d56f5acd957032549c9298bc32a44b5c620ee0a574c17aeb36822fd7c` |
+| Windows evidence artifact | PASS | artifact `10268617493`, archive digest `sha256:15747601db9ec5317494cd0485f9c3ca7540dc23ae76c87f814ed8bc36893fd7` |
 
-#### Required corrections within Task 1A
-
-1. **Cover the actual PR arrangement in CI.** The runtime workflow currently runs only on pushes to the Task-10 base branch; it has no PR trigger. The core quality workflow covers the integration branch, not PRs targeting Task 10. Adding documentation path filters does not fix this branch/event mismatch. Provide PR coverage for the Task-10 target and relevant regression checks before merge. Continue the existing PR; do not merge merely to trigger testing.
-2. **Test restricted loading with real PyTorch.** Existing tests replace `safe_globals`, the reviewed list and the loader with fakes, so they only establish wrapper behaviour. Retain lightweight tests, then run separate real-library tests after installing the candidate runtime. Use harmless fixtures to demonstrate rejection of unapproved types, the intended approved scoped load, restricted loading inside the scope, and safe-global state before/after success and failure. Exercise the actual reviewed list and retain separate real RTMDet inference evidence. Do not commit weights.
-3. **Close prediction validation.** Require integer labels within the loaded model vocabulary; reject malformed/non-finite/fractional/out-of-range labels. Add focused tests for shapes, length agreement, finite boxes/scores, label validity and valid empty detections. An empty result on the synthetic image must remain valid.
-4. **Retain unambiguous evidence.** Capture parseable JSON, stderr, exit code, checkpoint/config identity, exact runtime versions, platform/device and workflow/job references. Record the actual checked-out commit and PR head separately where applicable: default PR checkout may test a synthetic merge commit. Both operating systems must test the same identified revision. A top-level config-file digest identifies that file only; it must not be presented as the complete inherited/effective configuration hash. Full resolved-config qualification remains pending.
-5. **Finish this gate before handing off.** Run focused tests, the supported Python 3.13 core regression suite, repository verification, and hosted real RTMDet-M CPU inference on Linux and native Windows. Resolve failures within this bounded scope. If an environment/access blocker prevents required evidence, report it and keep the gate open; do not redefine the missing acceptance as the next milestone.
+The Linux probe recorded the top-level source-config byte hash `c04a67ac0fbb48df14ada534f16186e1e4eb6cd5bb5ad0c32b1c64835f4e39e4`; Windows recorded `63e0ea14d2c0ce5966d8d68e05957c872e17c8296ba9d95e7ebe3bb6c625004f`. These hashes identify the checked-out top-level config bytes only and are **not** treated as an effective configuration identity. The platform difference reinforces the already-planned Task-1 requirement to generate and qualify a self-contained resolved deployment config with deterministic release-byte rules.
 
 #### Acceptance checklist
 
-- [ ] Relevant tests demonstrate the correction and the new validation regressions, with actual commands and results recorded.
-- [ ] Real-PyTorch tests establish approved/rejected loading behaviour and the expected safe-global state after success and failure.
-- [ ] Missing, malformed and mismatched checkpoint inputs fail before heavyweight model loading; URL rejection and intended relative/Windows paths remain covered.
-- [ ] Invalid prediction labels, malformed shapes, non-finite boxes/scores and mismatched lengths are rejected; valid empty predictions pass.
-- [ ] Both hosted CPU jobs pass on the same final reviewed revision, with actual checkout and PR-head identities distinguished.
-- [ ] Evidence artifacts are parseable, identify the tested inputs/runtime and link to the passing workflow/jobs.
-- [ ] Relevant core regression and repository checks pass on the proposed revision; local and hosted results are labelled separately.
-- [ ] Documentation records the final evidence and limitations without claiming full Task-10 qualification. Only then is Task 1A eligible for merge review.
+- [x] Relevant tests demonstrate the correction and validation regressions; hosted unit-test steps and the exact runtime qualification commands passed.
+- [x] Real-PyTorch tests establish approved/rejected loading behaviour and restoration of the safe-global state after success and failure.
+- [x] Missing, malformed and mismatched checkpoint inputs fail before heavyweight model loading; URL rejection and intended relative/Windows filesystem paths remain covered.
+- [x] Invalid prediction labels, malformed shapes, non-finite boxes/scores and mismatched lengths are rejected; valid empty predictions pass.
+- [x] Both hosted CPU jobs pass on the same PR head and record the synthetic checkout commit separately from the PR-head identity.
+- [x] Evidence artifacts are parseable and identify checkpoint/config identity, exact runtime versions, platform/device, workflow run and PR head.
+- [x] Relevant repository/core checks pass on the proposed revision via MAVI Quality Gate #156.
+- [x] Documentation records the final Task-1A evidence and limitations without claiming full Task-10 qualification.
 
-Checked acceptance items require evidence supporting the exact claim. Author-reported local runs, mocked wrapper tests, real-library tests and hosted model inference are separate evidence categories. The historical failures are not marked resolved merely because code was added or a PR is mergeable.
+#### Remaining boundary
 
-**Preserved scope:** Keep restricted loading: no `weights_only=False`, environment bypass, global monkey patch, permanent allowlist, discovered-name auto-allowlisting, checkpoint conversion, or silent model/backend/version substitution. No job-controlled config/checkpoint input. Preserve Task-9 lease, artifact, cancellation and operational-authority boundaries. Do not add production adapters, native Windows staging, PostgreSQL writes, `/complete`, transport changes or unrelated capabilities in this gate.
-
-**Deferred until Task 1A passes:** Complete-runtime qualification and Python/package alignment are the next bounded milestone. Keep MAVI/core CI on Python 3.13 and the isolated ML candidate on Python 3.12 during Task 1A. Dual-platform hosted CPU smoke is part of Task 1A, not deferred. GPU, offline installation, native Windows end-to-end artifact security, resolved effective configuration, detection/tracking quality, runtime locks and production `verified` status remain unqualified. Tasks 2–15 in this implementation plan remain pending.
+Task 1A is closed. Full runtime qualification is **not** closed. Task 1 must still produce the resolved effective config, qualify/freeze the complete runtime graph and platform/device locks, and perform the remaining required platform/device gates. GPU qualification, offline installation, native Windows end-to-end staging security, model/profile/qualification metadata, production RTMDet/ByteTrack adapters, recovery/watchdog behaviour, detection/tracking quality, performance, and production `verified` status remain governed by Tasks 1 and 2–15.
 
 ---
 
