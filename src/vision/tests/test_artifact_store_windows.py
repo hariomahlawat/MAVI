@@ -200,6 +200,23 @@ def test_windows_post_replace_parent_swap_rolls_back_exact_published_handle(
     outside = tmp_path.parent / f"{tmp_path.name}-outside-post-replace"
     outside.mkdir()
 
+    # Keep explicit native handles that allow the test to rename the already-open
+    # logical parent after publication. Path.rename() cannot exercise this race on
+    # Windows while descendant handles remain open.
+    backend = store._backend
+    attempt_handle, attempt_handles = backend._open_parent_chain((), create=False)
+    safe_rename_handle = windows_backend._nt_create_relative(
+        attempt_handle,
+        "safe",
+        desired_access=windows_backend._DIR_ACCESS | windows_backend._DELETE,
+        disposition=windows_backend._FILE_OPEN,
+        options=(
+            windows_backend._FILE_DIRECTORY_FILE
+            | windows_backend._FILE_OPEN_REPARSE_POINT
+            | windows_backend._FILE_SYNCHRONOUS_IO_NONALERT
+        ),
+    )
+
     real_replace = windows_backend._replace_child_file
     swapped = False
 
@@ -207,18 +224,26 @@ def test_windows_post_replace_parent_swap_rolls_back_exact_published_handle(
         nonlocal swapped
         real_replace(parent, temporary, destination_name)
         if destination_name == "race.bin":
-            safe_parent.rename(detached_parent)
+            real_replace(
+                attempt_handle,
+                safe_rename_handle,
+                detached_parent.name,
+            )
             _junction(safe_parent, outside)
             swapped = True
 
     monkeypatch.setattr(windows_backend, "_replace_child_file", racing_replace)
 
-    with pytest.raises(StagingArtifactError, match="staging_path_(?:race|escape)"):
-        store.write_bytes(
-            "safe/race.bin",
-            b"payload",
-            "application/octet-stream",
-        )
+    try:
+        with pytest.raises(StagingArtifactError, match="staging_path_(?:race|escape)"):
+            store.write_bytes(
+                "safe/race.bin",
+                b"payload",
+                "application/octet-stream",
+            )
+    finally:
+        safe_rename_handle.close()
+        backend._close_handles(attempt_handles)
 
     assert swapped is True
     assert not (outside / "race.bin").exists()
