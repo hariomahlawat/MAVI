@@ -52,6 +52,13 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
 
+      - name: Stabilize Windows PyTorch extension environment
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "DISTUTILS_USE_SDK=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MSSdk=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Clone MMCV 2.1.0 source
         run: git clone --depth 1 --branch v2.1.0 https://github.com/open-mmlab/mmcv.git .qualification-mmcv
 
