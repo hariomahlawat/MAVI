@@ -239,3 +239,34 @@ def test_python_identity_must_match_declared_minor(tmp_path: Path) -> None:
     with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
         load_runtime_profile(path)
 
+def test_cuda_variant_rejects_hosted_cpu_status(tmp_path: Path) -> None:
+    payload = _runtime_payload()
+    payload["platformVariants"]["linux-x86_64-cuda"] = {
+        "status": "qualified-hosted-cpu",
+        "workflowRunId": "1003",
+        "jobId": "2003",
+        "evidenceHeadSha": "3" * 40,
+        "resolvedConfigSha256": payload["resolvedConfig"]["sha256"],
+        "pythonIdentity": {
+            "version": "3.12.14",
+            "implementation": "CPython",
+            "build": ["fixture", "fixture"],
+            "compiler": "fixture",
+        },
+    }
+    path = tmp_path / "runtime.json"
+    _write(path, payload)
+
+    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+        load_runtime_profile(path)
+
+
+def test_cpu_variant_rejects_hardware_qualification_status(tmp_path: Path) -> None:
+    payload = _runtime_payload()
+    payload["platformVariants"]["linux-x86_64-cpu"]["status"] = "qualified-hardware"
+    path = tmp_path / "runtime.json"
+    _write(path, payload)
+
+    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+        load_runtime_profile(path)
+
