@@ -20,6 +20,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.4"]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mavi_vision*"]
+namespaces = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

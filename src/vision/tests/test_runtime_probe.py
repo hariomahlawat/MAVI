@@ -179,7 +179,7 @@ def test_real_torch_scope_allows_reviewed_numpy_metadata_and_restores_globals(
     probe = _load_probe()
     checkpoint = tmp_path / "reviewed-metadata.pth"
     torch.save({"metadata": np.array([1.5], dtype=np.float64)}, checkpoint)
-    before = tuple(torch.serialization.get_safe_globals())
+    before = frozenset(torch.serialization.get_safe_globals())
 
     with pytest.raises(Exception, match="Weights only load failed"):
         torch.load(checkpoint)
@@ -188,7 +188,7 @@ def test_real_torch_scope_allows_reviewed_numpy_metadata_and_restores_globals(
         loaded = torch.load(checkpoint)
         assert loaded["metadata"].tolist() == [1.5]
 
-    assert tuple(torch.serialization.get_safe_globals()) == before
+    assert frozenset(torch.serialization.get_safe_globals()) == before
 
 
 def test_real_torch_scope_rejects_unapproved_type_and_restores_globals(
@@ -199,13 +199,13 @@ def test_real_torch_scope_rejects_unapproved_type_and_restores_globals(
     probe = _load_probe()
     checkpoint = tmp_path / "unapproved-metadata.pth"
     torch.save(UnapprovedCheckpointMetadata(), checkpoint)
-    before = tuple(torch.serialization.get_safe_globals())
+    before = frozenset(torch.serialization.get_safe_globals())
 
     with pytest.raises(Exception, match="Weights only load failed"):
         with probe.restricted_checkpoint_loading_scope():
             torch.load(checkpoint)
 
-    assert tuple(torch.serialization.get_safe_globals()) == before
+    assert frozenset(torch.serialization.get_safe_globals()) == before
 
 
 @pytest.mark.parametrize(

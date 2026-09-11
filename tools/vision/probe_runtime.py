@@ -130,6 +130,8 @@ def _version_record(*, device: str) -> dict[str, Any]:
         "scipy": scipy.__version__,
         "numpy": np.__version__,
         "opencv": cv2.__version__,
+        "opencvPython": _distribution_version("opencv-python"),
+        "pillow": _distribution_version("Pillow"),
         "av": av.__version__,
         "device": device,
         "os": platform.system(),

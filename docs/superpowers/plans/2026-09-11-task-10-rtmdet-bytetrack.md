@@ -309,6 +309,48 @@ Task 1A is closed. Full runtime qualification is **not** closed. Task 1 must sti
 
 ---
 
+### Task 1B — Self-contained resolved config and hosted CPU runtime freeze
+
+**Status (verified 2026-09-11): COMPLETE for the bounded Task 1B software gate.** Task 1B closes the unresolved-config and hosted-CPU semantic-runtime portions of Task 1. It does **not** close Task 1 as a whole: NVIDIA qualification and reproducible hashed offline wheelhouse locks remain mandatory before the package Python requirement or production runtime status may be finalized.
+
+#### Implementation
+
+`tools/vision/resolve_mmdet_config.py` now loads the official RTMDet-M source config through MMEngine, materializes inherited configuration through the supported `Config.dump()` path, normalizes the emitted artifact to deterministic UTF-8/LF bytes, rejects residual `_base_`, HTTP(S), template and environment-resolution syntax, reloads the emitted file, and compares deployment-relevant model/test configuration semantics with the merged source.
+
+Qualification CI then deletes the cloned MMDetection source-config tree before the missing-checkpoint proof and real inference probe. A passing probe therefore establishes that the deployment config is independently loadable and does not succeed by falling back to the original inherited config files.
+
+The selected hosted CPU semantic graph is recorded once in `src/vision/runtime/mmdetection-phase1-v1/runtime.json`: Python 3.12; PyTorch 2.6.0; torchvision 0.21.0; MMCV 2.1.0; MMEngine 0.10.7; MMDetection 3.3.0; Trackers 2.6.0; Supervision 0.30.2; SciPy 1.18.1; NumPy 2.5.3; OpenCV module 5.0.0 / `opencv-python` 5.0.0.93; Pillow 11.3.0; PyAV 16.1.0. The workflow verifies the installed graph against this metadata before artifact resolution/inference.
+
+Adding the non-package `src/vision/runtime` directory initially exposed setuptools automatic flat-layout discovery in Quality Gate #159. Package discovery is now explicitly restricted to `mavi_vision*`, preserving runtime release metadata outside the Python package. A later exact-head Windows run also exposed an over-strict regression assertion that compared PyTorch safe-global list ordering. PyTorch restored the same members in a different order; the regression now compares `frozenset` membership, which tests the actual no-permission-leak invariant without depending on incidental ordering.
+
+#### Executed qualification evidence
+
+Task 10 Runtime Qualification #17, run `34614293246`, executed the resolver and real RTMDet-M inference on both hosted operating systems. Linux job `103312235001` and Windows job `103312234588` both emitted the **same resolved-config SHA-256**:
+
+`377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3`
+
+Both jobs matched the recorded semantic graph, removed the original MMDetection config tree, proved a missing checkpoint fails before model loading, and completed real RTMDet-M CPU inference with `status="passed"` and `predictionType="DetDataSample"`. The checkpoint remained the reviewed OpenMMLab artifact with SHA-256 `229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b`.
+
+MAVI Quality Gate #160 passed after the package-discovery correction. PR #16 remains subject to one final exact-head quality + dual-platform runtime pass after the safe-global-order regression correction and this evidence freeze; merge is not authorized by the earlier run alone.
+
+#### Task 1B acceptance
+
+- [x] The resolver uses MMEngine's supported load/dump/reload path and validates deployment-relevant effective semantics.
+- [x] The resolved artifact rejects residual base, remote URL, template and environment-resolution syntax.
+- [x] UTF-8/LF normalization produces one stable resolved-config SHA-256 across hosted Linux and Windows.
+- [x] The original MMDetection config tree is removed before real model loading/inference.
+- [x] The installed CPU semantic graph is checked against machine-readable runtime metadata.
+- [x] Real RTMDet-M CPU inference passes on Linux and Windows from the self-contained resolved config.
+- [x] Runtime metadata records CPU evidence and leaves both CUDA variants explicitly `pending-hardware-qualification`.
+- [x] Hashed offline wheelhouse locks remain explicitly `pending-wheelhouse-freeze`; they are not inferred from `pip freeze`.
+- [x] `requires-python` remains unchanged until the complete four-variant Task-1 matrix is actually proven.
+
+#### Remaining Task-1 boundary
+
+Task 1 remains **OPEN** for two evidence classes that cannot be honestly inferred from hosted CPU runs: Linux NVIDIA + Windows NVIDIA real-model qualification, and platform/device-specific offline wheelhouse locks proven installable with `--no-index --require-hashes`. Until those gates execute, `runtime.json` remains partially qualified, `pyproject.toml` retains its existing Python declaration, and no production `verified` status is permitted.
+
+---
+
 ### Task 2: Make Attempt Staging Secure on Both POSIX and Native Windows
 
 **Files:**
