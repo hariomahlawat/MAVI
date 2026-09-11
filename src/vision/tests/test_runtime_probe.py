@@ -47,3 +47,37 @@ def test_parse_local_path_accepts_relative_or_absolute_filesystem_paths() -> Non
     probe = _load_probe()
 
     assert probe.parse_local_path("models/rtmdet.pth") == Path("models/rtmdet.pth")
+
+
+def test_unexpected_runtime_failure_emits_marker_and_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    probe = _load_probe()
+    config = tmp_path / "resolved.py"
+    checkpoint = tmp_path / "model.pth"
+    config.write_text("model = {}\n", encoding="utf-8")
+    checkpoint.write_bytes(b"model")
+
+    def fail_probe(*_args, **_kwargs):
+        raise RuntimeError("synthetic_inference_failure")
+
+    monkeypatch.setattr(probe, "run_probe", fail_probe)
+
+    exit_code = probe.main(
+        [
+            "--config",
+            str(config),
+            "--checkpoint",
+            str(checkpoint),
+            "--device",
+            "cpu",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "runtime_probe_failed:RuntimeError:synthetic_inference_failure" in captured.err
+    assert "Traceback (most recent call last)" in captured.err
+    assert "RuntimeError: synthetic_inference_failure" in captured.err
