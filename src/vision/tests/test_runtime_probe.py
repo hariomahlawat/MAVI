@@ -138,6 +138,24 @@ def test_checkpoint_permissions_are_removed_after_failure(
     assert active == []
 
 
+def test_reviewed_checkpoint_globals_cover_legacy_and_numpy2_numpy_aliases() -> None:
+    pytest.importorskip("mmengine")
+    probe = _load_probe()
+
+    aliases = {
+        entry[1]
+        for entry in probe.reviewed_checkpoint_globals()
+        if isinstance(entry, tuple)
+    }
+
+    assert {
+        "numpy.core.multiarray._reconstruct",
+        "numpy._core.multiarray._reconstruct",
+        "numpy.core.multiarray.scalar",
+        "numpy._core.multiarray.scalar",
+    }.issubset(aliases)
+
+
 def test_real_torch_scope_allows_reviewed_numpy_metadata_and_restores_globals(
     tmp_path: Path,
 ) -> None:
