@@ -99,6 +99,247 @@ class _QualificationEvidenceSchema(_StrictModel):
         return value
 
 
+class _RuntimeSemanticGraphSchema(_StrictModel):
+    torch: str
+    torchvision: str
+    mmcv: str
+    mmengine: str
+    mmdet: str
+    trackers: str
+    supervision: str
+    scipy: str
+    numpy: str
+    opencv: str
+    av: str
+    opencv_python: str = Field(alias="opencvPython")
+    pillow: str
+
+    @field_validator(
+        "torch",
+        "torchvision",
+        "mmcv",
+        "mmengine",
+        "mmdet",
+        "trackers",
+        "supervision",
+        "scipy",
+        "numpy",
+        "opencv",
+        "av",
+        "opencv_python",
+        "pillow",
+    )
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        if not value or value != value.strip():
+            raise ValueError("runtime_semantic_version_invalid")
+        return value
+
+
+class _RuntimeCheckpointSchema(_StrictModel):
+    publisher: str
+    artifact: str
+    sha256: str
+
+    @field_validator("publisher")
+    @classmethod
+    def validate_publisher(cls, value: str) -> str:
+        if not value or value != value.strip():
+            raise ValueError("runtime_checkpoint_publisher_invalid")
+        return value
+
+    @field_validator("artifact")
+    @classmethod
+    def validate_artifact(cls, value: str) -> str:
+        from mavi_vision.runtime.manifest import validate_logical_relative_path
+
+        validate_logical_relative_path(value)
+        return value
+
+    @field_validator("sha256")
+    @classmethod
+    def validate_hash(cls, value: str) -> str:
+        validate_sha256_hex(value)
+        return value
+
+
+class _RuntimePlatformVariantSchema(_StrictModel):
+    status: Literal[
+        "qualified-hosted-cpu",
+        "qualified-hardware",
+        "pending-hardware-qualification",
+    ]
+    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
+    job_id: str | None = Field(default=None, alias="jobId")
+    evidence_head_sha: str | None = Field(default=None, alias="evidenceHeadSha")
+    resolved_config_sha256: str | None = Field(
+        default=None,
+        alias="resolvedConfigSha256",
+    )
+
+    @model_validator(mode="after")
+    def validate_evidence_shape(self) -> "_RuntimePlatformVariantSchema":
+        evidence = (
+            self.workflow_run_id,
+            self.job_id,
+            self.evidence_head_sha,
+            self.resolved_config_sha256,
+        )
+        if self.status.startswith("qualified-"):
+            if any(value is None for value in evidence):
+                raise ValueError("runtime_platform_evidence_required")
+            assert self.workflow_run_id is not None
+            assert self.job_id is not None
+            assert self.evidence_head_sha is not None
+            assert self.resolved_config_sha256 is not None
+            if not self.workflow_run_id.isdigit() or not self.job_id.isdigit():
+                raise ValueError("runtime_platform_evidence_id_invalid")
+            if (
+                len(self.evidence_head_sha) not in {40, 64}
+                or self.evidence_head_sha.lower() != self.evidence_head_sha
+                or any(ch not in "0123456789abcdef" for ch in self.evidence_head_sha)
+            ):
+                raise ValueError("runtime_platform_head_sha_invalid")
+            validate_sha256_hex(self.resolved_config_sha256)
+        elif any(value is not None for value in evidence):
+            raise ValueError("runtime_pending_platform_has_evidence")
+        return self
+
+
+class _RuntimeReleaseLockSchema(_StrictModel):
+    status: Literal[
+        "pending-wheelhouse-freeze",
+        "pending-hardware-qualification",
+        "qualified-offline-lock",
+    ]
+    artifact: str | None = None
+    sha256: str | None = None
+
+    @model_validator(mode="after")
+    def validate_lock_shape(self) -> "_RuntimeReleaseLockSchema":
+        if self.status == "qualified-offline-lock":
+            if self.artifact is None or self.sha256 is None:
+                raise ValueError("runtime_release_lock_evidence_required")
+            from mavi_vision.runtime.manifest import validate_logical_relative_path
+
+            validate_logical_relative_path(self.artifact)
+            validate_sha256_hex(self.sha256)
+        elif self.artifact is not None or self.sha256 is not None:
+            raise ValueError("runtime_pending_lock_has_evidence")
+        return self
+
+
+class _RuntimeResolvedConfigSchema(_StrictModel):
+    artifact: str
+    sha256: str
+    format: Literal["python"]
+    encoding: Literal["utf-8"]
+    line_endings: Literal["lf"] = Field(alias="lineEndings")
+    self_contained: Literal[True] = Field(alias="selfContained")
+
+    @field_validator("artifact")
+    @classmethod
+    def validate_artifact(cls, value: str) -> str:
+        from mavi_vision.runtime.manifest import validate_logical_relative_path
+
+        validate_logical_relative_path(value)
+        return value
+
+    @field_validator("sha256")
+    @classmethod
+    def validate_hash(cls, value: str) -> str:
+        validate_sha256_hex(value)
+        return value
+
+
+_RUNTIME_VARIANTS = frozenset(
+    {
+        "linux-x86_64-cpu",
+        "windows-x86_64-cpu",
+        "linux-x86_64-cuda",
+        "windows-x86_64-cuda",
+    }
+)
+
+
+class _RuntimeProfileSchema(_StrictModel):
+    schema_version: Literal["1.0"] = Field(alias="schemaVersion")
+    runtime_profile_id: str = Field(alias="runtimeProfileId")
+    qualification_status: Literal["partial", "qualified"] = Field(
+        alias="qualificationStatus"
+    )
+    python_minor: str = Field(alias="pythonMinor")
+    semantic_graph: _RuntimeSemanticGraphSchema = Field(alias="semanticGraph")
+    checkpoint: _RuntimeCheckpointSchema
+    platform_variants: dict[str, _RuntimePlatformVariantSchema] = Field(
+        alias="platformVariants"
+    )
+    release_locks: dict[str, _RuntimeReleaseLockSchema] = Field(alias="releaseLocks")
+    resolved_config: _RuntimeResolvedConfigSchema = Field(alias="resolvedConfig")
+
+    @field_validator("runtime_profile_id")
+    @classmethod
+    def validate_runtime_profile_id(cls, value: str) -> str:
+        if not value or value != value.strip():
+            raise ValueError("runtime_profile_id_invalid")
+        return value
+
+    @field_validator("python_minor")
+    @classmethod
+    def validate_python_minor(cls, value: str) -> str:
+        if value not in {"3.11", "3.12"}:
+            raise ValueError("runtime_python_minor_invalid")
+        return value
+
+    @field_validator("platform_variants")
+    @classmethod
+    def validate_platform_variant_keys(
+        cls,
+        value: dict[str, _RuntimePlatformVariantSchema],
+    ) -> dict[str, _RuntimePlatformVariantSchema]:
+        if set(value) != _RUNTIME_VARIANTS:
+            raise ValueError("runtime_platform_variants_incomplete")
+        return value
+
+    @field_validator("release_locks")
+    @classmethod
+    def validate_release_lock_keys(
+        cls,
+        value: dict[str, _RuntimeReleaseLockSchema],
+    ) -> dict[str, _RuntimeReleaseLockSchema]:
+        if set(value) != _RUNTIME_VARIANTS:
+            raise ValueError("runtime_release_locks_incomplete")
+        return value
+
+    @model_validator(mode="after")
+    def validate_runtime_relationships(self) -> "_RuntimeProfileSchema":
+        for variant in self.platform_variants.values():
+            if (
+                variant.resolved_config_sha256 is not None
+                and variant.resolved_config_sha256 != self.resolved_config.sha256
+            ):
+                raise ValueError("runtime_variant_config_hash_mismatch")
+
+        has_pending = any(
+            variant.status == "pending-hardware-qualification"
+            for variant in self.platform_variants.values()
+        ) or any(
+            lock.status != "qualified-offline-lock"
+            for lock in self.release_locks.values()
+        )
+        if self.qualification_status == "qualified" and has_pending:
+            raise ValueError("runtime_qualified_with_pending_gate")
+        return self
+
+
+def load_runtime_profile(path: Path) -> _RuntimeProfileSchema:
+    raw = read_release_json(path, code="runtime_profile_invalid")
+    try:
+        return _RuntimeProfileSchema.model_validate(raw)
+    except ValidationError as exc:
+        raise ReleaseMetadataError("runtime_profile_invalid") from exc
+
+
 class _QualificationRecordSchema(_StrictModel):
     schema_version: Literal["1.0"] = Field(alias="schemaVersion")
     qualification_id: str = Field(alias="qualificationId")
@@ -206,25 +447,12 @@ def load_qualification_record(path: Path) -> QualificationRecord:
 
 
 def load_runtime_identity(path: Path) -> tuple[str, str, str]:
-    raw = read_release_json(path, code="runtime_profile_invalid")
-    try:
-        runtime_profile_id = raw["runtimeProfileId"]
-        checkpoint_sha256 = raw["checkpoint"]["sha256"]
-        resolved_config_sha256 = raw["resolvedConfig"]["sha256"]
-    except (KeyError, TypeError) as exc:
-        raise ReleaseMetadataError("runtime_profile_invalid") from exc
-
-    if not isinstance(runtime_profile_id, str) or not runtime_profile_id.strip():
-        raise ReleaseMetadataError("runtime_profile_invalid")
-    if not isinstance(checkpoint_sha256, str) or not isinstance(resolved_config_sha256, str):
-        raise ReleaseMetadataError("runtime_profile_invalid")
-    try:
-        validate_sha256_hex(checkpoint_sha256)
-        validate_sha256_hex(resolved_config_sha256)
-    except ValueError as exc:
-        raise ReleaseMetadataError("runtime_profile_invalid") from exc
-
-    return runtime_profile_id, checkpoint_sha256, resolved_config_sha256
+    profile = load_runtime_profile(path)
+    return (
+        profile.runtime_profile_id,
+        profile.checkpoint.sha256,
+        profile.resolved_config.sha256,
+    )
 
 
 def verify_qualification_relationships(
