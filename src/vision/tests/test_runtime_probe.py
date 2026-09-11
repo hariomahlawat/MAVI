@@ -43,10 +43,12 @@ def test_rejects_remote_artifact_syntax() -> None:
         probe.parse_local_path("https://example.invalid/model.pth")
 
 
-def test_parse_local_path_accepts_relative_or_absolute_filesystem_paths() -> None:
+def test_parse_local_path_accepts_relative_and_windows_absolute_filesystem_paths() -> None:
     probe = _load_probe()
 
     assert probe.parse_local_path("models/rtmdet.pth") == Path("models/rtmdet.pth")
+    windows_absolute = r"C:\models\rtmdet.pth"
+    assert probe.parse_local_path(windows_absolute) == Path(windows_absolute)
 
 
 def test_unexpected_runtime_failure_emits_marker_and_traceback(
