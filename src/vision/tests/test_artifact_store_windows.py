@@ -235,7 +235,7 @@ def test_windows_post_replace_parent_swap_rolls_back_exact_published_handle(
     monkeypatch.setattr(windows_backend, "_replace_child_file", racing_replace)
 
     try:
-        with pytest.raises(StagingArtifactError, match="staging_path_(?:race|escape)"):
+        with pytest.raises(StagingArtifactError) as exc_info:
             store.write_bytes(
                 "safe/race.bin",
                 b"payload",
@@ -249,6 +249,7 @@ def test_windows_post_replace_parent_swap_rolls_back_exact_published_handle(
     assert not (outside / "race.bin").exists()
     assert not (detached_parent / "race.bin").exists()
     assert list(detached_parent.glob(".race.bin.*.tmp")) == []
+    assert exc_info.value.code in {"staging_path_race", "staging_path_escape"}
 
 
 def test_windows_rejects_component_before_unicode_string_length_wrap(
