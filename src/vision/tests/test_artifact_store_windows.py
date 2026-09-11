@@ -186,3 +186,64 @@ def test_windows_denied_authority_leaves_no_destination_or_temp(
     parent = _attempt_root(tmp_path) / "secure"
     assert not (parent / "blocked.bin").exists()
     assert list(parent.glob(".blocked.bin.*.tmp")) == []
+
+def test_windows_post_replace_identity_failure_rolls_back_exact_published_handle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+    store.write_bytes("safe/seed.bin", b"seed", "application/octet-stream")
+
+    backend = store._backend
+    real_assert_identity = backend._assert_logical_parent_identity
+    identity_checks = 0
+
+    def racing_identity_check(relative_parts, expected_parent):
+        nonlocal identity_checks
+        identity_checks += 1
+        if identity_checks == 1:
+            return real_assert_identity(relative_parts, expected_parent)
+        # The second identity check occurs only after native handle-relative
+        # replacement. Inject the result of a logical-parent substitution here;
+        # the separate native parent-swap test proves real junction substitution.
+        raise StagingArtifactError("staging_path_race")
+
+    monkeypatch.setattr(
+        backend,
+        "_assert_logical_parent_identity",
+        racing_identity_check,
+    )
+
+    with pytest.raises(StagingArtifactError, match="staging_path_race"):
+        store.write_bytes(
+            "safe/race.bin",
+            b"payload",
+            "application/octet-stream",
+        )
+
+    parent = _attempt_root(tmp_path) / "safe"
+    assert identity_checks == 2
+    assert (parent / "seed.bin").read_bytes() == b"seed"
+    assert not (parent / "race.bin").exists()
+    assert list(parent.glob(".race.bin.*.tmp")) == []
+
+def test_windows_rejects_component_before_unicode_string_length_wrap(
+    tmp_path: Path,
+) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+    oversized_component = "x" * 32768
+
+    with pytest.raises(
+        StagingArtifactError,
+        match="staging_relative_name_invalid",
+    ):
+        store.write_bytes(
+            oversized_component,
+            b"payload",
+            "application/octet-stream",
+        )
+
+    attempt_root = _attempt_root(tmp_path)
+    assert attempt_root.is_dir()
+    assert list(attempt_root.iterdir()) == []
+

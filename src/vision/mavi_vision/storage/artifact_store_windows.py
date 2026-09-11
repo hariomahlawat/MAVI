@@ -64,6 +64,9 @@ _MISSING_STATUSES = {
     _STATUS_NO_SUCH_FILE,
 }
 
+_MAX_UNICODE_STRING_BYTES = 0xFFFF
+_UTF16_TERMINATOR_BYTES = 2
+
 _OPEN_EXISTING = 3
 _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
@@ -269,12 +272,28 @@ def _raise_last_error(code: str) -> None:
     raise StagingArtifactError(code) from OSError(error, os.strerror(error))
 
 
+def _encode_native_name(name: str) -> bytes:
+    """Encode one native relative component without USHORT length truncation."""
+    if not name or "\x00" in name:
+        raise StagingArtifactError("staging_relative_name_invalid")
+    try:
+        name_bytes = name.encode("utf-16-le")
+    except UnicodeEncodeError as exc:
+        raise StagingArtifactError("staging_relative_name_invalid") from exc
+
+    # UNICODE_STRING Length and MaximumLength are USHORT byte counts. Reserve
+    # room for the terminating UTF-16 NUL used by the backing ctypes buffer.
+    if len(name_bytes) + _UTF16_TERMINATOR_BYTES > _MAX_UNICODE_STRING_BYTES:
+        raise StagingArtifactError("staging_relative_name_invalid")
+    return name_bytes
+
+
 def _unicode_object_attributes(
     parent: _WindowsHandle,
     name: str,
 ) -> tuple[ctypes.Array, _UNICODE_STRING, _OBJECT_ATTRIBUTES]:
+    name_bytes = _encode_native_name(name)
     buffer = ctypes.create_unicode_buffer(name)
-    name_bytes = name.encode("utf-16-le")
     unicode_name = _UNICODE_STRING(
         Length=len(name_bytes),
         MaximumLength=len(name_bytes) + 2,
@@ -528,7 +547,7 @@ def _replace_child_file(
     temporary: _WindowsHandle,
     destination_name: str,
 ) -> None:
-    encoded_name = destination_name.encode("utf-16-le")
+    encoded_name = _encode_native_name(destination_name)
     name_offset = _FILE_RENAME_INFORMATION.FileName.offset
     size = name_offset + len(encoded_name)
     buffer = ctypes.create_string_buffer(size)
