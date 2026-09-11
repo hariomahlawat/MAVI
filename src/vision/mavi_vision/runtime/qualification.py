@@ -334,6 +334,23 @@ class _RuntimeProfileSchema(_StrictModel):
     ) -> dict[str, _RuntimePlatformVariantSchema]:
         if set(value) != _RUNTIME_VARIANTS:
             raise ValueError("runtime_platform_variants_incomplete")
+
+        for variant_name, variant in value.items():
+            if variant_name.endswith("-cuda"):
+                if variant.status not in {
+                    "pending-hardware-qualification",
+                    "qualified-hardware",
+                }:
+                    raise ValueError("runtime_cuda_variant_status_invalid")
+            elif variant_name.endswith("-cpu"):
+                if variant.status not in {
+                    "pending-hardware-qualification",
+                    "qualified-hosted-cpu",
+                }:
+                    raise ValueError("runtime_cpu_variant_status_invalid")
+            else:
+                raise ValueError("runtime_platform_variant_unknown")
+
         return value
 
     @field_validator("release_locks")
