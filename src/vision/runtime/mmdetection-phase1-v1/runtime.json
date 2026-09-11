@@ -14,7 +14,9 @@
     "scipy": "1.18.1",
     "numpy": "2.5.3",
     "opencv": "5.0.0",
-    "av": "16.1.0"
+    "av": "16.1.0",
+    "opencvPython": "5.0.0.93",
+    "pillow": "11.3.0"
   },
   "checkpoint": {
     "publisher": "OpenMMLab",
