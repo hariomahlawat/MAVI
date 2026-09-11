@@ -15,6 +15,7 @@ class WorkerSettings(BaseSettings):
     worker_id: WorkerId
     media_root: Path
     poll_interval_seconds: float = Field(default=2.0, ge=0.25, le=60.0)
+    heartbeat_interval_seconds: float = Field(default=30.0, ge=1.0, le=60.0)
     request_timeout_seconds: float = Field(default=30.0, ge=1.0, le=120.0)
     ca_bundle: Path | None = None
 
