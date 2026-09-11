@@ -305,7 +305,6 @@ def _nt_create_relative(
     io_status = _IO_STATUS_BLOCK()
     # Keep both the UTF-16 buffer and UNICODE_STRING alive for the syscall.
     buffer, unicode_name, attributes = _unicode_object_attributes(parent, name)
-    del buffer, unicode_name
 
     status = _NtCreateFile(
         ctypes.byref(handle),
