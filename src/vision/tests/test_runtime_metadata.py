@@ -17,6 +17,7 @@ def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -
 
     assert payload["schemaVersion"] == "1.0"
     assert payload["runtimeProfileId"] == "mmdetection-phase1-v1"
+    assert payload["qualificationStatus"] == "partial"
     assert payload["pythonMinor"] == "3.12"
     assert payload["semanticGraph"] == {
         "torch": "2.6.0",
@@ -36,6 +37,19 @@ def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -
     assert payload["checkpoint"]["sha256"] == (
         "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b"
     )
+    assert payload["resolvedConfig"] == {
+        "artifact": "rtmdet_m_resolved.py",
+        "sha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+        "format": "python",
+        "encoding": "utf-8",
+        "lineEndings": "lf",
+        "selfContained": True,
+    }
+    for variant in ("linux-x86_64-cpu", "windows-x86_64-cpu"):
+        assert payload["platformVariants"][variant]["status"] == "qualified-hosted-cpu"
+        assert payload["platformVariants"][variant]["resolvedConfigSha256"] == (
+            payload["resolvedConfig"]["sha256"]
+        )
     assert payload["platformVariants"]["linux-x86_64-cuda"]["status"] == (
         "pending-hardware-qualification"
     )
