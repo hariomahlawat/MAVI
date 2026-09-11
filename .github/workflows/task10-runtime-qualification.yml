@@ -171,6 +171,7 @@ jobs:
       - name: Resolve official RTMDet-M config and fetch checkpoint
         shell: bash
         run: |
+          mkdir -p qualification-evidence
           git clone --depth 1 --branch v3.3.0 https://github.com/open-mmlab/mmdetection.git .qualification-mmdet
           python - <<'PY'
           import os
@@ -179,58 +180,116 @@ jobs:
           PY
           python tools/vision/resolve_mmdet_config.py \
             --input .qualification-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
-            --output .qualification-rtmdet-m-resolved.py \
-            > resolved-config.json
+            --output qualification-evidence/rtmdet-m-resolved.py \
+            > qualification-evidence/resolved-config.json
           python - <<'PY'
           import json
-          record = json.load(open("resolved-config.json", encoding="utf-8"))
+
+          record = json.load(open(
+              "qualification-evidence/resolved-config.json",
+              encoding="utf-8",
+          ))
+          profile = json.load(open(
+              "src/vision/runtime/mmdetection-phase1-v1/runtime.json",
+              encoding="utf-8",
+          ))
           assert record["status"] == "passed"
           assert record["selfContained"] is True
-          print("resolved-config-ok", record["resolvedConfig"]["sha256"])
+          actual_hash = record["resolvedConfig"]["sha256"]
+          expected_hash = profile["resolvedConfig"]["sha256"]
+          if actual_hash != expected_hash:
+              raise SystemExit(
+                  "resolved_config_hash_mismatch:"
+                  + json.dumps(
+                      {"actual": actual_hash, "expected": expected_hash},
+                      sort_keys=True,
+                  )
+              )
+          print("resolved-config-ok", actual_hash)
           PY
+          cp src/vision/runtime/mmdetection-phase1-v1/runtime.json qualification-evidence/runtime.json
           rm -rf .qualification-mmdet
-          test -f .qualification-rtmdet-m-resolved.py
+          test -f qualification-evidence/rtmdet-m-resolved.py
 
       - name: Prove missing checkpoint fails before runtime loading
         shell: bash
         run: |
           set +e
           python tools/vision/probe_runtime.py \
-            --config .qualification-rtmdet-m-resolved.py \
+            --config qualification-evidence/rtmdet-m-resolved.py \
             --checkpoint .qualification-missing.pth \
             --checkpoint-sha256 "$RTMDET_CHECKPOINT_SHA256" \
-            --device cpu 2> missing.err
+            --device cpu 2> qualification-evidence/missing.err
           code=$?
           set -e
           test "$code" -eq 2
-          grep -q checkpoint_missing missing.err
+          grep -q checkpoint_missing qualification-evidence/missing.err
 
       - name: Run real RTMDet-M CPU probe
         shell: bash
         run: |
           set +e
           python tools/vision/probe_runtime.py \
-            --config .qualification-rtmdet-m-resolved.py \
+            --config qualification-evidence/rtmdet-m-resolved.py \
             --checkpoint .qualification-rtmdet-m.pth \
             --checkpoint-sha256 "$RTMDET_CHECKPOINT_SHA256" \
-            --device cpu > runtime-probe.json 2> runtime-probe.err
+            --device cpu > qualification-evidence/runtime-probe.json 2> qualification-evidence/runtime-probe.err
           code=$?
-          printf '%s\n' "$code" > runtime-probe.exitcode
-          cat runtime-probe.json
-          cat runtime-probe.err >&2
+          printf '%s\n' "$code" > qualification-evidence/runtime-probe.exitcode
+          cat qualification-evidence/runtime-probe.json
+          cat qualification-evidence/runtime-probe.err >&2
           set -e
           exit "$code"
+
+      - name: Verify qualification evidence set
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("qualification-evidence")
+          required = (
+              "runtime-probe.json",
+              "runtime-probe.err",
+              "runtime-probe.exitcode",
+              "resolved-config.json",
+              "rtmdet-m-resolved.py",
+              "runtime.json",
+              "missing.err",
+          )
+          missing = [name for name in required if not (root / name).is_file()]
+          if missing:
+              raise SystemExit(
+                  "qualification_evidence_missing:" + ",".join(sorted(missing))
+              )
+
+          if (root / "runtime-probe.exitcode").read_text(encoding="utf-8").strip() != "0":
+              raise SystemExit("qualification_probe_exitcode_not_zero")
+
+          probe = json.load((root / "runtime-probe.json").open(encoding="utf-8"))
+          if probe.get("status") != "passed":
+              raise SystemExit("qualification_probe_status_not_passed")
+
+          resolved = json.load((root / "resolved-config.json").open(encoding="utf-8"))
+          runtime = json.load((root / "runtime.json").open(encoding="utf-8"))
+          actual_hash = resolved["resolvedConfig"]["sha256"]
+          expected_hash = runtime["resolvedConfig"]["sha256"]
+          if actual_hash != expected_hash:
+              raise SystemExit(
+                  "resolved_config_hash_mismatch:"
+                  + json.dumps(
+                      {"actual": actual_hash, "expected": expected_hash},
+                      sort_keys=True,
+                  )
+              )
+          print("qualification-evidence-ok", actual_hash)
+          PY
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: runtime-probe-${{ matrix.os }}-py3.12-torch2.6.0
-          path: |
-            runtime-probe.json
-            runtime-probe.err
-            runtime-probe.exitcode
-            resolved-config.json
-            .qualification-rtmdet-m-resolved.py
-            src/vision/runtime/mmdetection-phase1-v1/runtime.json
-            missing.err
-          if-no-files-found: ignore
+          path: qualification-evidence/
+          include-hidden-files: false
+          if-no-files-found: warn
