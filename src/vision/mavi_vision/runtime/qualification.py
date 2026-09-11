@@ -525,9 +525,15 @@ def verify_release_selection(
     manifest_sha256 = sha256_release_file(manifest_path)
     profile_sha256 = sha256_release_file(profile_path)
     runtime_profile_sha256 = sha256_release_file(runtime_profile_path)
-    runtime_profile_id, runtime_checkpoint_sha256, runtime_config_sha256 = (
-        load_runtime_identity(runtime_profile_path)
-    )
+    runtime_profile = load_runtime_profile(runtime_profile_path)
+    runtime_profile_id = runtime_profile.runtime_profile_id
+    runtime_checkpoint_sha256 = runtime_profile.checkpoint.sha256
+    runtime_config_sha256 = runtime_profile.resolved_config.sha256
+
+    if manifest.verification_status == "verified" and (
+        runtime_profile.qualification_status != "qualified"
+    ):
+        raise ReleaseMetadataError("runtime_profile_not_qualified")
 
     if runtime_profile_id != manifest.runtime_profile_id:
         raise ReleaseMetadataError("runtime_profile_id_mismatch")
