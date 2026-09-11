@@ -387,3 +387,22 @@ def test_qualification_record_rejects_malformed_evidence_hash(tmp_path: Path) ->
     with pytest.raises(ReleaseMetadataError, match="qualification_record_invalid"):
         load_qualification_record(paths["qualification"])
 
+def test_verified_release_requires_qualified_runtime_profile(tmp_path: Path) -> None:
+    paths = _release_fixture(tmp_path, verified=True, all_gates_passed=True)
+    runtime = json.loads(paths["runtime"].read_text(encoding="utf-8"))
+    runtime["qualificationStatus"] = "partial"
+    _write_json(paths["runtime"], runtime)
+
+    qualification = json.loads(paths["qualification"].read_text(encoding="utf-8"))
+    qualification["runtimeProfileSha256"] = _sha(paths["runtime"].read_bytes())
+    _write_json(paths["qualification"], qualification)
+
+    with pytest.raises(ReleaseMetadataError, match="runtime_profile_not_qualified"):
+        verify_release_selection(
+            model_root=paths["model_root"],
+            manifest_path=paths["manifest"],
+            profile_path=paths["profile"],
+            runtime_profile_path=paths["runtime"],
+            qualification_path=paths["qualification"],
+        )
+
