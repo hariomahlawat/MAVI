@@ -66,13 +66,105 @@ def _release_fixture(
     config_hash = _sha(config_path.read_bytes())
 
     runtime_path = tmp_path / "runtime.json"
+    runtime_qualified = verified
+    platform_variants = {
+        "linux-x86_64-cpu": {
+            "status": "qualified-hosted-cpu",
+            "workflowRunId": "1001",
+            "jobId": "2001",
+            "evidenceHeadSha": "1" * 40,
+            "resolvedConfigSha256": config_hash,
+        },
+        "windows-x86_64-cpu": {
+            "status": "qualified-hosted-cpu",
+            "workflowRunId": "1002",
+            "jobId": "2002",
+            "evidenceHeadSha": "2" * 40,
+            "resolvedConfigSha256": config_hash,
+        },
+        "linux-x86_64-cuda": (
+            {
+                "status": "qualified-hardware",
+                "workflowRunId": "1003",
+                "jobId": "2003",
+                "evidenceHeadSha": "3" * 40,
+                "resolvedConfigSha256": config_hash,
+            }
+            if runtime_qualified
+            else {"status": "pending-hardware-qualification"}
+        ),
+        "windows-x86_64-cuda": (
+            {
+                "status": "qualified-hardware",
+                "workflowRunId": "1004",
+                "jobId": "2004",
+                "evidenceHeadSha": "4" * 40,
+                "resolvedConfigSha256": config_hash,
+            }
+            if runtime_qualified
+            else {"status": "pending-hardware-qualification"}
+        ),
+    }
+    release_locks = {
+        variant: (
+            {
+                "status": "qualified-offline-lock",
+                "artifact": f"locks/{variant}.lock",
+                "sha256": _sha(variant.encode("utf-8")),
+            }
+            if runtime_qualified
+            else {
+                "status": (
+                    "pending-wheelhouse-freeze"
+                    if variant.endswith("-cpu")
+                    else "pending-hardware-qualification"
+                )
+            }
+        )
+        for variant in (
+            "linux-x86_64-cpu",
+            "windows-x86_64-cpu",
+            "linux-x86_64-cuda",
+            "windows-x86_64-cuda",
+        )
+    }
     _write_json(
         runtime_path,
         {
             "schemaVersion": "1.0",
             "runtimeProfileId": "runtime-a",
-            "checkpoint": {"sha256": checkpoint_hash},
-            "resolvedConfig": {"sha256": config_hash},
+            "qualificationStatus": "qualified" if runtime_qualified else "partial",
+            "pythonMinor": "3.12",
+            "semanticGraph": {
+                "torch": "2.6.0",
+                "torchvision": "0.21.0",
+                "mmcv": "2.1.0",
+                "mmengine": "0.10.7",
+                "mmdet": "3.3.0",
+                "trackers": "2.6.0",
+                "supervision": "0.30.2",
+                "scipy": "1.18.1",
+                "numpy": "2.5.3",
+                "opencv": "5.0.0",
+                "av": "16.1.0",
+                "opencvPython": "5.0.0.93",
+                "pillow": "11.3.0",
+            },
+            "checkpoint": {
+                "publisher": "OpenMMLab",
+                "artifact": "checkpoint.pth",
+                "sha256": checkpoint_hash,
+            },
+            "platformVariants": platform_variants,
+            "releaseLocks": release_locks,
+            "resolvedConfig": {
+                "artifact": "config.py",
+                "sha256": config_hash,
+                "format": "python",
+                "encoding": "utf-8",
+                "lineEndings": "lf",
+                "selfContained": True,
+            },
         },
     )
 
