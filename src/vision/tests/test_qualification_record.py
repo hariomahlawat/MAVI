@@ -74,6 +74,12 @@ def _release_fixture(
             "jobId": "2001",
             "evidenceHeadSha": "1" * 40,
             "resolvedConfigSha256": config_hash,
+            "pythonIdentity": {
+                "version": "3.12.14",
+                "implementation": "CPython",
+                "build": ["main", "fixture"],
+                "compiler": "GCC fixture",
+            },
         },
         "windows-x86_64-cpu": {
             "status": "qualified-hosted-cpu",
@@ -81,6 +87,12 @@ def _release_fixture(
             "jobId": "2002",
             "evidenceHeadSha": "2" * 40,
             "resolvedConfigSha256": config_hash,
+            "pythonIdentity": {
+                "version": "3.12.10",
+                "implementation": "CPython",
+                "build": ["fixture", "fixture"],
+                "compiler": "MSC fixture",
+            },
         },
         "linux-x86_64-cuda": (
             {
@@ -89,6 +101,12 @@ def _release_fixture(
                 "jobId": "2003",
                 "evidenceHeadSha": "3" * 40,
                 "resolvedConfigSha256": config_hash,
+                "pythonIdentity": {
+                    "version": "3.12.14",
+                    "implementation": "CPython",
+                    "build": ["fixture", "fixture"],
+                    "compiler": "qualified fixture",
+                },
             }
             if runtime_qualified
             else {"status": "pending-hardware-qualification"}
@@ -100,11 +118,29 @@ def _release_fixture(
                 "jobId": "2004",
                 "evidenceHeadSha": "4" * 40,
                 "resolvedConfigSha256": config_hash,
+                "pythonIdentity": {
+                    "version": "3.12.14",
+                    "implementation": "CPython",
+                    "build": ["fixture", "fixture"],
+                    "compiler": "qualified fixture",
+                },
             }
             if runtime_qualified
             else {"status": "pending-hardware-qualification"}
         ),
     }
+    release_lock_variants = (
+        "linux-x86_64-cpu",
+        "windows-x86_64-cpu",
+        "linux-x86_64-cuda",
+        "windows-x86_64-cuda",
+    )
+    if runtime_qualified:
+        lock_dir = tmp_path / "locks"
+        lock_dir.mkdir()
+        for variant in release_lock_variants:
+            (lock_dir / f"{variant}.lock").write_bytes(variant.encode("utf-8"))
+
     release_locks = {
         variant: (
             {
@@ -121,12 +157,7 @@ def _release_fixture(
                 )
             }
         )
-        for variant in (
-            "linux-x86_64-cpu",
-            "windows-x86_64-cpu",
-            "linux-x86_64-cuda",
-            "windows-x86_64-cuda",
-        )
+        for variant in release_lock_variants
     }
     _write_json(
         runtime_path,
