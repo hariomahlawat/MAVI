@@ -187,70 +187,45 @@ def test_windows_denied_authority_leaves_no_destination_or_temp(
     assert not (parent / "blocked.bin").exists()
     assert list(parent.glob(".blocked.bin.*.tmp")) == []
 
-def test_windows_post_replace_parent_swap_rolls_back_exact_published_handle(
+def test_windows_post_replace_identity_failure_rolls_back_exact_published_handle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = StagingArtifactStore(tmp_path, JOB_ID, 1)
     store.write_bytes("safe/seed.bin", b"seed", "application/octet-stream")
 
-    attempt_root = _attempt_root(tmp_path)
-    safe_parent = attempt_root / "safe"
-    detached_parent = attempt_root / "safe-detached"
-    outside = tmp_path.parent / f"{tmp_path.name}-outside-post-replace"
-    outside.mkdir()
-
-    # Keep explicit native handles that allow the test to rename the already-open
-    # logical parent after publication. Path.rename() cannot exercise this race on
-    # Windows while descendant handles remain open.
     backend = store._backend
-    attempt_handle, attempt_handles = backend._open_parent_chain((), create=False)
-    safe_rename_handle = windows_backend._nt_create_relative(
-        attempt_handle,
-        "safe",
-        desired_access=windows_backend._DIR_ACCESS | windows_backend._DELETE,
-        disposition=windows_backend._FILE_OPEN,
-        options=(
-            windows_backend._FILE_DIRECTORY_FILE
-            | windows_backend._FILE_OPEN_REPARSE_POINT
-            | windows_backend._FILE_SYNCHRONOUS_IO_NONALERT
-        ),
+    real_assert_identity = backend._assert_logical_parent_identity
+    identity_checks = 0
+
+    def racing_identity_check(relative_parts, expected_parent):
+        nonlocal identity_checks
+        identity_checks += 1
+        if identity_checks == 1:
+            return real_assert_identity(relative_parts, expected_parent)
+        # The second identity check occurs only after native handle-relative
+        # replacement. Inject the result of a logical-parent substitution here;
+        # the separate native parent-swap test proves real junction substitution.
+        raise StagingArtifactError("staging_path_race")
+
+    monkeypatch.setattr(
+        backend,
+        "_assert_logical_parent_identity",
+        racing_identity_check,
     )
 
-    real_replace = windows_backend._replace_child_file
-    swapped = False
+    with pytest.raises(StagingArtifactError, match="staging_path_race"):
+        store.write_bytes(
+            "safe/race.bin",
+            b"payload",
+            "application/octet-stream",
+        )
 
-    def racing_replace(parent, temporary, destination_name):
-        nonlocal swapped
-        real_replace(parent, temporary, destination_name)
-        if destination_name == "race.bin":
-            real_replace(
-                attempt_handle,
-                safe_rename_handle,
-                detached_parent.name,
-            )
-            _junction(safe_parent, outside)
-            swapped = True
-
-    monkeypatch.setattr(windows_backend, "_replace_child_file", racing_replace)
-
-    try:
-        with pytest.raises(StagingArtifactError) as exc_info:
-            store.write_bytes(
-                "safe/race.bin",
-                b"payload",
-                "application/octet-stream",
-            )
-    finally:
-        safe_rename_handle.close()
-        backend._close_handles(attempt_handles)
-
-    assert swapped is True
-    assert not (outside / "race.bin").exists()
-    assert not (detached_parent / "race.bin").exists()
-    assert list(detached_parent.glob(".race.bin.*.tmp")) == []
-    assert exc_info.value.code in {"staging_path_race", "staging_path_escape"}
-
+    parent = _attempt_root(tmp_path) / "safe"
+    assert identity_checks == 2
+    assert (parent / "seed.bin").read_bytes() == b"seed"
+    assert not (parent / "race.bin").exists()
+    assert list(parent.glob(".race.bin.*.tmp")) == []
 
 def test_windows_rejects_component_before_unicode_string_length_wrap(
     tmp_path: Path,
