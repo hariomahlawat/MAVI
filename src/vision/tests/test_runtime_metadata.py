@@ -50,6 +50,19 @@ def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -
         assert payload["platformVariants"][variant]["resolvedConfigSha256"] == (
             payload["resolvedConfig"]["sha256"]
         )
+
+    assert payload["platformVariants"]["linux-x86_64-cpu"]["pythonIdentity"] == {
+        "version": "3.12.14",
+        "implementation": "CPython",
+        "build": ["main", "Aug 13 2026 02:47:42"],
+        "compiler": "GCC 13.3.0",
+    }
+    assert payload["platformVariants"]["windows-x86_64-cpu"]["pythonIdentity"] == {
+        "version": "3.12.10",
+        "implementation": "CPython",
+        "build": ["tags/v3.12.10:0cc8128", "Apr  8 2025 12:21:36"],
+        "compiler": "MSC v.1943 64 bit (AMD64)",
+    }
     assert payload["platformVariants"]["linux-x86_64-cuda"]["status"] == (
         "pending-hardware-qualification"
     )
