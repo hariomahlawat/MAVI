@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the existing `VideoProcessor`, `Detector`, and `Tracker` boundaries model-neutral. Add a process-scoped `MMDetectionRuntime`, a single-thread `VisionExecutionLane`, attempt-scoped RTMDet/ByteTrack/staging composition, evidence-backed model/runtime qualification, and security-equivalent POSIX/Windows staging backends. The asyncio worker thread retains lease/heartbeat authority; synchronous model work stays on the dedicated vision lane.
 
-**Tech Stack:** Python 3.12 candidate with Python 3.11 fallback; PyTorch/torchvision; MMDetection 3.3.x-compatible MMEngine/MMCV stack selected by qualification; RTMDet-M; `trackers.ByteTrackTracker`; Supervision/SciPy/NumPy/OpenCV as tracker dependencies; PyAV/FFmpeg; Pydantic 2; pytest; GitHub Actions; Win32/NT filesystem APIs for native Windows staging; SHA-256 release integrity.
+**Tech Stack:** Python 3.12 candidate with Python 3.11 fallback; PyTorch/torchvision; an MMDetection 3.3.x-compatible MMEngine/MMCV stack selected by qualification; RTMDet-M; `trackers.ByteTrackTracker`; Supervision/SciPy/NumPy/OpenCV as tracker dependencies; PyAV/FFmpeg; Pydantic 2; pytest; GitHub Actions; Win32/NT filesystem APIs for native Windows staging; SHA-256 release integrity.
 
 **Spec:** `docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md`
 
@@ -17,7 +17,7 @@
 - Use `trackers.ByteTrackTracker`; do not build Task 10 on deprecated `supervision.ByteTrack`.
 - Process every decoded frame in the Task-10 correctness baseline; no adaptive skipping or sampling.
 - MAVI `DecodedFrame.image` is contiguous `uint8` RGB; the MMDetection runtime owns the single explicit RGB-to-backend colour conversion.
-- Person and Vehicle have independent ByteTrack states and are both updated on every decoded frame, including empty-class frames.
+- Person and Vehicle have independent ByteTrack states and both native trackers are updated on every decoded frame, including empty-class frames.
 - Only confirmed tracks matched to a current-frame detection emit `TrackCandidate`; predicted-only and `tracker_id == -1` outputs emit nothing and are never backfilled later.
 - One worker process owns one selected detector runtime/device and at most one active video job.
 - Runtime construction, warm-up, inference, safe destruction, and bounded reconstruction run on one dedicated single-thread vision execution lane.
@@ -104,6 +104,7 @@ models/
 
 .gitattributes
 tools/verify_repo.py
+tools/vision/resolve_mmdet_config.py
 tools/vision/probe_runtime.py
 tools/vision/build_offline_bundle.py
 tools/vision/qualify_phase1.py
@@ -115,23 +116,37 @@ The existing public import `mavi_vision.storage.artifact_store.StagingArtifactSt
 
 ### Task 1: Qualify the Complete Python/OpenMMLab/Trackers Runtime Matrix
 
-**Purpose:** Resolve the only intentionally unknown dependency values before production code begins. Exact versions are outputs of qualification, not guesses embedded in application code.
+**Purpose:** Resolve the intentionally unknown dependency values before production code begins. Exact versions are outputs of qualification, not guesses embedded in application code.
 
 **Files:**
+- Create: `tools/vision/resolve_mmdet_config.py`
 - Create: `tools/vision/probe_runtime.py`
 - Create: `src/vision/runtime/mmdetection-phase1-v1/runtime.json`
-- Create after each successful platform qualification: `src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cpu.lock`
-- Create after qualification: `src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.lock`
-- Create after qualification: `src/vision/runtime/mmdetection-phase1-v1/linux-x86_64-cpu.lock`
-- Create after qualification: `src/vision/runtime/mmdetection-phase1-v1/linux-x86_64-cuda.lock`
+- Create after successful qualification: `src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cpu.lock`
+- Create after successful qualification: `src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.lock`
+- Create after successful qualification: `src/vision/runtime/mmdetection-phase1-v1/linux-x86_64-cpu.lock`
+- Create after successful qualification: `src/vision/runtime/mmdetection-phase1-v1/linux-x86_64-cuda.lock`
 - Modify only after a matrix is proven: `src/vision/pyproject.toml`
 
 **Interfaces:**
-- Produces: `runtime.json` containing `runtimeProfileId`, `python`, exact package versions/build identities, platform/device qualification states, and hashes of the four lock files.
-- Produces: `probe_runtime.py --config <local-config> --checkpoint <local-checkpoint> --device cpu|cuda` returning exit code 0 only after a real RTMDet-M inference completes.
-- Later tasks consume the exact values from `runtime.json`; they must not duplicate dependency constants.
+- Produces: `runtime.json` containing `runtimeProfileId`, selected Python minor, exact semantic package versions/build identities, platform/device qualification states, and hashes of the four lock files.
+- Produces: `resolve_mmdet_config.py --input <source-config> --output <resolved-config>` that loads the source config through MMEngine, fully resolves inherited `_base_` content, emits one local deployment config, and rejects unresolved URL/environment-driven analytical dependencies.
+- Produces: `probe_runtime.py --config <local-resolved-config> --checkpoint <local-checkpoint> --device cpu|cuda` returning exit code 0 only after real RTMDet-M inference completes.
+- Later tasks consume exact values from `runtime.json`; they must not duplicate dependency constants.
 
-- [ ] **Step 1: Write the runtime probe with explicit version capture**
+- [ ] **Step 1: Implement and test resolved-config generation in a candidate environment**
+
+`resolve_mmdet_config.py` must load the selected official/local RTMDet-M source config with `mmengine.Config.fromfile()`, materialize the merged configuration, write a standalone local config using MMEngine's supported dump/export path, reload that emitted config, and assert its effective configuration is equivalent to the merged source config for model/test-pipeline/class-relevant fields.
+
+Run:
+
+```powershell
+python tools/vision/resolve_mmdet_config.py --input <source-rtmdet-m-config> --output <qualification-root>/rtmdet_m_resolved.py
+```
+
+Acceptance: the emitted deployment file contains no unresolved `_base_` reference or HTTP(S) URL and reloads successfully without access to the original config tree.
+
+- [ ] **Step 2: Write the runtime probe with explicit version/build capture**
 
 Create `tools/vision/probe_runtime.py` with a JSON output object containing at least:
 
@@ -141,6 +156,7 @@ Create `tools/vision/probe_runtime.py` with a JSON output object containing at l
     "platform": platform.platform(),
     "torch": torch.__version__,
     "torchvision": torchvision.__version__,
+    "torchCuda": torch.version.cuda,
     "mmcv": mmcv.__version__,
     "mmengine": mmengine.__version__,
     "mmdet": mmdet.__version__,
@@ -154,21 +170,21 @@ Create `tools/vision/probe_runtime.py` with a JSON output object containing at l
 }
 ```
 
-After version capture, load the **explicit local** RTMDet-M config/checkpoint, run one inference over an in-memory RGB test image converted according to the backend contract, validate that a prediction object is returned, and print the JSON record. Do not accept a model-zoo alias or URL argument.
+After version capture, load only the explicit local resolved config/checkpoint, run one RTMDet-M inference over an in-memory channel-distinct RGB test image converted according to the backend contract, validate that prediction boxes/scores/labels are accessible, and print the JSON record. The CLI must reject URL/model-alias inputs.
 
-- [ ] **Step 2: Prove the probe fails when a local checkpoint is absent**
+- [ ] **Step 3: Prove the probe fails closed when a local checkpoint is absent**
 
-Run in an isolated candidate environment:
+Run with a nonexistent checkpoint while outbound network is disabled or blocked for the process:
 
 ```powershell
-python tools/vision/probe_runtime.py --config C:\qualification\rtmdet_m_resolved.py --checkpoint C:\qualification\missing.pth --device cpu
+python tools/vision/probe_runtime.py --config <qualification-root>/rtmdet_m_resolved.py --checkpoint <qualification-root>/missing.pth --device cpu
 ```
 
-Expected: non-zero exit before any download attempt. Network logs must show no model download request.
+Expected: non-zero exit before inference, with no download-created file or cache entry.
 
-- [ ] **Step 3: Qualify Python 3.12 as the first candidate on Linux CPU**
+- [ ] **Step 4: Qualify Python 3.12 on Linux CPU first**
 
-Create a clean Python 3.12 virtual environment, install one internally consistent stable stack satisfying MMDetection 3.3.x compatibility constraints, install MAVI and the selected `trackers` package, and run:
+Create a clean Python 3.12 environment, install one internally consistent stable graph satisfying MMDetection 3.3.x's MMEngine/MMCV constraints plus the selected Trackers stack, install MAVI, then run:
 
 ```bash
 python tools/vision/probe_runtime.py \
@@ -177,9 +193,9 @@ python tools/vision/probe_runtime.py \
   --device cpu > linux-cpu-probe.json
 ```
 
-Acceptance: process exits 0 and `linux-cpu-probe.json` records the complete environment. If dependency resolution or real inference fails, preserve the failure log and continue the same experiment with Python 3.11 rather than forcing incompatible dependencies.
+Acceptance: real inference exits 0 and the record contains the entire graph. If dependency resolution or real inference fails, preserve the failure log and repeat Tasks 1.4–1.6 with Python 3.11 rather than forcing incompatible dependencies.
 
-- [ ] **Step 4: Repeat the identical candidate graph on Windows CPU**
+- [ ] **Step 5: Repeat the identical semantic graph on Windows CPU**
 
 ```powershell
 python tools/vision/probe_runtime.py `
@@ -188,19 +204,29 @@ python tools/vision/probe_runtime.py `
   --device cpu > windows-cpu-probe.json
 ```
 
-Acceptance: exact semantic package versions match the Linux candidate where the platform permits; platform-specific wheel/build identities may differ.
+Acceptance: semantic package versions match the Linux candidate where platform support permits; wheel/build hashes may differ.
 
-- [ ] **Step 5: Qualify the selected candidate on Linux NVIDIA and Windows NVIDIA**
+- [ ] **Step 6: Qualify the same candidate on Linux NVIDIA and Windows NVIDIA**
 
-Run the same probe with `--device cuda` on both target platforms. Record `torch.version.cuda`, GPU name, driver/runtime details, and the exact PyTorch/MMCV wheel build identities.
+Run the probe with `--device cuda` on both target platforms. Record GPU name, driver/runtime details, `torch.version.cuda`, and exact PyTorch/MMCV build identities.
 
-Acceptance: real RTMDet-M inference completes on each target. If no complete Python 3.12 graph can pass all four environments, restart Steps 3–5 with Python 3.11. If neither Python minor passes, **stop Task 10 and reopen ADR-005**; do not continue implementation with an unqualified graph.
+If no complete Python 3.12 graph passes all four environments, repeat the full four-gate matrix with Python 3.11. If neither minor passes, **stop Task 10 and reopen ADR-005**; do not continue with resolver overrides or unqualified source builds.
 
-- [ ] **Step 6: Freeze the exact environment**
+- [ ] **Step 7: Freeze platform/device wheel graphs with hashes**
 
-Write `runtime.json` from the four successful probe records and generate four hash-locked requirement files. Each lock must contain exact versions and hashes suitable for `pip --require-hashes`; CPU and CUDA graphs may differ where binary packages differ.
+For each successful environment:
 
-`runtime.json` must explicitly record:
+1. capture exact installed versions;
+2. download/build the exact platform wheels into a controlled wheelhouse during qualification;
+3. compute SHA-256 for each wheel;
+4. generate a lock whose requirement lines use exact versions and `--hash=sha256:<digest>` values accepted by `pip --require-hashes`;
+5. prove that a fresh environment installs from that wheelhouse using `--no-index --require-hashes`.
+
+Do not treat `pip freeze` alone as a release lock because it does not establish wheel integrity.
+
+- [ ] **Step 8: Write `runtime.json` and update the package Python requirement**
+
+Example shape:
 
 ```json
 {
@@ -216,28 +242,22 @@ Write `runtime.json` from the four successful probe records and generate four ha
 }
 ```
 
-Use the actually qualified Python minor in `pythonMinor`; the shown `3.12` is correct only if 3.12 passed all required gates.
-
-- [ ] **Step 7: Update the package Python requirement only after qualification**
-
-Change `requires-python` from `>=3.13` to an exact compatible minor range that includes the selected qualified minor and excludes an unqualified next minor. For a qualified 3.12 runtime, use:
+Use the actually qualified Python minor. If 3.12 qualified, set:
 
 ```toml
 requires-python = ">=3.12,<3.13"
 ```
 
-For a qualified 3.11 runtime, use `>=3.11,<3.12` instead.
+If 3.11 qualified, set `>=3.11,<3.12` instead. Heavy ML packages remain outside base dependencies until Task 7.
 
-Do not yet put heavyweight MMDetection dependencies into the base `dependencies` list; later tasks add a dedicated optional runtime extra using the versions frozen here.
-
-- [ ] **Step 8: Commit the qualification baseline**
+- [ ] **Step 9: Commit the qualification baseline**
 
 ```powershell
-git add tools/vision/probe_runtime.py src/vision/runtime/mmdetection-phase1-v1 src/vision/pyproject.toml
+git add tools/vision/resolve_mmdet_config.py tools/vision/probe_runtime.py src/vision/runtime/mmdetection-phase1-v1 src/vision/pyproject.toml
 git commit -m "build: qualify phase1 vision runtime matrix"
 ```
 
-**Reviewer gate:** Reject this task if any of the four platform/device variants is merely inferred from another platform, if real RTMDet-M inference was not executed, or if dependency conflicts were bypassed with `--no-deps`.
+**Reviewer gate:** Reject if any platform/device result is inferred rather than executed, the resolved config still depends on its source tree, real RTMDet-M inference was skipped, or dependency conflicts were bypassed with `--no-deps`.
 
 ---
 
@@ -249,33 +269,29 @@ git commit -m "build: qualify phase1 vision runtime matrix"
 - Create: `src/vision/mavi_vision/storage/artifact_store_windows.py`
 - Modify: `src/vision/tests/test_artifact_store.py`
 - Create: `src/vision/tests/test_artifact_store_windows.py`
-- Modify if type imports require it: `src/vision/mavi_vision/storage/artifact_publisher.py`
+- Modify only if type imports require it: `src/vision/mavi_vision/storage/artifact_publisher.py`
 
 **Interfaces:**
 - Preserve public constructor: `StagingArtifactStore(media_root: Path, job_id: UUID, attempt_count: int)`.
-- Preserve methods/properties: `job_id`, `attempt_count`, `thumbnail_key()`, `trajectory_key()`, `write_bytes()`, `cleanup()`.
+- Preserve `job_id`, `attempt_count`, `thumbnail_key()`, `trajectory_key()`, `write_bytes()`, and `cleanup()`.
 - `artifact_store.py` becomes the platform facade and owns shared logical validation/error codes; POSIX and Windows backends implement the same internal protocol.
 
-- [ ] **Step 1: Move the current POSIX implementation behind the facade without changing behaviour**
+- [ ] **Step 1: Lock existing POSIX behaviour before moving code**
 
-Write a failing compatibility test that imports `StagingArtifactStore` from the same module and verifies the exact existing key format and error codes.
-
-Run:
+Add any missing assertions needed to preserve exact existing key/error semantics, then run:
 
 ```powershell
 cd src/vision
-python -m pytest tests/test_artifact_store.py -q
+python -m pytest tests/test_artifact_store.py tests/test_artifact_publisher.py -q
 ```
 
-Expected before refactor: PASS. Treat this as the behaviour lock.
+Expected: PASS against the pre-refactor implementation.
 
-Move the current hardened `dir_fd`/`O_NOFOLLOW` implementation into `artifact_store_posix.py`, keep `StagingArtifactError` and common track/relative-name validation in `artifact_store.py`, and delegate based on `os.name`.
+Move the current hardened `dir_fd`/`O_NOFOLLOW` implementation to `artifact_store_posix.py`; keep shared logical validation and `StagingArtifactError` in `artifact_store.py`; delegate by `os.name`. Re-run the same suite and require identical results.
 
-Run the same suite and require identical results.
+- [ ] **Step 2: Write Windows path/reparse tests before implementing the backend**
 
-- [ ] **Step 2: Write Windows path/reparse tests before the Windows backend**
-
-Create Windows-only tests guarded with `pytest.mark.skipif(os.name != "nt", ...)` covering:
+Create Windows-only tests guarded by `os.name == "nt"`:
 
 ```python
 def test_windows_rejects_junction_in_attempt_ancestry(...): ...
@@ -285,20 +301,13 @@ def test_windows_sibling_attempt_is_preserved(...): ...
 def test_windows_publish_rechecks_authority_immediately_before_replace(...): ...
 ```
 
-Use a real NTFS junction for the mandatory reparse test. Create it with `cmd /c mklink /J <link> <target>` so the test does not depend on Developer Mode symlink privileges.
+Use a real NTFS junction via `cmd /c mklink /J <link> <target>` for the mandatory reparse case so Developer Mode symlink privileges are not required.
 
-Run on a native Windows checkout:
+Run on native Windows; expected result before implementation is failure because secure Windows publication is unavailable.
 
-```powershell
-cd src/vision
-python -m pytest tests/test_artifact_store_windows.py -q
-```
+- [ ] **Step 3: Implement a small isolated handle-relative Windows helper layer**
 
-Expected: FAIL because the Windows backend does not exist.
-
-- [ ] **Step 3: Implement a small handle-relative Win32/NT helper layer**
-
-In `artifact_store_windows.py`, isolate native calls behind helpers with these responsibilities:
+Expose internal helpers:
 
 ```python
 class _WindowsHandle:
@@ -314,24 +323,13 @@ def _directory_identity(handle: _WindowsHandle) -> tuple[int, int]: ...
 def _remove_attempt_tree_no_reparse(parent: _WindowsHandle, name: str) -> None: ...
 ```
 
-Use Windows handle APIs with `FILE_FLAG_OPEN_REPARSE_POINT`/directory semantics and a handle-relative create/rename strategy. Do not implement security by `Path.resolve()` plus prefix checking. Reject traversed entries with reparse semantics; compare directory identity before and after publication.
+Use platform handle APIs with reparse-point rejection, directory-handle identity checks, and handle-relative child operations. Path-string normalization alone is not accepted as the security boundary.
 
-- [ ] **Step 4: Implement the Windows staging backend with the same mutation boundary as POSIX**
+- [ ] **Step 4: Implement Windows `write_bytes()` and `cleanup()` with the same authority boundary as POSIX**
 
-`write_bytes()` must:
+`write_bytes()` must validate the logical name, traverse/create only the attempt ancestry without following reparse points, create an exclusive temp sibling, write+flush, revalidate parent identity, call `authorize_publish()` immediately before replacement, replace inside that same validated directory, revalidate identity again, and roll back a publication known to have raced.
 
-1. validate the logical relative name before filesystem mutation;
-2. open/create only the exact `staging/<job>/attempt-XXXX/...` ancestry using no-reparse handle semantics;
-3. create an exclusive temporary sibling;
-4. write and flush file bytes;
-5. revalidate parent identity;
-6. call `authorize_publish()` immediately before destination replacement;
-7. replace inside the validated same directory;
-8. revalidate parent identity again;
-9. roll back a publication known to have raced;
-10. close every native handle in `finally`.
-
-`cleanup()` removes only the current attempt subtree and never follows a reparse point.
+`cleanup()` removes only the current attempt subtree and never traverses a reparse point.
 
 - [ ] **Step 5: Run platform security tests**
 
@@ -349,7 +347,7 @@ cd src/vision
 python -m pytest tests/test_artifact_store.py tests/test_artifact_store_windows.py tests/test_artifact_publisher.py -q
 ```
 
-Expected: all applicable tests pass; Windows no longer raises `secure_staging_unavailable` for normal secure operation.
+Expected: all applicable tests pass; normal Windows staging no longer raises `secure_staging_unavailable`.
 
 - [ ] **Step 6: Commit**
 
@@ -358,7 +356,7 @@ git add src/vision/mavi_vision/storage src/vision/tests/test_artifact_store.py s
 git commit -m "feat: add secure windows attempt staging"
 ```
 
-**Reviewer gate:** If the Windows implementation cannot prove link/reparse and directory-substitution safety, stop and revisit the formal Windows-support decision; do not weaken the POSIX backend.
+**Reviewer gate:** If link/reparse and directory-substitution safety cannot be demonstrated on native Windows, stop and revisit the formal Windows-support decision; do not weaken the POSIX backend.
 
 ---
 
@@ -374,7 +372,7 @@ git commit -m "feat: add secure windows attempt staging"
 - Create: `src/vision/tests/test_runtime_artifact_hashing.py`
 - Create: `src/vision/config/pipelines/phase1-detection-tracking-v1.json`
 - Create: `models/manifests/rtmdet-m-coco-phase1-v1.json`
-- Create initially as unverified evidence shell, then finalized in Task 14: `models/qualifications/rtmdet-m-coco-phase1-v1.json`
+- Create initially with pending/non-production gates, then finalize in Task 14: `models/qualifications/rtmdet-m-coco-phase1-v1.json`
 - Create: `.gitattributes`
 - Modify: `tools/verify_repo.py`
 
@@ -433,9 +431,9 @@ def load_qualification_record(path: Path) -> QualificationRecord: ...
 def verify_release_selection(...) -> VerifiedReleaseSelection: ...
 ```
 
-- [ ] **Step 1: Lock exact-byte JSON rules**
+- [ ] **Step 1: Lock exact-byte repository rules**
 
-Create `.gitattributes`:
+Create:
 
 ```gitattributes
 *.json text eol=lf
@@ -443,107 +441,43 @@ Create `.gitattributes`:
 *.py text eol=lf
 ```
 
-Write tests that reject BOM-bearing JSON and CRLF in qualified release JSON files, and verify `sha256_release_file()` hashes the exact UTF-8 bytes on disk rather than parsing/re-serializing JSON.
+Write tests rejecting BOM-bearing qualified JSON and CRLF in release JSON/lock files. `sha256_release_file()` hashes exact on-disk UTF-8 bytes; it does not parse/re-serialize JSON first.
 
 - [ ] **Step 2: Write failing manifest validation tests**
 
-Cover:
+Cover absolute/URL/backslash/`..` artifact paths, malformed SHA-256, empty/duplicate vocabulary, verified-without-qualification ID, and model-root escape via filesystem link/reparse component.
 
-```python
-def test_manifest_rejects_absolute_artifact_path(): ...
-def test_manifest_rejects_url_artifact_path(): ...
-def test_manifest_rejects_bad_sha256(): ...
-def test_manifest_requires_ordered_nonempty_vocabulary(): ...
-def test_verified_manifest_requires_qualification_id(): ...
-def test_model_paths_cannot_escape_model_root_through_dotdot(): ...
-```
+- [ ] **Step 3: Implement strict manifest loading and trusted-root containment**
 
-Run:
+Use `extra="forbid"` semantics. Artifact paths are logical forward-slash relative paths only. Release-path verification walks from the configured model root and rejects link/reparse redirection; do not rely solely on string prefix comparison after `resolve()`.
 
-```powershell
-cd src/vision
-python -m pytest tests/test_model_manifest.py tests/test_runtime_artifact_hashing.py -q
-```
+- [ ] **Step 4: Write and implement pipeline-profile validation**
 
-Expected: FAIL because the loaders do not exist.
+The profile includes detector floor, the five allowed source classes, exact class mapping, explicit ByteTrack parameters, and `framePolicy="every-frame"`. Do **not** add a generic `maxDetections` field in Task 10. Numeric thresholds must have explicit validated ranges; mapping keys must exist in the selected manifest vocabulary.
 
-- [ ] **Step 3: Implement strict manifest loading**
+- [ ] **Step 5: Implement immutable exact-byte profile identity**
 
-Use Pydantic or explicit dataclass construction with `extra="forbid"` semantics. Artifact paths are logical forward-slash relative paths only; reject leading slash, drive prefix, backslash, `.`/`..`, URL schemes, and path segments that escape the configured model root after no-follow-safe resolution.
+The provenance hash is `sha256_release_file(profile_path)` rather than JSON canonical reserialization.
 
-- [ ] **Step 4: Write failing pipeline-profile tests**
+- [ ] **Step 6: Write and implement qualification-evidence verification**
 
-Freeze Phase-1 behaviour:
-
-```json
-{
-  "schemaVersion": "1.0",
-  "profileId": "phase1-detection-tracking-v1",
-  "profileVersion": "1",
-  "modelId": "rtmdet-m-coco-phase1",
-  "allowedSourceClasses": ["person", "car", "motorcycle", "bus", "truck"],
-  "classMapping": {
-    "person": "person",
-    "car": "vehicle",
-    "motorcycle": "vehicle",
-    "bus": "vehicle",
-    "truck": "vehicle"
-  },
-  "framePolicy": "every-frame"
-}
-```
-
-Do **not** add a generic `maxDetections` field in Task 10. Tracker numeric values and detector floor are inserted from the actual qualified profile, not environment variables.
-
-Test ranges and identity relationships: detector floor in `[0,1]`; ByteTrack thresholds in `[0,1]`; positive frame rate/buffer/consecutive-frame values; mapping keys subset of manifest vocabulary; frame policy exactly `every-frame`.
-
-- [ ] **Step 5: Implement profile loading and immutable profile hash**
-
-`load_pipeline_profile()` returns a frozen model. The provenance hash is the exact file SHA-256 from `sha256_release_file()`, not a JSON reserialization hash.
-
-- [ ] **Step 6: Write qualification-evidence tests**
-
-Tests must prove that a manifest with `verificationStatus="verified"` is rejected unless:
-
-- referenced qualification record exists;
-- model/checkpoint/resolved-config/profile/runtime hashes all match;
-- every mandatory platform gate is `passed`;
-- `runtimeProfileId` matches the selected runtime profile.
-
-For development, `unverified` may load only when the caller explicitly sets `allow_unverified=True`; integrity hashes still apply.
+A manifest marked `verified` is accepted only when the referenced qualification file exists and model/checkpoint/config/profile/runtime hashes all match, runtime IDs match, and every mandatory gate is `passed`. Development `unverified` requires explicit `allow_unverified=True`; checkpoint/config integrity still applies.
 
 - [ ] **Step 7: Implement `verify_release_selection()`**
 
-Return one immutable object containing the loaded models plus exact artifact hashes and resolved local paths. Production code after this point consumes `VerifiedReleaseSelection` rather than separately re-reading manifest/profile files.
+Return one frozen `VerifiedReleaseSelection` carrying the loaded manifest/profile/qualification/runtime identities, exact hashes, and resolved local artifact paths. Production runtime construction consumes this object and does not re-resolve configuration ad hoc.
 
 - [ ] **Step 8: Extend repository verification**
 
-Add checks to `tools/verify_repo.py` for:
+`tools/verify_repo.py` validates manifest/profile/qualification JSON, lowercase SHA-256 format, path/URL rules, LF/no-BOM, identity consistency, and the existing no-weight/media/secret rule. Before Task 14, the committed manifest remains explicitly `unverified`; repository verification must not report it as production-qualified.
 
-- manifest/profile/qualification JSON parse and schema validation;
-- exact 64-character lowercase SHA-256 syntax;
-- no absolute path/backslash/URL in production release artifacts;
-- no tracked weights/media/secrets;
-- verified manifest ↔ qualification identity consistency;
-- LF/no-BOM rules for qualified JSON/lock files;
-- no production manifest whose verification evidence is pending.
-
-During implementation before Task 14, keep the committed manifest explicitly `unverified` so repository verification does not falsely certify it for production.
-
-- [ ] **Step 9: Run tests and repository verification**
+- [ ] **Step 9: Run and commit**
 
 ```powershell
 cd src/vision
 python -m pytest tests/test_model_manifest.py tests/test_pipeline_profile.py tests/test_qualification_record.py tests/test_runtime_artifact_hashing.py -q
 cd ../..
 python tools/verify_repo.py
-```
-
-Expected: PASS with the development manifest unverified and all structural rules enforced.
-
-- [ ] **Step 10: Commit**
-
-```powershell
 git add .gitattributes models src/vision/config src/vision/mavi_vision/runtime/manifest.py src/vision/mavi_vision/runtime/profile.py src/vision/mavi_vision/runtime/qualification.py src/vision/tests tools/verify_repo.py
 git commit -m "feat: add verified vision release metadata"
 ```
@@ -559,7 +493,7 @@ git commit -m "feat: add verified vision release metadata"
 - Create: `src/vision/mavi_vision/runtime/provenance.py`
 - Modify: `src/vision/mavi_vision/common/settings.py`
 - Create: `src/vision/tests/test_runtime_provenance.py`
-- Modify/Create settings tests in: `src/vision/tests/test_worker_settings.py`
+- Create or modify: `src/vision/tests/test_worker_settings.py`
 
 **Interfaces:**
 
@@ -602,17 +536,17 @@ class ProcessingDependencyError(RuntimeError):
     disposition: RuntimeDisposition
 ```
 
-- [ ] **Step 1: Write failing validation tests for `PixelBoxXYXY` and `RawDetection`**
+- [ ] **Step 1: Write validation tests for raw runtime values**
 
-Require finite coordinates/confidence, confidence `[0,1]`, non-empty source class. Do not require the raw box to be inside the frame; clipping belongs to the RTMDet adapter.
+Require finite XYXY/confidence, confidence `[0,1]`, and non-empty source class. Raw boxes may be outside the frame; clipping belongs to the RTMDet adapter.
 
-- [ ] **Step 2: Implement the framework-neutral types**
+- [ ] **Step 2: Implement framework-neutral types with no heavy ML imports**
 
-No import from `torch`, `mmdet`, `mmcv`, `supervision`, or `trackers` is permitted in `interfaces.py`, `errors.py`, or `provenance.py`.
+`interfaces.py`, `errors.py`, and `provenance.py` must not import `torch`, `mmdet`, `mmcv`, `supervision`, or `trackers`.
 
-- [ ] **Step 3: Write typed failure tests**
+- [ ] **Step 3: Write and implement typed failure codes**
 
-Instantiate:
+Define:
 
 ```python
 GpuOutOfMemoryError("vision_gpu_out_of_memory", RuntimeDisposition.RECOVER)
@@ -621,47 +555,24 @@ InferenceContractError("vision_inference_contract_failed", RuntimeDisposition.RE
 TrackerError("vision_tracker_failed", RuntimeDisposition.CONTINUE)
 ```
 
-Require every external code to match the worker control-plane failure-code grammar and remain <=64 characters.
+Enforce the existing worker failure-code grammar and maximum length.
 
-- [ ] **Step 4: Implement typed errors**
+- [ ] **Step 4: Extend `WorkerSettings` with operational selection only**
 
-Framework exceptions are not parsed above their adapter. Give backend adapters helper constructors/translation functions; keep stable external codes centralized in `errors.py`.
+Add model root/manifest/profile/runtime paths, `device_policy`, `device_index`, `production_mode`, `inference_watchdog_seconds`, and `watchdog_grace_seconds`. Production mode rejects `auto`. Do not expose detector/tracker thresholds as environment settings.
 
-- [ ] **Step 5: Extend `WorkerSettings` with operational selection only**
+- [ ] **Step 5: Implement immutable provenance**
 
-Add fields equivalent to:
+Capture model/config/profile/qualification/runtime hashes; Python/PyTorch/torchvision/MMDetection/MMCV/MMEngine/Trackers/Supervision/SciPy/NumPy/OpenCV/PyAV and FFmpeg identity where available; OS/platform; configured/actual device; GPU/driver/CUDA when applicable; MAVI build/commit; frame policy; tracker parameters; and `inputColourSpace="RGB"`.
 
-```python
-model_root: Path
-model_manifest: Path
-pipeline_profile: Path
-runtime_profile: Path
-device_policy: Literal["cuda", "cpu", "auto"] = "cuda"
-device_index: int = Field(default=0, ge=0)
-production_mode: bool = True
-inference_watchdog_seconds: float = Field(default=120.0, ge=10.0)
-watchdog_grace_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
-```
+Production rejects missing MAVI build/commit identity; development may use explicit `unknown-development`.
 
-Validation: `production_mode=True` rejects `device_policy="auto"`. Do not add detector/tracker threshold environment settings.
-
-- [ ] **Step 6: Implement immutable provenance**
-
-`RuntimeProvenance` records at least model/config/profile/qualification/runtime hashes, Python, PyTorch, torchvision, MMDetection, MMCV, MMEngine, Trackers, Supervision, SciPy, NumPy, OpenCV, PyAV/FFmpeg identity where available, OS/platform, configured/actual device, GPU/driver/CUDA identity where applicable, MAVI commit/build identity, frame policy, tracker parameters, and `inputColourSpace="RGB"`.
-
-Production construction rejects a missing MAVI build/commit identity; development may use an explicit `"unknown-development"` marker.
-
-- [ ] **Step 7: Run tests**
+- [ ] **Step 6: Run and commit**
 
 ```powershell
 cd src/vision
 python -m pytest tests/test_runtime_provenance.py tests/test_worker_settings.py -q
-```
-
-- [ ] **Step 8: Commit**
-
-```powershell
-git add src/vision/mavi_vision/runtime src/vision/mavi_vision/common/settings.py src/vision/tests
+git add mavi_vision/runtime mavi_vision/common/settings.py tests
 git commit -m "feat: add vision runtime contracts and provenance"
 ```
 
@@ -678,6 +589,11 @@ git commit -m "feat: add vision runtime contracts and provenance"
 **Interfaces:**
 
 ```python
+T = TypeVar("T")
+
+class ProcessExecutor(Protocol):
+    async def run(self, func: Callable[..., T], /, *args: object, **kwargs: object) -> T: ...
+
 class VisionExecutionLane:
     async def run(self, func: Callable[..., T], /, *args: object, **kwargs: object) -> T: ...
     async def close(self) -> None: ...
@@ -695,28 +611,30 @@ class InferenceActivity:
     def is_hung(self, *, now_monotonic: float, threshold_seconds: float) -> bool: ...
 ```
 
-- [ ] **Step 1: Write a failing serialization test**
+`ProcessExecutor` is model-neutral. `VisionExecutionLane` structurally implements it and is the production executor passed to `WorkerRunner` in Task 11.
 
-Submit two functions concurrently through `VisionExecutionLane`; each records `threading.get_ident()`. Assert they never overlap and both execute on the same non-event-loop thread.
+- [ ] **Step 1: Write a failing serialization/thread-affinity test**
+
+Submit two functions concurrently; record `threading.get_ident()` and overlap markers. Assert both execute on the same non-event-loop thread and never overlap.
 
 - [ ] **Step 2: Implement the lane**
 
-Use one `ThreadPoolExecutor(max_workers=1, thread_name_prefix="mavi-vision")`. `run()` uses the current event loop's `run_in_executor` with a `functools.partial` so keyword arguments are supported. Reject calls after `close()`.
+Use one `ThreadPoolExecutor(max_workers=1, thread_name_prefix="mavi-vision")`; `run()` dispatches a `functools.partial` through `loop.run_in_executor`. Reject calls after `close()`.
 
-- [ ] **Step 3: Write activity/watchdog tests using an injected clock value**
+- [ ] **Step 3: Write activity/watchdog tests using explicit monotonic values**
 
-Test inactive, active below threshold, active exactly at threshold, and active beyond threshold. Keep monotonic time values explicit in tests; do not sleep.
+Cover inactive, active below threshold, exactly at threshold, beyond threshold, and completed activity. Do not sleep in unit tests.
 
 - [ ] **Step 4: Implement thread-safe activity markers**
 
-Protect state with `threading.Lock`. `mark_completed()` must clear `active` in `finally` paths even when inference fails.
+Protect state with `threading.Lock`; inference callers clear active state in `finally`.
 
-- [ ] **Step 5: Run tests and commit**
+- [ ] **Step 5: Run and commit**
 
 ```powershell
 cd src/vision
 python -m pytest tests/test_runtime_execution_lane.py tests/test_runtime_watchdog.py -q
-git add mavi_vision/runtime tests/test_runtime_execution_lane.py tests/test_runtime_watchdog.py
+git add mavi_vision/runtime/execution_lane.py mavi_vision/runtime/activity.py tests/test_runtime_execution_lane.py tests/test_runtime_watchdog.py
 git commit -m "feat: add dedicated vision execution lane"
 ```
 
@@ -737,7 +655,7 @@ class RTMDetDetector:
     def detect(self, frame: DecodedFrame) -> Sequence[DetectionCandidate]: ...
 ```
 
-`detect()` returns candidates sorted exactly by:
+Canonical output order:
 
 ```python
 (
@@ -750,30 +668,23 @@ class RTMDetDetector:
 )
 ```
 
-- [ ] **Step 1: Write class-mapping tests with a fake `DetectorRuntime`**
+- [ ] **Step 1: Write class-mapping tests with a fake runtime**
 
-Feed source classes `person`, `car`, `motorcycle`, `bus`, `truck`, `dog`. Assert MAVI output is Person/Vehicle for the first five and ignores `dog` according to the profile.
+Feed `person`, `car`, `motorcycle`, `bus`, `truck`, `dog`; assert Person/Vehicle mapping for the first five and profile-driven ignoring of `dog`.
 
 - [ ] **Step 2: Write adversarial geometry tests**
 
-Cover in-frame, all four partial overflows, larger-than-frame, fractional XYXY, zero area after clipping, inverted XYXY, NaN/Inf, portrait/landscape/odd frame sizes.
+Cover all four partial overflows, box larger than frame, fractions, zero area after clipping, inverted XYXY, NaN/Inf, tiny valid boxes, portrait/landscape/odd dimensions. Policy: finite partial overflow clips; zero-area after clipping discards; malformed/inverted/non-finite/impossible confidence or vocabulary violation raises `InferenceContractError`.
 
-Required policy:
+- [ ] **Step 3: Implement normalization with no second NMS/cap**
 
-- finite partly-outside box -> clip;
-- zero area after clipping -> discard and increment diagnostic counter/log event;
-- inverted/malformed/non-finite/impossible confidence/vocabulary mismatch -> `InferenceContractError`;
-- accepted box -> exact normalized XYWH satisfying `NormalizedBoundingBox`.
+Call `runtime.infer(frame.image)` once, validate classes/geometry, map to normalized XYWH, and sort canonically. Do not add generic NMS or generic count truncation.
 
-- [ ] **Step 3: Implement normalization with no second NMS**
+- [ ] **Step 4: Prove deterministic adapter ordering**
 
-Call `runtime.infer(frame.image)` once. Do not perform generic NMS or generic detection-count truncation. Validate source class against manifest/profile vocabulary before mapping.
+Return the same fake detections in multiple backend permutations; assert byte-for-byte equal serialized candidate tuples after normalization.
 
-- [ ] **Step 4: Write deterministic-order test**
-
-Return fake raw detections in multiple permutations and assert the same ordered `DetectionCandidate` tuple is emitted.
-
-- [ ] **Step 5: Run tests and commit**
+- [ ] **Step 5: Run and commit**
 
 ```powershell
 cd src/vision
@@ -789,7 +700,7 @@ git commit -m "feat: add deterministic RTMDet adapter"
 **Files:**
 - Create: `src/vision/mavi_vision/runtime/mmdetection.py`
 - Create: `src/vision/tests/test_rtmdet_colour_space.py`
-- Add lightweight contract tests to: `src/vision/tests/test_runtime_provenance.py`
+- Modify: `src/vision/tests/test_runtime_provenance.py`
 - Modify: `src/vision/pyproject.toml`
 
 **Interfaces:**
@@ -811,81 +722,54 @@ class MMDetectionRuntime(DetectorRuntime):
     def close(self) -> None: ...
 ```
 
-- [ ] **Step 1: Add the qualified runtime optional dependency group**
+- [ ] **Step 1: Add a qualified runtime optional dependency group**
 
-Using the exact versions produced by Task 1, add a dedicated extra such as:
+Use Task-1 selected semantic versions in `[project.optional-dependencies].vision-runtime`. Production still installs from platform/device hash locks; `pyproject.toml` does not replace those locks. Base/core installation must remain free of heavyweight model runtime packages.
 
-```toml
-[project.optional-dependencies]
-vision-runtime = [
-  # exact compatible logical requirements corresponding to runtime.json
-]
-dev = ["pytest>=8.4"]
-```
+- [ ] **Step 2: Write the RGB/BGR regression test**
 
-Do not add model weights or download hooks. Base Task-9/core tests must still install without the heavy extra.
-
-- [ ] **Step 2: Write the RGB/BGR regression test before importing the heavy stack**
-
-Expose one internal pure helper:
+Internal pure helper:
 
 ```python
 def _rgb_to_bgr(image_rgb: NDArray[np.uint8]) -> NDArray[np.uint8]: ...
 ```
 
-Test input pixel `[11, 22, 33]` becomes `[33, 22, 11]`, remains `uint8`, H×W×3, contiguous, and does not mutate the source array.
+Input `[11, 22, 33]` must become `[33, 22, 11]`, remain `uint8` H×W×3 contiguous, and leave source bytes unchanged.
 
-- [ ] **Step 3: Implement lazy framework imports**
+- [ ] **Step 3: Implement lazy heavy-framework loading**
 
-Do not import MMDetection/PyTorch at module import time for code paths that only run core tests. Resolve heavy imports inside runtime construction or a small backend-loader helper and translate ImportError/version mismatch to `RuntimeCompatibilityError` before leasing.
+Core unit-test collection/import must not require PyTorch/MMDetection. Resolve heavy imports during runtime construction or a backend-loader helper; missing/incompatible packages become `RuntimeCompatibilityError` before leasing.
 
-- [ ] **Step 4: Load only explicit local resolved config/checkpoint paths**
+- [ ] **Step 4: Load only verified local resolved config/checkpoint paths**
 
-Use the verified local paths from `VerifiedReleaseSelection`; never pass a model-zoo alias. Before model construction, reject a deployment config containing unresolved `_base_`, URL references, or code that redirects model artifacts outside the trusted release directory according to the approved config-validation rule.
+Consume `VerifiedReleaseSelection`. Reject unresolved `_base_`, URL/model-zoo aliases, or artifact paths outside the trusted model release. No API accepts a model alias.
 
 - [ ] **Step 5: Verify ordered runtime vocabulary exactly**
 
-After construction, read the detector's runtime dataset/class metadata and require exact ordered equality with `ModelManifest.class_vocabulary`. Mismatch -> `RuntimeCompatibilityError`/UNAVAILABLE before any lease.
+Read detector runtime class metadata after construction and require exact ordered equality with the manifest vocabulary. Mismatch -> runtime unavailable before any lease.
 
 - [ ] **Step 6: Implement warm-up**
 
-Generate an in-memory, channel-distinct RGB frame of a valid RTMDet input shape; convert once to backend BGR; run inference; validate result shape/types; do not create evidence artifacts. Warm-up must execute on `VisionExecutionLane` in later composition.
+Generate an in-memory channel-distinct RGB frame, convert exactly once, run inference, and validate output contract without creating evidence artifacts.
 
-- [ ] **Step 7: Implement inference result conversion**
+- [ ] **Step 7: Implement inference conversion and error translation**
 
-Wrap each call with:
+Wrap activity start/completion in `try/finally`; convert RGB once; run MMDetection; return only `RawDetection` values in original decoded-frame pixel XYXY coordinates. Translate CUDA OOM, poisoned-context errors, and invalid outputs to the Task-4 typed errors. No tensor/`DetDataSample` escapes.
 
-```python
-activity.mark_started()
-try:
-    # RGB -> BGR once; run MMDetection; map boxes/scores/labels to RawDetection
-finally:
-    activity.mark_completed()
-```
-
-Return original-decoded-frame pixel XYXY coordinates. Translate CUDA OOM, poisoned CUDA errors, and invalid output to the typed MAVI errors defined in Task 4. Do not expose tensors/`DetDataSample` objects.
-
-- [ ] **Step 8: Run pure tests and a local real-model smoke test**
-
-Fast test:
+- [ ] **Step 8: Run fast tests and a real local smoke test**
 
 ```powershell
 cd src/vision
 python -m pytest tests/test_rtmdet_colour_space.py tests/test_rtmdet_mapping.py tests/test_rtmdet_geometry.py -q
-```
-
-Real local smoke on a machine with the qualified extra/model:
-
-```powershell
 python ../../tools/vision/probe_runtime.py --config <resolved-config> --checkpoint <checkpoint> --device cpu
 ```
 
-Expected: PASS, no network access, ordered vocabulary verified.
+Expected: all fast tests pass; real smoke passes without network access and vocabulary matches.
 
 - [ ] **Step 9: Commit**
 
 ```powershell
-git add src/vision/mavi_vision/runtime/mmdetection.py src/vision/tests/test_rtmdet_colour_space.py src/vision/pyproject.toml
+git add mavi_vision/runtime/mmdetection.py tests/test_rtmdet_colour_space.py pyproject.toml
 git commit -m "feat: integrate local RTMDet runtime"
 ```
 
@@ -902,50 +786,36 @@ git commit -m "feat: integrate local RTMDet runtime"
 ```python
 class ByteTrackTracker:
     def __init__(self, profile: ByteTrackProfile) -> None: ...
-    def update(
-        self,
-        frame: DecodedFrame,
-        detections: Sequence[DetectionCandidate],
-    ) -> Sequence[TrackCandidate]: ...
+    def update(self, frame: DecodedFrame, detections: Sequence[DetectionCandidate]) -> Sequence[TrackCandidate]: ...
 ```
 
-Internally it owns exactly two native trackers: Person and Vehicle.
+- [ ] **Step 1: Write pixel conversion and timestamp tests**
 
-- [ ] **Step 1: Write failing pixel-conversion and timestamp tests**
+For a 200×100 frame and normalized box `(x=.1, y=.2, width=.3, height=.4)`, native ByteTrack receives `[20, 20, 80, 60]` and timestamp `frame.offset_ms / 1000.0`.
 
-For a 200×100 frame and normalized box `(x=.1, y=.2, width=.3, height=.4)`, assert native ByteTrack receives XYXY `[20, 20, 80, 60]` and timestamp `frame.offset_ms / 1000.0`.
+- [ ] **Step 2: Write every-class/every-frame ageing tests**
 
-- [ ] **Step 2: Write the every-class/every-frame ageing test**
+With only Person detections, Vehicle native tracker is still called with an empty set every frame; repeat symmetrically. This prevents lost-track age from freezing on absent-class frames.
 
-Provide only Person detections for several frames and assert the Vehicle native tracker is still called with an empty detection set on every frame. Repeat symmetrically for Person.
+- [ ] **Step 3: Write backend reordering/ordinal tests**
 
-- [ ] **Step 3: Write result-reordering/ordinal tests**
-
-When constructing `sv.Detections`, attach frame-local ordinals in `data["mavi_ordinal"]`. Use a fake native tracker that returns detections in a different order and assert emitted MAVI candidates recover the original normalized box and detector confidence by ordinal, not returned-array position.
+Attach `data["mavi_ordinal"]` to each `sv.Detections` row. A fake native tracker returns rows reordered; emitted MAVI candidates must recover original normalized box/confidence by ordinal, not returned-array position.
 
 - [ ] **Step 4: Write tentative/unmatched evidence tests**
 
-Assert `tracker_id == -1` emits no `TrackCandidate`. Assert an unmatched/predicted native track emits nothing. When a track confirms later, the first MAVI trajectory observation is the confirmation frame; no prior tentative observation is backfilled.
+`tracker_id == -1` emits nothing; predicted/unmatched native state emits nothing; confirmation later starts MAVI evidence on that frame with no backfill.
 
-- [ ] **Step 5: Write class-isolation and deterministic-ID tests**
+- [ ] **Step 5: Write class isolation and deterministic MAVI ID tests**
 
-Test Person and Vehicle native ID `1` simultaneously; expected MAVI IDs remain independent namespaces such as `person-000001` and `vehicle-000001`.
+Native tracker ID `1` may exist in both class trackers, but MAVI IDs remain separate. Newly confirmed tracks on the same frame are assigned by `(bbox.x, bbox.y, bbox.width, bbox.height, -confidence, mavi_ordinal)` and never ordered by native tracker ID.
 
-For multiple newly confirmed tracks on the same frame, sort new mappings by:
+- [ ] **Step 6: Exercise real qualified ByteTrack sequences**
 
-```python
-(bbox.x, bbox.y, bbox.width, bbox.height, -confidence, mavi_ordinal)
-```
+Test continuous object, crossing objects, short occlusion/reacquisition, long disappearance/new ID, low-confidence second stage, empty scene, and VFR/timestamp gaps using the selected Trackers version.
 
-Assign counters only after this sort. Never expose the native tracker ID as the MAVI ID or use it as the ordering source.
+- [ ] **Step 7: Implement adapter and typed tracker failure translation**
 
-- [ ] **Step 6: Write occlusion/expiry sequence tests using the actual qualified `trackers` package**
-
-Cover continuous object, crossing objects, short occlusion/reacquisition, long disappearance/new ID, low-confidence second-stage association, empty scene, and VFR timestamp gaps.
-
-- [ ] **Step 7: Implement adapter and translate backend errors**
-
-Any tracker-library exception becomes `TrackerError(code="vision_tracker_failed", disposition=CONTINUE)`. The next attempt receives fresh tracker instances.
+Any backend exception becomes `TrackerError(code="vision_tracker_failed", disposition=CONTINUE)`. Every new attempt gets new native tracker objects and ID maps.
 
 - [ ] **Step 8: Run and commit**
 
@@ -972,7 +842,7 @@ class ProductionVisionProcessor:
         self,
         runtime: DetectorRuntime,
         profile: PipelineProfile,
-        staging_factory: Callable[[Path, UUID, int], StagingArtifactStore],
+        staging_factory: Callable[[UUID, int], StagingArtifactStore],
         runtime_failure_sink: Callable[[ProcessingDependencyError], None],
     ) -> None: ...
 
@@ -988,24 +858,21 @@ class ProductionVisionProcessor:
     ) -> VisionProcessingResult: ...
 ```
 
-- [ ] **Step 1: Write a failing lifecycle test**
+The production composition root binds `settings.media_root` into `staging_factory`, for example `lambda job_id, attempt: StagingArtifactStore(settings.media_root, job_id, attempt)`. The processor therefore cannot accidentally choose a different root per job.
 
-Call `process()` twice with a fake long-lived detector runtime. Assert:
+- [ ] **Step 1: Write attempt-lifecycle tests**
 
-- detector runtime object identity is unchanged;
-- a new `RTMDetDetector`, ByteTrack adapter, staging store, and `VideoProcessor` are created for each attempt;
-- track IDs restart per attempt;
-- attempt staging keys contain the correct attempt count.
+Call `process()` twice with one fake long-lived runtime. Assert runtime identity is unchanged while detector adapter, ByteTrack adapter, staging store, and `VideoProcessor` are recreated; track IDs restart; attempt keys use the correct count.
 
-- [ ] **Step 2: Write a failure-notification test**
+- [ ] **Step 2: Write failure-notification tests**
 
-Have the detector raise `GpuOutOfMemoryError`; assert `runtime_failure_sink` receives the exact error once and the same typed error is rethrown. Have the tracker raise `TrackerError`; assert the sink receives `CONTINUE` and no detector-runtime replacement happens inside this class.
+Detector OOM -> sink receives exact RECOVER error once and same error rethrows. Tracker failure -> sink receives CONTINUE; this class does not reconstruct the detector itself.
 
-- [ ] **Step 3: Implement the minimal composition facade**
+- [ ] **Step 3: Implement minimal attempt composition**
 
-Do not put lease acquisition, heartbeat, CUDA recovery, or Task-11 persistence in this class. It creates attempt-scoped collaborators and delegates to the existing `VideoProcessor`.
+Create `RTMDetDetector(runtime, profile)`, new `ByteTrackTracker(profile.tracker)`, `staging_factory(job_id, attempt_count)`, and new existing `VideoProcessor`; delegate. No lease acquisition, heartbeat, CUDA recovery, or Task-11 persistence here.
 
-- [ ] **Step 4: Run tests and commit**
+- [ ] **Step 4: Run and commit**
 
 ```powershell
 cd src/vision
@@ -1027,50 +894,33 @@ git commit -m "feat: compose production vision attempts"
 
 **Interfaces:**
 - `VideoProcessor` passes `ProcessingDependencyError` through unchanged after lease-authorized best-effort cleanup.
-- `WorkerRunner` allowlists `ProcessingDependencyError.code` and maps only the approved codes to `/fail` after ownership is rechecked.
-- Existing `LeaseLostError` precedence remains unchanged.
+- `WorkerRunner` allowlists approved `ProcessingDependencyError.code` values and maps them to `/fail` only after existing ownership checks.
 
-- [ ] **Step 1: Write the red test proving Task-9 currently collapses a typed detector failure**
+- [ ] **Step 1: Write the red test proving the current catch-all collapses OOM**
 
-Use a detector that raises `GpuOutOfMemoryError`. Expected new behaviour: `VideoProcessor.process()` rethrows that exact typed error, not `VideoProcessingError("pipeline_processing_failed")`.
+A detector raises `GpuOutOfMemoryError`; expected new behaviour is the same typed error exits `VideoProcessor`, not `VideoProcessingError("pipeline_processing_failed")`.
 
-Run the test and confirm it fails against the current Task-9 catch-all.
+- [ ] **Step 2: Add only the narrow model-neutral pass-through catch**
 
-- [ ] **Step 2: Add the narrow pass-through catch**
+Catch `ProcessingDependencyError` before generic `Exception`, call `_cleanup_best_effort(lease_guard)`, rethrow unchanged. Do not import backend-specific exception types.
 
-In both processing/finalization exception blocks, place `except ProcessingDependencyError:` before generic `Exception`, invoke `_cleanup_best_effort(lease_guard)`, then `raise` unchanged. Do not import CUDA/MMDetection types.
+- [ ] **Step 3: Write runner stable-code tests**
 
-- [ ] **Step 3: Write runner failure-code tests**
+Owned lease + each of `vision_inference_contract_failed`, `vision_gpu_out_of_memory`, `vision_gpu_runtime_failed`, `vision_tracker_failed` -> exactly one `/fail` with generic sanitized message.
 
-For each approved job-scoped code:
+- [ ] **Step 4: Write lease-loss race tests**
 
-```text
-vision_inference_contract_failed
-vision_gpu_out_of_memory
-vision_gpu_runtime_failed
-vision_tracker_failed
-```
+Typed failure and expiry race -> lease loss wins; API receives no `/fail`.
 
-assert exactly one `/fail` call with a sanitized generic message while the lease is owned.
+- [ ] **Step 5: Implement allowlisted handling**
 
-- [ ] **Step 4: Write lease-loss race tests for typed errors**
+Unknown typed code does not pass through blindly; normalize it to generic `vision_processing_failed` and log locally as a programming/configuration defect.
 
-Force the typed error to become ready at the same time the lease guard expires. Assert lease loss wins and the API sees **no** `/fail` call.
-
-- [ ] **Step 5: Implement allowlisted handling in `WorkerRunner`**
-
-Do not forward arbitrary exception text as a failure code. Unknown `ProcessingDependencyError.code` becomes generic `vision_processing_failed` locally logged as a programming error, while the known allowlist retains stable codes.
-
-- [ ] **Step 6: Run Task-9 ownership regression suite**
+- [ ] **Step 6: Run Task-9 ownership regressions and commit**
 
 ```powershell
 cd src/vision
 python -m pytest tests/test_process_video.py tests/test_worker_runner.py tests/test_lease_ownership_matrix.py tests/test_artifact_publisher.py tests/test_artifact_store.py -q
-```
-
-- [ ] **Step 7: Commit**
-
-```powershell
 git add mavi_vision/pipeline/process_video.py mavi_vision/worker/runner.py tests/test_process_video.py tests/test_worker_runner.py tests/test_lease_ownership_matrix.py
 git commit -m "feat: preserve vision runtime failure classification"
 ```
@@ -1109,44 +959,37 @@ class RuntimeSupervisor:
     async def close(self) -> None: ...
 ```
 
-The worker's outer loop calls `runner.run_once()` only when supervisor state is `READY`.
+Extend `WorkerRunner.__init__` with a model-neutral executor:
 
-- [ ] **Step 1: Write startup state-machine tests**
+```python
+process_executor: ProcessExecutor | None = None
+```
 
-Cases:
+If absent, Task-9-compatible tests/dev may use a small default `asyncio.to_thread` executor; production **must** pass the `VisionExecutionLane`. `_process_with_lease_heartbeats()` dispatches through `self._process_executor.run(...)`, never directly through `asyncio.to_thread` when the production lane is configured.
 
-- valid verified release + warm-up -> `READY`;
-- missing model/config/hash mismatch -> `UNAVAILABLE`, lease calls = 0;
-- requested CUDA unavailable -> `UNAVAILABLE`, lease calls = 0;
-- warm-up failure -> `UNAVAILABLE`, lease calls = 0;
-- production `auto` -> configuration rejection before leasing.
+- [ ] **Step 1: Write supervisor startup state tests**
 
-Use fake runtimes and fake lane functions; do not require PyTorch for state-machine unit tests.
+Valid verified release + warm-up -> READY. Missing/bad hash, unavailable requested CUDA, vocabulary mismatch, or warm-up failure -> UNAVAILABLE and lease calls remain zero. Production `auto` rejects before leasing.
 
-- [ ] **Step 2: Implement supervisor startup on the dedicated lane**
+- [ ] **Step 2: Implement supervisor startup through `VisionExecutionLane`**
 
-`start()` performs release verification before runtime construction, then executes construction/warm-up/output/vocabulary validation via `VisionExecutionLane.run()`. State changes are explicit and guarded by an asyncio lock or single-event-loop ownership.
+Release verification happens before model construction. Runtime construction, warm-up, and output/vocabulary validation execute on the lane. State mutation is explicit and event-loop-owned.
 
-- [ ] **Step 3: Write OOM recovery tests**
+- [ ] **Step 3: Write and implement OOM recovery tests**
 
-After `report_processing_failure(GpuOutOfMemoryError(...RECOVER))`:
+RECOVER error -> state RECOVERING, no lease, exactly one same-release/same-device reconstruction+warm-up. Success -> READY; failure -> UNAVAILABLE; no second automatic reconstruction for the incident.
 
-- state immediately becomes `RECOVERING`;
-- no new lease is requested;
-- `recover_if_required()` closes/reconstructs the **same release/model/profile/device** once;
-- warm-up success -> `READY`;
-- warm-up failure -> `UNAVAILABLE`;
-- a second automatic reconstruction for the same incident is not attempted.
+- [ ] **Step 4: Write and implement poisoned-runtime behaviour**
 
-- [ ] **Step 4: Write poisoned-runtime tests**
+UNAVAILABLE disposition -> immediate UNAVAILABLE and process restart required. CONTINUE tracker error -> detector remains READY.
 
-`GpuRuntimeError(...UNAVAILABLE)` moves directly to `UNAVAILABLE`; `recover_if_required()` does not try to reuse/reconstruct a process context classified as poisoned.
+- [ ] **Step 5: Inject `ProcessExecutor` into `WorkerRunner` and keep it model-neutral**
 
-`TrackerError(...CONTINUE)` leaves the detector runtime `READY`.
+Refactor processing dispatch only; heartbeat/LeaseGuard authority remains in the runner. Add a test proving production lane uses one thread while existing Task-9 runner tests can still use the default executor.
 
-- [ ] **Step 5: Add a generic watchdog hook to `WorkerRunner`**
+- [ ] **Step 6: Add a generic watchdog hook to the runner**
 
-Keep the runner model-neutral. Add optional collaborators equivalent to:
+Add optional collaborators:
 
 ```python
 watchdog_expired: Callable[[], bool] | None = None
@@ -1154,48 +997,36 @@ watchdog_grace_seconds: float = 10.0
 fatal_terminator: Callable[[int], NoReturn] = os._exit
 ```
 
-While a processing task is active, check the watchdog before sending each heartbeat and at a bounded poll interval no larger than `min(heartbeat_wait, 1.0 second)`.
+While processing is active, check the watchdog at a poll interval <=1 second and before heartbeat renewal. Expiry marks the active guard lost, stops renewal, waits at most the configured grace for unwind, and invokes `fatal_terminator(70)` if native work remains stuck. Do not send `/fail` after local authority is invalidated.
 
-On expiry:
+- [ ] **Step 7: Test watchdog fatal path without terminating pytest**
 
-1. mark the active `LeaseGuard` lost;
-2. stop heartbeat renewal immediately;
-3. wait at most `watchdog_grace_seconds` for the processing future to unwind;
-4. if still running, invoke `fatal_terminator(70)`;
-5. never call `/fail` after local authority is invalidated.
+Inject a fake terminator that records code 70 and raises a test sentinel. Block the processor on a `threading.Event`; assert no post-expiry heartbeat or `/fail`, bounded grace, lost authority, and terminator invocation.
 
-- [ ] **Step 6: Write watchdog tests without killing pytest**
+- [ ] **Step 8: Keep health-v2 truthful without changing its schema**
 
-Inject a fake terminator that records the exit code and raises a test-only sentinel. Use a processor blocked on a `threading.Event`. Assert no heartbeat or `/fail` occurs after expiry, the guard is lost, grace is bounded, and the terminator receives code 70.
+`get_worker_health` may construct the existing v2 `ready` payload only when runtime readiness is true. A non-ready call must not invent a new status; use caller-visible unavailability/local diagnostics.
 
-- [ ] **Step 7: Make health-v2 truthful without changing its schema**
+- [ ] **Step 9: Compose production worker loop in `main.py`**
 
-Change `get_worker_health` to require/read readiness or add a `runtime_ready: bool` argument. It may construct the existing v2 `ready` payload only when true; false raises/returns transport-unavailable behaviour used by the caller. Do not add `degraded`/`unavailable` values to the contract.
+Order:
 
-- [ ] **Step 8: Compose production worker in `main.py`**
+1. create lane;
+2. verify selected release;
+3. build/start supervisor;
+4. bind `settings.media_root` into staging factory;
+5. build `ProductionVisionProcessor(runtime, profile, staging_factory, supervisor.report_processing_failure)`;
+6. build `WorkerRunner(..., process_executor=lane, watchdog_expired=...)`;
+7. outer loop calls `runner.run_once()` only in READY; calls `recover_if_required()` in RECOVERING; in UNAVAILABLE remains alive for diagnostics and never calls `lease()`;
+8. close supervisor/lane/client in reverse order.
 
-`_run_worker()` should:
+Do not hide readiness inside model-specific code in `WorkerRunner`.
 
-1. build `VisionExecutionLane`;
-2. load verified release selection;
-3. build/start `RuntimeSupervisor`;
-4. build `ProductionVisionProcessor` using `supervisor.runtime` and `supervisor.report_processing_failure`;
-5. build `WorkerRunner` with the dedicated lane rather than generic `asyncio.to_thread`;
-6. loop: if `READY`, `await runner.run_once()`; if `RECOVERING`, `await supervisor.recover_if_required()`; if `UNAVAILABLE`, remain alive and sleep/poll local readiness without calling `lease()`;
-7. close supervisor/lane/client in reverse order on shutdown.
-
-Do not use `WorkerRunner.run_forever()` for production readiness gating unless it is refactored to accept a generic readiness callback with the same behaviour.
-
-- [ ] **Step 9: Run worker/supervisor regression tests**
+- [ ] **Step 10: Run and commit**
 
 ```powershell
 cd src/vision
 python -m pytest tests/test_runtime_supervisor.py tests/test_runtime_watchdog.py tests/test_worker_runner.py tests/test_lease_ownership_matrix.py -q
-```
-
-- [ ] **Step 10: Commit**
-
-```powershell
 git add mavi_vision/runtime/supervisor.py mavi_vision/worker mavi_vision/pipeline/production_processor.py tests
 git commit -m "feat: supervise qualified vision runtime"
 ```
@@ -1224,56 +1055,35 @@ class BundleArtifact:
     platform_variant: str
 ```
 
-`build_offline_bundle.py` consumes exactly one qualified platform/device lock and a model release directory; it emits a directory/ZIP plus `bundle-manifest.json`.
+- [ ] **Step 1: Write bundle determinism/integrity tests**
 
-- [ ] **Step 1: Write manifest determinism tests**
-
-Given the same input artifacts, sorted manifest entries and hashes must be identical. Reject duplicate destinations, absolute paths, missing files, wrong hash, and files not declared by the selected runtime/model release.
+Same inputs -> same sorted manifest/hashes. Reject duplicate destinations, absolute paths, undeclared/missing files, and wrong hashes.
 
 - [ ] **Step 2: Implement bundle assembly**
 
-Bundle includes:
+Include wheels, checkpoint, resolved config, manifest, qualification record, pipeline profile, runtime.json, selected lock, and bundle manifest. Exclude Git metadata, caches, CCTV, and unverified production artifacts.
 
-```text
-wheels/
-model/checkpoint
-model/resolved-config
-models/manifest
-models/qualification
-pipeline/profile
-runtime/runtime.json
-runtime/<selected-platform>.lock
-bundle-manifest.json
-```
+- [ ] **Step 3: Emit offline installation command**
 
-Do not include Git metadata, caches, source CCTV, or development-only unverified artifacts in a production bundle.
-
-- [ ] **Step 3: Generate an offline install command file**
-
-Emit a platform-appropriate command using local wheels only and hash checking, equivalent to:
+Use local wheels only:
 
 ```text
 python -m pip install --no-index --require-hashes --find-links wheels -r runtime/<selected-platform>.lock
 ```
 
-No target-machine compilation or network resolution is allowed.
+No target compilation/network resolution.
 
-- [ ] **Step 4: Extend repository verification to reject download mechanisms**
+- [ ] **Step 4: Extend repository verification for release network/download hazards**
 
-Scan production manifest/profile/runtime metadata and packaging scripts for model URLs, `git+https`, model-zoo aliases, or unqualified online installation paths. Development documentation may mention Internet setup, but release runtime metadata must not require it.
+Reject model URLs, `git+https`, model-zoo aliases, or production metadata that requires an online resolver.
 
-- [ ] **Step 5: Run tests**
+- [ ] **Step 5: Run and commit**
 
 ```powershell
 cd src/vision
 python -m pytest tests/test_offline_bundle_manifest.py -q
 cd ../..
 python tools/verify_repo.py
-```
-
-- [ ] **Step 6: Commit**
-
-```powershell
 git add tools/vision/build_offline_bundle.py tools/verify_repo.py src/vision/tests/test_offline_bundle_manifest.py infrastructure
 git commit -m "build: add offline vision runtime bundle"
 ```
@@ -1286,17 +1096,11 @@ git commit -m "build: add offline vision runtime bundle"
 - Modify: `.github/workflows/quality-gate.yml`
 - Create: `.github/workflows/vision-adapter-gate.yml`
 
-**Interfaces:**
-- Core quality gate remains the full repository gate.
-- Adapter gate runs lightweight ML-adapter/tracking/platform tests on `ubuntu-latest` and `windows-latest` without model weights/GPU.
+- [ ] **Step 1: Change core quality gate from Python 3.13 to the Task-1 qualified minor**
 
-- [ ] **Step 1: Update core quality gate Python version**
-
-Replace hard-coded `3.13` with the exact qualified minor from Task 1 (`3.12` or `3.11`). Do not make it a floating newest-Python value.
+Use the exact qualified minor (`3.12` or `3.11`), not a floating newest version.
 
 - [ ] **Step 2: Create the cross-platform adapter matrix**
-
-Use:
 
 ```yaml
 strategy:
@@ -1305,33 +1109,15 @@ strategy:
 runs-on: ${{ matrix.os }}
 ```
 
-Install the base package, dev dependencies, and only the qualified tracking adapter dependencies needed by Gate B. Do not install/download RTMDet weights.
+Install base/dev dependencies plus only the qualified tracking-adapter dependencies needed by Gate B; no model weights.
 
-- [ ] **Step 3: Run the exact Gate-B test set**
+- [ ] **Step 3: Run the exact lightweight adapter suite**
 
-The workflow command must include:
+Include manifest/profile/qualification/hashing, RTMDet mapping/geometry/colour, ByteTrack, execution lane, supervisor/watchdog/provenance, production processor, generic artifact store, lease ownership; add Windows staging tests on Windows.
 
-```text
-test_model_manifest.py
-test_pipeline_profile.py
-test_qualification_record.py
-test_runtime_artifact_hashing.py
-test_rtmdet_mapping.py
-test_rtmdet_geometry.py
-test_rtmdet_colour_space.py
-test_bytetrack_adapter.py
-test_runtime_execution_lane.py
-test_runtime_supervisor.py
-test_runtime_watchdog.py
-test_runtime_provenance.py
-test_production_processor.py
-```
+- [ ] **Step 4: Enforce lazy heavy-runtime boundaries**
 
-On Windows additionally run `test_artifact_store_windows.py`; on both platforms run the generic artifact-store and lease-ownership tests.
-
-- [ ] **Step 4: Ensure workflow does not depend on unavailable model artifacts**
-
-All real-model tests remain out of hosted Gate B. If an import path accidentally forces PyTorch/MMDetection during core/adaptor unit collection, fix the lazy import boundary rather than adding model weights to CI.
+If test collection requires PyTorch/MMDetection weights, fix imports rather than adding weights to hosted CI.
 
 - [ ] **Step 5: Commit**
 
@@ -1346,61 +1132,58 @@ git commit -m "ci: add cross-platform vision adapter gate"
 
 **Files:**
 - Create: `tools/vision/qualify_phase1.py`
-- Finalize: `models/qualifications/rtmdet-m-coco-phase1-v1.json`
 - Finalize: `models/manifests/rtmdet-m-coco-phase1-v1.json`
-- Finalize if thresholds changed during qualification: `src/vision/config/pipelines/phase1-detection-tracking-v1.json`
-- Regenerate hashes in: `src/vision/runtime/mmdetection-phase1-v1/runtime.json`
+- Finalize: `models/qualifications/rtmdet-m-coco-phase1-v1.json`
+- Finalize if qualified parameters changed: `src/vision/config/pipelines/phase1-detection-tracking-v1.json`
+- Regenerate affected hashes in: `src/vision/runtime/mmdetection-phase1-v1/runtime.json`
 
 **Interfaces:**
-- `qualify_phase1.py` consumes a model root, runtime profile, pipeline profile, external corpus manifest, output directory, and device.
-- It outputs machine-readable metrics/evidence; it does not copy corpus media into Git.
+- `qualify_phase1.py` consumes model root, runtime/profile metadata, external corpus manifest, output directory, and device; it emits machine-readable metrics/evidence only, never corpus media.
 
-- [ ] **Step 1: Implement qualification runner with explicit evidence IDs**
+- [ ] **Step 1: Implement qualification runner with anonymous evidence IDs**
 
-For each external corpus item, input metadata contains only an anonymous case ID, local path, SHA-256, annotation path if present, and scenario tags. Output records case ID/hash, runtime/model/profile hashes, platform/device identity, and metrics. Do not write raw frames into the qualification JSON.
+External corpus input lists case ID, local path, SHA-256, optional annotation path, and scenario tags. Output contains case ID/hash, release hashes, platform/device identity, and metrics; no raw frame bytes.
 
-- [ ] **Step 2: Implement detector/tracker metrics collection**
+- [ ] **Step 2: Implement detector/tracker metrics**
 
-Record Person and Vehicle precision, recall, AP50, false positives/evaluated frame; tracking IDF1, HOTA, ID switches, fragmentation; and post-map duplicate Vehicle detection/track counts. Evaluation tooling may be qualification-only and must not become a production worker dependency.
+Record Person/Vehicle precision, recall, AP50, false positives/evaluated frame, IDF1, HOTA, ID switches, fragmentation, and post-map duplicate Vehicle detection/track counts. Qualification-only metric tooling does not become a production worker dependency.
 
-- [ ] **Step 3: Run real functional qualification on four target variants**
+- [ ] **Step 3: Run functional qualification on all four target variants**
 
-Required evidence:
+Mandatory passed gates:
 
 ```text
-windows-x86_64-cpu      passed
-windows-x86_64-cuda     passed
-linux-x86_64-cpu        passed
-linux-x86_64-cuda       passed
+windows-x86_64-cpu
+windows-x86_64-cuda
+linux-x86_64-cpu
+linux-x86_64-cuda
 ```
 
-Each run must prove explicit local resolved config/checkpoint loading, exact ordered vocabulary equality, RGB/BGR contract, detector→ByteTrack→Task-9 artifact path, and secure staging.
+Each proves explicit local resolved-config/checkpoint load, vocabulary equality, RGB/BGR contract, detector→ByteTrack→Task-9 artifact path, and secure staging.
 
-- [ ] **Step 4: Run at least one network-disconnected installation and inference per OS**
+- [ ] **Step 4: Run network-disconnected install/inference on both operating systems**
 
-Install from the Task-12 bundle with network unavailable. Run one real RTMDet-M + ByteTrack video through the worker processing path. Record bundle manifest hash and pass/fail in qualification evidence.
+Install from Task-12 bundle with network unavailable; run one real video. Record bundle manifest hash and result.
 
 - [ ] **Step 5: Run Linux/NVIDIA production qualification**
 
-Execute representative CCTV corpus, sustained/long video, memory/VRAM observation, controlled OOM recovery, controlled poisoned-context path where safely injectable, and watchdog fatal-restart fixture. Record decoded/inference/end-to-end FPS, processing/source-duration ratio, p50/p95 inference latency, peak VRAM, host RAM, startup/warm-up time, artifact volume, and long-run memory behaviour.
+Representative CCTV, sustained long video, VRAM/RAM observation, controlled OOM recovery, controlled poisoned-context path where safely injectable, and watchdog fatal-restart fixture. Record decoded/inference/end-to-end FPS, processing/source ratio, p50/p95 inference latency, peak VRAM/RAM, startup/warm-up time, artifact volume, and long-run memory behaviour.
 
-- [ ] **Step 6: Freeze the first qualified profile thresholds**
+- [ ] **Step 6: Freeze the v1 detector/tracker profile**
 
-Use the measured corpus to select the conservative detector floor and ByteTrack parameters. Write them to `phase1-detection-tracking-v1.json`. Do not tune to improve only the final test set after seeing final acceptance results; preserve the tuning/baseline split in the qualification record.
+Use a designated tuning subset to select conservative detector floor and ByteTrack parameters, then measure final acceptance on a separate baseline subset. Do not retune after seeing final acceptance results. If class-collapse duplicate Vehicle tracks require post-map suppression, stop and create a new profile/design change; do not silently add second NMS to v1.
 
-If duplicate Vehicle tracks caused by source-class collapse are materially problematic, **stop and create a new explicitly versioned profile design for post-map suppression**. Do not silently add a second NMS rule to v1.
+- [ ] **Step 7: Finalize evidence-backed `verified` without a hash cycle**
 
-- [ ] **Step 7: Finalize qualification-backed verification**
+Use this order:
 
-Write final hashes and all mandatory gates to `models/qualifications/rtmdet-m-coco-phase1-v1.json`; then change the manifest to `verificationStatus="verified"` with the exact `qualificationId`.
+1. choose/freeze `qualificationId`;
+2. write final profile and runtime metadata; compute their hashes;
+3. write the **final manifest** with `verificationStatus="verified"` and that `qualificationId`; compute the final manifest SHA-256;
+4. write the qualification record containing the final manifest/checkpoint/config/profile/runtime hashes and all mandatory `passed` gates;
+5. run `verify_release_selection()` and `tools/verify_repo.py` against the final pair.
 
-Run:
-
-```powershell
-python tools/verify_repo.py
-```
-
-Expected: PASS only when manifest, profile, runtime locks, and qualification evidence all match.
+The manifest references qualification by ID; the qualification record may hash the manifest. Do not make the manifest hash the qualification record, which would create a circular identity.
 
 - [ ] **Step 8: Commit qualification metadata only**
 
@@ -1409,7 +1192,7 @@ git add models/manifests models/qualifications src/vision/config/pipelines src/v
 git commit -m "test: qualify phase1 RTMDet ByteTrack runtime"
 ```
 
-Never add the external CCTV corpus or model checkpoint to Git.
+Never add external CCTV or the checkpoint to Git.
 
 ---
 
@@ -1417,47 +1200,33 @@ Never add the external CCTV corpus or model checkpoint to Git.
 
 **Files:**
 - No new production files expected.
-- Modify only files required by failures proven during this verification task; every fix receives its own regression test and commit.
+- Any defect found here gets its own focused regression test and fix commit before rerunning the affected full gate.
 
-**Interfaces:**
-- Definition of Done is the Revision-2 spec Section 28 plus all global constraints in this plan.
-
-- [ ] **Step 1: Run the complete Python test suite on Linux**
-
-```bash
-cd src/vision
-python -m pytest -q
-```
-
-Expected: zero failures/skips other than tests explicitly platform/hardware-gated by design.
-
-- [ ] **Step 2: Run the complete Python test suite on Windows**
+- [ ] **Step 1: Run complete Python suite on Linux and Windows**
 
 ```powershell
 cd src/vision
 python -m pytest -q
 ```
 
-Expected: Windows staging tests execute rather than skip; POSIX-only attack tests may skip for explicit platform reasons.
+Zero failures; only explicitly platform/hardware-gated skips are acceptable.
 
-- [ ] **Step 3: Run repository verification**
+- [ ] **Step 2: Run repository verification**
 
 ```powershell
 python tools/verify_repo.py
 ```
 
-Expected: PASS, including release metadata/qualification consistency and no tracked model/media/secret files.
+Must pass release metadata/qualification consistency and no tracked model/media/secret checks.
 
-- [ ] **Step 4: Run the full .NET repository build/tests**
+- [ ] **Step 3: Run .NET build/tests**
 
 ```powershell
 dotnet build MAVI.sln --configuration Release
 dotnet test MAVI.sln --configuration Release --no-build
 ```
 
-Expected: zero failures.
-
-- [ ] **Step 5: Run frontend tests/typecheck/build**
+- [ ] **Step 4: Run frontend tests/typecheck/build**
 
 ```powershell
 cd src/web/mavi-web
@@ -1467,31 +1236,20 @@ npm run typecheck
 npm run build
 ```
 
-Expected: zero failures.
-
-- [ ] **Step 6: Re-run critical Task-9 lease/artifact regression tests explicitly**
+- [ ] **Step 5: Re-run critical Task-9 authority/artifact tests explicitly**
 
 ```powershell
 cd src/vision
-python -m pytest \
-  tests/test_lease_guard.py \
-  tests/test_lease_ownership_matrix.py \
-  tests/test_process_video.py \
-  tests/test_source_integrity.py \
-  tests/test_artifact_store.py \
-  tests/test_artifact_publisher.py \
-  -q
+python -m pytest tests/test_lease_guard.py tests/test_lease_ownership_matrix.py tests/test_process_video.py tests/test_source_integrity.py tests/test_artifact_store.py tests/test_artifact_publisher.py -q
 ```
 
-Expected: zero failures; no Task-10 change may weaken stale-worker protections.
+- [ ] **Step 6: Verify Task-11 authority did not leak into Python**
 
-- [ ] **Step 7: Verify no Task-11 authority leaked into Python**
+Search production Python for PostgreSQL clients/direct SQL and `/complete` implementation. Expected: none.
 
-Search production Python for PostgreSQL clients/direct SQL and any `/complete` result-submission implementation. Expected: none. The existing Task-11 boundary remains intact.
+- [ ] **Step 7: Push exact head and require hosted success on that SHA**
 
-- [ ] **Step 8: Push the exact implementation head and wait for hosted gates**
-
-Required GitHub checks on the exact head:
+Required checks:
 
 ```text
 MAVI Quality Gate               success
@@ -1499,40 +1257,28 @@ Vision Adapter Gate / ubuntu    success
 Vision Adapter Gate / windows   success
 ```
 
-Do not merge based on an earlier commit's green status.
+Earlier green commits do not satisfy this gate.
 
-- [ ] **Step 9: Request code review against the full Task-10 diff**
+- [ ] **Step 8: Request full-diff code review**
 
-Review specifically for:
+Review for framework-type leakage, hidden network paths, lease precedence, Windows reparse handling, cross-attempt state leakage, RGB/BGR errors, native-ID leakage, metadata drift, generic production thread-pool use, unsafe native-thread cancellation, and accidental Task-11 persistence.
 
-- MMDetection/Supervision/Trackers type leakage;
-- hidden network/download paths;
-- lease-loss precedence;
-- unsafe Windows path/reparse handling;
-- cross-attempt tracker/storage state leakage;
-- incorrect RGB/BGR conversion;
-- use of native tracker IDs as MAVI IDs;
-- unverified manifest/profile/runtime drift;
-- generic thread-pool use for production model processing;
-- unsafe in-process cancellation of hung native work;
-- accidental Task-11 persistence scope.
+- [ ] **Step 9: Audit the Revision-2 Definition of Done item-by-item**
 
-- [ ] **Step 10: Final Definition-of-Done audit**
+Every Section-28 requirement in the spec must point to fresh test, qualification, or exact-head CI evidence. Any unsupported item keeps Task 10 open.
 
-Check every item in `docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md` Section 28 against fresh test/qualification/CI evidence. If any item cannot be evidenced, Task 10 remains open.
+- [ ] **Step 10: After review corrections, rerun all affected full gates on the new head**
 
-- [ ] **Step 11: Commit any review-only documentation/evidence corrections and re-run exact-head gates**
-
-Only after the final head is green and review threads are resolved is the branch ready for the normal finishing/merge workflow.
+Only then use the normal finishing/merge workflow.
 
 ---
 
 ## Dependency and Task Ordering
 
 ```text
-Task 1  Runtime matrix qualification -----------------------------┐
-Task 2  Cross-platform secure staging ----------------------------┤
-                                                                  v
+Task 1  Runtime matrix + resolved-config feasibility ----------------┐
+Task 2  Cross-platform secure staging -------------------------------┤
+                                                                     v
 Task 3  Manifest/profile/qualification integrity
         |
         +--> Task 4 Runtime contracts/provenance/settings
@@ -1559,7 +1305,7 @@ Task 3  Manifest/profile/qualification integrity
                                                                                +--> Task 15 Closure
 ```
 
-Task 1 and Task 2 are deliberate feasibility gates. Do not bury failure of either gate under downstream implementation work.
+Tasks 1 and 2 are explicit feasibility gates. Do not bury failure of either gate under downstream implementation.
 
 ## Self-Review / Spec Coverage Matrix
 
@@ -1570,7 +1316,7 @@ Task 1 and Task 2 are deliberate feasibility gates. Do not bury failure of eithe
 | Dedicated execution lane | Tasks 5, 11 |
 | Secure Windows/POSIX staging | Task 2 |
 | Manifest/profile/qualification separation | Task 3 |
-| Resolved config + vocabulary integrity | Tasks 3, 7 |
+| Resolved config + vocabulary integrity | Tasks 1, 3, 7 |
 | Evidence-backed `verified` | Tasks 3, 14 |
 | RGB/BGR contract | Tasks 6, 7, 13, 14 |
 | ByteTrack pixel/timestamp/ordinal/empty-frame semantics | Task 8 |
@@ -1580,7 +1326,7 @@ Task 1 and Task 2 are deliberate feasibility gates. Do not bury failure of eithe
 | OOM recovery / poisoned runtime | Task 11 |
 | Hung native inference watchdog | Tasks 5, 11, 14 |
 | Complete dependency-graph qualification | Task 1 |
-| Offline hashed deployment | Task 12 |
+| Offline hashed deployment | Tasks 1, 12, 14 |
 | Windows + Linux hosted CI | Task 13 |
 | CCTV quality/performance baseline | Task 14 |
 | No generic second NMS/cap | Tasks 6, 14 |
@@ -1591,7 +1337,10 @@ Task 1 and Task 2 are deliberate feasibility gates. Do not bury failure of eithe
 
 ## Placeholder and Type-Consistency Review
 
-- No production version number is guessed where the architecture requires experimental qualification; Task 1 is the explicit gate that generates those exact values, and later tasks consume `runtime.json`.
-- `DetectorRuntime`, `RawDetection`, `ProcessingDependencyError`, `RuntimeDisposition`, `RuntimeProvenance`, `VisionExecutionLane`, `InferenceActivity`, `RTMDetDetector`, `ByteTrackTracker`, `ProductionVisionProcessor`, and `RuntimeSupervisor` are defined before later tasks consume them.
-- Existing Task-9 public interfaces (`Detector.detect`, `Tracker.update`, `VideoProcessor.process`, `StagingArtifactStore`) remain stable except for the explicitly planned model-neutral typed-error pass-through and production execution dispatch.
-- The plan contains no deferred `TODO`/`TBD` implementation steps; hardware-dependent evidence is an explicit acceptance gate rather than a hidden placeholder.
+- No production package version is guessed where the architecture explicitly requires experimental qualification; Task 1 generates exact values and every later packaging/runtime step consumes `runtime.json` and hash locks.
+- `DetectorRuntime`, `RawDetection`, `ProcessingDependencyError`, `RuntimeDisposition`, `RuntimeProvenance`, `ProcessExecutor`, `VisionExecutionLane`, `InferenceActivity`, `RTMDetDetector`, `ByteTrackTracker`, `ProductionVisionProcessor`, and `RuntimeSupervisor` are defined before downstream use.
+- `ProductionVisionProcessor.staging_factory` is consistently attempt-scoped as `Callable[[UUID, int], StagingArtifactStore]`; the composition root binds `media_root` once.
+- `WorkerRunner` receives the model-neutral `ProcessExecutor`; production passes `VisionExecutionLane`, while Task-9-compatible tests may use the default executor.
+- Qualification/manifest hashing has no circular dependency: manifest references qualification by ID; qualification may hash the final manifest.
+- Existing Task-9 public interfaces (`Detector.detect`, `Tracker.update`, `VideoProcessor.process`, `StagingArtifactStore`) remain stable except for the explicitly approved model-neutral typed-error pass-through and production execution dispatch.
+- Hardware-dependent results are explicit blocking acceptance gates, not deferred implementation placeholders.
