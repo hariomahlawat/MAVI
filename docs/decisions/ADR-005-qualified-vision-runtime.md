@@ -62,6 +62,8 @@ MAVI uses three distinct configuration layers:
 
 Behaviour-changing thresholds are not hard-coded into source and are not treated as model identity.
 
+Production requires a model/runtime marked `verified`. Development may explicitly use an `unverified` qualification status, but checkpoint/config hashes are still verified, provenance must show `unverified`, and remote model download remains prohibited.
+
 ### 5. Verify model and config before leasing
 
 Production workers load only explicit local artifacts.
@@ -76,7 +78,7 @@ Before a worker is eligible to lease a job it must:
 6. validate runtime compatibility;
 7. validate the requested device;
 8. construct the runtime;
-9. perform mandatory warm-up;
+9. perform mandatory in-memory synthetic warm-up;
 10. validate the detector output contract.
 
 A missing or invalid artifact, hash mismatch, incompatible runtime, unavailable requested GPU, or failed warm-up leaves the runtime unavailable and no job is leased.
@@ -97,9 +99,9 @@ Runtime recovery must not silently change model size, resolution, frame sampling
 
 Task 10 formally supports Windows and Linux through one source code path.
 
-CPU and real-model functional inference are qualified on both platforms. NVIDIA GPU functional inference is qualified on both where target hardware exists.
+Real-model CPU inference and real NVIDIA GPU inference are Task-10 functional qualification requirements on both platforms.
 
-Ubuntu/Linux + NVIDIA is the authoritative production-performance, long-run, and recovery qualification target.
+Ubuntu/Linux + NVIDIA is the authoritative production-performance, long-run, and recovery qualification target. Windows NVIDIA performance is informational, but Windows NVIDIA functional inference is mandatory before Task 10 is considered complete.
 
 ### 8. Qualify and freeze the ML runtime matrix
 
@@ -108,6 +110,8 @@ The repository's current Python `>=3.13` declaration is not treated as a product
 Task 10 first tests Python 3.12 and falls back to Python 3.11 if required by the stable OpenMMLab/PyTorch stack.
 
 The selected combination of Python, PyTorch, torchvision, MMCV, MMEngine, MMDetection, ByteTrack-related dependencies, and other required binaries is accepted only after real RTMDet-M inference succeeds on the supported platforms.
+
+If neither Python 3.12 nor Python 3.11 can satisfy the stable required Windows/Linux matrix, implementation pauses and the runtime decision is revisited rather than accepting an unqualified stack.
 
 Production deployment then uses exact qualified runtime locks/constraints rather than loose minimum-version resolution.
 
@@ -139,7 +143,7 @@ MAVI owns the external track-ID namespace; native tracker IDs are private adapte
 
 Only tracks matched to an actual current-frame detection emit `TrackCandidate` evidence. Predicted-only unmatched tracker state is retained internally but does not create MAVI observations or representative crops.
 
-Task 10 targets the current modern ByteTrack implementation (`trackers.ByteTrackTracker`) rather than the deprecated `supervision.ByteTrack` API.
+Task 10 uses `trackers.ByteTrackTracker` as the ByteTrack backend, with its exact package version frozen during runtime qualification. It does not build new code on the deprecated `supervision.ByteTrack` API.
 
 ### 11. Fail closed for inference but remain alive for diagnosis
 
@@ -192,7 +196,7 @@ Task 10 does not add PostgreSQL persistence or a completion contract. Task 11 ow
 
 - release engineering must maintain platform-specific qualified binary locks/wheelhouse manifests;
 - ML dependency upgrades become deliberate qualification events rather than casual package bumps;
-- real-model CPU/GPU qualification requires dedicated test environments and model artifacts outside Git;
+- real-model CPU/GPU qualification requires dedicated Windows and Linux test environments and model artifacts outside Git;
 - richer degraded-worker health reporting is deferred because worker-health-v2 remains frozen;
 - Task 10 does not yet make real tracks authoritative in PostgreSQL; Task 11 is still required.
 
@@ -208,7 +212,7 @@ Rejected as premature. MAVI defines the abstraction now but implements only the 
 
 ### Reuse deprecated `supervision.ByteTrack`
 
-Rejected because the API is deprecated and intended for removal. MAVI retains its own tracker contract and qualifies a current ByteTrack implementation underneath it.
+Rejected because the API is deprecated and intended for removal. MAVI retains its own tracker contract and uses a qualified current ByteTrack implementation underneath it.
 
 ### Production `auto` device fallback
 
