@@ -189,12 +189,14 @@ def check_vision_release_metadata(errors: list[str]) -> None:
             load_qualification_record,
             load_runtime_profile,
             verify_qualification_relationships,
+            verify_runtime_release_locks,
         )
     except ImportError as exc:
         fail(f"Vision release metadata tooling could not be imported: {exc}", errors)
         return
 
     tracked = tracked_files()
+    tracked_set = set(tracked)
     release_files = sorted(
         file_path
         for file_path in tracked
@@ -301,6 +303,7 @@ def check_vision_release_metadata(errors: list[str]) -> None:
     for path in runtime_paths:
         try:
             runtime_profile = load_runtime_profile(path)
+            verified_locks = verify_runtime_release_locks(path, runtime_profile)
             runtime_hash = sha256_release_file(path)
         except ReleaseMetadataError as exc:
             fail(
@@ -308,6 +311,14 @@ def check_vision_release_metadata(errors: list[str]) -> None:
                 errors,
             )
             continue
+
+        for variant, lock_path in verified_locks.items():
+            if lock_path not in tracked_set:
+                fail(
+                    f"Qualified runtime lock for {variant} is not tracked: "
+                    f"{lock_path.relative_to(ROOT)}",
+                    errors,
+                )
         runtime_id = runtime_profile.runtime_profile_id
         if runtime_id in runtimes:
             fail(f"Duplicate runtimeProfileId: {runtime_id}", errors)
