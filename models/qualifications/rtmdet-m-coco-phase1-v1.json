@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1.0",
+  "qualificationId": "rtmdet-m-coco-phase1-v1",
+  "modelId": "rtmdet-m-coco-phase1",
+  "modelManifestSha256": "0049875d8190af7f268b4613cba99afef8a9f0d39a64471fd84f9ab0bc8d8d7d",
+  "checkpointSha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
+  "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+  "pipelineProfileId": "phase1-detection-tracking-v1",
+  "pipelineProfileSha256": "553b422f56282325325c0c1eecd2e8476dbd47bdd684257b3e78cb9d091a9256",
+  "runtimeProfileId": "mmdetection-phase1-v1",
+  "runtimeProfileSha256": "27b6e21943da4f39f6b4fee31da7d15130473e4335b955fe95b530134da56d79",
+  "requiredGates": {
+    "windows-x86_64-cpu": "passed",
+    "windows-x86_64-cuda": "pending",
+    "linux-x86_64-cpu": "passed",
+    "linux-x86_64-cuda": "pending",
+    "windows-offline-install": "pending",
+    "linux-offline-install": "pending",
+    "cctv-quality-baseline": "pending",
+    "linux-nvidia-recovery-performance": "pending"
+  },
+  "evidence": {
+    "windows-x86_64-cpu": {
+      "kind": "github-actions",
+      "reference": "run=34623326104;job=103342319357;artifact=10274240528;head=5528c5cfdb945f69ddac47bbe14089f488b3f77f",
+      "sha256": "43803251bbb543e666f6307827a09540d5ab6bc11fff76e0b0f085b1cbf46873"
+    },
+    "linux-x86_64-cpu": {
+      "kind": "github-actions",
+      "reference": "run=34623326104;job=103342319649;artifact=10273670517;head=5528c5cfdb945f69ddac47bbe14089f488b3f77f",
+      "sha256": "734173f898f1ab13b45c7546784c77ebf5e5cda88b2d8a416a399e741c35c8af"
+    }
+  },
+  "overallResult": "pending"
+}

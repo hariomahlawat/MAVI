@@ -36,11 +36,17 @@ permissions:
 
 jobs:
   cpu-candidate:
-    name: CPU ${{ matrix.os }} Python 3.12 Torch 2.6.0
+    name: CPU ${{ matrix.os }} Python ${{ matrix.python-version }} Torch 2.6.0
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            python-version: '3.12.14'
+            runtime-variant: linux-x86_64-cpu
+          - os: windows-latest
+            python-version: '3.12.10'
+            runtime-variant: windows-x86_64-cpu
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -49,13 +55,14 @@ jobs:
       RTMDET_CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
       RTMDET_CHECKPOINT_SHA256: 229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b
       MAVI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      MAVI_RUNTIME_VARIANT: ${{ matrix.runtime-variant }}
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install compatible build tooling
         run: >-
@@ -129,6 +136,8 @@ jobs:
           python - <<'PY'
           import importlib.metadata
           import json
+          import os
+          import platform
           import av
           import cv2
           import mmcv
@@ -165,7 +174,34 @@ jobs:
                   "runtime_semantic_graph_mismatch:"
                   + json.dumps({"actual": actual, "expected": expected}, sort_keys=True)
               )
+
+          variant_name = os.environ["MAVI_RUNTIME_VARIANT"]
+          expected_python = profile["platformVariants"][variant_name]["pythonIdentity"]
+          actual_python = {
+              "version": platform.python_version(),
+              "implementation": platform.python_implementation(),
+              "build": list(platform.python_build()),
+              "compiler": platform.python_compiler(),
+          }
+          if actual_python != expected_python:
+              raise SystemExit(
+                  "runtime_python_identity_mismatch:"
+                  + json.dumps(
+                      {
+                          "variant": variant_name,
+                          "actual": actual_python,
+                          "expected": expected_python,
+                      },
+                      sort_keys=True,
+                  )
+              )
+
           print("runtime-semantic-graph-ok", json.dumps(actual, sort_keys=True))
+          print(
+              "runtime-python-identity-ok",
+              variant_name,
+              json.dumps(actual_python, sort_keys=True),
+          )
           PY
 
       - name: Resolve official RTMDet-M config and fetch checkpoint

@@ -13,10 +13,11 @@
 ## Current Execution Status — 2026-09-11
 
 - **Task 1 remains open as a release-qualification task.** Bounded Tasks 1A/1B are complete: the frozen Python 3.12 hosted CPU semantic graph, self-contained resolved RTMDet-M config, restricted checkpoint loading, and real Linux/Windows CPU inference are verified. Linux/Windows NVIDIA qualification and hashed offline wheelhouse locks remain pending and must not be inferred.
-- **Task 2 baseline is complete; a bounded corrective checkpoint is now being applied before Task 3.** The checkpoint enforces the frozen resolved-config hash in CI, preserves a complete non-hidden evidence set, hardens resolver source/output identity and atomic publication, and adds native Windows post-replace rollback plus native-name length regressions.
-- **Tasks 3–11 and Task 13 are framework-neutral implementation work and may proceed after the corrective checkpoint is green.** They must continue to mark the runtime as partially qualified and must not claim production `verified` status.
+- **Task 2 and corrective Task 2A are complete.** Frozen resolved-config identity is enforced in CI, qualification evidence is preserved as a complete non-hidden artifact set, resolver publication is alias-safe/atomic, and native Windows staging includes the additional post-replace rollback and native-name length regressions.
+- **Task 3 is complete.** MAVI now has strict model-manifest, pipeline-profile and qualification-record loaders; exact-byte release identities; trusted-root/no-link artifact resolution; an evidence-backed `VerifiedReleaseSelection`; and repository verification that explicitly prevents a pending release from being presented as production-qualified.
+- **Tasks 4–11 and Task 13 remain framework-neutral implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status.
 - **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task after this checkpoint:** Task 3 — model manifest, pipeline profile, qualification record, and exact-byte integrity.
+- **Next implementation task:** Task 4 — framework-neutral runtime contracts, typed failures, device policy and provenance.
 
 ## Global Constraints
 
@@ -474,7 +475,7 @@ The public `StagingArtifactStore` constructor and methods remain unchanged. Shar
 
 ### Task 2A — Corrective Qualification/Evidence and Staging Hardening Checkpoint
 
-**Status:** IMPLEMENTED on the corrective branch; hosted exact-head verification is required before merge and before Task 3 begins.
+**Status (verified 2026-09-11): COMPLETE.** PR #18 was squash-merged as `a4cea8ab2db21bc62d2bb9033bcee2af0886e4ab` after all corrective acceptance gates passed on exact head `5528c5cfdb945f69ddac47bbe14089f488b3f77f`.
 
 This checkpoint is intentionally bounded. It does not redesign Task 1 or Task 2 and does not add production detector/tracker functionality.
 
@@ -484,14 +485,20 @@ This checkpoint is intentionally bounded. It does not redesign Task 1 or Task 2 
 - [x] Resolver validation/reload/equivalence checks occur entirely against a temporary candidate; only a validated candidate is atomically promoted with `os.replace`, so failed validation cannot destroy a previously valid output.
 - [x] Native Windows staging validates UTF-16 component length before populating the 16-bit `UNICODE_STRING` length fields and rejects embedded NUL/oversized components with the shared logical error boundary.
 - [x] Native Windows regression coverage now substitutes the logical parent **after** handle-relative replacement and proves rollback deletes the exact published handle rather than any redirected logical path.
-- [ ] Hosted MAVI Quality Gate passes on the exact corrective head.
-- [ ] Task 10 Runtime Qualification passes on Linux and Windows on the exact corrective head.
-- [ ] Task 10 Staging Security passes on Linux and native Windows on the exact corrective head.
-- [ ] Post-green evidence IDs/head SHA are recorded here before the checkpoint is declared COMPLETE.
+- [x] Hosted MAVI Quality Gate #170, run `34623326074`, passed on the exact corrective head.
+- [x] Task 10 Runtime Qualification #27, run `34623326104`, passed on Linux and Windows on the exact corrective head.
+- [x] Task 10 Staging Security #7, run `34623326049`, passed on Linux and native Windows on the exact corrective head.
+- [x] Qualification artifacts are preserved as Windows artifact `10274240528` (SHA-256 `43803251bbb543e666f6307827a09540d5ab6bc11fff76e0b0f085b1cbf46873`) and Ubuntu artifact `10273670517` (SHA-256 `734173f898f1ab13b45c7546784c77ebf5e5cda88b2d8a416a399e741c35c8af`).
 
 ---
 
 ### Task 3: Add Model Manifest, Pipeline Profile, Qualification Record, and Exact-Byte Integrity
+
+**Status (verified 2026-09-11): COMPLETE, including post-review hardening.** The Task-3 implementation and review corrections passed MAVI Quality Gate #195 (run `34631805521`), Task 10 Staging Security #32 (run `34631805597`), and Task 10 Runtime Qualification #52 (run `34631805690`) on exact implementation head `da44c41976ae15a44efa4178cbc41961e79b168e`.
+
+Post-review hardening is part of the Task-3 acceptance boundary: every passed qualification gate now requires integrity-backed evidence; repository verification validates every tracked manifest/profile/qualification/runtime metadata record and all cross-record identities; `runtime.json` is strictly schema-validated; every qualified offline lock is resolved from the trusted runtime root and exact-byte SHA-256 checked; and every qualified platform carries an exact Python interpreter identity. Hosted CPU qualification is pinned to Linux CPython 3.12.14 and Windows CPython 3.12.10, and CI verifies those frozen interpreter identities before inference.
+
+The committed Phase-1 manifest deliberately remains `verificationStatus="unverified"`; the qualification record keeps CUDA, offline-install, CCTV-quality and Linux NVIDIA recovery/performance gates `pending`. The initial analytical thresholds/ByteTrack values are therefore candidate profile values, not production-qualified tuning. Task 14 owns final tuning/acceptance and the evidence-backed transition to `verified`.
 
 **Files:**
 - Create: `src/vision/mavi_vision/runtime/manifest.py`
@@ -562,7 +569,7 @@ def load_qualification_record(path: Path) -> QualificationRecord: ...
 def verify_release_selection(...) -> VerifiedReleaseSelection: ...
 ```
 
-- [ ] **Step 1: Lock exact-byte repository rules**
+- [x] **Step 1: Lock exact-byte repository rules**
 
 Create:
 
@@ -574,35 +581,35 @@ Create:
 
 Write tests rejecting BOM-bearing qualified JSON and CRLF in release JSON/lock files. `sha256_release_file()` hashes exact on-disk UTF-8 bytes; it does not parse/re-serialize JSON first.
 
-- [ ] **Step 2: Write failing manifest validation tests**
+- [x] **Step 2: Write failing manifest validation tests**
 
 Cover absolute/URL/backslash/`..` artifact paths, malformed SHA-256, empty/duplicate vocabulary, verified-without-qualification ID, and model-root escape via filesystem link/reparse component.
 
-- [ ] **Step 3: Implement strict manifest loading and trusted-root containment**
+- [x] **Step 3: Implement strict manifest loading and trusted-root containment**
 
 Use `extra="forbid"` semantics. Artifact paths are logical forward-slash relative paths only. Release-path verification walks from the configured model root and rejects link/reparse redirection; do not rely solely on string prefix comparison after `resolve()`.
 
-- [ ] **Step 4: Write and implement pipeline-profile validation**
+- [x] **Step 4: Write and implement pipeline-profile validation**
 
 The profile includes detector floor, the five allowed source classes, exact class mapping, explicit ByteTrack parameters, and `framePolicy="every-frame"`. Do **not** add a generic `maxDetections` field in Task 10. Numeric thresholds must have explicit validated ranges; mapping keys must exist in the selected manifest vocabulary.
 
-- [ ] **Step 5: Implement immutable exact-byte profile identity**
+- [x] **Step 5: Implement immutable exact-byte profile identity**
 
 The provenance hash is `sha256_release_file(profile_path)` rather than JSON canonical reserialization.
 
-- [ ] **Step 6: Write and implement qualification-evidence verification**
+- [x] **Step 6: Write and implement qualification-evidence verification**
 
 A manifest marked `verified` is accepted only when the referenced qualification file exists and model/checkpoint/config/profile/runtime hashes all match, runtime IDs match, and every mandatory gate is `passed`. Development `unverified` requires explicit `allow_unverified=True`; checkpoint/config integrity still applies.
 
-- [ ] **Step 7: Implement `verify_release_selection()`**
+- [x] **Step 7: Implement `verify_release_selection()`**
 
 Return one frozen `VerifiedReleaseSelection` carrying the loaded manifest/profile/qualification/runtime identities, exact hashes, and resolved local artifact paths. Production runtime construction consumes this object and does not re-resolve configuration ad hoc.
 
-- [ ] **Step 8: Extend repository verification**
+- [x] **Step 8: Extend repository verification**
 
 `tools/verify_repo.py` validates manifest/profile/qualification JSON, lowercase SHA-256 format, path/URL rules, LF/no-BOM, identity consistency, and the existing no-weight/media/secret rule. Before Task 14, the committed manifest remains explicitly `unverified`; repository verification must not report it as production-qualified.
 
-- [ ] **Step 9: Run and commit**
+- [x] **Step 9: Run and commit**
 
 ```powershell
 cd src/vision

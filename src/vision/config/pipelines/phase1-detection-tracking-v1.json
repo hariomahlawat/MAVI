@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0",
+  "profileId": "phase1-detection-tracking-v1",
+  "profileVersion": "1.0.0-candidate",
+  "modelId": "rtmdet-m-coco-phase1",
+  "detectorInferenceFloor": 0.05,
+  "allowedSourceClasses": [
+    "person",
+    "car",
+    "motorcycle",
+    "bus",
+    "truck"
+  ],
+  "classMapping": {
+    "person": "person",
+    "car": "vehicle",
+    "motorcycle": "vehicle",
+    "bus": "vehicle",
+    "truck": "vehicle"
+  },
+  "tracker": {
+    "trackActivationThreshold": 0.25,
+    "highConfidenceThreshold": 0.6,
+    "minimumMatchingThreshold": 0.8,
+    "minimumConsecutiveFrames": 1,
+    "lostTrackBufferSeconds": 1.0
+  },
+  "framePolicy": "every-frame"
+}
