@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   cpu-candidate:
-    name: CPU ${{ matrix.os }} Python 3.12 Torch 2.2.2
+    name: CPU ${{ matrix.os }} Python 3.12 Torch 2.6.0
     strategy:
       fail-fast: false
       matrix:
@@ -40,8 +40,8 @@ jobs:
       - name: Install candidate PyTorch CPU build
         run: >-
           python -m pip install
-          torch==2.2.2
-          torchvision==0.17.2
+          torch==2.6.0
+          torchvision==0.21.0
           --index-url https://download.pytorch.org/whl/cpu
 
       - name: Verify PyTorch NumPy-2 bridge before MMCV build
@@ -106,7 +106,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: runtime-probe-${{ matrix.os }}-py3.12-torch2.2.2
+          name: runtime-probe-${{ matrix.os }}-py3.12-torch2.6.0
           path: |
             runtime-probe.json
             missing.err
