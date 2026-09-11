@@ -283,6 +283,8 @@ Task 10 production uses a **self-contained resolved deployment config** created 
 
 The config and checkpoint are trusted release artifacts, never job-controlled input. Because Python/MMDetection checkpoints/configuration can execute or deserialize privileged code paths, arbitrary user-supplied model/config files are never accepted by the worker.
 
+Checkpoint provenance names the upstream publisher, immutable artifact URL/release identity, and a full expected SHA-256 that is reviewed and committed independently of the downloaded bytes. Recomputing a digest after an arbitrary download checks transfer consistency only; it does not authenticate provenance. Qualification and production therefore reject a missing or mismatched artifact before model construction. Where an otherwise qualified dependency changes checkpoint loading defaults, MAVI retains restricted deserialization and may use a lexical `torch.serialization.safe_globals` scope containing only types explicitly reviewed for the pinned checkpoint. It must not use unrestricted loading, dynamically allowlist reported names, mutate a permanent process-wide allowlist, or accept a checkpoint merely because its self-computed digest is recorded alongside it.
+
 ### 7.3 Pipeline profile: versioned analytical behaviour
 
 Reference path:

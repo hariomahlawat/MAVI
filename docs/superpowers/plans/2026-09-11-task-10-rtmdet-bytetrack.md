@@ -131,7 +131,7 @@ The existing public import `mavi_vision.storage.artifact_store.StagingArtifactSt
 **Interfaces:**
 - Produces: `runtime.json` containing `runtimeProfileId`, selected Python minor, exact semantic package versions/build identities, platform/device qualification states, and hashes of the four lock files.
 - Produces: `resolve_mmdet_config.py --input <source-config> --output <resolved-config>` that loads the source config through MMEngine, fully resolves inherited `_base_` content, emits one local deployment config, and rejects unresolved URL/environment-driven analytical dependencies.
-- Produces: `probe_runtime.py --config <local-resolved-config> --checkpoint <local-checkpoint> --device cpu|cuda` returning exit code 0 only after real RTMDet-M inference completes.
+- Produces: `probe_runtime.py --config <local-resolved-config> --checkpoint <local-checkpoint> --checkpoint-sha256 <reviewed-full-digest> --device cpu|cuda` returning exit code 0 only after real RTMDet-M inference completes.
 - Later tasks consume exact values from `runtime.json`; they must not duplicate dependency constants.
 
 - [ ] **Step 1: Implement and test resolved-config generation in a candidate environment**
@@ -177,7 +177,7 @@ After version capture, load only the explicit local resolved config/checkpoint, 
 Run with a nonexistent checkpoint while outbound network is disabled or blocked for the process:
 
 ```powershell
-python tools/vision/probe_runtime.py --config <qualification-root>/rtmdet_m_resolved.py --checkpoint <qualification-root>/missing.pth --device cpu
+python tools/vision/probe_runtime.py --config <qualification-root>/rtmdet_m_resolved.py --checkpoint <qualification-root>/missing.pth --checkpoint-sha256 <reviewed-full-digest> --device cpu
 ```
 
 Expected: non-zero exit before inference, with no download-created file or cache entry.
@@ -190,6 +190,7 @@ Create a clean Python 3.12 environment, install one internally consistent stable
 python tools/vision/probe_runtime.py \
   --config /qualification/rtmdet_m_resolved.py \
   --checkpoint /qualification/rtmdet_m.pth \
+  --checkpoint-sha256 <reviewed-full-digest> \
   --device cpu > linux-cpu-probe.json
 ```
 
@@ -201,6 +202,7 @@ Acceptance: real inference exits 0 and the record contains the entire graph. If 
 python tools/vision/probe_runtime.py `
   --config C:\qualification\rtmdet_m_resolved.py `
   --checkpoint C:\qualification\rtmdet_m.pth `
+  --checkpoint-sha256 <reviewed-full-digest> `
   --device cpu > windows-cpu-probe.json
 ```
 
@@ -258,6 +260,33 @@ git commit -m "build: qualify phase1 vision runtime matrix"
 ```
 
 **Reviewer gate:** Reject if any platform/device result is inferred rather than executed, the resolved config still depends on its source tree, real RTMDet-M inference was skipped, or dependency conflicts were bypassed with `--no-deps`.
+
+---
+
+### Task 1A — Checkpoint-loading compatibility and dual-platform CPU smoke gate
+
+**Status and evidence boundary (2026-09-11):** Task 9 commit `f151a70ac2f1d702e25bb504ddb9c4ce144d46d8` remains the accepted integration baseline. The reviewed Task 10 head `f544282b0973f702c26ae8f264529bf3143d2e2f` contains design and qualification tooling only; it does not contain production RTMDet or ByteTrack adapters. GitHub Actions run [34586855486](https://github.com/hariomahlawat/MAVI/actions/runs/34586855486), Linux job [103222954195](https://github.com/hariomahlawat/MAVI/actions/runs/34586855486/job/103222954195), and Windows job [103222954416](https://github.com/hariomahlawat/MAVI/actions/runs/34586855486/job/103222954416) passed the five then-current probe tests, PyTorch/NumPy bridge, built MMCV, dependency imports, official artifact download, and missing-checkpoint rejection. Both failed in `init_detector` before inference with PyTorch 2.6 restricted loading rejecting `mmengine.logging.history_buffer.HistoryBuffer`. MMEngine 0.10.7's installed local loader calls `torch.load` without `weights_only`, so PyTorch 2.6 applies its restricted default. This is the observed first blocker, not evidence that inference or the complete runtime is qualified.
+
+**Bounded correction:** Pin the official OpenMMLab RTMDet-M model-zoo URL and full SHA-256 in qualification CI; reject absent or mismatched checkpoint bytes before heavyweight imports/model loading; and wrap only `init_detector` in `torch.serialization.safe_globals` containing the checkpoint types individually reviewed against the pinned artifact. Keep restricted loading: no `weights_only=False`, environment escape hatch, global monkey patch, permanent allowlist, discovered-name auto-allowlisting, conversion, model/backend/version substitution, or job-controlled config/checkpoint input. Preserve local-only paths and the proven Windows absolute-path behavior. Validate accessible prediction boxes, scores, and labels, shape agreement, and finite numeric values; zero detections remain valid.
+
+The reviewed scoped set is `mmengine.logging.history_buffer.HistoryBuffer` (serialized training history), NumPy's legacy-named `_reconstruct` and `scalar` callables, `numpy.ndarray`, `numpy.dtype`, and the constructed `Float64DType` and `Int64DType` classes required by that history. These were established by iterative restricted loads of the pinned artifact—not by bulk-importing reported names—and no additional type is admitted. The checkpoint is the official OpenMMLab artifact `rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth`; its reviewed, workflow-pinned SHA-256 is `229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b`. The official HTTPS model-zoo location plus maintainer-reviewed pinned digest is the trust anchor; recomputing that digest is only the subsequent integrity check.
+
+**Acceptance criteria:**
+
+- [x] A regression first reproduced the absent digest/scoped-loading behavior, then passed after the correction.
+- [x] Missing/mismatched checkpoints fail before heavyweight model loading; remote URLs remain rejected; relative and Windows absolute paths remain covered.
+- [x] Scoped permissions contain only reviewed types and are removed on success and failure; no unrestricted fallback exists.
+- [ ] Real RTMDet-M CPU inference passes on Linux and native Windows at the same final branch commit.
+- [ ] Exact-head artifacts contain parseable probe JSON, separate diagnostic output/error logs, exit code, dependency/OS/device identity, config/checkpoint identity, and workflow/job/commit references.
+- [x] Local verification passed: `python tools/verify_repo.py`, and the supported Python 3.13 MAVI environment completed all 159 existing Python tests. This is local core-regression evidence, not ML inference evidence.
+
+**Evidence semantics:** Requirements describe intended behavior; checked items identify implemented code with passing local regression evidence. The historical hosted failures remain preserved and are not marked resolved until a later exact-head hosted run passes. A locally inspected checkpoint or mocked unit test is not real-inference evidence. CPU smoke success, once obtained, will not imply GPU, offline installation, native Windows end-to-end artifact staging, detection quality, full dependency-graph qualification, or production `verified` status.
+
+Local restricted-load inspection on Python 3.12.13, PyTorch 2.6.0+cpu, MMEngine 0.10.7, and the pinned checkpoint loaded all 694 `state_dict` entries with the reviewed scope and proved the pre-existing safe-global set was identical after exit. This establishes checkpoint-deserialization compatibility only; real `init_detector` plus inference remains a hosted gate.
+
+After implementation, a local Linux x86_64 run of the full probe passed real `init_detector` and CPU inference with Python 3.12.13, PyTorch 2.6.0+cpu, torchvision 0.21.0+cpu, MMCV 2.1.0 compiled ops, MMEngine 0.10.7, MMDetection 3.3.0, and the pinned checkpoint. The emitted stdout parsed as JSON and reported an accessible, shape-compatible, finite `DetDataSample` prediction. This is useful Linux development evidence, but it does not satisfy the two-platform hosted acceptance item or supersede run 34586855486 until the final commit is pushed and both jobs pass.
+
+**Deferred:** Complete-runtime qualification and Python/package alignment remain the next bounded milestone. Do not change the current MAVI/core-CI Python 3.13 baseline or `requires-python` in Task 1A; the isolated ML candidate remains Python 3.12. All Tasks 2–15 and production RTMDet/ByteTrack worker implementation remain unfinished.
 
 ---
 
@@ -761,7 +790,7 @@ Wrap activity start/completion in `try/finally`; convert RGB once; run MMDetecti
 ```powershell
 cd src/vision
 python -m pytest tests/test_rtmdet_colour_space.py tests/test_rtmdet_mapping.py tests/test_rtmdet_geometry.py -q
-python ../../tools/vision/probe_runtime.py --config <resolved-config> --checkpoint <checkpoint> --device cpu
+python ../../tools/vision/probe_runtime.py --config <resolved-config> --checkpoint <checkpoint> --checkpoint-sha256 <reviewed-full-digest> --device cpu
 ```
 
 Expected: all fast tests pass; real smoke passes without network access and vocabulary matches.

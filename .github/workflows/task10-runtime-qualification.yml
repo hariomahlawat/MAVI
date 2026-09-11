@@ -8,6 +8,9 @@ on:
       - 'tools/vision/probe_runtime.py'
       - 'src/vision/tests/test_runtime_probe.py'
       - '.github/workflows/task10-runtime-qualification.yml'
+      - 'docs/decisions/ADR-005-qualified-vision-runtime.md'
+      - 'docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md'
+      - 'docs/superpowers/plans/2026-09-11-task-10-rtmdet-bytetrack.md'
   workflow_dispatch:
 
 permissions:
@@ -26,6 +29,7 @@ jobs:
       MMCV_WITH_OPS: '1'
       MAX_JOBS: '2'
       RTMDET_CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
+      RTMDET_CHECKPOINT_SHA256: 229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b
 
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +103,7 @@ jobs:
           python tools/vision/probe_runtime.py \
             --config .qualification-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
             --checkpoint .qualification-missing.pth \
+            --checkpoint-sha256 "$RTMDET_CHECKPOINT_SHA256" \
             --device cpu 2> missing.err
           code=$?
           set -e
@@ -112,6 +117,7 @@ jobs:
           python tools/vision/probe_runtime.py \
             --config .qualification-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
             --checkpoint .qualification-rtmdet-m.pth \
+            --checkpoint-sha256 "$RTMDET_CHECKPOINT_SHA256" \
             --device cpu > runtime-probe.json 2> runtime-probe.err
           code=$?
           printf '%s\n' "$code" > runtime-probe.exitcode
