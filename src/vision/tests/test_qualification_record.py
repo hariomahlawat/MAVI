@@ -115,7 +115,11 @@ def _release_fixture(
         for gate_name in sorted(MANDATORY_QUALIFICATION_GATES)
     }
     evidence = {
-        gate_name: {"kind": "test", "reference": f"evidence:{gate_name}"}
+        gate_name: {
+            "kind": "test",
+            "reference": f"evidence:{gate_name}",
+            "sha256": _sha(f"evidence:{gate_name}".encode("utf-8")),
+        }
         for gate_name, status in gate_status.items()
         if status == "passed"
     }
@@ -269,3 +273,25 @@ def test_qualification_record_rejects_unknown_fields(tmp_path: Path) -> None:
 
     with pytest.raises(ReleaseMetadataError, match="qualification_record_invalid"):
         load_qualification_record(paths["qualification"])
+
+def test_qualification_record_requires_integrity_hash_for_passed_evidence(
+    tmp_path: Path,
+) -> None:
+    paths = _release_fixture(tmp_path, verified=True, all_gates_passed=True)
+    qualification = json.loads(paths["qualification"].read_text(encoding="utf-8"))
+    qualification["evidence"]["windows-x86_64-cpu"].pop("sha256")
+    _write_json(paths["qualification"], qualification)
+
+    with pytest.raises(ReleaseMetadataError, match="qualification_record_invalid"):
+        load_qualification_record(paths["qualification"])
+
+
+def test_qualification_record_rejects_malformed_evidence_hash(tmp_path: Path) -> None:
+    paths = _release_fixture(tmp_path, verified=True, all_gates_passed=True)
+    qualification = json.loads(paths["qualification"].read_text(encoding="utf-8"))
+    qualification["evidence"]["windows-x86_64-cpu"]["sha256"] = "A" * 64
+    _write_json(paths["qualification"], qualification)
+
+    with pytest.raises(ReleaseMetadataError, match="qualification_record_invalid"):
+        load_qualification_record(paths["qualification"])
+
