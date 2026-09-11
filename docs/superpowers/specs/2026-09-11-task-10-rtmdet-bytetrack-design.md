@@ -21,7 +21,7 @@ The guiding invariant is:
 
 Task 9 already provides a deterministic Python processing pipeline with the following properties:
 
-- `VideoProcessor` depends only on model-neutral `Detector` and `Tracker` protocols.
+- `VideoProcessor` depends only on model-neutral `Detector` and `Tracker` protocols;
 - detections and tracks use normalized MAVI analytical models;
 - source integrity is verified before decoding;
 - media-relative timing is derived from decoded frame PTS;
@@ -237,12 +237,12 @@ The profile owns behaviour-affecting policy including:
 - detector inference floor;
 - allowed detector source classes;
 - source-class to MAVI-class mapping;
-- maximum accepted detections if required;
 - ByteTrack parameters;
 - frame policy;
 - every-frame sampling for Task 10;
-- quality-policy version if needed;
-- other qualified detection/tracking parameters.
+- an optional `maxDetections` cap.
+
+If `maxDetections` is absent, MAVI applies no additional generic cap beyond the backend's qualified output. If it is present, the cap is a behaviour-affecting profile value and therefore part of the profile version and provenance.
 
 Thresholds are not hard-coded into source and are not treated as model identity.
 
@@ -278,12 +278,26 @@ load deployment settings
     -> runtime compatibility validation
     -> device validation
     -> construct model runtime
-    -> mandatory warm-up
+    -> mandatory synthetic warm-up
     -> output-contract validation
     -> READY
 ```
 
+The warm-up frame is generated in memory and is not derived from operational evidence. It verifies the configured runtime/device/model path before any evidence job is leased.
+
 Missing artifacts, hash mismatches, incompatible runtime versions, malformed profile data, or failed warm-up prevent leasing.
+
+### 6.5 Verification policy
+
+Production requires:
+
+- correctly formed manifest/config/profile documents;
+- exact checkpoint and config SHA-256 matches;
+- `verificationStatus = verified` for the selected model/runtime qualification;
+- a qualified runtime profile;
+- successful warm-up and output-contract validation.
+
+Development may explicitly permit `verificationStatus = unverified` for experimentation. This is opt-in rather than the default; checkpoint/config hashes are still verified for integrity, an explicit warning is emitted, provenance records `unverified`, and no remote model download is permitted. An unverified model can never satisfy the production/offline qualification gate.
 
 ## 7. Provenance
 
@@ -364,7 +378,13 @@ The mapping is profile-driven against the manifest-declared class vocabulary. Ap
 
 ### 8.5 Deterministic adapter ordering
 
-After validation, detections are fed into tracking in a canonical order. The exact stable tuple is frozen by tests and includes class, descending confidence, and bounding-box coordinates as tie-breakers.
+After validation and class mapping, detections are emitted in the canonical tuple order:
+
+```text
+(object_class.value, -confidence, bbox.x, bbox.y, bbox.width, bbox.height)
+```
+
+Exact duplicate tuples are semantically indistinguishable at the MAVI detection boundary, so their relative order cannot change analytical meaning.
 
 This does not promise bit-for-bit GPU equality across all hardware. It prevents avoidable MAVI-side nondeterminism after inference.
 
@@ -372,9 +392,9 @@ This does not promise bit-for-bit GPU equality across all hardware. It prevents 
 
 ### 9.1 Implementation selection
 
-Task 10 shall not build on the deprecated `supervision.ByteTrack` API. MAVI will use its own `Tracker` protocol with a qualified modern ByteTrack implementation underneath, currently targeted at `trackers.ByteTrackTracker`.
+Task 10 shall not build on the deprecated `supervision.ByteTrack` API. MAVI will qualify and use `trackers.ByteTrackTracker` underneath its own `Tracker` protocol. The exact package version is frozen as part of `mmdetection-phase1-v1` qualification.
 
-Any `supervision` dependency is treated only as a qualified data-format/transitive dependency if required by the tracker library; MAVI domain/pipeline code shall not depend directly on Supervision objects.
+Any `supervision` dependency is treated only as a qualified data-format/transitive dependency required by that tracker implementation; MAVI domain/pipeline code shall not depend directly on Supervision objects.
 
 ### 9.2 Separate association domains
 
@@ -400,7 +420,7 @@ vehicle-000001
 vehicle-000002
 ```
 
-Counters restart per video/attempt. Simultaneously created native tracks are canonicalized before MAVI IDs are assigned so the output does not depend on process-global third-party counters or arbitrary library iteration order.
+Counters restart per video/attempt. New tracks first observed on the same frame are ordered by their canonical current-frame observation tuple `(bbox.x, bbox.y, bbox.width, bbox.height, -confidence)`. If two observations are exactly equal on that full tuple, the adapter uses the stable current-frame detection ordinal established by the canonical detector ordering; it never uses the third-party native track counter as the MAVI ordering source.
 
 The exact external ID format must remain within the existing `TrackCandidate.track_id` contract.
 
@@ -455,10 +475,10 @@ Windows and Linux both require functional qualification for:
 - ByteTrack integration;
 - end-to-end MP4 processing;
 - CPU mode;
-- NVIDIA GPU mode where applicable;
+- NVIDIA GPU mode;
 - offline installation.
 
-Ubuntu/Linux + NVIDIA is the authoritative production-performance and long-run qualification target. Windows GPU performance remains informational.
+Ubuntu/Linux + NVIDIA is the authoritative production-performance and long-run qualification target. Windows GPU performance remains informational, but Windows NVIDIA functional inference remains a Task-10 acceptance requirement.
 
 ## 11. Runtime readiness and lifecycle
 
@@ -552,7 +572,7 @@ processing fault
     -> dispose runtime references
     -> release transient CUDA resources where safe
     -> reconstruct runtime
-    -> mandatory warm-up
+    -> mandatory synthetic warm-up
     -> output-contract validation
     -> READY on success
     -> UNAVAILABLE on failure
@@ -587,7 +607,7 @@ The orchestration boundary may expose stable machine-readable failure codes such
 - `vision_gpu_runtime_failed`;
 - `vision_tracker_failed`.
 
-Messages sent to the platform are sanitized and must not contain local filesystem paths, stack traces, secrets, or environment data. Detailed diagnostics remain in worker-local logs.
+A code is submitted to the platform only when a current lease is still authoritatively owned. Startup failures have no lease and therefore remain local readiness/diagnostic state. Messages sent to the platform are sanitized and must not contain local filesystem paths, stack traces, secrets, or environment data. Detailed diagnostics remain in worker-local logs.
 
 ## 13. Production processor composition
 
@@ -633,7 +653,7 @@ A candidate passes only after a real RTMDet-M inference succeeds with the comple
 - Pillow;
 - MAVI tests.
 
-Import success alone is not qualification.
+Import success alone is not qualification. If neither Python 3.12 nor 3.11 can satisfy the required stable Windows/Linux matrix, Task 10 pauses and the architecture/runtime decision is revisited rather than silently adopting an unqualified stack.
 
 ### 14.2 Exact runtime profile
 
@@ -726,11 +746,11 @@ Most tests use synthetic `RawDetection` sequences.
 
 Windows and Linux both perform a real local RTMDet-M inference using verified config/checkpoint artifacts and at least one representative image/video.
 
-The test validates:
+Both platforms must prove:
 
-- local-only loading;
-- CPU mode;
-- CUDA mode where available;
+- CPU inference;
+- NVIDIA CUDA inference;
+- local-only model/config loading;
 - warm-up;
 - output contract;
 - class mapping;
@@ -938,7 +958,7 @@ Task 10 is complete only when all of the following are demonstrated:
 - deterministic adapter tests produce repeatable IDs/output for fixed synthetic input;
 - a real MP4 completes the full existing Task-9 processing path;
 - Windows CPU and Linux CPU modes are proven functional;
-- Windows NVIDIA and Linux NVIDIA functional inference are proven where target hardware exists;
+- Windows NVIDIA and Linux NVIDIA functional inference are both proven;
 - Linux/NVIDIA passes long-run and recovery qualification;
 - offline installation and inference succeed with network unavailable;
 - representative CCTV detection/tracking baseline metrics are recorded;
