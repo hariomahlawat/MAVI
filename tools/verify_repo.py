@@ -64,15 +64,15 @@ DEVELOPMENT_ONLY_FILES = {
 URL_PATTERN = re.compile(r"https?://", re.IGNORECASE)
 
 VISION_ROOT = ROOT / "src/vision"
-MODEL_MANIFEST = ROOT / "models/manifests/rtmdet-m-coco-phase1-v1.json"
-QUALIFICATION_RECORD = ROOT / "models/qualifications/rtmdet-m-coco-phase1-v1.json"
-PIPELINE_PROFILE = ROOT / "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
-RUNTIME_PROFILE = ROOT / "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
+MANIFEST_ROOT = ROOT / "models/manifests"
+QUALIFICATION_ROOT = ROOT / "models/qualifications"
+PIPELINE_PROFILE_ROOT = ROOT / "src/vision/config/pipelines"
+RUNTIME_PROFILE_ROOT = ROOT / "src/vision/runtime"
 RELEASE_TEXT_ROOTS = [
-    ROOT / "models/manifests",
-    ROOT / "models/qualifications",
-    ROOT / "src/vision/config/pipelines",
-    ROOT / "src/vision/runtime",
+    MANIFEST_ROOT,
+    QUALIFICATION_ROOT,
+    PIPELINE_PROFILE_ROOT,
+    RUNTIME_PROFILE_ROOT,
 ]
 
 
@@ -170,7 +170,7 @@ def check_tracked_binaries_and_secrets(errors: list[str]) -> None:
 
 
 def check_vision_release_metadata(errors: list[str]) -> None:
-    """Validate Task-10 release metadata without claiming pending gates passed."""
+    """Validate every tracked Task-10 release metadata record and relationship."""
     if str(VISION_ROOT) not in sys.path:
         sys.path.insert(0, str(VISION_ROOT))
 
@@ -194,12 +194,13 @@ def check_vision_release_metadata(errors: list[str]) -> None:
         fail(f"Vision release metadata tooling could not be imported: {exc}", errors)
         return
 
-    release_files = [
+    tracked = tracked_files()
+    release_files = sorted(
         file_path
-        for file_path in tracked_files()
+        for file_path in tracked
         if file_path.suffix.lower() in {".json", ".lock"}
         and any(file_path.is_relative_to(root) for root in RELEASE_TEXT_ROOTS)
-    ]
+    )
     for file_path in release_files:
         try:
             validate_release_text_file(file_path)
@@ -210,56 +211,248 @@ def check_vision_release_metadata(errors: list[str]) -> None:
                 errors,
             )
 
-    try:
-        manifest = load_model_manifest(MODEL_MANIFEST)
-        profile = load_pipeline_profile(PIPELINE_PROFILE)
-        qualification = load_qualification_record(QUALIFICATION_RECORD)
-        validate_profile_against_manifest(profile, manifest)
+    manifest_paths = sorted(
+        path
+        for path in tracked
+        if path.suffix.lower() == ".json" and path.is_relative_to(MANIFEST_ROOT)
+    )
+    profile_paths = sorted(
+        path
+        for path in tracked
+        if path.suffix.lower() == ".json" and path.is_relative_to(PIPELINE_PROFILE_ROOT)
+    )
+    qualification_paths = sorted(
+        path
+        for path in tracked
+        if path.suffix.lower() == ".json" and path.is_relative_to(QUALIFICATION_ROOT)
+    )
+    runtime_json_paths = sorted(
+        path
+        for path in tracked
+        if path.suffix.lower() == ".json" and path.is_relative_to(RUNTIME_PROFILE_ROOT)
+    )
+    runtime_paths = [path for path in runtime_json_paths if path.name == "runtime.json"]
+    for path in runtime_json_paths:
+        if path.name != "runtime.json":
+            fail(
+                f"Unrecognized runtime release JSON must not bypass validation: "
+                f"{path.relative_to(ROOT)}",
+                errors,
+            )
 
-        manifest_hash = sha256_release_file(MODEL_MANIFEST)
-        profile_hash = sha256_release_file(PIPELINE_PROFILE)
-        runtime_hash = sha256_release_file(RUNTIME_PROFILE)
-        runtime_id, runtime_checkpoint_hash, runtime_config_hash = load_runtime_identity(
-            RUNTIME_PROFILE
+    manifests: dict[str, tuple[Path, object, str]] = {}
+    profiles: dict[str, tuple[Path, object, str]] = {}
+    qualifications: dict[str, tuple[Path, object, str]] = {}
+    runtimes: dict[str, tuple[Path, str, str, str, str]] = {}
+
+    for path in manifest_paths:
+        try:
+            manifest = load_model_manifest(path)
+            manifest_hash = sha256_release_file(path)
+        except ReleaseMetadataError as exc:
+            fail(
+                f"Model manifest invalid: {path.relative_to(ROOT)} ({exc.code})",
+                errors,
+            )
+            continue
+        if manifest.model_id in manifests:
+            fail(f"Duplicate modelId in release manifests: {manifest.model_id}", errors)
+            continue
+        manifests[manifest.model_id] = (path, manifest, manifest_hash)
+
+    for path in profile_paths:
+        try:
+            profile = load_pipeline_profile(path)
+            profile_hash = sha256_release_file(path)
+        except ReleaseMetadataError as exc:
+            fail(
+                f"Pipeline profile invalid: {path.relative_to(ROOT)} ({exc.code})",
+                errors,
+            )
+            continue
+        if profile.profile_id in profiles:
+            fail(f"Duplicate profileId in release profiles: {profile.profile_id}", errors)
+            continue
+        profiles[profile.profile_id] = (path, profile, profile_hash)
+
+    for path in qualification_paths:
+        try:
+            qualification = load_qualification_record(path)
+            qualification_hash = sha256_release_file(path)
+        except ReleaseMetadataError as exc:
+            fail(
+                f"Qualification record invalid: {path.relative_to(ROOT)} ({exc.code})",
+                errors,
+            )
+            continue
+        if qualification.qualification_id in qualifications:
+            fail(
+                f"Duplicate qualificationId in qualification records: "
+                f"{qualification.qualification_id}",
+                errors,
+            )
+            continue
+        qualifications[qualification.qualification_id] = (
+            path,
+            qualification,
+            qualification_hash,
         )
 
-        if manifest.verification_status != "unverified":
+    for path in runtime_paths:
+        try:
+            runtime_id, checkpoint_hash, config_hash = load_runtime_identity(path)
+            runtime_hash = sha256_release_file(path)
+        except ReleaseMetadataError as exc:
             fail(
-                "Task-10 manifest must remain unverified until final Task-14 qualification.",
+                f"Runtime profile invalid: {path.relative_to(ROOT)} ({exc.code})",
                 errors,
             )
-        if manifest.qualification_id is not None:
-            fail(
-                "Unverified Task-10 manifest must not claim a qualification ID.",
-                errors,
-            )
-
-        if runtime_id != manifest.runtime_profile_id:
-            fail("Runtime profile ID does not match model manifest.", errors)
-        if runtime_checkpoint_hash != manifest.checkpoint.sha256:
-            fail("Runtime checkpoint hash does not match model manifest.", errors)
-        if runtime_config_hash != manifest.resolved_config.sha256:
-            fail("Runtime resolved-config hash does not match model manifest.", errors)
-
-        verify_qualification_relationships(
-            qualification=qualification,
-            manifest=manifest,
-            manifest_sha256=manifest_hash,
-            profile=profile,
-            profile_sha256=profile_hash,
-            runtime_profile_id=runtime_id,
-            runtime_profile_sha256=runtime_hash,
-            require_passed=False,
+            continue
+        if runtime_id in runtimes:
+            fail(f"Duplicate runtimeProfileId: {runtime_id}", errors)
+            continue
+        runtimes[runtime_id] = (
+            path,
+            runtime_hash,
+            checkpoint_hash,
+            config_hash,
+            runtime_id,
         )
 
-        if qualification.overall_result != "pending":
+    for profile_path, profile, _profile_hash in profiles.values():
+        manifest_entry = manifests.get(profile.model_id)
+        if manifest_entry is None:
             fail(
-                "Pre-Task-14 qualification record must remain explicitly pending.",
+                f"Pipeline profile {profile.profile_id} references unknown modelId "
+                f"{profile.model_id}.",
                 errors,
             )
-    except ReleaseMetadataError as exc:
-        fail(f"Vision release metadata invalid: {exc.code}", errors)
+            continue
+        try:
+            validate_profile_against_manifest(profile, manifest_entry[1])
+        except ReleaseMetadataError as exc:
+            fail(
+                f"Pipeline profile relationship invalid: "
+                f"{profile_path.relative_to(ROOT)} ({exc.code})",
+                errors,
+            )
 
+    for manifest_path, manifest, _manifest_hash in manifests.values():
+        runtime_entry = runtimes.get(manifest.runtime_profile_id)
+        if runtime_entry is None:
+            fail(
+                f"Model manifest {manifest.model_id} references unknown runtimeProfileId "
+                f"{manifest.runtime_profile_id}.",
+                errors,
+            )
+            continue
+
+        _runtime_path, _runtime_hash, checkpoint_hash, config_hash, _runtime_id = runtime_entry
+        if checkpoint_hash != manifest.checkpoint.sha256:
+            fail(
+                f"Runtime checkpoint hash does not match manifest {manifest.model_id}.",
+                errors,
+            )
+        if config_hash != manifest.resolved_config.sha256:
+            fail(
+                f"Runtime resolved-config hash does not match manifest {manifest.model_id}.",
+                errors,
+            )
+
+        if manifest.verification_status == "unverified" and manifest.qualification_id is not None:
+            fail(
+                f"Unverified manifest {manifest.model_id} must not claim a qualification ID.",
+                errors,
+            )
+
+        if manifest.verification_status == "verified":
+            qualification_entry = qualifications.get(manifest.qualification_id or "")
+            if qualification_entry is None:
+                fail(
+                    f"Verified manifest {manifest.model_id} references missing qualification "
+                    f"{manifest.qualification_id}.",
+                    errors,
+                )
+                continue
+            qualification = qualification_entry[1]
+            profile_entry = profiles.get(qualification.pipeline_profile_id)
+            if profile_entry is None:
+                fail(
+                    f"Verified qualification {qualification.qualification_id} references "
+                    f"unknown profileId {qualification.pipeline_profile_id}.",
+                    errors,
+                )
+                continue
+            try:
+                verify_qualification_relationships(
+                    qualification=qualification,
+                    manifest=manifest,
+                    manifest_sha256=sha256_release_file(manifest_path),
+                    profile=profile_entry[1],
+                    profile_sha256=profile_entry[2],
+                    runtime_profile_id=runtime_entry[4],
+                    runtime_profile_sha256=runtime_entry[1],
+                    require_passed=True,
+                )
+            except ReleaseMetadataError as exc:
+                fail(
+                    f"Verified release relationship invalid for {manifest.model_id}: "
+                    f"{exc.code}",
+                    errors,
+                )
+
+    for qualification_path, qualification, _qualification_hash in qualifications.values():
+        manifest_entry = manifests.get(qualification.model_id)
+        if manifest_entry is None:
+            fail(
+                f"Qualification {qualification.qualification_id} references unknown modelId "
+                f"{qualification.model_id}.",
+                errors,
+            )
+            continue
+        profile_entry = profiles.get(qualification.pipeline_profile_id)
+        if profile_entry is None:
+            fail(
+                f"Qualification {qualification.qualification_id} references unknown profileId "
+                f"{qualification.pipeline_profile_id}.",
+                errors,
+            )
+            continue
+        runtime_entry = runtimes.get(qualification.runtime_profile_id)
+        if runtime_entry is None:
+            fail(
+                f"Qualification {qualification.qualification_id} references unknown "
+                f"runtimeProfileId {qualification.runtime_profile_id}.",
+                errors,
+            )
+            continue
+
+        manifest = manifest_entry[1]
+        try:
+            verify_qualification_relationships(
+                qualification=qualification,
+                manifest=manifest,
+                manifest_sha256=manifest_entry[2],
+                profile=profile_entry[1],
+                profile_sha256=profile_entry[2],
+                runtime_profile_id=runtime_entry[4],
+                runtime_profile_sha256=runtime_entry[1],
+                require_passed=False,
+            )
+        except ReleaseMetadataError as exc:
+            fail(
+                f"Qualification relationship invalid: "
+                f"{qualification_path.relative_to(ROOT)} ({exc.code})",
+                errors,
+            )
+            continue
+
+        if manifest.verification_status == "unverified" and qualification.overall_result != "pending":
+            fail(
+                f"Qualification {qualification.qualification_id} must remain pending while "
+                f"manifest {manifest.model_id} is unverified.",
+                errors,
+            )
 
 def main() -> int:
     errors: list[str] = []
@@ -282,7 +475,7 @@ def main() -> int:
     print(" - contract examples: 7")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret scan: clean")
-    print(" - Task-10 release metadata: valid, explicitly unverified/pending")
+    print(" - Task-10 release metadata: every tracked record and relationship validated")
     return 0
 
 
