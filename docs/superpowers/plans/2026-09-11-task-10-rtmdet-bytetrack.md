@@ -143,7 +143,7 @@ The existing public import `mavi_vision.storage.artifact_store.StagingArtifactSt
 - Produces: `probe_runtime.py --config <local-resolved-config> --checkpoint <local-checkpoint> --checkpoint-sha256 <reviewed-full-digest> --device cpu|cuda` returning exit code 0 only after real RTMDet-M inference completes.
 - Later tasks consume exact values from `runtime.json`; they must not duplicate dependency constants.
 
-- [x] **Step 1: Implement and test resolved-config generation in a candidate environment**
+- [ ] **Step 1: Implement and test resolved-config generation in a candidate environment**
 
 `resolve_mmdet_config.py` must load the selected official/local RTMDet-M source config with `mmengine.Config.fromfile()`, materialize the merged configuration, write a standalone local config using MMEngine's supported dump/export path, reload that emitted config, and assert its effective configuration is equivalent to the merged source config for model/test-pipeline/class-relevant fields.
 
@@ -155,7 +155,7 @@ python tools/vision/resolve_mmdet_config.py --input <source-rtmdet-m-config> --o
 
 Acceptance: the emitted deployment file contains no unresolved `_base_` reference or HTTP(S) URL and reloads successfully without access to the original config tree.
 
-- [x] **Step 2: Write the runtime probe with explicit version/build capture**
+- [ ] **Step 2: Write the runtime probe with explicit version/build capture**
 
 Create `tools/vision/probe_runtime.py` with a JSON output object containing at least:
 
@@ -181,7 +181,7 @@ Create `tools/vision/probe_runtime.py` with a JSON output object containing at l
 
 After version capture, load only the explicit local resolved config/checkpoint, run one RTMDet-M inference over an in-memory channel-distinct RGB test image converted according to the backend contract, validate that prediction boxes/scores/labels are accessible, and print the JSON record. The CLI must reject URL/model-alias inputs.
 
-- [x] **Step 3: Prove the probe fails closed when a local checkpoint is absent**
+- [ ] **Step 3: Prove the probe fails closed when a local checkpoint is absent**
 
 Run with a nonexistent checkpoint while outbound network is disabled or blocked for the process:
 
@@ -191,7 +191,7 @@ python tools/vision/probe_runtime.py --config <qualification-root>/rtmdet_m_reso
 
 Expected: non-zero exit before inference, with no download-created file or cache entry.
 
-- [x] **Step 4: Qualify Python 3.12 on Linux CPU first**
+- [ ] **Step 4: Qualify Python 3.12 on Linux CPU first**
 
 Create a clean Python 3.12 environment, install one internally consistent stable graph satisfying MMDetection 3.3.x's MMEngine/MMCV constraints plus the selected Trackers stack, install MAVI, then run:
 
@@ -205,7 +205,7 @@ python tools/vision/probe_runtime.py \
 
 Acceptance: real inference exits 0 and the record contains the entire graph. If dependency resolution or real inference fails, preserve the failure log and repeat Tasks 1.4–1.6 with Python 3.11 rather than forcing incompatible dependencies.
 
-- [x] **Step 5: Repeat the identical semantic graph on Windows CPU**
+- [ ] **Step 5: Repeat the identical semantic graph on Windows CPU**
 
 ```powershell
 python tools/vision/probe_runtime.py `
@@ -217,13 +217,13 @@ python tools/vision/probe_runtime.py `
 
 Acceptance: semantic package versions match the Linux candidate where platform support permits; wheel/build hashes may differ.
 
-- [x] **Step 6: Qualify the same candidate on Linux NVIDIA and Windows NVIDIA**
+- [ ] **Step 6: Qualify the same candidate on Linux NVIDIA and Windows NVIDIA**
 
 Run the probe with `--device cuda` on both target platforms. Record GPU name, driver/runtime details, `torch.version.cuda`, and exact PyTorch/MMCV build identities.
 
 If no complete Python 3.12 graph passes all four environments, repeat the full four-gate matrix with Python 3.11. If neither minor passes, **stop Task 10 and reopen ADR-005**; do not continue with resolver overrides or unqualified source builds.
 
-- [x] **Step 7: Freeze platform/device wheel graphs with hashes**
+- [ ] **Step 7: Freeze platform/device wheel graphs with hashes**
 
 For each successful environment:
 
@@ -235,7 +235,7 @@ For each successful environment:
 
 Do not treat `pip freeze` alone as a release lock because it does not establish wheel integrity.
 
-- [x] **Step 8: Write `runtime.json` and update the package Python requirement**
+- [ ] **Step 8: Write `runtime.json` and update the package Python requirement**
 
 Example shape:
 
@@ -261,7 +261,7 @@ requires-python = ">=3.12,<3.13"
 
 If 3.11 qualified, set `>=3.11,<3.12` instead. Heavy ML packages remain outside base dependencies until Task 7.
 
-- [x] **Step 9: Commit the qualification baseline**
+- [ ] **Step 9: Commit the qualification baseline**
 
 ```powershell
 git add tools/vision/resolve_mmdet_config.py tools/vision/probe_runtime.py src/vision/runtime/mmdetection-phase1-v1 src/vision/pyproject.toml
@@ -567,7 +567,7 @@ def load_qualification_record(path: Path) -> QualificationRecord: ...
 def verify_release_selection(...) -> VerifiedReleaseSelection: ...
 ```
 
-- [ ] **Step 1: Lock exact-byte repository rules**
+- [x] **Step 1: Lock exact-byte repository rules**
 
 Create:
 
@@ -579,35 +579,35 @@ Create:
 
 Write tests rejecting BOM-bearing qualified JSON and CRLF in release JSON/lock files. `sha256_release_file()` hashes exact on-disk UTF-8 bytes; it does not parse/re-serialize JSON first.
 
-- [ ] **Step 2: Write failing manifest validation tests**
+- [x] **Step 2: Write failing manifest validation tests**
 
 Cover absolute/URL/backslash/`..` artifact paths, malformed SHA-256, empty/duplicate vocabulary, verified-without-qualification ID, and model-root escape via filesystem link/reparse component.
 
-- [ ] **Step 3: Implement strict manifest loading and trusted-root containment**
+- [x] **Step 3: Implement strict manifest loading and trusted-root containment**
 
 Use `extra="forbid"` semantics. Artifact paths are logical forward-slash relative paths only. Release-path verification walks from the configured model root and rejects link/reparse redirection; do not rely solely on string prefix comparison after `resolve()`.
 
-- [ ] **Step 4: Write and implement pipeline-profile validation**
+- [x] **Step 4: Write and implement pipeline-profile validation**
 
 The profile includes detector floor, the five allowed source classes, exact class mapping, explicit ByteTrack parameters, and `framePolicy="every-frame"`. Do **not** add a generic `maxDetections` field in Task 10. Numeric thresholds must have explicit validated ranges; mapping keys must exist in the selected manifest vocabulary.
 
-- [ ] **Step 5: Implement immutable exact-byte profile identity**
+- [x] **Step 5: Implement immutable exact-byte profile identity**
 
 The provenance hash is `sha256_release_file(profile_path)` rather than JSON canonical reserialization.
 
-- [ ] **Step 6: Write and implement qualification-evidence verification**
+- [x] **Step 6: Write and implement qualification-evidence verification**
 
 A manifest marked `verified` is accepted only when the referenced qualification file exists and model/checkpoint/config/profile/runtime hashes all match, runtime IDs match, and every mandatory gate is `passed`. Development `unverified` requires explicit `allow_unverified=True`; checkpoint/config integrity still applies.
 
-- [ ] **Step 7: Implement `verify_release_selection()`**
+- [x] **Step 7: Implement `verify_release_selection()`**
 
 Return one frozen `VerifiedReleaseSelection` carrying the loaded manifest/profile/qualification/runtime identities, exact hashes, and resolved local artifact paths. Production runtime construction consumes this object and does not re-resolve configuration ad hoc.
 
-- [ ] **Step 8: Extend repository verification**
+- [x] **Step 8: Extend repository verification**
 
 `tools/verify_repo.py` validates manifest/profile/qualification JSON, lowercase SHA-256 format, path/URL rules, LF/no-BOM, identity consistency, and the existing no-weight/media/secret rule. Before Task 14, the committed manifest remains explicitly `unverified`; repository verification must not report it as production-qualified.
 
-- [ ] **Step 9: Run and commit**
+- [x] **Step 9: Run and commit**
 
 ```powershell
 cd src/vision
