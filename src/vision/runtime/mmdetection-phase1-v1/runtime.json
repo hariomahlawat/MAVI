@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.0",
+  "runtimeProfileId": "mmdetection-phase1-v1",
+  "qualificationStatus": "candidate",
+  "pythonMinor": "3.12",
+  "semanticGraph": {
+    "torch": "2.6.0",
+    "torchvision": "0.21.0",
+    "mmcv": "2.1.0",
+    "mmengine": "0.10.7",
+    "mmdet": "3.3.0",
+    "trackers": "2.6.0",
+    "supervision": "0.30.2",
+    "scipy": "1.18.1",
+    "numpy": "2.5.3",
+    "opencv": "5.0.0",
+    "av": "16.1.0"
+  },
+  "checkpoint": {
+    "publisher": "OpenMMLab",
+    "artifact": "rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth",
+    "sha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b"
+  },
+  "platformVariants": {
+    "linux-x86_64-cpu": {
+      "status": "pending-resolved-config-recheck"
+    },
+    "windows-x86_64-cpu": {
+      "status": "pending-resolved-config-recheck"
+    },
+    "linux-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    },
+    "windows-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    }
+  },
+  "releaseLocks": {
+    "linux-x86_64-cpu": {
+      "status": "pending-wheelhouse-freeze"
+    },
+    "windows-x86_64-cpu": {
+      "status": "pending-wheelhouse-freeze"
+    },
+    "linux-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    },
+    "windows-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    }
+  }
+}
