@@ -128,6 +128,7 @@ def _version_record(*, device: str) -> dict[str, Any]:
         "os": platform.system(),
         "machine": platform.machine(),
         "commitSha": os.environ.get("GITHUB_SHA"),
+        "pullRequestHeadSha": os.environ.get("MAVI_PR_HEAD_SHA") or None,
         "workflowRunId": os.environ.get("GITHUB_RUN_ID"),
         "workflowJob": os.environ.get("GITHUB_JOB"),
     }
@@ -144,6 +145,31 @@ def _version_record(*, device: str) -> dict[str, Any]:
             }
         )
     return record
+
+
+def validate_prediction_arrays(
+    boxes: Any,
+    scores: Any,
+    labels: Any,
+    *,
+    class_count: int,
+) -> None:
+    import numpy as np
+
+    if boxes.ndim != 2 or boxes.shape[1] != 4:
+        raise RuntimeError("prediction_boxes_shape_invalid")
+    if scores.ndim != 1 or labels.ndim != 1:
+        raise RuntimeError("prediction_vector_shape_invalid")
+    if boxes.shape[0] != scores.shape[0] or scores.shape[0] != labels.shape[0]:
+        raise RuntimeError("prediction_length_mismatch")
+    if not np.isfinite(boxes).all() or not np.isfinite(scores).all():
+        raise RuntimeError("prediction_numeric_value_invalid")
+    if not np.issubdtype(labels.dtype, np.integer):
+        raise RuntimeError("prediction_labels_type_invalid")
+    if class_count < 1:
+        raise RuntimeError("prediction_vocabulary_invalid")
+    if labels.size and ((labels < 0).any() or (labels >= class_count).any()):
+        raise RuntimeError("prediction_label_range_invalid")
 
 
 def run_probe(
@@ -186,14 +212,10 @@ def run_probe(
     boxes = instances.bboxes.detach().cpu().numpy()
     scores = instances.scores.detach().cpu().numpy()
     labels = instances.labels.detach().cpu().numpy()
-    if boxes.ndim != 2 or boxes.shape[1] != 4:
-        raise RuntimeError("prediction_boxes_shape_invalid")
-    if scores.ndim != 1 or labels.ndim != 1:
-        raise RuntimeError("prediction_vector_shape_invalid")
-    if boxes.shape[0] != scores.shape[0] or scores.shape[0] != labels.shape[0]:
-        raise RuntimeError("prediction_length_mismatch")
-    if not np.isfinite(boxes).all() or not np.isfinite(scores).all():
-        raise RuntimeError("prediction_numeric_value_invalid")
+    classes = model.dataset_meta.get("classes")
+    if not isinstance(classes, (list, tuple)) or not classes:
+        raise RuntimeError("prediction_vocabulary_invalid")
+    validate_prediction_arrays(boxes, scores, labels, class_count=len(classes))
 
     result = _version_record(device=device)
     result["predictionType"] = type(prediction).__name__

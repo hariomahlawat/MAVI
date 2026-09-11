@@ -7,9 +7,14 @@ import types
 from pathlib import Path
 
 import pytest
+import numpy as np
 
 
 PROBE_PATH = Path(__file__).parents[3] / "tools" / "vision" / "probe_runtime.py"
+
+
+class UnapprovedCheckpointMetadata:
+    pass
 
 
 def _load_probe():
@@ -131,6 +136,131 @@ def test_checkpoint_permissions_are_removed_after_failure(
             fake_torch.serialization.load("unapproved")
 
     assert active == []
+
+
+def test_real_torch_scope_allows_reviewed_numpy_metadata_and_restores_globals(
+    tmp_path: Path,
+) -> None:
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("mmengine")
+    probe = _load_probe()
+    checkpoint = tmp_path / "reviewed-metadata.pth"
+    torch.save({"metadata": np.array([1.5], dtype=np.float64)}, checkpoint)
+    before = tuple(torch.serialization.get_safe_globals())
+
+    with pytest.raises(Exception, match="Weights only load failed"):
+        torch.load(checkpoint)
+
+    with probe.restricted_checkpoint_loading_scope():
+        loaded = torch.load(checkpoint)
+        assert loaded["metadata"].tolist() == [1.5]
+
+    assert tuple(torch.serialization.get_safe_globals()) == before
+
+
+def test_real_torch_scope_rejects_unapproved_type_and_restores_globals(
+    tmp_path: Path,
+) -> None:
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("mmengine")
+    probe = _load_probe()
+    checkpoint = tmp_path / "unapproved-metadata.pth"
+    torch.save(UnapprovedCheckpointMetadata(), checkpoint)
+    before = tuple(torch.serialization.get_safe_globals())
+
+    with pytest.raises(Exception, match="Weights only load failed"):
+        with probe.restricted_checkpoint_loading_scope():
+            torch.load(checkpoint)
+
+    assert tuple(torch.serialization.get_safe_globals()) == before
+
+
+@pytest.mark.parametrize(
+    ("labels", "class_count", "error"),
+    [
+        (np.array([np.nan]), 2, "prediction_labels_type_invalid"),
+        (np.array([1.5]), 2, "prediction_labels_type_invalid"),
+        (np.array([-1], dtype=np.int64), 2, "prediction_label_range_invalid"),
+        (np.array([2], dtype=np.int64), 2, "prediction_label_range_invalid"),
+    ],
+)
+def test_prediction_validation_rejects_invalid_labels(
+    labels: np.ndarray,
+    class_count: int,
+    error: str,
+) -> None:
+    probe = _load_probe()
+
+    with pytest.raises(RuntimeError, match=error):
+        probe.validate_prediction_arrays(
+            np.array([[0.0, 0.0, 1.0, 1.0]]),
+            np.array([0.9]),
+            labels,
+            class_count=class_count,
+        )
+
+
+def test_prediction_validation_accepts_valid_empty_result() -> None:
+    probe = _load_probe()
+
+    probe.validate_prediction_arrays(
+        np.empty((0, 4), dtype=np.float32),
+        np.empty((0,), dtype=np.float32),
+        np.empty((0,), dtype=np.int64),
+        class_count=80,
+    )
+
+
+@pytest.mark.parametrize(
+    ("boxes", "scores", "labels", "error"),
+    [
+        (
+            np.array([0.0, 0.0, 1.0, 1.0]),
+            np.array([0.9]),
+            np.array([1], dtype=np.int64),
+            "prediction_boxes_shape_invalid",
+        ),
+        (
+            np.array([[0.0, 0.0, 1.0, 1.0]]),
+            np.array([[0.9]]),
+            np.array([1], dtype=np.int64),
+            "prediction_vector_shape_invalid",
+        ),
+        (
+            np.array([[0.0, 0.0, 1.0, 1.0]]),
+            np.array([]),
+            np.array([1], dtype=np.int64),
+            "prediction_length_mismatch",
+        ),
+        (
+            np.array([[0.0, 0.0, np.inf, 1.0]]),
+            np.array([0.9]),
+            np.array([1], dtype=np.int64),
+            "prediction_numeric_value_invalid",
+        ),
+        (
+            np.array([[0.0, 0.0, 1.0, 1.0]]),
+            np.array([np.nan]),
+            np.array([1], dtype=np.int64),
+            "prediction_numeric_value_invalid",
+        ),
+    ],
+)
+def test_prediction_validation_rejects_malformed_outputs(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    labels: np.ndarray,
+    error: str,
+) -> None:
+    probe = _load_probe()
+
+    with pytest.raises(RuntimeError, match=error):
+        probe.validate_prediction_arrays(
+            boxes,
+            scores,
+            labels,
+            class_count=80,
+        )
 
 
 def test_rejects_remote_artifact_syntax() -> None:

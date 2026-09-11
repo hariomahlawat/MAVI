@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - feature/visual-intelligence-memory
+      - feature/task-10-rtmdet-bytetrack
   push:
     branches:
       - feature/visual-intelligence-memory

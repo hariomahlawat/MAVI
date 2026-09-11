@@ -1,6 +1,16 @@
 name: Task 10 Runtime Qualification
 
 on:
+  pull_request:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'tools/vision/probe_runtime.py'
+      - 'src/vision/tests/test_runtime_probe.py'
+      - '.github/workflows/task10-runtime-qualification.yml'
+      - 'docs/decisions/ADR-005-qualified-vision-runtime.md'
+      - 'docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md'
+      - 'docs/superpowers/plans/2026-09-11-task-10-rtmdet-bytetrack.md'
   push:
     branches:
       - feature/task-10-rtmdet-bytetrack
@@ -30,6 +40,7 @@ jobs:
       MAX_JOBS: '2'
       RTMDET_CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
       RTMDET_CHECKPOINT_SHA256: 229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b
+      MAVI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -81,6 +92,9 @@ jobs:
           trackers==2.6.0
           "av>=15,<17"
           "Pillow>=11,<12"
+
+      - name: Test real PyTorch restricted checkpoint loading
+        run: python -m pytest src/vision/tests/test_runtime_probe.py -q -k real_torch
 
       - name: Verify compiled MMCV ops and dependency imports
         run: >-
