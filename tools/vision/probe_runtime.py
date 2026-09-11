@@ -14,7 +14,7 @@ import json
 import platform
 import sys
 import traceback
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -25,6 +25,12 @@ class ProbeConfigurationError(RuntimeError):
 
 def parse_local_path(value: str) -> Path:
     """Return a filesystem path while rejecting URL/model-hub style inputs."""
+    # urllib treats ``C:\\...`` / ``C:/...`` as URL scheme ``c``. Recognise a
+    # genuinely absolute Windows filesystem path before applying URL rejection so
+    # the same strict local-only contract works on both qualification platforms.
+    if PureWindowsPath(value).is_absolute():
+        return Path(value)
+
     parts = urlsplit(value)
     if parts.scheme or parts.netloc:
         raise ProbeConfigurationError("artifact_url_forbidden")
