@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 import uuid
@@ -107,11 +108,29 @@ def assert_relevant_equivalence(source: Any, resolved: Any) -> None:
         raise ConfigResolutionError("resolved_config_semantics_mismatch")
 
 
+def _paths_refer_to_same_file(source_path: Path, output_path: Path) -> bool:
+    """Return whether source/output identify the same file, including aliases."""
+    try:
+        if output_path.exists():
+            return source_path.samefile(output_path)
+
+        source_identity = os.path.normcase(str(source_path.resolve(strict=True)))
+        output_identity = os.path.normcase(str(output_path.resolve(strict=False)))
+    except OSError as exc:
+        raise ConfigResolutionError("resolved_config_path_check_failed") from exc
+
+    return source_identity == output_identity
+
+
+def _assert_distinct_source_output(source_path: Path, output_path: Path) -> None:
+    if _paths_refer_to_same_file(source_path, output_path):
+        raise ConfigResolutionError("resolved_config_must_not_overwrite_source")
+
+
 def resolve_config(source_path: Path, output_path: Path) -> dict[str, Any]:
     if not source_path.is_file():
         raise ConfigResolutionError("source_config_missing")
-    if output_path == source_path:
-        raise ConfigResolutionError("resolved_config_must_not_overwrite_source")
+    _assert_distinct_source_output(source_path, output_path)
 
     try:
         from mmengine import Config
@@ -130,15 +149,21 @@ def resolve_config(source_path: Path, output_path: Path) -> dict[str, Any]:
         normalized = normalized_python_bytes(emitted)
         normalized_text = normalized.decode("utf-8")
         validate_resolved_text(normalized_text)
-        output_path.write_bytes(normalized)
 
-        resolved = Config.fromfile(str(output_path))
+        # Keep the candidate isolated until syntax, self-containment and semantic
+        # equivalence are all proven. Existing output is never destroyed by a
+        # failed validation.
+        temp_path.write_bytes(normalized)
+        resolved = Config.fromfile(str(temp_path))
         assert_relevant_equivalence(source, resolved)
+
+        # Recheck aliases immediately before the atomic promotion so a relative,
+        # absolute, symlink or hard-link spelling cannot overwrite the source.
+        _assert_distinct_source_output(source_path, output_path)
+        os.replace(temp_path, output_path)
     except ConfigResolutionError:
-        output_path.unlink(missing_ok=True)
         raise
     except Exception as exc:
-        output_path.unlink(missing_ok=True)
         raise ConfigResolutionError("resolved_config_generation_failed") from exc
     finally:
         temp_path.unlink(missing_ok=True)
