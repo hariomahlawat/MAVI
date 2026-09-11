@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import platform
 import sys
 import types
 from pathlib import Path
@@ -350,3 +351,16 @@ def test_unexpected_runtime_failure_emits_marker_and_traceback(
         "errorType": "RuntimeError",
         "status": "failed",
     }
+
+def test_python_runtime_identity_captures_exact_interpreter_build() -> None:
+    probe = _load_probe()
+
+    identity = probe.python_runtime_identity()
+
+    assert identity == {
+        "python": platform.python_version(),
+        "pythonImplementation": platform.python_implementation(),
+        "pythonBuild": list(platform.python_build()),
+        "pythonCompiler": platform.python_compiler(),
+    }
+
