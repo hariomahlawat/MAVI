@@ -2,7 +2,8 @@
 
 **Status:** Approved for implementation planning after architecture-hardening review  
 **Date:** 2026-09-11  
-**Revision:** 2  
+**Revision:** 3
+
 **Branch:** `feature/task-10-rtmdet-bytetrack`  
 **Parent capability:** Visual Intelligence Memory  
 **Predecessor:** Task 9 deterministic track-processing pipeline  
@@ -1004,6 +1005,8 @@ Software-package integrity and model/config/profile integrity are verified indep
 
 Hosted GitHub Actions remains authoritative for repository/code quality. Hardware qualification complements it; it does not replace exact-head hosted CI.
 
+Workflow triggers must cover the actual development branch and PR target. A mergeable PR with no checks does not establish acceptance. Evidence records the actual checked-out commit and, for PR runs, the PR head separately where these differ; both platform jobs must test the same identified revision.
+
 ### 22.2 Gate A: existing core quality gate
 
 On every relevant PR/push to the integration branch:
@@ -1076,6 +1079,16 @@ Production-class Linux/NVIDIA hardware executes:
 - long-run stability verification.
 
 Performance is measured; Task 10 does not impose an invented real-time FPS requirement.
+
+### 22.6 Task 1A checkpoint-loading smoke acceptance
+
+The bounded checkpoint-loading correction requires hosted real RTMDet-M CPU inference on Linux and native Windows before Task 1A can close. This is a prerequisite smoke gate, not completion of Gate C, production runtime qualification, or permission to mark a model `verified`.
+
+Lightweight tests may check wrapper behaviour with doubles. Separate tests after candidate-runtime installation must exercise real PyTorch restricted loading, the actual reviewed allowlist, rejection of unapproved types, and expected safe-global state before/after both successful and failing loads. Neither fake loaders nor author-reported local inspection substitute for these regression tests or the hosted model runs.
+
+The smoke probe validates accessible boxes, scores and labels; compatible shapes and lengths; finite boxes/scores; and integer labels within the loaded model vocabulary. Malformed, non-finite, fractional or out-of-range labels fail the probe. Valid empty detections remain acceptable. This contract check does not measure detection accuracy.
+
+Evidence must distinguish reported local results, independently executed tests and hosted results. Record parseable probe JSON, separate diagnostics, exit code, runtime/platform/device and artifact/revision identities. A hash of an inherited top-level config identifies that source file only; full effective-config identity requires the resolved deployment configuration described in section 7.2. Keep both-platform CPU acceptance within Task 1A and leave GPU, offline, secure Windows staging and full runtime qualification explicitly pending.
 
 ## 23. Test strategy and qualification corpus
 
