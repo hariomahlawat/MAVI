@@ -1,0 +1,127 @@
+name: Task 10 Runtime Qualification
+
+on:
+  push:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'tools/vision/probe_runtime.py'
+      - 'src/vision/tests/test_runtime_probe.py'
+      - '.github/workflows/task10-runtime-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-candidate:
+    name: CPU ${{ matrix.os }} Python ${{ matrix.python }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.12'
+            torch: '2.2.2'
+            torchvision: '0.17.2'
+            mmcv_mode: source
+          - os: windows-latest
+            python: '3.12'
+            torch: '2.2.2'
+            torchvision: '0.17.2'
+            mmcv_mode: source
+          - os: ubuntu-latest
+            python: '3.11'
+            torch: '2.1.0'
+            torchvision: '0.16.0'
+            mmcv_mode: wheel
+          - os: windows-latest
+            python: '3.11'
+            torch: '2.1.0'
+            torchvision: '0.16.0'
+            mmcv_mode: wheel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      MMCV_WITH_OPS: '1'
+      RTMDET_CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Upgrade packaging tools
+        run: python -m pip install --upgrade pip setuptools wheel ninja
+
+      - name: Install candidate PyTorch CPU build
+        run: >-
+          python -m pip install
+          torch==${{ matrix.torch }}
+          torchvision==${{ matrix.torchvision }}
+          --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install MMCV official wheel
+        if: matrix.mmcv_mode == 'wheel'
+        run: >-
+          python -m pip install mmcv==2.1.0
+          -f https://download.openmmlab.com/mmcv/dist/cpu/torch2.1.0/index.html
+
+      - name: Build/install MMCV from source candidate
+        if: matrix.mmcv_mode == 'source'
+        run: python -m pip install --no-binary mmcv mmcv==2.1.0
+
+      - name: Install remaining candidate graph
+        run: >-
+          python -m pip install
+          mmengine==0.10.7
+          mmdet==3.3.0
+          trackers==2.6.0
+          "av>=15,<17"
+          "Pillow>=11,<12"
+
+      - name: Verify compiled MMCV ops and dependency imports
+        run: >-
+          python -c "import mmcv, mmengine, mmdet, torch, torchvision, trackers, supervision, scipy, numpy, cv2, av; from mmcv.ops import nms; print('imports-ok', mmcv.__version__, torch.__version__, numpy.__version__)"
+
+      - name: Fetch official RTMDet-M config tree and checkpoint
+        shell: bash
+        run: |
+          git clone --depth 1 --branch v3.3.0 https://github.com/open-mmlab/mmdetection.git .qualification-mmdet
+          python - <<'PY'
+          import os
+          import urllib.request
+          urllib.request.urlretrieve(os.environ['RTMDET_CHECKPOINT_URL'], '.qualification-rtmdet-m.pth')
+          PY
+
+      - name: Prove missing checkpoint fails before runtime loading
+        shell: bash
+        run: |
+          set +e
+          python tools/vision/probe_runtime.py \
+            --config .qualification-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
+            --checkpoint .qualification-missing.pth \
+            --device cpu 2> missing.err
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q checkpoint_missing missing.err
+
+      - name: Run real RTMDet-M CPU probe
+        shell: bash
+        run: |
+          python tools/vision/probe_runtime.py \
+            --config .qualification-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
+            --checkpoint .qualification-rtmdet-m.pth \
+            --device cpu | tee runtime-probe.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runtime-probe-${{ matrix.os }}-py${{ matrix.python }}
+          path: |
+            runtime-probe.json
+            missing.err
+          if-no-files-found: ignore
