@@ -29,6 +29,8 @@ def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -
         "scipy": "1.18.1",
         "numpy": "2.5.3",
         "opencv": "5.0.0",
+        "opencvPython": "5.0.0.93",
+        "pillow": "11.3.0",
         "av": "16.1.0",
     }
     assert payload["checkpoint"]["sha256"] == (
