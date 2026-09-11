@@ -131,7 +131,7 @@ The existing public import `mavi_vision.storage.artifact_store.StagingArtifactSt
 **Interfaces:**
 - Produces: `runtime.json` containing `runtimeProfileId`, selected Python minor, exact semantic package versions/build identities, platform/device qualification states, and hashes of the four lock files.
 - Produces: `resolve_mmdet_config.py --input <source-config> --output <resolved-config>` that loads the source config through MMEngine, fully resolves inherited `_base_` content, emits one local deployment config, and rejects unresolved URL/environment-driven analytical dependencies.
-- Produces: `probe_runtime.py --config <local-resolved-config> --checkpoint <local-checkpoint> --device cpu|cuda` returning exit code 0 only after real RTMDet-M inference completes.
+- Produces: `probe_runtime.py --config <local-resolved-config> --checkpoint <local-checkpoint> --checkpoint-sha256 <reviewed-full-digest> --device cpu|cuda` returning exit code 0 only after real RTMDet-M inference completes.
 - Later tasks consume exact values from `runtime.json`; they must not duplicate dependency constants.
 
 - [ ] **Step 1: Implement and test resolved-config generation in a candidate environment**
@@ -177,7 +177,7 @@ After version capture, load only the explicit local resolved config/checkpoint, 
 Run with a nonexistent checkpoint while outbound network is disabled or blocked for the process:
 
 ```powershell
-python tools/vision/probe_runtime.py --config <qualification-root>/rtmdet_m_resolved.py --checkpoint <qualification-root>/missing.pth --device cpu
+python tools/vision/probe_runtime.py --config <qualification-root>/rtmdet_m_resolved.py --checkpoint <qualification-root>/missing.pth --checkpoint-sha256 <reviewed-full-digest> --device cpu
 ```
 
 Expected: non-zero exit before inference, with no download-created file or cache entry.
@@ -190,6 +190,7 @@ Create a clean Python 3.12 environment, install one internally consistent stable
 python tools/vision/probe_runtime.py \
   --config /qualification/rtmdet_m_resolved.py \
   --checkpoint /qualification/rtmdet_m.pth \
+  --checkpoint-sha256 <reviewed-full-digest> \
   --device cpu > linux-cpu-probe.json
 ```
 
@@ -201,6 +202,7 @@ Acceptance: real inference exits 0 and the record contains the entire graph. If 
 python tools/vision/probe_runtime.py `
   --config C:\qualification\rtmdet_m_resolved.py `
   --checkpoint C:\qualification\rtmdet_m.pth `
+  --checkpoint-sha256 <reviewed-full-digest> `
   --device cpu > windows-cpu-probe.json
 ```
 
@@ -258,6 +260,52 @@ git commit -m "build: qualify phase1 vision runtime matrix"
 ```
 
 **Reviewer gate:** Reject if any platform/device result is inferred rather than executed, the resolved config still depends on its source tree, real RTMDet-M inference was skipped, or dependency conflicts were bypassed with `--no-deps`.
+
+---
+
+### Task 1A — Checkpoint-loading compatibility and dual-platform CPU smoke gate
+
+**Status (verified 2026-09-11): COMPLETE for the bounded Task 1A gate.** This establishes the checkpoint-loading correction and dual-platform hosted CPU smoke evidence only. It does **not** claim complete Task-10 qualification; Tasks 1 and 2–15 retain their own acceptance gates.
+
+#### Final correction
+
+Task 9 commit `f151a70ac2f1d702e25bb504ddb9c4ce144d46d8` remains the accepted integration baseline. The Task-10 target branch was `f544282b0973f702c26ae8f264529bf3143d2e2f` when this bounded remediation started. PR #15 was verified at head `9027fc056a8a3a340fdcf4e9db472ec4cc2d3b74`.
+
+The PyTorch 2.6 restricted-loading failure was caused by an exact serialized-global identity mismatch across NumPy generations. The official RTMDet-M checkpoint uses historical `numpy.core.multiarray` identities, while the hosted NumPy 2.x fixture serializes the same reviewed callables under `numpy._core.multiarray`. The final lexical `torch.serialization.safe_globals(...)` scope therefore contains a finite nine-entry reviewed set: `mmengine.logging.history_buffer.HistoryBuffer`; `_reconstruct` under both legacy and NumPy-2 names; `numpy.ndarray`; `numpy.dtype`; the concrete Float64 and Int64 dtype classes; and `scalar` under both legacy and NumPy-2 names. The scope is temporary and restores the prior safe-global state after success or failure.
+
+The security boundary remains unchanged: no `weights_only=False`, environment bypass, process-global monkey patch, permanent allowlist, automatic unsafe-global discovery, checkpoint conversion, model/backend substitution, or job-controlled model/config input was introduced. The official OpenMMLab checkpoint remains pinned to SHA-256 `229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b`.
+
+#### Hosted verification evidence
+
+GitHub Actions **Task 10 Runtime Qualification #13**, run `34610780805`, completed successfully on PR head `9027fc056a8a3a340fdcf4e9db472ec4cc2d3b74`. The default PR checkout tested synthetic merge commit `76853ba4ae31896111c864c4322a346839b31fe3`; the probe separately recorded `pullRequestHeadSha=9027fc056a8a3a340fdcf4e9db472ec4cc2d3b74` on both platforms.
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| MAVI core quality gate | PASS | `MAVI Quality Gate #156`, run `34610780738` |
+| Linux hosted CPU | PASS | job `103300442180`; Python 3.12.14; PyTorch 2.6.0+cpu; MMCV 2.1.0; MMEngine 0.10.7; MMDetection 3.3.0; NumPy 2.5.3 |
+| Windows hosted CPU | PASS | job `103300442432`; Python 3.12.10; PyTorch 2.6.0+cpu; MMCV 2.1.0; MMEngine 0.10.7; MMDetection 3.3.0; NumPy 2.5.3 |
+| Real restricted-load regression | PASS on both | approved NumPy metadata loads only inside the reviewed lexical scope; an unapproved type remains rejected; safe-global state is restored |
+| Official checkpoint preflight | PASS on both | missing checkpoint fails before heavyweight loading; expected SHA-256 is required and verified before deserialization |
+| Real RTMDet-M inference | PASS on both | probe returned `status="passed"`, `predictionType="DetDataSample"`, `predictionCount=300` |
+| Linux evidence artifact | PASS | artifact `10268436863`, archive digest `sha256:d8ae5e6d56f5acd957032549c9298bc32a44b5c620ee0a574c17aeb36822fd7c` |
+| Windows evidence artifact | PASS | artifact `10268617493`, archive digest `sha256:15747601db9ec5317494cd0485f9c3ca7540dc23ae76c87f814ed8bc36893fd7` |
+
+The Linux probe recorded the top-level source-config byte hash `c04a67ac0fbb48df14ada534f16186e1e4eb6cd5bb5ad0c32b1c64835f4e39e4`; Windows recorded `63e0ea14d2c0ce5966d8d68e05957c872e17c8296ba9d95e7ebe3bb6c625004f`. These hashes identify the checked-out top-level config bytes only and are **not** treated as an effective configuration identity. The platform difference reinforces the already-planned Task-1 requirement to generate and qualify a self-contained resolved deployment config with deterministic release-byte rules.
+
+#### Acceptance checklist
+
+- [x] Relevant tests demonstrate the correction and validation regressions; hosted unit-test steps and the exact runtime qualification commands passed.
+- [x] Real-PyTorch tests establish approved/rejected loading behaviour and restoration of the safe-global state after success and failure.
+- [x] Missing, malformed and mismatched checkpoint inputs fail before heavyweight model loading; URL rejection and intended relative/Windows filesystem paths remain covered.
+- [x] Invalid prediction labels, malformed shapes, non-finite boxes/scores and mismatched lengths are rejected; valid empty predictions pass.
+- [x] Both hosted CPU jobs pass on the same PR head and record the synthetic checkout commit separately from the PR-head identity.
+- [x] Evidence artifacts are parseable and identify checkpoint/config identity, exact runtime versions, platform/device, workflow run and PR head.
+- [x] Relevant repository/core checks pass on the proposed revision via MAVI Quality Gate #156.
+- [x] Documentation records the final Task-1A evidence and limitations without claiming full Task-10 qualification.
+
+#### Remaining boundary
+
+Task 1A is closed. Full runtime qualification is **not** closed. Task 1 must still produce the resolved effective config, qualify/freeze the complete runtime graph and platform/device locks, and perform the remaining required platform/device gates. GPU qualification, offline installation, native Windows end-to-end staging security, model/profile/qualification metadata, production RTMDet/ByteTrack adapters, recovery/watchdog behaviour, detection/tracking quality, performance, and production `verified` status remain governed by Tasks 1 and 2–15.
 
 ---
 
@@ -761,7 +809,7 @@ Wrap activity start/completion in `try/finally`; convert RGB once; run MMDetecti
 ```powershell
 cd src/vision
 python -m pytest tests/test_rtmdet_colour_space.py tests/test_rtmdet_mapping.py tests/test_rtmdet_geometry.py -q
-python ../../tools/vision/probe_runtime.py --config <resolved-config> --checkpoint <checkpoint> --device cpu
+python ../../tools/vision/probe_runtime.py --config <resolved-config> --checkpoint <checkpoint> --checkpoint-sha256 <reviewed-full-digest> --device cpu
 ```
 
 Expected: all fast tests pass; real smoke passes without network access and vocabulary matches.

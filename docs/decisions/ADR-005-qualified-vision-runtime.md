@@ -2,7 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-09-11  
-**Revision:** 2
+**Revision:** 3
 
 ## Context
 
@@ -86,6 +86,8 @@ Production does not rely on hashing only an MMDetection top-level config that ca
 Qualification produces a self-contained resolved deployment config with no unresolved remote/base dependency or environment-driven analytical variation. The model manifest hashes that resolved config and the checkpoint.
 
 Model/config files are trusted release artifacts, never job-controlled input. Production loads them from a versioned, read-only local release directory.
+
+The expected checkpoint digest is anchored in reviewed release metadata with publisher and immutable source identity; hashing newly obtained bytes is not by itself authentication. Artifact integrity is checked before deserialization. Checkpoint loading remains restricted: compatibility allowlists, when required, are lexical scopes of individually reviewed types for the pinned checkpoint, never unrestricted fallback, automatic discovery, or permanent process-wide mutation.
 
 ### 7. Make verification evidence-backed
 
