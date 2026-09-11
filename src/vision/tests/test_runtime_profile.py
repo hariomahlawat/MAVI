@@ -7,7 +7,10 @@ from pathlib import Path
 import pytest
 
 from mavi_vision.runtime.manifest import ReleaseMetadataError
-from mavi_vision.runtime.qualification import load_runtime_profile
+from mavi_vision.runtime.qualification import (
+    load_runtime_profile,
+    verify_runtime_release_locks,
+)
 
 
 def _sha(value: str) -> str:
@@ -165,3 +168,43 @@ def test_qualified_release_lock_requires_artifact_and_hash(tmp_path: Path) -> No
 
     with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
         load_runtime_profile(path)
+
+def test_qualified_runtime_lock_bytes_are_verified(tmp_path: Path) -> None:
+    payload = _runtime_payload()
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir()
+    lock_path = lock_dir / "linux-x86_64-cpu.lock"
+    lock_path.write_bytes(b"package==1.0\n")
+    payload["releaseLocks"]["linux-x86_64-cpu"] = {
+        "status": "qualified-offline-lock",
+        "artifact": "locks/linux-x86_64-cpu.lock",
+        "sha256": hashlib.sha256(lock_path.read_bytes()).hexdigest(),
+    }
+    runtime_path = tmp_path / "runtime.json"
+    _write(runtime_path, payload)
+    profile = load_runtime_profile(runtime_path)
+
+    verified = verify_runtime_release_locks(runtime_path, profile)
+
+    assert verified["linux-x86_64-cpu"] == lock_path.resolve()
+
+
+def test_qualified_runtime_lock_tamper_fails_closed(tmp_path: Path) -> None:
+    payload = _runtime_payload()
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir()
+    lock_path = lock_dir / "linux-x86_64-cpu.lock"
+    lock_path.write_bytes(b"package==1.0\n")
+    payload["releaseLocks"]["linux-x86_64-cpu"] = {
+        "status": "qualified-offline-lock",
+        "artifact": "locks/linux-x86_64-cpu.lock",
+        "sha256": hashlib.sha256(lock_path.read_bytes()).hexdigest(),
+    }
+    runtime_path = tmp_path / "runtime.json"
+    _write(runtime_path, payload)
+    profile = load_runtime_profile(runtime_path)
+    lock_path.write_bytes(b"package==2.0\n")
+
+    with pytest.raises(ReleaseMetadataError, match="runtime_release_lock_hash_mismatch"):
+        verify_runtime_release_locks(runtime_path, profile)
+
