@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "runtimeProfileId": "mmdetection-phase1-v1",
-  "qualificationStatus": "candidate",
+  "qualificationStatus": "partial",
   "pythonMinor": "3.12",
   "semanticGraph": {
     "torch": "2.6.0",
@@ -25,10 +25,18 @@
   },
   "platformVariants": {
     "linux-x86_64-cpu": {
-      "status": "pending-resolved-config-recheck"
+      "status": "qualified-hosted-cpu",
+      "workflowRunId": "34614293246",
+      "jobId": "103312235001",
+      "evidenceHeadSha": "8ffc2adba6618b3c7cdc05df5db3b659d029870b",
+      "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
     },
     "windows-x86_64-cpu": {
-      "status": "pending-resolved-config-recheck"
+      "status": "qualified-hosted-cpu",
+      "workflowRunId": "34614293246",
+      "jobId": "103312234588",
+      "evidenceHeadSha": "8ffc2adba6618b3c7cdc05df5db3b659d029870b",
+      "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
     },
     "linux-x86_64-cuda": {
       "status": "pending-hardware-qualification"
@@ -50,5 +58,13 @@
     "windows-x86_64-cuda": {
       "status": "pending-hardware-qualification"
     }
+  },
+  "resolvedConfig": {
+    "artifact": "rtmdet_m_resolved.py",
+    "sha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+    "format": "python",
+    "encoding": "utf-8",
+    "lineEndings": "lf",
+    "selfContained": true
   }
 }
