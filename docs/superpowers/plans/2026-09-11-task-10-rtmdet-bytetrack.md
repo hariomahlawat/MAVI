@@ -331,7 +331,7 @@ Task 10 Runtime Qualification #17, run `34614293246`, executed the resolver and 
 
 Both jobs matched the recorded semantic graph, removed the original MMDetection config tree, proved a missing checkpoint fails before model loading, and completed real RTMDet-M CPU inference with `status="passed"` and `predictionType="DetDataSample"`. The checkpoint remained the reviewed OpenMMLab artifact with SHA-256 `229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b`.
 
-MAVI Quality Gate #160 passed after the package-discovery correction. PR #16 remains subject to one final exact-head quality + dual-platform runtime pass after the safe-global-order regression correction and this evidence freeze; merge is not authorized by the earlier run alone.
+The final PR #16 head `de14dcbe37f2af4fa73d481fe701332d04abe4f8` passed MAVI Quality Gate #164 (run `34615702314`) and Task 10 Runtime Qualification #22 (run `34615702414`). Linux job `103316964114` and Windows job `103316964302` both matched the frozen semantic graph, emitted the identical resolved-config SHA-256 `377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3`, removed the source MMDetection config tree, and completed real RTMDet-M CPU inference. Evidence artifacts were uploaded as `10271175803` (Linux, archive digest `sha256:45a72a0212a066c3090f5aaf97f13bf9b41d73581d6be0ed77cff18215f6af4d`) and `10271226473` (Windows, archive digest `sha256:91031acc16763324f151eeb0469d10ef878a1d2c38801d130e391e090d08b51b`). PR #16 was then squash-merged into `feature/task-10-rtmdet-bytetrack` as `4f8762abe84fcaece02f7d837f64d575a51c0296`.
 
 #### Task 1B acceptance
 
