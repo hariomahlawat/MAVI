@@ -28,6 +28,11 @@ REQUIRED_PATHS = [
     "src/platform/Mavi.Api/Mavi.Api.csproj",
     "src/web/mavi-web/package.json",
     "src/vision/pyproject.toml",
+    ".gitattributes",
+    "models/manifests/rtmdet-m-coco-phase1-v1.json",
+    "models/qualifications/rtmdet-m-coco-phase1-v1.json",
+    "src/vision/config/pipelines/phase1-detection-tracking-v1.json",
+    "src/vision/runtime/mmdetection-phase1-v1/runtime.json",
     "contracts/schemas/vision-job-lease-v2.schema.json",
     "contracts/schemas/vision-result.schema.json",
     "contracts/schemas/worker-health-v2.schema.json",
@@ -57,6 +62,18 @@ DEVELOPMENT_ONLY_FILES = {
     ROOT / "src/platform/Mavi.Api/Properties/launchSettings.json",
 }
 URL_PATTERN = re.compile(r"https?://", re.IGNORECASE)
+
+VISION_ROOT = ROOT / "src/vision"
+MODEL_MANIFEST = ROOT / "models/manifests/rtmdet-m-coco-phase1-v1.json"
+QUALIFICATION_RECORD = ROOT / "models/qualifications/rtmdet-m-coco-phase1-v1.json"
+PIPELINE_PROFILE = ROOT / "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
+RUNTIME_PROFILE = ROOT / "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
+RELEASE_TEXT_ROOTS = [
+    ROOT / "models/manifests",
+    ROOT / "models/qualifications",
+    ROOT / "src/vision/config/pipelines",
+    ROOT / "src/vision/runtime",
+]
 
 
 def fail(message: str, errors: list[str]) -> None:
@@ -152,6 +169,98 @@ def check_tracked_binaries_and_secrets(errors: list[str]) -> None:
             fail(f"Prohibited secret file is tracked: {path.relative_to(ROOT)}", errors)
 
 
+def check_vision_release_metadata(errors: list[str]) -> None:
+    """Validate Task-10 release metadata without claiming pending gates passed."""
+    if str(VISION_ROOT) not in sys.path:
+        sys.path.insert(0, str(VISION_ROOT))
+
+    try:
+        from mavi_vision.runtime.manifest import (
+            ReleaseMetadataError,
+            load_model_manifest,
+            sha256_release_file,
+            validate_release_text_file,
+        )
+        from mavi_vision.runtime.profile import (
+            load_pipeline_profile,
+            validate_profile_against_manifest,
+        )
+        from mavi_vision.runtime.qualification import (
+            load_qualification_record,
+            load_runtime_identity,
+            verify_qualification_relationships,
+        )
+    except ImportError as exc:
+        fail(f"Vision release metadata tooling could not be imported: {exc}", errors)
+        return
+
+    release_files = [
+        file_path
+        for file_path in tracked_files()
+        if file_path.suffix.lower() in {".json", ".lock"}
+        and any(file_path.is_relative_to(root) for root in RELEASE_TEXT_ROOTS)
+    ]
+    for file_path in release_files:
+        try:
+            validate_release_text_file(file_path)
+        except ReleaseMetadataError as exc:
+            fail(
+                f"Release text is not deterministic UTF-8/LF: "
+                f"{file_path.relative_to(ROOT)} ({exc.code})",
+                errors,
+            )
+
+    try:
+        manifest = load_model_manifest(MODEL_MANIFEST)
+        profile = load_pipeline_profile(PIPELINE_PROFILE)
+        qualification = load_qualification_record(QUALIFICATION_RECORD)
+        validate_profile_against_manifest(profile, manifest)
+
+        manifest_hash = sha256_release_file(MODEL_MANIFEST)
+        profile_hash = sha256_release_file(PIPELINE_PROFILE)
+        runtime_hash = sha256_release_file(RUNTIME_PROFILE)
+        runtime_id, runtime_checkpoint_hash, runtime_config_hash = load_runtime_identity(
+            RUNTIME_PROFILE
+        )
+
+        if manifest.verification_status != "unverified":
+            fail(
+                "Task-10 manifest must remain unverified until final Task-14 qualification.",
+                errors,
+            )
+        if manifest.qualification_id is not None:
+            fail(
+                "Unverified Task-10 manifest must not claim a qualification ID.",
+                errors,
+            )
+
+        if runtime_id != manifest.runtime_profile_id:
+            fail("Runtime profile ID does not match model manifest.", errors)
+        if runtime_checkpoint_hash != manifest.checkpoint.sha256:
+            fail("Runtime checkpoint hash does not match model manifest.", errors)
+        if runtime_config_hash != manifest.resolved_config.sha256:
+            fail("Runtime resolved-config hash does not match model manifest.", errors)
+
+        verify_qualification_relationships(
+            qualification=qualification,
+            manifest=manifest,
+            manifest_sha256=manifest_hash,
+            profile=profile,
+            profile_sha256=profile_hash,
+            runtime_profile_id=runtime_id,
+            runtime_profile_sha256=runtime_hash,
+            require_passed=False,
+        )
+
+        if qualification.overall_result != "pending":
+            fail(
+                "Pre-Task-14 qualification record must remain explicitly pending.",
+                errors,
+            )
+    except ReleaseMetadataError as exc:
+        fail(f"Vision release metadata invalid: {exc.code}", errors)
+
+
 def main() -> int:
     errors: list[str] = []
     check_required_paths(errors)
@@ -159,6 +268,7 @@ def main() -> int:
     check_contracts(errors)
     check_production_urls(errors)
     check_tracked_binaries_and_secrets(errors)
+    check_vision_release_metadata(errors)
 
     if errors:
         print("MAVI repository verification FAILED")
@@ -172,6 +282,7 @@ def main() -> int:
     print(" - contract examples: 7")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret scan: clean")
+    print(" - Task-10 release metadata: valid, explicitly unverified/pending")
     return 0
 
 
