@@ -15,35 +15,16 @@ permissions:
 
 jobs:
   cpu-candidate:
-    name: CPU ${{ matrix.os }} Python ${{ matrix.python }}
+    name: CPU ${{ matrix.os }} Python 3.12 Torch 2.2.2
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            python: '3.12'
-            torch: '2.2.2'
-            torchvision: '0.17.2'
-            mmcv_mode: source
-          - os: windows-latest
-            python: '3.12'
-            torch: '2.2.2'
-            torchvision: '0.17.2'
-            mmcv_mode: source
-          - os: ubuntu-latest
-            python: '3.11'
-            torch: '2.1.0'
-            torchvision: '0.16.0'
-            mmcv_mode: wheel
-          - os: windows-latest
-            python: '3.11'
-            torch: '2.1.0'
-            torchvision: '0.16.0'
-            mmcv_mode: wheel
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       MMCV_WITH_OPS: '1'
+      MAX_JOBS: '2'
       RTMDET_CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
 
     steps:
@@ -51,27 +32,32 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python }}
+          python-version: '3.12'
 
-      - name: Upgrade packaging tools
-        run: python -m pip install --upgrade pip setuptools wheel ninja
+      - name: Install compatible build tooling
+        run: python -m pip install --upgrade pip "setuptools==80.9.0" wheel ninja psutil
 
       - name: Install candidate PyTorch CPU build
         run: >-
           python -m pip install
-          torch==${{ matrix.torch }}
-          torchvision==${{ matrix.torchvision }}
+          torch==2.2.2
+          torchvision==0.17.2
           --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Install MMCV official wheel
-        if: matrix.mmcv_mode == 'wheel'
+      - name: Verify PyTorch NumPy-2 bridge before MMCV build
         run: >-
-          python -m pip install mmcv==2.1.0
-          -f https://download.openmmlab.com/mmcv/dist/cpu/torch2.1.0/index.html
+          python -c "import numpy as np, torch; x=np.array([1,2,3], dtype=np.float32); y=torch.from_numpy(x); z=y.numpy(); print('numpy-bridge-ok', np.__version__, torch.__version__, z.tolist())"
 
-      - name: Build/install MMCV from source candidate
-        if: matrix.mmcv_mode == 'source'
-        run: python -m pip install --no-binary mmcv mmcv==2.1.0
+      - name: Configure MSVC compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+
+      - name: Clone MMCV 2.1.0 source
+        run: git clone --depth 1 --branch v2.1.0 https://github.com/open-mmlab/mmcv.git .qualification-mmcv
+
+      - name: Build/install MMCV 2.1.0 against installed PyTorch
+        working-directory: .qualification-mmcv
+        run: python -m pip install --no-build-isolation -v .
 
       - name: Install remaining candidate graph
         run: >-
@@ -120,7 +106,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: runtime-probe-${{ matrix.os }}-py${{ matrix.python }}
+          name: runtime-probe-${{ matrix.os }}-py3.12-torch2.2.2
           path: |
             runtime-probe.json
             missing.err
