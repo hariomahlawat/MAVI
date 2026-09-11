@@ -1,0 +1,68 @@
+name: Task 10 Staging Security
+
+on:
+  pull_request:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'src/vision/mavi_vision/storage/artifact_store.py'
+      - 'src/vision/mavi_vision/storage/artifact_store_posix.py'
+      - 'src/vision/mavi_vision/storage/artifact_store_windows.py'
+      - 'src/vision/mavi_vision/storage/artifact_publisher.py'
+      - 'src/vision/tests/test_artifact_store.py'
+      - 'src/vision/tests/test_artifact_store_windows.py'
+      - 'src/vision/tests/test_artifact_publisher.py'
+      - '.github/workflows/task10-staging-security.yml'
+      - 'docs/superpowers/plans/2026-09-11-task-10-rtmdet-bytetrack.md'
+  push:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'src/vision/mavi_vision/storage/artifact_store.py'
+      - 'src/vision/mavi_vision/storage/artifact_store_posix.py'
+      - 'src/vision/mavi_vision/storage/artifact_store_windows.py'
+      - 'src/vision/mavi_vision/storage/artifact_publisher.py'
+      - 'src/vision/tests/test_artifact_store.py'
+      - 'src/vision/tests/test_artifact_store_windows.py'
+      - 'src/vision/tests/test_artifact_publisher.py'
+      - '.github/workflows/task10-staging-security.yml'
+      - 'docs/superpowers/plans/2026-09-11-task-10-rtmdet-bytetrack.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mavi-task10-staging-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  staging-security:
+    name: Staging security / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install vision test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "./src/vision[dev]"
+
+      - name: Run staging security regression suite
+        working-directory: src/vision
+        run: >-
+          python -m pytest
+          tests/test_artifact_store.py
+          tests/test_artifact_store_windows.py
+          tests/test_artifact_publisher.py
+          -q

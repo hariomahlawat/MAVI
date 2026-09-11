@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import os
 from uuid import UUID
 
 import pytest
 
-import mavi_vision.storage.artifact_store as artifact_store_module
+import mavi_vision.storage.artifact_store_posix as artifact_store_posix_module
 from mavi_vision.storage.artifact_store import StagingArtifactError, StagingArtifactStore
 
 
@@ -73,6 +74,7 @@ def test_rejects_unsafe_track_ids_and_relative_names(tmp_path) -> None:
         store.write_bytes("bad\\path.bin", b"x", "application/octet-stream")
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX no-follow fixture")
 def test_rejects_symlink_escape(tmp_path) -> None:
     outside = tmp_path.parent / f"{tmp_path.name}-outside"
     outside.mkdir()
@@ -85,6 +87,7 @@ def test_rejects_symlink_escape(tmp_path) -> None:
         store.write_bytes("escape/file.bin", b"x", "application/octet-stream")
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX no-follow fixture")
 def test_rejected_intermediate_symlink_does_not_create_outside_directories(tmp_path) -> None:
     outside = tmp_path.parent / f"{tmp_path.name}-outside-tree"
     outside.mkdir()
@@ -99,6 +102,7 @@ def test_rejected_intermediate_symlink_does_not_create_outside_directories(tmp_p
     assert not (outside / "new").exists()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX no-follow fixture")
 def test_rejects_symlinked_job_root_and_cleanup_preserves_target(tmp_path) -> None:
     target = tmp_path / "videos"
     target.mkdir()
@@ -118,6 +122,7 @@ def test_rejects_symlinked_job_root_and_cleanup_preserves_target(tmp_path) -> No
     assert source.read_bytes() == b"keep"
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX no-follow fixture")
 def test_directory_swap_during_write_cannot_redirect_artifact_outside_root(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -130,7 +135,7 @@ def test_directory_swap_during_write_cannot_redirect_artifact_outside_root(
     outside = tmp_path.parent / f"{tmp_path.name}-outside-race"
     outside.mkdir()
 
-    real_open = artifact_store_module.os.open
+    real_open = artifact_store_posix_module.os.open
     swapped = False
 
     def racing_open(path, flags, mode=0o777, *, dir_fd=None):
@@ -148,7 +153,7 @@ def test_directory_swap_during_write_cannot_redirect_artifact_outside_root(
             return real_open(path, flags, mode)
         return real_open(path, flags, mode, dir_fd=dir_fd)
 
-    monkeypatch.setattr(artifact_store_module.os, "open", racing_open)
+    monkeypatch.setattr(artifact_store_posix_module.os, "open", racing_open)
 
     with pytest.raises(StagingArtifactError, match="staging_path_(?:race|escape)"):
         store.write_bytes("safe/race.bin", b"payload", "application/octet-stream")
