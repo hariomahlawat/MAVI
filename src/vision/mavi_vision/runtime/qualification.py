@@ -164,6 +164,35 @@ class _RuntimeCheckpointSchema(_StrictModel):
         return value
 
 
+class _RuntimePythonIdentitySchema(_StrictModel):
+    version: str
+    implementation: Literal["CPython"]
+    build: tuple[str, str]
+    compiler: str
+
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        parts = value.split(".")
+        if len(parts) != 3 or any(not part.isdigit() for part in parts):
+            raise ValueError("runtime_python_version_invalid")
+        return value
+
+    @field_validator("build")
+    @classmethod
+    def validate_build(cls, value: tuple[str, str]) -> tuple[str, str]:
+        if len(value) != 2 or any(not part or part != part.strip() for part in value):
+            raise ValueError("runtime_python_build_invalid")
+        return value
+
+    @field_validator("compiler")
+    @classmethod
+    def validate_compiler(cls, value: str) -> str:
+        if not value or value != value.strip():
+            raise ValueError("runtime_python_compiler_invalid")
+        return value
+
+
 class _RuntimePlatformVariantSchema(_StrictModel):
     status: Literal[
         "qualified-hosted-cpu",
@@ -177,6 +206,10 @@ class _RuntimePlatformVariantSchema(_StrictModel):
         default=None,
         alias="resolvedConfigSha256",
     )
+    python_identity: _RuntimePythonIdentitySchema | None = Field(
+        default=None,
+        alias="pythonIdentity",
+    )
 
     @model_validator(mode="after")
     def validate_evidence_shape(self) -> "_RuntimePlatformVariantSchema":
@@ -185,6 +218,7 @@ class _RuntimePlatformVariantSchema(_StrictModel):
             self.job_id,
             self.evidence_head_sha,
             self.resolved_config_sha256,
+            self.python_identity,
         )
         if self.status.startswith("qualified-"):
             if any(value is None for value in evidence):
@@ -320,6 +354,9 @@ class _RuntimeProfileSchema(_StrictModel):
                 and variant.resolved_config_sha256 != self.resolved_config.sha256
             ):
                 raise ValueError("runtime_variant_config_hash_mismatch")
+            if variant.python_identity is not None:
+                if not variant.python_identity.version.startswith(self.python_minor + "."):
+                    raise ValueError("runtime_python_minor_identity_mismatch")
 
         has_pending = any(
             variant.status == "pending-hardware-qualification"
