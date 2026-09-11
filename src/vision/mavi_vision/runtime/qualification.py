@@ -41,7 +41,7 @@ MANDATORY_QUALIFICATION_GATES = frozenset(
 class QualificationEvidence:
     kind: str
     reference: str
-    sha256: str | None
+    sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +83,7 @@ class _StrictModel(BaseModel):
 class _QualificationEvidenceSchema(_StrictModel):
     kind: str
     reference: str
-    sha256: str | None = None
+    sha256: str
 
     @field_validator("kind", "reference")
     @classmethod
@@ -94,9 +94,8 @@ class _QualificationEvidenceSchema(_StrictModel):
 
     @field_validator("sha256")
     @classmethod
-    def validate_optional_sha256(cls, value: str | None) -> str | None:
-        if value is not None:
-            validate_sha256_hex(value)
+    def validate_evidence_sha256(cls, value: str) -> str:
+        validate_sha256_hex(value)
         return value
 
 
