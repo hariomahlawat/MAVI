@@ -119,7 +119,7 @@ def _bundle_host_compatibility(platform_variant: str) -> BundleHostCompatibility
             architecture="x86_64",
             distribution="ubuntu",
             distribution_version="24.04",
-            native_abi="glibc-2.39-linux_x86_64",
+            native_abi="glibc-2.39-libstdcxx-GLIBCXX_3.4.33-linux_x86_64",
             portability="qualified-host-only",
         )
     if platform_variant.startswith("windows-x86_64-"):
@@ -574,6 +574,7 @@ def _install_instructions(inputs: VerifiedBundleInputs) -> str:
         host_lines = (
             "Qualified host: Ubuntu 24.04 x86_64\n"
             "Native ABI: glibc 2.39 / linux_x86_64\n"
+            "libstdc++ ABI: GLIBCXX_3.4.33 available\n"
             "Portability: qualified-host-only\n"
             "This native Linux bundle is not qualified for other distributions/releases.\n"
         )
