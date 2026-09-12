@@ -397,7 +397,7 @@ def test_bundle_manifest_lists_every_product_file_once_except_itself(
         "architecture": "x86_64",
         "distribution": "ubuntu",
         "distributionVersion": "24.04",
-        "nativeAbi": "glibc-2.39-linux_x86_64",
+        "nativeAbi": "glibc-2.39-libstdcxx-GLIBCXX_3.4.33-linux_x86_64",
         "osFamily": "linux",
         "portability": "qualified-host-only",
     }
@@ -553,6 +553,7 @@ def test_install_instructions_are_offline_only(tmp_path: Path) -> None:
     assert "3.12.14" in instructions
     assert "Qualified host: Ubuntu 24.04 x86_64" in instructions
     assert "Native ABI: glibc 2.39 / linux_x86_64" in instructions
+    assert "libstdc++ ABI: GLIBCXX_3.4.33 available" in instructions
     assert "Portability: qualified-host-only" in instructions
     assert "http://" not in instructions
     assert "https://" not in instructions
