@@ -509,6 +509,27 @@ def test_freeze_tool_rejects_incompatible_wheel_tags(
         )
 
 
+def test_freeze_tool_accepts_older_minor_pure_python_wheel(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="sample-1.0.0-py311-none-any.whl",
+        name="sample",
+        version="1.0.0",
+    )
+
+    lock = tool.freeze_wheelhouse(
+        wheelhouse,
+        platform_variant="linux-x86_64-cpu",
+        python_version="3.12.14",
+    )
+
+    assert [item.name for item in lock.distributions] == ["sample"]
+
+
 def test_freeze_tool_accepts_abi3_wheel_for_newer_cpython(
     tmp_path: Path,
 ) -> None:
