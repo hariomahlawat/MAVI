@@ -493,10 +493,10 @@ def test_constructor_rejects_non_self_contained_resolved_config_before_imports(
                 "model": {
                     "type": "RTMDet",
                     "test_cfg": {"score_thr": 0.001},
-                    "checkpoint": "relative-unverified.pth",
+                    "pretrained": "relative-unverified.pth",
                 }
             },
-            "resolved_config_external_resource_directive:checkpoint",
+            "resolved_config_external_resource_directive:pretrained",
         ),
         (
             {
@@ -548,7 +548,7 @@ def test_constructor_validates_mmengine_config_wrapper_contents(
             "model": {
                 "type": "RTMDet",
                 "test_cfg": {"score_thr": 0.001},
-                "checkpoint": "relative-unverified.pth",
+                "pretrained": "relative-unverified.pth",
             }
         },
         wrap_config=True,
@@ -557,7 +557,7 @@ def test_constructor_validates_mmengine_config_wrapper_contents(
 
     with pytest.raises(
         RuntimeCompatibilityError,
-        match="resolved_config_external_resource_directive:checkpoint",
+        match="resolved_config_external_resource_directive:pretrained",
     ):
         MMDetectionRuntime(
             _selection(tmp_path),
@@ -566,6 +566,38 @@ def test_constructor_validates_mmengine_config_wrapper_contents(
         )
 
     assert harness.init_calls == []
+
+
+def test_constructor_allows_checkpoint_hook_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = BackendHarness(
+        config_override={
+            "model": {
+                "type": "RTMDet",
+                "test_cfg": {"score_thr": 0.001},
+            },
+            "default_hooks": {
+                "checkpoint": {
+                    "type": "CheckpointHook",
+                    "interval": 10,
+                    "max_keep_ckpts": 3,
+                }
+            },
+        },
+        wrap_config=True,
+    )
+    _patch_backend(monkeypatch, harness)
+
+    runtime = MMDetectionRuntime(
+        _selection(tmp_path),
+        device="cpu",
+        activity=InferenceActivity(),
+    )
+
+    assert runtime.metadata.model_id == "rtmdet-m-coco-phase1"
+    assert len(harness.init_calls) == 1
 
 
 def test_constructor_accepts_safe_mmengine_config_wrapper_and_applies_floor(
