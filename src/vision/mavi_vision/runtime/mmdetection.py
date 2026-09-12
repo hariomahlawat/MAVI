@@ -326,7 +326,6 @@ def _validate_resolved_config(path: Path) -> None:
                 "resolved_config_environment_reference_forbidden"
             )
         tree = ast.parse(text, filename=path.name)
-        _validate_data_only_config_ast(tree)
         try:
             name_tokens = (
                 token.string
@@ -339,6 +338,7 @@ def _validate_resolved_config(path: Path) -> None:
                 )
         except (tokenize.TokenError, IndentationError) as exc:
             raise RuntimeCompatibilityError("resolved_config_invalid") from exc
+        _validate_data_only_config_ast(tree)
     except RuntimeCompatibilityError:
         raise
     except (ReleaseMetadataError, UnicodeDecodeError, SyntaxError) as exc:
