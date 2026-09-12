@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Protocol, TypeVar
+from typing import Any, NoReturn, Protocol, TypeVar
 
 from mavi_vision.runtime.activity import InferenceActivity
 from mavi_vision.runtime.errors import ProcessingDependencyError, RuntimeDisposition
@@ -26,6 +27,11 @@ from mavi_vision.runtime.qualification import (
 
 _LOGGER = logging.getLogger(__name__)
 _T = TypeVar("_T")
+_FATAL_SERVICE_RESTART_CODE = 70
+
+
+class _LifecycleWatchdogExpired(RuntimeError):
+    pass
 
 
 class RuntimeState(StrEnum):
@@ -90,6 +96,8 @@ class RuntimeSupervisor:
         device_index: int,
         production_mode: bool,
         inference_watchdog_seconds: float,
+        watchdog_grace_seconds: float = 10.0,
+        watchdog_poll_seconds: float = 1.0,
         build_id: str | None = None,
         commit_sha: str | None = None,
         release_verifier: ReleaseVerifier = verify_release_selection,
@@ -97,9 +105,14 @@ class RuntimeSupervisor:
         provenance_builder: ProvenanceBuilder = build_runtime_provenance,
         gpu_identity_provider: GpuIdentityProvider | None = None,
         monotonic_clock: Callable[[], float] = time.monotonic,
+        fatal_terminator: Callable[[int], NoReturn] = os._exit,
     ) -> None:
         if inference_watchdog_seconds <= 0:
             raise ValueError("inference_watchdog_seconds_must_be_positive")
+        if watchdog_grace_seconds <= 0:
+            raise ValueError("watchdog_grace_seconds_must_be_positive")
+        if watchdog_poll_seconds <= 0 or watchdog_poll_seconds > 1.0:
+            raise ValueError("watchdog_poll_seconds_must_be_in_0_1")
         if (
             not isinstance(device_index, int)
             or isinstance(device_index, bool)
@@ -118,6 +131,9 @@ class RuntimeSupervisor:
         self._device_index = device_index
         self._production_mode = production_mode
         self._inference_watchdog_seconds = inference_watchdog_seconds
+        self._watchdog_grace_seconds = watchdog_grace_seconds
+        self._watchdog_poll_seconds = watchdog_poll_seconds
+        self._fatal_terminator = fatal_terminator
         self._build_id = build_id
         self._commit_sha = commit_sha
         self._release_verifier = release_verifier
@@ -129,6 +145,7 @@ class RuntimeSupervisor:
         self._state = RuntimeState.STARTING
         self._unavailable_reason: str | None = None
         self._restart_required = False
+        self._fatal_termination_active = False
         self._started = False
         self._closed = False
 
@@ -171,6 +188,10 @@ class RuntimeSupervisor:
         return self._restart_required
 
     @property
+    def fatal_termination_active(self) -> bool:
+        return self._fatal_termination_active
+
+    @property
     def profile(self) -> PipelineProfile:
         selection = self._selection
         if selection is None:
@@ -204,9 +225,11 @@ class RuntimeSupervisor:
                 candidate.metadata,
                 resolved_device,
             )
-            await self._lane.run(candidate.warmup)
+            await self._run_lane_call_with_watchdog(candidate.warmup)
             provenance = self._build_provenance(selection, candidate.metadata)
         except BaseException as exc:
+            if self._fatal_termination_active:
+                raise
             if candidate is not None and self._cleanup_is_safe(exc):
                 await self._close_candidate_best_effort(candidate)
             if isinstance(exc, asyncio.CancelledError):
@@ -309,9 +332,11 @@ class RuntimeSupervisor:
                 candidate.metadata,
                 resolved_device,
             )
-            await self._lane.run(candidate.warmup)
+            await self._run_lane_call_with_watchdog(candidate.warmup)
             provenance = self._build_provenance(selection, candidate.metadata)
         except BaseException as exc:
+            if self._fatal_termination_active:
+                raise
             if candidate is not None and self._cleanup_is_safe(exc):
                 await self._close_candidate_best_effort(candidate)
             if isinstance(exc, asyncio.CancelledError):
@@ -326,6 +351,56 @@ class RuntimeSupervisor:
         self._unavailable_reason = None
         self._restart_required = False
         self._state = RuntimeState.READY
+
+    async def _run_lane_call_with_watchdog(
+        self,
+        func: Callable[..., _T],
+        /,
+        *args: Any,
+        **kwargs: Any,
+    ) -> _T:
+        """Run one inference-bearing lifecycle call with bounded watchdog containment."""
+        task = asyncio.create_task(
+            self._lane.run(func, *args, **kwargs),
+            name="mavi-runtime-lifecycle-lane-call",
+        )
+        try:
+            while True:
+                done, _ = await asyncio.wait(
+                    {task},
+                    timeout=self._watchdog_poll_seconds,
+                )
+                if task in done:
+                    return task.result()
+
+                if not self.watchdog_expired():
+                    continue
+
+                done, _ = await asyncio.wait(
+                    {task},
+                    timeout=self._watchdog_grace_seconds,
+                )
+                if task in done:
+                    try:
+                        task.result()
+                    except BaseException:
+                        pass
+                    raise _LifecycleWatchdogExpired(
+                        "vision_inference_watchdog_expired"
+                    )
+
+                self._fatal_termination_active = True
+                self._restart_required = True
+                self._fatal_terminator(_FATAL_SERVICE_RESTART_CODE)
+                raise RuntimeError("lifecycle_watchdog_fatal_terminator_returned")
+        except asyncio.CancelledError:
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
+            raise
 
     async def close(self) -> None:
         if self._closed:
@@ -479,6 +554,8 @@ class RuntimeSupervisor:
 
     @staticmethod
     def _cleanup_is_safe(error: BaseException) -> bool:
+        if isinstance(error, _LifecycleWatchdogExpired):
+            return False
         return not (
             isinstance(error, ProcessingDependencyError)
             and error.runtime_disposition is RuntimeDisposition.UNAVAILABLE
@@ -507,6 +584,8 @@ def _no_gpu_identity(device: str) -> None:
 
 
 def _requires_restart(error: BaseException) -> bool:
+    if isinstance(error, _LifecycleWatchdogExpired):
+        return True
     return (
         isinstance(error, ProcessingDependencyError)
         and error.runtime_disposition is RuntimeDisposition.UNAVAILABLE
