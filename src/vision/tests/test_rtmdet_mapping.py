@@ -62,7 +62,7 @@ def _profile() -> PipelineProfile:
     return PipelineProfile(
         schema_version="1.0",
         profile_id="phase1-detection-tracking-v1",
-        profile_version="1.0.0-candidate",
+        profile_version="1.1.0-candidate",
         model_id="rtmdet-m-coco-phase1",
         detector_inference_floor=0.05,
         allowed_source_classes=("person", "car", "motorcycle", "bus", "truck"),
@@ -76,10 +76,11 @@ def _profile() -> PipelineProfile:
             }
         ),
         tracker=ByteTrackProfile(
-            track_activation_threshold=0.25,
+            reference_frame_rate=30.0,
+            track_activation_threshold=0.7,
             high_confidence_threshold=0.6,
-            minimum_matching_threshold=0.8,
-            minimum_consecutive_frames=1,
+            minimum_iou_threshold=0.1,
+            minimum_consecutive_frames=2,
             lost_track_buffer_seconds=1.0,
         ),
         frame_policy="every-frame",

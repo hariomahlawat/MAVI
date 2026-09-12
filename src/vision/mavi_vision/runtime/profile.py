@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isclose
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, Mapping
@@ -23,15 +24,22 @@ _PHASE1_CLASS_MAPPING = {
     "bus": ObjectClass.VEHICLE,
     "truck": ObjectClass.VEHICLE,
 }
+_TRACKERS_REFERENCE_HZ = 30.0
+_INTEGER_TOLERANCE = 1e-9
 
 
 @dataclass(frozen=True, slots=True)
 class ByteTrackProfile:
+    reference_frame_rate: float
     track_activation_threshold: float
     high_confidence_threshold: float
-    minimum_matching_threshold: float
+    minimum_iou_threshold: float
     minimum_consecutive_frames: int
     lost_track_buffer_seconds: float
+
+    @property
+    def lost_track_buffer(self) -> int:
+        return int(self.lost_track_buffer_seconds * _TRACKERS_REFERENCE_HZ)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,20 +60,28 @@ class _StrictModel(BaseModel):
 
 
 class _ByteTrackProfileSchema(_StrictModel):
+    reference_frame_rate: float = Field(
+        alias="referenceFrameRate",
+        gt=0.0,
+        allow_inf_nan=False,
+    )
     track_activation_threshold: float = Field(
         alias="trackActivationThreshold",
         ge=0.0,
         le=1.0,
+        allow_inf_nan=False,
     )
     high_confidence_threshold: float = Field(
         alias="highConfidenceThreshold",
         ge=0.0,
         le=1.0,
+        allow_inf_nan=False,
     )
-    minimum_matching_threshold: float = Field(
-        alias="minimumMatchingThreshold",
+    minimum_iou_threshold: float = Field(
+        alias="minimumIouThreshold",
         ge=0.0,
         le=1.0,
+        allow_inf_nan=False,
     )
     minimum_consecutive_frames: int = Field(
         alias="minimumConsecutiveFrames",
@@ -76,12 +92,23 @@ class _ByteTrackProfileSchema(_StrictModel):
         alias="lostTrackBufferSeconds",
         gt=0.0,
         le=60.0,
+        allow_inf_nan=False,
     )
 
     @model_validator(mode="after")
-    def validate_threshold_relationships(self) -> "_ByteTrackProfileSchema":
-        if self.high_confidence_threshold < self.track_activation_threshold:
-            raise ValueError("bytetrack_high_confidence_below_activation")
+    def validate_tracker_policy(self) -> "_ByteTrackProfileSchema":
+        if not self.high_confidence_threshold < self.track_activation_threshold:
+            raise ValueError("bytetrack_confidence_threshold_order_invalid")
+
+        scaled_lost_buffer = self.lost_track_buffer_seconds * _TRACKERS_REFERENCE_HZ
+        nearest = round(scaled_lost_buffer)
+        if not isclose(
+            scaled_lost_buffer,
+            nearest,
+            rel_tol=0.0,
+            abs_tol=_INTEGER_TOLERANCE,
+        ):
+            raise ValueError("bytetrack_lost_buffer_not_integral_at_30hz")
         return self
 
 
@@ -94,6 +121,7 @@ class _PipelineProfileSchema(_StrictModel):
         alias="detectorInferenceFloor",
         ge=0.0,
         le=1.0,
+        allow_inf_nan=False,
     )
     allowed_source_classes: tuple[str, ...] = Field(alias="allowedSourceClasses")
     class_mapping: dict[str, ObjectClass] = Field(alias="classMapping")
@@ -118,8 +146,8 @@ class _PipelineProfileSchema(_StrictModel):
     def validate_phase1_mapping(self) -> "_PipelineProfileSchema":
         if self.class_mapping != _PHASE1_CLASS_MAPPING:
             raise ValueError("phase1_class_mapping_invalid")
-        if self.detector_inference_floor > self.tracker.track_activation_threshold:
-            raise ValueError("detector_floor_above_track_activation")
+        if not self.detector_inference_floor < self.tracker.high_confidence_threshold:
+            raise ValueError("detector_floor_not_below_high_confidence")
         return self
 
 
@@ -131,9 +159,10 @@ def load_pipeline_profile(path: Path) -> PipelineProfile:
         raise ReleaseMetadataError("pipeline_profile_invalid") from exc
 
     tracker = ByteTrackProfile(
+        reference_frame_rate=parsed.tracker.reference_frame_rate,
         track_activation_threshold=parsed.tracker.track_activation_threshold,
         high_confidence_threshold=parsed.tracker.high_confidence_threshold,
-        minimum_matching_threshold=parsed.tracker.minimum_matching_threshold,
+        minimum_iou_threshold=parsed.tracker.minimum_iou_threshold,
         minimum_consecutive_frames=parsed.tracker.minimum_consecutive_frames,
         lost_track_buffer_seconds=parsed.tracker.lost_track_buffer_seconds,
     )

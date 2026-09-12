@@ -167,7 +167,7 @@ def test_worker_settings_do_not_expose_analytical_tuning_knobs() -> None:
         "detector_inference_floor",
         "track_activation_threshold",
         "high_confidence_threshold",
-        "minimum_matching_threshold",
+        "reference_frame_rate",\n        "minimum_iou_threshold",\n        "minimum_matching_threshold",
         "minimum_consecutive_frames",
         "lost_track_buffer_seconds",
         "max_detections",
