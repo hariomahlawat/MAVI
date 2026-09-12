@@ -23,6 +23,7 @@ _REQUIRED_RUNTIME_VERSION_KEYS = frozenset(
         "scipy",
         "numpy",
         "opencv",
+        "opencvPython",
         "av",
         "pillow",
     }
@@ -128,6 +129,7 @@ class RuntimeProvenance:
     verification_status: Literal["verified", "unverified"]
     runtime_profile_id: str
     runtime_profile_sha256: str
+    runtime_variant: str
     platform_lock_sha256: str | None
     detector_backend: str
     dependency_versions: Mapping[str, str]
@@ -263,6 +265,102 @@ def _validate_device_relationship(
         raise ValueError("cpu_device_gpu_identity_invalid")
 
 
+def _runtime_variant_key(
+    *,
+    platform_identity: PlatformIdentity,
+    actual_device: str,
+) -> str:
+    system = platform_identity.system.casefold()
+    if system == "linux":
+        platform_name = "linux"
+    elif system == "windows":
+        platform_name = "windows"
+    else:
+        raise ValueError("runtime_platform_unsupported")
+
+    machine = platform_identity.machine.casefold()
+    if machine not in {"x86_64", "amd64"}:
+        raise ValueError("runtime_architecture_unsupported")
+
+    device_kind = "cpu" if actual_device == "cpu" else "cuda"
+    return f"{platform_name}-x86_64-{device_kind}"
+
+
+def _validate_production_runtime_binding(
+    *,
+    selection: VerifiedReleaseSelection,
+    runtime_metadata: RuntimeMetadata,
+    platform_identity: PlatformIdentity,
+    runtime_variant: str,
+) -> str:
+    if selection.runtime_qualification_status != "qualified":
+        raise ValueError("production_runtime_not_qualified")
+    if not selection.runtime_semantic_graph:
+        raise ValueError("production_runtime_graph_missing")
+
+    for dependency_name, expected_version in selection.runtime_semantic_graph.items():
+        actual_version = runtime_metadata.versions.get(dependency_name)
+        if actual_version != expected_version:
+            raise ValueError(
+                "runtime_dependency_version_mismatch:" + dependency_name
+            )
+
+    variant = selection.runtime_platform_variants.get(runtime_variant)
+    if variant is None:
+        raise ValueError("runtime_platform_variant_missing")
+
+    expected_status = (
+        "qualified-hardware"
+        if runtime_variant.endswith("-cuda")
+        else "qualified-hosted-cpu"
+    )
+    if variant.status != expected_status:
+        raise ValueError("runtime_platform_variant_not_qualified")
+    if variant.resolved_config_sha256 != selection.manifest.resolved_config.sha256:
+        raise ValueError("runtime_variant_config_identity_mismatch")
+
+    expected_python = variant.python_identity
+    if expected_python is None:
+        raise ValueError("runtime_python_identity_missing")
+    if (
+        expected_python.version != platform_identity.python_version
+        or expected_python.implementation != platform_identity.python_implementation
+        or expected_python.build != platform_identity.python_build
+        or expected_python.compiler != platform_identity.python_compiler
+    ):
+        raise ValueError("runtime_python_identity_mismatch")
+
+    lock = selection.runtime_release_locks.get(runtime_variant)
+    if (
+        lock is None
+        or lock.status != "qualified-offline-lock"
+        or lock.sha256 is None
+    ):
+        raise ValueError("production_platform_lock_required")
+    return _require_sha256(
+        lock.sha256,
+        code="platform_lock_sha256_invalid",
+    )
+
+
+def _selected_development_lock_sha256(
+    *,
+    selection: VerifiedReleaseSelection,
+    runtime_variant: str,
+) -> str | None:
+    lock = selection.runtime_release_locks.get(runtime_variant)
+    if (
+        lock is None
+        or lock.status != "qualified-offline-lock"
+        or lock.sha256 is None
+    ):
+        return None
+    return _require_sha256(
+        lock.sha256,
+        code="platform_lock_sha256_invalid",
+    )
+
+
 def build_runtime_provenance(
     *,
     selection: VerifiedReleaseSelection,
@@ -272,7 +370,6 @@ def build_runtime_provenance(
     production_mode: bool,
     mavi_build: str | None = None,
     mavi_commit: str | None = None,
-    platform_lock_sha256: str | None = None,
     ffmpeg_version: str | None = None,
     gpu: GpuIdentity | None = None,
     platform_identity: PlatformIdentity | None = None,
@@ -316,12 +413,23 @@ def build_runtime_provenance(
         production_mode=production_mode,
     )
 
-    lock_sha = _validated_sha256(
-        platform_lock_sha256,
-        code="platform_lock_sha256_invalid",
+    runtime_variant = _runtime_variant_key(
+        platform_identity=captured_platform,
+        actual_device=runtime_metadata.device,
     )
-    if production_mode and lock_sha is None:
-        raise ValueError("production_platform_lock_required")
+    lock_sha = (
+        _validate_production_runtime_binding(
+            selection=selection,
+            runtime_metadata=runtime_metadata,
+            platform_identity=captured_platform,
+            runtime_variant=runtime_variant,
+        )
+        if production_mode
+        else _selected_development_lock_sha256(
+            selection=selection,
+            runtime_variant=runtime_variant,
+        )
+    )
 
     if ffmpeg_version is not None:
         _require_text(ffmpeg_version, code="ffmpeg_version_invalid")
@@ -353,6 +461,7 @@ def build_runtime_provenance(
         verification_status=selection.verification_status,
         runtime_profile_id=selection.runtime_profile_id,
         runtime_profile_sha256=selection.runtime_profile_sha256,
+        runtime_variant=runtime_variant,
         platform_lock_sha256=lock_sha,
         detector_backend=runtime_metadata.backend,
         dependency_versions=versions,
