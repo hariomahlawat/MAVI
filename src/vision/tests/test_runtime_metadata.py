@@ -127,3 +127,18 @@ def test_runtime_qualification_binds_evidence_to_exact_checked_out_source() -> N
     assert '"eventSha": os.environ["MAVI_EVENT_SHA"]' in workflow
     assert '"prHeadSha": os.environ.get("MAVI_PR_HEAD_SHA") or None' in workflow
     assert 'if bytetrack.get("headSha") != executed_source_sha:' in workflow
+
+
+def test_task12_linux_native_bundle_is_bound_to_qualified_host_abi() -> None:
+    workflow_path = (
+        Path(__file__).parents[3]
+        / ".github"
+        / "workflows"
+        / "task12-offline-bundle.yml"
+    )
+    workflow = workflow_path.read_text(encoding="utf-8")
+
+    assert "os: ubuntu-24.04" in workflow
+    assert 'test "$ID" = "ubuntu"' in workflow
+    assert 'test "$VERSION_ID" = "24.04"' in workflow
+    assert 'test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.39"' in workflow
