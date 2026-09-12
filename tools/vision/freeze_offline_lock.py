@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import sys
 import zipfile
 from dataclasses import dataclass
@@ -35,6 +36,9 @@ class WheelRecord:
     name: str
     version: str
     sha256: str
+    python_tags: tuple[str, ...]
+    abi_tags: tuple[str, ...]
+    platform_tags: tuple[str, ...]
 
 
 def sha256_file(path: Path) -> str:
@@ -46,6 +50,102 @@ def sha256_file(path: Path) -> str:
     except OSError as exc:
         raise FreezeOfflineLockError("wheel_unreadable") from exc
     return digest.hexdigest()
+
+
+def _parse_wheel_filename(
+    path: Path,
+) -> tuple[str, str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    if path.suffix.lower() != ".whl":
+        raise FreezeOfflineLockError("non_wheel_entry")
+
+    parts = path.name[:-4].split("-")
+    if len(parts) not in {5, 6}:
+        raise FreezeOfflineLockError("wheel_filename_invalid")
+    if len(parts) == 6 and re.fullmatch(r"[0-9][0-9A-Za-z_]*", parts[2]) is None:
+        raise FreezeOfflineLockError("wheel_filename_invalid")
+
+    distribution = parts[0]
+    version = parts[1]
+    python_tag, abi_tag, platform_tag = parts[-3:]
+    component_pattern = re.compile(r"[A-Za-z0-9_.+]+")
+    if (
+        not distribution
+        or not version
+        or component_pattern.fullmatch(distribution) is None
+        or component_pattern.fullmatch(version) is None
+        or component_pattern.fullmatch(python_tag) is None
+        or component_pattern.fullmatch(abi_tag) is None
+        or component_pattern.fullmatch(platform_tag) is None
+    ):
+        raise FreezeOfflineLockError("wheel_filename_invalid")
+
+    return (
+        canonicalize_distribution_name(distribution),
+        version,
+        tuple(python_tag.split(".")),
+        tuple(abi_tag.split(".")),
+        tuple(platform_tag.split(".")),
+    )
+
+
+def _python_tags_compatible(
+    record: WheelRecord,
+    *,
+    python_version: str,
+) -> bool:
+    match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.[0-9]+", python_version)
+    if match is None:
+        raise FreezeOfflineLockError("wheel_python_identity_invalid")
+    major = int(match.group(1))
+    minor = int(match.group(2))
+
+    for tag in record.python_tags:
+        if tag == f"py{major}":
+            return True
+        if tag in {f"py{major}{minor}", f"cp{major}{minor}"}:
+            return True
+        abi_match = re.fullmatch(r"cp([0-9])([0-9]+)", tag)
+        if (
+            abi_match is not None
+            and "abi3" in record.abi_tags
+            and int(abi_match.group(1)) == major
+            and int(abi_match.group(2)) <= minor
+        ):
+            return True
+    return False
+
+
+def _platform_tags_compatible(
+    record: WheelRecord,
+    *,
+    platform_variant: str,
+) -> bool:
+    if "any" in record.platform_tags:
+        return True
+    if platform_variant.startswith("linux-x86_64-"):
+        return any(
+            (
+                tag.startswith("linux_")
+                or tag.startswith("manylinux")
+            )
+            and tag.endswith("_x86_64")
+            for tag in record.platform_tags
+        )
+    if platform_variant.startswith("windows-x86_64-"):
+        return "win_amd64" in record.platform_tags
+    raise FreezeOfflineLockError("wheel_platform_variant_invalid")
+
+
+def validate_wheel_record_for_target(
+    record: WheelRecord,
+    *,
+    platform_variant: str,
+    python_version: str,
+) -> None:
+    if not _python_tags_compatible(record, python_version=python_version):
+        raise FreezeOfflineLockError("wheel_python_incompatible")
+    if not _platform_tags_compatible(record, platform_variant=platform_variant):
+        raise FreezeOfflineLockError("wheel_platform_incompatible")
 
 
 def inspect_wheel(path: Path) -> WheelRecord:
@@ -79,11 +179,24 @@ def inspect_wheel(path: Path) -> WheelRecord:
     if not name or not version:
         raise FreezeOfflineLockError("wheel_metadata_invalid")
 
+    (
+        filename_name,
+        filename_version,
+        python_tags,
+        abi_tags,
+        platform_tags,
+    ) = _parse_wheel_filename(path)
+    if filename_name != name or filename_version != version:
+        raise FreezeOfflineLockError("wheel_filename_metadata_mismatch")
+
     return WheelRecord(
         path=path,
         name=name,
         version=version,
         sha256=sha256_file(path),
+        python_tags=python_tags,
+        abi_tags=abi_tags,
+        platform_tags=platform_tags,
     )
 
 
@@ -100,7 +213,13 @@ def freeze_wheelhouse(
     for entry in wheelhouse.iterdir():
         if not entry.is_file() or entry.suffix.lower() != ".whl":
             raise FreezeOfflineLockError("non_wheel_entry")
-        records.append(inspect_wheel(entry))
+        record = inspect_wheel(entry)
+        validate_wheel_record_for_target(
+            record,
+            platform_variant=platform_variant,
+            python_version=python_version,
+        )
+        records.append(record)
 
     if not records:
         raise FreezeOfflineLockError("wheelhouse_empty")
