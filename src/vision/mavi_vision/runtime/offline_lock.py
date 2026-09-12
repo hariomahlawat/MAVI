@@ -95,7 +95,7 @@ def parse_offline_runtime_lock(payload: bytes) -> OfflineRuntimeLock:
         raise OfflineLockError("offline_lock_python_version_invalid")
 
     package_lines = lines[3:]
-    if not package_lines:
+    if not package_lines or package_lines == [""]:
         raise OfflineLockError("offline_lock_empty")
     if any(not line for line in package_lines):
         raise OfflineLockError("offline_lock_requirement_invalid")
