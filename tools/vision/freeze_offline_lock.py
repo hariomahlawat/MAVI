@@ -58,6 +58,7 @@ def inspect_wheel(path: Path) -> WheelRecord:
                 name
                 for name in archive.namelist()
                 if name.endswith(".dist-info/METADATA")
+                and name.count("/") == 1
             ]
             if len(metadata_names) != 1:
                 raise FreezeOfflineLockError("wheel_metadata_invalid")
