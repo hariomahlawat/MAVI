@@ -151,9 +151,11 @@ jobs:
           test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.39"
           libstdcpp="$(g++-14 -print-file-name=libstdc++.so.6)"
           test -f "$libstdcpp"
-          max_glibcxx="$(
-            strings "$libstdcpp" |
-              grep -E '^GLIBCXX_[0-9]+(\.[0-9]+)+
+          max_glibcxx="$(strings "$libstdcpp" | grep -Eo 'GLIBCXX_[0-9]+([.][0-9]+)+' | sort -V | tail -n 1)"
+          test "$max_glibcxx" = "GLIBCXX_3.4.33"
+          echo "task12-linux-host=ubuntu-$VERSION_ID-$(uname -m)"
+          echo "task12-linux-native-abi=$(getconf GNU_LIBC_VERSION);$max_glibcxx"
+
       - name: Stabilize Linux native extension environment
         if: runner.os == 'Linux'
         shell: bash
