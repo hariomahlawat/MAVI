@@ -138,7 +138,8 @@ def test_phase1_mapping_is_profile_driven_and_ignores_other_valid_vocabulary() -
     output = RTMDetDetector(runtime, _profile()).detect(frame)
 
     assert runtime.calls == 1
-    assert runtime.images == [frame.image]
+    assert len(runtime.images) == 1
+    assert runtime.images[0] is frame.image
     assert [candidate.object_class for candidate in output] == [
         ObjectClass.PERSON,
         ObjectClass.VEHICLE,
