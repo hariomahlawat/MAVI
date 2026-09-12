@@ -1907,7 +1907,7 @@ Do not double-own lane shutdown between `main.py` and the supervisor. The implem
 
 ---
 
-- [ ] **Step 1: RED — lock supervisor startup and transactional publication**
+- [x] **Step 1: RED — lock supervisor startup and transactional publication**
 
 Create `test_runtime_supervisor.py` with lightweight fake release/runtime/lane collaborators. Prove:
 - initial state STARTING and no runtime is published;
@@ -1919,17 +1919,17 @@ Create `test_runtime_supervisor.py` with lightweight fake release/runtime/lane c
 - production `auto` is rejected defensively;
 - current unverified release policy is explicit: development may load unverified, production may not.
 
-- [ ] **Step 2: Implement supervisor startup on the existing VisionExecutionLane**
+- [x] **Step 2: Implement supervisor startup on the existing VisionExecutionLane**
 
 Keep heavy/model operations on the lane. Do not add top-level torch/MMDetection imports to supervisor, runner, health, or main. Store the immutable selected release and resolved device for later recovery. Publish runtime/provenance only after the complete startup transaction succeeds.
 
-- [ ] **Step 3: RED/GREEN — lock the cross-thread incident handoff**
+- [x] **Step 3: RED/GREEN — lock the cross-thread incident handoff**
 
 Prove `report_processing_failure()` is synchronous, thread-safe, non-blocking and non-throwing when called from a real background thread. Test severity coalescing (`CONTINUE < RECOVER < UNAVAILABLE`) and prove it performs no runtime close/rebuild itself.
 
 Add a supervisor-specific regression using one long-lived `ProductionVisionProcessor`: attempt 1 snapshots runtime A; report RECOVER; reconcile/recover; attempt 2 snapshots runtime B without rebuilding the facade.
 
-- [ ] **Step 4: RED/GREEN — bounded recovery and poisoned-runtime semantics**
+- [x] **Step 4: RED/GREEN — bounded recovery and poisoned-runtime semantics**
 
 Required cases:
 - `TrackerError/CONTINUE` -> no reconstruction and READY remains;
@@ -1939,7 +1939,7 @@ Required cases:
 - report received while STOPPING is ignored/non-throwing;
 - two separate OOM incidents separated by a successful recovery may each receive one recovery.
 
-- [ ] **Step 5: RED/GREEN — add settings and provenance wiring**
+- [x] **Step 5: RED/GREEN — add settings and provenance wiring**
 
 Extend settings tests for:
 - explicit qualification-record path;
@@ -1949,7 +1949,7 @@ Extend settings tests for:
 
 Supervisor must build provenance before READY. CPU development provenance remains explicitly `unverified`; verified production fixtures require matching qualification/runtime-lock/build identity. CUDA provenance without a real GPU-identity provider fails closed.
 
-- [ ] **Step 6: RED — lock ProcessExecutor injection before changing runner dispatch**
+- [x] **Step 6: RED — lock ProcessExecutor injection before changing runner dispatch**
 
 Add worker tests proving:
 - default executor preserves existing Task-9 behavior;
@@ -1958,11 +1958,11 @@ Add worker tests proving:
 - heartbeat and `LeaseGuard` behavior remains on the asyncio side;
 - all Task-10 typed failure mapping/lease precedence tests remain unchanged.
 
-- [ ] **Step 7: Implement model-neutral executor dispatch**
+- [x] **Step 7: Implement model-neutral executor dispatch**
 
 Replace the direct `asyncio.to_thread(self._processor.process, ...)` call with `self._process_executor.run(...)` only. Do not move heartbeat logic into the executor and do not give the executor lease/control-plane authority.
 
-- [ ] **Step 8: RED — lock watchdog scheduling and heartbeat coexistence**
+- [x] **Step 8: RED — lock watchdog scheduling and heartbeat coexistence**
 
 Add deterministic clock/event-based tests proving:
 - watchdog is polled at <=1 second while work is active;
@@ -1971,7 +1971,7 @@ Add deterministic clock/event-based tests proving:
 - watchdog is never considered expired while `InferenceActivity` is inactive;
 - a completed inference clears the watchdog condition.
 
-- [ ] **Step 9: RED/GREEN — implement bounded watchdog containment**
+- [x] **Step 9: RED/GREEN — implement bounded watchdog containment**
 
 Use a blocking processor and injected fake terminator. Prove:
 - expiry marks the shared guard lost before any fatal action;
@@ -1982,11 +1982,11 @@ Use a blocking processor and injected fake terminator. Prove:
 - the injected terminator sentinel escapes within bounded test time and is not swallowed by the runner's ordinary cleanup;
 - the runner never attempts Python thread cancellation or reuses the hung runtime.
 
-- [ ] **Step 10: RED/GREEN — truthful worker-health-v2**
+- [x] **Step 10: RED/GREEN — truthful worker-health-v2**
 
 Update health tests so READY returns the exact existing v2 payload and every non-ready state is locally unavailable rather than serialized as a new status. No schema or contract fixture changes are permitted.
 
-- [ ] **Step 11: RED — lock supervised production-loop ordering**
+- [x] **Step 11: RED — lock supervised production-loop ordering**
 
 Create/extend `test_worker_main.py` with fake supervisor/runner/client/lane. Prove:
 - startup never calls lease before supervisor READY;
@@ -1997,11 +1997,11 @@ Create/extend `test_worker_main.py` with fake supervisor/runner/client/lane. Pro
 - startup/configuration UNAVAILABLE remains alive for diagnostics without busy-looping;
 - shutdown closes resources once in the locked order.
 
-- [ ] **Step 12: Implement production composition in `worker/main.py`**
+- [x] **Step 12: Implement production composition in `worker/main.py`**
 
 Wire only existing qualified boundaries. Do not introduce model-specific logic into `WorkerRunner`. Keep one process-scoped supervisor/lane/runtime and one attempt-scoped tracker/staging graph.
 
-- [ ] **Step 13: Focused regression suite**
+- [x] **Step 13: Focused regression suite**
 
 ```powershell
 cd src/vision
@@ -2014,7 +2014,7 @@ Acceptance:
 - watchdog tests are deterministic and do not rely on long wall-clock sleeps;
 - no direct PostgreSQL path or `/complete` path appears.
 
-- [ ] **Step 14: Full repository verification**
+- [x] **Step 14: Full repository verification**
 
 ```powershell
 cd src/vision
@@ -2023,7 +2023,7 @@ cd ../..
 python tools/verify_repo.py
 ```
 
-- [ ] **Step 15: Hosted review workflow**
+- [x] **Step 15: Hosted review workflow**
 
 Use **one** Task-11 topic branch to avoid branch proliferation:
 

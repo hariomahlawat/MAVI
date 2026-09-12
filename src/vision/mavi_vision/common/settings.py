@@ -30,6 +30,11 @@ class WorkerSettings(BaseSettings):
     runtime_profile_path: Path = Path(
         "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
     )
+    qualification_record_path: Path | None = Path(
+        "models/qualifications/rtmdet-m-coco-phase1-v1.json"
+    )
+    build_id: str | None = None
+    commit_sha: str | None = None
     device_policy: Literal["cpu", "cuda", "auto"] = "auto"
     device_index: int = Field(default=0, ge=0, le=255)
     production_mode: bool = False

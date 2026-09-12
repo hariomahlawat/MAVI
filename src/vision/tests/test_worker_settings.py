@@ -177,3 +177,35 @@ def test_worker_settings_do_not_expose_analytical_tuning_knobs() -> None:
 
     assert forbidden.isdisjoint(WorkerSettings.model_fields)
 
+
+
+def test_settings_expose_explicit_release_evidence_and_build_identity_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    seed_required(monkeypatch, tmp_path)
+
+    settings = WorkerSettings()
+
+    assert settings.qualification_record_path == Path(
+        "models/qualifications/rtmdet-m-coco-phase1-v1.json"
+    )
+    assert settings.build_id is None
+    assert settings.commit_sha is None
+
+
+def test_settings_load_release_evidence_and_build_identity_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    seed_required(monkeypatch, tmp_path)
+    qualification = tmp_path / "release" / "qualification.json"
+    monkeypatch.setenv("MAVI_QUALIFICATION_RECORD_PATH", str(qualification))
+    monkeypatch.setenv("MAVI_BUILD_ID", "mavi-2026.09.12")
+    monkeypatch.setenv("MAVI_COMMIT_SHA", "a" * 40)
+
+    settings = WorkerSettings()
+
+    assert settings.qualification_record_path == qualification
+    assert settings.build_id == "mavi-2026.09.12"
+    assert settings.commit_sha == "a" * 40
