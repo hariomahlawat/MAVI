@@ -450,6 +450,16 @@ def test_constructor_rejects_runtime_vocabulary_drift(
             "resolved_config_import_forbidden",
         ),
         (
+            "model = dict(type='{{$MAVI_MODEL_TYPE:RTMDet}}', "
+            "test_cfg=dict(score_thr=0.1))\n",
+            "resolved_config_template_reference_forbidden",
+        ),
+        (
+            "model = dict(type='${MAVI_MODEL_TYPE}', "
+            "test_cfg=dict(score_thr=0.1))\n",
+            "resolved_config_environment_reference_forbidden",
+        ),
+        (
             "model = build_model()\n",
             "resolved_config_dynamic_call_forbidden",
         ),
