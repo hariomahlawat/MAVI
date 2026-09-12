@@ -5,6 +5,8 @@ import importlib.metadata
 import os
 import platform
 import re
+import tokenize
+from io import StringIO
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -250,6 +252,18 @@ def _validate_resolved_config(path: Path) -> None:
                 "resolved_config_environment_reference_forbidden"
             )
         tree = ast.parse(text, filename=path.name)
+        try:
+            name_tokens = (
+                token.string
+                for token in tokenize.generate_tokens(StringIO(text).readline)
+                if token.type == tokenize.NAME
+            )
+            if "custom_imports" in name_tokens:
+                raise RuntimeCompatibilityError(
+                    "resolved_config_custom_imports_forbidden"
+                )
+        except (tokenize.TokenError, IndentationError) as exc:
+            raise RuntimeCompatibilityError("resolved_config_invalid") from exc
     except RuntimeCompatibilityError:
         raise
     except (ReleaseMetadataError, UnicodeDecodeError, SyntaxError) as exc:
