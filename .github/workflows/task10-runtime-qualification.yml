@@ -108,6 +108,8 @@ jobs:
           pytest
           "numpy==2.5.3"
           "av==16.1.0"
+          "Pillow==11.3.0"
+          "msgpack>=1.1,<2"
           "pydantic>=2.11,<3"
 
       - name: Run runtime qualification tooling unit tests
