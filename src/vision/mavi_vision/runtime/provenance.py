@@ -136,7 +136,34 @@ class RuntimeProvenance:
     input_colour_space: Literal["RGB"] = "RGB"
 
     def __post_init__(self) -> None:
+        for value, code in (
+            (self.model_manifest_sha256, "model_manifest_sha256_invalid"),
+            (self.checkpoint_sha256, "checkpoint_sha256_invalid"),
+            (self.resolved_config_sha256, "resolved_config_sha256_invalid"),
+            (self.pipeline_profile_sha256, "pipeline_profile_sha256_invalid"),
+            (self.runtime_profile_sha256, "runtime_profile_sha256_invalid"),
+        ):
+            _validated_sha256(value, code=code)
+
+        _validated_sha256(
+            self.qualification_sha256,
+            code="qualification_sha256_invalid",
+        )
+        _validated_sha256(
+            self.platform_lock_sha256,
+            code="platform_lock_sha256_invalid",
+        )
+
+        if self.verification_status == "verified" and (
+            self.qualification_id is None or self.qualification_sha256 is None
+        ):
+            raise ValueError("verified_provenance_qualification_required")
+        if self.input_colour_space != "RGB":
+            raise ValueError("input_colour_space_invalid")
+
         versions = dict(self.dependency_versions)
+        if not versions:
+            raise ValueError("runtime_dependency_versions_required")
         object.__setattr__(
             self,
             "dependency_versions",
@@ -259,8 +286,9 @@ def build_runtime_provenance(
             "runtime_dependency_versions_missing:" + ",".join(missing_versions)
         )
 
+    captured_platform = platform_identity or capture_platform_identity()
     versions = {
-        "python": (platform_identity or capture_platform_identity()).python_version,
+        "python": captured_platform.python_version,
         **dict(runtime_metadata.versions),
     }
     for name, value in versions.items():
@@ -316,7 +344,7 @@ def build_runtime_provenance(
         detector_backend=runtime_metadata.backend,
         dependency_versions=versions,
         ffmpeg_version=ffmpeg_version,
-        platform=platform_identity or capture_platform_identity(),
+        platform=captured_platform,
         configured_device_policy=configured_device_policy,
         configured_device_index=configured_device_index,
         actual_device=runtime_metadata.device,
