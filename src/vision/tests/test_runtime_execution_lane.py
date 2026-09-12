@@ -197,6 +197,48 @@ def test_execution_lane_close_waits_for_already_submitted_work() -> None:
     asyncio.run(scenario())
 
 
+def test_execution_lane_close_remains_awaitable_after_repeated_cancellation() -> None:
+    async def scenario() -> None:
+        lane = VisionExecutionLane()
+        started = threading.Event()
+        release = threading.Event()
+
+        def work() -> None:
+            started.set()
+            if not release.wait(timeout=5.0):
+                raise TimeoutError("test release signal was not received")
+
+        work_task = asyncio.create_task(lane.run(work))
+        assert await asyncio.to_thread(started.wait, 5.0) is True
+
+        first_close = asyncio.create_task(lane.close())
+        await asyncio.sleep(0)
+
+        first_close.cancel()
+        await asyncio.sleep(0)
+        assert first_close.done() is False
+
+        first_close.cancel()
+        await asyncio.sleep(0)
+        assert first_close.done() is False
+
+        second_close = asyncio.create_task(lane.close())
+        await asyncio.sleep(0)
+        assert second_close.done() is False
+
+        release.set()
+        await work_task
+
+        with pytest.raises(asyncio.CancelledError):
+            await first_close
+        await second_close
+
+        with pytest.raises(RuntimeError, match="vision_execution_lane_closed"):
+            await lane.run(lambda: None)
+
+    asyncio.run(scenario())
+
+
 def test_execution_lane_context_manager_closes_lane() -> None:
     async def scenario() -> None:
         lane = VisionExecutionLane()
