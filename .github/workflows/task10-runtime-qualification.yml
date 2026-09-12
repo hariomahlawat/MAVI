@@ -62,6 +62,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mavi-task10-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cpu-candidate:
     name: CPU ${{ matrix.os }} Python ${{ matrix.python-version }} Torch 2.6.0
