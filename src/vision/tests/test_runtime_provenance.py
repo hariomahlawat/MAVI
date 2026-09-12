@@ -269,6 +269,11 @@ def test_development_provenance_is_complete_immutable_and_explicitly_unknown() -
     assert provenance.actual_device == "cpu"
     assert provenance.input_colour_space == "RGB"
     assert provenance.frame_policy == "every-frame"
+    assert provenance.tracker_parameters.reference_frame_rate == 30.0
+    assert provenance.tracker_parameters.track_activation_threshold == 0.7
+    assert provenance.tracker_parameters.high_confidence_threshold == 0.6
+    assert provenance.tracker_parameters.minimum_iou_threshold == 0.1
+    assert provenance.tracker_parameters.minimum_consecutive_frames == 2
     assert provenance.tracker_parameters.lost_track_buffer_seconds == 1.0
     with pytest.raises(TypeError):
         provenance.dependency_versions["torch"] = "tampered"  # type: ignore[index]

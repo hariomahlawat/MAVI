@@ -107,9 +107,10 @@ class GpuIdentity:
 
 @dataclass(frozen=True, slots=True)
 class TrackerParameters:
+    reference_frame_rate: float
     track_activation_threshold: float
     high_confidence_threshold: float
-    minimum_matching_threshold: float
+    minimum_iou_threshold: float
     minimum_consecutive_frames: int
     lost_track_buffer_seconds: float
 
@@ -513,9 +514,10 @@ def build_runtime_provenance(
         mavi_commit=commit_identity,
         frame_policy=profile.frame_policy,
         tracker_parameters=TrackerParameters(
+            reference_frame_rate=tracker.reference_frame_rate,
             track_activation_threshold=tracker.track_activation_threshold,
             high_confidence_threshold=tracker.high_confidence_threshold,
-            minimum_matching_threshold=tracker.minimum_matching_threshold,
+            minimum_iou_threshold=tracker.minimum_iou_threshold,
             minimum_consecutive_frames=tracker.minimum_consecutive_frames,
             lost_track_buffer_seconds=tracker.lost_track_buffer_seconds,
         ),
