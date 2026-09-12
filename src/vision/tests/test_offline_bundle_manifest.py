@@ -41,25 +41,55 @@ def _write_wheel(
     filename: str,
     name: str,
     version: str,
+    package_files: dict[str, bytes] | None = None,
+    requires_python: str | None = None,
+    requires_dist: tuple[str, ...] = (),
 ) -> Path:
     path = root / filename
     root.mkdir(parents=True, exist_ok=True)
     dist_info = f"{name.replace('-', '_')}-{version}.dist-info"
-    metadata = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n\n"
+    metadata_lines = [
+        "Metadata-Version: 2.1",
+        f"Name: {name}",
+        f"Version: {version}",
+    ]
+    if requires_python is not None:
+        metadata_lines.append(f"Requires-Python: {requires_python}")
+    metadata_lines.extend(f"Requires-Dist: {item}" for item in requires_dist)
+    metadata = "\n".join(metadata_lines) + "\n\n"
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(f"{dist_info}/METADATA", metadata)
+        for logical_path, payload in sorted((package_files or {}).items()):
+            archive.writestr(logical_path, payload)
     return path
 
 
 def _fixture_inputs(tmp_path: Path):
     tool = _load_bundle_tool()
     source = tmp_path / "source"
+    mavi_source_root = source / "vision"
+    package_root = mavi_source_root / "mavi_vision"
+    package_root.mkdir(parents=True, exist_ok=True)
+    package_init = b'__version__ = "0.1.0"\n'
+    (package_root / "__init__.py").write_bytes(package_init)
+    (mavi_source_root / "pyproject.toml").write_text(
+        """[project]
+name = "mavi-vision"
+version = "0.1.0"
+requires-python = ">=3.12,<3.14"
+dependencies = []
+""",
+        encoding="utf-8",
+    )
+
     wheelhouse = source / "wheelhouse"
     mavi_wheel = _write_wheel(
         wheelhouse,
         filename="mavi_vision-0.1.0-py3-none-any.whl",
         name="mavi-vision",
         version="0.1.0",
+        package_files={"mavi_vision/__init__.py": package_init},
+        requires_python=">=3.12,<3.14",
     )
     torch_wheel = _write_wheel(
         wheelhouse,
@@ -123,6 +153,7 @@ def _fixture_inputs(tmp_path: Path):
         checkpoint_sha256=tool.sha256_file(files["checkpoint"]),
         resolved_config_sha256=tool.sha256_file(files["config"]),
         wheelhouse=wheelhouse,
+        mavi_source_root=mavi_source_root,
     )
 
 
@@ -132,6 +163,43 @@ def _relative_file_bytes(root: Path) -> dict[str, bytes]:
         for path in sorted(root.rglob("*"))
         if path.is_file()
     }
+
+
+def test_bundle_rejects_mavi_wheel_from_different_source_tree(
+    tmp_path: Path,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+    (inputs.mavi_source_root / "mavi_vision" / "__init__.py").write_text(
+        '__version__ = "0.1.1"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(tool.OfflineBundleError, match="mavi_wheel_source_mismatch"):
+        tool.build_bundle_from_verified_inputs(inputs, tmp_path / "bundle")
+
+
+def test_bundle_rejects_mavi_wheel_with_stale_project_metadata(
+    tmp_path: Path,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+    project = inputs.mavi_source_root / "pyproject.toml"
+    project.write_text(
+        project.read_text(encoding="utf-8").replace(
+            'requires-python = ">=3.12,<3.14"',
+            'requires-python = ">=3.12,<3.13"',
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(tool.OfflineBundleError, match="mavi_wheel_metadata_mismatch"):
+        tool.build_bundle_from_verified_inputs(inputs, tmp_path / "bundle")
+
+
+def test_bundle_source_commit_must_match_repository_checkout() -> None:
+    tool = _load_bundle_tool()
+
+    with pytest.raises(tool.OfflineBundleError, match="bundle_source_commit_mismatch"):
+        tool._validate_source_commit_against_checkout("1" * 40, tool.ROOT)
 
 
 def test_same_inputs_create_identical_bundle_bytes(tmp_path: Path) -> None:
