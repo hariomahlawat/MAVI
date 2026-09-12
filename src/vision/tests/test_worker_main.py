@@ -306,6 +306,7 @@ def test_run_worker_composes_ready_processor_runner_and_single_owner_shutdown(
             assert kwargs["device_policy"] == settings.device_policy
             assert kwargs["device_index"] == settings.device_index
             assert kwargs["production_mode"] is settings.production_mode
+            assert kwargs["watchdog_grace_seconds"] == settings.watchdog_grace_seconds
             assert kwargs["build_id"] == settings.build_id
             assert kwargs["commit_sha"] == settings.commit_sha
             supervisor = _CompositionSupervisor(lane, events)
@@ -472,5 +473,48 @@ def test_run_worker_bypasses_poisoned_lane_teardown_after_fatal_watchdog(
         assert lane.close_calls == 0
         assert client.close_calls == 1
         assert events[-1] == "client-close"
+
+    asyncio.run(scenario())
+
+
+def test_run_worker_bypasses_lane_teardown_when_startup_watchdog_is_fatal(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        events: list[str] = []
+        settings = _settings(tmp_path)
+        client = _CompositionClient(events)
+        lane = _CompositionLane(events)
+        activity = object()
+
+        class FatalStartupSupervisor(_CompositionSupervisor):
+            fatal_termination_active = False
+
+            async def start(self) -> None:
+                self.events.append("supervisor-start")
+                self.fatal_termination_active = True
+                raise _FatalCompositionSentinel("startup-watchdog")
+
+        supervisor = FatalStartupSupervisor(lane, events)
+
+        with pytest.raises(_FatalCompositionSentinel, match="startup-watchdog"):
+            await worker_main._run_worker(
+                settings,
+                client_factory=lambda _: client,
+                lane_factory=lambda: lane,
+                activity_factory=lambda: activity,
+                supervisor_factory=lambda **_: supervisor,
+                processor_factory=lambda **_: (_ for _ in ()).throw(
+                    AssertionError("processor must not build after fatal startup")
+                ),
+                runner_builder=lambda *args, **kwargs: (_ for _ in ()).throw(
+                    AssertionError("runner must not build after fatal startup")
+                ),
+            )
+
+        assert supervisor.close_calls == 0
+        assert lane.close_calls == 0
+        assert client.close_calls == 1
+        assert events == ["supervisor-start", "client-close"]
 
     asyncio.run(scenario())
