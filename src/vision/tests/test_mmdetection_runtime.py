@@ -557,6 +557,12 @@ def test_constructor_rejects_runtime_vocabulary_drift(
             "resolved_config_custom_imports_forbidden",
         ),
         (
+            "custom_imports, ignored = "
+            "(dict(imports=['external_plugin']), 0)\n"
+            "model = dict(test_cfg=dict(score_thr=0.1))\n",
+            "resolved_config_custom_imports_forbidden",
+        ),
+        (
             "model = build_model()\n",
             "resolved_config_dynamic_call_forbidden",
         ),
