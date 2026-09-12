@@ -10,15 +10,26 @@
   "runtimeProfileId": "mmdetection-phase1-v1",
   "runtimeProfileSha256": "c79fa1537ed92354511695483ec984e6dfd430db4e931005dd57160ad337fe11",
   "requiredGates": {
-    "windows-x86_64-cpu": "pending",
+    "windows-x86_64-cpu": "passed",
     "windows-x86_64-cuda": "pending",
-    "linux-x86_64-cpu": "pending",
+    "linux-x86_64-cpu": "passed",
     "linux-x86_64-cuda": "pending",
     "windows-offline-install": "pending",
     "linux-offline-install": "pending",
     "cctv-quality-baseline": "pending",
     "linux-nvidia-recovery-performance": "pending"
   },
-  "evidence": {},
+  "evidence": {
+    "windows-x86_64-cpu": {
+      "kind": "github-actions",
+      "reference": "run=34689119149;job=103541173642;artifact=10297031578;head=81f476f4f00cf381ff14f33a91d8ba547c85db1b",
+      "sha256": "ee60755b04d55234ad628e58ccd3712e3dad3e120e24c9af39215ef5bbc489f2"
+    },
+    "linux-x86_64-cpu": {
+      "kind": "github-actions",
+      "reference": "run=34689119149;job=103541173536;artifact=10297181212;head=81f476f4f00cf381ff14f33a91d8ba547c85db1b",
+      "sha256": "33cf750971960c017675691b02097484dbfb6748f0011b6cda4d4d086a56ed8e"
+    }
+  },
   "overallResult": "pending"
 }
