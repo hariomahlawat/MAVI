@@ -393,6 +393,14 @@ def test_bundle_manifest_lists_every_product_file_once_except_itself(
     assert set(manifest_paths) == actual_paths
     assert payload["releaseStatus"] == "qualification-candidate"
     assert payload["sourceCommit"] == inputs.source_commit
+    assert payload["hostCompatibility"] == {
+        "architecture": "x86_64",
+        "distribution": "ubuntu",
+        "distributionVersion": "24.04",
+        "nativeAbi": "glibc-2.39-linux_x86_64",
+        "osFamily": "linux",
+        "portability": "qualified-host-only",
+    }
     assert "generatedAt" not in payload
     assert "hostname" not in payload
 
@@ -543,5 +551,8 @@ def test_install_instructions_are_offline_only(tmp_path: Path) -> None:
     assert "--require-hashes" in instructions
     assert "--find-links ./wheels" in instructions
     assert "3.12.14" in instructions
+    assert "Qualified host: Ubuntu 24.04 x86_64" in instructions
+    assert "Native ABI: glibc 2.39 / linux_x86_64" in instructions
+    assert "Portability: qualified-host-only" in instructions
     assert "http://" not in instructions
     assert "https://" not in instructions
