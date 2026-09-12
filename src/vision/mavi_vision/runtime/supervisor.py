@@ -391,6 +391,7 @@ class RuntimeSupervisor:
 
                 self._fatal_termination_active = True
                 self._restart_required = True
+                task.add_done_callback(_consume_background_task_result)
                 self._fatal_terminator(_FATAL_SERVICE_RESTART_CODE)
                 raise RuntimeError("lifecycle_watchdog_fatal_terminator_returned")
         except asyncio.CancelledError:
@@ -415,6 +416,11 @@ class RuntimeSupervisor:
             self._pending_restart_required = False
 
         runtime = self._unpublish_runtime()
+        if self._fatal_termination_active:
+            # The fatal boundary exists specifically because accepted native work
+            # did not unwind inside grace. Never recreate that deadlock in close().
+            return
+
         try:
             if runtime is not None and not self._restart_required:
                 try:
@@ -603,3 +609,12 @@ def _failure_reason(error: BaseException) -> str:
 
     message = str(error)
     return message if message else type(error).__name__
+
+
+def _consume_background_task_result(task: asyncio.Task[object]) -> None:
+    if task.cancelled():
+        return
+    try:
+        task.exception()
+    except asyncio.CancelledError:
+        return
