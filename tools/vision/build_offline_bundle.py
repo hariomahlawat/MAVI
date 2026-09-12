@@ -57,6 +57,16 @@ class OfflineBundleError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class BundleHostCompatibility:
+    os_family: str
+    architecture: str
+    distribution: str | None
+    distribution_version: str | None
+    native_abi: str
+    portability: str
+
+
+@dataclass(frozen=True, slots=True)
 class BundleArtifact:
     relative_path: str
     size_bytes: int
@@ -78,6 +88,7 @@ class BundleManifest:
     model_id: str
     runtime_profile_id: str
     lock_sha256: str
+    host_compatibility: BundleHostCompatibility
     artifacts: tuple[BundleArtifact, ...]
 
 
@@ -99,6 +110,28 @@ class VerifiedBundleInputs:
     checkpoint_sha256: str
     resolved_config_sha256: str
     wheelhouse: Path
+
+
+def _bundle_host_compatibility(platform_variant: str) -> BundleHostCompatibility:
+    if platform_variant.startswith("linux-x86_64-"):
+        return BundleHostCompatibility(
+            os_family="linux",
+            architecture="x86_64",
+            distribution="ubuntu",
+            distribution_version="24.04",
+            native_abi="glibc-2.39-linux_x86_64",
+            portability="qualified-host-only",
+        )
+    if platform_variant.startswith("windows-x86_64-"):
+        return BundleHostCompatibility(
+            os_family="windows",
+            architecture="x86_64",
+            distribution=None,
+            distribution_version=None,
+            native_abi="win_amd64",
+            portability="qualified-platform",
+        )
+    raise OfflineBundleError("bundle_host_compatibility_unknown")
 
 
 def validate_bundle_relative_path(value: str) -> PurePosixPath:
@@ -303,6 +336,7 @@ def build_bundle_from_verified_inputs(
             model_id=inputs.model_id,
             runtime_profile_id=inputs.runtime_profile_id,
             lock_sha256=sha256_file(inputs.runtime_lock_path),
+            host_compatibility=_bundle_host_compatibility(inputs.platform_variant),
             artifacts=tuple(artifacts),
         )
         manifest_path = stage / "bundle-manifest.json"
@@ -535,13 +569,28 @@ def _install_instructions(inputs: VerifiedBundleInputs) -> str:
         "./release/runtime/mmdetection-phase1-v1/"
         f"{inputs.platform_variant}.lock"
     )
+    host = _bundle_host_compatibility(inputs.platform_variant)
+    if host.os_family == "linux":
+        host_lines = (
+            "Qualified host: Ubuntu 24.04 x86_64\n"
+            "Native ABI: glibc 2.39 / linux_x86_64\n"
+            "Portability: qualified-host-only\n"
+            "This native Linux bundle is not qualified for other distributions/releases.\n"
+        )
+    else:
+        host_lines = (
+            "Qualified host: Windows x86_64\n"
+            "Native ABI: win_amd64\n"
+            f"Portability: {host.portability}\n"
+        )
     return (
         "MAVI Offline Vision Runtime Bundle\n"
         f"Release status: {inputs.release_status}\n"
         f"Source commit: {inputs.source_commit}\n"
         f"Platform variant: {inputs.platform_variant}\n"
         f"Required Python: CPython {inputs.python_version}\n"
-        "\n"
+        + host_lines
+        + "\n"
         "Install from the bundle root only:\n"
         "python -m pip install --no-index --only-binary=:all: "
         f"--require-hashes --find-links ./wheels -r {lock_rel}\n"
@@ -570,6 +619,9 @@ def _bundle_id(inputs: VerifiedBundleInputs) -> str:
         "pipelineProfileSha256": sha256_file(inputs.pipeline_profile_path),
         "qualificationRecordSha256": sha256_file(inputs.qualification_path),
         "releaseLockSha256": sha256_file(inputs.runtime_lock_path),
+        "hostCompatibility": asdict(
+            _bundle_host_compatibility(inputs.platform_variant)
+        ),
     }
     payload = json.dumps(
         identity,
@@ -591,6 +643,14 @@ def _serialize_manifest(manifest: BundleManifest) -> bytes:
         "modelId": manifest.model_id,
         "runtimeProfileId": manifest.runtime_profile_id,
         "lockSha256": manifest.lock_sha256,
+        "hostCompatibility": {
+            "osFamily": manifest.host_compatibility.os_family,
+            "architecture": manifest.host_compatibility.architecture,
+            "distribution": manifest.host_compatibility.distribution,
+            "distributionVersion": manifest.host_compatibility.distribution_version,
+            "nativeAbi": manifest.host_compatibility.native_abi,
+            "portability": manifest.host_compatibility.portability,
+        },
         "artifacts": [
             {
                 "relativePath": item.relative_path,
