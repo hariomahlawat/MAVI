@@ -4,11 +4,11 @@ import ast
 import importlib.metadata
 import os
 import re
-from collections.abc import Callable, ContextManager, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from typing import Any, ContextManager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -139,7 +139,7 @@ def _load_backend_bindings() -> _MMDetectionBindings:
     cuda_oom_error_type = getattr(
         torch.cuda,
         "OutOfMemoryError",
-        RuntimeError,
+        MemoryError,
     )
 
     return _MMDetectionBindings(
