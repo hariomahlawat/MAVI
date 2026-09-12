@@ -9,7 +9,9 @@ from mavi_vision.runtime.errors import (
     GpuRuntimeError,
     InferenceContractError,
     ProcessingDependencyError,
+    RuntimeCompatibilityError,
     RuntimeDisposition,
+    RuntimeStartupError,
     TrackerError,
 )
 
@@ -89,3 +91,23 @@ def test_processing_dependency_error_requires_declared_disposition() -> None:
             "vision_runtime_failed",
             "recover",  # type: ignore[arg-type]
         )
+
+def test_runtime_compatibility_error_is_startup_only_with_stable_code() -> None:
+    error = RuntimeCompatibilityError("mmdet_version_mismatch")
+
+    assert isinstance(error, RuntimeStartupError)
+    assert not isinstance(error, ProcessingDependencyError)
+    assert error.code == "vision_runtime_incompatible"
+    assert error.failure_code == "vision_runtime_incompatible"
+    assert str(error) == "mmdet_version_mismatch"
+    assert (
+        TypeAdapter(FailureCode).validate_python(error.code, strict=True)
+        == "vision_runtime_incompatible"
+    )
+
+
+@pytest.mark.parametrize("code", ["Bad_Code", "bad-code", "1bad", "x" * 65])
+def test_runtime_startup_error_rejects_noncanonical_code(code: str) -> None:
+    with pytest.raises(ValueError, match="runtime_startup_failure_code_invalid"):
+        RuntimeStartupError(code)
+
