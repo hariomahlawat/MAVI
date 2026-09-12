@@ -136,6 +136,10 @@ def _release_fixture(
                     "build": ["fixture", "fixture"],
                     "compiler": "qualified fixture",
                 },
+                "binaryVersions": {
+                    "torch": "2.6.0+cu124",
+                    "torchvision": "0.21.0+cu124",
+                },
             }
             if runtime_qualified
             else {"status": "pending-hardware-qualification"}
