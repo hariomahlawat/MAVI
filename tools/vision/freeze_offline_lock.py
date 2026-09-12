@@ -287,11 +287,20 @@ def inspect_wheel(path: Path) -> WheelRecord:
         raise FreezeOfflineLockError("wheel_filename_metadata_mismatch")
 
     metadata_dir = metadata_names[0].split("/", 1)[0]
-    expected_dir = (
-        f"{path.name[:-4].split('-')[0]}-"
-        f"{path.name[:-4].split('-')[1]}.dist-info"
-    )
-    if metadata_dir != expected_dir:
+    if not metadata_dir.endswith(".dist-info"):
+        raise FreezeOfflineLockError("wheel_dist_info_identity_mismatch")
+    dist_info_identity = metadata_dir[: -len(".dist-info")]
+    dist_info_name, separator, dist_info_version = dist_info_identity.rpartition("-")
+    if not separator or not dist_info_name or not dist_info_version:
+        raise FreezeOfflineLockError("wheel_dist_info_identity_mismatch")
+    try:
+        parsed_dist_info_version = Version(dist_info_version)
+    except InvalidVersion as exc:
+        raise FreezeOfflineLockError("wheel_dist_info_identity_mismatch") from exc
+    if (
+        canonicalize_distribution_name(dist_info_name) != filename_name
+        or parsed_dist_info_version != filename_version
+    ):
         raise FreezeOfflineLockError("wheel_dist_info_identity_mismatch")
 
     return WheelRecord(
