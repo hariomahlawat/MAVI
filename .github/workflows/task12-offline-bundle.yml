@@ -135,6 +135,7 @@ jobs:
       - name: Download exact CPU Torch wheels into wheelhouse
         run: >-
           python -m pip download
+          --no-deps
           --only-binary=:all:
           --dest .task12-wheelhouse
           torch==2.6.0
