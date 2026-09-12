@@ -424,3 +424,53 @@ def test_run_worker_does_not_build_processor_when_startup_is_unavailable(
         assert events[-3:] == ["supervisor-close", "lane-close", "client-close"]
 
     asyncio.run(scenario())
+
+
+class _FatalCompositionSentinel(RuntimeError):
+    pass
+
+
+def test_run_worker_bypasses_poisoned_lane_teardown_after_fatal_watchdog(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        events: list[str] = []
+        settings = _settings(tmp_path)
+        client = _CompositionClient(events)
+        lane = _CompositionLane(events)
+        activity = object()
+        supervisor = _CompositionSupervisor(lane, events)
+
+        class FatalRunner:
+            fatal_termination_active = False
+
+        runner = FatalRunner()
+
+        def runner_builder(settings_arg, client_arg, processor, **kwargs):
+            del settings_arg, client_arg, processor, kwargs
+            return runner
+
+        async def supervised_loop(supervisor_arg, runner_arg, **kwargs):
+            del supervisor_arg, kwargs
+            assert runner_arg is runner
+            runner.fatal_termination_active = True
+            raise _FatalCompositionSentinel("fatal-watchdog")
+
+        with pytest.raises(_FatalCompositionSentinel, match="fatal-watchdog"):
+            await worker_main._run_worker(
+                settings,
+                client_factory=lambda _: client,
+                lane_factory=lambda: lane,
+                activity_factory=lambda: activity,
+                supervisor_factory=lambda **_: supervisor,
+                processor_factory=lambda **_: object(),
+                runner_builder=runner_builder,
+                supervised_loop=supervised_loop,
+            )
+
+        assert supervisor.close_calls == 0
+        assert lane.close_calls == 0
+        assert client.close_calls == 1
+        assert events[-1] == "client-close"
+
+    asyncio.run(scenario())
