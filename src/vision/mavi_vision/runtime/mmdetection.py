@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import importlib.metadata
 import os
+import platform
 import re
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
@@ -70,6 +71,29 @@ def _semantic_version(value: str) -> str:
     return value.split("+", 1)[0]
 
 
+def _runtime_variant_name(
+    *,
+    device: str,
+    system: str | None = None,
+    machine: str | None = None,
+) -> str:
+    os_name = (system or platform.system()).casefold()
+    architecture = (machine or platform.machine()).casefold()
+
+    if os_name == "linux":
+        platform_name = "linux"
+    elif os_name == "windows":
+        platform_name = "windows"
+    else:
+        raise RuntimeCompatibilityError("runtime_platform_unsupported")
+
+    if architecture not in {"x86_64", "amd64"}:
+        raise RuntimeCompatibilityError("runtime_architecture_unsupported")
+
+    accelerator = "cuda" if device.startswith("cuda:") else "cpu"
+    return f"{platform_name}-x86_64-{accelerator}"
+
+
 def _load_backend_bindings() -> _MMDetectionBindings:
     """Load heavyweight ML dependencies only when constructing the runtime."""
     try:
@@ -93,8 +117,8 @@ def _load_backend_bindings() -> _MMDetectionBindings:
 
     try:
         versions = {
-            "torch": _semantic_version(torch.__version__),
-            "torchvision": _semantic_version(torchvision.__version__),
+            "torch": torch.__version__,
+            "torchvision": torchvision.__version__,
             "mmcv": mmcv.__version__,
             "mmengine": mmengine.__version__,
             "mmdet": mmdet.__version__,
@@ -442,7 +466,7 @@ class MMDetectionRuntime:
         _validate_resolved_config(config_path)
 
         bindings = _load_backend_bindings()
-        self._validate_semantic_graph(release, bindings.versions)
+        self._validate_runtime_binding(release, bindings.versions, device=device)
 
         if device_match.group(1) is not None:
             index = int(device_match.group(1))
@@ -546,9 +570,11 @@ class MMDetectionRuntime:
                 pass
 
     @staticmethod
-    def _validate_semantic_graph(
+    def _validate_runtime_binding(
         release: VerifiedReleaseSelection,
         actual_versions: Mapping[str, str],
+        *,
+        device: str,
     ) -> None:
         expected = dict(release.runtime_semantic_graph)
         if not expected:
@@ -556,16 +582,52 @@ class MMDetectionRuntime:
         if set(actual_versions) != set(expected):
             missing = sorted(set(expected) - set(actual_versions))
             extra = sorted(set(actual_versions) - set(expected))
-            detail = ",".join([*(f"missing:{x}" for x in missing), *(f"extra:{x}" for x in extra)])
+            detail = ",".join(
+                [
+                    *(f"missing:{name}" for name in missing),
+                    *(f"extra:{name}" for name in extra),
+                ]
+            )
             raise RuntimeCompatibilityError(
                 "runtime_semantic_graph_shape_mismatch"
                 + (f":{detail}" if detail else "")
             )
+
         for name, expected_version in expected.items():
-            if actual_versions[name] != expected_version:
+            actual_version = actual_versions[name]
+            comparable = (
+                _semantic_version(actual_version)
+                if name in {"torch", "torchvision"}
+                else actual_version
+            )
+            if comparable != expected_version:
                 raise RuntimeCompatibilityError(
                     f"runtime_dependency_version_mismatch:{name}"
                 )
+
+        variant_name = _runtime_variant_name(device=device)
+        variant = release.runtime_platform_variants.get(variant_name)
+        if variant is None:
+            if release.verification_status == "verified":
+                raise RuntimeCompatibilityError(
+                    "runtime_platform_variant_missing"
+                )
+            return
+
+        if variant.status.startswith("qualified-"):
+            expected_binary_versions = variant.binary_versions
+            if expected_binary_versions is None:
+                raise RuntimeCompatibilityError(
+                    "runtime_binary_identity_missing"
+                )
+            for name, expected_version in expected_binary_versions.items():
+                actual_version = actual_versions.get(name)
+                if actual_version != expected_version:
+                    raise RuntimeCompatibilityError(
+                        f"runtime_binary_version_mismatch:{name}"
+                    )
+        elif release.verification_status == "verified":
+            raise RuntimeCompatibilityError("runtime_platform_variant_unqualified")
 
     @staticmethod
     def _runtime_vocabulary(model: Any) -> tuple[str, ...]:
