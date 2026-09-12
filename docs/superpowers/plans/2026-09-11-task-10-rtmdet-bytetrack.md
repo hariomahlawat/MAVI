@@ -20,9 +20,10 @@
 - **Task 6 is complete.** `RTMDetDetector` now provides the deterministic framework-neutral normalization boundary: verified runtime/profile identity checks, strict source-vocabulary validation, finite XYXY/confidence validation, frame-bound clipping, zero-area discard, normalized XYWH conversion, canonical ordering, and frame-local ordinals. No secondary NMS or generic detection cap is introduced. Signed zero is canonicalized before sorting so backend permutation cannot alter serialized output or ordinal assignment.
 - **Task 7 is complete.** The production MMDetection/RTMDet runtime now consumes only verified local release artifacts, enforces a deterministic data-only resolved-config contract before MMEngine loading, lazily loads the qualified runtime graph, verifies exact ordered vocabulary, exact platform-qualified Python and PyTorch/TorchVision binary identities, owns the single RGB→BGR conversion, emits framework-neutral raw detections, and preserves typed CUDA/runtime failures. The real production runtime path is exercised on the qualified Linux and Windows CPU candidates. This does **not** promote the overall release to production `verified`: NVIDIA hardware qualification and hashed offline wheelhouse/release locks remain open under Task 1.
 - **Task 8 is complete.** The exact `trackers==2.6.0` / `supervision==0.30.2` class-separated ByteTrack adapter is implemented with corrected versioned profile semantics, timestamped empty-frame updates, strict ordinal round-trip, MAVI-owned deterministic IDs, attempt invalidation after partial native failure, and exact-package Linux/Windows qualification evidence. This closes the hosted-CPU Task-8 gate only; it does not promote the overall release to production `verified`.
-- **Tasks 9–11 and Task 13 remain implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
+- **Task 9 is complete.** The fresh production attempt-composition facade is merged into the Task-10 integration branch with typed dependency failures preserved through `VideoProcessor`, one runtime-provider snapshot per accepted attempt, fresh detector/tracker/staging/processor state per attempt, exact-package Linux/Windows qualification, and post-merge validation complete.
+- **Tasks 10–11 and Task 13 remain implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
 - **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task:** Task 9 — compose a fresh attempt pipeline around the shared detector runtime.
+- **Next implementation task:** Task 10 — map typed runtime/tracker failures through existing worker lease semantics.
 
 ## Global Constraints
 
@@ -1459,43 +1460,195 @@ Use topic branch `feature/task-10-attempt-composition`, created only from the ac
 
 ### Task 10: Map Typed Runtime/Tracker Failures Through Task-9 Lease Semantics
 
-**Planning correction (2026-09-12):** The narrow `VideoProcessor` pass-through previously listed here is now Task-9 Step 0 because Task 9's runtime-failure sink cannot preserve exact dependency errors without it. Task 10 begins from that established model-neutral pass-through and owns only worker-side control-plane mapping and lease precedence.
+**Status (reviewed 2026-09-12): READY FOR IMPLEMENTATION after the hardening below.** Task 10 is intentionally narrow. Task 9 already preserves model-neutral `ProcessingDependencyError` values and reports local runtime health. This task adds only worker-side allowlisted control-plane mapping while preserving the runner's existing lease-precedence boundary. Runtime disposition/recovery remains Task 11.
+
+**Planning corrections locked by this review:**
+
+1. **Do not branch on backend classes or `RuntimeDisposition` in `WorkerRunner`.** The runner may import only the model-neutral `ProcessingDependencyError`. Recovery/readiness decisions remain entirely outside the runner.
+2. **Use an explicit immutable allowlist of the four approved leased-job failure codes.** `ProcessingDependencyError` validates syntax, not membership, so a future/custom typed code must not pass through automatically.
+3. **Use one generic sanitized control-plane message for all dependency failures.** The stable failure code carries machine meaning; `str(exc)`, stack traces, local paths, device details and environment data must never be sent to `/fail`.
+4. **Unknown typed codes fail closed to `vision_processing_failed`.** They are a local programming/configuration defect, not a new wire contract. Log only sanitized metadata needed to diagnose the defect; do not leak the exception message into the terminal request.
+5. **Prove lease precedence in the worker heartbeat tests, not only the pipeline ownership matrix.** The critical boundary is `_process_with_lease_heartbeats()`: it checks ownership before accepting either a result or a processing exception. A typed failure completing after expiry, or while heartbeat ownership is lost, must therefore produce no `/fail`.
+6. **Do not refactor lease lifecycle, processor dispatch, execution lanes, watchdogs, or supervisor state in Task 10.** Those changes belong to Task 11. This task must preserve the already-qualified Task-9 runner behavior and add the smallest possible typed mapping seam.
 
 **Files:**
 - Modify: `src/vision/mavi_vision/worker/runner.py`
 - Modify: `src/vision/tests/test_worker_runner.py`
-- Modify: `src/vision/tests/test_lease_ownership_matrix.py`
+- Modify: `src/vision/tests/test_worker_lease_heartbeat.py`
+- Regress: `src/vision/tests/test_lease_ownership_matrix.py`
 - Regress: `src/vision/tests/test_process_video.py`
 - Regress: `src/vision/tests/test_artifact_publisher.py`
 - Regress: `src/vision/tests/test_artifact_store.py`
+- Do **not** modify: `runtime/errors.py`, `pipeline/production_processor.py`, runtime supervisor/execution-lane code, worker health schema, or worker API wire models unless a real failing test proves an independently reviewable defect.
 
-**Interfaces:**
-- `VideoProcessor` already passes approved `ProcessingDependencyError` values through unchanged after lease-authorized best-effort cleanup (established in Task 9).
-- `WorkerRunner` allowlists approved `ProcessingDependencyError.code` values and maps them to `/fail` only after existing ownership checks.
+**Interfaces and stable codes:**
 
-- [ ] **Step 1: Write runner stable-code tests**
+`VideoProcessor` already rethrows the exact `ProcessingDependencyError` after lease-authorized cleanup. `ProductionVisionProcessor` already reports the same error once to the local runtime-health sink. `WorkerRunner` therefore performs only the terminal job mapping after `_process_with_lease_heartbeats()` has accepted the exception under current ownership.
 
-Owned lease + each of `vision_inference_contract_failed`, `vision_gpu_out_of_memory`, `vision_gpu_runtime_failed`, `vision_tracker_failed` -> exactly one `/fail` with generic sanitized message.
+Approved leased-job codes:
 
-- [ ] **Step 2: Write typed-failure / lease-loss race tests**
+```python
+_APPROVED_PROCESSING_DEPENDENCY_CODES: Final[frozenset[str]] = frozenset({
+    "vision_inference_contract_failed",
+    "vision_gpu_out_of_memory",
+    "vision_gpu_runtime_failed",
+    "vision_tracker_failed",
+})
+```
 
-A typed dependency failure racing lease expiry/loss must preserve existing Task-9 authority rules: lease loss wins and the API receives no `/fail`.
+Control-plane message for both approved and normalized-unknown dependency failures:
 
-- [ ] **Step 3: Implement allowlisted handling**
+```text
+Vision processing failed.
+```
 
-Unknown typed codes do not pass through blindly; normalize them to generic `vision_processing_failed` and log locally as a programming/configuration defect. Do not trust arbitrary exception text as a control-plane message.
+Unknown syntactically valid `ProcessingDependencyError.failure_code` values normalize to:
 
-- [ ] **Step 4: Re-run Task-9 ownership/artifact regressions and commit**
+```text
+vision_processing_failed
+```
+
+The runner must not use `error.runtime_disposition` to decide recovery, leasing, restart, or readiness. Task 11's supervisor owns those decisions through the already-established local failure sink.
+
+- [ ] **Step 1: RED — lock the four approved stable-code mappings**
+
+In `test_worker_runner.py`, parameterize the concrete model-neutral failures:
+- `InferenceContractError` -> `vision_inference_contract_failed`;
+- `GpuOutOfMemoryError` -> `vision_gpu_out_of_memory`;
+- `GpuRuntimeError` -> `vision_gpu_runtime_failed`;
+- `TrackerError` -> `vision_tracker_failed`.
+
+For each case prove:
+- the processor is called exactly once;
+- the initial heartbeat succeeds before processing;
+- `/fail` is called exactly once with the approved code;
+- the message is exactly `"Vision processing failed."`;
+- a deliberately sensitive exception message is absent from the terminal request;
+- no generic `worker_unhandled_error` or trailing `task9_result_submission_not_implemented` request is emitted;
+- `run_once()` returns `True` when the terminal fail succeeds.
+
+This RED test should fail against the current runner because typed dependency failures presently fall into the generic exception path.
+
+- [ ] **Step 2: RED — lock fail-closed handling for unknown typed codes**
+
+Construct a base `ProcessingDependencyError` using a syntactically valid but unapproved code such as `vision_future_dependency_failed`.
+
+Prove:
+- the arbitrary code is **not** sent to the API;
+- the API receives exactly one `vision_processing_failed`;
+- the message remains exactly `"Vision processing failed."`;
+- the exception's message/text is absent from the API request;
+- a local log record identifies an unallowlisted typed dependency code using sanitized metadata only;
+- no second terminal request follows.
+
+Do not weaken `ProcessingDependencyError` itself into a global enum in this task. Its broader syntax-valid contract is useful for fail-closed forward compatibility; the wire allowlist belongs at the worker boundary.
+
+- [ ] **Step 3: RED — prove typed-failure lease precedence at the real worker boundary**
+
+Extend `test_worker_lease_heartbeat.py` with deterministic race regressions based on its existing event-loop-stall/heartbeat-loss fixtures.
+
+Required cases:
+
+1. **Typed failure completes after authoritative expiry.** The processor raises a real `GpuOutOfMemoryError` after the short deadline while the event loop is deliberately stalled. When the loop resumes, `_process_with_lease_heartbeats()` must raise lease loss before accepting the typed exception. Assert zero `/fail` calls.
+2. **Heartbeat ownership is lost while processing unwinds with a typed error.** The API loses the lease on renewal; the shared guard is marked lost; the processing thread then raises a typed dependency error. The heartbeat/ownership failure remains authoritative and the API receives no terminal `/fail`.
+3. Preserve the existing ordinary-error expiry regression unchanged to prove typed handling did not special-case around the general lease rule.
+
+Do not invent a new cancellation or terminal-authorization abstraction in Task 10. These tests validate the established ownership boundary that Task 11 will later reuse.
+
+- [ ] **Step 4: Implement the minimal allowlisted worker mapping**
+
+In `runner.py`:
+- import `logging`, `Final`, and model-neutral `ProcessingDependencyError`;
+- define the immutable four-code allowlist and one generic message constant at module scope;
+- add an `except ProcessingDependencyError as exc` branch **before** the generic exception branch;
+- choose `exc.failure_code` only when it is in the allowlist;
+- otherwise normalize to `vision_processing_failed` and emit a sanitized local defect log;
+- call `_best_effort_fail(...)` exactly once;
+- return `True` after a successful fail;
+- let `WorkerApiError` from the fail propagate exactly as existing terminal failures do.
+
+Implementation must not:
+- inspect CUDA/MMDetection/Trackers exception classes;
+- branch on `RuntimeDisposition`;
+- call the runtime-health sink again;
+- perform recovery/readiness changes;
+- reuse arbitrary `str(exc)` as the API message;
+- catch `WorkerApiError` and attempt a second `/fail`.
+
+- [ ] **Step 5: GREEN — add terminal-fail transport regression for the new branch**
+
+Using the existing `FailingTerminalWorkerApiClient`, prove a typed dependency failure whose `/fail` request itself raises `WorkerApiError`:
+- results in one and only one fail attempt;
+- propagates `WorkerApiError` for polling/backoff behavior;
+- never falls through to `worker_unhandled_error`;
+- never emits a second terminal request.
+
+This prevents a common error where a newly added catch branch is accidentally re-caught by the generic handler.
+
+- [ ] **Step 6: Run the focused Task-10 regression set**
 
 ```powershell
 cd src/vision
-python -m pytest tests/test_process_video.py tests/test_worker_runner.py tests/test_lease_ownership_matrix.py tests/test_artifact_publisher.py tests/test_artifact_store.py -q
-git add mavi_vision/worker/runner.py tests/test_worker_runner.py tests/test_lease_ownership_matrix.py
-git commit -m "feat: map vision runtime failure classification"
+python -m pytest tests/test_worker_runner.py tests/test_worker_lease_heartbeat.py tests/test_process_video.py tests/test_lease_ownership_matrix.py tests/test_artifact_publisher.py tests/test_artifact_store.py -q
 ```
 
----
+Acceptance:
+- all new stable-code, sanitization, unknown-code and lease-race tests pass;
+- all existing Task-9 source-integrity, heartbeat, lease-loss and artifact mutation invariants remain green.
 
+- [ ] **Step 7: Run full Python/repository verification**
+
+```powershell
+cd src/vision
+python -m pytest -q
+cd ../..
+python tools/verify_repo.py
+```
+
+No optional heavy-runtime import may become necessary merely to collect or execute the runner tests.
+
+- [ ] **Step 8: Hosted exact-head acceptance and review**
+
+Use a dedicated topic branch created from the accepted planning head, recommended name:
+
+```text
+feature/task-10-failure-classification
+```
+
+Require before merge:
+- MAVI Quality Gate green on the exact PR head;
+- Task 10 Runtime Qualification and Task 10 Staging Security green if triggered by changed/closure-documentation paths;
+- clean substantive Codex review focused on allowlist correctness, message sanitization, lease precedence, single terminal action, and Task-11 scope separation;
+- zero unresolved legitimate review threads.
+
+Recommended reviewable implementation commits:
+
+```text
+test: lock vision dependency failure mapping
+feat: map vision runtime failure classification
+docs: close Task 10 failure mapping
+```
+
+- [ ] **Step 9: Guarded merge, verification, and cleanup**
+
+Squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head protection. Verify:
+- integration head equals the returned squash SHA;
+- squash tree equals final topic-head tree;
+- Task-10 closure evidence is recorded;
+- no Task-11 supervisor/watchdog/executor code entered this task;
+- merged topic branch has no unique code before deletion/housekeeping.
+
+**Reviewer gate — reject Task 10 if any of the following is true:**
+- `WorkerRunner` imports or branches on backend-specific failure classes;
+- arbitrary `ProcessingDependencyError.failure_code` values can reach `/fail`;
+- exception text/local paths/device details are sent as the terminal failure message;
+- a typed error can emit more than one terminal request;
+- lease expiry/loss can be known before exception acceptance yet the runner still submits `/fail`;
+- runner code starts recovery, changes readiness, interprets `RuntimeDisposition`, or otherwise consumes Task-11 responsibilities;
+- existing source-integrity/video-processing/generic failure semantics change without an explicit failing regression;
+- Task-9 artifact cleanup/publication or attempt-isolation tests regress.
+
+---
 ### Task 11: Implement Runtime Supervisor, Readiness Gate, OOM Recovery, Watchdog, and Production Worker Composition
 
 **Files:**
