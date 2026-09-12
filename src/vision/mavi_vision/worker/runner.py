@@ -115,6 +115,11 @@ class WorkerRunner:
         self._monotonic_clock = monotonic_clock
         self._fatal_termination_active = False
 
+    @property
+    def fatal_termination_active(self) -> bool:
+        """True once watchdog containment requires process-level termination."""
+        return self._fatal_termination_active
+
     async def run_once(self) -> bool:
         lease = await self._api_client.lease()
         if lease is None:
@@ -200,7 +205,6 @@ class WorkerRunner:
             # Test terminators may raise a sentinel instead of terminating the
             # process. Never turn that sentinel into a stale leased-job /fail.
             if self._fatal_termination_active:
-                self._fatal_termination_active = False
                 raise
             await self._best_effort_fail(
                 lease,
