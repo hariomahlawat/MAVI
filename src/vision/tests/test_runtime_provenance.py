@@ -216,6 +216,7 @@ def _selection(
         runtime_release_locks=MappingProxyType(locks),
     )
 
+
 def _metadata(*, device: str = "cpu", versions: dict[str, str] | None = None) -> RuntimeMetadata:
     return RuntimeMetadata(
         backend="mmdetection",
@@ -294,7 +295,6 @@ def test_verified_production_provenance_requires_release_and_build_identity() ->
                 "configured_device_policy": "cpu",
                 "configured_device_index": 0,
                 "production_mode": True,
-                "platform_lock_sha256": SHA_A,
                 "platform_identity": _platform(),
             },
             "production_mavi_identity_required",
@@ -445,6 +445,7 @@ def test_runtime_contract_modules_do_not_import_heavy_ml_frameworks() -> None:
             sorted(imported_roots & forbidden),
         )
 
+
 def test_production_provenance_requires_full_git_commit_identity() -> None:
     with pytest.raises(ValueError, match="mavi_commit_invalid"):
         build_runtime_provenance(
@@ -457,6 +458,7 @@ def test_production_provenance_requires_full_git_commit_identity() -> None:
             mavi_commit="short-sha",
             platform_identity=_platform(),
         )
+
 
 def test_production_provenance_rejects_runtime_dependency_drift() -> None:
     versions = dict(VERSIONS)
