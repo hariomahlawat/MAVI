@@ -288,6 +288,10 @@ def _validate_resolved_config(path: Path) -> None:
             value = node.value
             if "_base_" in names:
                 raise RuntimeCompatibilityError("resolved_config_base_unresolved")
+            if "custom_imports" in names and not _is_none_literal(value):
+                raise RuntimeCompatibilityError(
+                    "resolved_config_custom_imports_forbidden"
+                )
             if any(name in {"load_from", "resume_from"} for name in names):
                 if not _is_none_literal(value):
                     raise RuntimeCompatibilityError(
