@@ -353,6 +353,7 @@ def test_stuck_watchdog_invokes_fatal_terminator_once_without_stale_fail(
 
         assert expiry_reports == ["expired"]
         assert fatal_codes == [70]
+        assert runner.fatal_termination_active is True
         assert client.heartbeats == [5.0]
         assert client.failures == []
 
