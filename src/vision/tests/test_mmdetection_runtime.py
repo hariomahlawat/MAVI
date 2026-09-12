@@ -379,6 +379,11 @@ def test_constructor_rejects_runtime_vocabulary_drift(
             "resolved_config_remote_reference_forbidden",
         ),
         (
+            "model = dict(test_cfg=dict(score_thr=0.1), "
+            "init_cfg='open-mmlab://rtmdet/checkpoint')\n",
+            "resolved_config_remote_reference_forbidden",
+        ),
+        (
             "import os\nmodel = dict(test_cfg=dict(score_thr=0.1))\n",
             "resolved_config_import_forbidden",
         ),
