@@ -64,6 +64,11 @@ def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -
         "build": ["tags/v3.12.10:0cc8128", "Apr  8 2025 12:21:36"],
         "compiler": "MSC v.1943 64 bit (AMD64)",
     }
+    for variant in ("linux-x86_64-cpu", "windows-x86_64-cpu"):
+        assert payload["platformVariants"][variant]["binaryVersions"] == {
+            "torch": "2.6.0+cpu",
+            "torchvision": "0.21.0+cpu",
+        }
     assert payload["platformVariants"]["linux-x86_64-cuda"]["status"] == (
         "pending-hardware-qualification"
     )
