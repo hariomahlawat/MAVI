@@ -41,10 +41,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             python-version: '3.12.14'
             variant: linux-x86_64-cpu
-          - os: windows-latest
+          - os: windows-2025
             python-version: '3.12.10'
             variant: windows-x86_64-cpu
 
@@ -102,9 +102,13 @@ jobs:
           torchvision==0.21.0
           --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Configure MSVC compiler
+      - name: Configure qualified MSVC compiler
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+        with:
+          toolset: "14.44"
+          sdk: "10.0.26100.0"
+          arch: x64
 
       - name: Stabilize Windows PyTorch extension environment
         if: runner.os == 'Windows'
@@ -115,12 +119,35 @@ jobs:
           "CL=/Brepro" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "LINK=/Brepro" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Verify qualified Windows compiler identity
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not $env:VCToolsVersion.StartsWith("14.44.")) {
+            throw "unexpected_vctools_version:$env:VCToolsVersion"
+          }
+          $sdk = $env:WindowsSDKVersion.TrimEnd("\")
+          if ($sdk -ne "10.0.26100.0") {
+            throw "unexpected_windows_sdk:$sdk"
+          }
+          $cl = (Get-Command cl.exe).Source
+          if ($cl -notmatch 'MSVC\\14\.44\.') {
+            throw "unexpected_cl_path:$cl"
+          }
+          Write-Host "task12-msvc-toolset=$env:VCToolsVersion"
+          Write-Host "task12-windows-sdk=$sdk"
+          Write-Host "task12-cl=$cl"
+
       - name: Stabilize Linux native extension environment
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
+          test "$(gcc-14 -dumpfullversion -dumpversion)" = "14.2.0"
+          test "$(g++-14 -dumpfullversion -dumpversion)" = "14.2.0"
           {
+            echo "CC=gcc-14"
+            echo "CXX=g++-14"
             echo "MAX_JOBS=1"
             echo "CFLAGS=-frandom-seed=mavi-task12 -ffile-prefix-map=$GITHUB_WORKSPACE=/mavi -fdebug-prefix-map=$GITHUB_WORKSPACE=/mavi"
             echo "CXXFLAGS=-frandom-seed=mavi-task12 -ffile-prefix-map=$GITHUB_WORKSPACE=/mavi -fdebug-prefix-map=$GITHUB_WORKSPACE=/mavi"
