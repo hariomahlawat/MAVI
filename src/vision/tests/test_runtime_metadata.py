@@ -142,3 +142,4 @@ def test_task12_linux_native_bundle_is_bound_to_qualified_host_abi() -> None:
     assert 'test "$ID" = "ubuntu"' in workflow
     assert 'test "$VERSION_ID" = "24.04"' in workflow
     assert 'test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.39"' in workflow
+    assert 'test "$max_glibcxx" = "GLIBCXX_3.4.33"' in workflow
