@@ -624,6 +624,8 @@ git commit -m "feat: add verified vision release metadata"
 
 ### Task 4: Add Framework-Neutral Runtime Contracts, Typed Failures, Device Policy, and Provenance
 
+**Status (verified 2026-09-12): COMPLETE.** The Task-4 implementation is contained in PR #20 and its review-hardening sequence. Exact-head MAVI Quality Gate #209 (run `34665921642`) passed on implementation head `86045fa189795fa7ded8f296b5b2cc1137843c3b` with .NET Domain 71/71, Application 23/23, Integration 150/150, Python 306 passed with 11 platform skips after the final review fixes, frontend 9/9, and repository verification green. Framework-neutral contracts remain free of PyTorch/MMDetection/MMCV/Supervision/Trackers imports; production provenance is bound to the verified runtime semantic graph, exact platform interpreter identity, qualified device variant, and verified offline lock. Development experiments that drift from a verified release are explicitly downgraded to `unverified` rather than inheriting the release label.
+
 **Files:**
 - Create: `src/vision/mavi_vision/runtime/__init__.py`
 - Create: `src/vision/mavi_vision/runtime/interfaces.py`
@@ -674,15 +676,15 @@ class ProcessingDependencyError(RuntimeError):
     disposition: RuntimeDisposition
 ```
 
-- [ ] **Step 1: Write validation tests for raw runtime values**
+- [x] **Step 1: Write validation tests for raw runtime values**
 
 Require finite XYXY/confidence, confidence `[0,1]`, and non-empty source class. Raw boxes may be outside the frame; clipping belongs to the RTMDet adapter.
 
-- [ ] **Step 2: Implement framework-neutral types with no heavy ML imports**
+- [x] **Step 2: Implement framework-neutral types with no heavy ML imports**
 
 `interfaces.py`, `errors.py`, and `provenance.py` must not import `torch`, `mmdet`, `mmcv`, `supervision`, or `trackers`.
 
-- [ ] **Step 3: Write and implement typed failure codes**
+- [x] **Step 3: Write and implement typed failure codes**
 
 Define:
 
@@ -695,17 +697,17 @@ TrackerError("vision_tracker_failed", RuntimeDisposition.CONTINUE)
 
 Enforce the existing worker failure-code grammar and maximum length.
 
-- [ ] **Step 4: Extend `WorkerSettings` with operational selection only**
+- [x] **Step 4: Extend `WorkerSettings` with operational selection only**
 
 Add model root/manifest/profile/runtime paths, `device_policy`, `device_index`, `production_mode`, `inference_watchdog_seconds`, and `watchdog_grace_seconds`. Production mode rejects `auto`. Do not expose detector/tracker thresholds as environment settings.
 
-- [ ] **Step 5: Implement immutable provenance**
+- [x] **Step 5: Implement immutable provenance**
 
 Capture model/config/profile/qualification/runtime hashes; Python/PyTorch/torchvision/MMDetection/MMCV/MMEngine/Trackers/Supervision/SciPy/NumPy/OpenCV/PyAV and FFmpeg identity where available; OS/platform; configured/actual device; GPU/driver/CUDA when applicable; MAVI build/commit; frame policy; tracker parameters; and `inputColourSpace="RGB"`.
 
 Production rejects missing MAVI build/commit identity; development may use explicit `unknown-development`.
 
-- [ ] **Step 6: Run and commit**
+- [x] **Step 6: Run and commit**
 
 ```powershell
 cd src/vision
