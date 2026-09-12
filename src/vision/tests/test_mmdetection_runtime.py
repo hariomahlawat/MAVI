@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import platform
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
@@ -29,6 +30,7 @@ import mavi_vision.runtime.mmdetection as mmdetection_module
 from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
 from mavi_vision.runtime.qualification import (
     RuntimePlatformVariantIdentity,
+    RuntimePythonIdentity,
     VerifiedReleaseSelection,
 )
 
@@ -261,6 +263,7 @@ def _selection(
     config_text: str | None = None,
     checkpoint_bytes: bytes = b"checkpoint",
     versions: dict[str, str] | None = None,
+    python_identity: RuntimePythonIdentity | None = None,
 ) -> VerifiedReleaseSelection:
     release_dir = tmp_path / "release"
     release_dir.mkdir(parents=True, exist_ok=True)
@@ -301,6 +304,13 @@ def _selection(
         qualification_id=None,
     )
 
+    selected_python_identity = python_identity or RuntimePythonIdentity(
+        version=platform.python_version(),
+        implementation=platform.python_implementation(),
+        build=tuple(platform.python_build()),
+        compiler=platform.python_compiler(),
+    )
+
     return VerifiedReleaseSelection(
         manifest=manifest,
         profile=_profile(),
@@ -320,7 +330,7 @@ def _selection(
                 "linux-x86_64-cpu": RuntimePlatformVariantIdentity(
                     status="qualified-hosted-cpu",
                     resolved_config_sha256=None,
-                    python_identity=None,
+                    python_identity=selected_python_identity,
                     binary_versions=MappingProxyType(
                         {
                             "torch": "2.6.0+cpu",
@@ -331,7 +341,7 @@ def _selection(
                 "windows-x86_64-cpu": RuntimePlatformVariantIdentity(
                     status="qualified-hosted-cpu",
                     resolved_config_sha256=None,
-                    python_identity=None,
+                    python_identity=selected_python_identity,
                     binary_versions=MappingProxyType(
                         {
                             "torch": "2.6.0+cpu",
@@ -409,6 +419,86 @@ def test_runtime_variant_name_is_explicit_and_platform_stable(
         _runtime_variant_name(system=system, machine=machine, device=device)
         == expected
     )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "python_identity"),
+    [
+        (
+            "version",
+            RuntimePythonIdentity(
+                version="3.11.99",
+                implementation=platform.python_implementation(),
+                build=tuple(platform.python_build()),
+                compiler=platform.python_compiler(),
+            ),
+        ),
+        (
+            "implementation",
+            RuntimePythonIdentity(
+                version=platform.python_version(),
+                implementation="PyPy",
+                build=tuple(platform.python_build()),
+                compiler=platform.python_compiler(),
+            ),
+        ),
+        (
+            "build",
+            RuntimePythonIdentity(
+                version=platform.python_version(),
+                implementation=platform.python_implementation(),
+                build=("unqualified", "interpreter-build"),
+                compiler=platform.python_compiler(),
+            ),
+        ),
+        (
+            "compiler",
+            RuntimePythonIdentity(
+                version=platform.python_version(),
+                implementation=platform.python_implementation(),
+                build=tuple(platform.python_build()),
+                compiler="unqualified compiler",
+            ),
+        ),
+    ],
+)
+def test_constructor_rejects_unqualified_python_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field_name: str,
+    python_identity: RuntimePythonIdentity,
+) -> None:
+    harness = BackendHarness()
+    _patch_backend(monkeypatch, harness)
+
+    with pytest.raises(
+        RuntimeCompatibilityError,
+        match=f"runtime_python_identity_mismatch:{field_name}",
+    ):
+        MMDetectionRuntime(
+            _selection(tmp_path, python_identity=python_identity),
+            device="cpu",
+            activity=InferenceActivity(),
+        )
+
+    assert harness.init_calls == []
+
+
+def test_constructor_accepts_exact_qualified_python_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = BackendHarness()
+    _patch_backend(monkeypatch, harness)
+
+    runtime = MMDetectionRuntime(
+        _selection(tmp_path),
+        device="cpu",
+        activity=InferenceActivity(),
+    )
+
+    assert runtime.metadata.model_id == "rtmdet-m-coco-phase1"
+    assert len(harness.init_calls) == 1
 
 
 def test_constructor_rejects_wrong_pytorch_binary_build_with_same_semantic_version(
