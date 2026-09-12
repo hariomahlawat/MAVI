@@ -445,6 +445,12 @@ class WorkerRunner:
         ).total_seconds()
         if remaining <= 0:
             raise WorkerApiError("heartbeat deadline exceeded")
+        if process_task.done():
+            return None
+        if self._watchdog_is_expired():
+            raise _WatchdogExpiredDuringHeartbeat(
+                "vision_inference_watchdog_expired"
+            )
 
         heartbeat_task = asyncio.create_task(
             self._api_client.heartbeat(lease, 5.0),
