@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import importlib.util
 import json
 import os
@@ -250,12 +251,7 @@ def test_bundle_rejects_symlink_input_and_leaves_no_partial_output(
     except (OSError, NotImplementedError):
         pytest.skip("symlink creation unavailable")
 
-    linked_inputs = tool.VerifiedBundleInputs(
-        **{
-            **inputs.__dict__,
-            "model_manifest_path": link,
-        }
-    )
+    linked_inputs = replace(inputs, model_manifest_path=link)
     output = tmp_path / "bundle"
 
     with pytest.raises(tool.OfflineBundleError, match="bundle_input_link_forbidden"):
