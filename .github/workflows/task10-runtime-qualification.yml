@@ -196,7 +196,26 @@ jobs:
               )
 
           variant_name = os.environ["MAVI_RUNTIME_VARIANT"]
-          expected_python = profile["platformVariants"][variant_name]["pythonIdentity"]
+          variant = profile["platformVariants"][variant_name]
+          expected_binary = variant["binaryVersions"]
+          actual_binary = {
+              "torch": torch.__version__,
+              "torchvision": torchvision.__version__,
+          }
+          if actual_binary != expected_binary:
+              raise SystemExit(
+                  "runtime_binary_identity_mismatch:"
+                  + json.dumps(
+                      {
+                          "variant": variant_name,
+                          "actual": actual_binary,
+                          "expected": expected_binary,
+                      },
+                      sort_keys=True,
+                  )
+              )
+
+          expected_python = variant["pythonIdentity"]
           actual_python = {
               "version": platform.python_version(),
               "implementation": platform.python_implementation(),
@@ -217,6 +236,11 @@ jobs:
               )
 
           print("runtime-semantic-graph-ok", json.dumps(actual, sort_keys=True))
+          print(
+              "runtime-binary-identity-ok",
+              variant_name,
+              json.dumps(actual_binary, sort_keys=True),
+          )
           print(
               "runtime-python-identity-ok",
               variant_name,
@@ -308,6 +332,7 @@ jobs:
 
           PYTHONPATH=src/vision python - <<'PY'
           import json
+          import os
           import numpy as np
           from pathlib import Path
 
@@ -336,6 +361,15 @@ jobs:
                   raise SystemExit("production_runtime_vocabulary_mismatch")
               if metadata.device != "cpu":
                   raise SystemExit("production_runtime_device_mismatch")
+              expected_binary = selection.runtime_platform_variants[
+                  os.environ["MAVI_RUNTIME_VARIANT"]
+              ].binary_versions
+              actual_binary = {
+                  "torch": metadata.versions["torch"],
+                  "torchvision": metadata.versions["torchvision"],
+              }
+              if expected_binary is None or actual_binary != dict(expected_binary):
+                  raise SystemExit("production_runtime_binary_identity_mismatch")
               snapshot = activity.snapshot()
               if snapshot.active or snapshot.completed_count != 2:
                   raise SystemExit("production_runtime_activity_mismatch")
