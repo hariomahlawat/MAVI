@@ -1,5 +1,6 @@
 """Framework-neutral runtime contracts for MAVI vision processing."""
 
+from mavi_vision.runtime.activity import InferenceActivity, InferenceActivitySnapshot
 from mavi_vision.runtime.errors import (
     GpuOutOfMemoryError,
     GpuRuntimeError,
@@ -8,6 +9,7 @@ from mavi_vision.runtime.errors import (
     RuntimeDisposition,
     TrackerError,
 )
+from mavi_vision.runtime.execution_lane import ProcessExecutor, VisionExecutionLane
 from mavi_vision.runtime.interfaces import (
     DetectorRuntime,
     PixelBoxXYXY,
@@ -29,15 +31,19 @@ __all__ = [
     "GpuOutOfMemoryError",
     "GpuRuntimeError",
     "InferenceContractError",
+    "InferenceActivity",
+    "InferenceActivitySnapshot",
     "PixelBoxXYXY",
     "PlatformIdentity",
     "ProcessingDependencyError",
+    "ProcessExecutor",
     "RawDetection",
     "RuntimeDisposition",
     "RuntimeMetadata",
     "RuntimeProvenance",
     "TrackerError",
     "TrackerParameters",
+    "VisionExecutionLane",
     "build_runtime_provenance",
     "capture_platform_identity",
 ]

@@ -10,15 +10,16 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md`
 
-## Current Execution Status — 2026-09-11
+## Current Execution Status — 2026-09-12
 
 - **Task 1 remains open as a release-qualification task.** Bounded Tasks 1A/1B are complete: the frozen Python 3.12 hosted CPU semantic graph, self-contained resolved RTMDet-M config, restricted checkpoint loading, and real Linux/Windows CPU inference are verified. Linux/Windows NVIDIA qualification and hashed offline wheelhouse locks remain pending and must not be inferred.
 - **Task 2 and corrective Task 2A are complete.** Frozen resolved-config identity is enforced in CI, qualification evidence is preserved as a complete non-hidden artifact set, resolver publication is alias-safe/atomic, and native Windows staging includes the additional post-replace rollback and native-name length regressions.
 - **Task 3 is complete.** MAVI now has strict model-manifest, pipeline-profile and qualification-record loaders; exact-byte release identities; trusted-root/no-link artifact resolution; an evidence-backed `VerifiedReleaseSelection`; and repository verification that explicitly prevents a pending release from being presented as production-qualified.
 - **Task 4 is complete.** Framework-neutral detector-runtime contracts, stable typed dependency failures, operational-only runtime/device/watchdog settings, and immutable provenance are implemented. Provenance is bound to the live qualified dependency graph, exact interpreter identity, platform/device qualification state and verified release lock; development drift is explicitly recorded as `unverified`.
-- **Tasks 5–11 and Task 13 remain framework-neutral implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
+- **Task 5 is complete.** The dedicated `VisionExecutionLane` serializes accepted synchronous runtime work on one process-scoped thread, preserves already-submitted native work across asyncio cancellation, and makes shutdown idempotent and cancellation-safe. `InferenceActivity` provides lock-protected monotonic start/completion state for the later watchdog supervisor and correctly handles the cross-thread pre-start sampling race.
+- **Tasks 6–11 and Task 13 remain implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
 - **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task:** Task 5 — single-thread vision execution lane and activity monitor.
+- **Next implementation task:** Task 6 — deterministic RTMDet-to-MAVI detection adapter.
 
 ## Global Constraints
 
@@ -721,6 +722,8 @@ git commit -m "feat: add vision runtime contracts and provenance"
 
 ### Task 5: Add the Single-Thread Vision Execution Lane and Activity Monitor
 
+**Status (verified 2026-09-12): COMPLETE.** PR #21 implements the bounded Task-5 execution/activity layer. Exact implementation head `076c1b31aea2bc9887dd87a47b16008d342b822e` passed MAVI Quality Gate #218 (run `34668012484`) with .NET Domain 71/71, Application 23/23, Integration 150/150, Python 333 passed with 11 platform skips, frontend checks green, and repository verification passed. Final Codex review on that head reported no major issues. Review hardening made executor shutdown remain awaitable across repeated cancellation and treats a watchdog timestamp sampled immediately before `mark_started()` as not hung rather than as a false clock-regression error.
+
 **Files:**
 - Create: `src/vision/mavi_vision/runtime/execution_lane.py`
 - Create: `src/vision/mavi_vision/runtime/activity.py`
@@ -754,23 +757,23 @@ class InferenceActivity:
 
 `ProcessExecutor` is model-neutral. `VisionExecutionLane` structurally implements it and is the production executor passed to `WorkerRunner` in Task 11.
 
-- [ ] **Step 1: Write a failing serialization/thread-affinity test**
+- [x] **Step 1: Write a failing serialization/thread-affinity test**
 
 Submit two functions concurrently; record `threading.get_ident()` and overlap markers. Assert both execute on the same non-event-loop thread and never overlap.
 
-- [ ] **Step 2: Implement the lane**
+- [x] **Step 2: Implement the lane**
 
 Use one `ThreadPoolExecutor(max_workers=1, thread_name_prefix="mavi-vision")`; `run()` dispatches a `functools.partial` through `loop.run_in_executor`. Reject calls after `close()`.
 
-- [ ] **Step 3: Write activity/watchdog tests using explicit monotonic values**
+- [x] **Step 3: Write activity/watchdog tests using explicit monotonic values**
 
 Cover inactive, active below threshold, exactly at threshold, beyond threshold, and completed activity. Do not sleep in unit tests.
 
-- [ ] **Step 4: Implement thread-safe activity markers**
+- [x] **Step 4: Implement thread-safe activity markers**
 
 Protect state with `threading.Lock`; inference callers clear active state in `finally`.
 
-- [ ] **Step 5: Run and commit**
+- [x] **Step 5: Run and commit**
 
 ```powershell
 cd src/vision
