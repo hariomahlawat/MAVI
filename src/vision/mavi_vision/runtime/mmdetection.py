@@ -6,7 +6,7 @@ import os
 import re
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
 from typing import Any, ContextManager
 from urllib.parse import urlsplit
@@ -228,11 +228,20 @@ def _validate_resolved_config(path: Path) -> None:
                 raise RuntimeCompatibilityError("resolved_config_dynamic_call_forbidden")
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             # A production-resolved config must not delegate any resource lookup
-            # to URL/model-hub/file schemes. Host-specific absolute drive paths
-            # are equally inappropriate in an immutable self-contained release.
-            if urlsplit(node.value.strip()).scheme:
+            # outside the immutable hashed release. Reject URI/model-hub schemes,
+            # authority/UNC references, and absolute POSIX/Windows paths. Relative
+            # strings remain legal because resolved MMDetection configs contain
+            # ordinary class/type names and other non-resource text constants.
+            candidate = node.value.strip()
+            parsed_reference = urlsplit(candidate)
+            if (
+                parsed_reference.scheme
+                or parsed_reference.netloc
+                or PurePosixPath(candidate).is_absolute()
+                or PureWindowsPath(candidate).is_absolute()
+            ):
                 raise RuntimeCompatibilityError(
-                    "resolved_config_remote_reference_forbidden"
+                    "resolved_config_external_resource_forbidden"
                 )
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             names = _assignment_targets(node)
