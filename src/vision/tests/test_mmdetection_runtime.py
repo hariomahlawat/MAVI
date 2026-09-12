@@ -376,12 +376,32 @@ def test_constructor_rejects_runtime_vocabulary_drift(
         (
             "model = dict(test_cfg=dict(score_thr=0.1), "
             "init_cfg='https://example.invalid/checkpoint.pth')\n",
-            "resolved_config_remote_reference_forbidden",
+            "resolved_config_external_resource_forbidden",
         ),
         (
             "model = dict(test_cfg=dict(score_thr=0.1), "
             "init_cfg='open-mmlab://rtmdet/checkpoint')\n",
-            "resolved_config_remote_reference_forbidden",
+            "resolved_config_external_resource_forbidden",
+        ),
+        (
+            "model = dict(test_cfg=dict(score_thr=0.1), "
+            "init_cfg='//server/share/pretrained.pth')\n",
+            "resolved_config_external_resource_forbidden",
+        ),
+        (
+            "model = dict(test_cfg=dict(score_thr=0.1), "
+            "init_cfg='/outside-release/model.pth')\n",
+            "resolved_config_external_resource_forbidden",
+        ),
+        (
+            "model = dict(test_cfg=dict(score_thr=0.1), "
+            "init_cfg=r'\\\\server\\share\\pretrained.pth')\n",
+            "resolved_config_external_resource_forbidden",
+        ),
+        (
+            "model = dict(test_cfg=dict(score_thr=0.1), "
+            "init_cfg=r'C:\\outside-release\\model.pth')\n",
+            "resolved_config_external_resource_forbidden",
         ),
         (
             "import os\nmodel = dict(test_cfg=dict(score_thr=0.1))\n",
