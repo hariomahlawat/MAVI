@@ -364,13 +364,19 @@ def test_typed_dependency_failure_survives_lease_loss_without_stale_cleanup(
     _write_tiny_mp4(source, frame_count=1)
     size, digest = _source_facts(source)
     store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
-    descriptor = store.write_bytes("keep.bin", b"keep", "application/octet-stream")
-    keep_path = _artifact_path(tmp_path, descriptor.storage_key)
     guard = _owned_guard()
     error = GpuOutOfMemoryError("fixture oom after lease loss")
+    keep_path: Path | None = None
 
     class FailingDetector:
         def detect(self, frame):
+            nonlocal keep_path
+            descriptor = store.write_bytes(
+                "keep.bin",
+                b"keep-after-startup-cleanup",
+                "application/octet-stream",
+            )
+            keep_path = _artifact_path(tmp_path, descriptor.storage_key)
             guard.mark_lost()
             raise error
 
@@ -380,7 +386,8 @@ def test_typed_dependency_failure_survives_lease_loss_without_stale_cleanup(
         _run(processor, source, size, digest, lease_guard=guard)
 
     assert exc_info.value is error
-    assert keep_path.read_bytes() == b"keep"
+    assert keep_path is not None
+    assert keep_path.read_bytes() == b"keep-after-startup-cleanup"
 
 def test_process_rejects_store_scoped_to_different_job_without_cleanup(tmp_path: Path) -> None:
     source = tmp_path / "tiny.mp4"
