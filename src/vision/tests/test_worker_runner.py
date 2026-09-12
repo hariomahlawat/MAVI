@@ -450,3 +450,87 @@ def test_unexpected_error_uses_generic_controlled_failure(tmp_path: Path) -> Non
     ]
     assert leased_job.lease_token not in client.failures[0][1]
     assert leased_job.source_storage_key not in client.failures[0][1]
+
+
+def test_injected_process_executor_receives_processor_call_exactly_once(
+    tmp_path: Path,
+) -> None:
+    class RecordingExecutor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def run(self, func, /, *args, **kwargs):
+            self.calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    processor = RecordingProcessor(make_result(lease))
+    executor = RecordingExecutor()
+
+    result = asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            process_executor=executor,
+        ).run_once()
+    )
+
+    assert result is True
+    assert len(executor.calls) == 1
+    func, args, kwargs = executor.calls[0]
+    assert func == processor.process
+    assert args == ()
+    assert kwargs["job_id"] == lease.job_id
+    assert kwargs["attempt_count"] == lease.attempt_count
+    assert kwargs["source_path"] == media
+    assert isinstance(kwargs["lease_guard"], LeaseGuard)
+
+
+def test_injected_vision_lane_executes_processing_on_its_dedicated_thread(
+    tmp_path: Path,
+) -> None:
+    import threading
+
+    from mavi_vision.runtime.execution_lane import VisionExecutionLane
+
+    class ThreadRecordingProcessor(RecordingProcessor):
+        def __init__(self, result: VisionProcessingResult) -> None:
+            super().__init__(result)
+            self.thread_id: int | None = None
+
+        def process(self, **kwargs) -> VisionProcessingResult:
+            self.thread_id = threading.get_ident()
+            return super().process(**kwargs)
+
+    async def scenario() -> None:
+        lease = make_lease()
+        media = tmp_path / "videos" / "input.mp4"
+        media.parent.mkdir()
+        media.write_bytes(b"video")
+        client = FakeWorkerApiClient(lease)
+        processor = ThreadRecordingProcessor(make_result(lease))
+        lane = VisionExecutionLane()
+        event_loop_thread = threading.get_ident()
+
+        try:
+            result = await WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                processor,
+                process_executor=lane,
+            ).run_once()
+        finally:
+            await lane.close()
+
+        assert result is True
+        assert processor.thread_id is not None
+        assert processor.thread_id != event_loop_thread
+
+    asyncio.run(scenario())
