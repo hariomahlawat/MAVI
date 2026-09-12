@@ -2084,13 +2084,255 @@ Squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head pro
 ---
 ### Task 12: Build Reproducible Offline Runtime Bundles and Strengthen Supply-Chain Verification
 
-**Files:**
-- Create: `tools/vision/build_offline_bundle.py`
-- Create: `src/vision/tests/test_offline_bundle_manifest.py`
-- Modify: `tools/verify_repo.py`
-- Reuse: `infrastructure/windows/`, `infrastructure/linux/`, `infrastructure/offline-bundle/`
+**Status (reviewed 2026-09-12): READY FOR IMPLEMENTATION after the hardening below.**
 
-**Interfaces:**
+**Accepted planning baseline:** `a509f3694e3cae2d52e97220dc29fc6029560f45` (Task-11 closure head on `feature/task-10-rtmdet-bytetrack`).
+
+Task 12 turns the already-qualified CPU vision runtime into a reproducible, integrity-checked, air-gap-transferable Python/model bundle without prematurely claiming CUDA qualification or production verification. It has two responsibilities that must remain separate:
+
+1. **freeze an exact platform-specific Python wheel closure and lock it by hash in reviewed repository metadata;**
+2. **assemble and verify a deterministic offline bundle from already-local, already-hashed inputs without network resolution or target-machine compilation.**
+
+The connected build/freeze phase may use approved Internet sources. The bundle assembler and target install path must be fully offline.
+
+#### Current-state findings that this plan locks
+
+1. `runtime.json` records both CPU release locks as `pending-wheelhouse-freeze`; both CUDA release locks remain `pending-hardware-qualification`.
+2. CPU runtime graph qualification already exists on exact CPython builds:
+   - Linux CPython `3.12.14`;
+   - Windows CPython `3.12.10`.
+3. The semantic graph is pinned but is not a complete install closure. Transitive packages required by MMDetection, Trackers, HTTPX, Pydantic and others are not frozen by exact version/hash.
+4. `src/vision/pyproject.toml` defines MAVI and the `vision-runtime` extra, but no reviewed MAVI wheel is yet part of an offline bundle.
+5. Task-10 qualification proves compatibility by downloading PyTorch, compiling MMCV and resolving remaining packages online. That is not an offline release lock.
+6. Existing connected qualification uses upstream tags. Task 12 freezes source identities:
+   - MMCV v2.1.0 -> `57c4e25e06e2d4f8a9357c84bcd24089a284dc88`;
+   - MMDetection v3.3.0 -> `44ebd17b145c2372c4b700bfb9cb20dbd28ab64a`.
+7. Model weights/resolved deployment config remain outside Git; connected bundle jobs must materialize and verify their existing hashes.
+8. `verify_runtime_release_locks()` validates outer lock hashes but not internal package grammar/completeness/offline semantics.
+9. `verify_repo.py` does not yet reject all direct package URLs/index directives/VCS requirements/model resolver hazards in release metadata.
+10. Updating `runtime.json.releaseLocks` changes `runtimeProfileSha256`; the qualification record must be updated in the same controlled sequence.
+11. Manifest remains `unverified`, runtime remains `partial`, qualification remains `pending`. Task 12 must not promote them.
+12. Task 14 needs a bundle before final verification. Task 12 therefore needs explicit `qualification-candidate` vs `production` bundle modes.
+13. The previous outline did not define bundle layout, manifest self-hash policy, canonical serialization, output atomicity or archive semantics.
+14. The previous outline did not define wheelhouse completeness or how locally built MMCV becomes a hash-pinned artifact.
+15. Task 12 assumes an exact Python interpreter is already provisioned. It is a Python/runtime bundle, not a bare-metal OS/Python bootstrap installer.
+16. No Task-12 topic branch exists; implementation shall use one topic branch.
+
+#### Locked scope
+
+Task 12 shall implement:
+- strict deterministic runtime lock parsing/validation;
+- connected exact CPU wheelhouses for both already-qualified CPU variants;
+- hash-pinned full runtime install closure, including the MAVI wheel;
+- deterministic candidate/production bundle assembly from local inputs only;
+- bundle manifest + artifact integrity verification;
+- no-index/no-source-build installation;
+- runtime release-lock metadata wiring;
+- repository guards against online release resolver hazards;
+- hosted Windows/Linux Task-12 bundle matrix;
+- exact offline bundle/operator documentation.
+
+Task 12 shall **not**:
+- qualify/freeze CUDA wheelhouses before hardware qualification;
+- alter CUDA `releaseLocks` from `pending-hardware-qualification`;
+- set manifest `verified`, runtime `qualified`, qualification `passed`, or offline gates `passed`;
+- call hosted `--no-index` smoke a formal Task-14 network-disconnected qualification;
+- do Task-14 CCTV/GPU/recovery/performance work;
+- commit model weights, wheels, wheelhouses, bundle archives/directories or CCTV;
+- add online runtime fallback/first-run download/model-hub/package-resolution behavior;
+- require target compilation;
+- bundle OS images, drivers or CPython installers;
+- introduce PKI/signing in this task;
+- define a compressed product archive. Product form is a deterministic directory; CI compression is transport-only.
+
+#### Task-12 variants
+
+Only:
+
+```text
+linux-x86_64-cpu
+windows-x86_64-cpu
+```
+
+may become `qualified-offline-lock`.
+
+Exact Python:
+
+```text
+linux-x86_64-cpu   -> CPython 3.12.14
+windows-x86_64-cpu -> CPython 3.12.10
+```
+
+Remain untouched:
+
+```text
+linux-x86_64-cuda   -> pending-hardware-qualification
+windows-x86_64-cuda -> pending-hardware-qualification
+```
+
+Reject CUDA lock qualification unless its platform variant is already `qualified-hardware`.
+
+#### Files
+
+**Create**
+- `src/vision/mavi_vision/runtime/offline_lock.py`
+- `tools/vision/freeze_offline_lock.py`
+- `tools/vision/build_offline_bundle.py`
+- `src/vision/tests/test_offline_runtime_lock.py`
+- `src/vision/tests/test_offline_bundle_manifest.py`
+- `.github/workflows/task12-offline-bundle.yml`
+- `src/vision/runtime/mmdetection-phase1-v1/linux-x86_64-cpu.lock`
+- `src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cpu.lock`
+
+**Modify**
+- `src/vision/mavi_vision/runtime/qualification.py`
+- `src/vision/runtime/mmdetection-phase1-v1/runtime.json`
+- `models/qualifications/rtmdet-m-coco-phase1-v1.json`
+- `tools/verify_repo.py`
+- `.github/workflows/task10-runtime-qualification.yml` only to replace mutable source tag checkout with the immutable commits above
+- `infrastructure/offline-bundle/README.md`
+- `infrastructure/linux/README.md`
+- `infrastructure/windows/README.md`
+- this plan with closure evidence
+
+Do not alter detector/tracker analytics, Task-11 lifecycle/watchdog semantics, control-plane/database contracts, model verification status or Task-14 metric tooling unless a focused regression proves it necessary.
+
+---
+
+## 12.1 Strict runtime lock contract
+
+```python
+@dataclass(frozen=True, slots=True)
+class LockedDistribution:
+    name: str
+    version: str
+    sha256: str
+
+@dataclass(frozen=True, slots=True)
+class OfflineRuntimeLock:
+    schema_version: Literal["mavi-offline-lock-v1"]
+    platform_variant: str
+    python_version: str
+    distributions: tuple[LockedDistribution, ...]
+```
+
+Canonical lock:
+
+```text
+# schema: mavi-offline-lock-v1
+# platform-variant: linux-x86_64-cpu
+# python-version: 3.12.14
+av==16.1.0 --hash=sha256:<64-lowercase-hex>
+mavi-vision==0.1.0 --hash=sha256:<64-lowercase-hex>
+mmcv==2.1.0 --hash=sha256:<64-lowercase-hex>
+torch==2.6.0+cpu --hash=sha256:<64-lowercase-hex>
+torchvision==0.21.0+cpu --hash=sha256:<64-lowercase-hex>
+...
+```
+
+Rules:
+- UTF-8/LF only; no BOM/CR;
+- exactly three headers in this order;
+- rows sorted by canonical PEP-503-style package name;
+- exact `name==version` only;
+- exactly one SHA-256 per row for the single wheel selected for the variant;
+- no duplicates;
+- no extras, markers, ranges, wildcards, constraints, editable installs, paths, direct refs, VCS refs or package options;
+- forbid `@`, `://`, `git+`, `-e`, `--index-url`, `--extra-index-url`, `--find-links`, `--trusted-host`, `--no-index`;
+- contain complete transitive runtime closure, not only semantic roots;
+- include `mavi-vision==0.1.0`;
+- CPU locks must contain exact binary Torch/Torchvision versions `2.6.0+cpu` / `0.21.0+cpu`;
+- semantic root distributions agree with runtime metadata; `opencv-python` maps to `semanticGraph.opencvPython`;
+- CI/build-only packages stay out unless a runtime dependency truly requires them.
+
+`verify_runtime_release_locks()` validates outer file hash **and** canonical lock content before accepting `qualified-offline-lock`.
+
+---
+
+## 12.2 Connected wheelhouse freeze contract
+
+Internet access is permitted only in this freeze/build phase.
+
+Matrix:
+
+```text
+ubuntu-latest  / CPython 3.12.14 / linux-x86_64-cpu
+windows-latest / CPython 3.12.10 / windows-x86_64-cpu
+```
+
+Immutable source identities:
+
+```text
+MMCV 2.1.0:
+  open-mmlab/mmcv
+  57c4e25e06e2d4f8a9357c84bcd24089a284dc88
+
+MMDetection 3.3.0:
+  open-mmlab/mmdetection
+  44ebd17b145c2372c4b700bfb9cb20dbd28ab64a
+```
+
+Checkpoint:
+
+```text
+rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
+sha256 229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b
+```
+
+Transport URLs/indexes remain build-time details, never runtime metadata.
+
+Freeze sequence:
+1. checkout exact MAVI head;
+2. install build tooling;
+3. obtain exact CPU Torch/Torchvision wheels;
+4. fetch MMCV exact commit and build its wheel using qualified compiler/PyTorch environment;
+5. build MAVI wheel from `src/vision`;
+6. create clean connected runtime env using local MAVI wheel + `vision-runtime` with explicit CPU Torch/Torchvision/MMCV;
+7. resolve full transitive runtime closure;
+8. materialize **wheels only** in a per-variant wheelhouse;
+9. reject sdists/source trees/target compilation;
+10. read authoritative package name/version from wheel `.dist-info/METADATA`;
+11. require exactly one selected wheel per package/version;
+12. hash exact wheel bytes and generate canonical lock;
+13. fresh clean environment install:
+
+```text
+python -m pip install --no-index --only-binary=:all: --require-hashes --find-links <wheelhouse> -r <variant-lock>
+```
+
+14. `python -m pip check`;
+15. verify semantic + binary versions against runtime metadata;
+16. import heavy graph including `mmcv.ops`;
+17. upload wheelhouse/bundle as CI artifacts only.
+
+An unreferenced extra wheel is a failure.
+
+---
+
+## 12.3 Explicit bundle modes
+
+### qualification-candidate
+
+Used before Task-14 final verification. It may contain current unverified/pending release metadata only if all integrity relationships are valid and requested platform lock is `qualified-offline-lock`.
+
+Bundle manifest states `releaseStatus="qualification-candidate"`. It is not a production-qualified release.
+
+### production
+
+Supported by assembler for later use, but must reject the current release.
+
+Requires:
+- manifest verified + matching qualification ID;
+- runtime qualified;
+- qualification passed/all mandatory gates passed;
+- requested lock qualified;
+- local checkpoint/config hashes valid.
+
+Tests prove present Task-12 state fails production mode.
+
+---
+
+## 12.4 Deterministic bundle contract
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -2102,40 +2344,331 @@ class BundleArtifact:
     package: str | None
     version: str | None
     platform_variant: str
+
+@dataclass(frozen=True, slots=True)
+class BundleManifest:
+    schema_version: Literal["1.0"]
+    bundle_id: str
+    release_status: Literal["qualification-candidate", "production"]
+    source_commit: str
+    platform_variant: str
+    python_version: str
+    model_id: str
+    runtime_profile_id: str
+    lock_sha256: str
+    artifacts: tuple[BundleArtifact, ...]
 ```
 
-- [ ] **Step 1: Write bundle determinism/integrity tests**
+Canonical JSON:
 
-Same inputs -> same sorted manifest/hashes. Reject duplicate destinations, absolute paths, undeclared/missing files, and wrong hashes.
+```python
+json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
+```
 
-- [ ] **Step 2: Implement bundle assembly**
+No timestamp/hostname/temp path/run ID/mtime/random UUID/absolute environment path enters deterministic content.
 
-Include wheels, checkpoint, resolved config, manifest, qualification record, pipeline profile, runtime.json, selected lock, and bundle manifest. Exclude Git metadata, caches, CCTV, and unverified production artifacts.
+Manifest never hashes itself. Every other product file appears exactly once. External transfer records may separately hash manifest bytes.
 
-- [ ] **Step 3: Emit offline installation command**
+`bundleId` = full SHA-256 over canonical immutable identity material:
+- source commit;
+- platform;
+- runtime profile ID/hash;
+- model manifest hash;
+- pipeline profile hash;
+- qualification record hash;
+- release lock hash.
 
-Use local wheels only:
+Layout:
 
 ```text
-python -m pip install --no-index --require-hashes --find-links wheels -r runtime/<selected-platform>.lock
+<bundle-root>/
+  bundle-manifest.json
+  INSTALL.txt
+  wheels/
+    <exact locked wheels only>
+  release/
+    models/
+      manifests/rtmdet-m-coco-phase1-v1.json
+      qualifications/rtmdet-m-coco-phase1-v1.json
+      rtmdet-m-coco-phase1-v1/
+        rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
+        rtmdet_m_resolved.py
+    config/
+      pipelines/phase1-detection-tracking-v1.json
+    runtime/
+      mmdetection-phase1-v1/
+        runtime.json
+        <platform-variant>.lock
 ```
 
-No target compilation/network resolution.
+Do not include opposite-platform lock, Git/source/caches/compiler/sdist/test/CCTV/unrelated evidence/other-platform wheels/secrets/logs.
 
-- [ ] **Step 4: Extend repository verification for release network/download hazards**
+`INSTALL.txt` contains exactly:
 
-Reject model URLs, `git+https`, model-zoo aliases, or production metadata that requires an online resolver.
+```text
+python -m pip install --no-index --only-binary=:all: --require-hashes --find-links ./wheels -r ./release/runtime/mmdetection-phase1-v1/<platform-variant>.lock
+python -m pip check
+```
 
-- [ ] **Step 5: Run and commit**
+It also records exact CPython patch prerequisite and release path/environment mapping. Python itself is pre-provisioned.
+
+Assembler safety:
+- no HTTP/VCS/index operation;
+- local inputs only;
+- verify complete release selection before copy;
+- validate lock + all wheel hashes;
+- reject link/reparse inputs/unsafe ancestry;
+- reject duplicate/absolute/backslash/`..` destinations;
+- reject nonregular inputs;
+- stage in private sibling temp dir;
+- refuse nonempty final destination;
+- rehash copied output;
+- write manifest last;
+- atomically publish where supported;
+- clean only owned staging on failure.
+
+---
+
+## 12.5 Mandatory release metadata order
+
+1. Implement/test tools first.
+2. Run connected matrix to produce CPU wheelhouse + lock artifacts.
+3. Review/import only Linux + Windows CPU text locks.
+4. Compute lock hashes.
+5. Update only CPU `releaseLocks` to `qualified-offline-lock` with artifact/hash.
+6. Leave CUDA locks pending hardware qualification.
+7. Keep runtime qualification status partial.
+8. Compute new runtime.json SHA-256.
+9. Update qualification `runtimeProfileSha256` in same logical change.
+10. Keep manifest unverified/qualification ID null/offline+CUDA gates pending/overall pending.
+11. Run repository verification.
+12. Run Task-10 CPU runtime qualification against new runtime metadata and refresh CPU evidence references/digests because runtime-profile identity changed; gate status remains passed.
+13. Re-run repository verification after evidence-only update.
+14. Build final candidate bundles from final metadata bytes.
+
+Never weaken hashing/relationship validation to avoid this sequence.
+
+---
+
+## 12.6 Repository supply-chain guardrails
+
+Tracked locks reject:
+- URLs/direct/VCS/editable refs;
+- index/find-links/trusted-host;
+- markers;
+- unpinned/ranged requirements;
+- missing/non-SHA256 hash;
+- duplicate/unsorted/noncanonical rows;
+- header variant/Python mismatch;
+- qualified hash/file mismatch;
+- qualified lock for unqualified platform;
+- qualified CUDA lock while CUDA platform pending.
+
+Release/runtime metadata rejects resolver/fetch locators such as:
+
+```text
+http://
+https://
+git+
+ssh://
+ftp://
+s3://
+hf://
+mim://
+modelzoo://
+torchvision://
+openmmlab://
+```
+
+Scope scanner to release metadata/locks so docs/workflow build URLs do not false-positive.
+
+Add `.whl` to prohibited tracked binaries.
+
+---
+
+## 12.7 Hosted Task-12 workflow
+
+Create `.github/workflows/task12-offline-bundle.yml` with exact matrix:
+
+```text
+ubuntu-latest  / 3.12.14 / linux-x86_64-cpu
+windows-latest / 3.12.10 / windows-x86_64-cpu
+```
+
+Checkout exact PR/head SHA.
+
+Phases:
+1. verify exact head/toolchain;
+2. configure build tools;
+3. fetch MMCV exact commit;
+4. build MMCV wheel;
+5. build MAVI wheel;
+6. prefetch CPU Torch/Torchvision;
+7. resolve/materialize wheel-only runtime closure;
+8. generate candidate lock;
+9. once tracked locks exist, byte-compare generated vs tracked lock;
+10. fetch/generate checkpoint/config at immutable source identity and verify hashes;
+11. build `qualification-candidate` bundle;
+12. fresh venv with `PIP_NO_INDEX=1` + no-index/only-binary/require-hashes install;
+13. pip check;
+14. semantic/binary version verification;
+15. heavy imports + compiled MMCV ops;
+16. local checkpoint/config runtime smoke;
+17. invalid HTTP/HTTPS proxy tripwire during install/runtime smoke (not formal disconnected qualification);
+18. validate bundle manifest against bytes;
+19. upload bundle artifact named by variant + exact source head;
+20. never commit binaries.
+
+First implementation run may upload generated locks for review. After import, workflow must reproduce tracked locks byte-for-byte.
+
+---
+
+## 12.8 TDD / implementation sequence
+
+- [ ] **Step 0: Preflight + one branch**
+
+From final planning head create only:
+
+```text
+feature/task-12-offline-runtime-bundle
+```
+
+Open one draft PR early.
+
+- [ ] **Step 1: RED — strict offline-lock parser**
+
+Create `test_offline_runtime_lock.py`. Reject wrong headers, variant/Python, BOM/CRLF, URLs/paths/VCS, markers/options/ranges, missing hashes, duplicate/noncanonical/unsorted names, empty lock, missing MAVI, CPU Torch/Torchvision mismatch, premature CUDA lock. One canonical CPU fixture passes.
+
+- [ ] **Step 2: GREEN — parser + runtime release-lock validation**
+
+Implement `offline_lock.py`. `verify_runtime_release_locks()` verifies hash, grammar, variant, exact Python patch and semantic/binary roots.
+
+- [ ] **Step 3: RED — wheelhouse-to-lock determinism**
+
+Synthetic minimal wheels prove METADATA-driven name/version, order independence, one wheel/package, duplicate/nonwheel/sdist/corrupt rejection, METADATA validation, exact hashes and sorted rows.
+
+- [ ] **Step 4: GREEN — freeze tool**
+
+`freeze_offline_lock.py` consumes local wheelhouse only. Require `--wheelhouse --platform-variant --python-version --output`. No implicit overwrite of differing lock; CI reproduction never uses replace.
+
+- [ ] **Step 5: RED — bundle determinism/path/output safety**
+
+Create `test_offline_bundle_manifest.py`. Prove same inputs -> same manifest/file set, order-independent enumeration, each artifact once, self-exclusion, safe POSIX paths, duplicate/path/link rejection, nonempty destination rejection, copy-hash detection, no nondeterministic metadata, no partial final output.
+
+- [ ] **Step 6: RED — candidate vs production**
+
+Current release only candidate; current production fails; synthetic verified production passes; candidate still needs valid relationships + qualified requested lock; CUDA/opposite-platform rejected.
+
+- [ ] **Step 7: GREEN — offline bundle assembler**
+
+Reuse existing release verification. Zero network. Validate exact wheelhouse against lock, construct layout, deterministic INSTALL/manifest, rehash before publish.
+
+- [ ] **Step 8: RED/GREEN — verify_repo supply-chain hazards**
+
+Add focused fixtures/tests before modifying verifier. Prove failures for direct refs/options, malformed qualified locks, tracked wheel, online model alias, missing lock/hash and CPU identity mismatch; docs/workflow URLs remain allowed.
+
+- [ ] **Step 9: Pin connected source commits**
+
+Replace mutable MMCV/MMDetection tag checkout where relevant with immutable commits. No semantic/package-version change.
+
+- [ ] **Step 10: Connected CPU matrix — generate initial locks**
+
+Build MAVI/MMCV/full closure on Windows/Linux. Upload lock/wheelhouse evidence.
+
+Per-leg evidence: exact head, variant, Python identity, MAVI/MMCV wheel hashes, MMCV source commit, Torch/Torchvision binary versions/hashes, lock hash, wheel count, no-index install, pip-check, semantic graph check.
+
+- [ ] **Step 11: Review/import two CPU locks**
+
+Commit only the two lock text files. No wheels/checkpoints. Re-run lock tests + repository verification.
+
+- [ ] **Step 12: Update release metadata in mandatory hash order**
+
+Update CPU releaseLocks + qualification runtimeProfileSha256; keep all pending/verification states unchanged.
+
+Run:
 
 ```powershell
 cd src/vision
-python -m pytest tests/test_offline_bundle_manifest.py -q
+python -m pytest tests/test_offline_runtime_lock.py tests/test_qualification_record.py tests/test_runtime_metadata.py -q
 cd ../..
 python tools/verify_repo.py
-git add tools/vision/build_offline_bundle.py tools/verify_repo.py src/vision/tests/test_offline_bundle_manifest.py infrastructure
-git commit -m "build: add offline vision runtime bundle"
 ```
+
+- [ ] **Step 13: Requalify CPU runtime metadata identity**
+
+Task-10 Runtime Qualification green on Windows/Linux with new runtime profile. Refresh CPU evidence refs/digests to new exact-head run, without changing gate status. Re-run repository verification.
+
+- [ ] **Step 14: Final candidate bundles / clean offline-style install**
+
+For each CPU variant require lock reproduction, zero extra wheel, manifest validation, fresh no-index/only-binary/require-hashes install, pip check, compiled MMCV/heavy import, local checkpoint/config smoke, no model download and successful invalid-proxy tripwire. Formal offline gates stay pending.
+
+- [ ] **Step 15: Documentation**
+
+Replace placeholder offline-bundle README with exact layout, candidate/production distinction, Python prerequisite, install/integrity/path mapping and no-network/no-target-build rules. Update Windows/Linux READMEs only with established bundle-consumption details.
+
+- [ ] **Step 16: Focused regression**
+
+```powershell
+cd src/vision
+python -m pytest tests/test_offline_runtime_lock.py tests/test_offline_bundle_manifest.py tests/test_qualification_record.py tests/test_runtime_metadata.py tests/test_runtime_provenance.py tests/test_runtime_supervisor.py tests/test_mmdetection_runtime.py -q
+cd ../..
+python tools/verify_repo.py
+```
+
+Run any focused verifier-hazard suite from Step 8.
+
+- [ ] **Step 17: Full regression**
+
+```powershell
+cd src/vision
+python -m pytest -q
+cd ../..
+python tools/verify_repo.py
+```
+
+Task-9/10/11 semantics remain unchanged.
+
+- [ ] **Step 18: Hosted review gates**
+
+Final topic head requires:
+- MAVI Quality Gate green;
+- Task-10 Runtime Qualification green Windows/Linux when triggered;
+- Staging Security green when triggered;
+- Task-12 Offline Bundle matrix green Windows/Linux;
+- generated locks == tracked locks byte-for-byte;
+- zero unresolved legitimate review threads.
+
+Codex review focus: lock parser/completeness, path/link/output atomicity, candidate/production fail-closed policy, hash sequencing, extra-wheel surface, network escapes, platform/Python/binary mismatch, accidental promotion to verified/CUDA/offline-qualified claims.
+
+- [ ] **Step 19: Guarded squash merge + closure**
+
+Squash only into `feature/task-10-rtmdet-bytetrack` with expected-head protection. Verify squash tree identity, record lock/bundle hashes + CI IDs + source pins, confirm no binaries/media entered Git, perform post-merge triggered gates, and retire topic branch only after proving no unique unmerged code.
+
+---
+
+## Task-12 reviewer rejection gate
+
+Do not merge if:
+- CUDA is guessed/promoted before hardware qualification;
+- manifest/runtime/qualification is promoted to verified/qualified/passed;
+- hosted no-index smoke is called formal disconnected qualification;
+- lock uses URLs/VCS/ranges/markers/index options or missing hashes;
+- lock omits transitive runtime dependency or MAVI wheel;
+- source distribution/target compilation is required;
+- wheelhouse contains extra unreferenced wheels;
+- installer can fall back online;
+- assembler performs download/VCS/package resolution;
+- mutable upstream tag is treated as source identity;
+- checkpoint/config is not hash-verified;
+- manifest has timestamps/host paths/random IDs or hashes itself;
+- stale output files can survive;
+- link/reparse input can escape roots;
+- runtime.json lock update is not accompanied by qualification runtimeProfileSha256 update;
+- CPU evidence remains knowingly bound to stale runtime-profile identity;
+- formal offline gates change without Task-14 evidence;
+- model/wheel/bundle/CCTV binary is tracked;
+- Task 12 leaks into persistence, analytics, control-plane, GPU performance or hardware qualification.
+
 
 ---
 
