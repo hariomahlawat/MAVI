@@ -446,6 +446,25 @@ def test_runtime_contract_modules_do_not_import_heavy_ml_frameworks() -> None:
         )
 
 
+
+
+def test_mmdetection_module_has_no_top_level_heavy_ml_imports() -> None:
+    runtime_root = Path(__file__).resolve().parents[1] / "mavi_vision" / "runtime"
+    tree = ast.parse((runtime_root / "mmdetection.py").read_text(encoding="utf-8"))
+    forbidden = {"torch", "torchvision", "mmdet", "mmcv", "mmengine", "supervision", "trackers"}
+    imported_roots: set[str] = set()
+
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            imported_roots.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported_roots.add(node.module.split(".", 1)[0])
+
+    assert imported_roots.isdisjoint(forbidden), sorted(
+        imported_roots & forbidden
+    )
+
+
 def test_production_provenance_requires_full_git_commit_identity() -> None:
     with pytest.raises(ValueError, match="mavi_commit_invalid"):
         build_runtime_provenance(
