@@ -862,7 +862,9 @@ Startup-only configuration/integrity/compatibility errors remain supervisor star
 
 ### 16.3 VideoProcessor handling
 
-`VideoProcessor` catches `ProcessingDependencyError` before its generic exception handler, performs the same lease-authorized best-effort cleanup used for ordinary processing failures, and rethrows the typed error unchanged.
+`VideoProcessor` catches `ProcessingDependencyError` before its generic exception handler, attempts the same lease-authorized best-effort cleanup used for ordinary processing failures, and rethrows the typed error unchanged.
+
+If ownership has already been lost at that cleanup boundary, cleanup is skipped because stale mutation is forbidden, but the typed dependency error remains available to the local runtime-health sink. `WorkerRunner` subsequently applies lease-loss precedence before any terminal worker API action, so preserving the health signal does not authorize stale `/fail` or publication.
 
 It does not inspect CUDA/framework classes.
 
@@ -952,19 +954,32 @@ The design does not attempt unsafe Python thread cancellation or reuse of a pote
 
 ## 19. Production processor composition
 
-`ProductionVisionProcessor` is long-lived only as a composition facade. For each `process(...)` invocation it:
+`ProductionVisionProcessor` is long-lived only as a composition facade. It does not own readiness, runtime construction, runtime recovery, lease acquisition, or terminal worker API authority.
 
-1. verifies the supervisor/runtime is `READY`;
-2. obtains the shared immutable detector runtime/provenance snapshot;
+Task 11 may invoke it only after the control loop has admitted work from supervisor `READY`. The facade receives two model-neutral callbacks:
+
+```python
+runtime_provider: Callable[[], DetectorRuntime]
+runtime_failure_sink: Callable[[ProcessingDependencyError], None]
+```
+
+For each accepted `process(...)` invocation it:
+
+1. checks the supplied `LeaseGuard` before attempt-local construction;
+2. calls `runtime_provider()` exactly once and keeps that runtime snapshot only for the current attempt;
 3. constructs a lightweight `RTMDetDetector` bound to that runtime/profile;
 4. constructs a fresh class-separated ByteTrack adapter;
 5. constructs a fresh platform-appropriate attempt staging facade/store;
 6. constructs a fresh existing `VideoProcessor`;
 7. processes the attempt on the dedicated vision execution lane;
-8. discards detector-adapter/tracker/store/processor state after success/failure.
+8. reports any escaping `ProcessingDependencyError` exactly once to the local `runtime_failure_sink` and rethrows it unchanged;
+9. discards detector-adapter/tracker/store/processor/runtime-snapshot references after success/failure.
 
-The heavyweight detector runtime persists across jobs. Mutable tracker/artifact state never crosses evidence boundaries.
+The provider indirection is mandatory because bounded Task-11 recovery may replace the detector runtime object. Normal attempts receive the same process-scoped runtime; the first accepted attempt after successful recovery receives the replacement runtime without rebuilding the long-lived processor facade. A runtime snapshot never changes mid-attempt.
 
+The failure sink is a local runtime-health signal, not a terminal job mutation. It may therefore observe a real OOM/inference/tracker fault even when lease loss later prevents `WorkerRunner` from sending `/fail`. The sink must be thread-safe, synchronous, non-blocking, non-throwing, and perform no network/control-plane I/O from the vision execution lane.
+
+Mutable tracker/artifact state never crosses evidence boundaries.
 ## 20. Dependency qualification and freezing
 
 ### 20.1 Qualification is an implementation gate, not an assumption

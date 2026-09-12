@@ -1198,26 +1198,38 @@ Then update this plan with exact evidence while retaining the global Task-10 par
 
 ---
 
-### Task 9: Compose a Fresh Attempt Pipeline Around the Shared Detector Runtime
+### Task 9: Compose a Fresh Attempt Pipeline Around the Recoverable Shared Detector Runtime
 
+**Status (reviewed 2026-09-12): READY FOR IMPLEMENTATION after the planning corrections below.** Task 9 composes the already-qualified Task-7 detector boundary and Task-8 class-separated ByteTrack adapter into the existing `VideoProcessor`. It must not move lease authority, runtime lifecycle/recovery, or persistence into the pipeline layer.
+
+**Additional corrections locked by this review:**
+
+1. **Use a runtime provider, not a permanently captured runtime object.** Task 11 may replace the detector runtime object during bounded recovery. The processor must resolve the current runtime exactly once at the start of each accepted attempt, keep that snapshot fixed for the attempt, and allow a later attempt to receive the replacement runtime.
+2. **Keep lease authority separate from local runtime-health reporting.** Lease loss forbids stale `/fail`, publication and cleanup mutation, but it must not erase a real OOM/inference/tracker health signal before the local supervisor can classify it.
+3. **Add exact-package composition proof on Linux and Windows.** Unit tests prove lifecycle semantics with fakes; hosted runtime CI must also exercise the real RTMDet adapter + real Trackers-2.6 ByteTrack adapter + real `VideoProcessor` + real staging store with only the detector backend faked.
 **Planning correction (2026-09-12):** Task 9's failure-sink contract requires detector/tracker `ProcessingDependencyError` values to survive `VideoProcessor` unchanged. The pre-Task-9 `VideoProcessor` catch-all currently collapses them into `VideoProcessingError("pipeline_processing_failed")`. The narrow model-neutral pass-through originally scheduled as Task-10 Steps 1–2 is therefore moved forward as Task-9 Step 0. This is a dependency-order correction, not a scope expansion: Task 10 still owns worker allowlisting, `/fail` mapping, and typed-error/lease-loss races.
 
 **Files:**
 - Create: `src/vision/mavi_vision/pipeline/production_processor.py`
 - Create: `src/vision/tests/test_production_processor.py`
+- Create: `src/vision/tests/test_production_processor_runtime.py`
 - Modify: `src/vision/mavi_vision/pipeline/process_video.py`
 - Modify: `src/vision/tests/test_process_video.py`
+- Modify: `.github/workflows/task10-runtime-qualification.yml`
 
 **Interfaces:**
 
 ```python
+RuntimeProvider = Callable[[], DetectorRuntime]
+ProcessingFailureSink = Callable[[ProcessingDependencyError], None]
+
 class ProductionVisionProcessor:
     def __init__(
         self,
-        runtime: DetectorRuntime,
+        runtime_provider: RuntimeProvider,
         profile: PipelineProfile,
         staging_factory: Callable[[UUID, int], StagingArtifactStore],
-        runtime_failure_sink: Callable[[ProcessingDependencyError], None],
+        runtime_failure_sink: ProcessingFailureSink,
     ) -> None: ...
 
     def process(
@@ -1232,38 +1244,73 @@ class ProductionVisionProcessor:
     ) -> VisionProcessingResult: ...
 ```
 
-The production composition root binds `settings.media_root` into `staging_factory`, for example `lambda job_id, attempt: StagingArtifactStore(settings.media_root, job_id, attempt)`. The processor therefore cannot accidentally choose a different root per job.
+The production composition root later binds `runtime_provider=lambda: supervisor.runtime` and binds `settings.media_root` into `staging_factory`, for example `lambda job_id, attempt: StagingArtifactStore(settings.media_root, job_id, attempt)`.
 
-The long-lived `DetectorRuntime` is injected once and is never reconstructed, warmed up, or closed by this class. Every `process()` call creates a fresh `RTMDetDetector`, fresh `ByteTrackTracker`, fresh attempt-scoped staging store, and fresh `VideoProcessor`.
+**Locked lifecycle/ownership invariants:**
+- `ProductionVisionProcessor` is a long-lived facade, not a runtime owner.
+- It calls `lease_guard.check_owned()` before attempt-local construction and then calls `runtime_provider()` exactly once for that accepted attempt.
+- The returned runtime snapshot is fixed for the full attempt and is not cached after the call returns.
+- Normal attempts may receive the same process-scoped runtime; after Task-11 recovery, a later attempt may receive a replacement runtime object.
+- Every attempt creates a fresh `RTMDetDetector`, fresh `ByteTrackTracker`, fresh staging store and fresh `VideoProcessor`.
+- No native tracker state, MAVI track-ID map/counter or staging namespace crosses attempts.
+- The facade never calls `warmup()`, `close()`, runtime constructors, CUDA cleanup, supervisor recovery, lease/heartbeat APIs, `/fail`, `/complete`, or persistence.
+- Readiness is a Task-11 control-loop precondition; Task 9 does not import or query `RuntimeSupervisor`.
+- `runtime_failure_sink` is a local health-notification seam, not a job-terminal action. It must be synchronous, thread-safe, non-blocking, non-throwing and perform no network/control-plane I/O from the vision lane.
+- Importing `mavi_vision.pipeline.production_processor` must not eagerly import PyTorch, MMDetection, MMCV, Trackers or Supervision.
 
 - [ ] **Step 0: Preserve typed dependency failures through `VideoProcessor` before composing attempts**
 
 Write RED regressions proving:
 - detector `GpuOutOfMemoryError` exits `VideoProcessor` as the exact same exception object;
 - tracker `TrackerError` exits as the exact same exception object;
-- lease loss still outranks a concurrent typed dependency failure and suppresses cleanup after ownership is lost;
-- attempt staging is cleaned only while the lease is still owned.
+- an owned typed dependency failure performs the existing attempt-scoped best-effort failure cleanup;
+- if ownership is already lost at the typed-failure cleanup boundary, cleanup is skipped but the **original typed dependency error still propagates unchanged** so the local runtime-health layer can classify it;
+- generic processing failure + lease loss retains the existing Task-9 precedence and must not be changed.
 
-Implement only the narrow model-neutral catch before the existing generic catch:
+Implement only the narrow model-neutral catch before the existing generic catch. The cleanup attempt remains lease-authorized, but loss of cleanup authority must not replace the typed dependency failure:
 
 ```python
 except ProcessingDependencyError:
-    self._cleanup_best_effort(lease_guard)
+    try:
+        self._cleanup_best_effort(lease_guard)
+    except LeaseLostError:
+        pass  # stale cleanup is forbidden; preserve the runtime-health signal
     raise
 ```
 
-Do not import backend-specific exception classes into `process_video.py`. Do not change generic decode, integrity, lease, or pipeline error semantics.
+Apply the same invariant to any `VideoProcessor` exception region in which a future `ProcessingDependencyError` could otherwise fall into the generic catch. Do not import backend-specific exception classes into `process_video.py`. Do not change generic decode, integrity, lease, or pipeline error semantics.
 
-- [ ] **Step 1: Write attempt-lifecycle and ownership tests**
+This distinction is intentional: `ProductionVisionProcessor` may notify the local supervisor of the typed error, while `WorkerRunner` later re-checks lease ownership before any authoritative terminal API call.
 
-Call `ProductionVisionProcessor.process()` twice with one fake long-lived runtime. Assert:
-- the exact runtime object is reused;
-- detector adapter, ByteTrack adapter, staging store, and `VideoProcessor` are recreated per attempt;
-- attempt 2 cannot reuse attempt-1 tracker state or MAVI track IDs;
-- staging factory receives the exact `(job_id, attempt_count)` pair on every call;
-- the class never acquires a lease, renews a heartbeat, reconstructs the runtime, calls `runtime.warmup()`, or calls `runtime.close()`.
+- [ ] **Step 1: RED — lock construction order, fresh attempt state, and runtime replacement compatibility**
 
-Keep the test lightweight by replacing adapter/processor constructors with fakes; exact ByteTrack reset semantics are already locked by Task 8.
+Use recording fakes for `RTMDetDetector`, `ByteTrackTracker`, `staging_factory` and `VideoProcessor`. Assert the exact order:
+
+```text
+lease_guard.check_owned()
+runtime_provider()                 # exactly once
+RTMDetDetector(runtime_snapshot, profile)
+ByteTrackTracker(profile.tracker)
+staging_factory(job_id, attempt_count)
+VideoProcessor(detector, tracker, store)
+VideoProcessor.process(...)
+```
+
+Required assertions:
+- a pre-lost guard raises `LeaseLostError` before the provider or any constructor/factory is called;
+- the provider is called exactly once for each accepted attempt;
+- two normal attempts can receive the same runtime object without `warmup()` or `close()` being called;
+- detector/tracker/store/`VideoProcessor` instances are fresh for every attempt;
+- attempt 2 cannot reuse attempt-1 fake tracker state or MAVI-ID counter state;
+- `staging_factory` receives the exact `(job_id, attempt_count)` pair;
+- source path, expected size/hash and the exact same `LeaseGuard` are delegated unchanged;
+- the exact `VisionProcessingResult` object from `VideoProcessor` is returned unchanged;
+- if the provider changes from runtime A to runtime B between attempts, the next fresh detector adapter receives runtime B; this is mandatory proof that Task-11 recovery cannot leave the facade pinned to a disposed runtime;
+- detector-construction failure prevents tracker/staging/`VideoProcessor` construction;
+- tracker-construction failure prevents staging/`VideoProcessor` construction;
+- staging-factory failure prevents `VideoProcessor` construction.
+
+Keep the production API free of test-only constructor hooks; monkeypatch module-level adapter/processor symbols in the unit test.
 
 - [ ] **Step 2: Write exact failure-notification tests**
 
@@ -1272,41 +1319,113 @@ Cover both construction-time and processing-time typed failures:
 - ByteTrack construction/update `TrackerError` -> sink called exactly once with the exact CONTINUE error, then the same error rethrows;
 - inference-contract failure -> sink receives the exact RECOVER error once;
 - `LeaseLostError`, `SourceIntegrityError`, ordinary `VideoProcessingError`, and staging/configuration failures do **not** notify the runtime-failure sink;
-- when lease loss wins inside `VideoProcessor`, no stale dependency notification is emitted.
+- a real typed runtime/tracker failure is still reported once to the **local** sink even if lease ownership is lost while the attempt is unwinding; Task 10/`WorkerRunner` later suppresses stale `/fail`;
+- a pre-lost lease performs no work and therefore emits no sink notification;
+- one failure produces one sink call only; no adapter/layer reports the same error twice.
 
-The sink is a notification boundary only. Task 9 does not recover/rebuild the detector and does not call the control-plane failure API.
+The sink is a local health-notification boundary only. Task 9 does not recover/rebuild the detector and does not call the control-plane failure API. Do **not** add a lease check immediately before `runtime_failure_sink(exc)`, because doing so would erase runtime-health information that the supervisor needs independently of job ownership.
 
 - [ ] **Step 3: Implement minimal deterministic attempt composition**
 
-Inside `process()`, construct in this order:
+Implementation shape:
 
-```text
-shared DetectorRuntime
-    -> fresh RTMDetDetector(runtime, profile)
-    -> fresh ByteTrackTracker(profile.tracker)
-    -> staging_factory(job_id, attempt_count)
-    -> fresh VideoProcessor(detector, tracker, store)
-    -> VideoProcessor.process(...)
+```python
+def process(...):
+    lease_guard.check_owned()
+
+    try:
+        runtime = self._runtime_provider()  # one snapshot for this attempt
+        detector = RTMDetDetector(runtime, self._profile)
+        tracker = ByteTrackTracker(self._profile.tracker)
+        store = self._staging_factory(job_id, attempt_count)
+        processor = VideoProcessor(detector, tracker, store)
+        return processor.process(
+            job_id=job_id,
+            attempt_count=attempt_count,
+            source_path=source_path,
+            expected_source_size_bytes=expected_source_size_bytes,
+            expected_source_sha256=expected_source_sha256,
+            lease_guard=lease_guard,
+        )
+    except ProcessingDependencyError as exc:
+        self._runtime_failure_sink(exc)
+        raise
 ```
 
-Wrap this composition/delegation in one `except ProcessingDependencyError as exc` boundary:
-1. call `runtime_failure_sink(exc)` exactly once;
-2. rethrow the same error unchanged.
+The facade must not cache the provider result beyond the call, call the provider twice, inspect `RuntimeDisposition`, catch generic exceptions, perform async work, rebuild/close the runtime, or create staging outside the supplied factory. Document the sink callback contract in the class docstring.
 
-Do not catch `LeaseLostError` or generic pipeline errors here. Do not acquire/renew leases, perform CUDA recovery, mutate supervisor state directly, or implement Task-11 persistence.
+- [ ] **Step 4: Add import-boundary and lightweight composition regressions**
 
-- [ ] **Step 4: Run focused regressions and commit**
+Add tests proving:
+- importing `mavi_vision.pipeline.production_processor` does not load `torch`, `mmdet`, `mmcv`, `trackers` or `supervision`;
+- real `VideoProcessor` can sit under the facade with fake attempt adapters without changing attempt scoping;
+- attempt 1 and attempt 2 use distinct staging namespaces;
+- fresh fake tracker state restarts per attempt while the runtime provider remains shared.
+
+These tests must run in the ordinary MAVI Quality Gate without optional ML packages.
+
+- [ ] **Step 5: Add an exact-package Linux/Windows production-composition smoke**
+
+Create `test_production_processor_runtime.py`, gated by `MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1`. In qualified mode it must fail, not skip, if exact packages are missing or drifted.
+
+Use a tiny locally generated MP4, a framework-neutral fake `DetectorRuntime` that emits deterministic Person raw detections, and the **real** `RTMDetDetector`, exact-package `ByteTrackTracker`, `StagingArtifactStore`, `VideoProcessor`, and `ProductionVisionProcessor`.
+
+Run attempt 1 and attempt 2 through the same runtime provider and prove:
+1. both process successfully;
+2. the same runtime is shared during normal operation;
+3. each fresh tracker restarts deterministic MAVI IDs at `person-000001`;
+4. artifacts are isolated under `attempt-0001` and `attempt-0002`;
+5. no cross-attempt artifact leakage occurs;
+6. the facade never warms, closes or reconstructs the runtime;
+7. installed `trackers==2.6.0` and `supervision==0.30.2` are verified explicitly.
+
+Extend `.github/workflows/task10-runtime-qualification.yml` to trigger on `src/vision/mavi_vision/pipeline/**`, `src/vision/tests/test_production_processor*.py`, and `src/vision/tests/test_process_video.py`, then run this qualified smoke on both Linux and Windows after the exact candidate graph is installed. The smoke uses no model checkpoint and introduces no new production network dependency.
+
+- [ ] **Step 6: Run complete Task-9 regression and repository verification**
+
+Focused:
 
 ```powershell
 cd src/vision
 python -m pytest tests/test_production_processor.py tests/test_process_video.py tests/test_bytetrack_adapter.py tests/test_rtmdet_mapping.py -q
-cd ../..
-python tools/verify_repo.py
-git add src/vision/mavi_vision/pipeline/production_processor.py src/vision/mavi_vision/pipeline/process_video.py src/vision/tests/test_production_processor.py src/vision/tests/test_process_video.py
-git commit -m "feat: compose production vision attempts"
 ```
 
-**Reviewer gate:** reject any implementation that creates a new detector runtime per attempt, lets tracker state cross attempts, reports a runtime failure after lease loss has taken precedence, catches generic exceptions in `ProductionVisionProcessor`, performs recovery there, or bypasses `VideoProcessor` lease/artifact authority.
+Then full Python/repository verification:
+
+```powershell
+python -m pytest -q
+cd ../..
+python tools/verify_repo.py
+```
+
+Hosted exact-head acceptance:
+- MAVI Quality Gate green;
+- Task 10 Runtime Qualification green on Linux and Windows including the new production-composition smoke;
+- Task 10 Staging Security green if triggered by the changed paths;
+- clean substantive Codex review with all legitimate findings resolved.
+
+- [ ] **Step 7: Commit, close evidence, merge and cleanup**
+
+Recommended reviewable commits before squash:
+
+```text
+feat: preserve vision dependency failures
+feat: compose production vision attempts
+ci: qualify production attempt composition
+docs: close Task 9 attempt composition
+```
+
+Use topic branch `feature/task-10-attempt-composition`, created only from the accepted Task-10 integration head. At closure record RED evidence, exact hosted run/job/artifact identities, keep CUDA/offline/CCTV/recovery gates pending, squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head protection, verify the integration SHA, then perform guarded merged-branch cleanup.
+**Reviewer gate — reject Task 9 if any of the following is true:**
+- a concrete runtime object is permanently captured such that a post-recovery attempt can use a disposed runtime;
+- `runtime_provider` is called more than once in one attempt;
+- tracker/MAVI-ID/staging state crosses attempts;
+- a typed dependency failure is swallowed or converted before the local supervisor can classify it;
+- lease loss permits stale cleanup, publication or terminal control-plane mutation;
+- `ProductionVisionProcessor` performs readiness decisions, recovery, heartbeat/API work, persistence or generic exception normalization;
+- the sink can block on async/network work from the vision lane;
+- exact-package Linux/Windows composition is not exercised;
+- optional heavy packages become required merely to import the core pipeline.
 
 ---
 
@@ -1397,6 +1516,12 @@ Valid verified release + warm-up -> READY. Missing/bad hash, unavailable request
 
 Release verification happens before model construction. Runtime construction, warm-up, and output/vocabulary validation execute on the lane. State mutation is explicit and event-loop-owned.
 
+- [ ] **Step 2A: Make the Task-9 provider/sink seams recovery-safe across threads**
+
+`ProductionVisionProcessor.process()` executes on the vision lane, not the asyncio event-loop thread. Therefore `RuntimeSupervisor.runtime` must expose a thread-safe, side-effect-free current-runtime snapshot, and `report_processing_failure(error)` must be synchronous, non-blocking and non-throwing when called from the lane. It may record pending disposition/state safely, but runtime destruction/reconstruction must occur only after the current attempt unwinds and through the supervised execution-lane lifecycle.
+
+Add a regression proving one long-lived `ProductionVisionProcessor` uses runtime A before recovery and runtime B after supervisor replacement without rebuilding the facade.
+
 - [ ] **Step 3: Write and implement OOM recovery tests**
 
 RECOVER error -> state RECOVERING, no lease, exactly one same-release/same-device reconstruction+warm-up. Success -> READY; failure -> UNAVAILABLE; no second automatic reconstruction for the incident.
@@ -1437,7 +1562,7 @@ Order:
 2. verify selected release;
 3. build/start supervisor;
 4. bind `settings.media_root` into staging factory;
-5. build `ProductionVisionProcessor(runtime, profile, staging_factory, supervisor.report_processing_failure)`;
+5. build `ProductionVisionProcessor(runtime_provider=lambda: supervisor.runtime, profile=profile, staging_factory=staging_factory, runtime_failure_sink=supervisor.report_processing_failure)`; the runtime accessor must return the current runtime snapshot safely so the already-existing facade uses the replacement runtime after recovery;
 6. build `WorkerRunner(..., process_executor=lane, watchdog_expired=...)`;
 7. outer loop calls `runner.run_once()` only in READY; calls `recover_if_required()` in RECOVERING; in UNAVAILABLE remains alive for diagnostics and never calls `lease()`;
 8. close supervisor/lane/client in reverse order.
