@@ -1200,7 +1200,7 @@ Then update this plan with exact evidence while retaining the global Task-10 par
 
 ### Task 9: Compose a Fresh Attempt Pipeline Around the Recoverable Shared Detector Runtime
 
-**Status (2026-09-12): IMPLEMENTATION COMPLETE; FINAL MERGE/CLEANUP PENDING.** Task 9 composes the already-qualified Task-7 detector boundary and Task-8 class-separated ByteTrack adapter into the existing `VideoProcessor`. It must not move lease authority, runtime lifecycle/recovery, or persistence into the pipeline layer.
+**Status (2026-09-12): COMPLETE — SQUASH-MERGED INTO TASK-10 INTEGRATION.** Task 9 composes the already-qualified Task-7 detector boundary and Task-8 class-separated ByteTrack adapter into the existing `VideoProcessor`. It must not move lease authority, runtime lifecycle/recovery, or persistence into the pipeline layer.
 
 **Additional corrections locked by this review:**
 
@@ -1419,7 +1419,7 @@ Hosted exact-head acceptance:
 - No Task-9 code changes claim completion of CUDA/NVIDIA, offline wheelhouse, CCTV-quality, watchdog or recovery-performance gates; those remain explicitly pending under later Task-10 work.
 
 **Final closure rule:** Step 7 may be marked complete only after the documentation closure head itself passes all triggered exact-head gates, receives a clean substantive Codex review with all legitimate findings resolved, is squash-merged into `feature/task-10-rtmdet-bytetrack` with expected-head protection, and the resulting integration SHA is verified.
-- [ ] **Step 7: Commit, close evidence, merge and cleanup**
+- [x] **Step 7: Commit, close evidence, merge and cleanup**
 
 Recommended reviewable commits before squash:
 
@@ -1431,6 +1431,19 @@ docs: close Task 9 attempt composition
 ```
 
 Use topic branch `feature/task-10-attempt-composition`, created only from the accepted Task-10 integration head. At closure record RED evidence, exact hosted run/job/artifact identities, keep CUDA/offline/CCTV/recovery gates pending, squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head protection, verify the integration SHA, then perform guarded merged-branch cleanup.
+**Final Task-9 closure:**
+
+- Final merge-candidate head: `fec5965a53f9f8c1a4cf5bd1b75f4916cdbf4a72`.
+- Final MAVI Quality Gate #284 / run `34698377442`: PASS.
+- Final Task 10 Staging Security #59 / run `34698377465`: PASS on Ubuntu and Windows.
+- Final Task 10 Runtime Qualification #124 / run `34698377460`: PASS.
+  - Ubuntu job `103565685192`: PASS; artifact `10300000200`; SHA-256 `270455c7a1887ab5867563f53231b21573ff76c6ec478c0c13111c809c59d282`.
+  - Windows job `103565685054`: PASS; artifact `10300035296`; SHA-256 `2e5b8c0c8763b43c53fd1211480884751c3f3b70bc3baaead9c3a5452ff67d9c`.
+- Final Codex review on `fec5965a53`: no major issues.
+- PR #25 squash-merged with expected-head protection.
+- Squash merge SHA: `e63c1b3c14ae0f16b1ea44b55a0f9527281bd9d0`.
+- Integration branch advanced exactly to that SHA and the squash commit tree `1f1dcca8fa96c3d2d0173ddf1321dec766001ea7` exactly matches the final topic-head tree.
+- The topic branch contains no unique code after the squash merge. Repository setting `delete_branch_on_merge=false`; branch deletion is housekeeping only and is not a Task-9 correctness blocker.
 **Reviewer gate — reject Task 9 if any of the following is true:**
 - a concrete runtime object is permanently captured such that a post-recovery attempt can use a disposed runtime;
 - `runtime_provider` is called more than once in one attempt;
