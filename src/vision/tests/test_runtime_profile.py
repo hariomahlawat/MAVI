@@ -17,6 +17,35 @@ def _sha(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _qualified_cpu_lock_bytes() -> bytes:
+    versions = {
+        "av": "16.1.0",
+        "mavi-vision": "0.1.0",
+        "mmcv": "2.1.0",
+        "mmdet": "3.3.0",
+        "mmengine": "0.10.7",
+        "numpy": "2.5.3",
+        "opencv-python": "5.0.0.93",
+        "pillow": "11.3.0",
+        "scipy": "1.18.1",
+        "supervision": "0.30.2",
+        "torch": "2.6.0+cpu",
+        "torchvision": "0.21.0+cpu",
+        "trackers": "2.6.0",
+    }
+    rows = [
+        "# schema: mavi-offline-lock-v1",
+        "# platform-variant: linux-x86_64-cpu",
+        "# python-version: 3.12.14",
+    ]
+    for name, version in sorted(versions.items()):
+        digest = hashlib.sha256(
+            f"{name}:{version}".encode("utf-8")
+        ).hexdigest()
+        rows.append(f"{name}=={version} --hash=sha256:{digest}")
+    return ("\n".join(rows) + "\n").encode("utf-8")
+
+
 def _runtime_payload() -> dict:
     config_hash = _sha("config")
     return {
@@ -194,7 +223,7 @@ def test_qualified_runtime_lock_bytes_are_verified(tmp_path: Path) -> None:
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
     lock_path = lock_dir / "linux-x86_64-cpu.lock"
-    lock_path.write_bytes(b"package==1.0\n")
+    lock_path.write_bytes(_qualified_cpu_lock_bytes())
     payload["releaseLocks"]["linux-x86_64-cpu"] = {
         "status": "qualified-offline-lock",
         "artifact": "locks/linux-x86_64-cpu.lock",
@@ -214,7 +243,7 @@ def test_qualified_runtime_lock_tamper_fails_closed(tmp_path: Path) -> None:
     lock_dir = tmp_path / "locks"
     lock_dir.mkdir()
     lock_path = lock_dir / "linux-x86_64-cpu.lock"
-    lock_path.write_bytes(b"package==1.0\n")
+    lock_path.write_bytes(_qualified_cpu_lock_bytes())
     payload["releaseLocks"]["linux-x86_64-cpu"] = {
         "status": "qualified-offline-lock",
         "artifact": "locks/linux-x86_64-cpu.lock",
