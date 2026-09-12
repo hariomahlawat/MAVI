@@ -400,14 +400,14 @@ def test_runtime_validation_rejects_qualified_cuda_lock_before_hardware_gate(
     _assert_code(exc, "offline_lock_platform_not_qualified")
 
 
-def test_freeze_tool_reads_name_and_version_from_wheel_metadata(
+def test_freeze_tool_reads_name_and_version_from_valid_wheel_metadata(
     tmp_path: Path,
 ) -> None:
     tool = _load_freeze_tool()
     wheelhouse = tmp_path / "wheels"
     wheel = _write_wheel(
         wheelhouse,
-        filename="renamed-file.whl",
+        filename="mavi_vision-0.1.0-py3-none-any.whl",
         name="MAVI.Vision",
         version="0.1.0",
     )
@@ -419,6 +419,111 @@ def test_freeze_tool_reads_name_and_version_from_wheel_metadata(
     assert record.sha256 == tool.sha256_file(wheel)
 
 
+@pytest.mark.parametrize(
+    ("filename", "name", "version", "code"),
+    [
+        ("renamed-file.whl", "mavi-vision", "0.1.0", "wheel_filename_invalid"),
+        (
+            "other-0.1.0-py3-none-any.whl",
+            "mavi-vision",
+            "0.1.0",
+            "wheel_filename_metadata_mismatch",
+        ),
+        (
+            "mavi_vision-0.2.0-py3-none-any.whl",
+            "mavi-vision",
+            "0.1.0",
+            "wheel_filename_metadata_mismatch",
+        ),
+    ],
+)
+def test_freeze_tool_rejects_filename_identity_mismatch(
+    tmp_path: Path,
+    filename: str,
+    name: str,
+    version: str,
+    code: str,
+) -> None:
+    tool = _load_freeze_tool()
+    wheel = _write_wheel(
+        tmp_path / "wheels",
+        filename=filename,
+        name=name,
+        version=version,
+    )
+
+    with pytest.raises(tool.FreezeOfflineLockError, match=code):
+        tool.inspect_wheel(wheel)
+
+
+@pytest.mark.parametrize(
+    ("filename", "variant", "python_version", "code"),
+    [
+        (
+            "sample-1.0.0-cp311-cp311-manylinux_2_17_x86_64.whl",
+            "linux-x86_64-cpu",
+            "3.12.14",
+            "wheel_python_incompatible",
+        ),
+        (
+            "sample-1.0.0-cp312-cp312-win_amd64.whl",
+            "linux-x86_64-cpu",
+            "3.12.14",
+            "wheel_platform_incompatible",
+        ),
+        (
+            "sample-1.0.0-cp312-cp312-manylinux_2_17_x86_64.whl",
+            "windows-x86_64-cpu",
+            "3.12.10",
+            "wheel_platform_incompatible",
+        ),
+    ],
+)
+def test_freeze_tool_rejects_incompatible_wheel_tags(
+    tmp_path: Path,
+    filename: str,
+    variant: str,
+    python_version: str,
+    code: str,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename=filename,
+        name="sample",
+        version="1.0.0",
+    )
+
+    with pytest.raises(tool.FreezeOfflineLockError, match=code):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant=variant,
+            python_version=python_version,
+        )
+
+
+def test_freeze_tool_accepts_abi3_wheel_for_newer_cpython(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="sample-1.0.0-cp37-abi3-manylinux_2_17_x86_64.whl",
+        name="sample",
+        version="1.0.0",
+    )
+
+    lock = tool.freeze_wheelhouse(
+        wheelhouse,
+        platform_variant="linux-x86_64-cpu",
+        python_version="3.12.14",
+    )
+
+    assert [item.name for item in lock.distributions] == ["sample"]
+
+
 def test_freeze_tool_is_deterministic_regardless_of_directory_enumeration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -427,13 +532,13 @@ def test_freeze_tool_is_deterministic_regardless_of_directory_enumeration(
     wheelhouse = tmp_path / "wheels"
     first = _write_wheel(
         wheelhouse,
-        filename="z.whl",
+        filename="torch-2.6.0+cpu-py3-none-any.whl",
         name="torch",
         version="2.6.0+cpu",
     )
     second = _write_wheel(
         wheelhouse,
-        filename="a.whl",
+        filename="mavi_vision-0.1.0-py3-none-any.whl",
         name="mavi-vision",
         version="0.1.0",
     )
@@ -466,13 +571,13 @@ def test_freeze_tool_rejects_duplicate_distribution_wheels(tmp_path: Path) -> No
     wheelhouse = tmp_path / "wheels"
     _write_wheel(
         wheelhouse,
-        filename="one.whl",
+        filename="torch-2.6.0+cpu-1-py3-none-any.whl",
         name="torch",
         version="2.6.0+cpu",
     )
     _write_wheel(
         wheelhouse,
-        filename="two.whl",
+        filename="torch-2.6.0+cpu-2-py3-none-any.whl",
         name="Torch",
         version="2.6.0+cpu",
     )
@@ -507,7 +612,7 @@ def test_freeze_tool_rejects_corrupt_wheel(tmp_path: Path) -> None:
     tool = _load_freeze_tool()
     wheelhouse = tmp_path / "wheels"
     wheelhouse.mkdir()
-    (wheelhouse / "broken.whl").write_bytes(b"not-zip")
+    (wheelhouse / "broken-1.0-py3-none-any.whl").write_bytes(b"not-zip")
 
     with pytest.raises(tool.FreezeOfflineLockError, match="wheel_invalid"):
         tool.freeze_wheelhouse(
@@ -524,7 +629,7 @@ def test_freeze_tool_ignores_nested_vendored_dist_info_metadata(
     wheelhouse = tmp_path / "wheels"
     wheel = _write_wheel(
         wheelhouse,
-        filename="setuptools-like.whl",
+        filename="setuptools-84.0.0-py3-none-any.whl",
         name="setuptools",
         version="84.0.0",
     )
@@ -545,7 +650,7 @@ def test_freeze_tool_rejects_missing_or_duplicate_metadata(tmp_path: Path) -> No
     wheelhouse = tmp_path / "wheels"
     wheelhouse.mkdir()
 
-    missing = wheelhouse / "missing.whl"
+    missing = wheelhouse / "missing-1.0-py3-none-any.whl"
     with zipfile.ZipFile(missing, "w") as archive:
         archive.writestr("module.py", "value = 1\n")
 
@@ -555,7 +660,7 @@ def test_freeze_tool_rejects_missing_or_duplicate_metadata(tmp_path: Path) -> No
     missing.unlink()
     duplicate = _write_wheel(
         wheelhouse,
-        filename="duplicate.whl",
+        filename="sample-1.0.0-py3-none-any.whl",
         name="sample",
         version="1.0.0",
         duplicate_metadata=True,
