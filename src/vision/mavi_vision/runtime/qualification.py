@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, Mapping
@@ -63,6 +63,36 @@ class QualificationRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimePythonIdentity:
+    version: str
+    implementation: str
+    build: tuple[str, str]
+    compiler: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePlatformVariantIdentity:
+    status: Literal[
+        "qualified-hosted-cpu",
+        "qualified-hardware",
+        "pending-hardware-qualification",
+    ]
+    resolved_config_sha256: str | None
+    python_identity: RuntimePythonIdentity | None
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeReleaseLockIdentity:
+    status: Literal[
+        "pending-wheelhouse-freeze",
+        "pending-hardware-qualification",
+        "qualified-offline-lock",
+    ]
+    artifact: str | None
+    sha256: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class VerifiedReleaseSelection:
     manifest: ModelManifest
     profile: PipelineProfile
@@ -75,6 +105,33 @@ class VerifiedReleaseSelection:
     checkpoint_path: Path
     resolved_config_path: Path
     verification_status: Literal["verified", "unverified"]
+    runtime_qualification_status: Literal["partial", "qualified"] = "partial"
+    runtime_semantic_graph: Mapping[str, str] = field(default_factory=dict)
+    runtime_platform_variants: Mapping[
+        str,
+        RuntimePlatformVariantIdentity,
+    ] = field(default_factory=dict)
+    runtime_release_locks: Mapping[
+        str,
+        RuntimeReleaseLockIdentity,
+    ] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "runtime_semantic_graph",
+            MappingProxyType(dict(self.runtime_semantic_graph)),
+        )
+        object.__setattr__(
+            self,
+            "runtime_platform_variants",
+            MappingProxyType(dict(self.runtime_platform_variants)),
+        )
+        object.__setattr__(
+            self,
+            "runtime_release_locks",
+            MappingProxyType(dict(self.runtime_release_locks)),
+        )
 
 
 class _StrictModel(BaseModel):
