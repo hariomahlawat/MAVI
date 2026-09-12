@@ -137,7 +137,7 @@ dependencies = []
         files[name] = path
 
     return tool, tool.VerifiedBundleInputs(
-        source_commit="1" * 40,
+        source_commit=tool._repository_head(tool.ROOT),
         release_status="qualification-candidate",
         platform_variant="linux-x86_64-cpu",
         python_version="3.12.14",
@@ -234,7 +234,7 @@ def test_bundle_manifest_lists_every_product_file_once_except_itself(
     assert len(manifest_paths) == len(set(manifest_paths))
     assert set(manifest_paths) == actual_paths
     assert payload["releaseStatus"] == "qualification-candidate"
-    assert payload["sourceCommit"] == "1" * 40
+    assert payload["sourceCommit"] == inputs.source_commit
     assert "generatedAt" not in payload
     assert "hostname" not in payload
 
