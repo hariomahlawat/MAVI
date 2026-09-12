@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import zipfile
+import sys
 
 import pytest
 
@@ -29,6 +30,7 @@ def _load_bundle_tool():
     if spec is None or spec.loader is None:
         raise RuntimeError("build_offline_bundle_module_unloadable")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
