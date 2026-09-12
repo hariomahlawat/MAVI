@@ -262,7 +262,6 @@ def _validate_resolved_config(path: Path) -> None:
 
 _FORBIDDEN_RESOURCE_KEYS = frozenset(
     {
-        "checkpoint",
         "load_from",
         "pretrained",
         "resume_from",
