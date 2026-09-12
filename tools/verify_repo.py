@@ -47,7 +47,7 @@ ALLOWED_REFERENCES = {
 }
 
 PROHIBITED_TRACKED_SUFFIXES = {
-    ".pt", ".pth", ".onnx", ".engine", ".plan", ".safetensors", ".gguf",
+    ".pt", ".pth", ".onnx", ".engine", ".plan", ".safetensors", ".gguf", ".whl",
     ".mp4", ".avi", ".mov", ".mkv", ".m4v", ".webm",
     ".pem", ".key", ".pfx", ".p12",
 }
@@ -62,6 +62,19 @@ DEVELOPMENT_ONLY_FILES = {
     ROOT / "src/platform/Mavi.Api/Properties/launchSettings.json",
 }
 URL_PATTERN = re.compile(r"https?://", re.IGNORECASE)
+RELEASE_NETWORK_LOCATORS = (
+    "http://",
+    "https://",
+    "git+",
+    "ssh://",
+    "ftp://",
+    "s3://",
+    "hf://",
+    "mim://",
+    "modelzoo://",
+    "torchvision://",
+    "openmmlab://",
+)
 
 VISION_ROOT = ROOT / "src/vision"
 MANIFEST_ROOT = ROOT / "models/manifests"
@@ -161,6 +174,40 @@ def tracked_files() -> list[Path]:
     return [ROOT / item.decode() for item in result.stdout.split(b"\0") if item]
 
 
+def find_release_network_hazard(text: str) -> str | None:
+    lowered = text.lower()
+    for locator in RELEASE_NETWORK_LOCATORS:
+        if locator in lowered:
+            return locator
+    return None
+
+
+def check_runtime_lock_file(path: Path, errors: list[str]) -> None:
+    if str(VISION_ROOT) not in sys.path:
+        sys.path.insert(0, str(VISION_ROOT))
+
+    try:
+        from mavi_vision.runtime.offline_lock import (
+            OfflineLockError,
+            load_offline_runtime_lock,
+        )
+    except ImportError as exc:
+        fail(f"Offline lock tooling could not be imported: {exc}", errors)
+        return
+
+    try:
+        load_offline_runtime_lock(path)
+    except OfflineLockError as exc:
+        try:
+            display = path.relative_to(ROOT)
+        except ValueError:
+            display = path
+        fail(
+            f"Runtime release lock invalid: {display} ({exc.code})",
+            errors,
+        )
+
+
 def check_tracked_binaries_and_secrets(errors: list[str]) -> None:
     for path in tracked_files():
         if path.suffix.lower() in PROHIBITED_TRACKED_SUFFIXES:
@@ -205,13 +252,25 @@ def check_vision_release_metadata(errors: list[str]) -> None:
     )
     for file_path in release_files:
         try:
-            validate_release_text_file(file_path)
+            payload = validate_release_text_file(file_path)
         except ReleaseMetadataError as exc:
             fail(
                 f"Release text is not deterministic UTF-8/LF: "
                 f"{file_path.relative_to(ROOT)} ({exc.code})",
                 errors,
             )
+            continue
+
+        hazard = find_release_network_hazard(payload.decode("utf-8"))
+        if hazard is not None:
+            fail(
+                f"Release metadata contains an online resolver locator "
+                f"{hazard!r}: {file_path.relative_to(ROOT)}",
+                errors,
+            )
+
+        if file_path.suffix.lower() == ".lock":
+            check_runtime_lock_file(file_path, errors)
 
     manifest_paths = sorted(
         path
@@ -501,8 +560,9 @@ def main() -> int:
     print(f" - project boundaries: {len(ALLOWED_REFERENCES)}")
     print(" - contract examples: 7")
     print(" - production Internet URL scan: clean")
-    print(" - tracked model/media/secret scan: clean")
+    print(" - tracked model/media/secret/wheel scan: clean")
     print(" - Task-10 release metadata: every tracked record and relationship validated")
+    print(" - Task-12 release resolver/lock scan: clean")
     return 0
 
 
