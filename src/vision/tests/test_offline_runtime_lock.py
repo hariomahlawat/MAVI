@@ -28,13 +28,13 @@ def _lock_text(
     variant: str = "linux-x86_64-cpu",
     python_version: str = "3.12.14",
 ) -> str:
-    package_rows = rows or [
+    package_rows = [
         f"av==16.1.0 --hash=sha256:{_HASH_A}",
         f"mavi-vision==0.1.0 --hash=sha256:{_HASH_B}",
         f"mmcv==2.1.0 --hash=sha256:{_HASH_C}",
         f"torch==2.6.0+cpu --hash=sha256:{_HASH_D}",
         f"torchvision==0.21.0+cpu --hash=sha256:{_HASH_E}",
-    ]
+    ] if rows is None else rows
     return (
         f"# schema: {schema}\n"
         f"# platform-variant: {variant}\n"
