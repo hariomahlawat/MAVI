@@ -195,6 +195,44 @@ def test_bundle_rejects_mavi_wheel_with_stale_project_metadata(
         tool.build_bundle_from_verified_inputs(inputs, tmp_path / "bundle")
 
 
+def test_bundle_source_commit_rejects_dirty_packaged_source(
+    tmp_path: Path,
+) -> None:
+    tool = _load_bundle_tool()
+    repo = tmp_path / "repo"
+    package = repo / "src" / "vision" / "mavi_vision"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("value = 1\n", encoding="utf-8")
+    project = repo / "src" / "vision" / "pyproject.toml"
+    project.write_text("[project]\nname='mavi-vision'\nversion='0.1.0'\n", encoding="utf-8")
+
+    def run(*args: str) -> None:
+        import subprocess
+        subprocess.run(
+            args,
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    run("git", "init")
+    run("git", "config", "user.email", "task12@example.invalid")
+    run("git", "config", "user.name", "Task 12")
+    run("git", "add", ".")
+    run("git", "commit", "-m", "fixture")
+    head = tool._repository_head(repo)
+
+    (package / "dirty.py").write_text("dirty = True\n", encoding="utf-8")
+    with pytest.raises(tool.OfflineBundleError, match="bundle_source_dirty"):
+        tool._validate_source_commit_against_checkout(head, repo)
+
+    (package / "dirty.py").unlink()
+    (package / "__init__.py").write_text("value = 2\n", encoding="utf-8")
+    with pytest.raises(tool.OfflineBundleError, match="bundle_source_dirty"):
+        tool._validate_source_commit_against_checkout(head, repo)
+
+
 def test_bundle_source_commit_must_match_repository_checkout() -> None:
     tool = _load_bundle_tool()
 
