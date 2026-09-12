@@ -7,10 +7,15 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
+import tomllib
+import zipfile
+from email.parser import Parser
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -87,6 +92,7 @@ class VerifiedBundleInputs:
     checkpoint_sha256: str
     resolved_config_sha256: str
     wheelhouse: Path
+    mavi_source_root: Path
 
 
 def validate_bundle_relative_path(value: str) -> PurePosixPath:
@@ -159,6 +165,10 @@ def build_bundle_from_verified_inputs(
         raise OfflineBundleError("offline_lock_python_version_mismatch")
 
     wheel_records = _validate_wheelhouse(inputs.wheelhouse, lock)
+    _verify_mavi_wheel_source(
+        wheel_records=wheel_records,
+        source_root=inputs.mavi_source_root,
+    )
 
     if output.exists():
         if not output.is_dir() or any(output.iterdir()):
@@ -321,6 +331,7 @@ def resolve_verified_bundle_inputs(
     runtime_profile_path: Path,
     wheelhouse: Path,
 ) -> VerifiedBundleInputs:
+    _validate_source_commit_against_checkout(source_commit, ROOT)
     try:
         selection = verify_release_selection(
             model_root=model_root,
@@ -377,6 +388,7 @@ def resolve_verified_bundle_inputs(
         checkpoint_sha256=selection.manifest.checkpoint.sha256,
         resolved_config_sha256=selection.manifest.resolved_config.sha256,
         wheelhouse=wheelhouse,
+        mavi_source_root=VISION_ROOT,
     )
 
 
@@ -533,6 +545,161 @@ def _verify_staged_bundle(stage: Path, manifest: BundleManifest) -> None:
             raise OfflineBundleError("bundle_artifact_size_mismatch")
         if sha256_file(path) != artifact.sha256:
             raise OfflineBundleError("bundle_artifact_hash_mismatch")
+
+
+def _normalize_distribution_name(value: str) -> str:
+    return re.sub(r"[-_.]+", "-", value).lower()
+
+
+def _canonical_specifiers(value: str) -> tuple[str, ...]:
+    return tuple(
+        sorted(part.strip() for part in value.split(",") if part.strip())
+    )
+
+
+def _canonical_requirement(
+    value: str,
+    *,
+    expected_extra: str | None = None,
+) -> tuple[str, tuple[str, ...], str | None]:
+    requirement, separator, marker = value.partition(";")
+    match = re.fullmatch(
+        r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]+\])?\s*(.*)\s*",
+        requirement,
+    )
+    if match is None:
+        raise OfflineBundleError("mavi_wheel_metadata_mismatch")
+    name = _normalize_distribution_name(match.group(1))
+    specifiers = _canonical_specifiers(match.group(2))
+    actual_extra: str | None = None
+    if separator:
+        marker_match = re.fullmatch(
+            r"""\s*extra\s*==\s*["']([^"']+)["']\s*""",
+            marker,
+        )
+        if marker_match is None:
+            raise OfflineBundleError("mavi_wheel_metadata_mismatch")
+        actual_extra = marker_match.group(1)
+    if actual_extra != expected_extra:
+        raise OfflineBundleError("mavi_wheel_metadata_mismatch")
+    return name, specifiers, actual_extra
+
+
+def _expected_project_requirements(project: dict) -> set[tuple[str, tuple[str, ...], str | None]]:
+    expected = {
+        _canonical_requirement(value)
+        for value in project.get("dependencies", [])
+    }
+    for extra, requirements in project.get("optional-dependencies", {}).items():
+        expected.update(
+            _canonical_requirement(value, expected_extra=extra)
+            for value in requirements
+        )
+    return expected
+
+
+def _actual_wheel_requirements(metadata) -> set[tuple[str, tuple[str, ...], str | None]]:
+    actual: set[tuple[str, tuple[str, ...], str | None]] = set()
+    for value in metadata.get_all("Requires-Dist", []):
+        requirement, separator, marker = value.partition(";")
+        expected_extra: str | None = None
+        if separator:
+            marker_match = re.fullmatch(
+                r"""\s*extra\s*==\s*["']([^"']+)["']\s*""",
+                marker,
+            )
+            if marker_match is None:
+                raise OfflineBundleError("mavi_wheel_metadata_mismatch")
+            expected_extra = marker_match.group(1)
+        actual.add(
+            _canonical_requirement(
+                requirement + (
+                    f'; extra == "{expected_extra}"'
+                    if expected_extra is not None
+                    else ""
+                ),
+                expected_extra=expected_extra,
+            )
+        )
+    return actual
+
+
+def _verify_mavi_wheel_source(*, wheel_records: dict, source_root: Path) -> None:
+    _assert_safe_directory(source_root)
+    package_root = source_root / "mavi_vision"
+    project_path = source_root / "pyproject.toml"
+    _assert_safe_directory(package_root)
+    _assert_safe_regular_file(project_path)
+
+    record = wheel_records.get("mavi-vision")
+    if record is None:
+        raise OfflineBundleError("mavi_wheel_missing")
+
+    source_files: dict[str, bytes] = {}
+    for path in sorted(package_root.rglob("*.py")):
+        _assert_safe_regular_file(path)
+        logical = path.relative_to(source_root).as_posix()
+        source_files[logical] = path.read_bytes()
+
+    try:
+        project_document = tomllib.loads(project_path.read_text(encoding="utf-8"))
+        project = project_document["project"]
+        with zipfile.ZipFile(record.path) as archive:
+            wheel_source_names = {
+                name
+                for name in archive.namelist()
+                if name.startswith("mavi_vision/") and name.endswith(".py")
+            }
+            if wheel_source_names != set(source_files):
+                raise OfflineBundleError("mavi_wheel_source_mismatch")
+            for logical, expected_bytes in source_files.items():
+                if archive.read(logical) != expected_bytes:
+                    raise OfflineBundleError("mavi_wheel_source_mismatch")
+
+            metadata_names = [
+                name
+                for name in archive.namelist()
+                if name.endswith(".dist-info/METADATA")
+                and name.count("/") == 1
+            ]
+            if len(metadata_names) != 1:
+                raise OfflineBundleError("mavi_wheel_metadata_mismatch")
+            metadata = Parser().parsestr(
+                archive.read(metadata_names[0]).decode("utf-8")
+            )
+    except OfflineBundleError:
+        raise
+    except (KeyError, OSError, UnicodeDecodeError, ValueError, zipfile.BadZipFile) as exc:
+        raise OfflineBundleError("mavi_wheel_metadata_mismatch") from exc
+
+    if _normalize_distribution_name(metadata.get("Name", "")) != "mavi-vision":
+        raise OfflineBundleError("mavi_wheel_metadata_mismatch")
+    if metadata.get("Version") != project.get("version"):
+        raise OfflineBundleError("mavi_wheel_metadata_mismatch")
+    if _canonical_specifiers(metadata.get("Requires-Python", "")) != _canonical_specifiers(
+        str(project.get("requires-python", ""))
+    ):
+        raise OfflineBundleError("mavi_wheel_metadata_mismatch")
+    if _actual_wheel_requirements(metadata) != _expected_project_requirements(project):
+        raise OfflineBundleError("mavi_wheel_metadata_mismatch")
+
+
+def _validate_source_commit_against_checkout(
+    value: str,
+    repository_root: Path,
+) -> None:
+    _validate_source_commit(value)
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repository_root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise OfflineBundleError("bundle_source_commit_unverifiable") from exc
+    if completed.stdout.strip() != value:
+        raise OfflineBundleError("bundle_source_commit_mismatch")
 
 
 def _validate_source_commit(value: str) -> None:
