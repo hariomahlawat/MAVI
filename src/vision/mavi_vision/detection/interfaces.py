@@ -17,7 +17,11 @@ class DetectionCandidate:
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("detection_confidence_out_of_range")
-        if isinstance(self.frame_ordinal, bool) or self.frame_ordinal < 0:
+        if (
+            not isinstance(self.frame_ordinal, int)
+            or isinstance(self.frame_ordinal, bool)
+            or self.frame_ordinal < 0
+        ):
             raise ValueError("detection_frame_ordinal_invalid")
 
 
