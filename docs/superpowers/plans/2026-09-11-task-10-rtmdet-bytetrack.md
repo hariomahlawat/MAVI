@@ -1003,7 +1003,7 @@ Change `ByteTrackProfile` / JSON as follows:
 
 Do **not** implement a compatibility alias for `minimumMatchingThreshold`; fail closed on stale profile bytes so old semantics cannot silently survive.
 
-Because the pipeline-profile bytes change, the old CPU qualification evidence must not be represented as evidence for the corrected profile. During the implementation branch, update the qualification relationship without fabricating coverage: reset the affected Windows/Linux CPU pipeline gates/evidence to pending or otherwise preserve truthful historical separation according to the existing qualification schema. They return to passed only after Step 10 produces fresh evidence for the corrected profile and real adapter.
+Because the pipeline-profile bytes change, the old CPU qualification evidence must not be represented as evidence for the corrected profile. On the implementation branch, after calculating the corrected profile hash, update the qualification record to that hash, set both `linux-x86_64-cpu` and `windows-x86_64-cpu` required gates back to `pending`, and remove their old evidence entries. The runtime profile may still retain its independently established hosted-CPU runtime identities; only the candidate pipeline qualification is reopened. The two CPU gates return to `passed` only after Step 10/11 produces fresh evidence for the corrected profile and real adapter.
 
 - [ ] **Step 1: Write fast tests for the exact profile/backend parameter mapping**
 
@@ -1109,16 +1109,9 @@ Return all emitted `TrackCandidate` values sorted by original global `frame_ordi
 
 - [ ] **Step 8: Translate every tracker-boundary failure once**
 
-Any native construction/update exception or malformed native result becomes:
+Any native construction/update exception or malformed native result is translated by raising the existing `TrackerError(local_diagnostic_message)`. Do **not** pass `code` or `disposition` arguments to its constructor: the existing type already fixes `failure_code == "vision_tracker_failed"` and `runtime_disposition == RuntimeDisposition.CONTINUE`.
 
-```python
-TrackerError(
-    code="vision_tracker_failed",
-    disposition=RuntimeDisposition.CONTINUE,
-)
-```
-
-via the existing `TrackerError` type; do not leak third-party exception text/types across the adapter boundary. MAVI input-contract failures detected by the adapter use the same stable tracker failure classification with a local diagnostic message.
+Do not leak third-party exception text/types across the adapter boundary. MAVI input-contract failures detected by the adapter use the same stable tracker failure classification with a local diagnostic message.
 
 Do not catch/translate process-level exceptions such as `KeyboardInterrupt`/`SystemExit`.
 
