@@ -505,3 +505,76 @@ def test_production_provenance_rejects_python_identity_drift() -> None:
             platform_identity=drifted_platform,
         )
 
+def test_verified_release_retains_verified_label_in_development_only_when_binding_matches() -> None:
+    provenance = build_runtime_provenance(
+        selection=_selection(verified=True),
+        runtime_metadata=_metadata(),
+        configured_device_policy="auto",
+        configured_device_index=0,
+        production_mode=False,
+        platform_identity=_platform(),
+    )
+
+    assert provenance.verification_status == "verified"
+    assert provenance.runtime_variant == "linux-x86_64-cpu"
+    assert provenance.platform_lock_sha256 == SHA_A
+
+
+def test_verified_release_downgrades_dependency_drift_in_development() -> None:
+    versions = dict(VERSIONS)
+    versions["torch"] = "2.7.0"
+
+    provenance = build_runtime_provenance(
+        selection=_selection(verified=True),
+        runtime_metadata=_metadata(versions=versions),
+        configured_device_policy="auto",
+        configured_device_index=0,
+        production_mode=False,
+        platform_identity=_platform(),
+    )
+
+    assert provenance.verification_status == "unverified"
+    assert provenance.platform_lock_sha256 is None
+    assert provenance.qualification_id == "qualification-a"
+    assert provenance.qualification_sha256 == SHA_F
+
+
+def test_verified_release_downgrades_python_drift_in_development() -> None:
+    drifted_platform = PlatformIdentity(
+        system="Linux",
+        release="6.8.0",
+        version="#1 SMP",
+        machine="x86_64",
+        processor="x86_64",
+        python_version="3.12.13",
+        python_implementation="CPython",
+        python_build=("main", "different-build"),
+        python_compiler="GCC 13.3.0",
+    )
+
+    provenance = build_runtime_provenance(
+        selection=_selection(verified=True),
+        runtime_metadata=_metadata(),
+        configured_device_policy="auto",
+        configured_device_index=0,
+        production_mode=False,
+        platform_identity=drifted_platform,
+    )
+
+    assert provenance.verification_status == "unverified"
+    assert provenance.platform_lock_sha256 is None
+
+
+def test_verified_release_downgrades_pending_lock_in_development() -> None:
+    provenance = build_runtime_provenance(
+        selection=_selection(verified=True, lock_qualified=False),
+        runtime_metadata=_metadata(),
+        configured_device_policy="auto",
+        configured_device_index=0,
+        production_mode=False,
+        platform_identity=_platform(),
+    )
+
+    assert provenance.verification_status == "unverified"
+    assert provenance.platform_lock_sha256 is None
+
