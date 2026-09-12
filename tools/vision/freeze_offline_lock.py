@@ -95,6 +95,22 @@ def _target_python_identity(python_version: str) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
+def _pure_python_tag_compatible(
+    python_tag: str,
+    *,
+    major: int,
+    minor: int,
+) -> bool:
+    if python_tag == f"py{major}":
+        return True
+    match = re.fullmatch(r"py([0-9])([0-9]+)", python_tag)
+    return (
+        match is not None
+        and int(match.group(1)) == major
+        and int(match.group(2)) <= minor
+    )
+
+
 def _interpreter_tag_compatible(
     python_tag: str,
     *,
@@ -102,9 +118,13 @@ def _interpreter_tag_compatible(
     major: int,
     minor: int,
 ) -> bool:
-    if python_tag == f"py{major}":
+    if "none" in abi_tags and _pure_python_tag_compatible(
+        python_tag,
+        major=major,
+        minor=minor,
+    ):
         return True
-    if python_tag in {f"py{major}{minor}", f"cp{major}{minor}"}:
+    if python_tag == f"cp{major}{minor}":
         return True
     abi_match = re.fullmatch(r"cp([0-9])([0-9]+)", python_tag)
     return (
@@ -122,8 +142,12 @@ def _python_abi_pair_compatible(
     major: int,
     minor: int,
 ) -> bool:
-    if python_tag in {f"py{major}", f"py{major}{minor}"}:
-        return abi_tag == "none"
+    if abi_tag == "none" and _pure_python_tag_compatible(
+        python_tag,
+        major=major,
+        minor=minor,
+    ):
+        return True
     if python_tag == f"cp{major}{minor}":
         return abi_tag in {f"cp{major}{minor}", "abi3", "none"}
 
