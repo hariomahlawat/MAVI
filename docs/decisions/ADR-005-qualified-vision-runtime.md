@@ -205,6 +205,8 @@ If neither Python 3.12 nor 3.11 can satisfy the stable Windows/Linux requirement
 
 Production deployment uses exact platform/device-specific hashed locks/wheelhouses rather than loose minimum-version resolution or target-machine compilation.
 
+Native wheel compatibility is an explicit qualification property, not implied by the broad platform label. A wheel carrying the generic `linux_x86_64` platform tag is not treated as manylinux-portable. For the current Task-12 Linux CPU qualification candidate, the supported host scope is **Ubuntu 24.04 x86-64 with glibc 2.39**; the bundle manifest and installation instructions record that constraint, and CI verifies the build host identity before compiling MMCV. Deployment to another Linux distribution/release or native ABI requires a separately qualified bundle (or a future audited manylinux-compatible wheel).
+
 ### 18. Keep production fully offline
 
 Production installation and runtime do not require:
