@@ -374,3 +374,80 @@ def test_worker_rejects_invalid_watchdog_poll_interval(
             watchdog_expired=lambda: False,
             watchdog_poll_seconds=poll_seconds,
         )
+
+
+class _SlowHeartbeatApi(_WatchdogApi):
+    def __init__(self, lease: VisionJobLease) -> None:
+        super().__init__(lease)
+        self.renewal_started = asyncio.Event()
+        self.renewal_cancelled = False
+
+    async def heartbeat(
+        self,
+        lease: VisionJobLease,
+        progress_percent: float,
+    ) -> VisionJobHeartbeatResponse:
+        del lease
+        self.heartbeats.append(progress_percent)
+        if len(self.heartbeats) == 1:
+            return _heartbeat_response()
+
+        self.renewal_started.set()
+        try:
+            await asyncio.sleep(10.0)
+        except asyncio.CancelledError:
+            self.renewal_cancelled = True
+            raise
+        return _heartbeat_response()
+
+
+def test_watchdog_keeps_polling_while_heartbeat_request_is_in_flight(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        lease = _watchdog_lease()
+        _materialize_watchdog_source(tmp_path, lease)
+        started = threading.Event()
+        release = threading.Event()
+        client = _SlowHeartbeatApi(lease)
+        processor = _BlockingProcessor(
+            started,
+            release,
+            check_guard_after_release=True,
+        )
+        expiry_reports: list[str] = []
+        watchdog_polls = 0
+
+        def watchdog_expired() -> bool:
+            nonlocal watchdog_polls
+            watchdog_polls += 1
+            return client.renewal_started.is_set()
+
+        def expiry_sink() -> None:
+            expiry_reports.append("expired")
+            release.set()
+
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            heartbeat_interval_seconds=0.01,
+            process_executor=None,
+            watchdog_expired=watchdog_expired,
+            watchdog_expiry_sink=expiry_sink,
+            watchdog_grace_seconds=0.1,
+            watchdog_poll_seconds=0.001,
+        )
+
+        with pytest.raises(WorkerApiError, match="lease ownership lost"):
+            await runner.run_once()
+
+        assert client.renewal_started.is_set() is True
+        assert client.renewal_cancelled is True
+        assert watchdog_polls >= 2
+        assert expiry_reports == ["expired"]
+        assert client.heartbeats == [5.0, 5.0]
+        assert client.failures == []
+
+    asyncio.run(scenario())
