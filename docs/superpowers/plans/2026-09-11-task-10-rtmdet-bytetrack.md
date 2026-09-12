@@ -21,9 +21,9 @@
 - **Task 7 is complete.** The production MMDetection/RTMDet runtime now consumes only verified local release artifacts, enforces a deterministic data-only resolved-config contract before MMEngine loading, lazily loads the qualified runtime graph, verifies exact ordered vocabulary, exact platform-qualified Python and PyTorch/TorchVision binary identities, owns the single RGB→BGR conversion, emits framework-neutral raw detections, and preserves typed CUDA/runtime failures. The real production runtime path is exercised on the qualified Linux and Windows CPU candidates. This does **not** promote the overall release to production `verified`: NVIDIA hardware qualification and hashed offline wheelhouse/release locks remain open under Task 1.
 - **Task 8 is complete.** The exact `trackers==2.6.0` / `supervision==0.30.2` class-separated ByteTrack adapter is implemented with corrected versioned profile semantics, timestamped empty-frame updates, strict ordinal round-trip, MAVI-owned deterministic IDs, attempt invalidation after partial native failure, and exact-package Linux/Windows qualification evidence. This closes the hosted-CPU Task-8 gate only; it does not promote the overall release to production `verified`.
 - **Task 9 is complete.** The fresh production attempt-composition facade is merged into the Task-10 integration branch with typed dependency failures preserved through `VideoProcessor`, one runtime-provider snapshot per accepted attempt, fresh detector/tracker/staging/processor state per attempt, exact-package Linux/Windows qualification, and post-merge validation complete.
-- **Tasks 10–11 and Task 13 remain implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
+- **Task 10 is complete.** Worker-side typed runtime/tracker failures are allowlisted at the control-plane boundary, unknown typed codes fail closed, terminal messages are sanitized, and Task-9 lease-loss precedence remains authoritative. **Task 11 and Task 13 remain implementation work** and may proceed while Task 1 hardware/release evidence is open. They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
 - **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task:** Task 10 — map typed runtime/tracker failures through existing worker lease semantics.
+- **Next implementation task:** Task 11 — implement the runtime supervisor, readiness gate, bounded recovery, watchdog, execution-lane worker dispatch, and production worker composition.
 
 ## Global Constraints
 
@@ -1460,7 +1460,7 @@ Use topic branch `feature/task-10-attempt-composition`, created only from the ac
 
 ### Task 10: Map Typed Runtime/Tracker Failures Through Task-9 Lease Semantics
 
-**Status (2026-09-12): IMPLEMENTATION COMPLETE; FINAL EXACT-HEAD ACCEPTANCE/REVIEW/MERGE PENDING.** Task 10 is intentionally narrow. Task 9 already preserves model-neutral `ProcessingDependencyError` values and reports local runtime health. This task adds only worker-side allowlisted control-plane mapping while preserving the runner's existing lease-precedence boundary. Runtime disposition/recovery remains Task 11.
+**Status (2026-09-12): COMPLETE — SQUASH-MERGED INTO TASK-10 INTEGRATION.** Task 10 is intentionally narrow. Task 9 already preserves model-neutral `ProcessingDependencyError` values and reports local runtime health. This task adds only worker-side allowlisted control-plane mapping while preserving the runner's existing lease-precedence boundary. Runtime disposition/recovery remains Task 11.
 
 **Planning corrections locked by this review:**
 
@@ -1619,8 +1619,19 @@ No optional heavy-runtime import may become necessary merely to collect or execu
 - Full Python contract result on #286: `527 passed, 13 skipped`; repository verification, .NET tests/build, frontend tests/typecheck/build all passed.
 - Implementation diff is exactly 2 commits ahead / 0 behind the planning baseline and changes only `worker/runner.py`, `test_worker_runner.py`, and `test_worker_lease_heartbeat.py` before closure documentation.
 - Production runner imports only model-neutral `ProcessingDependencyError`; it does not inspect backend-specific failures or `RuntimeDisposition`, does not perform recovery/readiness work, and never forwards exception text as a terminal message.
-- Final Codex review, closure-head hosted gates, merge/tree verification and branch housekeeping remain pending below.
-- [ ] **Step 8: Hosted exact-head acceptance and review**
+- Final merge-candidate head: `aa04cdd04e53122e88342f7c9823c2864a3bf41e`.
+- MAVI Quality Gate #287 / run `34701380065`: PASS; Python contracts `527 passed, 13 skipped`.
+- Task 10 Staging Security #63 / run `34701379969`: PASS on Ubuntu job `103573643249` and Windows job `103573643363`.
+- Task 10 Runtime Qualification #128 / run `34701380037`: PASS on Ubuntu job `103573643400` and Windows job `103573643514`.
+  - Ubuntu artifact `10299614701`, digest `sha256:f129e23f8b2abf60d2abba66c15b1a0584cf7f60ba7641a5178765fcf5ccbef4`.
+  - Windows artifact `10299844761`, digest `sha256:836755209c572e72e3e85ce546b7a482087a5b5d58a1c17f8a72ffcb5a9c7bf3`.
+- Final Codex review on `aa04cdd04e`: **no major issues**; no unresolved review threads.
+- PR #26 was guarded squash-merged into `feature/task-10-rtmdet-bytetrack` with expected-head protection.
+- Squash merge commit: `95e2e0189b082daa15209c2b6748dd298b89956f`.
+- Merge parent is exactly the accepted planning baseline `2b0f6a85411789b0531e67280816bc7e865f2162`.
+- Squash tree `6e91c212e421af13fcb8934c9131fca1d11fda6e` is exactly identical to the final topic-head tree, proving no code/evidence drift during merge.
+- The merged topic branch has no unique repository content after squash. Repository auto-delete is disabled and the connected GitHub interface exposes no delete-ref/delete-branch operation, so branch deletion remains non-code housekeeping only.
+- [x] **Step 8: Hosted exact-head acceptance and review**
 
 Use a dedicated topic branch created from the accepted planning head, recommended name:
 
@@ -1642,7 +1653,7 @@ feat: map vision runtime failure classification
 docs: close Task 10 failure mapping
 ```
 
-- [ ] **Step 9: Guarded merge, verification, and cleanup**
+- [x] **Step 9: Guarded merge, verification, and cleanup**
 
 Squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head protection. Verify:
 - integration head equals the returned squash SHA;
