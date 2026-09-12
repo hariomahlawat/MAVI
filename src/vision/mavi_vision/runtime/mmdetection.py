@@ -39,19 +39,6 @@ from mavi_vision.runtime.qualification import VerifiedReleaseSelection
 
 
 _DEVICE_PATTERN = re.compile(r"(?:cpu|cuda:(\d+))", re.ASCII)
-_REMOTE_REFERENCE_SCHEMES = frozenset(
-    {
-        "http",
-        "https",
-        "openmmlab",
-        "mmdet",
-        "modelzoo",
-        "torchvision",
-        "hf",
-        "s3",
-        "gs",
-    }
-)
 _FATAL_CUDA_MARKERS = (
     "cuda error",
     "device-side assert",
@@ -240,8 +227,10 @@ def _validate_resolved_config(path: Path) -> None:
             if not isinstance(node.func, ast.Name) or node.func.id != "dict":
                 raise RuntimeCompatibilityError("resolved_config_dynamic_call_forbidden")
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            reference = urlsplit(node.value.strip())
-            if reference.scheme.casefold() in _REMOTE_REFERENCE_SCHEMES:
+            # A production-resolved config must not delegate any resource lookup
+            # to URL/model-hub/file schemes. Host-specific absolute drive paths
+            # are equally inappropriate in an immutable self-contained release.
+            if urlsplit(node.value.strip()).scheme:
                 raise RuntimeCompatibilityError(
                     "resolved_config_remote_reference_forbidden"
                 )
