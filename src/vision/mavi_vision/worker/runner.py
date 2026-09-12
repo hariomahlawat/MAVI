@@ -470,19 +470,18 @@ class WorkerRunner:
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
-                if process_task in done:
-                    if heartbeat_task in done:
-                        try:
-                            heartbeat_task.result()
-                        except BaseException:
-                            pass
-                    return None
-
                 if heartbeat_task in done:
+                    # A completed renewal is server-authoritative even when
+                    # processing completes in the same event-loop turn. Surface
+                    # lease loss/errors or accept its returned deadline before
+                    # the processing result can be interpreted.
                     heartbeat = heartbeat_task.result()
                     if datetime.now(timezone.utc) >= lease_deadline_utc:
                         raise WorkerApiError("heartbeat deadline exceeded")
                     return heartbeat
+
+                if process_task in done:
+                    return None
 
                 if self._watchdog_is_expired():
                     raise _WatchdogExpiredDuringHeartbeat(
