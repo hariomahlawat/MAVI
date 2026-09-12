@@ -450,3 +450,78 @@ def test_lease_loss_cancels_processing_and_does_not_submit_terminal_failure(
     assert processor.cancellation_observed is True
     assert client.heartbeats == [5.0, 5.0]
     assert client.failures == []
+
+
+class SimultaneousLeaseLossApi(HeartbeatCountingApi):
+    def __init__(self, lease: VisionJobLease, gate: asyncio.Event) -> None:
+        super().__init__(lease)
+        self.gate = gate
+        self.renewal_started = asyncio.Event()
+
+    async def heartbeat(
+        self, lease: VisionJobLease, progress_percent: float
+    ) -> VisionJobHeartbeatResponse:
+        del lease
+        self.heartbeats.append(progress_percent)
+        self.heartbeat_times.append(time.monotonic())
+        if len(self.heartbeats) == 1:
+            return heartbeat_response(60.0)
+
+        self.renewal_started.set()
+        await self.gate.wait()
+        raise WorkerApiError("lease ownership lost")
+
+
+class SimultaneousProcessExecutor:
+    def __init__(
+        self,
+        gate: asyncio.Event,
+        process_ready: asyncio.Event,
+    ) -> None:
+        self.gate = gate
+        self.process_ready = process_ready
+
+    async def run(self, func, /, *args, **kwargs):
+        self.process_ready.set()
+        await self.gate.wait()
+        return func(*args, **kwargs)
+
+
+def test_completed_heartbeat_lease_loss_outranks_simultaneous_processing_success(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        lease = make_lease()
+        _materialize_source(tmp_path, lease)
+        gate = asyncio.Event()
+        process_ready = asyncio.Event()
+        client = SimultaneousLeaseLossApi(lease, gate)
+        processor = SlowProcessor(lease, delay_seconds=0.0)
+        executor = SimultaneousProcessExecutor(gate, process_ready)
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            heartbeat_interval_seconds=0.01,
+            process_executor=executor,
+            watchdog_expired=lambda: False,
+            watchdog_poll_seconds=0.001,
+        )
+
+        async def release_simultaneously() -> None:
+            await process_ready.wait()
+            await client.renewal_started.wait()
+            gate.set()
+
+        coordinator = asyncio.create_task(release_simultaneously())
+        try:
+            with pytest.raises(WorkerApiError, match="lease ownership lost"):
+                await runner.run_once()
+        finally:
+            await coordinator
+
+        assert client.heartbeats == [5.0, 5.0]
+        assert client.failures == []
+
+    asyncio.run(scenario())
