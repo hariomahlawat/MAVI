@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 
 
@@ -63,9 +64,46 @@ def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -
         "build": ["tags/v3.12.10:0cc8128", "Apr  8 2025 12:21:36"],
         "compiler": "MSC v.1943 64 bit (AMD64)",
     }
+    for variant in ("linux-x86_64-cpu", "windows-x86_64-cpu"):
+        assert payload["platformVariants"][variant]["binaryVersions"] == {
+            "torch": "2.6.0+cpu",
+            "torchvision": "0.21.0+cpu",
+        }
     assert payload["platformVariants"]["linux-x86_64-cuda"]["status"] == (
         "pending-hardware-qualification"
     )
     assert payload["platformVariants"]["windows-x86_64-cuda"]["status"] == (
         "pending-hardware-qualification"
     )
+
+def test_pyproject_qualified_runtime_extra_matches_frozen_semantic_graph() -> None:
+    runtime = json.loads(RUNTIME_PATH.read_text(encoding="utf-8"))
+    pyproject_path = Path(__file__).parents[1] / "pyproject.toml"
+    pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+
+    assert pyproject["project"]["requires-python"] == ">=3.12,<3.14"
+
+    dependencies = pyproject["project"]["optional-dependencies"]["vision-runtime"]
+    pins = {}
+    for dependency in dependencies:
+        name, separator, version = dependency.partition("==")
+        assert separator == "==", dependency
+        assert name not in pins, name
+        pins[name] = version
+
+    semantic = runtime["semanticGraph"]
+    assert pins == {
+        "torch": semantic["torch"],
+        "torchvision": semantic["torchvision"],
+        "mmcv": semantic["mmcv"],
+        "mmengine": semantic["mmengine"],
+        "mmdet": semantic["mmdet"],
+        "trackers": semantic["trackers"],
+        "supervision": semantic["supervision"],
+        "scipy": semantic["scipy"],
+        "numpy": semantic["numpy"],
+        "opencv-python": semantic["opencvPython"],
+        "av": semantic["av"],
+        "Pillow": semantic["pillow"],
+    }
+

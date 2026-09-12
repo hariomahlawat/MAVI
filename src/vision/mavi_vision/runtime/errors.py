@@ -45,6 +45,29 @@ class ProcessingDependencyError(RuntimeError):
         return self.disposition
 
 
+
+
+class RuntimeStartupError(RuntimeError):
+    """Stable startup-only runtime failure raised before any job lease exists."""
+
+    def __init__(self, code: str, message: str | None = None) -> None:
+        try:
+            validated_code = _FAILURE_CODE_ADAPTER.validate_python(code, strict=True)
+        except ValidationError as exc:
+            raise ValueError("runtime_startup_failure_code_invalid") from exc
+        self.code = validated_code
+        super().__init__(message or validated_code)
+
+    @property
+    def failure_code(self) -> str:
+        return self.code
+
+
+class RuntimeCompatibilityError(RuntimeStartupError):
+    def __init__(self, message: str | None = None) -> None:
+        super().__init__("vision_runtime_incompatible", message)
+
+
 class GpuOutOfMemoryError(ProcessingDependencyError):
     def __init__(self, message: str | None = None) -> None:
         super().__init__(

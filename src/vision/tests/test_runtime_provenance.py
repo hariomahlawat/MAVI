@@ -47,6 +47,23 @@ VERSIONS = {
     "av": "16.1.0",
     "pillow": "11.3.0",
 }
+LIVE_VERSIONS = {
+    **VERSIONS,
+    "torch": "2.6.0+cpu",
+    "torchvision": "0.21.0+cpu",
+}
+CPU_BINARY_VERSIONS = MappingProxyType(
+    {
+        "torch": "2.6.0+cpu",
+        "torchvision": "0.21.0+cpu",
+    }
+)
+CUDA_BINARY_VERSIONS = MappingProxyType(
+    {
+        "torch": "2.6.0+cu124",
+        "torchvision": "0.21.0+cu124",
+    }
+)
 
 
 def _platform() -> PlatformIdentity:
@@ -150,11 +167,13 @@ def _selection(
             status="qualified-hosted-cpu",
             resolved_config_sha256=SHA_C,
             python_identity=linux_python,
+            binary_versions=CPU_BINARY_VERSIONS,
         ),
         "windows-x86_64-cpu": RuntimePlatformVariantIdentity(
             status="qualified-hosted-cpu",
             resolved_config_sha256=SHA_C,
             python_identity=windows_python,
+            binary_versions=CPU_BINARY_VERSIONS,
         ),
         "linux-x86_64-cuda": RuntimePlatformVariantIdentity(
             status=(
@@ -164,6 +183,7 @@ def _selection(
             ),
             resolved_config_sha256=SHA_C if qualified else None,
             python_identity=linux_python if qualified else None,
+            binary_versions=CUDA_BINARY_VERSIONS if qualified else None,
         ),
         "windows-x86_64-cuda": RuntimePlatformVariantIdentity(
             status=(
@@ -173,6 +193,7 @@ def _selection(
             ),
             resolved_config_sha256=SHA_C if qualified else None,
             python_identity=windows_python if qualified else None,
+            binary_versions=CUDA_BINARY_VERSIONS if qualified else None,
         ),
     }
     lock_hashes = {
@@ -222,7 +243,7 @@ def _metadata(*, device: str = "cpu", versions: dict[str, str] | None = None) ->
         backend="mmdetection",
         model_id="rtmdet-m-coco-phase1",
         device=device,
-        versions=VERSIONS if versions is None else versions,
+        versions=LIVE_VERSIONS if versions is None else versions,
         ordered_class_vocabulary=VOCABULARY,
     )
 
@@ -242,7 +263,7 @@ def test_development_provenance_is_complete_immutable_and_explicitly_unknown() -
     assert provenance.mavi_build == "unknown-development"
     assert provenance.mavi_commit == "unknown-development"
     assert provenance.dependency_versions["python"] == "3.12.14"
-    assert provenance.dependency_versions["torch"] == "2.6.0"
+    assert provenance.dependency_versions["torch"] == "2.6.0+cpu"
     assert provenance.ffmpeg_version == "7.1"
     assert provenance.actual_device == "cpu"
     assert provenance.input_colour_space == "RGB"
@@ -446,6 +467,25 @@ def test_runtime_contract_modules_do_not_import_heavy_ml_frameworks() -> None:
         )
 
 
+
+
+def test_mmdetection_module_has_no_top_level_heavy_ml_imports() -> None:
+    runtime_root = Path(__file__).resolve().parents[1] / "mavi_vision" / "runtime"
+    tree = ast.parse((runtime_root / "mmdetection.py").read_text(encoding="utf-8"))
+    forbidden = {"torch", "torchvision", "mmdet", "mmcv", "mmengine", "supervision", "trackers"}
+    imported_roots: set[str] = set()
+
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            imported_roots.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported_roots.add(node.module.split(".", 1)[0])
+
+    assert imported_roots.isdisjoint(forbidden), sorted(
+        imported_roots & forbidden
+    )
+
+
 def test_production_provenance_requires_full_git_commit_identity() -> None:
     with pytest.raises(ValueError, match="mavi_commit_invalid"):
         build_runtime_provenance(
@@ -456,6 +496,43 @@ def test_production_provenance_requires_full_git_commit_identity() -> None:
             production_mode=True,
             mavi_build="mavi-0.1.0",
             mavi_commit="short-sha",
+            platform_identity=_platform(),
+        )
+
+
+def test_production_provenance_preserves_qualified_binary_build_identity() -> None:
+    provenance = build_runtime_provenance(
+        selection=_selection(verified=True),
+        runtime_metadata=_metadata(),
+        configured_device_policy="cpu",
+        configured_device_index=0,
+        production_mode=True,
+        mavi_build="build",
+        mavi_commit="1234567890abcdef1234567890abcdef12345678",
+        platform_identity=_platform(),
+    )
+
+    assert provenance.dependency_versions["torch"] == "2.6.0+cpu"
+    assert provenance.dependency_versions["torchvision"] == "0.21.0+cpu"
+    assert provenance.verification_status == "verified"
+
+
+def test_production_provenance_rejects_wrong_binary_build_with_same_semantic_version() -> None:
+    versions = dict(LIVE_VERSIONS)
+    versions["torch"] = "2.6.0+cu124"
+
+    with pytest.raises(
+        ValueError,
+        match="runtime_binary_version_mismatch:torch",
+    ):
+        build_runtime_provenance(
+            selection=_selection(verified=True),
+            runtime_metadata=_metadata(versions=versions),
+            configured_device_policy="cpu",
+            configured_device_index=0,
+            production_mode=True,
+            mavi_build="build",
+            mavi_commit="1234567890abcdef1234567890abcdef12345678",
             platform_identity=_platform(),
         )
 

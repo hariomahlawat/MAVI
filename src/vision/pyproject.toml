@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mavi-vision"
 version = "0.1.0"
 description = "MAVI computer-vision worker contracts and processing interfaces"
-requires-python = ">=3.13"
+requires-python = ">=3.12,<3.14"
 dependencies = [
   "av>=15,<17",
   "httpx>=0.28,<0.29",
@@ -19,6 +19,20 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.4"]
+vision-runtime = [
+  "torch==2.6.0",
+  "torchvision==0.21.0",
+  "mmcv==2.1.0",
+  "mmengine==0.10.7",
+  "mmdet==3.3.0",
+  "trackers==2.6.0",
+  "supervision==0.30.2",
+  "scipy==1.18.1",
+  "numpy==2.5.3",
+  "opencv-python==5.0.0.93",
+  "av==16.1.0",
+  "Pillow==11.3.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

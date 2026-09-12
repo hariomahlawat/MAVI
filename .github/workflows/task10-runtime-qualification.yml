@@ -10,7 +10,15 @@ on:
       - 'src/vision/tests/test_runtime_probe.py'
       - 'src/vision/tests/test_resolve_mmdet_config.py'
       - 'src/vision/tests/test_runtime_metadata.py'
-      - 'src/vision/runtime/mmdetection-phase1-v1/runtime.json'
+      - 'src/vision/tests/test_rtmdet_colour_space.py'
+      - 'src/vision/tests/test_mmdetection_runtime.py'
+      - 'src/vision/mavi_vision/runtime/**'
+      - 'src/vision/mavi_vision/common/analytical.py'
+      - 'src/vision/pyproject.toml'
+      - 'src/vision/runtime/**/*.json'
+      - 'src/vision/config/pipelines/**/*.json'
+      - 'models/manifests/**/*.json'
+      - 'models/qualifications/**/*.json'
       - '.github/workflows/task10-runtime-qualification.yml'
       - 'docs/decisions/ADR-005-qualified-vision-runtime.md'
       - 'docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md'
@@ -24,7 +32,15 @@ on:
       - 'src/vision/tests/test_runtime_probe.py'
       - 'src/vision/tests/test_resolve_mmdet_config.py'
       - 'src/vision/tests/test_runtime_metadata.py'
-      - 'src/vision/runtime/mmdetection-phase1-v1/runtime.json'
+      - 'src/vision/tests/test_rtmdet_colour_space.py'
+      - 'src/vision/tests/test_mmdetection_runtime.py'
+      - 'src/vision/mavi_vision/runtime/**'
+      - 'src/vision/mavi_vision/common/analytical.py'
+      - 'src/vision/pyproject.toml'
+      - 'src/vision/runtime/**/*.json'
+      - 'src/vision/config/pipelines/**/*.json'
+      - 'models/manifests/**/*.json'
+      - 'models/qualifications/**/*.json'
       - '.github/workflows/task10-runtime-qualification.yml'
       - 'docs/decisions/ADR-005-qualified-vision-runtime.md'
       - 'docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md'
@@ -73,6 +89,7 @@ jobs:
           psutil
           pytest
           "numpy==2.5.3"
+          "pydantic>=2.11,<3"
 
       - name: Run runtime qualification tooling unit tests
         run: >-
@@ -80,6 +97,15 @@ jobs:
           src/vision/tests/test_runtime_probe.py
           src/vision/tests/test_resolve_mmdet_config.py
           src/vision/tests/test_runtime_metadata.py
+          -q
+
+      - name: Run production runtime boundary unit tests without ML imports
+        working-directory: src/vision
+        run: >-
+          python -m pytest
+          tests/test_rtmdet_colour_space.py
+          tests/test_mmdetection_runtime.py
+          tests/test_runtime_errors.py
           -q
 
       - name: Install candidate PyTorch CPU build
@@ -176,7 +202,26 @@ jobs:
               )
 
           variant_name = os.environ["MAVI_RUNTIME_VARIANT"]
-          expected_python = profile["platformVariants"][variant_name]["pythonIdentity"]
+          variant = profile["platformVariants"][variant_name]
+          expected_binary = variant["binaryVersions"]
+          actual_binary = {
+              "torch": torch.__version__,
+              "torchvision": torchvision.__version__,
+          }
+          if actual_binary != expected_binary:
+              raise SystemExit(
+                  "runtime_binary_identity_mismatch:"
+                  + json.dumps(
+                      {
+                          "variant": variant_name,
+                          "actual": actual_binary,
+                          "expected": expected_binary,
+                      },
+                      sort_keys=True,
+                  )
+              )
+
+          expected_python = variant["pythonIdentity"]
           actual_python = {
               "version": platform.python_version(),
               "implementation": platform.python_implementation(),
@@ -197,6 +242,11 @@ jobs:
               )
 
           print("runtime-semantic-graph-ok", json.dumps(actual, sort_keys=True))
+          print(
+              "runtime-binary-identity-ok",
+              variant_name,
+              json.dumps(actual_binary, sort_keys=True),
+          )
           print(
               "runtime-python-identity-ok",
               variant_name,
@@ -277,6 +327,77 @@ jobs:
           set -e
           exit "$code"
 
+      - name: Run production MMDetectionRuntime smoke on verified local artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_root=".qualification-model-root/rtmdet-m-coco-phase1-v1"
+          mkdir -p "$release_root"
+          cp .qualification-rtmdet-m.pth "$release_root/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth"
+          cp qualification-evidence/rtmdet-m-resolved.py "$release_root/rtmdet_m_resolved.py"
+
+          PYTHONPATH=src/vision python - <<'PY'
+          import json
+          import os
+          import numpy as np
+          from pathlib import Path
+
+          from mavi_vision.runtime.activity import InferenceActivity
+          from mavi_vision.runtime.mmdetection import MMDetectionRuntime
+          from mavi_vision.runtime.qualification import verify_release_selection
+
+          selection = verify_release_selection(
+              model_root=Path(".qualification-model-root"),
+              manifest_path=Path("models/manifests/rtmdet-m-coco-phase1-v1.json"),
+              profile_path=Path("src/vision/config/pipelines/phase1-detection-tracking-v1.json"),
+              runtime_profile_path=Path("src/vision/runtime/mmdetection-phase1-v1/runtime.json"),
+              allow_unverified=True,
+          )
+          activity = InferenceActivity()
+          runtime = MMDetectionRuntime(selection, device="cpu", activity=activity)
+          try:
+              runtime.warmup()
+              image_rgb = np.zeros((48, 80, 3), dtype=np.uint8)
+              image_rgb[..., 0] = 29
+              image_rgb[..., 1] = 101
+              image_rgb[..., 2] = 223
+              detections = runtime.infer(image_rgb)
+              metadata = runtime.metadata
+              if metadata.ordered_class_vocabulary != selection.manifest.class_vocabulary:
+                  raise SystemExit("production_runtime_vocabulary_mismatch")
+              if metadata.device != "cpu":
+                  raise SystemExit("production_runtime_device_mismatch")
+              expected_binary = selection.runtime_platform_variants[
+                  os.environ["MAVI_RUNTIME_VARIANT"]
+              ].binary_versions
+              actual_binary = {
+                  "torch": metadata.versions["torch"],
+                  "torchvision": metadata.versions["torchvision"],
+              }
+              if expected_binary is None or actual_binary != dict(expected_binary):
+                  raise SystemExit("production_runtime_binary_identity_mismatch")
+              snapshot = activity.snapshot()
+              if snapshot.active or snapshot.completed_count != 2:
+                  raise SystemExit("production_runtime_activity_mismatch")
+              record = {
+                  "status": "passed",
+                  "backend": metadata.backend,
+                  "modelId": metadata.model_id,
+                  "device": metadata.device,
+                  "predictionCount": len(detections),
+                  "activityCompletedCount": snapshot.completed_count,
+                  "orderedClassVocabulary": list(metadata.ordered_class_vocabulary),
+                  "versions": dict(metadata.versions),
+              }
+              Path("qualification-evidence/production-runtime-smoke.json").write_text(
+                  json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n",
+                  encoding="utf-8",
+              )
+              print("production-runtime-smoke-ok", json.dumps(record, sort_keys=True))
+          finally:
+              runtime.close()
+          PY
+
       - name: Verify qualification evidence set
         shell: bash
         run: |
@@ -293,6 +414,7 @@ jobs:
               "rtmdet-m-resolved.py",
               "runtime.json",
               "missing.err",
+              "production-runtime-smoke.json",
           )
           missing = [name for name in required if not (root / name).is_file()]
           if missing:
@@ -306,6 +428,14 @@ jobs:
           probe = json.load((root / "runtime-probe.json").open(encoding="utf-8"))
           if probe.get("status") != "passed":
               raise SystemExit("qualification_probe_status_not_passed")
+
+          production = json.load(
+              (root / "production-runtime-smoke.json").open(encoding="utf-8")
+          )
+          if production.get("status") != "passed":
+              raise SystemExit("production_runtime_smoke_not_passed")
+          if production.get("device") != "cpu":
+              raise SystemExit("production_runtime_smoke_device_invalid")
 
           resolved = json.load((root / "resolved-config.json").open(encoding="utf-8"))
           runtime = json.load((root / "runtime.json").open(encoding="utf-8"))

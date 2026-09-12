@@ -80,6 +80,10 @@ def _release_fixture(
                 "build": ["main", "fixture"],
                 "compiler": "GCC fixture",
             },
+            "binaryVersions": {
+                "torch": "2.6.0+cpu",
+                "torchvision": "0.21.0+cpu",
+            },
         },
         "windows-x86_64-cpu": {
             "status": "qualified-hosted-cpu",
@@ -92,6 +96,10 @@ def _release_fixture(
                 "implementation": "CPython",
                 "build": ["fixture", "fixture"],
                 "compiler": "MSC fixture",
+            },
+            "binaryVersions": {
+                "torch": "2.6.0+cpu",
+                "torchvision": "0.21.0+cpu",
             },
         },
         "linux-x86_64-cuda": (
@@ -106,6 +114,10 @@ def _release_fixture(
                     "implementation": "CPython",
                     "build": ["fixture", "fixture"],
                     "compiler": "qualified fixture",
+                },
+                "binaryVersions": {
+                    "torch": "2.6.0+cu124",
+                    "torchvision": "0.21.0+cu124",
                 },
             }
             if runtime_qualified
@@ -123,6 +135,10 @@ def _release_fixture(
                     "implementation": "CPython",
                     "build": ["fixture", "fixture"],
                     "compiler": "qualified fixture",
+                },
+                "binaryVersions": {
+                    "torch": "2.6.0+cu124",
+                    "torchvision": "0.21.0+cu124",
                 },
             }
             if runtime_qualified
@@ -300,6 +316,10 @@ def test_verified_release_selection_checks_all_exact_byte_relationships(
         selection.runtime_platform_variants["linux-x86_64-cpu"].status
         == "qualified-hosted-cpu"
     )
+    assert selection.runtime_platform_variants["linux-x86_64-cpu"].binary_versions == {
+        "torch": "2.6.0+cpu",
+        "torchvision": "0.21.0+cpu",
+    }
     assert (
         selection.runtime_platform_variants["linux-x86_64-cuda"].status
         == "qualified-hardware"
@@ -312,6 +332,44 @@ def test_verified_release_selection_checks_all_exact_byte_relationships(
         selection.runtime_release_locks["linux-x86_64-cpu"].sha256
         == _sha(b"linux-x86_64-cpu")
     )
+
+
+def test_runtime_profile_requires_binary_versions_for_qualified_variant(
+    tmp_path: Path,
+) -> None:
+    paths = _release_fixture(tmp_path, verified=False)
+    runtime = json.loads(paths["runtime"].read_text(encoding="utf-8"))
+    runtime["platformVariants"]["linux-x86_64-cpu"].pop("binaryVersions")
+    _write_json(paths["runtime"], runtime)
+
+    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+        verify_release_selection(
+            model_root=paths["model_root"],
+            manifest_path=paths["manifest"],
+            profile_path=paths["profile"],
+            runtime_profile_path=paths["runtime"],
+            allow_unverified=True,
+        )
+
+
+def test_runtime_profile_rejects_binary_semantic_version_mismatch(
+    tmp_path: Path,
+) -> None:
+    paths = _release_fixture(tmp_path, verified=False)
+    runtime = json.loads(paths["runtime"].read_text(encoding="utf-8"))
+    runtime["platformVariants"]["linux-x86_64-cpu"]["binaryVersions"]["torch"] = (
+        "2.7.0+cpu"
+    )
+    _write_json(paths["runtime"], runtime)
+
+    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+        verify_release_selection(
+            model_root=paths["model_root"],
+            manifest_path=paths["manifest"],
+            profile_path=paths["profile"],
+            runtime_profile_path=paths["runtime"],
+            allow_unverified=True,
+        )
 
 
 def test_unverified_release_requires_explicit_development_opt_in(tmp_path: Path) -> None:

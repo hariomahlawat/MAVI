@@ -57,6 +57,10 @@ def _runtime_payload() -> dict:
                     "build": ["main", "fixture"],
                     "compiler": "GCC fixture",
                 },
+                "binaryVersions": {
+                    "torch": "2.6.0+cpu",
+                    "torchvision": "0.21.0+cpu",
+                },
             },
             "windows-x86_64-cpu": {
                 "status": "qualified-hosted-cpu",
@@ -69,6 +73,10 @@ def _runtime_payload() -> dict:
                     "implementation": "CPython",
                     "build": ["fixture", "fixture"],
                     "compiler": "MSC fixture",
+                },
+                "binaryVersions": {
+                    "torch": "2.6.0+cpu",
+                    "torchvision": "0.21.0+cpu",
                 },
             },
             "linux-x86_64-cuda": {

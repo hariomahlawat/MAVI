@@ -79,6 +79,15 @@ class RuntimePlatformVariantIdentity:
     ]
     resolved_config_sha256: str | None
     python_identity: RuntimePythonIdentity | None
+    binary_versions: Mapping[str, str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.binary_versions is not None:
+            object.__setattr__(
+                self,
+                "binary_versions",
+                MappingProxyType(dict(self.binary_versions)),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +259,20 @@ class _RuntimePythonIdentitySchema(_StrictModel):
         return value
 
 
+class _RuntimeBinaryVersionsSchema(_StrictModel):
+    torch: str
+    torchvision: str
+
+    @field_validator("torch", "torchvision")
+    @classmethod
+    def validate_binary_version(cls, value: str) -> str:
+        if not value or value != value.strip():
+            raise ValueError("runtime_binary_version_invalid")
+        if "+" not in value:
+            raise ValueError("runtime_binary_build_tag_required")
+        return value
+
+
 class _RuntimePlatformVariantSchema(_StrictModel):
     status: Literal[
         "qualified-hosted-cpu",
@@ -267,6 +290,10 @@ class _RuntimePlatformVariantSchema(_StrictModel):
         default=None,
         alias="pythonIdentity",
     )
+    binary_versions: _RuntimeBinaryVersionsSchema | None = Field(
+        default=None,
+        alias="binaryVersions",
+    )
 
     @model_validator(mode="after")
     def validate_evidence_shape(self) -> "_RuntimePlatformVariantSchema":
@@ -276,6 +303,7 @@ class _RuntimePlatformVariantSchema(_StrictModel):
             self.evidence_head_sha,
             self.resolved_config_sha256,
             self.python_identity,
+            self.binary_versions,
         )
         if self.status.startswith("qualified-"):
             if any(value is None for value in evidence):
@@ -431,6 +459,17 @@ class _RuntimeProfileSchema(_StrictModel):
             if variant.python_identity is not None:
                 if not variant.python_identity.version.startswith(self.python_minor + "."):
                     raise ValueError("runtime_python_minor_identity_mismatch")
+            if variant.binary_versions is not None:
+                if (
+                    variant.binary_versions.torch.split("+", 1)[0]
+                    != self.semantic_graph.torch
+                ):
+                    raise ValueError("runtime_torch_binary_semantic_mismatch")
+                if (
+                    variant.binary_versions.torchvision.split("+", 1)[0]
+                    != self.semantic_graph.torchvision
+                ):
+                    raise ValueError("runtime_torchvision_binary_semantic_mismatch")
 
         has_pending = any(
             variant.status == "pending-hardware-qualification"
@@ -605,10 +644,21 @@ def _runtime_platform_variant_identities(
             if variant.python_identity is not None
             else None
         )
+        binary_versions = (
+            MappingProxyType(
+                {
+                    "torch": variant.binary_versions.torch,
+                    "torchvision": variant.binary_versions.torchvision,
+                }
+            )
+            if variant.binary_versions is not None
+            else None
+        )
         identities[variant_name] = RuntimePlatformVariantIdentity(
             status=variant.status,
             resolved_config_sha256=variant.resolved_config_sha256,
             python_identity=python_identity,
+            binary_versions=binary_versions,
         )
     return MappingProxyType(identities)
 
