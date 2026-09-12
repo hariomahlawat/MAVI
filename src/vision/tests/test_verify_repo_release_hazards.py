@@ -115,7 +115,10 @@ def test_task12_workflow_covers_wheel_inputs_and_uses_pinned_reproduction() -> N
     ).read_text(encoding="utf-8")
 
     assert "'src/vision/mavi_vision/**'" in workflow
-    assert "pip wheel --no-build-isolation --no-deps ./src/vision" in workflow
+    assert "python -m pip wheel" in workflow
+    assert "--no-build-isolation" in workflow
+    assert "--no-deps" in workflow
+    assert "./src/vision" in workflow
     assert '"mavi-vision[vision-runtime]==0.1.0"' not in workflow
     assert "Materialize reviewed locked runtime closure" in workflow
     assert "--require-hashes" in workflow
