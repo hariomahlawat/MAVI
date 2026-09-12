@@ -95,6 +95,7 @@ jobs:
           psutil
           pytest
           "numpy==2.5.3"
+          "av==16.1.0"
           "pydantic>=2.11,<3"
 
       - name: Run runtime qualification tooling unit tests

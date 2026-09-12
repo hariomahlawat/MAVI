@@ -67,6 +67,7 @@ class ByteTrackTracker:
         self._vehicle_counter = 0
         self._last_source_frame_number: int | None = None
         self._last_offset_ms: int | None = None
+        self._invalidated = False
 
     @staticmethod
     def _native_parameters(profile: ByteTrackProfile) -> dict[str, int | float]:
@@ -84,6 +85,9 @@ class ByteTrackTracker:
         frame: DecodedFrame,
         detections: Sequence[DetectionCandidate],
     ) -> tuple[TrackCandidate, ...]:
+        if self._invalidated:
+            raise TrackerError("bytetrack_attempt_invalidated")
+
         try:
             materialized = tuple(detections)
         except Exception:
@@ -107,34 +111,41 @@ class ByteTrackTracker:
         # Both native domains are advanced on every accepted frame, including
         # class-empty frames, so timestamp anchors and lost-track ageing remain
         # consistent and independent.
-        person_rows = self._update_class(
-            self._person_tracker,
-            frame,
-            person_detections,
-            timestamp_seconds,
-        )
-        vehicle_rows = self._update_class(
-            self._vehicle_tracker,
-            frame,
-            vehicle_detections,
-            timestamp_seconds,
-        )
+        try:
+            person_rows = self._update_class(
+                self._person_tracker,
+                frame,
+                person_detections,
+                timestamp_seconds,
+            )
+            vehicle_rows = self._update_class(
+                self._vehicle_tracker,
+                frame,
+                vehicle_detections,
+                timestamp_seconds,
+            )
 
-        outputs: list[tuple[int, TrackCandidate]] = []
-        outputs.extend(
-            self._materialize_class_outputs(
-                ObjectClass.PERSON,
-                person_rows,
-                self._person_native_to_mavi,
+            outputs: list[tuple[int, TrackCandidate]] = []
+            outputs.extend(
+                self._materialize_class_outputs(
+                    ObjectClass.PERSON,
+                    person_rows,
+                    self._person_native_to_mavi,
+                )
             )
-        )
-        outputs.extend(
-            self._materialize_class_outputs(
-                ObjectClass.VEHICLE,
-                vehicle_rows,
-                self._vehicle_native_to_mavi,
+            outputs.extend(
+                self._materialize_class_outputs(
+                    ObjectClass.VEHICLE,
+                    vehicle_rows,
+                    self._vehicle_native_to_mavi,
+                )
             )
-        )
+        except TrackerError:
+            # A native update may have mutated third-party tracker state before
+            # failing or before malformed output is detected. State rollback is
+            # not reliable, so poison this attempt and require a fresh adapter.
+            self._invalidated = True
+            raise
 
         # Advance accepted-frame state only after both native domains completed
         # and their outputs passed the complete backend contract validation.

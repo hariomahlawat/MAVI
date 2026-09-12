@@ -528,27 +528,26 @@ def test_native_update_exception_is_translated_once(
     assert captured.value.__cause__ is None
 
 
-def test_vehicle_failure_does_not_advance_accepted_frame_state(
+def test_native_failure_invalidates_attempt_instead_of_reusing_partial_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fail_once = True
-
     def vehicle_script(detections: FakeDetections, timestamp: float) -> object:
-        nonlocal fail_once
-        if fail_once:
-            fail_once = False
-            raise RuntimeError("boom")
-        return result(detections, [88])
+        raise RuntimeError("boom")
 
-    install_bindings(monkeypatch, vehicle_script=vehicle_script)
+    factory = install_bindings(monkeypatch, vehicle_script=vehicle_script)
     tracker = ByteTrackTracker(profile())
     sources = (detection(ObjectClass.VEHICLE, ordinal=0),)
 
-    with pytest.raises(TrackerError):
+    with pytest.raises(TrackerError, match="bytetrack_backend_update_failed"):
         tracker.update(frame(number=1, offset_ms=10), sources)
 
-    output = tracker.update(frame(number=1, offset_ms=10), sources)
-    assert output[0].track_id == "vehicle-000001"
+    with pytest.raises(TrackerError, match="bytetrack_attempt_invalidated"):
+        tracker.update(frame(number=1, offset_ms=10), sources)
+
+    # No second native mutation is permitted after a failed attempt. A retry is
+    # performed by Task 9 with a new attempt-scoped adapter instead.
+    assert len(factory.trackers[0].calls) == 1
+    assert len(factory.trackers[1].calls) == 1
 
 
 def test_module_has_no_top_level_trackers_or_supervision_import() -> None:
