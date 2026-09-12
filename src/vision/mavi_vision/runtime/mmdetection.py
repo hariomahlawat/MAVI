@@ -19,6 +19,7 @@ from mavi_vision.runtime.errors import (
     GpuOutOfMemoryError,
     GpuRuntimeError,
     InferenceContractError,
+    ProcessingDependencyError,
     RuntimeCompatibilityError,
 )
 from mavi_vision.runtime.interfaces import (
@@ -292,17 +293,19 @@ def _actual_model_device(model: Any) -> str:
 def _to_numpy(value: Any, *, code: str) -> np.ndarray:
     if value is None:
         raise InferenceContractError(code)
-    try:
-        for method_name in ("detach", "cpu"):
-            method = getattr(value, method_name, None)
-            if callable(method):
-                value = method()
-        numpy_method = getattr(value, "numpy", None)
-        if callable(numpy_method):
-            value = numpy_method()
-        return np.asarray(value)
-    except Exception as exc:
-        raise InferenceContractError(code) from exc
+
+    # Do not normalize backend exceptions here. CUDA execution is asynchronous,
+    # so a poisoned-context error may first surface during detach()/cpu()/numpy()
+    # rather than inside inference_detector(). The caller owns one common backend
+    # classifier for inference and tensor materialization.
+    for method_name in ("detach", "cpu"):
+        method = getattr(value, method_name, None)
+        if callable(method):
+            value = method()
+    numpy_method = getattr(value, "numpy", None)
+    if callable(numpy_method):
+        value = numpy_method()
+    return np.asarray(value)
 
 
 class MMDetectionRuntime:
@@ -433,9 +436,11 @@ class MMDetectionRuntime:
                     self._model,
                     image_bgr,
                 )
+                return self._convert_prediction(prediction)
+            except ProcessingDependencyError:
+                raise
             except Exception as exc:
                 self._raise_backend_error(exc)
-            return self._convert_prediction(prediction)
         finally:
             self._activity.mark_completed()
 
