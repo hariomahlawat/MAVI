@@ -10,6 +10,7 @@ import pytest
 
 from mavi_vision.runtime.activity import InferenceActivity
 from mavi_vision.runtime.errors import GpuOutOfMemoryError, GpuRuntimeError, TrackerError
+from mavi_vision.runtime.execution_lane import VisionExecutionLane
 from mavi_vision.runtime.interfaces import RuntimeMetadata
 
 
@@ -56,6 +57,35 @@ class _Runtime:
         self.close_calls += 1
 
 
+class _BlockingWarmupRuntime(_Runtime):
+    def __init__(
+        self,
+        name: str,
+        *,
+        activity: InferenceActivity,
+        started: threading.Event,
+        release: threading.Event,
+    ) -> None:
+        super().__init__(name)
+        self._activity = activity
+        self._started = started
+        self._release = release
+
+    def warmup(self) -> None:
+        self.warmup_calls += 1
+        self._activity.mark_started()
+        self._started.set()
+        try:
+            if not self._release.wait(timeout=0.5):
+                raise TimeoutError("blocking warmup was not released")
+        finally:
+            self._activity.mark_completed()
+
+
+class _LifecycleFatalSentinel(RuntimeError):
+    pass
+
+
 class _Lane:
     def __init__(self) -> None:
         self.close_calls = 0
@@ -79,11 +109,16 @@ class _Harness:
         require_gpu_identity: bool = False,
         activity: InferenceActivity | None = None,
         monotonic_clock=None,
+        lane=None,
+        inference_watchdog_seconds: float = 30.0,
+        watchdog_grace_seconds: float = 10.0,
+        watchdog_poll_seconds: float = 1.0,
+        fatal_terminator=None,
     ) -> None:
         module = _module()
         self.module = module
         self.events: list[str] = []
-        self.lane = _Lane()
+        self.lane = lane or _Lane()
         self.activity = activity or InferenceActivity()
         self.selection = SimpleNamespace(
             manifest=SimpleNamespace(
@@ -135,7 +170,9 @@ class _Harness:
             device_policy=device_policy,
             device_index=2,
             production_mode=production_mode,
-            inference_watchdog_seconds=30.0,
+            inference_watchdog_seconds=inference_watchdog_seconds,
+            watchdog_grace_seconds=watchdog_grace_seconds,
+            watchdog_poll_seconds=watchdog_poll_seconds,
             build_id="build-a",
             commit_sha="a" * 40,
             release_verifier=verify,
@@ -145,6 +182,11 @@ class _Harness:
             **(
                 {"monotonic_clock": monotonic_clock}
                 if monotonic_clock is not None
+                else {}
+            ),
+            **(
+                {"fatal_terminator": fatal_terminator}
+                if fatal_terminator is not None
                 else {}
             ),
         )
@@ -459,5 +501,99 @@ def test_reports_after_stopping_are_ignored_and_nonthrowing() -> None:
 
         assert harness.supervisor.state is harness.module.RuntimeState.STOPPING
         assert len(harness.factory_calls) == 1
+
+    asyncio.run(scenario())
+
+
+def test_startup_warmup_hang_is_bounded_by_process_watchdog() -> None:
+    async def scenario() -> None:
+        started = threading.Event()
+        release = threading.Event()
+        activity = InferenceActivity()
+        runtime = _BlockingWarmupRuntime(
+            "startup-hang",
+            activity=activity,
+            started=started,
+            release=release,
+        )
+        lane = VisionExecutionLane()
+        fatal_codes: list[int] = []
+
+        def terminator(code: int) -> None:
+            fatal_codes.append(code)
+            raise _LifecycleFatalSentinel("startup-watchdog")
+
+        harness = _Harness(
+            runtimes=[runtime],
+            activity=activity,
+            lane=lane,
+            inference_watchdog_seconds=0.01,
+            watchdog_grace_seconds=0.01,
+            watchdog_poll_seconds=0.001,
+            fatal_terminator=terminator,
+        )
+
+        try:
+            with pytest.raises(_LifecycleFatalSentinel, match="startup-watchdog"):
+                await harness.supervisor.start()
+        finally:
+            release.set()
+            await lane.close()
+
+        assert started.is_set() is True
+        assert fatal_codes == [70]
+        assert harness.supervisor.fatal_termination_active is True
+        assert runtime.close_calls == 0
+        with pytest.raises(harness.module.RuntimeNotReadyError):
+            _ = harness.supervisor.runtime
+
+    asyncio.run(scenario())
+
+
+def test_recovery_warmup_hang_is_bounded_by_process_watchdog() -> None:
+    async def scenario() -> None:
+        started = threading.Event()
+        release = threading.Event()
+        activity = InferenceActivity()
+        runtime_a = _Runtime("a")
+        runtime_b = _BlockingWarmupRuntime(
+            "recovery-hang",
+            activity=activity,
+            started=started,
+            release=release,
+        )
+        lane = VisionExecutionLane()
+        fatal_codes: list[int] = []
+
+        def terminator(code: int) -> None:
+            fatal_codes.append(code)
+            raise _LifecycleFatalSentinel("recovery-watchdog")
+
+        harness = _Harness(
+            runtimes=[runtime_a, runtime_b],
+            activity=activity,
+            lane=lane,
+            inference_watchdog_seconds=0.01,
+            watchdog_grace_seconds=0.01,
+            watchdog_poll_seconds=0.001,
+            fatal_terminator=terminator,
+        )
+        await harness.supervisor.start()
+        harness.supervisor.report_processing_failure(GpuOutOfMemoryError("oom"))
+
+        try:
+            with pytest.raises(_LifecycleFatalSentinel, match="recovery-watchdog"):
+                await harness.supervisor.recover_if_required()
+        finally:
+            release.set()
+            await lane.close()
+
+        assert started.is_set() is True
+        assert fatal_codes == [70]
+        assert harness.supervisor.fatal_termination_active is True
+        assert runtime_a.close_calls == 1
+        assert runtime_b.close_calls == 0
+        with pytest.raises(harness.module.RuntimeNotReadyError):
+            _ = harness.supervisor.runtime
 
     asyncio.run(scenario())
