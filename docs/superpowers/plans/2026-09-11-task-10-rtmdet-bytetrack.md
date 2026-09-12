@@ -1460,7 +1460,7 @@ Use topic branch `feature/task-10-attempt-composition`, created only from the ac
 
 ### Task 10: Map Typed Runtime/Tracker Failures Through Task-9 Lease Semantics
 
-**Status (reviewed 2026-09-12): READY FOR IMPLEMENTATION after the hardening below.** Task 10 is intentionally narrow. Task 9 already preserves model-neutral `ProcessingDependencyError` values and reports local runtime health. This task adds only worker-side allowlisted control-plane mapping while preserving the runner's existing lease-precedence boundary. Runtime disposition/recovery remains Task 11.
+**Status (2026-09-12): IMPLEMENTATION COMPLETE; FINAL EXACT-HEAD ACCEPTANCE/REVIEW/MERGE PENDING.** Task 10 is intentionally narrow. Task 9 already preserves model-neutral `ProcessingDependencyError` values and reports local runtime health. This task adds only worker-side allowlisted control-plane mapping while preserving the runner's existing lease-precedence boundary. Runtime disposition/recovery remains Task 11.
 
 **Planning corrections locked by this review:**
 
@@ -1510,7 +1510,7 @@ vision_processing_failed
 
 The runner must not use `error.runtime_disposition` to decide recovery, leasing, restart, or readiness. Task 11's supervisor owns those decisions through the already-established local failure sink.
 
-- [ ] **Step 1: RED — lock the four approved stable-code mappings**
+- [x] **Step 1: RED — lock the four approved stable-code mappings**
 
 In `test_worker_runner.py`, parameterize the concrete model-neutral failures:
 - `InferenceContractError` -> `vision_inference_contract_failed`;
@@ -1529,7 +1529,7 @@ For each case prove:
 
 This RED test should fail against the current runner because typed dependency failures presently fall into the generic exception path.
 
-- [ ] **Step 2: RED — lock fail-closed handling for unknown typed codes**
+- [x] **Step 2: RED — lock fail-closed handling for unknown typed codes**
 
 Construct a base `ProcessingDependencyError` using a syntactically valid but unapproved code such as `vision_future_dependency_failed`.
 
@@ -1543,7 +1543,7 @@ Prove:
 
 Do not weaken `ProcessingDependencyError` itself into a global enum in this task. Its broader syntax-valid contract is useful for fail-closed forward compatibility; the wire allowlist belongs at the worker boundary.
 
-- [ ] **Step 3: RED — prove typed-failure lease precedence at the real worker boundary**
+- [x] **Step 3: RED — prove typed-failure lease precedence at the real worker boundary**
 
 Extend `test_worker_lease_heartbeat.py` with deterministic race regressions based on its existing event-loop-stall/heartbeat-loss fixtures.
 
@@ -1555,7 +1555,7 @@ Required cases:
 
 Do not invent a new cancellation or terminal-authorization abstraction in Task 10. These tests validate the established ownership boundary that Task 11 will later reuse.
 
-- [ ] **Step 4: Implement the minimal allowlisted worker mapping**
+- [x] **Step 4: Implement the minimal allowlisted worker mapping**
 
 In `runner.py`:
 - import `logging`, `Final`, and model-neutral `ProcessingDependencyError`;
@@ -1575,7 +1575,7 @@ Implementation must not:
 - reuse arbitrary `str(exc)` as the API message;
 - catch `WorkerApiError` and attempt a second `/fail`.
 
-- [ ] **Step 5: GREEN — add terminal-fail transport regression for the new branch**
+- [x] **Step 5: GREEN — add terminal-fail transport regression for the new branch**
 
 Using the existing `FailingTerminalWorkerApiClient`, prove a typed dependency failure whose `/fail` request itself raises `WorkerApiError`:
 - results in one and only one fail attempt;
@@ -1585,7 +1585,7 @@ Using the existing `FailingTerminalWorkerApiClient`, prove a typed dependency fa
 
 This prevents a common error where a newly added catch branch is accidentally re-caught by the generic handler.
 
-- [ ] **Step 6: Run the focused Task-10 regression set**
+- [x] **Step 6: Run the focused Task-10 regression set**
 
 ```powershell
 cd src/vision
@@ -1596,7 +1596,7 @@ Acceptance:
 - all new stable-code, sanitization, unknown-code and lease-race tests pass;
 - all existing Task-9 source-integrity, heartbeat, lease-loss and artifact mutation invariants remain green.
 
-- [ ] **Step 7: Run full Python/repository verification**
+- [x] **Step 7: Run full Python/repository verification**
 
 ```powershell
 cd src/vision
@@ -1607,6 +1607,19 @@ python tools/verify_repo.py
 
 No optional heavy-runtime import may become necessary merely to collect or execute the runner tests.
 
+**Task-10 implementation evidence:**
+
+- Accepted planning baseline: `2b0f6a85411789b0531e67280816bc7e865f2162`; pre-implementation Task 10 Runtime Qualification #127 passed on Ubuntu and Windows and Staging Security #62 passed.
+- RED contract commit: `e595853ee41ecb167630932ac04524cd7be9cc6b`.
+- MAVI Quality Gate #285 / run `34700824266`: intentional RED — `6 failed, 521 passed, 13 skipped`.
+  - The six failures were exactly the four approved stable-code mappings, unapproved-code fail-closed normalization, and single-terminal-action mapping assertion.
+  - The new typed lease-expiry and heartbeat-loss precedence tests already passed in RED, proving the existing ownership boundary remained authoritative.
+- Minimal production mapping commit: `0af760adcd26dcd71732e21d79f0b6108589582c`.
+- MAVI Quality Gate #286 / run `34700989721`: PASS.
+- Full Python contract result on #286: `527 passed, 13 skipped`; repository verification, .NET tests/build, frontend tests/typecheck/build all passed.
+- Implementation diff is exactly 2 commits ahead / 0 behind the planning baseline and changes only `worker/runner.py`, `test_worker_runner.py`, and `test_worker_lease_heartbeat.py` before closure documentation.
+- Production runner imports only model-neutral `ProcessingDependencyError`; it does not inspect backend-specific failures or `RuntimeDisposition`, does not perform recovery/readiness work, and never forwards exception text as a terminal message.
+- Final Codex review, closure-head hosted gates, merge/tree verification and branch housekeeping remain pending below.
 - [ ] **Step 8: Hosted exact-head acceptance and review**
 
 Use a dedicated topic branch created from the accepted planning head, recommended name:
