@@ -466,6 +466,12 @@ def test_freeze_tool_rejects_filename_identity_mismatch(
             "wheel_python_incompatible",
         ),
         (
+            "sample-1.0.0-cp312-cp311-manylinux_2_17_x86_64.whl",
+            "linux-x86_64-cpu",
+            "3.12.14",
+            "wheel_tag_incompatible",
+        ),
+        (
             "sample-1.0.0-cp312-cp312-win_amd64.whl",
             "linux-x86_64-cpu",
             "3.12.14",
