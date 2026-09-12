@@ -286,28 +286,27 @@ def _runtime_variant_key(
     return f"{platform_name}-x86_64-{device_kind}"
 
 
-def _validate_production_runtime_binding(
+def _runtime_binding_mismatch(
     *,
     selection: VerifiedReleaseSelection,
     runtime_metadata: RuntimeMetadata,
     platform_identity: PlatformIdentity,
     runtime_variant: str,
-) -> str:
+) -> str | None:
+    """Return the stable reason the live runtime is not the qualified selection."""
     if selection.runtime_qualification_status != "qualified":
-        raise ValueError("production_runtime_not_qualified")
+        return "production_runtime_not_qualified"
     if not selection.runtime_semantic_graph:
-        raise ValueError("production_runtime_graph_missing")
+        return "production_runtime_graph_missing"
 
     for dependency_name, expected_version in selection.runtime_semantic_graph.items():
         actual_version = runtime_metadata.versions.get(dependency_name)
         if actual_version != expected_version:
-            raise ValueError(
-                "runtime_dependency_version_mismatch:" + dependency_name
-            )
+            return "runtime_dependency_version_mismatch:" + dependency_name
 
     variant = selection.runtime_platform_variants.get(runtime_variant)
     if variant is None:
-        raise ValueError("runtime_platform_variant_missing")
+        return "runtime_platform_variant_missing"
 
     expected_status = (
         "qualified-hardware"
@@ -315,21 +314,37 @@ def _validate_production_runtime_binding(
         else "qualified-hosted-cpu"
     )
     if variant.status != expected_status:
-        raise ValueError("runtime_platform_variant_not_qualified")
+        return "runtime_platform_variant_not_qualified"
     if variant.resolved_config_sha256 != selection.manifest.resolved_config.sha256:
-        raise ValueError("runtime_variant_config_identity_mismatch")
+        return "runtime_variant_config_identity_mismatch"
 
     expected_python = variant.python_identity
     if expected_python is None:
-        raise ValueError("runtime_python_identity_missing")
+        return "runtime_python_identity_missing"
     if (
         expected_python.version != platform_identity.python_version
         or expected_python.implementation != platform_identity.python_implementation
         or expected_python.build != platform_identity.python_build
         or expected_python.compiler != platform_identity.python_compiler
     ):
-        raise ValueError("runtime_python_identity_mismatch")
+        return "runtime_python_identity_mismatch"
 
+    lock = selection.runtime_release_locks.get(runtime_variant)
+    if (
+        lock is None
+        or lock.status != "qualified-offline-lock"
+        or lock.sha256 is None
+    ):
+        return "production_platform_lock_required"
+
+    return None
+
+
+def _qualified_runtime_lock_sha256(
+    *,
+    selection: VerifiedReleaseSelection,
+    runtime_variant: str,
+) -> str:
     lock = selection.runtime_release_locks.get(runtime_variant)
     if (
         lock is None
@@ -343,21 +358,39 @@ def _validate_production_runtime_binding(
     )
 
 
-def _selected_development_lock_sha256(
+def _effective_verification_status(
     *,
     selection: VerifiedReleaseSelection,
+    runtime_metadata: RuntimeMetadata,
+    platform_identity: PlatformIdentity,
     runtime_variant: str,
-) -> str | None:
-    lock = selection.runtime_release_locks.get(runtime_variant)
-    if (
-        lock is None
-        or lock.status != "qualified-offline-lock"
-        or lock.sha256 is None
-    ):
-        return None
-    return _require_sha256(
-        lock.sha256,
-        code="platform_lock_sha256_invalid",
+    production_mode: bool,
+) -> tuple[Literal["verified", "unverified"], str | None]:
+    """Bind the provenance label to the live qualified runtime, not the manifest alone."""
+    if selection.verification_status != "verified":
+        if production_mode:
+            raise ValueError("production_release_not_verified")
+        return "unverified", None
+
+    mismatch = _runtime_binding_mismatch(
+        selection=selection,
+        runtime_metadata=runtime_metadata,
+        platform_identity=platform_identity,
+        runtime_variant=runtime_variant,
+    )
+    if mismatch is not None:
+        if production_mode:
+            raise ValueError(mismatch)
+        # Development may intentionally experiment outside the qualified runtime,
+        # but it must never inherit the release's verified label.
+        return "unverified", None
+
+    return (
+        "verified",
+        _qualified_runtime_lock_sha256(
+            selection=selection,
+            runtime_variant=runtime_variant,
+        ),
     )
 
 
@@ -384,9 +417,6 @@ def build_runtime_provenance(
         raise ValueError("runtime_model_manifest_mismatch")
     if runtime_metadata.ordered_class_vocabulary != manifest.class_vocabulary:
         raise ValueError("runtime_vocabulary_manifest_mismatch")
-
-    if production_mode and selection.verification_status != "verified":
-        raise ValueError("production_release_not_verified")
 
     missing_versions = sorted(
         _REQUIRED_RUNTIME_VERSION_KEYS - set(runtime_metadata.versions)
@@ -417,18 +447,12 @@ def build_runtime_provenance(
         platform_identity=captured_platform,
         actual_device=runtime_metadata.device,
     )
-    lock_sha = (
-        _validate_production_runtime_binding(
-            selection=selection,
-            runtime_metadata=runtime_metadata,
-            platform_identity=captured_platform,
-            runtime_variant=runtime_variant,
-        )
-        if production_mode
-        else _selected_development_lock_sha256(
-            selection=selection,
-            runtime_variant=runtime_variant,
-        )
+    effective_verification_status, lock_sha = _effective_verification_status(
+        selection=selection,
+        runtime_metadata=runtime_metadata,
+        platform_identity=captured_platform,
+        runtime_variant=runtime_variant,
+        production_mode=production_mode,
     )
 
     if ffmpeg_version is not None:
@@ -458,7 +482,7 @@ def build_runtime_provenance(
         pipeline_profile_sha256=selection.profile_sha256,
         qualification_id=qualification_id,
         qualification_sha256=selection.qualification_sha256,
-        verification_status=selection.verification_status,
+        verification_status=effective_verification_status,
         runtime_profile_id=selection.runtime_profile_id,
         runtime_profile_sha256=selection.runtime_profile_sha256,
         runtime_variant=runtime_variant,
