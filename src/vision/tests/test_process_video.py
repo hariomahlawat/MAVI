@@ -15,6 +15,7 @@ from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.detection.fixture import FixtureDetector
 from mavi_vision.detection.interfaces import DetectionCandidate
 from mavi_vision.pipeline.process_video import VideoProcessingError, VideoProcessor
+from mavi_vision.runtime.errors import GpuOutOfMemoryError, TrackerError
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.tracking.fixture import FixtureTracker
@@ -304,6 +305,89 @@ def test_detector_failure_maps_to_pipeline_error_and_cleans_attempt(tmp_path: Pa
     assert exc_info.value.code == "pipeline_processing_failed"
     assert not _attempt_path(tmp_path).exists()
 
+
+
+def test_gpu_oom_error_propagates_unchanged_and_cleans_owned_attempt(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "tiny.mp4"
+    _write_tiny_mp4(source, frame_count=1)
+    size, digest = _source_facts(source)
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
+    store.write_bytes("stale.bin", b"stale", "application/octet-stream")
+    error = GpuOutOfMemoryError("fixture oom")
+
+    class FailingDetector:
+        def detect(self, frame):
+            raise error
+
+    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store)
+
+    with pytest.raises(GpuOutOfMemoryError) as exc_info:
+        _run(processor, source, size, digest)
+
+    assert exc_info.value is error
+    assert not _attempt_path(tmp_path).exists()
+
+
+def test_tracker_error_propagates_unchanged_and_cleans_owned_attempt(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "tiny.mp4"
+    _write_tiny_mp4(source, frame_count=1)
+    size, digest = _source_facts(source)
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
+    store.write_bytes("stale.bin", b"stale", "application/octet-stream")
+    error = TrackerError("fixture tracker failure")
+
+    class FailingTracker:
+        def update(self, frame, detections):
+            raise error
+
+    processor = VideoProcessor(
+        FixtureDetector({0: (_person(),)}),
+        FailingTracker(),
+        store,
+    )
+
+    with pytest.raises(TrackerError) as exc_info:
+        _run(processor, source, size, digest)
+
+    assert exc_info.value is error
+    assert not _attempt_path(tmp_path).exists()
+
+
+def test_typed_dependency_failure_survives_lease_loss_without_stale_cleanup(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "tiny.mp4"
+    _write_tiny_mp4(source, frame_count=1)
+    size, digest = _source_facts(source)
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
+    guard = _owned_guard()
+    error = GpuOutOfMemoryError("fixture oom after lease loss")
+    keep_path: Path | None = None
+
+    class FailingDetector:
+        def detect(self, frame):
+            nonlocal keep_path
+            descriptor = store.write_bytes(
+                "keep.bin",
+                b"keep-after-startup-cleanup",
+                "application/octet-stream",
+            )
+            keep_path = _artifact_path(tmp_path, descriptor.storage_key)
+            guard.mark_lost()
+            raise error
+
+    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store)
+
+    with pytest.raises(GpuOutOfMemoryError) as exc_info:
+        _run(processor, source, size, digest, lease_guard=guard)
+
+    assert exc_info.value is error
+    assert keep_path is not None
+    assert keep_path.read_bytes() == b"keep-after-startup-cleanup"
 
 def test_process_rejects_store_scoped_to_different_job_without_cleanup(tmp_path: Path) -> None:
     source = tmp_path / "tiny.mp4"
