@@ -23,14 +23,18 @@ from mavi_vision.runtime.manifest import ArtifactRef, ModelManifest
 from mavi_vision.runtime.mmdetection import (
     MMDetectionRuntime,
     _MMDetectionBindings,
+    _runtime_variant_name,
 )
 import mavi_vision.runtime.mmdetection as mmdetection_module
 from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
-from mavi_vision.runtime.qualification import VerifiedReleaseSelection
+from mavi_vision.runtime.qualification import (
+    RuntimePlatformVariantIdentity,
+    VerifiedReleaseSelection,
+)
 
 
 VOCABULARY = ("person", "car", "dog")
-VERSIONS = {
+SEMANTIC_VERSIONS = {
     "torch": "2.6.0",
     "torchvision": "0.21.0",
     "mmcv": "2.1.0",
@@ -44,6 +48,11 @@ VERSIONS = {
     "opencvPython": "5.0.0.93",
     "av": "16.1.0",
     "pillow": "11.3.0",
+}
+LIVE_VERSIONS = {
+    **SEMANTIC_VERSIONS,
+    "torch": "2.6.0+cpu",
+    "torchvision": "0.21.0+cpu",
 }
 
 
@@ -132,7 +141,7 @@ class BackendHarness:
     ) -> None:
         self.vocabulary = vocabulary
         self.model_device = model_device
-        self.versions = dict(VERSIONS if versions is None else versions)
+        self.versions = dict(LIVE_VERSIONS if versions is None else versions)
         self.prediction = prediction or _empty_prediction()
         self.inference_error = inference_error
         self.cuda_available = cuda_available
@@ -305,8 +314,32 @@ def _selection(
         resolved_config_path=config_path,
         verification_status="unverified",
         runtime_qualification_status="partial",
-        runtime_semantic_graph=MappingProxyType(
-            dict(VERSIONS if versions is None else versions)
+        runtime_semantic_graph=MappingProxyType(dict(SEMANTIC_VERSIONS)),
+        runtime_platform_variants=MappingProxyType(
+            {
+                "linux-x86_64-cpu": RuntimePlatformVariantIdentity(
+                    status="qualified-hosted-cpu",
+                    resolved_config_sha256=None,
+                    python_identity=None,
+                    binary_versions=MappingProxyType(
+                        {
+                            "torch": "2.6.0+cpu",
+                            "torchvision": "0.21.0+cpu",
+                        }
+                    ),
+                ),
+                "windows-x86_64-cpu": RuntimePlatformVariantIdentity(
+                    status="qualified-hosted-cpu",
+                    resolved_config_sha256=None,
+                    python_identity=None,
+                    binary_versions=MappingProxyType(
+                        {
+                            "torch": "2.6.0+cpu",
+                            "torchvision": "0.21.0+cpu",
+                        }
+                    ),
+                ),
+            }
         ),
     )
 
@@ -354,7 +387,66 @@ def test_constructor_uses_verified_local_artifacts_and_profile_floor(
     assert runtime.metadata.model_id == selection.manifest.model_id
     assert runtime.metadata.device == "cpu"
     assert runtime.metadata.ordered_class_vocabulary == VOCABULARY
-    assert dict(runtime.metadata.versions) == VERSIONS
+    assert dict(runtime.metadata.versions) == LIVE_VERSIONS
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "device", "expected"),
+    [
+        ("Linux", "x86_64", "cpu", "linux-x86_64-cpu"),
+        ("Windows", "AMD64", "cpu", "windows-x86_64-cpu"),
+        ("Linux", "AMD64", "cuda:0", "linux-x86_64-cuda"),
+        ("Windows", "x86_64", "cuda:3", "windows-x86_64-cuda"),
+    ],
+)
+def test_runtime_variant_name_is_explicit_and_platform_stable(
+    system: str,
+    machine: str,
+    device: str,
+    expected: str,
+) -> None:
+    assert (
+        _runtime_variant_name(system=system, machine=machine, device=device)
+        == expected
+    )
+
+
+def test_constructor_rejects_wrong_pytorch_binary_build_with_same_semantic_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = BackendHarness()
+    harness.versions["torch"] = "2.6.0+cu124"
+    _patch_backend(monkeypatch, harness)
+
+    with pytest.raises(
+        RuntimeCompatibilityError,
+        match="runtime_binary_version_mismatch:torch",
+    ):
+        MMDetectionRuntime(
+            _selection(tmp_path),
+            device="cpu",
+            activity=InferenceActivity(),
+        )
+
+    assert harness.init_calls == []
+
+
+def test_constructor_preserves_full_pytorch_build_tags_in_runtime_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = BackendHarness()
+    _patch_backend(monkeypatch, harness)
+
+    runtime = MMDetectionRuntime(
+        _selection(tmp_path),
+        device="cpu",
+        activity=InferenceActivity(),
+    )
+
+    assert runtime.metadata.versions["torch"] == "2.6.0+cpu"
+    assert runtime.metadata.versions["torchvision"] == "0.21.0+cpu"
 
 
 def test_constructor_rejects_dependency_version_drift_before_model_init(
