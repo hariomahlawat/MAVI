@@ -80,5 +80,9 @@ class InferenceActivity:
 
             elapsed = now_monotonic - started
             if elapsed < 0:
-                raise ValueError("inference_watchdog_clock_regressed")
+                # The watchdog may sample time immediately before another thread
+                # marks inference active, then acquire this lock afterwards. That
+                # coherent cross-thread race is not a clock failure and cannot be
+                # a hung inference yet.
+                return False
             return elapsed >= threshold_seconds
