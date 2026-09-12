@@ -549,9 +549,27 @@ This does not claim cross-GPU bitwise inference determinism; it removes MAVI-int
 
 ### 12.1 Backend selection and isolation
 
-Task 10 qualifies and uses `trackers.ByteTrackTracker` underneath MAVI's own `Tracker` protocol. The exact package version is frozen in the qualified runtime profile.
+Task 10 qualifies and uses `trackers.ByteTrackTracker` underneath MAVI's own `Tracker` protocol. The exact package version is frozen in the qualified runtime profile. For the current candidate the reviewed API is **Trackers 2.6.0** with **Supervision 0.30.2**.
 
-Any `supervision` object required by the library is created and consumed inside the ByteTrack adapter only. MAVI domain/pipeline code never receives a Supervision object.
+The adapter binds only the reviewed public Trackers 2.6.0 surface:
+
+```python
+NativeByteTrackTracker(
+    lost_track_buffer=...,
+    frame_rate=...,
+    track_activation_threshold=...,
+    minimum_consecutive_frames=...,
+    minimum_iou_threshold=...,
+    high_conf_det_threshold=...,
+)
+native.update(detections, timestamp=...)
+```
+
+It does **not** pass the decoded image as `frame=` because Trackers 2.6.0 ByteTrack does not use it. It does not use the backend `tracked_objects` property to emit evidence because that property includes predicted/unmatched state rather than current-frame detector observations.
+
+Any `trackers` or `supervision` object required by the library is created and consumed inside the ByteTrack adapter only. MAVI domain/pipeline code never receives a third-party tracker object. Heavy tracker imports remain lazy so core MAVI collection/import does not require the optional vision-runtime dependency group.
+
+Package/version authority remains the Task-1 runtime profile; Task 8 does not duplicate version constants in application code. The real adapter qualification gate verifies the installed Trackers/Supervision versions against that runtime profile before sequence tests execute.
 
 ### 12.2 Two independent association domains
 
@@ -580,19 +598,58 @@ MAVI DetectionCandidate[]
                timestamp=frame.offset_ms / 1000.0
            )
         -> recover original current-frame detection by preserved ordinal
-        -> tracker_id < 0: emit nothing
+        -> tracker_id == -1: emit nothing
+        -> tracker_id < -1: backend-contract failure
         -> tracker_id >= 0: map native ID to MAVI ID and emit TrackCandidate
 ```
 
-The adapter shall not rely on backend output ordering. Qualification must prove that the selected backend/version preserves the MAVI frame-local ordinal through its detection slicing/return path. If that property does not hold, the backend adapter must provide an equivalent explicit index mapping; output position alone is not accepted.
+The adapter shall not rely on backend output ordering. It creates a Supervision `Detections` object with `data["mavi_ordinal"]` as an integer array. Trackers 2.6.0 builds its return value by slicing the original `Detections`; Supervision 0.30.2 slices/copies aligned `data` fields with the same indices. Qualification must prove this cross-package invariant on the exact installed versions. Output position alone is never accepted.
 
-Calling both class trackers on every frame, even with an empty detection set, is mandatory so occlusion/lost-track ageing remains correct.
+For each class update, backend output must contain exactly one row for every input ordinal, with the same unique ordinal set. Missing, duplicate, unknown or non-integral ordinals; missing/non-integral tracker IDs; or a native tracker ID less than `-1` are contract failures. Original normalized MAVI box/confidence are recovered from the ordinal map; backend-returned/predicted boxes and scores are not used as evidence.
 
-### 12.4 Time semantics and lost-track budget
+Calling both class trackers on every frame, even with an empty detection set, is mandatory so timestamp anchoring and occlusion/lost-track ageing remain correct even before a class first appears.
 
-MAVI always supplies the exact media-relative timestamp from `DecodedFrame.offset_ms`. ByteTrack therefore follows the same PTS-aware timeline as Task 9, including variable-frame-rate media.
+### 12.4 Time semantics, exact Trackers-2.6 parameter mapping, and lost-track budget
 
-The MAVI profile expresses the lost-track allowance as a time-domain policy (for example `lostTrackBufferSeconds`) rather than exposing an ambiguous frame-rate-dependent application setting. The adapter converts this policy to the selected backend's qualified parameterization and tests the resulting behaviour across multiple frame rates.
+MAVI always supplies the exact media-relative timestamp from `DecodedFrame.offset_ms`. ByteTrack therefore follows the same PTS-aware timeline as Task 9, including variable-frame-rate media. The adapter requires strictly increasing frame number and `offset_ms` across accepted calls; it fails closed rather than relying on the backend's warning-and-skip behaviour for backwards/non-finite timestamps.
+
+Trackers 2.6.0 has different parameter semantics from the deprecated Supervision ByteTrack API. The MAVI profile must therefore use names that match the selected backend contract and must never translate the legacy `minimumMatchingThreshold` value directly into an IoU threshold.
+
+The versioned mapping is:
+
+| MAVI profile | Trackers 2.6.0 constructor | Contract |
+| --- | --- | --- |
+| `referenceFrameRate` | `frame_rate` | Kalman reference rate used when converting elapsed seconds to frame units |
+| `lostTrackBufferSeconds` | `lost_track_buffer = seconds * 30` | backend stores the dynamic timestamp budget as `lost_track_buffer / 30` seconds |
+| `trackActivationThreshold` | `track_activation_threshold` | confidence required to spawn a new native track from an unmatched high-confidence detection |
+| `highConfidenceThreshold` | `high_conf_det_threshold` | split between first-stage high-confidence and second-stage low-confidence association |
+| `minimumIouThreshold` | `minimum_iou_threshold` | minimum IoU **similarity** accepted by association |
+| `minimumConsecutiveFrames` | `minimum_consecutive_frames` | native confirmation requirement |
+
+`lostTrackBufferSeconds * 30` must be an exact non-negative integer in the versioned profile; the adapter does not silently round an ambiguous time budget.
+
+Because Trackers 2.6.0 only spawns new tracks from the high-confidence set, the profile relationship is:
+
+```text
+detectorInferenceFloor < highConfidenceThreshold < trackActivationThreshold <= 1.0
+```
+
+This keeps low-confidence second-stage evidence available and prevents `trackActivationThreshold` from becoming a redundant/dead setting. The current legacy relation in the pre-Task-8 profile is intentionally replaced rather than preserved.
+
+The first corrected candidate uses the reviewed Trackers 2.6.0 defaults as a neutral starting point rather than carrying forward deprecated Supervision semantics:
+
+```text
+referenceFrameRate          = 30.0
+lostTrackBufferSeconds      = 1.0
+trackActivationThreshold    = 0.7
+highConfidenceThreshold     = 0.6
+minimumIouThreshold         = 0.1
+minimumConsecutiveFrames    = 2
+```
+
+These are candidate behavioural parameters, not an accuracy claim. Representative CCTV tuning remains part of later qualification. Any tuning change changes the pipeline-profile bytes/hash and requires new qualification evidence.
+
+Trackers 2.6.0 returns the first newly spawned detection with `tracker_id == -1`; confirmation is observed only on a later matched update when the native confirmation rule is satisfied. Task-8 tests lock this exact selected-version behaviour so no assumption from older ByteTrack implementations leaks into MAVI.
 
 ### 12.5 Tentative tracks and confirmation
 
@@ -629,7 +686,9 @@ Newly confirmed tracks in the same frame are ordered by:
 (bbox.x, bbox.y, bbox.width, bbox.height, -confidence, frame_local_ordinal)
 ```
 
-The third-party native counter is never used as the ordering source for MAVI ID allocation.
+The third-party native counter is never used as the ordering source for MAVI ID allocation. Native IDs are zero-based implementation details in the selected package and are never exposed outside the adapter.
+
+After both class updates succeed, emitted candidates are returned in original global `frame_ordinal` order. This is independent of the canonical allocation order used only for newly confirmed MAVI IDs.
 
 ### 12.8 Occlusion and reacquisition
 
