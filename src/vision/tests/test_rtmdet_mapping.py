@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from itertools import permutations
 from types import MappingProxyType
 from typing import Sequence
@@ -203,3 +204,23 @@ def test_adapter_does_not_add_nms_or_generic_detection_cap() -> None:
 
     assert len(output) == 40
     assert [candidate.frame_ordinal for candidate in output] == list(range(40))
+
+def test_signed_zero_is_canonicalized_before_sorting_and_ordinal_assignment() -> None:
+    signed_zero_pair = (
+        _raw("person", -0.0, (-0.0, -0.0, 10.0, 10.0)),
+        _raw("person", 0.0, (0.0, 0.0, 10.0, 10.0)),
+    )
+    frame = _frame()
+    profile = _profile()
+
+    serialized = [
+        json.dumps(
+            _serialize(RTMDetDetector(FakeRuntime(order), profile).detect(frame)),
+            separators=(",", ":"),
+        )
+        for order in permutations(signed_zero_pair)
+    ]
+
+    assert len(set(serialized)) == 1
+    assert "-0.0" not in serialized[0]
+
