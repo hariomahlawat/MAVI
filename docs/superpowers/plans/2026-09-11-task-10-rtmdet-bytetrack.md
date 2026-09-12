@@ -1200,9 +1200,13 @@ Then update this plan with exact evidence while retaining the global Task-10 par
 
 ### Task 9: Compose a Fresh Attempt Pipeline Around the Shared Detector Runtime
 
+**Planning correction (2026-09-12):** Task 9's failure-sink contract requires detector/tracker `ProcessingDependencyError` values to survive `VideoProcessor` unchanged. The pre-Task-9 `VideoProcessor` catch-all currently collapses them into `VideoProcessingError("pipeline_processing_failed")`. The narrow model-neutral pass-through originally scheduled as Task-10 Steps 1–2 is therefore moved forward as Task-9 Step 0. This is a dependency-order correction, not a scope expansion: Task 10 still owns worker allowlisting, `/fail` mapping, and typed-error/lease-loss races.
+
 **Files:**
 - Create: `src/vision/mavi_vision/pipeline/production_processor.py`
 - Create: `src/vision/tests/test_production_processor.py`
+- Modify: `src/vision/mavi_vision/pipeline/process_video.py`
+- Modify: `src/vision/tests/test_process_video.py`
 
 **Interfaces:**
 
@@ -1230,69 +1234,117 @@ class ProductionVisionProcessor:
 
 The production composition root binds `settings.media_root` into `staging_factory`, for example `lambda job_id, attempt: StagingArtifactStore(settings.media_root, job_id, attempt)`. The processor therefore cannot accidentally choose a different root per job.
 
-- [ ] **Step 1: Write attempt-lifecycle tests**
+The long-lived `DetectorRuntime` is injected once and is never reconstructed, warmed up, or closed by this class. Every `process()` call creates a fresh `RTMDetDetector`, fresh `ByteTrackTracker`, fresh attempt-scoped staging store, and fresh `VideoProcessor`.
 
-Call `process()` twice with one fake long-lived runtime. Assert runtime identity is unchanged while detector adapter, ByteTrack adapter, staging store, and `VideoProcessor` are recreated; track IDs restart; attempt keys use the correct count.
+- [ ] **Step 0: Preserve typed dependency failures through `VideoProcessor` before composing attempts**
 
-- [ ] **Step 2: Write failure-notification tests**
+Write RED regressions proving:
+- detector `GpuOutOfMemoryError` exits `VideoProcessor` as the exact same exception object;
+- tracker `TrackerError` exits as the exact same exception object;
+- lease loss still outranks a concurrent typed dependency failure and suppresses cleanup after ownership is lost;
+- attempt staging is cleaned only while the lease is still owned.
 
-Detector OOM -> sink receives exact RECOVER error once and same error rethrows. Tracker failure -> sink receives CONTINUE; this class does not reconstruct the detector itself.
+Implement only the narrow model-neutral catch before the existing generic catch:
 
-- [ ] **Step 3: Implement minimal attempt composition**
+```python
+except ProcessingDependencyError:
+    self._cleanup_best_effort(lease_guard)
+    raise
+```
 
-Create `RTMDetDetector(runtime, profile)`, new `ByteTrackTracker(profile.tracker)`, `staging_factory(job_id, attempt_count)`, and new existing `VideoProcessor`; delegate. No lease acquisition, heartbeat, CUDA recovery, or Task-11 persistence here.
+Do not import backend-specific exception classes into `process_video.py`. Do not change generic decode, integrity, lease, or pipeline error semantics.
 
-- [ ] **Step 4: Run and commit**
+- [ ] **Step 1: Write attempt-lifecycle and ownership tests**
+
+Call `ProductionVisionProcessor.process()` twice with one fake long-lived runtime. Assert:
+- the exact runtime object is reused;
+- detector adapter, ByteTrack adapter, staging store, and `VideoProcessor` are recreated per attempt;
+- attempt 2 cannot reuse attempt-1 tracker state or MAVI track IDs;
+- staging factory receives the exact `(job_id, attempt_count)` pair on every call;
+- the class never acquires a lease, renews a heartbeat, reconstructs the runtime, calls `runtime.warmup()`, or calls `runtime.close()`.
+
+Keep the test lightweight by replacing adapter/processor constructors with fakes; exact ByteTrack reset semantics are already locked by Task 8.
+
+- [ ] **Step 2: Write exact failure-notification tests**
+
+Cover both construction-time and processing-time typed failures:
+- `RTMDetDetector` / runtime inference `GpuOutOfMemoryError` -> sink called exactly once with the exact RECOVER error, then the same error rethrows;
+- ByteTrack construction/update `TrackerError` -> sink called exactly once with the exact CONTINUE error, then the same error rethrows;
+- inference-contract failure -> sink receives the exact RECOVER error once;
+- `LeaseLostError`, `SourceIntegrityError`, ordinary `VideoProcessingError`, and staging/configuration failures do **not** notify the runtime-failure sink;
+- when lease loss wins inside `VideoProcessor`, no stale dependency notification is emitted.
+
+The sink is a notification boundary only. Task 9 does not recover/rebuild the detector and does not call the control-plane failure API.
+
+- [ ] **Step 3: Implement minimal deterministic attempt composition**
+
+Inside `process()`, construct in this order:
+
+```text
+shared DetectorRuntime
+    -> fresh RTMDetDetector(runtime, profile)
+    -> fresh ByteTrackTracker(profile.tracker)
+    -> staging_factory(job_id, attempt_count)
+    -> fresh VideoProcessor(detector, tracker, store)
+    -> VideoProcessor.process(...)
+```
+
+Wrap this composition/delegation in one `except ProcessingDependencyError as exc` boundary:
+1. call `runtime_failure_sink(exc)` exactly once;
+2. rethrow the same error unchanged.
+
+Do not catch `LeaseLostError` or generic pipeline errors here. Do not acquire/renew leases, perform CUDA recovery, mutate supervisor state directly, or implement Task-11 persistence.
+
+- [ ] **Step 4: Run focused regressions and commit**
 
 ```powershell
 cd src/vision
-python -m pytest tests/test_production_processor.py tests/test_process_video.py -q
-git add mavi_vision/pipeline/production_processor.py tests/test_production_processor.py
+python -m pytest tests/test_production_processor.py tests/test_process_video.py tests/test_bytetrack_adapter.py tests/test_rtmdet_mapping.py -q
+cd ../..
+python tools/verify_repo.py
+git add src/vision/mavi_vision/pipeline/production_processor.py src/vision/mavi_vision/pipeline/process_video.py src/vision/tests/test_production_processor.py src/vision/tests/test_process_video.py
 git commit -m "feat: compose production vision attempts"
 ```
 
+**Reviewer gate:** reject any implementation that creates a new detector runtime per attempt, lets tracker state cross attempts, reports a runtime failure after lease loss has taken precedence, catches generic exceptions in `ProductionVisionProcessor`, performs recovery there, or bypasses `VideoProcessor` lease/artifact authority.
+
 ---
 
-### Task 10: Preserve Typed Runtime/Tracker Failure Classification Through Task-9 Lease Semantics
+### Task 10: Map Typed Runtime/Tracker Failures Through Task-9 Lease Semantics
+
+**Planning correction (2026-09-12):** The narrow `VideoProcessor` pass-through previously listed here is now Task-9 Step 0 because Task 9's runtime-failure sink cannot preserve exact dependency errors without it. Task 10 begins from that established model-neutral pass-through and owns only worker-side control-plane mapping and lease precedence.
 
 **Files:**
-- Modify: `src/vision/mavi_vision/pipeline/process_video.py`
 - Modify: `src/vision/mavi_vision/worker/runner.py`
-- Modify: `src/vision/tests/test_process_video.py`
 - Modify: `src/vision/tests/test_worker_runner.py`
 - Modify: `src/vision/tests/test_lease_ownership_matrix.py`
+- Regress: `src/vision/tests/test_process_video.py`
+- Regress: `src/vision/tests/test_artifact_publisher.py`
+- Regress: `src/vision/tests/test_artifact_store.py`
 
 **Interfaces:**
-- `VideoProcessor` passes `ProcessingDependencyError` through unchanged after lease-authorized best-effort cleanup.
+- `VideoProcessor` already passes approved `ProcessingDependencyError` values through unchanged after lease-authorized best-effort cleanup (established in Task 9).
 - `WorkerRunner` allowlists approved `ProcessingDependencyError.code` values and maps them to `/fail` only after existing ownership checks.
 
-- [ ] **Step 1: Write the red test proving the current catch-all collapses OOM**
-
-A detector raises `GpuOutOfMemoryError`; expected new behaviour is the same typed error exits `VideoProcessor`, not `VideoProcessingError("pipeline_processing_failed")`.
-
-- [ ] **Step 2: Add only the narrow model-neutral pass-through catch**
-
-Catch `ProcessingDependencyError` before generic `Exception`, call `_cleanup_best_effort(lease_guard)`, rethrow unchanged. Do not import backend-specific exception types.
-
-- [ ] **Step 3: Write runner stable-code tests**
+- [ ] **Step 1: Write runner stable-code tests**
 
 Owned lease + each of `vision_inference_contract_failed`, `vision_gpu_out_of_memory`, `vision_gpu_runtime_failed`, `vision_tracker_failed` -> exactly one `/fail` with generic sanitized message.
 
-- [ ] **Step 4: Write lease-loss race tests**
+- [ ] **Step 2: Write typed-failure / lease-loss race tests**
 
-Typed failure and expiry race -> lease loss wins; API receives no `/fail`.
+A typed dependency failure racing lease expiry/loss must preserve existing Task-9 authority rules: lease loss wins and the API receives no `/fail`.
 
-- [ ] **Step 5: Implement allowlisted handling**
+- [ ] **Step 3: Implement allowlisted handling**
 
-Unknown typed code does not pass through blindly; normalize it to generic `vision_processing_failed` and log locally as a programming/configuration defect.
+Unknown typed codes do not pass through blindly; normalize them to generic `vision_processing_failed` and log locally as a programming/configuration defect. Do not trust arbitrary exception text as a control-plane message.
 
-- [ ] **Step 6: Run Task-9 ownership regressions and commit**
+- [ ] **Step 4: Re-run Task-9 ownership/artifact regressions and commit**
 
 ```powershell
 cd src/vision
 python -m pytest tests/test_process_video.py tests/test_worker_runner.py tests/test_lease_ownership_matrix.py tests/test_artifact_publisher.py tests/test_artifact_store.py -q
-git add mavi_vision/pipeline/process_video.py mavi_vision/worker/runner.py tests/test_process_video.py tests/test_worker_runner.py tests/test_lease_ownership_matrix.py
-git commit -m "feat: preserve vision runtime failure classification"
+git add mavi_vision/worker/runner.py tests/test_worker_runner.py tests/test_lease_ownership_matrix.py
+git commit -m "feat: map vision runtime failure classification"
 ```
 
 ---
