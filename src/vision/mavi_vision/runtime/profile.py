@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isclose
+from math import isclose, isfinite
+from numbers import Real
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, Mapping
@@ -28,6 +29,29 @@ _TRACKERS_REFERENCE_HZ = 30.0
 _INTEGER_TOLERANCE = 1e-9
 
 
+def _is_finite_real(value: object) -> bool:
+    return (
+        isinstance(value, Real)
+        and not isinstance(value, bool)
+        and isfinite(float(value))
+    )
+
+
+def _lost_track_buffer_units(seconds: float) -> int:
+    if not _is_finite_real(seconds) or not 0.0 < float(seconds) <= 60.0:
+        raise ValueError("bytetrack_lost_buffer_seconds_invalid")
+    scaled = float(seconds) * _TRACKERS_REFERENCE_HZ
+    nearest = round(scaled)
+    if not isclose(
+        scaled,
+        nearest,
+        rel_tol=0.0,
+        abs_tol=_INTEGER_TOLERANCE,
+    ):
+        raise ValueError("bytetrack_lost_buffer_not_integral_at_30hz")
+    return nearest
+
+
 @dataclass(frozen=True, slots=True)
 class ByteTrackProfile:
     reference_frame_rate: float
@@ -37,9 +61,35 @@ class ByteTrackProfile:
     minimum_consecutive_frames: int
     lost_track_buffer_seconds: float
 
+    def __post_init__(self) -> None:
+        if (
+            not _is_finite_real(self.reference_frame_rate)
+            or float(self.reference_frame_rate) <= 0.0
+        ):
+            raise ValueError("bytetrack_reference_frame_rate_invalid")
+        for name, value in (
+            ("track_activation_threshold", self.track_activation_threshold),
+            ("high_confidence_threshold", self.high_confidence_threshold),
+            ("minimum_iou_threshold", self.minimum_iou_threshold),
+        ):
+            if (
+                not _is_finite_real(value)
+                or not 0.0 <= float(value) <= 1.0
+            ):
+                raise ValueError(f"bytetrack_{name}_invalid")
+        if not self.high_confidence_threshold < self.track_activation_threshold:
+            raise ValueError("bytetrack_confidence_threshold_order_invalid")
+        if (
+            not isinstance(self.minimum_consecutive_frames, int)
+            or isinstance(self.minimum_consecutive_frames, bool)
+            or not 1 <= self.minimum_consecutive_frames <= 100
+        ):
+            raise ValueError("bytetrack_minimum_consecutive_frames_invalid")
+        _lost_track_buffer_units(self.lost_track_buffer_seconds)
+
     @property
     def lost_track_buffer(self) -> int:
-        return int(self.lost_track_buffer_seconds * _TRACKERS_REFERENCE_HZ)
+        return _lost_track_buffer_units(self.lost_track_buffer_seconds)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,15 +150,7 @@ class _ByteTrackProfileSchema(_StrictModel):
         if not self.high_confidence_threshold < self.track_activation_threshold:
             raise ValueError("bytetrack_confidence_threshold_order_invalid")
 
-        scaled_lost_buffer = self.lost_track_buffer_seconds * _TRACKERS_REFERENCE_HZ
-        nearest = round(scaled_lost_buffer)
-        if not isclose(
-            scaled_lost_buffer,
-            nearest,
-            rel_tol=0.0,
-            abs_tol=_INTEGER_TOLERANCE,
-        ):
-            raise ValueError("bytetrack_lost_buffer_not_integral_at_30hz")
+        _lost_track_buffer_units(self.lost_track_buffer_seconds)
         return self
 
 

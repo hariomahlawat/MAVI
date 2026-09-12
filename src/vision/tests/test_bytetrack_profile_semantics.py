@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from mavi_vision.runtime.manifest import ReleaseMetadataError
-from mavi_vision.runtime.profile import load_pipeline_profile
+from mavi_vision.runtime.profile import ByteTrackProfile, load_pipeline_profile
 
 
 def _payload() -> dict:
@@ -38,7 +38,11 @@ def _payload() -> dict:
 
 def _load(tmp_path: Path, payload: dict):
     path = tmp_path / "profile.json"
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     return load_pipeline_profile(path)
 
 
@@ -122,3 +126,33 @@ def test_minimum_iou_must_be_finite_unit_interval(
 
     with pytest.raises(ReleaseMetadataError, match="pipeline_profile_invalid"):
         _load(tmp_path, payload)
+
+
+def test_direct_profile_construction_rejects_ambiguous_lost_buffer() -> None:
+    with pytest.raises(
+        ValueError,
+        match="bytetrack_lost_buffer_not_integral_at_30hz",
+    ):
+        ByteTrackProfile(
+            reference_frame_rate=30.0,
+            track_activation_threshold=0.7,
+            high_confidence_threshold=0.6,
+            minimum_iou_threshold=0.1,
+            minimum_consecutive_frames=2,
+            lost_track_buffer_seconds=1.01,
+        )
+
+
+def test_direct_profile_construction_enforces_tracker_threshold_order() -> None:
+    with pytest.raises(
+        ValueError,
+        match="bytetrack_confidence_threshold_order_invalid",
+    ):
+        ByteTrackProfile(
+            reference_frame_rate=30.0,
+            track_activation_threshold=0.6,
+            high_confidence_threshold=0.6,
+            minimum_iou_threshold=0.1,
+            minimum_consecutive_frames=2,
+            lost_track_buffer_seconds=1.0,
+        )
