@@ -17,6 +17,9 @@ from mavi_vision.runtime.provenance import (
 )
 from mavi_vision.runtime.qualification import (
     QualificationRecord,
+    RuntimePlatformVariantIdentity,
+    RuntimePythonIdentity,
+    RuntimeReleaseLockIdentity,
     VerifiedReleaseSelection,
 )
 
@@ -30,8 +33,8 @@ SHA_F = "f" * 64
 
 VOCABULARY = ("person", "car", "motorcycle", "bus", "truck")
 VERSIONS = {
-    "torch": "2.6.0+cpu",
-    "torchvision": "0.21.0+cpu",
+    "torch": "2.6.0",
+    "torchvision": "0.21.0",
     "mmdet": "3.3.0",
     "mmcv": "2.1.0",
     "mmengine": "0.10.7",
@@ -40,6 +43,7 @@ VERSIONS = {
     "scipy": "1.18.1",
     "numpy": "2.5.3",
     "opencv": "5.0.0",
+    "opencvPython": "5.0.0.93",
     "av": "16.1.0",
     "pillow": "11.3.0",
 }
@@ -87,7 +91,12 @@ def _profile() -> PipelineProfile:
     )
 
 
-def _selection(*, verified: bool = False) -> VerifiedReleaseSelection:
+def _selection(
+    *,
+    verified: bool = False,
+    runtime_qualified: bool | None = None,
+    lock_qualified: bool | None = None,
+) -> VerifiedReleaseSelection:
     manifest = ModelManifest(
         schema_version="1.0",
         model_id="rtmdet-m-coco-phase1",
@@ -121,6 +130,74 @@ def _selection(*, verified: bool = False) -> VerifiedReleaseSelection:
         if verified
         else None
     )
+
+    qualified = verified if runtime_qualified is None else runtime_qualified
+    locks_qualified = qualified if lock_qualified is None else lock_qualified
+    linux_python = RuntimePythonIdentity(
+        version="3.12.14",
+        implementation="CPython",
+        build=("main", "Aug 13 2026 02:47:42"),
+        compiler="GCC 13.3.0",
+    )
+    windows_python = RuntimePythonIdentity(
+        version="3.12.10",
+        implementation="CPython",
+        build=("tags/v3.12.10:0cc8128", "Apr  8 2025 12:21:36"),
+        compiler="MSC v.1943 64 bit (AMD64)",
+    )
+    variants = {
+        "linux-x86_64-cpu": RuntimePlatformVariantIdentity(
+            status="qualified-hosted-cpu",
+            resolved_config_sha256=SHA_C,
+            python_identity=linux_python,
+        ),
+        "windows-x86_64-cpu": RuntimePlatformVariantIdentity(
+            status="qualified-hosted-cpu",
+            resolved_config_sha256=SHA_C,
+            python_identity=windows_python,
+        ),
+        "linux-x86_64-cuda": RuntimePlatformVariantIdentity(
+            status=(
+                "qualified-hardware"
+                if qualified
+                else "pending-hardware-qualification"
+            ),
+            resolved_config_sha256=SHA_C if qualified else None,
+            python_identity=linux_python if qualified else None,
+        ),
+        "windows-x86_64-cuda": RuntimePlatformVariantIdentity(
+            status=(
+                "qualified-hardware"
+                if qualified
+                else "pending-hardware-qualification"
+            ),
+            resolved_config_sha256=SHA_C if qualified else None,
+            python_identity=windows_python if qualified else None,
+        ),
+    }
+    lock_hashes = {
+        "linux-x86_64-cpu": SHA_A,
+        "windows-x86_64-cpu": SHA_B,
+        "linux-x86_64-cuda": SHA_C,
+        "windows-x86_64-cuda": SHA_D,
+    }
+    locks = {
+        variant: RuntimeReleaseLockIdentity(
+            status=(
+                "qualified-offline-lock"
+                if locks_qualified
+                else (
+                    "pending-wheelhouse-freeze"
+                    if variant.endswith("-cpu")
+                    else "pending-hardware-qualification"
+                )
+            ),
+            artifact=f"locks/{variant}.lock" if locks_qualified else None,
+            sha256=lock_hashes[variant] if locks_qualified else None,
+        )
+        for variant in lock_hashes
+    }
+
     return VerifiedReleaseSelection(
         manifest=manifest,
         profile=_profile(),
@@ -133,8 +210,11 @@ def _selection(*, verified: bool = False) -> VerifiedReleaseSelection:
         checkpoint_path=Path("models/release/checkpoint.pth"),
         resolved_config_path=Path("models/release/config.py"),
         verification_status=manifest.verification_status,
+        runtime_qualification_status="qualified" if qualified else "partial",
+        runtime_semantic_graph=MappingProxyType(dict(VERSIONS)),
+        runtime_platform_variants=MappingProxyType(variants),
+        runtime_release_locks=MappingProxyType(locks),
     )
-
 
 def _metadata(*, device: str = "cpu", versions: dict[str, str] | None = None) -> RuntimeMetadata:
     return RuntimeMetadata(
@@ -161,7 +241,7 @@ def test_development_provenance_is_complete_immutable_and_explicitly_unknown() -
     assert provenance.mavi_build == "unknown-development"
     assert provenance.mavi_commit == "unknown-development"
     assert provenance.dependency_versions["python"] == "3.12.14"
-    assert provenance.dependency_versions["torch"] == "2.6.0+cpu"
+    assert provenance.dependency_versions["torch"] == "2.6.0"
     assert provenance.ffmpeg_version == "7.1"
     assert provenance.actual_device == "cpu"
     assert provenance.input_colour_space == "RGB"
@@ -180,13 +260,13 @@ def test_verified_production_provenance_requires_release_and_build_identity() ->
         production_mode=True,
         mavi_build="mavi-0.1.0",
         mavi_commit="1234567890abcdef1234567890abcdef12345678",
-        platform_lock_sha256=SHA_A,
         platform_identity=_platform(),
     )
 
     assert provenance.verification_status == "verified"
     assert provenance.qualification_id == "qualification-a"
     assert provenance.qualification_sha256 == SHA_F
+    assert provenance.runtime_variant == "linux-x86_64-cpu"
     assert provenance.platform_lock_sha256 == SHA_A
     assert provenance.mavi_build == "mavi-0.1.0"
 
@@ -203,7 +283,6 @@ def test_verified_production_provenance_requires_release_and_build_identity() ->
                 "production_mode": True,
                 "mavi_build": "build",
                 "mavi_commit": "commit",
-                "platform_lock_sha256": SHA_A,
                 "platform_identity": _platform(),
             },
             "production_release_not_verified",
@@ -222,16 +301,33 @@ def test_verified_production_provenance_requires_release_and_build_identity() ->
         ),
         (
             {
-                "selection": _selection(verified=True),
+                "selection": _selection(verified=True, lock_qualified=False),
                 "runtime_metadata": _metadata(),
                 "configured_device_policy": "cpu",
                 "configured_device_index": 0,
                 "production_mode": True,
                 "mavi_build": "build",
-                "mavi_commit": "commit",
+                "mavi_commit": "1234567890abcdef1234567890abcdef12345678",
                 "platform_identity": _platform(),
             },
             "production_platform_lock_required",
+        ),
+        (
+            {
+                "selection": _selection(
+                    verified=True,
+                    runtime_qualified=False,
+                    lock_qualified=True,
+                ),
+                "runtime_metadata": _metadata(),
+                "configured_device_policy": "cpu",
+                "configured_device_index": 0,
+                "production_mode": True,
+                "mavi_build": "build",
+                "mavi_commit": "1234567890abcdef1234567890abcdef12345678",
+                "platform_identity": _platform(),
+            },
+            "production_runtime_not_qualified",
         ),
     ],
 )
@@ -359,7 +455,51 @@ def test_production_provenance_requires_full_git_commit_identity() -> None:
             production_mode=True,
             mavi_build="mavi-0.1.0",
             mavi_commit="short-sha",
-            platform_lock_sha256=SHA_A,
             platform_identity=_platform(),
+        )
+
+def test_production_provenance_rejects_runtime_dependency_drift() -> None:
+    versions = dict(VERSIONS)
+    versions["torch"] = "2.7.0"
+
+    with pytest.raises(
+        ValueError,
+        match="runtime_dependency_version_mismatch:torch",
+    ):
+        build_runtime_provenance(
+            selection=_selection(verified=True),
+            runtime_metadata=_metadata(versions=versions),
+            configured_device_policy="cpu",
+            configured_device_index=0,
+            production_mode=True,
+            mavi_build="build",
+            mavi_commit="1234567890abcdef1234567890abcdef12345678",
+            platform_identity=_platform(),
+        )
+
+
+def test_production_provenance_rejects_python_identity_drift() -> None:
+    drifted_platform = PlatformIdentity(
+        system="Linux",
+        release="6.8.0",
+        version="#1 SMP",
+        machine="x86_64",
+        processor="x86_64",
+        python_version="3.12.13",
+        python_implementation="CPython",
+        python_build=("main", "different-build"),
+        python_compiler="GCC 13.3.0",
+    )
+
+    with pytest.raises(ValueError, match="runtime_python_identity_mismatch"):
+        build_runtime_provenance(
+            selection=_selection(verified=True),
+            runtime_metadata=_metadata(),
+            configured_device_policy="cpu",
+            configured_device_index=0,
+            production_mode=True,
+            mavi_build="build",
+            mavi_commit="1234567890abcdef1234567890abcdef12345678",
+            platform_identity=drifted_platform,
         )
 
