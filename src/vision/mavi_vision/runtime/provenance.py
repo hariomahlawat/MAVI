@@ -36,14 +36,20 @@ def _require_text(value: str, *, code: str) -> str:
     return value
 
 
-def _validated_sha256(value: str | None, *, code: str) -> str | None:
-    if value is None:
-        return None
+def _require_sha256(value: str, *, code: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(code)
     try:
         validate_sha256_hex(value)
     except ValueError as exc:
         raise ValueError(code) from exc
     return value
+
+
+def _validated_sha256(value: str | None, *, code: str) -> str | None:
+    if value is None:
+        return None
+    return _require_sha256(value, code=code)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +70,7 @@ class PlatformIdentity:
             ("platform_release_invalid", self.release),
             ("platform_version_invalid", self.version),
             ("platform_machine_invalid", self.machine),
+            ("platform_processor_invalid", self.processor),
             ("python_version_invalid", self.python_version),
             ("python_implementation_invalid", self.python_implementation),
             ("python_compiler_invalid", self.python_compiler),
@@ -143,7 +150,7 @@ class RuntimeProvenance:
             (self.pipeline_profile_sha256, "pipeline_profile_sha256_invalid"),
             (self.runtime_profile_sha256, "runtime_profile_sha256_invalid"),
         ):
-            _validated_sha256(value, code=code)
+            _require_sha256(value, code=code)
 
         _validated_sha256(
             self.qualification_sha256,
