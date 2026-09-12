@@ -348,3 +348,18 @@ def test_runtime_contract_modules_do_not_import_heavy_ml_frameworks() -> None:
             filename,
             sorted(imported_roots & forbidden),
         )
+
+def test_production_provenance_requires_full_git_commit_identity() -> None:
+    with pytest.raises(ValueError, match="mavi_commit_invalid"):
+        build_runtime_provenance(
+            selection=_selection(verified=True),
+            runtime_metadata=_metadata(),
+            configured_device_policy="cpu",
+            configured_device_index=0,
+            production_mode=True,
+            mavi_build="mavi-0.1.0",
+            mavi_commit="short-sha",
+            platform_lock_sha256=SHA_A,
+            platform_identity=_platform(),
+        )
+
