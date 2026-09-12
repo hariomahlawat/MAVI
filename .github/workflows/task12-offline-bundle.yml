@@ -1,0 +1,425 @@
+name: Task 12 Offline Bundle
+
+on:
+  pull_request:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'tools/vision/freeze_offline_lock.py'
+      - 'tools/vision/build_offline_bundle.py'
+      - 'tools/vision/resolve_mmdet_config.py'
+      - 'tools/verify_repo.py'
+      - 'src/vision/mavi_vision/runtime/offline_lock.py'
+      - 'src/vision/mavi_vision/runtime/qualification.py'
+      - 'src/vision/tests/test_offline_runtime_lock.py'
+      - 'src/vision/tests/test_offline_bundle_manifest.py'
+      - 'src/vision/tests/test_verify_repo_release_hazards.py'
+      - 'src/vision/pyproject.toml'
+      - 'src/vision/runtime/mmdetection-phase1-v1/**'
+      - 'src/vision/config/pipelines/phase1-detection-tracking-v1.json'
+      - 'models/manifests/rtmdet-m-coco-phase1-v1.json'
+      - 'models/qualifications/rtmdet-m-coco-phase1-v1.json'
+      - '.github/workflows/task12-offline-bundle.yml'
+      - '.github/workflows/task10-runtime-qualification.yml'
+      - 'infrastructure/offline-bundle/**'
+      - 'infrastructure/linux/**'
+      - 'infrastructure/windows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mavi-task12-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cpu-offline-bundle:
+    name: ${{ matrix.variant }} Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: '3.12.14'
+            variant: linux-x86_64-cpu
+          - os: windows-latest
+            python-version: '3.12.10'
+            variant: windows-x86_64-cpu
+
+    env:
+      MMCV_WITH_OPS: '1'
+      MAX_JOBS: '2'
+      MAVI_RUNTIME_VARIANT: ${{ matrix.variant }}
+      MAVI_PYTHON_VERSION: ${{ matrix.python-version }}
+      MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONHASHSEED: '0'
+      SOURCE_DATE_EPOCH: '1704067200'
+      RTMDET_CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
+      RTMDET_CHECKPOINT_SHA256: 229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Verify exact checked-out source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$MAVI_EXPECTED_SOURCE_SHA"
+          echo "task12-source-head=$actual"
+
+      - name: Install connected build tooling
+        run: >-
+          python -m pip install --upgrade pip
+          "setuptools==80.9.0"
+          wheel
+          build
+          ninja
+          psutil
+          "numpy==2.5.3"
+          "pydantic>=2.11,<3"
+          "pydantic-settings>=2.10,<3"
+          "msgpack>=1.1,<2"
+          "av==16.1.0"
+          "Pillow==11.3.0"
+
+      - name: Install exact CPU PyTorch build for MMCV compilation
+        run: >-
+          python -m pip install
+          torch==2.6.0
+          torchvision==0.21.0
+          --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Configure MSVC compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+
+      - name: Stabilize Windows PyTorch extension environment
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "DISTUTILS_USE_SDK=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MSSdk=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CL=/Brepro" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LINK=/Brepro" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Checkout immutable MMCV 2.1.0 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .task12-mmcv
+          git -C .task12-mmcv remote add origin https://github.com/open-mmlab/mmcv.git
+          git -C .task12-mmcv fetch --depth 1 origin 57c4e25e06e2d4f8a9357c84bcd24089a284dc88
+          git -C .task12-mmcv checkout --detach FETCH_HEAD
+          test "$(git -C .task12-mmcv rev-parse HEAD)" = "57c4e25e06e2d4f8a9357c84bcd24089a284dc88"
+
+      - name: Build local MMCV wheel
+        working-directory: .task12-mmcv
+        run: python -m pip wheel --no-build-isolation --no-deps . -w ../.task12-wheelhouse
+
+      - name: Build MAVI Vision wheel
+        run: python -m pip wheel --no-deps ./src/vision -w .task12-wheelhouse
+
+      - name: Download exact CPU Torch wheels into wheelhouse
+        run: >-
+          python -m pip download
+          --no-deps
+          --only-binary=:all:
+          --dest .task12-wheelhouse
+          torch==2.6.0
+          torchvision==0.21.0
+          --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Write CPU binary constraints
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .task12-constraints.txt <<'EOF'
+          torch==2.6.0+cpu
+          torchvision==0.21.0+cpu
+          mmcv==2.1.0
+          EOF
+
+      - name: Resolve complete wheel-only runtime closure
+        run: >-
+          python -m pip download
+          --only-binary=:all:
+          --dest .task12-wheelhouse
+          --find-links .task12-wheelhouse
+          --constraint .task12-constraints.txt
+          "mavi-vision[vision-runtime]==0.1.0"
+
+      - name: Generate deterministic offline lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .task12-generated
+          python tools/vision/freeze_offline_lock.py \
+            --wheelhouse .task12-wheelhouse \
+            --platform-variant "$MAVI_RUNTIME_VARIANT" \
+            --python-version "$MAVI_PYTHON_VERSION" \
+            --output ".task12-generated/$MAVI_RUNTIME_VARIANT.lock"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum ".task12-generated/$MAVI_RUNTIME_VARIANT.lock"
+          fi
+
+      - name: Compare generated lock with reviewed lock when present
+        shell: bash
+        run: |
+          set -euo pipefail
+          tracked="src/vision/runtime/mmdetection-phase1-v1/$MAVI_RUNTIME_VARIANT.lock"
+          if test -f "$tracked"; then
+            cmp ".task12-generated/$MAVI_RUNTIME_VARIANT.lock" "$tracked"
+            echo "MAVI_TASK12_TRACKED_LOCK=1" >> "$GITHUB_ENV"
+          else
+            echo "MAVI_TASK12_TRACKED_LOCK=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Create fresh offline-style installation environment
+        run: python -m venv .task12-offline-venv
+
+      - name: Install generated lock with no index and no source builds
+        shell: bash
+        env:
+          PIP_NO_INDEX: '1'
+          HTTP_PROXY: http://127.0.0.1:9
+          HTTPS_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: ''
+        run: |
+          set -euo pipefail
+          if test "${RUNNER_OS}" = "Windows"; then
+            PY=".task12-offline-venv/Scripts/python.exe"
+          else
+            PY=".task12-offline-venv/bin/python"
+          fi
+          "$PY" -m pip install \
+            --no-index \
+            --only-binary=:all: \
+            --require-hashes \
+            --find-links .task12-wheelhouse \
+            -r ".task12-generated/$MAVI_RUNTIME_VARIANT.lock"
+          "$PY" -m pip check
+
+      - name: Verify installed heavy runtime graph
+        shell: bash
+        env:
+          HTTP_PROXY: http://127.0.0.1:9
+          HTTPS_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: ''
+        run: |
+          set -euo pipefail
+          if test "${RUNNER_OS}" = "Windows"; then
+            PY=".task12-offline-venv/Scripts/python.exe"
+          else
+            PY=".task12-offline-venv/bin/python"
+          fi
+          "$PY" - <<'PY'
+          import importlib.metadata
+          import json
+          import av
+          import cv2
+          import mmcv
+          import mmdet
+          import mmengine
+          import numpy
+          import scipy
+          import supervision
+          import torch
+          import torchvision
+          from mmcv.ops import nms
+
+          profile = json.load(open(
+              "src/vision/runtime/mmdetection-phase1-v1/runtime.json",
+              encoding="utf-8",
+          ))
+          expected = profile["semanticGraph"]
+          actual = {
+              "torch": torch.__version__.split("+", 1)[0],
+              "torchvision": torchvision.__version__.split("+", 1)[0],
+              "mmcv": mmcv.__version__,
+              "mmengine": mmengine.__version__,
+              "mmdet": mmdet.__version__,
+              "trackers": importlib.metadata.version("trackers"),
+              "supervision": supervision.__version__,
+              "scipy": scipy.__version__,
+              "numpy": numpy.__version__,
+              "opencv": cv2.__version__,
+              "opencvPython": importlib.metadata.version("opencv-python"),
+              "pillow": importlib.metadata.version("Pillow"),
+              "av": av.__version__,
+          }
+          if actual != expected:
+              raise SystemExit(
+                  "task12_semantic_graph_mismatch:"
+                  + json.dumps({"actual": actual, "expected": expected}, sort_keys=True)
+              )
+          print("task12-heavy-runtime-ok", json.dumps(actual, sort_keys=True))
+          PY
+
+      - name: Determine strict bundle phase
+        if: env.MAVI_TASK12_TRACKED_LOCK == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test "${RUNNER_OS}" = "Windows"; then
+            PY=".task12-offline-venv/Scripts/python.exe"
+          else
+            PY=".task12-offline-venv/bin/python"
+          fi
+          "$PY" - <<'PY'
+          import json
+          import os
+
+          variant = os.environ["MAVI_RUNTIME_VARIANT"]
+          runtime = json.load(open(
+              "src/vision/runtime/mmdetection-phase1-v1/runtime.json",
+              encoding="utf-8",
+          ))
+          entry = runtime["releaseLocks"][variant]
+          value = "1" if (
+              entry.get("status") == "qualified-offline-lock"
+              and entry.get("artifact") == f"{variant}.lock"
+              and entry.get("sha256")
+          ) else "0"
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
+              stream.write(f"MAVI_TASK12_STRICT_BUNDLE={value}\n")
+          PY
+
+      - name: Checkout immutable MMDetection 3.3.0 source
+        if: env.MAVI_TASK12_STRICT_BUNDLE == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .task12-mmdet
+          git -C .task12-mmdet remote add origin https://github.com/open-mmlab/mmdetection.git
+          git -C .task12-mmdet fetch --depth 1 origin 44ebd17b145c2372c4b700bfb9cb20dbd28ab64a
+          git -C .task12-mmdet checkout --detach FETCH_HEAD
+          test "$(git -C .task12-mmdet rev-parse HEAD)" = "44ebd17b145c2372c4b700bfb9cb20dbd28ab64a"
+
+      - name: Materialize and verify local model artifacts
+        if: env.MAVI_TASK12_STRICT_BUNDLE == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test "${RUNNER_OS}" = "Windows"; then
+            PY=".task12-offline-venv/Scripts/python.exe"
+          else
+            PY=".task12-offline-venv/bin/python"
+          fi
+          release=".task12-model-root/rtmdet-m-coco-phase1-v1"
+          mkdir -p "$release"
+          "$PY" tools/vision/resolve_mmdet_config.py \
+            --input .task12-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
+            --output "$release/rtmdet_m_resolved.py" \
+            > .task12-resolved-config.json
+          "$PY" - <<'PY'
+          import hashlib
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          release = Path(".task12-model-root/rtmdet-m-coco-phase1-v1")
+          checkpoint = release / "rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth"
+          urllib.request.urlretrieve(os.environ["RTMDET_CHECKPOINT_URL"], checkpoint)
+
+          manifest = json.load(open(
+              "models/manifests/rtmdet-m-coco-phase1-v1.json",
+              encoding="utf-8",
+          ))
+          expected_checkpoint = manifest["checkpoint"]["sha256"]
+          expected_config = manifest["resolvedConfig"]["sha256"]
+          actual_checkpoint = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+          actual_config = hashlib.sha256(
+              (release / "rtmdet_m_resolved.py").read_bytes()
+          ).hexdigest()
+          if actual_checkpoint != expected_checkpoint:
+              raise SystemExit("task12_checkpoint_hash_mismatch")
+          if actual_config != expected_config:
+              raise SystemExit("task12_resolved_config_hash_mismatch")
+          print("task12-model-artifacts-ok", actual_checkpoint, actual_config)
+          PY
+
+      - name: Build deterministic qualification-candidate bundle
+        if: env.MAVI_TASK12_STRICT_BUNDLE == '1'
+        shell: bash
+        env:
+          PIP_NO_INDEX: '1'
+          HTTP_PROXY: http://127.0.0.1:9
+          HTTPS_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: ''
+        run: |
+          set -euo pipefail
+          if test "${RUNNER_OS}" = "Windows"; then
+            PY=".task12-offline-venv/Scripts/python.exe"
+          else
+            PY=".task12-offline-venv/bin/python"
+          fi
+          "$PY" tools/vision/build_offline_bundle.py \
+            --source-commit "$MAVI_EXPECTED_SOURCE_SHA" \
+            --release-status qualification-candidate \
+            --platform-variant "$MAVI_RUNTIME_VARIANT" \
+            --model-root .task12-model-root \
+            --manifest models/manifests/rtmdet-m-coco-phase1-v1.json \
+            --qualification models/qualifications/rtmdet-m-coco-phase1-v1.json \
+            --pipeline-profile src/vision/config/pipelines/phase1-detection-tracking-v1.json \
+            --runtime-profile src/vision/runtime/mmdetection-phase1-v1/runtime.json \
+            --wheelhouse .task12-wheelhouse \
+            --output ".task12-bundle/$MAVI_RUNTIME_VARIANT"
+
+      - name: Run real local RTMDet smoke from bundle
+        if: env.MAVI_TASK12_STRICT_BUNDLE == '1'
+        shell: bash
+        env:
+          HTTP_PROXY: http://127.0.0.1:9
+          HTTPS_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: ''
+        run: |
+          set -euo pipefail
+          if test "${RUNNER_OS}" = "Windows"; then
+            PY=".task12-offline-venv/Scripts/python.exe"
+          else
+            PY=".task12-offline-venv/bin/python"
+          fi
+          root=".task12-bundle/$MAVI_RUNTIME_VARIANT/release/models/rtmdet-m-coco-phase1-v1"
+          "$PY" tools/vision/probe_runtime.py \
+            --config "$root/rtmdet_m_resolved.py" \
+            --checkpoint "$root/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth" \
+            --checkpoint-sha256 "$RTMDET_CHECKPOINT_SHA256" \
+            --device cpu > .task12-runtime-probe.json
+          cat .task12-runtime-probe.json
+
+      - name: Upload generated lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: task12-lock-${{ matrix.variant }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .task12-generated/${{ matrix.variant }}.lock
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload final candidate bundle
+        if: env.MAVI_TASK12_STRICT_BUNDLE == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: task12-bundle-${{ matrix.variant }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .task12-bundle/${{ matrix.variant }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
