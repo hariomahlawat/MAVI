@@ -1,8 +1,11 @@
 import asyncio
 import logging
+import os
+import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Final, Protocol
+from typing import Final, NoReturn, Protocol
 from uuid import UUID
 
 from mavi_vision.common.analytical import VisionProcessingResult
@@ -10,6 +13,7 @@ from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJ
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.process_video import VideoProcessingError
 from mavi_vision.runtime.errors import ProcessingDependencyError
+from mavi_vision.runtime.execution_lane import ProcessExecutor
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import MediaStoreError
 from mavi_vision.worker.client import WorkerApiError
@@ -27,6 +31,7 @@ _APPROVED_PROCESSING_DEPENDENCY_CODES: Final[frozenset[str]] = frozenset(
 )
 _GENERIC_PROCESSING_FAILURE_CODE: Final = "vision_processing_failed"
 _PROCESSING_FAILURE_MESSAGE: Final = "Vision processing failed."
+_FATAL_SERVICE_RESTART_CODE: Final = 70
 
 
 # Worker collaborators
@@ -62,6 +67,13 @@ class VisionProcessor(Protocol):
     ) -> VisionProcessingResult: ...
 
 
+class _AsyncioThreadProcessExecutor:
+    """Backward-compatible default executor for unsupervised/dev callers."""
+
+    async def run(self, func, /, *args, **kwargs):
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+
 # Worker lifecycle orchestration
 class WorkerRunner:
     def __init__(
@@ -72,17 +84,36 @@ class WorkerRunner:
         processor: VisionProcessor | None = None,
         heartbeat_interval_seconds: float = 30.0,
         heartbeat_request_timeout_seconds: float = 30.0,
+        process_executor: ProcessExecutor | None = None,
+        watchdog_expired: Callable[[], bool] | None = None,
+        watchdog_expiry_sink: Callable[[], None] | None = None,
+        watchdog_grace_seconds: float = 10.0,
+        watchdog_poll_seconds: float = 1.0,
+        fatal_terminator: Callable[[int], NoReturn] = os._exit,
+        monotonic_clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if heartbeat_interval_seconds <= 0:
             raise ValueError("heartbeat_interval_seconds must be positive")
         if heartbeat_request_timeout_seconds <= 0:
             raise ValueError("heartbeat_request_timeout_seconds must be positive")
+        if watchdog_grace_seconds <= 0:
+            raise ValueError("watchdog_grace_seconds must be positive")
+        if watchdog_poll_seconds <= 0 or watchdog_poll_seconds > 1.0:
+            raise ValueError("watchdog_poll_seconds must be in (0, 1]")
         self._api_client = api_client
         self._media_store = media_store
         self._poll_interval_seconds = poll_interval_seconds
         self._processor = processor
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._heartbeat_request_timeout_seconds = heartbeat_request_timeout_seconds
+        self._process_executor = process_executor or _AsyncioThreadProcessExecutor()
+        self._watchdog_expired = watchdog_expired
+        self._watchdog_expiry_sink = watchdog_expiry_sink
+        self._watchdog_grace_seconds = watchdog_grace_seconds
+        self._watchdog_poll_seconds = watchdog_poll_seconds
+        self._fatal_terminator = fatal_terminator
+        self._monotonic_clock = monotonic_clock
+        self._fatal_termination_active = False
 
     async def run_once(self) -> bool:
         lease = await self._api_client.lease()
@@ -166,6 +197,11 @@ class WorkerRunner:
         except WorkerApiError:
             raise
         except Exception:
+            # Test terminators may raise a sentinel instead of terminating the
+            # process. Never turn that sentinel into a stale leased-job /fail.
+            if self._fatal_termination_active:
+                self._fatal_termination_active = False
+                raise
             await self._best_effort_fail(
                 lease,
                 "worker_unhandled_error",
@@ -189,18 +225,15 @@ class WorkerRunner:
         if self._processor is None:
             raise RuntimeError("processor_missing")
 
-        # The server-returned heartbeat deadline is authoritative. One shared guard
-        # projects that deadline into the processing thread, where it protects every
-        # irreversible mutation boundary independently of asyncio scheduling.
         current_deadline = heartbeat.lease_expires_at_utc
-        wait_seconds = self._heartbeat_wait_seconds(heartbeat)
         lease_guard = LeaseGuard(current_deadline)
         process_task: asyncio.Task[VisionProcessingResult] | None = None
+        fatal_path = False
 
         try:
             lease_guard.check_owned()
             process_task = asyncio.create_task(
-                asyncio.to_thread(
+                self._process_executor.run(
                     self._processor.process,
                     job_id=lease.job_id,
                     attempt_count=lease.attempt_count,
@@ -211,51 +244,154 @@ class WorkerRunner:
                 )
             )
 
+            # Polling the watchdog must not reset heartbeat timing. Keep an
+            # absolute monotonic scheduling deadline independent of poll cadence.
+            next_heartbeat_due = (
+                self._monotonic_clock()
+                + self._heartbeat_wait_seconds(heartbeat)
+            )
+
             while True:
+                now_monotonic = self._monotonic_clock()
+                heartbeat_wait = max(0.0, next_heartbeat_due - now_monotonic)
+                wait_seconds = heartbeat_wait
+                if self._watchdog_expired is not None:
+                    wait_seconds = min(wait_seconds, self._watchdog_poll_seconds)
+
                 done, _ = await asyncio.wait(
                     {process_task},
                     timeout=wait_seconds,
                 )
                 if process_task in done:
-                    # Check ownership before interpreting either a successful result
-                    # or an ordinary processing exception. If the event loop resumes
-                    # after expiry, lease loss must take precedence and no stale
-                    # terminal failure may be submitted by run_once().
+                    # Lease loss outranks both a processing result and processing
+                    # error if the event loop resumes after authority expired.
                     lease_guard.check_owned()
                     try:
                         result = process_task.result()
                     except LeaseLostError:
                         raise
                     except BaseException:
-                        # Close the narrow boundary between the first ownership check
-                        # and retrieving an already-completed exceptional result.
                         lease_guard.check_owned()
                         raise
-                    # Defense in depth for the equivalent success-path boundary.
                     lease_guard.check_owned()
                     return result
 
-                current_heartbeat = await self._heartbeat_before_deadline(
-                    lease,
-                    current_deadline,
-                )
-                current_deadline = current_heartbeat.lease_expires_at_utc
-                lease_guard.update_deadline(current_deadline)
-                wait_seconds = self._heartbeat_wait_seconds(current_heartbeat)
+                if self._watchdog_is_expired():
+                    lease_guard.mark_lost()
+                    self._report_watchdog_expiry()
+                    still_stuck = await self._watchdog_grace_wait(
+                        process_task,
+                        lease_guard,
+                    )
+                    if still_stuck:
+                        # Set the fatal-path flags before invoking a terminator.
+                        # A test terminator may raise instead of exiting.
+                        fatal_path = True
+                        self._fatal_termination_active = True
+                        self._fatal_terminator(_FATAL_SERVICE_RESTART_CODE)
+                        raise RuntimeError("watchdog_fatal_terminator_returned")
+
+                now_monotonic = self._monotonic_clock()
+                if now_monotonic >= next_heartbeat_due:
+                    current_heartbeat = await self._heartbeat_before_deadline(
+                        lease,
+                        current_deadline,
+                    )
+                    current_deadline = current_heartbeat.lease_expires_at_utc
+                    lease_guard.update_deadline(current_deadline)
+                    next_heartbeat_due = (
+                        self._monotonic_clock()
+                        + self._heartbeat_wait_seconds(current_heartbeat)
+                    )
         except BaseException:
-            # Explicit loss is irreversible. Heartbeat/API failure, deadline failure,
-            # task cancellation, and processor ownership failure all invalidate the
-            # same guard observed by the processing thread.
             lease_guard.mark_lost()
-            if process_task is not None and not process_task.done():
-                try:
-                    await process_task
-                except BaseException:
-                    pass
+            if (
+                process_task is not None
+                and not process_task.done()
+                and not fatal_path
+            ):
+                await self._await_unwound_after_loss(
+                    process_task,
+                    lease_guard,
+                )
             raise
         finally:
             if process_task is not None and not process_task.done():
                 lease_guard.mark_lost()
+
+    async def _await_unwound_after_loss(
+        self,
+        process_task: asyncio.Task[VisionProcessingResult],
+        lease_guard: LeaseGuard,
+    ) -> None:
+        """Keep watchdog containment active while ordinary cleanup unwinds."""
+        if self._watchdog_expired is None:
+            try:
+                await process_task
+            except BaseException:
+                pass
+            return
+
+        while not process_task.done():
+            if self._watchdog_is_expired():
+                self._report_watchdog_expiry()
+                still_stuck = await self._watchdog_grace_wait(
+                    process_task,
+                    lease_guard,
+                )
+                if still_stuck:
+                    self._fatal_termination_active = True
+                    self._fatal_terminator(_FATAL_SERVICE_RESTART_CODE)
+                    raise RuntimeError("watchdog_fatal_terminator_returned")
+            await asyncio.wait(
+                {process_task},
+                timeout=self._watchdog_poll_seconds,
+            )
+
+        try:
+            process_task.result()
+        except BaseException:
+            pass
+
+    async def _watchdog_grace_wait(
+        self,
+        process_task: asyncio.Task[VisionProcessingResult],
+        lease_guard: LeaseGuard,
+    ) -> bool:
+        lease_guard.mark_lost()
+        done, _ = await asyncio.wait(
+            {process_task},
+            timeout=self._watchdog_grace_seconds,
+        )
+        if process_task in done:
+            try:
+                process_task.result()
+            except BaseException:
+                pass
+            # Once the watchdog has expired the attempt result is no longer
+            # authoritative, even if native work happens to unwind in grace.
+            raise LeaseLostError()
+
+        return True
+
+    def _watchdog_is_expired(self) -> bool:
+        callback = self._watchdog_expired
+        if callback is None:
+            return False
+        try:
+            return bool(callback())
+        except Exception:
+            _LOGGER.exception("Watchdog callback failed; containing as expired")
+            return True
+
+    def _report_watchdog_expiry(self) -> None:
+        sink = self._watchdog_expiry_sink
+        if sink is None:
+            return
+        try:
+            sink()
+        except Exception:
+            _LOGGER.exception("Watchdog expiry sink failed")
 
     async def _heartbeat_before_deadline(
         self,
