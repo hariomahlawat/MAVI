@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from dataclasses import dataclass
 from math import isfinite
 from numbers import Real
-from typing import Any
 
 from mavi_vision.common.analytical import NormalizedBoundingBox
 from mavi_vision.detection.interfaces import DetectionCandidate
@@ -215,22 +214,11 @@ class RTMDetDetector:
             ) from exc
 
 
+@dataclass(frozen=True, slots=True)
 class _ParsedRawDetection:
-    __slots__ = ("source_class", "confidence", "x1", "y1", "x2", "y2")
-
-    def __init__(
-        self,
-        *,
-        source_class: str,
-        confidence: float,
-        x1: float,
-        y1: float,
-        x2: float,
-        y2: float,
-    ) -> None:
-        self.source_class = source_class
-        self.confidence = confidence
-        self.x1 = x1
-        self.y1 = y1
-        self.x2 = x2
-        self.y2 = y2
+    source_class: str
+    confidence: float
+    x1: float
+    y1: float
+    x2: float
+    y2: float
