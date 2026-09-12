@@ -134,7 +134,7 @@ def build_bundle_from_verified_inputs(
     inputs: VerifiedBundleInputs,
     output: Path,
 ) -> BundleManifest:
-    _validate_source_commit(inputs.source_commit)
+    _validate_source_commit_against_checkout(inputs.source_commit, ROOT)
     if inputs.release_status not in {"qualification-candidate", "production"}:
         raise OfflineBundleError("bundle_release_status_invalid")
 
@@ -684,11 +684,7 @@ def _verify_mavi_wheel_source(*, wheel_records: dict, source_root: Path) -> None
         raise OfflineBundleError("mavi_wheel_metadata_mismatch")
 
 
-def _validate_source_commit_against_checkout(
-    value: str,
-    repository_root: Path,
-) -> None:
-    _validate_source_commit(value)
+def _repository_head(repository_root: Path) -> str:
     try:
         completed = subprocess.run(
             ["git", "-C", str(repository_root), "rev-parse", "HEAD"],
@@ -698,7 +694,17 @@ def _validate_source_commit_against_checkout(
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise OfflineBundleError("bundle_source_commit_unverifiable") from exc
-    if completed.stdout.strip() != value:
+    head = completed.stdout.strip()
+    _validate_source_commit(head)
+    return head
+
+
+def _validate_source_commit_against_checkout(
+    value: str,
+    repository_root: Path,
+) -> None:
+    _validate_source_commit(value)
+    if _repository_head(repository_root) != value:
         raise OfflineBundleError("bundle_source_commit_mismatch")
 
 
