@@ -27,7 +27,11 @@ for candidate in (VISION_ROOT, TOOLS_ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from freeze_offline_lock import inspect_wheel, sha256_file  # noqa: E402
+from freeze_offline_lock import (  # noqa: E402
+    inspect_wheel,
+    sha256_file,
+    validate_wheel_record_for_target,
+)
 from mavi_vision.runtime.manifest import (  # noqa: E402
     ReleaseMetadataError,
     load_model_manifest,
@@ -503,6 +507,11 @@ def _validate_wheelhouse(wheelhouse: Path, lock):
             raise OfflineBundleError("wheelhouse_non_wheel_entry")
         try:
             record = inspect_wheel(entry)
+            validate_wheel_record_for_target(
+                record,
+                platform_variant=lock.platform_variant,
+                python_version=lock.python_version,
+            )
         except ValueError as exc:
             raise OfflineBundleError(str(exc)) from exc
         if record.name in records:
