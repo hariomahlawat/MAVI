@@ -108,3 +108,15 @@ def test_release_metadata_scan_is_scoped_by_caller_not_docs_or_workflows() -> No
 
     assert "docs" not in [root.name for root in verifier.RELEASE_TEXT_ROOTS]
     assert ".github" not in [root.name for root in verifier.RELEASE_TEXT_ROOTS]
+
+def test_task12_workflow_covers_wheel_inputs_and_uses_pinned_reproduction() -> None:
+    workflow = (
+        Path(__file__).parents[3] / ".github" / "workflows" / "task12-offline-bundle.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "'src/vision/mavi_vision/**'" in workflow
+    assert "pip wheel --no-build-isolation --no-deps ./src/vision" in workflow
+    assert '"mavi-vision[vision-runtime]==0.1.0"' not in workflow
+    assert "Materialize reviewed locked runtime closure" in workflow
+    assert "--require-hashes" in workflow
+
