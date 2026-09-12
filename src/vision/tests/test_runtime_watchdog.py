@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import threading
+from datetime import datetime, timedelta, timezone
 from math import inf, nan
+from pathlib import Path
 
 import pytest
 
+from mavi_vision.common.analytical import VisionProcessingResult
+from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
+from mavi_vision.common.lease import LeaseGuard
 from mavi_vision.runtime.activity import InferenceActivity
+from mavi_vision.runtime.execution_lane import VisionExecutionLane
+from mavi_vision.storage.local_media_store import LocalMediaStore
+from mavi_vision.worker.client import WorkerApiError
+from mavi_vision.worker.runner import WorkerRunner
 
 
 class ManualMonotonicClock:
@@ -121,3 +133,243 @@ def test_inference_activity_rejects_invalid_start_clock(started_at: float) -> No
 
     with pytest.raises(ValueError, match="inference_activity_clock_invalid"):
         activity.mark_started()
+
+
+ROOT = Path(__file__).resolve().parents[3]
+WATCHDOG_LEASE_EXAMPLE = ROOT / "contracts/examples/vision-job-lease-v2.example.json"
+
+
+def _watchdog_lease() -> VisionJobLease:
+    return VisionJobLease.model_validate_json(WATCHDOG_LEASE_EXAMPLE.read_text())
+
+
+def _heartbeat_response(seconds: float = 60.0) -> VisionJobHeartbeatResponse:
+    return VisionJobHeartbeatResponse(
+        schemaVersion="2.0",
+        progressPercent=5.0,
+        leaseExpiresAtUtc=datetime.now(timezone.utc) + timedelta(seconds=seconds),
+    )
+
+
+class _WatchdogApi:
+    def __init__(
+        self,
+        lease: VisionJobLease,
+        *,
+        release_on_heartbeat: threading.Event | None = None,
+    ) -> None:
+        self.lease_value = lease
+        self.release_on_heartbeat = release_on_heartbeat
+        self.heartbeats: list[float] = []
+        self.failures: list[str] = []
+
+    async def lease(self) -> VisionJobLease | None:
+        return self.lease_value
+
+    async def heartbeat(
+        self,
+        lease: VisionJobLease,
+        progress_percent: float,
+    ) -> VisionJobHeartbeatResponse:
+        del lease
+        self.heartbeats.append(progress_percent)
+        if len(self.heartbeats) >= 2 and self.release_on_heartbeat is not None:
+            self.release_on_heartbeat.set()
+        return _heartbeat_response()
+
+    async def fail(
+        self,
+        lease: VisionJobLease,
+        failure_code: str,
+        failure_message: str | None = None,
+    ) -> None:
+        del lease, failure_message
+        self.failures.append(failure_code)
+
+
+class _BlockingProcessor:
+    def __init__(
+        self,
+        started: threading.Event,
+        release: threading.Event,
+        *,
+        check_guard_after_release: bool = False,
+    ) -> None:
+        self.started = started
+        self.release = release
+        self.check_guard_after_release = check_guard_after_release
+
+    def process(
+        self,
+        *,
+        job_id,
+        attempt_count: int,
+        source_path: Path,
+        expected_source_size_bytes: int,
+        expected_source_sha256: str,
+        lease_guard: LeaseGuard,
+    ) -> VisionProcessingResult:
+        del attempt_count, source_path, expected_source_size_bytes, expected_source_sha256
+        self.started.set()
+        if not self.release.wait(timeout=2.0):
+            raise TimeoutError("watchdog test release signal not received")
+        if self.check_guard_after_release:
+            lease_guard.check_owned()
+        return VisionProcessingResult(job_id=job_id, frames_processed=1, tracks=())
+
+
+class _FatalTerminatorSentinel(RuntimeError):
+    pass
+
+
+def _materialize_watchdog_source(tmp_path: Path, lease: VisionJobLease) -> None:
+    path = tmp_path.joinpath(*lease.source_storage_key.split("/"))
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"video")
+
+
+def test_watchdog_polling_does_not_postpone_absolute_heartbeat_schedule(
+    tmp_path: Path,
+) -> None:
+    lease = _watchdog_lease()
+    _materialize_watchdog_source(tmp_path, lease)
+    started = threading.Event()
+    release = threading.Event()
+    client = _WatchdogApi(lease, release_on_heartbeat=release)
+    processor = _BlockingProcessor(started, release)
+    clock = [0.0]
+    poll_count = 0
+
+    def watchdog_expired() -> bool:
+        nonlocal poll_count
+        poll_count += 1
+        clock[0] += 0.25
+        return False
+
+    result = asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            heartbeat_interval_seconds=0.5,
+            process_executor=None,
+            watchdog_expired=watchdog_expired,
+            watchdog_poll_seconds=0.001,
+            monotonic_clock=lambda: clock[0],
+        ).run_once()
+    )
+
+    assert result is True
+    assert started.is_set() is True
+    assert poll_count >= 2
+    assert len(client.heartbeats) >= 2
+    assert client.failures == ["task9_result_submission_not_implemented"]
+
+
+def test_watchdog_expiry_with_unwind_in_grace_surfaces_only_lease_loss(
+    tmp_path: Path,
+) -> None:
+    lease = _watchdog_lease()
+    _materialize_watchdog_source(tmp_path, lease)
+    started = threading.Event()
+    release = threading.Event()
+    client = _WatchdogApi(lease)
+    processor = _BlockingProcessor(
+        started,
+        release,
+        check_guard_after_release=True,
+    )
+    expiry_reports: list[str] = []
+    fatal_codes: list[int] = []
+
+    def expiry_sink() -> None:
+        expiry_reports.append("expired")
+        release.set()
+
+    def terminator(code: int) -> None:
+        fatal_codes.append(code)
+        raise _FatalTerminatorSentinel("terminator must not run")
+
+    with pytest.raises(WorkerApiError, match="lease ownership lost"):
+        asyncio.run(
+            WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                processor,
+                process_executor=None,
+                watchdog_expired=lambda: started.is_set(),
+                watchdog_expiry_sink=expiry_sink,
+                watchdog_grace_seconds=0.1,
+                watchdog_poll_seconds=0.001,
+                fatal_terminator=terminator,
+            ).run_once()
+        )
+
+    assert expiry_reports == ["expired"]
+    assert fatal_codes == []
+    assert client.heartbeats == [5.0]
+    assert client.failures == []
+
+
+def test_stuck_watchdog_invokes_fatal_terminator_once_without_stale_fail(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        lease = _watchdog_lease()
+        _materialize_watchdog_source(tmp_path, lease)
+        started = threading.Event()
+        release = threading.Event()
+        client = _WatchdogApi(lease)
+        processor = _BlockingProcessor(started, release)
+        lane = VisionExecutionLane()
+        expiry_reports: list[str] = []
+        fatal_codes: list[int] = []
+
+        def terminator(code: int) -> None:
+            fatal_codes.append(code)
+            raise _FatalTerminatorSentinel("fatal-watchdog")
+
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            process_executor=lane,
+            watchdog_expired=lambda: started.is_set(),
+            watchdog_expiry_sink=lambda: expiry_reports.append("expired"),
+            watchdog_grace_seconds=0.01,
+            watchdog_poll_seconds=0.001,
+            fatal_terminator=terminator,
+        )
+
+        try:
+            with pytest.raises(_FatalTerminatorSentinel, match="fatal-watchdog"):
+                await runner.run_once()
+        finally:
+            release.set()
+            await lane.close()
+
+        assert expiry_reports == ["expired"]
+        assert fatal_codes == [70]
+        assert client.heartbeats == [5.0]
+        assert client.failures == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("poll_seconds", [0.0, -0.1, 1.001])
+def test_worker_rejects_invalid_watchdog_poll_interval(
+    tmp_path: Path,
+    poll_seconds: float,
+) -> None:
+    lease = _watchdog_lease()
+    with pytest.raises(ValueError, match="watchdog_poll_seconds"):
+        WorkerRunner(
+            _WatchdogApi(lease),
+            LocalMediaStore(tmp_path),
+            2.0,
+            watchdog_expired=lambda: False,
+            watchdog_poll_seconds=poll_seconds,
+        )
