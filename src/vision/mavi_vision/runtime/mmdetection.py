@@ -239,6 +239,80 @@ def _is_none_literal(value: ast.expr | None) -> bool:
     return isinstance(value, ast.Constant) and value.value is None
 
 
+def _validate_data_expression(node: ast.AST) -> None:
+    """Allow only deterministic literal data emitted by MMEngine Config.dump()."""
+    if isinstance(node, ast.Constant):
+        return
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        for element in node.elts:
+            _validate_data_expression(element)
+        return
+    if isinstance(node, ast.Dict):
+        for key, value in zip(node.keys, node.values, strict=True):
+            if key is not None:
+                _validate_data_expression(key)
+            _validate_data_expression(value)
+        return
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        _validate_data_expression(node.operand)
+        return
+    if isinstance(node, ast.Call):
+        if (
+            not isinstance(node.func, ast.Name)
+            or node.func.id != "dict"
+            or node.args
+        ):
+            raise RuntimeCompatibilityError("resolved_config_dynamic_call_forbidden")
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                raise RuntimeCompatibilityError(
+                    "resolved_config_dynamic_unpack_forbidden"
+                )
+            _validate_data_expression(keyword.value)
+        return
+    raise RuntimeCompatibilityError(
+        f"resolved_config_non_data_expression:{type(node).__name__}"
+    )
+
+
+def _validate_data_only_config_ast(tree: ast.Module) -> None:
+    """Require a pure top-level assignment document, never executable Python."""
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign):
+            if not statement.targets or any(
+                not isinstance(target, ast.Name) for target in statement.targets
+            ):
+                raise RuntimeCompatibilityError(
+                    "resolved_config_assignment_target_forbidden"
+                )
+            if any(target.id in {"dict", "custom_imports"} for target in statement.targets):
+                raise RuntimeCompatibilityError(
+                    "resolved_config_reserved_name_binding_forbidden"
+                )
+            _validate_data_expression(statement.value)
+            continue
+
+        if isinstance(statement, ast.AnnAssign):
+            if not isinstance(statement.target, ast.Name):
+                raise RuntimeCompatibilityError(
+                    "resolved_config_assignment_target_forbidden"
+                )
+            if statement.target.id in {"dict", "custom_imports"}:
+                raise RuntimeCompatibilityError(
+                    "resolved_config_reserved_name_binding_forbidden"
+                )
+            if statement.value is None:
+                raise RuntimeCompatibilityError(
+                    "resolved_config_assignment_value_missing"
+                )
+            _validate_data_expression(statement.value)
+            continue
+
+        raise RuntimeCompatibilityError(
+            f"resolved_config_statement_forbidden:{type(statement).__name__}"
+        )
+
+
 def _validate_resolved_config(path: Path) -> None:
     try:
         payload = validate_release_text_file(path)
@@ -252,6 +326,7 @@ def _validate_resolved_config(path: Path) -> None:
                 "resolved_config_environment_reference_forbidden"
             )
         tree = ast.parse(text, filename=path.name)
+        _validate_data_only_config_ast(tree)
         try:
             name_tokens = (
                 token.string
