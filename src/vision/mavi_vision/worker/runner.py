@@ -465,6 +465,11 @@ class WorkerRunner:
                 )
 
                 if process_task in done:
+                    if heartbeat_task in done:
+                        try:
+                            heartbeat_task.result()
+                        except BaseException:
+                            pass
                     return None
 
                 if heartbeat_task in done:
