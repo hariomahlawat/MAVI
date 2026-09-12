@@ -136,6 +136,8 @@ dependencies = []
         path.write_bytes(payload)
         files[name] = path
 
+    tool.VISION_ROOT = mavi_source_root
+
     return tool, tool.VerifiedBundleInputs(
         source_commit=tool._repository_head(tool.ROOT),
         release_status="qualification-candidate",
@@ -153,7 +155,6 @@ dependencies = []
         checkpoint_sha256=tool.sha256_file(files["checkpoint"]),
         resolved_config_sha256=tool.sha256_file(files["config"]),
         wheelhouse=wheelhouse,
-        mavi_source_root=mavi_source_root,
     )
 
 
@@ -169,7 +170,7 @@ def test_bundle_rejects_mavi_wheel_from_different_source_tree(
     tmp_path: Path,
 ) -> None:
     tool, inputs = _fixture_inputs(tmp_path)
-    (inputs.mavi_source_root / "mavi_vision" / "__init__.py").write_text(
+    (tool.VISION_ROOT / "mavi_vision" / "__init__.py").write_text(
         '__version__ = "0.1.1"\n',
         encoding="utf-8",
     )
@@ -182,7 +183,7 @@ def test_bundle_rejects_mavi_wheel_with_stale_project_metadata(
     tmp_path: Path,
 ) -> None:
     tool, inputs = _fixture_inputs(tmp_path)
-    project = inputs.mavi_source_root / "pyproject.toml"
+    project = tool.VISION_ROOT / "pyproject.toml"
     project.write_text(
         project.read_text(encoding="utf-8").replace(
             'requires-python = ">=3.12,<3.14"',
@@ -238,6 +239,64 @@ def test_bundle_source_commit_must_match_repository_checkout() -> None:
 
     with pytest.raises(tool.OfflineBundleError, match="bundle_source_commit_mismatch"):
         tool._validate_source_commit_against_checkout("1" * 40, tool.ROOT)
+
+
+def test_verified_bundle_inputs_cannot_redirect_mavi_source_tree(
+    tmp_path: Path,
+) -> None:
+    tool, _ = _fixture_inputs(tmp_path)
+
+    assert "mavi_source_root" not in tool.VerifiedBundleInputs.__dataclass_fields__
+
+
+def test_direct_assembler_rechecks_production_release_eligibility(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+
+    class Manifest:
+        verification_status = "unverified"
+        model_id = inputs.model_id
+        checkpoint = type("Artifact", (), {"sha256": inputs.checkpoint_sha256})()
+        resolved_config = type(
+            "Artifact",
+            (),
+            {"sha256": inputs.resolved_config_sha256},
+        )()
+
+    class Qualification:
+        required_gates = {gate: "pending" for gate in tool.MANDATORY_QUALIFICATION_GATES}
+        overall_result = "pending"
+
+    class Platform:
+        python_identity = type("PythonIdentity", (), {"version": inputs.python_version})()
+
+    class Selection:
+        manifest = Manifest()
+        qualification = Qualification()
+        verification_status = "unverified"
+        runtime_qualification_status = "partial"
+        runtime_profile_id = inputs.runtime_profile_id
+        runtime_platform_variants = {inputs.platform_variant: Platform()}
+        checkpoint_path = inputs.checkpoint_path
+        resolved_config_path = inputs.resolved_config_path
+
+    monkeypatch.setattr(tool, "_infer_model_root", lambda _: tmp_path)
+    monkeypatch.setattr(tool, "verify_release_selection", lambda **_: Selection())
+    monkeypatch.setattr(tool, "load_runtime_profile", lambda _: object())
+    monkeypatch.setattr(
+        tool,
+        "verify_runtime_release_locks",
+        lambda *_: {inputs.platform_variant: inputs.runtime_lock_path},
+    )
+
+    production_inputs = replace(inputs, release_status="production")
+    with pytest.raises(tool.OfflineBundleError, match="production_release_not_qualified"):
+        tool.build_bundle_from_verified_inputs(
+            production_inputs,
+            tmp_path / "production-bundle",
+        )
 
 
 def test_same_inputs_create_identical_bundle_bytes(tmp_path: Path) -> None:
