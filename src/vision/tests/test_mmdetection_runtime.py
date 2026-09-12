@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
@@ -113,6 +114,7 @@ class BackendHarness:
         inference_error: Exception | None = None,
         cuda_available: bool = True,
         cuda_count: int = 4,
+        config_override: dict[str, object] | None = None,
     ) -> None:
         self.vocabulary = vocabulary
         self.model_device = model_device
@@ -121,6 +123,7 @@ class BackendHarness:
         self.inference_error = inference_error
         self.cuda_available = cuda_available
         self.cuda_count = cuda_count
+        self.config_override = config_override
         self.configs: list[dict[str, object]] = []
         self.init_calls: list[tuple[dict[str, object], str, str]] = []
         self.inference_images: list[np.ndarray] = []
@@ -140,15 +143,19 @@ class BackendHarness:
 
         def config_fromfile(path: str) -> dict[str, object]:
             assert Path(path).is_file()
-            config: dict[str, object] = {
-                "model": {
-                    "type": "RTMDet",
-                    "test_cfg": {
-                        "score_thr": 0.001,
-                        "nms": {"type": "nms", "iou_threshold": 0.65},
-                    },
+            config: dict[str, object]
+            if self.config_override is None:
+                config = {
+                    "model": {
+                        "type": "RTMDet",
+                        "test_cfg": {
+                            "score_thr": 0.001,
+                            "nms": {"type": "nms", "iou_threshold": 0.65},
+                        },
+                    }
                 }
-            }
+            else:
+                config = copy.deepcopy(self.config_override)
             self.configs.append(config)
             return config
 
@@ -404,6 +411,21 @@ def test_constructor_rejects_runtime_vocabulary_drift(
             "resolved_config_external_resource_forbidden",
         ),
         (
+            "model = dict(test_cfg=dict(score_thr=0.1), "
+            "init_cfg=r'\\outside-release\\model.pth')\n",
+            "resolved_config_external_resource_forbidden",
+        ),
+        (
+            "model = dict(test_cfg=dict(score_thr=0.1), "
+            "init_cfg='../outside-release/model.pth')\n",
+            "resolved_config_external_resource_forbidden",
+        ),
+        (
+            "model = dict(test_cfg=dict(score_thr=0.1), "
+            "init_cfg='~/outside-release/model.pth')\n",
+            "resolved_config_external_resource_forbidden",
+        ),
+        (
             "import os\nmodel = dict(test_cfg=dict(score_thr=0.1))\n",
             "resolved_config_import_forbidden",
         ),
@@ -441,6 +463,60 @@ def test_constructor_rejects_non_self_contained_resolved_config_before_imports(
             device="cpu",
             activity=InferenceActivity(),
         )
+
+
+@pytest.mark.parametrize(
+    ("config_override", "error"),
+    [
+        (
+            {
+                "model": {
+                    "type": "RTMDet",
+                    "test_cfg": {"score_thr": 0.001},
+                    "checkpoint": "relative-unverified.pth",
+                }
+            },
+            "resolved_config_external_resource_directive:checkpoint",
+        ),
+        (
+            {
+                "model": {
+                    "type": "RTMDet",
+                    "test_cfg": {"score_thr": 0.001},
+                    "init_cfg": {"type": "Pretrained"},
+                }
+            },
+            "resolved_config_pretrained_init_forbidden",
+        ),
+        (
+            {
+                "model": {
+                    "type": "RTMDet",
+                    "test_cfg": {"score_thr": 0.001},
+                },
+                "custom_imports": {"imports": ["external_plugin"]},
+            },
+            "resolved_config_custom_imports_forbidden",
+        ),
+    ],
+)
+def test_constructor_rejects_loaded_external_resource_directives_before_model_init(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config_override: dict[str, object],
+    error: str,
+) -> None:
+    harness = BackendHarness(config_override=config_override)
+    _patch_backend(monkeypatch, harness)
+
+    with pytest.raises(RuntimeCompatibilityError, match=error):
+        MMDetectionRuntime(
+            _selection(tmp_path),
+            device="cpu",
+            activity=InferenceActivity(),
+        )
+
+    assert harness.init_calls == []
 
 
 def test_constructor_rechecks_artifact_hash_immediately_before_loading(
