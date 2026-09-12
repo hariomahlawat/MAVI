@@ -18,7 +18,10 @@ def _finite_number(value: object, *, code: str) -> float:
     number = float(value)
     if not isfinite(number):
         raise InferenceContractError(code)
-    return number
+    # IEEE-754 signed zero compares equal but serializes differently. Normalize
+    # it before any canonical sort/ordinal assignment so backend ordering cannot
+    # leak into deterministic MAVI output.
+    return 0.0 if number == 0.0 else number
 
 
 class RTMDetDetector:
