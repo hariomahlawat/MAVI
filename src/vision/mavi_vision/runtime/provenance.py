@@ -301,7 +301,14 @@ def _runtime_binding_mismatch(
 
     for dependency_name, expected_version in selection.runtime_semantic_graph.items():
         actual_version = runtime_metadata.versions.get(dependency_name)
-        if actual_version != expected_version:
+        if actual_version is None:
+            return "runtime_dependency_version_mismatch:" + dependency_name
+        comparable_version = (
+            actual_version.split("+", 1)[0]
+            if dependency_name in {"torch", "torchvision"}
+            else actual_version
+        )
+        if comparable_version != expected_version:
             return "runtime_dependency_version_mismatch:" + dependency_name
 
     variant = selection.runtime_platform_variants.get(runtime_variant)
@@ -317,6 +324,13 @@ def _runtime_binding_mismatch(
         return "runtime_platform_variant_not_qualified"
     if variant.resolved_config_sha256 != selection.manifest.resolved_config.sha256:
         return "runtime_variant_config_identity_mismatch"
+
+    expected_binary_versions = variant.binary_versions
+    if expected_binary_versions is None:
+        return "runtime_binary_identity_missing"
+    for dependency_name, expected_version in expected_binary_versions.items():
+        if runtime_metadata.versions.get(dependency_name) != expected_version:
+            return "runtime_binary_version_mismatch:" + dependency_name
 
     expected_python = variant.python_identity
     if expected_python is None:
