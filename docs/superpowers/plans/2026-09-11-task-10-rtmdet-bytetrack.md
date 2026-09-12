@@ -15,9 +15,10 @@
 - **Task 1 remains open as a release-qualification task.** Bounded Tasks 1A/1B are complete: the frozen Python 3.12 hosted CPU semantic graph, self-contained resolved RTMDet-M config, restricted checkpoint loading, and real Linux/Windows CPU inference are verified. Linux/Windows NVIDIA qualification and hashed offline wheelhouse locks remain pending and must not be inferred.
 - **Task 2 and corrective Task 2A are complete.** Frozen resolved-config identity is enforced in CI, qualification evidence is preserved as a complete non-hidden artifact set, resolver publication is alias-safe/atomic, and native Windows staging includes the additional post-replace rollback and native-name length regressions.
 - **Task 3 is complete.** MAVI now has strict model-manifest, pipeline-profile and qualification-record loaders; exact-byte release identities; trusted-root/no-link artifact resolution; an evidence-backed `VerifiedReleaseSelection`; and repository verification that explicitly prevents a pending release from being presented as production-qualified.
-- **Tasks 4–11 and Task 13 remain framework-neutral implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status.
+- **Task 4 is complete.** Framework-neutral detector-runtime contracts, stable typed dependency failures, operational-only runtime/device/watchdog settings, and immutable provenance are implemented. Provenance is bound to the live qualified dependency graph, exact interpreter identity, platform/device qualification state and verified release lock; development drift is explicitly recorded as `unverified`.
+- **Tasks 5–11 and Task 13 remain framework-neutral implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
 - **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task:** Task 4 — framework-neutral runtime contracts, typed failures, device policy and provenance.
+- **Next implementation task:** Task 5 — single-thread vision execution lane and activity monitor.
 
 ## Global Constraints
 
