@@ -20,6 +20,7 @@ on:
       - 'models/qualifications/rtmdet-m-coco-phase1-v1.json'
       - '.github/workflows/task12-offline-bundle.yml'
       - '.github/workflows/task10-runtime-qualification.yml'
+      - 'docs/decisions/ADR-005-qualified-vision-runtime.md'
       - 'infrastructure/offline-bundle/**'
       - 'infrastructure/linux/**'
       - 'infrastructure/windows/**'
