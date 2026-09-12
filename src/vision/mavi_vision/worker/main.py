@@ -126,6 +126,7 @@ async def _run_worker(
     client = client_factory(settings)
     lane: Any | None = None
     supervisor: Any | None = None
+    runner: Any | None = None
 
     try:
         lane = lane_factory()
@@ -178,14 +179,26 @@ async def _run_worker(
             poll_interval_seconds=settings.poll_interval_seconds,
         )
     finally:
-        # RuntimeSupervisor is the designated owner once constructed. If its
-        # construction itself fails, main retains responsibility for the lane.
+        # RuntimeSupervisor is the designated owner once constructed. Fatal
+        # watchdog containment is the one exception: the lane is known to contain
+        # native work that failed to unwind inside grace, so waiting teardown would
+        # recreate the deadlock the process-level terminator is meant to escape.
+        fatal_watchdog = bool(
+            runner is not None
+            and getattr(runner, "fatal_termination_active", False)
+        )
         try:
-            if supervisor is not None:
+            if fatal_watchdog:
+                logger.critical(
+                    "Skipping poisoned vision-lane teardown after fatal watchdog"
+                )
+            elif supervisor is not None:
                 await supervisor.close()
             elif lane is not None:
                 await lane.close()
         finally:
+            # HTTP resources are independent of the poisoned native lane and can
+            # still be closed without violating bounded fatal containment.
             await client.aclose()
 
 
