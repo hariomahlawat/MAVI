@@ -29,6 +29,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mavi-task12-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cpu-offline-bundle:
     name: ${{ matrix.variant }} Python ${{ matrix.python-version }}
