@@ -143,6 +143,7 @@ async def _run_worker(
             device_index=settings.device_index,
             production_mode=settings.production_mode,
             inference_watchdog_seconds=settings.inference_watchdog_seconds,
+            watchdog_grace_seconds=settings.watchdog_grace_seconds,
             build_id=settings.build_id,
             commit_sha=settings.commit_sha,
         )
@@ -184,8 +185,14 @@ async def _run_worker(
         # native work that failed to unwind inside grace, so waiting teardown would
         # recreate the deadlock the process-level terminator is meant to escape.
         fatal_watchdog = bool(
-            runner is not None
-            and getattr(runner, "fatal_termination_active", False)
+            (
+                runner is not None
+                and getattr(runner, "fatal_termination_active", False)
+            )
+            or (
+                supervisor is not None
+                and getattr(supervisor, "fatal_termination_active", False)
+            )
         )
         try:
             if fatal_watchdog:
