@@ -133,5 +133,5 @@ def test_task12_workflow_covers_wheel_inputs_and_uses_pinned_reproduction() -> N
     assert "CC=gcc-14" in workflow
     assert "CXX=g++-14" in workflow
     assert "gcc-14 -dumpfullversion -dumpversion" in workflow
-    assert "19.44." in workflow
+    assert "14.44." in workflow
 
