@@ -1712,7 +1712,7 @@ Task 11 shall implement:
 - real production worker composition and readiness-gated outer loop.
 
 Task 11 shall **not** implement:
-- Task-11 result `/complete` persistence or PostgreSQL writes;
+- authoritative result `/complete` persistence or PostgreSQL writes (the separate successor capability);
 - Task-12 wheelhouse/offline-bundle completion;
 - Task-14 GPU hardware qualification/performance claims;
 - a new worker-health schema;
@@ -1818,8 +1818,8 @@ For `RuntimeDisposition.UNAVAILABLE`, do not perform same-process reconstruction
 - `cuda` resolves to `cuda:{device_index}` and never falls back to CPU.
 - production `auto` remains invalid in `WorkerSettings` and is rejected again defensively by supervisor composition.
 - development `auto` in the Task-11 baseline resolves deterministically to CPU with an explicit warning. Do **not** implement fragile fallback by parsing `RuntimeCompatibilityError` text. A later qualified development preference for CUDA can be introduced separately.
-- add `qualification_record_path` to `WorkerSettings` (defaulting to the current local qualification record) so release evidence selection is explicit rather than inferred from filenames;
-- add optional deployment build/commit identity settings used by `build_runtime_provenance`; development may retain the existing `unknown-development` provenance behavior, while production must fail closed if required identity is absent;
+- add `qualification_record_path: Path | None = Path("models/qualifications/rtmdet-m-coco-phase1-v1.json")` to `WorkerSettings`, exposed as `MAVI_QUALIFICATION_RECORD_PATH`, so release evidence selection is explicit rather than inferred from filenames;
+- add `build_id: str | None = None` and `commit_sha: str | None = None`, exposed as `MAVI_BUILD_ID` and `MAVI_COMMIT_SHA`, and pass them to `build_runtime_provenance(mavi_build=..., mavi_commit=...)`; development may retain the existing `unknown-development` behavior, while production must fail closed if required identity is absent;
 - production calls `verify_release_selection(..., allow_unverified=False)` and therefore the current checked-in unverified/partial release correctly remains non-ready;
 - development calls the same verifier with explicit `allow_unverified=True`; hashes/containment/runtime relationships are still verified and provenance remains `unverified`.
 
@@ -1862,7 +1862,7 @@ This is required because `VisionExecutionLane` deliberately shields native work 
 
 #### Health contract
 
-`worker-health-v2` remains unchanged. `get_worker_health()` may return the existing `ready` payload only when the caller supplies/derives runtime READY. A non-ready call raises a local `WorkerHealthUnavailable` (or equivalently stable local exception) for the caller to map to transport/local diagnostics. Do not invent `starting`, `recovering`, or `unavailable` v2 payload values.
+`worker-health-v2` remains unchanged. Use the explicit shape `get_worker_health(worker_id: str, *, runtime_ready: bool) -> WorkerHealth`. It may return the existing `ready` payload only when `runtime_ready` is true. When false, raise a local `WorkerHealthUnavailable("runtime_not_ready")` for the caller to map to transport/local diagnostics. Do not invent `starting`, `recovering`, or `unavailable` v2 payload values.
 
 #### Production control-loop contract
 
@@ -1887,7 +1887,7 @@ before any lease:
     await supervisor.recover_if_required()
     if READY -> runner.run_once()
     if RECOVERING -> recover_if_required(), no lease
-    if UNAVAILABLE + restart_required -> exit with service-restart code
+    if UNAVAILABLE + restart_required -> exit with service-restart code 70
     if UNAVAILABLE + not restart_required -> remain alive for diagnostics, no lease
 
 after every run_once outcome (success, leased-job failure, lease loss, API error):
@@ -1993,7 +1993,7 @@ Create/extend `test_worker_main.py` with fake supervisor/runner/client/lane. Pro
 - STARTING/RECOVERING/UNAVAILABLE never call `lease()`;
 - reconciliation occurs in `finally` after `run_once()` success and after `WorkerApiError`; 
 - an OOM pending incident is recovered before the next lease even when terminal `/fail` transport failed;
-- restart-required UNAVAILABLE exits through the defined service-restart path;
+- restart-required UNAVAILABLE exits exactly with code 70 so the external service manager can restart the process;
 - startup/configuration UNAVAILABLE remains alive for diagnostics without busy-looping;
 - shutdown closes resources once in the locked order.
 
