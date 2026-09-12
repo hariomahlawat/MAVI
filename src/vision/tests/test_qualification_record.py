@@ -27,7 +27,7 @@ def _profile_payload() -> dict:
     return {
         "schemaVersion": "1.0",
         "profileId": "phase1-detection-tracking-v1",
-        "profileVersion": "1.0.0-candidate",
+        "profileVersion": "1.1.0-candidate",
         "modelId": "model-a",
         "detectorInferenceFloor": 0.05,
         "allowedSourceClasses": ["person", "car", "motorcycle", "bus", "truck"],
@@ -39,10 +39,11 @@ def _profile_payload() -> dict:
             "truck": "vehicle",
         },
         "tracker": {
-            "trackActivationThreshold": 0.25,
+            "referenceFrameRate": 30.0,
+            "trackActivationThreshold": 0.7,
             "highConfidenceThreshold": 0.6,
-            "minimumMatchingThreshold": 0.8,
-            "minimumConsecutiveFrames": 1,
+            "minimumIouThreshold": 0.1,
+            "minimumConsecutiveFrames": 2,
             "lostTrackBufferSeconds": 1.0,
         },
         "framePolicy": "every-frame",

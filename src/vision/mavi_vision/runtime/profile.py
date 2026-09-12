@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isclose, isfinite
+from numbers import Real
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, Mapping
@@ -23,15 +25,71 @@ _PHASE1_CLASS_MAPPING = {
     "bus": ObjectClass.VEHICLE,
     "truck": ObjectClass.VEHICLE,
 }
+_TRACKERS_REFERENCE_HZ = 30.0
+_INTEGER_TOLERANCE = 1e-9
+
+
+def _is_finite_real(value: object) -> bool:
+    return (
+        isinstance(value, Real)
+        and not isinstance(value, bool)
+        and isfinite(float(value))
+    )
+
+
+def _lost_track_buffer_units(seconds: float) -> int:
+    if not _is_finite_real(seconds) or not 0.0 < float(seconds) <= 60.0:
+        raise ValueError("bytetrack_lost_buffer_seconds_invalid")
+    scaled = float(seconds) * _TRACKERS_REFERENCE_HZ
+    nearest = round(scaled)
+    if not isclose(
+        scaled,
+        nearest,
+        rel_tol=0.0,
+        abs_tol=_INTEGER_TOLERANCE,
+    ):
+        raise ValueError("bytetrack_lost_buffer_not_integral_at_30hz")
+    return nearest
 
 
 @dataclass(frozen=True, slots=True)
 class ByteTrackProfile:
+    reference_frame_rate: float
     track_activation_threshold: float
     high_confidence_threshold: float
-    minimum_matching_threshold: float
+    minimum_iou_threshold: float
     minimum_consecutive_frames: int
     lost_track_buffer_seconds: float
+
+    def __post_init__(self) -> None:
+        if (
+            not _is_finite_real(self.reference_frame_rate)
+            or float(self.reference_frame_rate) <= 0.0
+        ):
+            raise ValueError("bytetrack_reference_frame_rate_invalid")
+        for name, value in (
+            ("track_activation_threshold", self.track_activation_threshold),
+            ("high_confidence_threshold", self.high_confidence_threshold),
+            ("minimum_iou_threshold", self.minimum_iou_threshold),
+        ):
+            if (
+                not _is_finite_real(value)
+                or not 0.0 <= float(value) <= 1.0
+            ):
+                raise ValueError(f"bytetrack_{name}_invalid")
+        if not self.high_confidence_threshold < self.track_activation_threshold:
+            raise ValueError("bytetrack_confidence_threshold_order_invalid")
+        if (
+            not isinstance(self.minimum_consecutive_frames, int)
+            or isinstance(self.minimum_consecutive_frames, bool)
+            or not 1 <= self.minimum_consecutive_frames <= 100
+        ):
+            raise ValueError("bytetrack_minimum_consecutive_frames_invalid")
+        _lost_track_buffer_units(self.lost_track_buffer_seconds)
+
+    @property
+    def lost_track_buffer(self) -> int:
+        return _lost_track_buffer_units(self.lost_track_buffer_seconds)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,20 +110,28 @@ class _StrictModel(BaseModel):
 
 
 class _ByteTrackProfileSchema(_StrictModel):
+    reference_frame_rate: float = Field(
+        alias="referenceFrameRate",
+        gt=0.0,
+        allow_inf_nan=False,
+    )
     track_activation_threshold: float = Field(
         alias="trackActivationThreshold",
         ge=0.0,
         le=1.0,
+        allow_inf_nan=False,
     )
     high_confidence_threshold: float = Field(
         alias="highConfidenceThreshold",
         ge=0.0,
         le=1.0,
+        allow_inf_nan=False,
     )
-    minimum_matching_threshold: float = Field(
-        alias="minimumMatchingThreshold",
+    minimum_iou_threshold: float = Field(
+        alias="minimumIouThreshold",
         ge=0.0,
         le=1.0,
+        allow_inf_nan=False,
     )
     minimum_consecutive_frames: int = Field(
         alias="minimumConsecutiveFrames",
@@ -76,12 +142,15 @@ class _ByteTrackProfileSchema(_StrictModel):
         alias="lostTrackBufferSeconds",
         gt=0.0,
         le=60.0,
+        allow_inf_nan=False,
     )
 
     @model_validator(mode="after")
-    def validate_threshold_relationships(self) -> "_ByteTrackProfileSchema":
-        if self.high_confidence_threshold < self.track_activation_threshold:
-            raise ValueError("bytetrack_high_confidence_below_activation")
+    def validate_tracker_policy(self) -> "_ByteTrackProfileSchema":
+        if not self.high_confidence_threshold < self.track_activation_threshold:
+            raise ValueError("bytetrack_confidence_threshold_order_invalid")
+
+        _lost_track_buffer_units(self.lost_track_buffer_seconds)
         return self
 
 
@@ -94,6 +163,7 @@ class _PipelineProfileSchema(_StrictModel):
         alias="detectorInferenceFloor",
         ge=0.0,
         le=1.0,
+        allow_inf_nan=False,
     )
     allowed_source_classes: tuple[str, ...] = Field(alias="allowedSourceClasses")
     class_mapping: dict[str, ObjectClass] = Field(alias="classMapping")
@@ -118,8 +188,8 @@ class _PipelineProfileSchema(_StrictModel):
     def validate_phase1_mapping(self) -> "_PipelineProfileSchema":
         if self.class_mapping != _PHASE1_CLASS_MAPPING:
             raise ValueError("phase1_class_mapping_invalid")
-        if self.detector_inference_floor > self.tracker.track_activation_threshold:
-            raise ValueError("detector_floor_above_track_activation")
+        if not self.detector_inference_floor < self.tracker.high_confidence_threshold:
+            raise ValueError("detector_floor_not_below_high_confidence")
         return self
 
 
@@ -131,9 +201,10 @@ def load_pipeline_profile(path: Path) -> PipelineProfile:
         raise ReleaseMetadataError("pipeline_profile_invalid") from exc
 
     tracker = ByteTrackProfile(
+        reference_frame_rate=parsed.tracker.reference_frame_rate,
         track_activation_threshold=parsed.tracker.track_activation_threshold,
         high_confidence_threshold=parsed.tracker.high_confidence_threshold,
-        minimum_matching_threshold=parsed.tracker.minimum_matching_threshold,
+        minimum_iou_threshold=parsed.tracker.minimum_iou_threshold,
         minimum_consecutive_frames=parsed.tracker.minimum_consecutive_frames,
         lost_track_buffer_seconds=parsed.tracker.lost_track_buffer_seconds,
     )

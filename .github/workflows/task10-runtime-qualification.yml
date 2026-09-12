@@ -13,6 +13,9 @@ on:
       - 'src/vision/tests/test_rtmdet_colour_space.py'
       - 'src/vision/tests/test_mmdetection_runtime.py'
       - 'src/vision/mavi_vision/runtime/**'
+      - 'src/vision/mavi_vision/tracking/**'
+      - 'src/vision/mavi_vision/detection/interfaces.py'
+      - 'src/vision/tests/test_bytetrack_*.py'
       - 'src/vision/mavi_vision/common/analytical.py'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
@@ -35,6 +38,9 @@ on:
       - 'src/vision/tests/test_rtmdet_colour_space.py'
       - 'src/vision/tests/test_mmdetection_runtime.py'
       - 'src/vision/mavi_vision/runtime/**'
+      - 'src/vision/mavi_vision/tracking/**'
+      - 'src/vision/mavi_vision/detection/interfaces.py'
+      - 'src/vision/tests/test_bytetrack_*.py'
       - 'src/vision/mavi_vision/common/analytical.py'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
@@ -70,11 +76,17 @@ jobs:
       MAX_JOBS: '2'
       RTMDET_CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
       RTMDET_CHECKPOINT_SHA256: 229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b
-      MAVI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      MAVI_EVENT_SHA: ${{ github.sha }}
+      MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      MAVI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
       MAVI_RUNTIME_VARIANT: ${{ matrix.runtime-variant }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -89,6 +101,7 @@ jobs:
           psutil
           pytest
           "numpy==2.5.3"
+          "av==16.1.0"
           "pydantic>=2.11,<3"
 
       - name: Run runtime qualification tooling unit tests
@@ -106,6 +119,8 @@ jobs:
           tests/test_rtmdet_colour_space.py
           tests/test_mmdetection_runtime.py
           tests/test_runtime_errors.py
+          tests/test_bytetrack_profile_semantics.py
+          tests/test_bytetrack_adapter.py
           -q
 
       - name: Install candidate PyTorch CPU build
@@ -252,6 +267,88 @@ jobs:
               variant_name,
               json.dumps(actual_python, sort_keys=True),
           )
+          PY
+
+      - name: Run exact Trackers 2.6 ByteTrack qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qualification-evidence
+          MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_bytetrack_runtime.py -q
+
+          PYTHONPATH=src/vision python - <<'PY'
+          import hashlib
+          import importlib.metadata
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          from mavi_vision.runtime.profile import load_pipeline_profile
+
+          profile_path = Path("src/vision/config/pipelines/phase1-detection-tracking-v1.json")
+          profile_sha256 = hashlib.sha256(profile_path.read_bytes()).hexdigest()
+          qualification = json.loads(
+              Path("models/qualifications/rtmdet-m-coco-phase1-v1.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          if qualification["pipelineProfileSha256"] != profile_sha256:
+              raise SystemExit("bytetrack_qualification_profile_hash_mismatch")
+
+          executed_source_sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"],
+              text=True,
+          ).strip()
+          expected_source_sha = os.environ["MAVI_EXPECTED_SOURCE_SHA"]
+          if executed_source_sha != expected_source_sha:
+              raise SystemExit(
+                  "bytetrack_qualification_source_sha_mismatch:"
+                  + json.dumps(
+                      {
+                          "executed": executed_source_sha,
+                          "expected": expected_source_sha,
+                          "event": os.environ["MAVI_EVENT_SHA"],
+                          "prHead": os.environ.get("MAVI_PR_HEAD_SHA") or None,
+                      },
+                      sort_keys=True,
+                  )
+              )
+
+          profile = load_pipeline_profile(profile_path)
+          tracker = profile.tracker
+          record = {
+              "status": "passed",
+              "runtimeVariant": os.environ["MAVI_RUNTIME_VARIANT"],
+              "headSha": executed_source_sha,
+              "eventSha": os.environ["MAVI_EVENT_SHA"],
+              "prHeadSha": os.environ.get("MAVI_PR_HEAD_SHA") or None,
+              "profileSha256": profile_sha256,
+              "effectiveNativeParameters": {
+                  "frame_rate": tracker.reference_frame_rate,
+                  "lost_track_buffer": tracker.lost_track_buffer,
+                  "track_activation_threshold": tracker.track_activation_threshold,
+                  "high_conf_det_threshold": tracker.high_confidence_threshold,
+                  "minimum_iou_threshold": tracker.minimum_iou_threshold,
+                  "minimum_consecutive_frames": tracker.minimum_consecutive_frames,
+              },
+              "pythonIdentity": {
+                  "version": platform.python_version(),
+                  "implementation": platform.python_implementation(),
+              },
+              "packages": {
+                  "trackers": importlib.metadata.version("trackers"),
+                  "supervision": importlib.metadata.version("supervision"),
+              },
+              "testResult": "passed",
+              "testSuite": "src/vision/tests/test_bytetrack_runtime.py",
+          }
+          Path("qualification-evidence/bytetrack-qualification.json").write_text(
+              json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print("bytetrack-qualification-ok", json.dumps(record, sort_keys=True))
           PY
 
       - name: Resolve official RTMDet-M config and fetch checkpoint
@@ -403,6 +500,8 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import os
+          import subprocess
           from pathlib import Path
 
           root = Path("qualification-evidence")
@@ -415,6 +514,7 @@ jobs:
               "runtime.json",
               "missing.err",
               "production-runtime-smoke.json",
+              "bytetrack-qualification.json",
           )
           missing = [name for name in required if not (root / name).is_file()]
           if missing:
@@ -436,6 +536,40 @@ jobs:
               raise SystemExit("production_runtime_smoke_not_passed")
           if production.get("device") != "cpu":
               raise SystemExit("production_runtime_smoke_device_invalid")
+
+          bytetrack = json.load(
+              (root / "bytetrack-qualification.json").open(encoding="utf-8")
+          )
+          if bytetrack.get("status") != "passed":
+              raise SystemExit("bytetrack_qualification_status_not_passed")
+          if bytetrack.get("packages") != {
+              "trackers": "2.6.0",
+              "supervision": "0.30.2",
+          }:
+              raise SystemExit("bytetrack_qualification_package_drift")
+          import hashlib
+          profile_hash = hashlib.sha256(
+              Path(
+                  "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
+              ).read_bytes()
+          ).hexdigest()
+          if bytetrack.get("profileSha256") != profile_hash:
+              raise SystemExit("bytetrack_qualification_profile_hash_mismatch")
+
+          executed_source_sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"],
+              text=True,
+          ).strip()
+          expected_source_sha = os.environ["MAVI_EXPECTED_SOURCE_SHA"]
+          if executed_source_sha != expected_source_sha:
+              raise SystemExit("qualification_checkout_source_sha_mismatch")
+          if bytetrack.get("headSha") != executed_source_sha:
+              raise SystemExit("bytetrack_evidence_source_sha_mismatch")
+          expected_pr_head = os.environ.get("MAVI_PR_HEAD_SHA") or None
+          if bytetrack.get("prHeadSha") != expected_pr_head:
+              raise SystemExit("bytetrack_evidence_pr_head_sha_mismatch")
+          if bytetrack.get("eventSha") != os.environ["MAVI_EVENT_SHA"]:
+              raise SystemExit("bytetrack_evidence_event_sha_mismatch")
 
           resolved = json.load((root / "resolved-config.json").open(encoding="utf-8"))
           runtime = json.load((root / "runtime.json").open(encoding="utf-8"))
