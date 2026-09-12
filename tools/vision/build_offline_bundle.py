@@ -667,8 +667,13 @@ def _expected_project_requirements(project: dict) -> set[tuple[str, tuple[str, .
         for value in project.get("dependencies", [])
     }
     for extra, requirements in project.get("optional-dependencies", {}).items():
+        # PEP 621 stores the extra name in the table key. Wheel METADATA
+        # represents that same relationship as a PEP 508 extra marker.
         expected.update(
-            _canonical_requirement(value, expected_extra=extra)
+            _canonical_requirement(
+                f'{value}; extra == "{extra}"',
+                expected_extra=extra,
+            )
             for value in requirements
         )
     return expected
