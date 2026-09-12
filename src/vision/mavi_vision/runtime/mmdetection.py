@@ -214,7 +214,18 @@ def _is_none_literal(value: ast.expr | None) -> bool:
 def _validate_resolved_config(path: Path) -> None:
     try:
         payload = validate_release_text_file(path)
-        tree = ast.parse(payload.decode("utf-8"), filename=path.name)
+        text = payload.decode("utf-8")
+        if "{{" in text:
+            raise RuntimeCompatibilityError(
+                "resolved_config_template_reference_forbidden"
+            )
+        if "${" in text:
+            raise RuntimeCompatibilityError(
+                "resolved_config_environment_reference_forbidden"
+            )
+        tree = ast.parse(text, filename=path.name)
+    except RuntimeCompatibilityError:
+        raise
     except (ReleaseMetadataError, UnicodeDecodeError, SyntaxError) as exc:
         raise RuntimeCompatibilityError("resolved_config_invalid") from exc
 
