@@ -567,6 +567,67 @@ def load_runtime_identity(path: Path) -> tuple[str, str, str]:
     )
 
 
+def _runtime_semantic_graph_identity(
+    profile: _RuntimeProfileSchema,
+) -> Mapping[str, str]:
+    graph = profile.semantic_graph
+    return MappingProxyType(
+        {
+            "torch": graph.torch,
+            "torchvision": graph.torchvision,
+            "mmcv": graph.mmcv,
+            "mmengine": graph.mmengine,
+            "mmdet": graph.mmdet,
+            "trackers": graph.trackers,
+            "supervision": graph.supervision,
+            "scipy": graph.scipy,
+            "numpy": graph.numpy,
+            "opencv": graph.opencv,
+            "av": graph.av,
+            "opencvPython": graph.opencv_python,
+            "pillow": graph.pillow,
+        }
+    )
+
+
+def _runtime_platform_variant_identities(
+    profile: _RuntimeProfileSchema,
+) -> Mapping[str, RuntimePlatformVariantIdentity]:
+    identities: dict[str, RuntimePlatformVariantIdentity] = {}
+    for variant_name, variant in profile.platform_variants.items():
+        python_identity = (
+            RuntimePythonIdentity(
+                version=variant.python_identity.version,
+                implementation=variant.python_identity.implementation,
+                build=variant.python_identity.build,
+                compiler=variant.python_identity.compiler,
+            )
+            if variant.python_identity is not None
+            else None
+        )
+        identities[variant_name] = RuntimePlatformVariantIdentity(
+            status=variant.status,
+            resolved_config_sha256=variant.resolved_config_sha256,
+            python_identity=python_identity,
+        )
+    return MappingProxyType(identities)
+
+
+def _runtime_release_lock_identities(
+    profile: _RuntimeProfileSchema,
+) -> Mapping[str, RuntimeReleaseLockIdentity]:
+    return MappingProxyType(
+        {
+            variant_name: RuntimeReleaseLockIdentity(
+                status=lock.status,
+                artifact=lock.artifact,
+                sha256=lock.sha256,
+            )
+            for variant_name, lock in profile.release_locks.items()
+        }
+    )
+
+
 def verify_runtime_release_locks(
     runtime_profile_path: Path,
     profile: _RuntimeProfileSchema,
@@ -730,4 +791,8 @@ def verify_release_selection(
         checkpoint_path=checkpoint_path,
         resolved_config_path=resolved_config_path,
         verification_status=manifest.verification_status,
+        runtime_qualification_status=runtime_profile.qualification_status,
+        runtime_semantic_graph=_runtime_semantic_graph_identity(runtime_profile),
+        runtime_platform_variants=_runtime_platform_variant_identities(runtime_profile),
+        runtime_release_locks=_runtime_release_lock_identities(runtime_profile),
     )
