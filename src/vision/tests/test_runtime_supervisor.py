@@ -417,3 +417,37 @@ def test_close_is_idempotent_and_supervisor_owns_lane_shutdown_once() -> None:
         assert harness.lane.close_calls == 1
 
     asyncio.run(scenario())
+
+
+def test_continue_incident_keeps_ready_runtime_without_reconstruction() -> None:
+    async def scenario() -> None:
+        runtime = _Runtime("a")
+        harness = _Harness(runtimes=[runtime])
+        await harness.supervisor.start()
+
+        harness.supervisor.report_processing_failure(TrackerError("tracker"))
+        await harness.supervisor.recover_if_required()
+
+        assert harness.supervisor.state is harness.module.RuntimeState.READY
+        assert harness.supervisor.runtime is runtime
+        assert runtime.close_calls == 0
+        assert len(harness.factory_calls) == 1
+
+    asyncio.run(scenario())
+
+
+def test_reports_after_stopping_are_ignored_and_nonthrowing() -> None:
+    async def scenario() -> None:
+        runtime = _Runtime("a")
+        harness = _Harness(runtimes=[runtime])
+        await harness.supervisor.start()
+        await harness.supervisor.close()
+
+        harness.supervisor.report_processing_failure(GpuOutOfMemoryError("late"))
+        harness.supervisor.report_watchdog_expiry()
+        await harness.supervisor.recover_if_required()
+
+        assert harness.supervisor.state is harness.module.RuntimeState.STOPPING
+        assert len(harness.factory_calls) == 1
+
+    asyncio.run(scenario())
