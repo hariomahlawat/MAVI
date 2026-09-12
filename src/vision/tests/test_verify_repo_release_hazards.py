@@ -126,4 +126,12 @@ def test_task12_workflow_covers_wheel_inputs_and_uses_pinned_reproduction() -> N
     assert "-frandom-seed=mavi-task12" in workflow
     assert "Prove clean MMCV wheel reproducibility" in workflow
     assert 'test "$first_hash" = "$second_hash"' in workflow
+    assert "os: ubuntu-24.04" in workflow
+    assert "os: windows-2025" in workflow
+    assert 'toolset: "14.44"' in workflow
+    assert 'sdk: "10.0.26100.0"' in workflow
+    assert "CC=gcc-14" in workflow
+    assert "CXX=g++-14" in workflow
+    assert "gcc-14 -dumpfullversion -dumpversion" in workflow
+    assert "19.44." in workflow
 
