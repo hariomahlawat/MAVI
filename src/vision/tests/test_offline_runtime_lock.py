@@ -48,10 +48,11 @@ def _write_wheel(
     name: str,
     version: str,
     duplicate_metadata: bool = False,
+    dist_info_name: str | None = None,
 ) -> Path:
     path = root / filename
     root.mkdir(parents=True, exist_ok=True)
-    dist_info = f"{name.replace('-', '_')}-{version}.dist-info"
+    dist_info = dist_info_name or f"{name.replace('-', '_')}-{version}.dist-info"
     metadata = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n\n"
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(f"{dist_info}/METADATA", metadata)
@@ -530,6 +531,55 @@ def test_freeze_tool_accepts_older_minor_pure_python_wheel(
     assert [item.name for item in lock.distributions] == ["sample"]
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "sample-1.0.0-cp312-cp312-manylinux_2_40_x86_64.whl",
+        "sample-1.0.0-cp312-cp312-manylinux_bad_x86_64.whl",
+    ],
+)
+def test_freeze_tool_rejects_manylinux_newer_or_invalid_for_qualified_glibc(
+    tmp_path: Path,
+    filename: str,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename=filename,
+        name="sample",
+        version="1.0.0",
+    )
+
+    with pytest.raises(tool.FreezeOfflineLockError, match="wheel_platform_incompatible"):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="linux-x86_64-cpu",
+            python_version="3.12.14",
+        )
+
+
+def test_freeze_tool_accepts_manylinux_at_qualified_glibc_baseline(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="sample-1.0.0-cp312-cp312-manylinux_2_39_x86_64.whl",
+        name="sample",
+        version="1.0.0",
+    )
+
+    lock = tool.freeze_wheelhouse(
+        wheelhouse,
+        platform_variant="linux-x86_64-cpu",
+        python_version="3.12.14",
+    )
+
+    assert [item.name for item in lock.distributions] == ["sample"]
+
+
 def test_freeze_tool_accepts_abi3_wheel_for_newer_cpython(
     tmp_path: Path,
 ) -> None:
@@ -670,6 +720,23 @@ def test_freeze_tool_ignores_nested_vendored_dist_info_metadata(
 
     assert record.name == "setuptools"
     assert record.version == "84.0.0"
+
+
+def test_freeze_tool_rejects_dist_info_identity_mismatch(tmp_path: Path) -> None:
+    tool = _load_freeze_tool()
+    wheel = _write_wheel(
+        tmp_path / "wheels",
+        filename="sample-1.0.0-py3-none-any.whl",
+        name="sample",
+        version="1.0.0",
+        dist_info_name="other-1.0.0.dist-info",
+    )
+
+    with pytest.raises(
+        tool.FreezeOfflineLockError,
+        match="wheel_dist_info_identity_mismatch",
+    ):
+        tool.inspect_wheel(wheel)
 
 
 def test_freeze_tool_rejects_missing_or_duplicate_metadata(tmp_path: Path) -> None:
