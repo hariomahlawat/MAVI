@@ -64,6 +64,15 @@ class FakeTensor:
         return self._value
 
 
+class FailingCpuTensor(FakeTensor):
+    def __init__(self, value: np.ndarray, error: Exception) -> None:
+        super().__init__(value)
+        self._error = error
+
+    def cpu(self) -> "FakeTensor":
+        raise self._error
+
+
 class FakeModel:
     def __init__(
         self,
@@ -507,6 +516,52 @@ def test_warmup_uses_channel_distinct_in_memory_rgb_frame(
     assert image_bgr.flags.c_contiguous is True
     assert image_bgr[0, 0].tolist() == [191, 83, 17]
     assert activity.snapshot().completed_count == 1
+
+
+@pytest.mark.parametrize(
+    ("conversion_error", "expected_type"),
+    [
+        (
+            RuntimeError("CUDA error: an illegal memory access was encountered"),
+            GpuRuntimeError,
+        ),
+        (
+            FakeCudaOutOfMemory("CUDA out of memory during tensor copy"),
+            GpuOutOfMemoryError,
+        ),
+    ],
+)
+def test_tensor_materialization_cuda_failures_use_backend_classifier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    conversion_error: Exception,
+    expected_type: type[Exception],
+) -> None:
+    harness = BackendHarness()
+    harness.prediction = SimpleNamespace(
+        pred_instances=SimpleNamespace(
+            bboxes=FailingCpuTensor(
+                np.array([[0.0, 0.0, 1.0, 1.0]], dtype=np.float32),
+                conversion_error,
+            ),
+            scores=FakeTensor(np.array([0.8], dtype=np.float32)),
+            labels=FakeTensor(np.array([0], dtype=np.int64)),
+        )
+    )
+    _patch_backend(monkeypatch, harness)
+    activity = InferenceActivity()
+    runtime = MMDetectionRuntime(
+        _selection(tmp_path),
+        device="cpu",
+        activity=activity,
+    )
+
+    with pytest.raises(expected_type):
+        runtime.infer(np.zeros((2, 2, 3), dtype=np.uint8))
+
+    snapshot = activity.snapshot()
+    assert snapshot.active is False
+    assert snapshot.completed_count == 1
 
 
 @pytest.mark.parametrize(
