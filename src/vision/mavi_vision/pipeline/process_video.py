@@ -17,6 +17,7 @@ from mavi_vision.common.analytical import (
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.detection.interfaces import Detector
 from mavi_vision.pipeline.finalization import prepare_track
+from mavi_vision.runtime.errors import ProcessingDependencyError
 from mavi_vision.quality.scoring import representative_quality
 from mavi_vision.storage.artifact_publisher import ArtifactPublisher
 from mavi_vision.storage.artifact_store import StagingArtifactStore
@@ -165,6 +166,15 @@ class VideoProcessor:
         except SourceIntegrityError:
             self._cleanup_best_effort(lease_guard)
             raise
+        except ProcessingDependencyError:
+            try:
+                self._cleanup_best_effort(lease_guard)
+            except LeaseLostError:
+                # Runtime health is independent of lease authority. Never mutate
+                # staging after ownership loss, but preserve the dependency signal
+                # so the local supervisor can classify/recover the runtime.
+                pass
+            raise
         except VideoReadError as exc:
             self._cleanup_best_effort(lease_guard)
             raise VideoProcessingError("video_decode_failed") from exc
@@ -216,6 +226,15 @@ class VideoProcessor:
             # Never cleanup after ownership loss. This attempt is structurally
             # isolated from replacements, and leaving its private subtree is safer
             # than mutating shared filesystem state as a stale worker.
+            raise
+        except ProcessingDependencyError:
+            try:
+                self._cleanup_best_effort(lease_guard)
+            except LeaseLostError:
+                # Preserve local runtime-health classification while refusing stale
+                # cleanup. WorkerRunner still applies lease precedence before any
+                # terminal control-plane mutation.
+                pass
             raise
         except VideoProcessingError:
             self._cleanup_best_effort(lease_guard)
