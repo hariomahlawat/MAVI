@@ -12,7 +12,10 @@ on:
       - 'src/vision/tests/test_runtime_metadata.py'
       - 'src/vision/tests/test_rtmdet_colour_space.py'
       - 'src/vision/tests/test_mmdetection_runtime.py'
+      - 'src/vision/tests/test_production_processor*.py'
+      - 'src/vision/tests/test_process_video.py'
       - 'src/vision/mavi_vision/runtime/**'
+      - 'src/vision/mavi_vision/pipeline/**'
       - 'src/vision/mavi_vision/tracking/**'
       - 'src/vision/mavi_vision/detection/interfaces.py'
       - 'src/vision/tests/test_bytetrack_*.py'
@@ -37,7 +40,10 @@ on:
       - 'src/vision/tests/test_runtime_metadata.py'
       - 'src/vision/tests/test_rtmdet_colour_space.py'
       - 'src/vision/tests/test_mmdetection_runtime.py'
+      - 'src/vision/tests/test_production_processor*.py'
+      - 'src/vision/tests/test_process_video.py'
       - 'src/vision/mavi_vision/runtime/**'
+      - 'src/vision/mavi_vision/pipeline/**'
       - 'src/vision/mavi_vision/tracking/**'
       - 'src/vision/mavi_vision/detection/interfaces.py'
       - 'src/vision/tests/test_bytetrack_*.py'
@@ -121,6 +127,8 @@ jobs:
           tests/test_runtime_errors.py
           tests/test_bytetrack_profile_semantics.py
           tests/test_bytetrack_adapter.py
+          tests/test_production_processor.py
+          tests/test_process_video.py
           -q
 
       - name: Install candidate PyTorch CPU build
@@ -351,6 +359,65 @@ jobs:
           print("bytetrack-qualification-ok", json.dumps(record, sort_keys=True))
           PY
 
+      - name: Run exact production attempt composition qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_production_processor_runtime.py -q
+
+          PYTHONPATH=src/vision python - <<'PY'
+          import importlib.metadata
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          executed_source_sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"],
+              text=True,
+          ).strip()
+          expected_source_sha = os.environ["MAVI_EXPECTED_SOURCE_SHA"]
+          if executed_source_sha != expected_source_sha:
+              raise SystemExit(
+                  "production_composition_source_sha_mismatch:"
+                  f"{executed_source_sha}!={expected_source_sha}"
+              )
+
+          record = {
+              "status": "passed",
+              "testSuite": "src/vision/tests/test_production_processor_runtime.py",
+              "headSha": executed_source_sha,
+              "eventSha": os.environ["MAVI_EVENT_SHA"],
+              "prHeadSha": os.environ.get("MAVI_PR_HEAD_SHA") or None,
+              "packages": {
+                  "trackers": importlib.metadata.version("trackers"),
+                  "supervision": importlib.metadata.version("supervision"),
+              },
+              "python": platform.python_version(),
+              "platform": platform.platform(),
+          }
+          if record["packages"] != {
+              "trackers": "2.6.0",
+              "supervision": "0.30.2",
+          }:
+              raise SystemExit(
+                  "production_composition_package_drift:"
+                  + json.dumps(record["packages"], sort_keys=True)
+              )
+
+          root = Path("qualification-evidence")
+          root.mkdir(parents=True, exist_ok=True)
+          (root / "production-composition-qualification.json").write_text(
+              json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print(
+              "production-composition-qualification-ok",
+              json.dumps(record, sort_keys=True),
+          )
+          PY
+
       - name: Resolve official RTMDet-M config and fetch checkpoint
         shell: bash
         run: |
@@ -515,6 +582,7 @@ jobs:
               "missing.err",
               "production-runtime-smoke.json",
               "bytetrack-qualification.json",
+              "production-composition-qualification.json",
           )
           missing = [name for name in required if not (root / name).is_file()]
           if missing:
@@ -570,6 +638,25 @@ jobs:
               raise SystemExit("bytetrack_evidence_pr_head_sha_mismatch")
           if bytetrack.get("eventSha") != os.environ["MAVI_EVENT_SHA"]:
               raise SystemExit("bytetrack_evidence_event_sha_mismatch")
+
+          composition = json.load(
+              (root / "production-composition-qualification.json").open(
+                  encoding="utf-8"
+              )
+          )
+          if composition.get("status") != "passed":
+              raise SystemExit("production_composition_status_not_passed")
+          if composition.get("packages") != {
+              "trackers": "2.6.0",
+              "supervision": "0.30.2",
+          }:
+              raise SystemExit("production_composition_package_drift")
+          if composition.get("headSha") != executed_source_sha:
+              raise SystemExit("production_composition_source_sha_mismatch")
+          if composition.get("prHeadSha") != expected_pr_head:
+              raise SystemExit("production_composition_pr_head_sha_mismatch")
+          if composition.get("eventSha") != os.environ["MAVI_EVENT_SHA"]:
+              raise SystemExit("production_composition_event_sha_mismatch")
 
           resolved = json.load((root / "resolved-config.json").open(encoding="utf-8"))
           runtime = json.load((root / "runtime.json").open(encoding="utf-8"))
