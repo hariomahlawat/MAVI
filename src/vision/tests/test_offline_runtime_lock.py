@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib.util
+import zipfile
 
 import pytest
 
@@ -19,6 +21,45 @@ _HASH_B = "b" * 64
 _HASH_C = "c" * 64
 _HASH_D = "d" * 64
 _HASH_E = "e" * 64
+
+FREEZE_TOOL_PATH = (
+    Path(__file__).parents[3] / "tools" / "vision" / "freeze_offline_lock.py"
+)
+
+
+def _load_freeze_tool():
+    spec = importlib.util.spec_from_file_location(
+        "freeze_offline_lock",
+        FREEZE_TOOL_PATH,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("freeze_offline_lock_module_unloadable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _write_wheel(
+    root: Path,
+    *,
+    filename: str,
+    name: str,
+    version: str,
+    duplicate_metadata: bool = False,
+) -> Path:
+    path = root / filename
+    root.mkdir(parents=True, exist_ok=True)
+    dist_info = f"{name.replace('-', '_')}-{version}.dist-info"
+    metadata = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n\n"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(f"{dist_info}/METADATA", metadata)
+        if duplicate_metadata:
+            archive.writestr(
+                f"other-{version}.dist-info/METADATA",
+                "Metadata-Version: 2.1\nName: other\nVersion: 1.0\n\n",
+            )
+    return path
+
 
 
 def _lock_text(
@@ -355,3 +396,164 @@ def test_runtime_validation_rejects_qualified_cuda_lock_before_hardware_gate(
             platform_status="pending-hardware-qualification",
         )
     _assert_code(exc, "offline_lock_platform_not_qualified")
+
+
+def test_freeze_tool_reads_name_and_version_from_wheel_metadata(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    wheel = _write_wheel(
+        wheelhouse,
+        filename="renamed-file.whl",
+        name="MAVI.Vision",
+        version="0.1.0",
+    )
+
+    record = tool.inspect_wheel(wheel)
+
+    assert record.name == "mavi-vision"
+    assert record.version == "0.1.0"
+    assert record.sha256 == tool.sha256_file(wheel)
+
+
+def test_freeze_tool_is_deterministic_regardless_of_directory_enumeration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    first = _write_wheel(
+        wheelhouse,
+        filename="z.whl",
+        name="torch",
+        version="2.6.0+cpu",
+    )
+    second = _write_wheel(
+        wheelhouse,
+        filename="a.whl",
+        name="mavi-vision",
+        version="0.1.0",
+    )
+
+    original_iterdir = Path.iterdir
+
+    def reversed_iterdir(path: Path):
+        items = list(original_iterdir(path))
+        return iter(reversed(items))
+
+    monkeypatch.setattr(Path, "iterdir", reversed_iterdir)
+    lock = tool.freeze_wheelhouse(
+        wheelhouse,
+        platform_variant="linux-x86_64-cpu",
+        python_version="3.12.14",
+    )
+
+    assert [item.name for item in lock.distributions] == [
+        "mavi-vision",
+        "torch",
+    ]
+    assert {item.sha256 for item in lock.distributions} == {
+        tool.sha256_file(first),
+        tool.sha256_file(second),
+    }
+
+
+def test_freeze_tool_rejects_duplicate_distribution_wheels(tmp_path: Path) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="one.whl",
+        name="torch",
+        version="2.6.0+cpu",
+    )
+    _write_wheel(
+        wheelhouse,
+        filename="two.whl",
+        name="Torch",
+        version="2.6.0+cpu",
+    )
+
+    with pytest.raises(tool.FreezeOfflineLockError, match="duplicate_distribution"):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="linux-x86_64-cpu",
+            python_version="3.12.14",
+        )
+
+
+@pytest.mark.parametrize("name", ["package.tar.gz", "package.zip", "README.txt"])
+def test_freeze_tool_rejects_non_wheel_entries(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    wheelhouse.mkdir()
+    (wheelhouse / name).write_bytes(b"not-a-wheel")
+
+    with pytest.raises(tool.FreezeOfflineLockError, match="non_wheel_entry"):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="linux-x86_64-cpu",
+            python_version="3.12.14",
+        )
+
+
+def test_freeze_tool_rejects_corrupt_wheel(tmp_path: Path) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    wheelhouse.mkdir()
+    (wheelhouse / "broken.whl").write_bytes(b"not-zip")
+
+    with pytest.raises(tool.FreezeOfflineLockError, match="wheel_invalid"):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="linux-x86_64-cpu",
+            python_version="3.12.14",
+        )
+
+
+def test_freeze_tool_rejects_missing_or_duplicate_metadata(tmp_path: Path) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    wheelhouse.mkdir()
+
+    missing = wheelhouse / "missing.whl"
+    with zipfile.ZipFile(missing, "w") as archive:
+        archive.writestr("module.py", "value = 1\n")
+
+    with pytest.raises(tool.FreezeOfflineLockError, match="wheel_metadata_invalid"):
+        tool.inspect_wheel(missing)
+
+    missing.unlink()
+    duplicate = _write_wheel(
+        wheelhouse,
+        filename="duplicate.whl",
+        name="sample",
+        version="1.0.0",
+        duplicate_metadata=True,
+    )
+    with pytest.raises(tool.FreezeOfflineLockError, match="wheel_metadata_invalid"):
+        tool.inspect_wheel(duplicate)
+
+
+def test_freeze_tool_refuses_differing_lock_without_replace(tmp_path: Path) -> None:
+    tool = _load_freeze_tool()
+    output = tmp_path / "runtime.lock"
+    output.write_bytes(b"existing\n")
+    lock = OfflineRuntimeLock(
+        schema_version="mavi-offline-lock-v1",
+        platform_variant="linux-x86_64-cpu",
+        python_version="3.12.14",
+        distributions=(
+            LockedDistribution("mavi-vision", "0.1.0", _HASH_A),
+        ),
+    )
+
+    with pytest.raises(tool.FreezeOfflineLockError, match="output_differs"):
+        tool.write_lock(output, lock, replace=False)
+
+    tool.write_lock(output, lock, replace=True)
+    assert output.read_bytes() == serialize_offline_runtime_lock(lock)
