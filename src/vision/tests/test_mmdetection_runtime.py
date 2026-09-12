@@ -579,6 +579,22 @@ def test_constructor_rejects_runtime_vocabulary_drift(
             "resolved_config_custom_imports_forbidden",
         ),
         (
+            "dict = globals\n"
+            "model = dict(type='RTMDet', test_cfg=dict(score_thr=0.1))\n",
+            "resolved_config_reserved_name_binding_forbidden",
+        ),
+        (
+            "model = dict(type='RTMDet', test_cfg=dict(score_thr=0.1))\n"
+            "model['custom_' + 'imports'] = dict(imports=['external_plugin'])\n",
+            "resolved_config_assignment_target_forbidden",
+        ),
+        (
+            "def build_model():\n"
+            "    return dict(type='RTMDet')\n"
+            "model = dict(type='RTMDet', test_cfg=dict(score_thr=0.1))\n",
+            "resolved_config_statement_forbidden:FunctionDef",
+        ),
+        (
             "model = build_model()\n",
             "resolved_config_dynamic_call_forbidden",
         ),
