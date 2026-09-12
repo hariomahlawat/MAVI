@@ -38,7 +38,10 @@ from mavi_vision.runtime.manifest import (
     validate_logical_relative_path,
     validate_release_text_file,
 )
-from mavi_vision.runtime.qualification import VerifiedReleaseSelection
+from mavi_vision.runtime.qualification import (
+    RuntimePythonIdentity,
+    VerifiedReleaseSelection,
+)
 
 
 _DEVICE_PATTERN = re.compile(r"(?:cpu|cuda:(\d+))", re.ASCII)
@@ -71,6 +74,18 @@ def _semantic_version(value: str) -> str:
     if not value:
         raise RuntimeCompatibilityError("runtime_dependency_version_missing")
     return value.split("+", 1)[0]
+
+
+def _running_python_identity() -> RuntimePythonIdentity:
+    build = platform.python_build()
+    if len(build) != 2:
+        raise RuntimeCompatibilityError("runtime_python_build_invalid")
+    return RuntimePythonIdentity(
+        version=platform.python_version(),
+        implementation=platform.python_implementation(),
+        build=(str(build[0]), str(build[1])),
+        compiler=platform.python_compiler(),
+    )
 
 
 def _runtime_variant_name(
@@ -721,6 +736,28 @@ class MMDetectionRuntime:
             return
 
         if variant.status.startswith("qualified-"):
+            expected_python = variant.python_identity
+            if expected_python is None:
+                raise RuntimeCompatibilityError(
+                    "runtime_python_identity_missing"
+                )
+            actual_python = _running_python_identity()
+            identity_fields = (
+                ("version", actual_python.version, expected_python.version),
+                (
+                    "implementation",
+                    actual_python.implementation,
+                    expected_python.implementation,
+                ),
+                ("build", actual_python.build, expected_python.build),
+                ("compiler", actual_python.compiler, expected_python.compiler),
+            )
+            for field_name, actual_value, expected_value in identity_fields:
+                if actual_value != expected_value:
+                    raise RuntimeCompatibilityError(
+                        f"runtime_python_identity_mismatch:{field_name}"
+                    )
+
             expected_binary_versions = variant.binary_versions
             if expected_binary_versions is None:
                 raise RuntimeCompatibilityError(
