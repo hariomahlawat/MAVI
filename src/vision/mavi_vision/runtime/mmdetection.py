@@ -260,6 +260,14 @@ def _validate_resolved_config(path: Path) -> None:
             raise RuntimeCompatibilityError("resolved_config_import_forbidden")
         if isinstance(node, ast.Name) and node.id == "_base_":
             raise RuntimeCompatibilityError("resolved_config_base_unresolved")
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Store)
+            and node.id == "custom_imports"
+        ):
+            raise RuntimeCompatibilityError(
+                "resolved_config_custom_imports_forbidden"
+            )
         if isinstance(node, ast.Call):
             if not isinstance(node.func, ast.Name) or node.func.id != "dict":
                 raise RuntimeCompatibilityError("resolved_config_dynamic_call_forbidden")
