@@ -5,10 +5,11 @@ import importlib.metadata
 import os
 import re
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
-from typing import Any, ContextManager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
+from typing import Any, ContextManager
+from urllib.parse import urlsplit
 
 import numpy as np
 from numpy.typing import NDArray
@@ -37,16 +38,18 @@ from mavi_vision.runtime.qualification import VerifiedReleaseSelection
 
 
 _DEVICE_PATTERN = re.compile(r"(?:cpu|cuda:(\d+))", re.ASCII)
-_REMOTE_REFERENCE_PREFIXES = (
-    "http://",
-    "https://",
-    "openmmlab://",
-    "mmdet://",
-    "modelzoo://",
-    "torchvision://",
-    "hf://",
-    "s3://",
-    "gs://",
+_REMOTE_REFERENCE_SCHEMES = frozenset(
+    {
+        "http",
+        "https",
+        "openmmlab",
+        "mmdet",
+        "modelzoo",
+        "torchvision",
+        "hf",
+        "s3",
+        "gs",
+    }
 )
 _FATAL_CUDA_MARKERS = (
     "cuda error",
@@ -236,9 +239,11 @@ def _validate_resolved_config(path: Path) -> None:
             if not isinstance(node.func, ast.Name) or node.func.id != "dict":
                 raise RuntimeCompatibilityError("resolved_config_dynamic_call_forbidden")
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            lowered = node.value.strip().lower()
-            if lowered.startswith(_REMOTE_REFERENCE_PREFIXES):
-                raise RuntimeCompatibilityError("resolved_config_remote_reference_forbidden")
+            reference = urlsplit(node.value.strip())
+            if reference.scheme.casefold() in _REMOTE_REFERENCE_SCHEMES:
+                raise RuntimeCompatibilityError(
+                    "resolved_config_remote_reference_forbidden"
+                )
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             names = _assignment_targets(node)
             value = node.value
