@@ -34,6 +34,10 @@ _PROCESSING_FAILURE_MESSAGE: Final = "Vision processing failed."
 _FATAL_SERVICE_RESTART_CODE: Final = 70
 
 
+class _WatchdogExpiredDuringHeartbeat(RuntimeError):
+    pass
+
+
 # Worker collaborators
 class WorkerApi(Protocol):
     async def lease(self) -> VisionJobLease | None: ...
@@ -232,7 +236,6 @@ class WorkerRunner:
         current_deadline = heartbeat.lease_expires_at_utc
         lease_guard = LeaseGuard(current_deadline)
         process_task: asyncio.Task[VisionProcessingResult] | None = None
-        fatal_path = False
 
         try:
             lease_guard.check_owned()
@@ -281,26 +284,36 @@ class WorkerRunner:
                     return result
 
                 if self._watchdog_is_expired():
-                    lease_guard.mark_lost()
-                    self._report_watchdog_expiry()
-                    still_stuck = await self._watchdog_grace_wait(
+                    await self._handle_watchdog_expiry(
                         process_task,
                         lease_guard,
                     )
-                    if still_stuck:
-                        # Set the fatal-path flags before invoking a terminator.
-                        # A test terminator may raise instead of exiting.
-                        fatal_path = True
-                        self._fatal_termination_active = True
-                        self._fatal_terminator(_FATAL_SERVICE_RESTART_CODE)
-                        raise RuntimeError("watchdog_fatal_terminator_returned")
 
                 now_monotonic = self._monotonic_clock()
                 if now_monotonic >= next_heartbeat_due:
-                    current_heartbeat = await self._heartbeat_before_deadline(
-                        lease,
-                        current_deadline,
-                    )
+                    try:
+                        current_heartbeat = (
+                            await self._heartbeat_before_deadline_while_processing(
+                                lease,
+                                current_deadline,
+                                process_task,
+                            )
+                        )
+                    except _WatchdogExpiredDuringHeartbeat:
+                        await self._handle_watchdog_expiry(
+                            process_task,
+                            lease_guard,
+                        )
+                        raise AssertionError(
+                            "watchdog containment unexpectedly returned"
+                        )
+
+                    if current_heartbeat is None:
+                        # Processing completed while renewal was in flight. The
+                        # request has been cancelled; loop back so lease precedence
+                        # is applied to the processing result/error immediately.
+                        continue
+
                     current_deadline = current_heartbeat.lease_expires_at_utc
                     lease_guard.update_deadline(current_deadline)
                     next_heartbeat_due = (
@@ -312,7 +325,7 @@ class WorkerRunner:
             if (
                 process_task is not None
                 and not process_task.done()
-                and not fatal_path
+                and not self._fatal_termination_active
             ):
                 await self._await_unwound_after_loss(
                     process_task,
@@ -322,6 +335,24 @@ class WorkerRunner:
         finally:
             if process_task is not None and not process_task.done():
                 lease_guard.mark_lost()
+
+    async def _handle_watchdog_expiry(
+        self,
+        process_task: asyncio.Task[VisionProcessingResult],
+        lease_guard: LeaseGuard,
+    ) -> None:
+        lease_guard.mark_lost()
+        self._report_watchdog_expiry()
+        still_stuck = await self._watchdog_grace_wait(
+            process_task,
+            lease_guard,
+        )
+        if still_stuck:
+            # Set persistent fatal state before invoking a terminator. Production
+            # os._exit does not return; injected tests may raise a sentinel.
+            self._fatal_termination_active = True
+            self._fatal_terminator(_FATAL_SERVICE_RESTART_CODE)
+            raise RuntimeError("watchdog_fatal_terminator_returned")
 
     async def _await_unwound_after_loss(
         self,
@@ -397,6 +428,62 @@ class WorkerRunner:
         except Exception:
             _LOGGER.exception("Watchdog expiry sink failed")
 
+    async def _heartbeat_before_deadline_while_processing(
+        self,
+        lease: VisionJobLease,
+        lease_deadline_utc: datetime,
+        process_task: asyncio.Task[VisionProcessingResult],
+    ) -> VisionJobHeartbeatResponse | None:
+        if self._watchdog_expired is None:
+            return await self._heartbeat_before_deadline(
+                lease,
+                lease_deadline_utc,
+            )
+
+        remaining = (
+            lease_deadline_utc - datetime.now(timezone.utc)
+        ).total_seconds()
+        if remaining <= 0:
+            raise WorkerApiError("heartbeat deadline exceeded")
+
+        heartbeat_task = asyncio.create_task(
+            self._api_client.heartbeat(lease, 5.0),
+            name="mavi-worker-heartbeat",
+        )
+        try:
+            while True:
+                remaining = (
+                    lease_deadline_utc - datetime.now(timezone.utc)
+                ).total_seconds()
+                if remaining <= 0:
+                    raise WorkerApiError("heartbeat deadline exceeded")
+
+                done, _ = await asyncio.wait(
+                    {heartbeat_task, process_task},
+                    timeout=min(self._watchdog_poll_seconds, remaining),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if process_task in done:
+                    return None
+
+                if heartbeat_task in done:
+                    heartbeat = heartbeat_task.result()
+                    if datetime.now(timezone.utc) >= lease_deadline_utc:
+                        raise WorkerApiError("heartbeat deadline exceeded")
+                    return heartbeat
+
+                if self._watchdog_is_expired():
+                    raise _WatchdogExpiredDuringHeartbeat(
+                        "vision_inference_watchdog_expired"
+                    )
+        finally:
+            if not heartbeat_task.done():
+                # Heartbeat/network work is asyncio-owned and safe to cancel.
+                # Do not await a cancellation-resistant transport on the fatal path.
+                heartbeat_task.cancel()
+                heartbeat_task.add_done_callback(_consume_background_task_result)
+
     async def _heartbeat_before_deadline(
         self,
         lease: VisionJobLease,
@@ -461,3 +548,12 @@ class WorkerRunner:
             raise
         except Exception:
             return
+
+
+def _consume_background_task_result(task: asyncio.Task[object]) -> None:
+    if task.cancelled():
+        return
+    try:
+        task.exception()
+    except asyncio.CancelledError:
+        return
