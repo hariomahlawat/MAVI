@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, Mapping
@@ -63,6 +63,36 @@ class QualificationRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimePythonIdentity:
+    version: str
+    implementation: str
+    build: tuple[str, str]
+    compiler: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePlatformVariantIdentity:
+    status: Literal[
+        "qualified-hosted-cpu",
+        "qualified-hardware",
+        "pending-hardware-qualification",
+    ]
+    resolved_config_sha256: str | None
+    python_identity: RuntimePythonIdentity | None
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeReleaseLockIdentity:
+    status: Literal[
+        "pending-wheelhouse-freeze",
+        "pending-hardware-qualification",
+        "qualified-offline-lock",
+    ]
+    artifact: str | None
+    sha256: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class VerifiedReleaseSelection:
     manifest: ModelManifest
     profile: PipelineProfile
@@ -75,6 +105,33 @@ class VerifiedReleaseSelection:
     checkpoint_path: Path
     resolved_config_path: Path
     verification_status: Literal["verified", "unverified"]
+    runtime_qualification_status: Literal["partial", "qualified"] = "partial"
+    runtime_semantic_graph: Mapping[str, str] = field(default_factory=dict)
+    runtime_platform_variants: Mapping[
+        str,
+        RuntimePlatformVariantIdentity,
+    ] = field(default_factory=dict)
+    runtime_release_locks: Mapping[
+        str,
+        RuntimeReleaseLockIdentity,
+    ] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "runtime_semantic_graph",
+            MappingProxyType(dict(self.runtime_semantic_graph)),
+        )
+        object.__setattr__(
+            self,
+            "runtime_platform_variants",
+            MappingProxyType(dict(self.runtime_platform_variants)),
+        )
+        object.__setattr__(
+            self,
+            "runtime_release_locks",
+            MappingProxyType(dict(self.runtime_release_locks)),
+        )
 
 
 class _StrictModel(BaseModel):
@@ -510,6 +567,67 @@ def load_runtime_identity(path: Path) -> tuple[str, str, str]:
     )
 
 
+def _runtime_semantic_graph_identity(
+    profile: _RuntimeProfileSchema,
+) -> Mapping[str, str]:
+    graph = profile.semantic_graph
+    return MappingProxyType(
+        {
+            "torch": graph.torch,
+            "torchvision": graph.torchvision,
+            "mmcv": graph.mmcv,
+            "mmengine": graph.mmengine,
+            "mmdet": graph.mmdet,
+            "trackers": graph.trackers,
+            "supervision": graph.supervision,
+            "scipy": graph.scipy,
+            "numpy": graph.numpy,
+            "opencv": graph.opencv,
+            "av": graph.av,
+            "opencvPython": graph.opencv_python,
+            "pillow": graph.pillow,
+        }
+    )
+
+
+def _runtime_platform_variant_identities(
+    profile: _RuntimeProfileSchema,
+) -> Mapping[str, RuntimePlatformVariantIdentity]:
+    identities: dict[str, RuntimePlatformVariantIdentity] = {}
+    for variant_name, variant in profile.platform_variants.items():
+        python_identity = (
+            RuntimePythonIdentity(
+                version=variant.python_identity.version,
+                implementation=variant.python_identity.implementation,
+                build=variant.python_identity.build,
+                compiler=variant.python_identity.compiler,
+            )
+            if variant.python_identity is not None
+            else None
+        )
+        identities[variant_name] = RuntimePlatformVariantIdentity(
+            status=variant.status,
+            resolved_config_sha256=variant.resolved_config_sha256,
+            python_identity=python_identity,
+        )
+    return MappingProxyType(identities)
+
+
+def _runtime_release_lock_identities(
+    profile: _RuntimeProfileSchema,
+) -> Mapping[str, RuntimeReleaseLockIdentity]:
+    return MappingProxyType(
+        {
+            variant_name: RuntimeReleaseLockIdentity(
+                status=lock.status,
+                artifact=lock.artifact,
+                sha256=lock.sha256,
+            )
+            for variant_name, lock in profile.release_locks.items()
+        }
+    )
+
+
 def verify_runtime_release_locks(
     runtime_profile_path: Path,
     profile: _RuntimeProfileSchema,
@@ -673,4 +791,8 @@ def verify_release_selection(
         checkpoint_path=checkpoint_path,
         resolved_config_path=resolved_config_path,
         verification_status=manifest.verification_status,
+        runtime_qualification_status=runtime_profile.qualification_status,
+        runtime_semantic_graph=_runtime_semantic_graph_identity(runtime_profile),
+        runtime_platform_variants=_runtime_platform_variant_identities(runtime_profile),
+        runtime_release_locks=_runtime_release_lock_identities(runtime_profile),
     )

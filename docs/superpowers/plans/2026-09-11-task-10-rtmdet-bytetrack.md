@@ -15,9 +15,10 @@
 - **Task 1 remains open as a release-qualification task.** Bounded Tasks 1A/1B are complete: the frozen Python 3.12 hosted CPU semantic graph, self-contained resolved RTMDet-M config, restricted checkpoint loading, and real Linux/Windows CPU inference are verified. Linux/Windows NVIDIA qualification and hashed offline wheelhouse locks remain pending and must not be inferred.
 - **Task 2 and corrective Task 2A are complete.** Frozen resolved-config identity is enforced in CI, qualification evidence is preserved as a complete non-hidden artifact set, resolver publication is alias-safe/atomic, and native Windows staging includes the additional post-replace rollback and native-name length regressions.
 - **Task 3 is complete.** MAVI now has strict model-manifest, pipeline-profile and qualification-record loaders; exact-byte release identities; trusted-root/no-link artifact resolution; an evidence-backed `VerifiedReleaseSelection`; and repository verification that explicitly prevents a pending release from being presented as production-qualified.
-- **Tasks 4–11 and Task 13 remain framework-neutral implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status.
+- **Task 4 is complete.** Framework-neutral detector-runtime contracts, stable typed dependency failures, operational-only runtime/device/watchdog settings, and immutable provenance are implemented. Provenance is bound to the live qualified dependency graph, exact interpreter identity, platform/device qualification state and verified release lock; development drift is explicitly recorded as `unverified`.
+- **Tasks 5–11 and Task 13 remain framework-neutral implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
 - **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task:** Task 4 — framework-neutral runtime contracts, typed failures, device policy and provenance.
+- **Next implementation task:** Task 5 — single-thread vision execution lane and activity monitor.
 
 ## Global Constraints
 
@@ -624,6 +625,8 @@ git commit -m "feat: add verified vision release metadata"
 
 ### Task 4: Add Framework-Neutral Runtime Contracts, Typed Failures, Device Policy, and Provenance
 
+**Status (verified 2026-09-12): COMPLETE.** The Task-4 implementation is contained in PR #20 and its review-hardening sequence. Exact-head MAVI Quality Gate #209 (run `34665921642`) passed on implementation head `86045fa189795fa7ded8f296b5b2cc1137843c3b` with .NET Domain 71/71, Application 23/23, Integration 150/150, Python 302 passed with 11 platform skips after the final review fixes, frontend 9/9, and repository verification green. Framework-neutral contracts remain free of PyTorch/MMDetection/MMCV/Supervision/Trackers imports; production provenance is bound to the verified runtime semantic graph, exact platform interpreter identity, qualified device variant, and verified offline lock. Development experiments that drift from a verified release are explicitly downgraded to `unverified` rather than inheriting the release label.
+
 **Files:**
 - Create: `src/vision/mavi_vision/runtime/__init__.py`
 - Create: `src/vision/mavi_vision/runtime/interfaces.py`
@@ -674,15 +677,15 @@ class ProcessingDependencyError(RuntimeError):
     disposition: RuntimeDisposition
 ```
 
-- [ ] **Step 1: Write validation tests for raw runtime values**
+- [x] **Step 1: Write validation tests for raw runtime values**
 
 Require finite XYXY/confidence, confidence `[0,1]`, and non-empty source class. Raw boxes may be outside the frame; clipping belongs to the RTMDet adapter.
 
-- [ ] **Step 2: Implement framework-neutral types with no heavy ML imports**
+- [x] **Step 2: Implement framework-neutral types with no heavy ML imports**
 
 `interfaces.py`, `errors.py`, and `provenance.py` must not import `torch`, `mmdet`, `mmcv`, `supervision`, or `trackers`.
 
-- [ ] **Step 3: Write and implement typed failure codes**
+- [x] **Step 3: Write and implement typed failure codes**
 
 Define:
 
@@ -695,17 +698,17 @@ TrackerError("vision_tracker_failed", RuntimeDisposition.CONTINUE)
 
 Enforce the existing worker failure-code grammar and maximum length.
 
-- [ ] **Step 4: Extend `WorkerSettings` with operational selection only**
+- [x] **Step 4: Extend `WorkerSettings` with operational selection only**
 
 Add model root/manifest/profile/runtime paths, `device_policy`, `device_index`, `production_mode`, `inference_watchdog_seconds`, and `watchdog_grace_seconds`. Production mode rejects `auto`. Do not expose detector/tracker thresholds as environment settings.
 
-- [ ] **Step 5: Implement immutable provenance**
+- [x] **Step 5: Implement immutable provenance**
 
 Capture model/config/profile/qualification/runtime hashes; Python/PyTorch/torchvision/MMDetection/MMCV/MMEngine/Trackers/Supervision/SciPy/NumPy/OpenCV/PyAV and FFmpeg identity where available; OS/platform; configured/actual device; GPU/driver/CUDA when applicable; MAVI build/commit; frame policy; tracker parameters; and `inputColourSpace="RGB"`.
 
 Production rejects missing MAVI build/commit identity; development may use explicit `unknown-development`.
 
-- [ ] **Step 6: Run and commit**
+- [x] **Step 6: Run and commit**
 
 ```powershell
 cd src/vision

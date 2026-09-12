@@ -294,6 +294,24 @@ def test_verified_release_selection_checks_all_exact_byte_relationships(
     assert selection.resolved_config_path == paths["config"].resolve()
     assert selection.qualification is not None
     assert selection.qualification.overall_result == "passed"
+    assert selection.runtime_qualification_status == "qualified"
+    assert selection.runtime_semantic_graph["torch"] == "2.6.0"
+    assert (
+        selection.runtime_platform_variants["linux-x86_64-cpu"].status
+        == "qualified-hosted-cpu"
+    )
+    assert (
+        selection.runtime_platform_variants["linux-x86_64-cuda"].status
+        == "qualified-hardware"
+    )
+    assert (
+        selection.runtime_release_locks["linux-x86_64-cpu"].status
+        == "qualified-offline-lock"
+    )
+    assert (
+        selection.runtime_release_locks["linux-x86_64-cpu"].sha256
+        == _sha(b"linux-x86_64-cpu")
+    )
 
 
 def test_unverified_release_requires_explicit_development_opt_in(tmp_path: Path) -> None:
@@ -317,6 +335,12 @@ def test_unverified_release_requires_explicit_development_opt_in(tmp_path: Path)
 
     assert selection.verification_status == "unverified"
     assert selection.qualification is None
+    assert selection.runtime_qualification_status == "partial"
+    assert selection.runtime_semantic_graph["mmdet"] == "3.3.0"
+    assert (
+        selection.runtime_release_locks["linux-x86_64-cpu"].status
+        == "pending-wheelhouse-freeze"
+    )
 
 
 def test_verified_release_rejects_pending_mandatory_gate(tmp_path: Path) -> None:
