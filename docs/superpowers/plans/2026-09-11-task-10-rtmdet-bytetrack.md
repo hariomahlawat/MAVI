@@ -17,9 +17,10 @@
 - **Task 3 is complete.** MAVI now has strict model-manifest, pipeline-profile and qualification-record loaders; exact-byte release identities; trusted-root/no-link artifact resolution; an evidence-backed `VerifiedReleaseSelection`; and repository verification that explicitly prevents a pending release from being presented as production-qualified.
 - **Task 4 is complete.** Framework-neutral detector-runtime contracts, stable typed dependency failures, operational-only runtime/device/watchdog settings, and immutable provenance are implemented. Provenance is bound to the live qualified dependency graph, exact interpreter identity, platform/device qualification state and verified release lock; development drift is explicitly recorded as `unverified`.
 - **Task 5 is complete.** The dedicated `VisionExecutionLane` serializes accepted synchronous runtime work on one process-scoped thread, preserves already-submitted native work across asyncio cancellation, and makes shutdown idempotent and cancellation-safe. `InferenceActivity` provides lock-protected monotonic start/completion state for the later watchdog supervisor and correctly handles the cross-thread pre-start sampling race.
-- **Tasks 6–11 and Task 13 remain implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
+- **Task 6 is complete.** `RTMDetDetector` now provides the deterministic framework-neutral normalization boundary: verified runtime/profile identity checks, strict source-vocabulary validation, finite XYXY/confidence validation, frame-bound clipping, zero-area discard, normalized XYWH conversion, canonical ordering, and frame-local ordinals. No secondary NMS or generic detection cap is introduced. Signed zero is canonicalized before sorting so backend permutation cannot alter serialized output or ordinal assignment.
+- **Tasks 7–11 and Task 13 remain implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
 - **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task:** Task 6 — deterministic RTMDet-to-MAVI detection adapter.
+- **Next implementation task:** Task 7 — qualified MMDetection/RTMDet runtime integration and RGB→BGR boundary.
 
 ## Global Constraints
 
@@ -786,11 +787,13 @@ git commit -m "feat: add dedicated vision execution lane"
 
 ### Task 6: Implement the RTMDet-to-MAVI Detection Adapter with Deterministic Geometry
 
+**Status (verified 2026-09-12): COMPLETE.** PR #22 implements the bounded Task-6 adapter. Exact implementation head `a8ca4bf4e3d7073dec1759109a8dfad07e9631e3` passed MAVI Quality Gate #221 (run `34670140578`) with .NET Domain 71/71, Application 23/23, Integration 150/150, Python 376 passed with 11 platform skips, frontend checks green, and repository verification passed. Final Codex review on that head reported no major issues. Review hardening canonicalizes IEEE-754 signed zero before clipping/sorting/ordinal assignment so permutation-independent serialized output remains deterministic.
+
 **Files:**
+- Modify: `src/vision/mavi_vision/detection/interfaces.py`
 - Create: `src/vision/mavi_vision/detection/rtmdet.py`
 - Create: `src/vision/tests/test_rtmdet_mapping.py`
 - Create: `src/vision/tests/test_rtmdet_geometry.py`
-
 **Interfaces:**
 
 ```python
@@ -812,23 +815,23 @@ Canonical output order:
 )
 ```
 
-- [ ] **Step 1: Write class-mapping tests with a fake runtime**
+- [x] **Step 1: Write class-mapping tests with a fake runtime**
 
 Feed `person`, `car`, `motorcycle`, `bus`, `truck`, `dog`; assert Person/Vehicle mapping for the first five and profile-driven ignoring of `dog`.
 
-- [ ] **Step 2: Write adversarial geometry tests**
+- [x] **Step 2: Write adversarial geometry tests**
 
 Cover all four partial overflows, box larger than frame, fractions, zero area after clipping, inverted XYXY, NaN/Inf, tiny valid boxes, portrait/landscape/odd dimensions. Policy: finite partial overflow clips; zero-area after clipping discards; malformed/inverted/non-finite/impossible confidence or vocabulary violation raises `InferenceContractError`.
 
-- [ ] **Step 3: Implement normalization with no second NMS/cap**
+- [x] **Step 3: Implement normalization with no second NMS/cap**
 
 Call `runtime.infer(frame.image)` once, validate classes/geometry, map to normalized XYWH, and sort canonically. Do not add generic NMS or generic count truncation.
 
-- [ ] **Step 4: Prove deterministic adapter ordering**
+- [x] **Step 4: Prove deterministic adapter ordering**
 
 Return the same fake detections in multiple backend permutations; assert byte-for-byte equal serialized candidate tuples after normalization.
 
-- [ ] **Step 5: Run and commit**
+- [x] **Step 5: Run and commit**
 
 ```powershell
 cd src/vision
