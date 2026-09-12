@@ -105,12 +105,14 @@ def test_inference_activity_rejects_non_finite_observation_time(
         activity.is_hung(now_monotonic=now_monotonic, threshold_seconds=5.0)
 
 
-def test_inference_activity_rejects_monotonic_regression() -> None:
+def test_inference_activity_treats_pre_start_sample_as_not_hung() -> None:
     activity = InferenceActivity(monotonic_clock=ManualMonotonicClock(100.0))
     activity.mark_started()
 
-    with pytest.raises(ValueError, match="inference_watchdog_clock_regressed"):
+    assert (
         activity.is_hung(now_monotonic=99.999, threshold_seconds=5.0)
+        is False
+    )
 
 
 @pytest.mark.parametrize("started_at", [inf, -inf, nan])
