@@ -77,12 +77,14 @@ class _Harness:
         device_policy: str = "cpu",
         production_mode: bool = False,
         require_gpu_identity: bool = False,
+        activity: InferenceActivity | None = None,
+        monotonic_clock=None,
     ) -> None:
         module = _module()
         self.module = module
         self.events: list[str] = []
         self.lane = _Lane()
-        self.activity = InferenceActivity()
+        self.activity = activity or InferenceActivity()
         self.selection = SimpleNamespace(
             manifest=SimpleNamespace(
                 backend="mmdetection",
@@ -140,6 +142,11 @@ class _Harness:
             runtime_factory=make_runtime,
             provenance_builder=make_provenance,
             gpu_identity_provider=lambda device: None,
+            **(
+                {"monotonic_clock": monotonic_clock}
+                if monotonic_clock is not None
+                else {}
+            ),
         )
 
 
@@ -363,8 +370,11 @@ def test_watchdog_expiry_uses_activity_and_records_restart_required_incident() -
         clock_value = [100.0]
         activity = InferenceActivity(monotonic_clock=lambda: clock_value[0])
         runtime = _Runtime("a")
-        harness = _Harness(runtimes=[runtime])
-        harness.supervisor._activity = activity
+        harness = _Harness(
+            runtimes=[runtime],
+            activity=activity,
+            monotonic_clock=lambda: clock_value[0],
+        )
         await harness.supervisor.start()
 
         assert harness.supervisor.watchdog_expired() is False
