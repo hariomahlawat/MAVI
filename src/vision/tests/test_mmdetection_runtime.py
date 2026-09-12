@@ -103,6 +103,19 @@ class FakePrediction:
         )
 
 
+class FakeConfigWrapper:
+    """Minimal MMEngine Config analogue: indexable, but not a Mapping."""
+
+    def __init__(self, data: dict[str, object]) -> None:
+        self._data = data
+
+    def __getitem__(self, key: str) -> object:
+        return self._data[key]
+
+    def to_dict(self) -> dict[str, object]:
+        return copy.deepcopy(self._data)
+
+
 class BackendHarness:
     def __init__(
         self,
@@ -115,6 +128,7 @@ class BackendHarness:
         cuda_available: bool = True,
         cuda_count: int = 4,
         config_override: dict[str, object] | None = None,
+        wrap_config: bool = False,
     ) -> None:
         self.vocabulary = vocabulary
         self.model_device = model_device
@@ -124,8 +138,9 @@ class BackendHarness:
         self.cuda_available = cuda_available
         self.cuda_count = cuda_count
         self.config_override = config_override
-        self.configs: list[dict[str, object]] = []
-        self.init_calls: list[tuple[dict[str, object], str, str]] = []
+        self.wrap_config = wrap_config
+        self.configs: list[object] = []
+        self.init_calls: list[tuple[object, str, str]] = []
         self.inference_images: list[np.ndarray] = []
         self.checkpoint_scope_active = False
         self.init_observed_checkpoint_scope = False
@@ -141,11 +156,11 @@ class BackendHarness:
             finally:
                 self.checkpoint_scope_active = False
 
-        def config_fromfile(path: str) -> dict[str, object]:
+        def config_fromfile(path: str) -> object:
             assert Path(path).is_file()
-            config: dict[str, object]
+            raw_config: dict[str, object]
             if self.config_override is None:
-                config = {
+                raw_config = {
                     "model": {
                         "type": "RTMDet",
                         "test_cfg": {
@@ -155,12 +170,17 @@ class BackendHarness:
                     }
                 }
             else:
-                config = copy.deepcopy(self.config_override)
+                raw_config = copy.deepcopy(self.config_override)
+            config: object = (
+                FakeConfigWrapper(raw_config)
+                if self.wrap_config
+                else raw_config
+            )
             self.configs.append(config)
             return config
 
         def init_detector(
-            config: dict[str, object],
+            config: object,
             checkpoint: str,
             device: str,
         ) -> FakeModel:
@@ -510,6 +530,88 @@ def test_constructor_rejects_loaded_external_resource_directives_before_model_in
     _patch_backend(monkeypatch, harness)
 
     with pytest.raises(RuntimeCompatibilityError, match=error):
+        MMDetectionRuntime(
+            _selection(tmp_path),
+            device="cpu",
+            activity=InferenceActivity(),
+        )
+
+    assert harness.init_calls == []
+
+
+def test_constructor_validates_mmengine_config_wrapper_contents(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = BackendHarness(
+        config_override={
+            "model": {
+                "type": "RTMDet",
+                "test_cfg": {"score_thr": 0.001},
+                "checkpoint": "relative-unverified.pth",
+            }
+        },
+        wrap_config=True,
+    )
+    _patch_backend(monkeypatch, harness)
+
+    with pytest.raises(
+        RuntimeCompatibilityError,
+        match="resolved_config_external_resource_directive:checkpoint",
+    ):
+        MMDetectionRuntime(
+            _selection(tmp_path),
+            device="cpu",
+            activity=InferenceActivity(),
+        )
+
+    assert harness.init_calls == []
+
+
+def test_constructor_accepts_safe_mmengine_config_wrapper_and_applies_floor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = BackendHarness(wrap_config=True)
+    _patch_backend(monkeypatch, harness)
+
+    MMDetectionRuntime(
+        _selection(tmp_path),
+        device="cpu",
+        activity=InferenceActivity(),
+    )
+
+    assert len(harness.init_calls) == 1
+    config = harness.init_calls[0][0]
+    assert isinstance(config, FakeConfigWrapper)
+    model = config["model"]
+    assert isinstance(model, dict)
+    assert model["test_cfg"]["score_thr"] == 0.05
+
+
+def test_constructor_rejects_pretrained_init_inside_sequence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = BackendHarness(
+        config_override={
+            "model": {
+                "type": "RTMDet",
+                "test_cfg": {"score_thr": 0.001},
+                "init_cfg": [
+                    {"type": "Kaiming", "layer": "Conv2d"},
+                    {"type": "Pretrained", "checkpoint": None},
+                ],
+            }
+        },
+        wrap_config=True,
+    )
+    _patch_backend(monkeypatch, harness)
+
+    with pytest.raises(
+        RuntimeCompatibilityError,
+        match="resolved_config_pretrained_init_forbidden",
+    ):
         MMDetectionRuntime(
             _selection(tmp_path),
             device="cpu",
