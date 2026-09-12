@@ -115,6 +115,20 @@ jobs:
           "CL=/Brepro" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "LINK=/Brepro" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Stabilize Linux native extension environment
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "MAX_JOBS=1"
+            echo "CFLAGS=-frandom-seed=mavi-task12 -ffile-prefix-map=$GITHUB_WORKSPACE=/mavi -fdebug-prefix-map=$GITHUB_WORKSPACE=/mavi"
+            echo "CXXFLAGS=-frandom-seed=mavi-task12 -ffile-prefix-map=$GITHUB_WORKSPACE=/mavi -fdebug-prefix-map=$GITHUB_WORKSPACE=/mavi"
+            echo "LDFLAGS=-Wl,--build-id=none"
+            echo "ARFLAGS=rcD"
+            echo "ZERO_AR_DATE=1"
+          } >> "$GITHUB_ENV"
+
       - name: Checkout immutable MMCV 2.1.0 source
         shell: bash
         run: |
@@ -128,6 +142,26 @@ jobs:
       - name: Build local MMCV wheel
         working-directory: .task12-mmcv
         run: python -m pip wheel --no-build-isolation --no-deps . -w ../.task12-wheelhouse
+
+      - name: Prove clean MMCV wheel reproducibility
+        if: runner.os == 'Linux'
+        working-directory: .task12-mmcv
+        shell: bash
+        run: |
+          set -euo pipefail
+          first="$(find ../.task12-wheelhouse -maxdepth 1 -type f -name 'mmcv-2.1.0-*.whl' -print -quit)"
+          test -n "$first"
+          first_hash="$(sha256sum "$first" | awk '{print $1}')"
+          mv "$first" ../.task12-mmcv-first.whl
+          git clean -xfd
+          python -m pip wheel --no-build-isolation --no-deps . -w ../.task12-wheelhouse
+          second="$(find ../.task12-wheelhouse -maxdepth 1 -type f -name 'mmcv-2.1.0-*.whl' -print -quit)"
+          test -n "$second"
+          second_hash="$(sha256sum "$second" | awk '{print $1}')"
+          test "$first_hash" = "$second_hash"
+          cmp ../.task12-mmcv-first.whl "$second"
+          rm ../.task12-mmcv-first.whl
+          echo "task12-mmcv-reproducible=$second_hash"
 
       - name: Build MAVI Vision wheel
         run: >-
