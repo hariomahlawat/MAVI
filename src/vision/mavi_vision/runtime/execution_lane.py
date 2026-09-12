@@ -43,8 +43,8 @@ class VisionExecutionLane:
             thread_name_prefix=thread_name_prefix,
         )
         self._state_lock = threading.Lock()
-        self._close_lock = asyncio.Lock()
         self._closed = False
+        self._shutdown_task: asyncio.Task[None] | None = None
 
     async def run(
         self,
@@ -78,27 +78,41 @@ class VisionExecutionLane:
             raise
 
     async def close(self) -> None:
-        """Reject new work and wait for every accepted call to leave the lane."""
-        async with self._close_lock:
-            with self._state_lock:
-                if self._closed:
-                    return
-                self._closed = True
+        """Reject new work and wait for every accepted call to leave the lane.
 
-            shutdown_task = asyncio.create_task(
-                asyncio.to_thread(
-                    self._executor.shutdown,
-                    wait=True,
-                    cancel_futures=False,
+        Shutdown is process-resource cleanup, so cancellation of an individual
+        closer must never orphan the dedicated thread. All callers await the
+        same private shutdown task; cancellation is deferred until that task has
+        actually completed.
+        """
+        loop = asyncio.get_running_loop()
+        with self._state_lock:
+            if self._shutdown_task is None:
+                self._closed = True
+                self._shutdown_task = loop.create_task(
+                    asyncio.to_thread(
+                        self._executor.shutdown,
+                        wait=True,
+                        cancel_futures=False,
+                    ),
+                    name="mavi-vision-shutdown",
                 )
-            )
+            shutdown_task = self._shutdown_task
+
+        cancellation_requested = False
+        while not shutdown_task.done():
             try:
                 await asyncio.shield(shutdown_task)
             except asyncio.CancelledError:
-                # A close operation owns resource cleanup. Preserve cancellation
-                # semantics only after the executor has actually shut down.
-                await shutdown_task
-                raise
+                # Repeated cancellation requests are deliberately deferred until
+                # executor shutdown completes. The underlying to_thread task is
+                # shielded and therefore remains awaitable by every later closer.
+                cancellation_requested = True
+
+        # Surface an executor-shutdown failure before restoring caller cancellation.
+        shutdown_task.result()
+        if cancellation_requested:
+            raise asyncio.CancelledError
 
     async def __aenter__(self) -> "VisionExecutionLane":
         with self._state_lock:
