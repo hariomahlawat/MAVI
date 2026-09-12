@@ -1673,18 +1673,71 @@ Squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head pro
 - Task-9 artifact cleanup/publication or attempt-isolation tests regress.
 
 ---
-### Task 11: Implement Runtime Supervisor, Readiness Gate, OOM Recovery, Watchdog, and Production Worker Composition
+### Task 11: Runtime Supervisor, Recovery, Watchdog, and Production Worker Composition
 
-**Files:**
+**Status (reviewed 2026-09-12): READY FOR IMPLEMENTATION after the hardening below.**
+
+**Accepted planning baseline:** `a160c0a9820a07e43baf20bdf4e2c548c59b1255` before this Task-11 planning revision.
+
+Task 11 is the first point where process-scoped runtime lifecycle, asyncio lease authority, the dedicated vision thread, recovery, watchdog containment, worker health, and real production composition meet. It must therefore be implemented as one controlled feature branch with explicit TDD checkpoints rather than as a broad refactor.
+
+#### Current-state findings that this plan locks
+
+1. `runtime/supervisor.py` does not yet exist.
+2. `VisionExecutionLane` is already qualified and must be reused unchanged unless a failing Task-11 regression proves a defect. It serializes accepted synchronous work on one dedicated thread and deliberately does not cancel already-running native work.
+3. `InferenceActivity` already provides the required thread-safe monotonic inference start/completion marker. Task 11 consumes it; it does not redesign detector inference accounting.
+4. `ProductionVisionProcessor` already has the correct recovery seams: one runtime-provider snapshot per accepted attempt and one synchronous local `ProcessingDependencyError` sink. A regression already proves a long-lived facade can see runtime A and then runtime B.
+5. `WorkerRunner` still dispatches with `asyncio.to_thread`. Task 11 must inject `ProcessExecutor` without changing lease/heartbeat ownership semantics.
+6. The current runner's generic exception cleanup waits for an unfinished processing task without a timeout. A watchdog implementation that merely raises would therefore deadlock instead of honoring bounded grace. The watchdog path requires an explicit non-blocking fatal-cleanup branch.
+7. `worker-health-v2` currently always reports `ready`; Task 11 must make that impossible when the runtime is not READY without changing the v2 schema.
+8. `worker/main.py` currently constructs no runtime, supervisor, production processor, staging factory, or readiness-gated loop.
+9. The checked-in release remains intentionally incomplete: manifest `verificationStatus = unverified`, runtime profile `qualificationStatus = partial`, CUDA qualification is pending, and offline locks are pending. Task 11 must not promote this release. Production mode must fail closed before leasing; development mode may explicitly run the integrity-checked unverified CPU candidate.
+10. Runtime provenance is already implemented, but the existing Task-11 plan did not wire it into supervisor readiness. Task 11 must publish READY only after provenance construction succeeds.
+11. `WorkerSettings` currently lacks an explicit qualification-record path and production build/commit identity needed by the verifier/provenance path.
+12. CUDA `GpuIdentity` capture is not yet implemented. Task 11 must keep a fail-closed injectable GPU-identity seam; it must not invent or fake CUDA provenance while Task-1 hardware qualification remains open.
+
+#### Scope and non-goals
+
+Task 11 shall implement:
+- process-scoped `RuntimeSupervisor` state and runtime ownership;
+- immutable release verification before model construction;
+- runtime construction/warm-up/validation on the existing `VisionExecutionLane`;
+- immutable runtime provenance before READY;
+- thread-safe processing-failure handoff from the lane to the event-loop lifecycle;
+- one bounded same-release/same-device recovery attempt per RECOVER incident;
+- fail-closed UNAVAILABLE behavior for poisoned runtime failures;
+- model-neutral `ProcessExecutor` injection into `WorkerRunner`;
+- native-inference watchdog polling, lease invalidation, bounded grace and fatal termination;
+- truthful health-v2 readiness gating;
+- real production worker composition and readiness-gated outer loop.
+
+Task 11 shall **not** implement:
+- Task-11 result `/complete` persistence or PostgreSQL writes;
+- Task-12 wheelhouse/offline-bundle completion;
+- Task-14 GPU hardware qualification/performance claims;
+- a new worker-health schema;
+- automatic production CUDA-to-CPU fallback;
+- runtime/profile/model hot reload;
+- more than one concurrent leased video;
+- cancellation of native inference threads;
+- changes to Task-9 artifact/lease authority semantics.
+
+#### Files
+
 - Create: `src/vision/mavi_vision/runtime/supervisor.py`
-- Modify: `src/vision/mavi_vision/worker/main.py`
+- Modify: `src/vision/mavi_vision/common/settings.py`
 - Modify: `src/vision/mavi_vision/worker/runner.py`
 - Modify: `src/vision/mavi_vision/worker/health.py`
+- Modify: `src/vision/mavi_vision/worker/main.py`
 - Create: `src/vision/tests/test_runtime_supervisor.py`
 - Extend: `src/vision/tests/test_runtime_watchdog.py`
 - Modify: `src/vision/tests/test_worker_runner.py`
+- Modify: `src/vision/tests/test_worker_health.py`
+- Modify: `src/vision/tests/test_worker_settings.py`
+- Create or extend: `src/vision/tests/test_worker_main.py`
+- Regress unchanged unless a test proves otherwise: `runtime/execution_lane.py`, `runtime/activity.py`, `pipeline/production_processor.py`, `pipeline/process_video.py`, staging backends, Task-10 failure mapping.
 
-**Interfaces:**
+#### Locked supervisor contract
 
 ```python
 class RuntimeState(StrEnum):
@@ -1697,94 +1750,327 @@ class RuntimeState(StrEnum):
 class RuntimeSupervisor:
     @property
     def state(self) -> RuntimeState: ...
+
     @property
     def runtime(self) -> DetectorRuntime: ...
+
+    @property
+    def provenance(self) -> RuntimeProvenance | None: ...
+
+    @property
+    def unavailable_reason(self) -> str | None: ...
+
+    @property
+    def restart_required(self) -> bool: ...
+
     async def start(self) -> None: ...
     def report_processing_failure(self, error: ProcessingDependencyError) -> None: ...
+    def report_watchdog_expiry(self) -> None: ...
+    def watchdog_expired(self) -> bool: ...
     async def recover_if_required(self) -> None: ...
     async def close(self) -> None: ...
 ```
 
-Extend `WorkerRunner.__init__` with a model-neutral executor:
+Implementation ownership rules:
+
+- lifecycle state transitions (`STARTING/READY/RECOVERING/UNAVAILABLE/STOPPING`) are event-loop-owned;
+- `runtime_provider()` is called from the vision lane, so the current runtime reference is published/read under a small `threading.Lock`; it is a side-effect-free snapshot and raises a stable local error when no runtime is published;
+- `report_processing_failure()` is invoked from the vision lane and must be synchronous, non-blocking and non-throwing. It records only a lock-protected pending disposition/incident; it does not destroy/rebuild the runtime and does not perform asyncio/network I/O;
+- pending disposition severity is monotonic for the current incident: `UNAVAILABLE > RECOVER > CONTINUE`; repeated reports cannot downgrade it;
+- `recover_if_required()` is the event-loop reconciliation point. It atomically consumes the pending incident **after the current attempt has unwound and before any next lease**;
+- `CONTINUE` leaves the published detector runtime READY;
+- `RECOVER` performs exactly one reconstruction attempt for that incident;
+- `UNAVAILABLE` caused by a poisoned runtime sets `restart_required=True`, stops leasing, and must not attempt unsafe runtime reconstruction;
+- watchdog expiry records an unavailable/restart-required incident independently of the leased job result.
+
+#### Runtime publication and recovery rules
+
+Startup sequence:
+
+1. state is `STARTING`; no lease path is reachable;
+2. invoke release verification before any model constructor;
+3. resolve the configured device deterministically;
+4. on the vision lane construct the runtime;
+5. verify runtime metadata/model/vocabulary against the selected immutable release;
+6. warm up on the lane;
+7. build immutable runtime provenance;
+8. only after every preceding step succeeds, atomically publish runtime + provenance and transition to `READY`.
+
+Candidate runtime construction is transactional. If construction succeeds but warm-up/metadata/provenance fails, the candidate is never published and is closed best-effort on the lane when safe.
+
+Recovery sequence for one RECOVER incident:
+
+1. transition `READY -> RECOVERING`; no new lease;
+2. atomically unpublish the old runtime so no new attempt can snapshot it;
+3. close the old runtime on the vision lane;
+4. reconstruct using the **same stored release selection and same resolved device**; do not reread analytical config and do not change model/profile/device;
+5. repeat metadata validation, warm-up and provenance construction;
+6. publish the replacement atomically and transition to READY;
+7. if any recovery step fails, transition to UNAVAILABLE; do not automatically attempt a second reconstruction for that incident.
+
+A later, separately observed RECOVER incident after a successful recovery may receive its own single reconstruction attempt.
+
+For `RuntimeDisposition.UNAVAILABLE`, do not perform same-process reconstruction. If the runtime may be poisoned, do not invoke CUDA cleanup merely for tidiness; process restart is the containment boundary.
+
+#### Device and release-selection policy
+
+- `cpu` resolves to `cpu`.
+- `cuda` resolves to `cuda:{device_index}` and never falls back to CPU.
+- production `auto` remains invalid in `WorkerSettings` and is rejected again defensively by supervisor composition.
+- development `auto` in the Task-11 baseline resolves deterministically to CPU with an explicit warning. Do **not** implement fragile fallback by parsing `RuntimeCompatibilityError` text. A later qualified development preference for CUDA can be introduced separately.
+- add `qualification_record_path` to `WorkerSettings` (defaulting to the current local qualification record) so release evidence selection is explicit rather than inferred from filenames;
+- add optional deployment build/commit identity settings used by `build_runtime_provenance`; development may retain the existing `unknown-development` provenance behavior, while production must fail closed if required identity is absent;
+- production calls `verify_release_selection(..., allow_unverified=False)` and therefore the current checked-in unverified/partial release correctly remains non-ready;
+- development calls the same verifier with explicit `allow_unverified=True`; hashes/containment/runtime relationships are still verified and provenance remains `unverified`.
+
+CUDA provenance must receive a real `GpuIdentity` from an injected provider. Until that provider is backed by qualified hardware evidence, a CUDA production runtime cannot become READY. Task 11 must not manufacture placeholder GPU identity.
+
+#### WorkerRunner executor contract
+
+Add a small default model-neutral executor implementing `ProcessExecutor` via the existing `asyncio.to_thread` behavior for Task-9-compatible tests/development.
+
+`WorkerRunner.__init__` adds:
 
 ```python
 process_executor: ProcessExecutor | None = None
-```
-
-If absent, Task-9-compatible tests/dev may use a small default `asyncio.to_thread` executor; production **must** pass the `VisionExecutionLane`. `_process_with_lease_heartbeats()` dispatches through `self._process_executor.run(...)`, never directly through `asyncio.to_thread` when the production lane is configured.
-
-- [ ] **Step 1: Write supervisor startup state tests**
-
-Valid verified release + warm-up -> READY. Missing/bad hash, unavailable requested CUDA, vocabulary mismatch, or warm-up failure -> UNAVAILABLE and lease calls remain zero. Production `auto` rejects before leasing.
-
-- [ ] **Step 2: Implement supervisor startup through `VisionExecutionLane`**
-
-Release verification happens before model construction. Runtime construction, warm-up, and output/vocabulary validation execute on the lane. State mutation is explicit and event-loop-owned.
-
-- [ ] **Step 2A: Make the Task-9 provider/sink seams recovery-safe across threads**
-
-`ProductionVisionProcessor.process()` executes on the vision lane, not the asyncio event-loop thread. Therefore `RuntimeSupervisor.runtime` must expose a thread-safe, side-effect-free current-runtime snapshot, and `report_processing_failure(error)` must be synchronous, non-blocking and non-throwing when called from the lane. It may record pending disposition/state safely, but runtime destruction/reconstruction must occur only after the current attempt unwinds and through the supervised execution-lane lifecycle.
-
-Add a regression proving one long-lived `ProductionVisionProcessor` uses runtime A before recovery and runtime B after supervisor replacement without rebuilding the facade.
-
-- [ ] **Step 3: Write and implement OOM recovery tests**
-
-RECOVER error -> state RECOVERING, no lease, exactly one same-release/same-device reconstruction+warm-up. Success -> READY; failure -> UNAVAILABLE; no second automatic reconstruction for the incident.
-
-- [ ] **Step 4: Write and implement poisoned-runtime behaviour**
-
-UNAVAILABLE disposition -> immediate UNAVAILABLE and process restart required. CONTINUE tracker error -> detector remains READY.
-
-- [ ] **Step 5: Inject `ProcessExecutor` into `WorkerRunner` and keep it model-neutral**
-
-Refactor processing dispatch only; heartbeat/LeaseGuard authority remains in the runner. Add a test proving production lane uses one thread while existing Task-9 runner tests can still use the default executor.
-
-- [ ] **Step 6: Add a generic watchdog hook to the runner**
-
-Add optional collaborators:
-
-```python
 watchdog_expired: Callable[[], bool] | None = None
+watchdog_expiry_sink: Callable[[], None] | None = None
 watchdog_grace_seconds: float = 10.0
+watchdog_poll_seconds: float = 1.0
 fatal_terminator: Callable[[int], NoReturn] = os._exit
 ```
 
-While processing is active, check the watchdog at a poll interval <=1 second and before heartbeat renewal. Expiry marks the active guard lost, stops renewal, waits at most the configured grace for unwind, and invokes `fatal_terminator(70)` if native work remains stuck. Do not send `/fail` after local authority is invalidated.
+The runner always submits processing through `self._process_executor.run(...)`; production passes the shared `VisionExecutionLane`. It still owns the lease guard, heartbeat schedule, source resolution and terminal API interaction.
 
-- [ ] **Step 7: Test watchdog fatal path without terminating pytest**
+#### Watchdog algorithm — do not implement as a simple exception
 
-Inject a fake terminator that records code 70 and raises a test sentinel. Block the processor on a `threading.Event`; assert no post-expiry heartbeat or `/fail`, bounded grace, lost authority, and terminator invocation.
+The watchdog must not reset the heartbeat timer on every poll. Maintain an absolute monotonic `next_heartbeat_due` for scheduling only; the server UTC lease deadline remains authoritative for acceptance.
 
-- [ ] **Step 8: Keep health-v2 truthful without changing its schema**
+While a process task is active:
 
-`get_worker_health` may construct the existing v2 `ready` payload only when runtime readiness is true. A non-ready call must not invent a new status; use caller-visible unavailability/local diagnostics.
+1. wait for `min(time_until_next_heartbeat, watchdog_poll_seconds)` when watchdog is configured;
+2. if processing completes, retain the existing lease-ownership precedence checks before accepting success or exception;
+3. if watchdog is not expired and the heartbeat due time has arrived, renew through the existing `_heartbeat_before_deadline()` path and calculate a new due time;
+4. if watchdog expires, immediately mark the shared `LeaseGuard` lost, invoke the non-throwing watchdog-expiry sink, and stop all further heartbeats;
+5. wait for the existing process task for at most `watchdog_grace_seconds` using a non-cancelling wait;
+6. if the task unwinds inside grace, discard its result/error as non-authoritative and raise lease loss so `run_once()` emits no `/fail`; supervisor remains UNAVAILABLE/restart-required;
+7. if the task is still running after grace, invoke `fatal_terminator(70)`;
+8. set a local fatal-path flag before invoking the terminator so the runner's outer exception cleanup **must not** execute its ordinary unbounded `await process_task`; if an injected test terminator raises, that sentinel must escape promptly;
+9. if a production terminator unexpectedly returns, raise a stable fatal error without awaiting the stuck task.
 
-- [ ] **Step 9: Compose production worker loop in `main.py`**
+This is required because `VisionExecutionLane` deliberately shields native work from asyncio cancellation.
 
-Order:
+#### Health contract
 
-1. create lane;
-2. verify selected release;
-3. build/start supervisor;
-4. bind `settings.media_root` into staging factory;
-5. build `ProductionVisionProcessor(runtime_provider=lambda: supervisor.runtime, profile=profile, staging_factory=staging_factory, runtime_failure_sink=supervisor.report_processing_failure)`; the runtime accessor must return the current runtime snapshot safely so the already-existing facade uses the replacement runtime after recovery;
-6. build `WorkerRunner(..., process_executor=lane, watchdog_expired=...)`;
-7. outer loop calls `runner.run_once()` only in READY; calls `recover_if_required()` in RECOVERING; in UNAVAILABLE remains alive for diagnostics and never calls `lease()`;
-8. close supervisor/lane/client in reverse order.
+`worker-health-v2` remains unchanged. `get_worker_health()` may return the existing `ready` payload only when the caller supplies/derives runtime READY. A non-ready call raises a local `WorkerHealthUnavailable` (or equivalently stable local exception) for the caller to map to transport/local diagnostics. Do not invent `starting`, `recovering`, or `unavailable` v2 payload values.
 
-Do not hide readiness inside model-specific code in `WorkerRunner`.
+#### Production control-loop contract
 
-- [ ] **Step 10: Run and commit**
+`worker/main.py` must not use `runner.run_forever()` for the supervised production path. Keep `run_forever()` for backward-compatible tests/dev callers.
 
-```powershell
-cd src/vision
-python -m pytest tests/test_runtime_supervisor.py tests/test_runtime_watchdog.py tests/test_worker_runner.py tests/test_lease_ownership_matrix.py -q
-git add mavi_vision/runtime/supervisor.py mavi_vision/worker mavi_vision/pipeline/production_processor.py tests
-git commit -m "feat: supervise qualified vision runtime"
+Production composition order:
+
+1. load settings;
+2. create the single `VisionExecutionLane` and transfer runtime-lifecycle ownership to the supervisor;
+3. create `InferenceActivity`;
+4. create release-loader/runtime-factory/provenance/GPU-identity seams;
+5. construct and `await supervisor.start()`;
+6. build the staging factory bound to `settings.media_root`;
+7. build one long-lived `ProductionVisionProcessor(runtime_provider=lambda: supervisor.runtime, profile=<selected profile>, staging_factory=..., runtime_failure_sink=supervisor.report_processing_failure)`;
+8. build `WorkerRunner(..., process_executor=lane, watchdog_expired=supervisor.watchdog_expired, watchdog_expiry_sink=supervisor.report_watchdog_expiry, ...)`;
+9. enter the supervised outer loop.
+
+Outer-loop ordering is mandatory:
+
+```text
+before any lease:
+    await supervisor.recover_if_required()
+    if READY -> runner.run_once()
+    if RECOVERING -> recover_if_required(), no lease
+    if UNAVAILABLE + restart_required -> exit with service-restart code
+    if UNAVAILABLE + not restart_required -> remain alive for diagnostics, no lease
+
+after every run_once outcome (success, leased-job failure, lease loss, API error):
+    in finally -> await supervisor.recover_if_required()
 ```
+
+The `finally` reconciliation is critical: an OOM may be reported locally even when lease loss or `/fail` transport failure causes `run_once()` to raise. Recovery must still occur before another lease.
+
+Normal shutdown order:
+
+1. stop admitting new work;
+2. `await supervisor.close()` (idempotent; closes safe runtime lifecycle on the lane and transitions STOPPING);
+3. close the worker API client;
+4. ensure the lane is closed exactly once by its designated owner.
+
+Do not double-own lane shutdown between `main.py` and the supervisor. The implementation must choose one owner and tests must assert one close path. Preferred Task-11 design: ownership is transferred to `RuntimeSupervisor`, which closes the lane after safe runtime teardown; `main.py` does not close it again.
 
 ---
 
+- [ ] **Step 1: RED — lock supervisor startup and transactional publication**
+
+Create `test_runtime_supervisor.py` with lightweight fake release/runtime/lane collaborators. Prove:
+- initial state STARTING and no runtime is published;
+- release verification occurs before runtime construction;
+- successful construct + metadata validation + warm-up + provenance -> READY;
+- `runtime` returns the exact published snapshot and `provenance` is immutable/current;
+- hash/release verification failure, requested-device failure, vocabulary mismatch, warm-up failure, and provenance failure -> UNAVAILABLE with zero lease opportunity;
+- a candidate that fails after construction is never published and is cleaned up once when safe;
+- production `auto` is rejected defensively;
+- current unverified release policy is explicit: development may load unverified, production may not.
+
+- [ ] **Step 2: Implement supervisor startup on the existing VisionExecutionLane**
+
+Keep heavy/model operations on the lane. Do not add top-level torch/MMDetection imports to supervisor, runner, health, or main. Store the immutable selected release and resolved device for later recovery. Publish runtime/provenance only after the complete startup transaction succeeds.
+
+- [ ] **Step 3: RED/GREEN — lock the cross-thread incident handoff**
+
+Prove `report_processing_failure()` is synchronous, thread-safe, non-blocking and non-throwing when called from a real background thread. Test severity coalescing (`CONTINUE < RECOVER < UNAVAILABLE`) and prove it performs no runtime close/rebuild itself.
+
+Add a supervisor-specific regression using one long-lived `ProductionVisionProcessor`: attempt 1 snapshots runtime A; report RECOVER; reconcile/recover; attempt 2 snapshots runtime B without rebuilding the facade.
+
+- [ ] **Step 4: RED/GREEN — bounded recovery and poisoned-runtime semantics**
+
+Required cases:
+- `TrackerError/CONTINUE` -> no reconstruction and READY remains;
+- `GpuOutOfMemoryError/RECOVER` -> exactly one old-runtime close + exactly one same-release/same-device reconstruction/warm-up/provenance; success -> READY;
+- recovery construction/warm-up/provenance failure -> UNAVAILABLE and no second automatic attempt;
+- `GpuRuntimeError/UNAVAILABLE` -> no reconstruction, no next lease, `restart_required=True`;
+- report received while STOPPING is ignored/non-throwing;
+- two separate OOM incidents separated by a successful recovery may each receive one recovery.
+
+- [ ] **Step 5: RED/GREEN — add settings and provenance wiring**
+
+Extend settings tests for:
+- explicit qualification-record path;
+- optional build ID / commit SHA deployment identity;
+- unchanged rejection of production `auto`;
+- no analytical tuning knobs added.
+
+Supervisor must build provenance before READY. CPU development provenance remains explicitly `unverified`; verified production fixtures require matching qualification/runtime-lock/build identity. CUDA provenance without a real GPU-identity provider fails closed.
+
+- [ ] **Step 6: RED — lock ProcessExecutor injection before changing runner dispatch**
+
+Add worker tests proving:
+- default executor preserves existing Task-9 behavior;
+- injected fake executor receives the processor callable/arguments exactly once;
+- injected `VisionExecutionLane` executes processing on its dedicated single thread;
+- heartbeat and `LeaseGuard` behavior remains on the asyncio side;
+- all Task-10 typed failure mapping/lease precedence tests remain unchanged.
+
+- [ ] **Step 7: Implement model-neutral executor dispatch**
+
+Replace the direct `asyncio.to_thread(self._processor.process, ...)` call with `self._process_executor.run(...)` only. Do not move heartbeat logic into the executor and do not give the executor lease/control-plane authority.
+
+- [ ] **Step 8: RED — lock watchdog scheduling and heartbeat coexistence**
+
+Add deterministic clock/event-based tests proving:
+- watchdog is polled at <=1 second while work is active;
+- periodic watchdog polling does not postpone the next scheduled heartbeat;
+- normal long processing continues to renew before the authoritative lease deadline;
+- watchdog is never considered expired while `InferenceActivity` is inactive;
+- a completed inference clears the watchdog condition.
+
+- [ ] **Step 9: RED/GREEN — implement bounded watchdog containment**
+
+Use a blocking processor and injected fake terminator. Prove:
+- expiry marks the shared guard lost before any fatal action;
+- no heartbeat occurs after expiry;
+- no terminal `/fail` occurs after expiry;
+- processing that unwinds inside grace is discarded and surfaces only lease loss/restart-required state;
+- processing still stuck after grace calls the terminator exactly once with code 70;
+- the injected terminator sentinel escapes within bounded test time and is not swallowed by the runner's ordinary cleanup;
+- the runner never attempts Python thread cancellation or reuses the hung runtime.
+
+- [ ] **Step 10: RED/GREEN — truthful worker-health-v2**
+
+Update health tests so READY returns the exact existing v2 payload and every non-ready state is locally unavailable rather than serialized as a new status. No schema or contract fixture changes are permitted.
+
+- [ ] **Step 11: RED — lock supervised production-loop ordering**
+
+Create/extend `test_worker_main.py` with fake supervisor/runner/client/lane. Prove:
+- startup never calls lease before supervisor READY;
+- STARTING/RECOVERING/UNAVAILABLE never call `lease()`;
+- reconciliation occurs in `finally` after `run_once()` success and after `WorkerApiError`; 
+- an OOM pending incident is recovered before the next lease even when terminal `/fail` transport failed;
+- restart-required UNAVAILABLE exits through the defined service-restart path;
+- startup/configuration UNAVAILABLE remains alive for diagnostics without busy-looping;
+- shutdown closes resources once in the locked order.
+
+- [ ] **Step 12: Implement production composition in `worker/main.py`**
+
+Wire only existing qualified boundaries. Do not introduce model-specific logic into `WorkerRunner`. Keep one process-scoped supervisor/lane/runtime and one attempt-scoped tracker/staging graph.
+
+- [ ] **Step 13: Focused regression suite**
+
+```powershell
+cd src/vision
+python -m pytest tests/test_runtime_supervisor.py tests/test_runtime_execution_lane.py tests/test_runtime_watchdog.py tests/test_runtime_provenance.py tests/test_production_processor.py tests/test_worker_runner.py tests/test_worker_lease_heartbeat.py tests/test_worker_health.py tests/test_worker_settings.py tests/test_worker_main.py tests/test_lease_ownership_matrix.py tests/test_process_video.py tests/test_artifact_publisher.py tests/test_artifact_store.py -q
+```
+
+Acceptance:
+- no heavy ML import is required merely to collect the supervisor/runner/health/main unit tests;
+- Task-9/10 lease authority and typed failure semantics remain green;
+- watchdog tests are deterministic and do not rely on long wall-clock sleeps;
+- no direct PostgreSQL path or `/complete` path appears.
+
+- [ ] **Step 14: Full repository verification**
+
+```powershell
+cd src/vision
+python -m pytest -q
+cd ../..
+python tools/verify_repo.py
+```
+
+- [ ] **Step 15: Hosted review workflow**
+
+Use **one** Task-11 topic branch to avoid branch proliferation:
+
+```text
+feature/task-11-runtime-supervisor
+```
+
+Create it from the final accepted Task-11 planning head and open one draft PR early. Recommended reviewable checkpoints:
+
+```text
+test: lock runtime supervisor lifecycle
+feat: supervise qualified vision runtime
+test: lock worker watchdog containment
+feat: dispatch worker on supervised vision lane
+feat: compose supervised production worker
+docs: close Task 11 runtime supervision
+```
+
+Require:
+- intentional RED evidence before each behavioral implementation where practical;
+- exact-head MAVI Quality Gate green;
+- Task 10 Runtime Qualification and Staging Security green whenever triggered by touched/closure paths;
+- substantive Codex review focused on state ownership, recovery count, watchdog deadlock avoidance, lease precedence, production readiness and shutdown ownership;
+- zero unresolved legitimate review threads.
+
+- [ ] **Step 16: Guarded squash merge and closure**
+
+Squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head protection. Verify exact squash/tree identity, update this plan with final evidence, and confirm no Task-12/14 qualification claim entered Task 11.
+
+**Reviewer rejection gate — do not merge Task 11 if any of the following is true:**
+- supervisor lifecycle state is mutated directly from the vision lane thread;
+- a processing-failure sink performs network/async runtime lifecycle work;
+- a RECOVER incident can trigger more than one reconstruction attempt;
+- recovery changes release/model/profile/device;
+- runtime is published before warm-up/provenance succeeds;
+- watchdog polling can starve/postpone heartbeat scheduling;
+- watchdog expiry enters the runner's ordinary unbounded `await process_task` cleanup;
+- any heartbeat, `/fail`, artifact publication or mutation cleanup occurs after watchdog/lease authority loss;
+- production `auto` or CUDA-to-CPU fallback is introduced;
+- current unverified/partial release is presented as production READY/verified;
+- CUDA provenance uses placeholder GPU identity;
+- worker-health-v2 emits invented non-ready statuses;
+- `WorkerRunner` learns MMDetection/CUDA/model-manifest details;
+- lane shutdown has two owners or may be skipped/doubled;
+- Task-11 persistence `/complete`, PostgreSQL writes, Task-12 wheelhouse or Task-14 hardware qualification scope leaks in.
+
+---
 ### Task 12: Build Reproducible Offline Runtime Bundles and Strengthen Supply-Chain Verification
 
 **Files:**
