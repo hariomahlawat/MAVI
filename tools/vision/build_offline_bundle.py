@@ -28,7 +28,10 @@ for candidate in (VISION_ROOT, TOOLS_ROOT):
         sys.path.insert(0, str(candidate))
 
 from freeze_offline_lock import inspect_wheel, sha256_file  # noqa: E402
-from mavi_vision.runtime.manifest import ReleaseMetadataError  # noqa: E402
+from mavi_vision.runtime.manifest import (  # noqa: E402
+    ReleaseMetadataError,
+    load_model_manifest,
+)
 from mavi_vision.runtime.offline_lock import (  # noqa: E402
     OfflineLockError,
     load_offline_runtime_lock,
@@ -92,7 +95,6 @@ class VerifiedBundleInputs:
     checkpoint_sha256: str
     resolved_config_sha256: str
     wheelhouse: Path
-    mavi_source_root: Path
 
 
 def validate_bundle_relative_path(value: str) -> PurePosixPath:
@@ -149,6 +151,7 @@ def build_bundle_from_verified_inputs(
     ):
         _assert_safe_regular_file(path)
     _assert_safe_directory(inputs.wheelhouse)
+    _revalidate_assembly_boundary(inputs)
 
     if sha256_file(inputs.checkpoint_path) != inputs.checkpoint_sha256:
         raise OfflineBundleError("checkpoint_hash_mismatch")
@@ -167,7 +170,7 @@ def build_bundle_from_verified_inputs(
     wheel_records = _validate_wheelhouse(inputs.wheelhouse, lock)
     _verify_mavi_wheel_source(
         wheel_records=wheel_records,
-        source_root=inputs.mavi_source_root,
+        source_root=VISION_ROOT,
     )
 
     if output.exists():
@@ -388,8 +391,81 @@ def resolve_verified_bundle_inputs(
         checkpoint_sha256=selection.manifest.checkpoint.sha256,
         resolved_config_sha256=selection.manifest.resolved_config.sha256,
         wheelhouse=wheelhouse,
-        mavi_source_root=VISION_ROOT,
     )
+
+
+def _absolute_path(path: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _infer_model_root(inputs: VerifiedBundleInputs) -> Path:
+    try:
+        manifest = load_model_manifest(inputs.model_manifest_path)
+    except ReleaseMetadataError as exc:
+        raise OfflineBundleError(exc.code) from exc
+
+    root = _absolute_path(inputs.checkpoint_path)
+    for _ in PurePosixPath(manifest.checkpoint.relative_path).parts:
+        root = root.parent
+    return root
+
+
+def _revalidate_assembly_boundary(inputs: VerifiedBundleInputs) -> None:
+    if inputs.release_status == "qualification-candidate":
+        return
+    if inputs.release_status != "production":
+        raise OfflineBundleError("bundle_release_status_invalid")
+
+    model_root = _infer_model_root(inputs)
+    try:
+        selection = verify_release_selection(
+            model_root=model_root,
+            manifest_path=inputs.model_manifest_path,
+            profile_path=inputs.pipeline_profile_path,
+            runtime_profile_path=inputs.runtime_profile_path,
+            qualification_path=inputs.qualification_path,
+            allow_unverified=False,
+        )
+        runtime_profile = load_runtime_profile(inputs.runtime_profile_path)
+        verified_locks = verify_runtime_release_locks(
+            inputs.runtime_profile_path,
+            runtime_profile,
+        )
+    except ReleaseMetadataError as exc:
+        raise OfflineBundleError(exc.code) from exc
+
+    qualification = selection.qualification
+    if qualification is None:
+        raise OfflineBundleError("qualification_record_required")
+    all_gates_passed = all(
+        qualification.required_gates.get(gate) == "passed"
+        for gate in MANDATORY_QUALIFICATION_GATES
+    )
+    validate_release_mode(
+        "production",
+        verification_status=selection.verification_status,
+        runtime_qualification_status=selection.runtime_qualification_status,
+        qualification_overall_result=qualification.overall_result,
+        all_mandatory_gates_passed=all_gates_passed,
+    )
+
+    lock_path = verified_locks.get(inputs.platform_variant)
+    platform = selection.runtime_platform_variants.get(inputs.platform_variant)
+    if (
+        lock_path is None
+        or platform is None
+        or platform.python_identity is None
+        or selection.manifest.model_id != inputs.model_id
+        or selection.runtime_profile_id != inputs.runtime_profile_id
+        or platform.python_identity.version != inputs.python_version
+        or _absolute_path(lock_path) != _absolute_path(inputs.runtime_lock_path)
+        or _absolute_path(selection.checkpoint_path) != _absolute_path(inputs.checkpoint_path)
+        or _absolute_path(selection.resolved_config_path)
+        != _absolute_path(inputs.resolved_config_path)
+        or selection.manifest.checkpoint.sha256 != inputs.checkpoint_sha256
+        or selection.manifest.resolved_config.sha256 != inputs.resolved_config_sha256
+    ):
+        raise OfflineBundleError("bundle_verified_inputs_mismatch")
 
 
 def build_offline_bundle(
