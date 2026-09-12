@@ -19,9 +19,10 @@
 - **Task 5 is complete.** The dedicated `VisionExecutionLane` serializes accepted synchronous runtime work on one process-scoped thread, preserves already-submitted native work across asyncio cancellation, and makes shutdown idempotent and cancellation-safe. `InferenceActivity` provides lock-protected monotonic start/completion state for the later watchdog supervisor and correctly handles the cross-thread pre-start sampling race.
 - **Task 6 is complete.** `RTMDetDetector` now provides the deterministic framework-neutral normalization boundary: verified runtime/profile identity checks, strict source-vocabulary validation, finite XYXY/confidence validation, frame-bound clipping, zero-area discard, normalized XYWH conversion, canonical ordering, and frame-local ordinals. No secondary NMS or generic detection cap is introduced. Signed zero is canonicalized before sorting so backend permutation cannot alter serialized output or ordinal assignment.
 - **Task 7 is complete.** The production MMDetection/RTMDet runtime now consumes only verified local release artifacts, enforces a deterministic data-only resolved-config contract before MMEngine loading, lazily loads the qualified runtime graph, verifies exact ordered vocabulary, exact platform-qualified Python and PyTorch/TorchVision binary identities, owns the single RGB→BGR conversion, emits framework-neutral raw detections, and preserves typed CUDA/runtime failures. The real production runtime path is exercised on the qualified Linux and Windows CPU candidates. This does **not** promote the overall release to production `verified`: NVIDIA hardware qualification and hashed offline wheelhouse/release locks remain open under Task 1.
-- **Tasks 8–11 and Task 13 remain implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
+- **Task 8 is complete.** The exact `trackers==2.6.0` / `supervision==0.30.2` class-separated ByteTrack adapter is implemented with corrected versioned profile semantics, timestamped empty-frame updates, strict ordinal round-trip, MAVI-owned deterministic IDs, attempt invalidation after partial native failure, and exact-package Linux/Windows qualification evidence. This closes the hosted-CPU Task-8 gate only; it does not promote the overall release to production `verified`.
+- **Tasks 9–11 and Task 13 remain implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
 - **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task:** Task 8 — class-separated ByteTrack with timestamped empty-frame updates and stable ordinal round-trip.
+- **Next implementation task:** Task 9 — compose a fresh attempt pipeline around the shared detector runtime.
 
 ## Global Constraints
 
@@ -934,6 +935,17 @@ git commit -m "feat: integrate local RTMDet runtime"
 
 ### Task 8: Implement the Exact Trackers-2.6 Class-Separated ByteTrack Adapter
 
+**Status (verified 2026-09-12): COMPLETE for the bounded Task-8 hosted-CPU adapter gate.** The corrected candidate profile SHA-256 is `1d109f4dd666f18d1a234bf89d13ff3347cff09f48ce0f3c1c6c95714e4c530f`. This status does not imply CUDA/NVIDIA hardware qualification, offline wheelhouse/release-lock completion, CCTV accuracy qualification, or overall production `verified` release status.
+
+**Closure evidence:**
+- RED/TDD proof: MAVI Quality Gate run `34687629358` failed intentionally on the legacy profile semantic mismatch before the corrected implementation was introduced.
+- Substantive implementation head `81f476f4f00cf381ff14f33a91d8ba547c85db1b`: MAVI Quality Gate #273, Task 10 Staging Security #53 and Task 10 Runtime Qualification #116 passed. The exact-package ByteTrack sequence suite passed on Linux Python 3.12.14 and Windows Python 3.12.10.
+- Fresh CPU qualification evidence bound into `models/qualifications/rtmdet-m-coco-phase1-v1.json` from run `34689119149`: Linux job `103541173536`, artifact `10297181212`, SHA-256 `33cf750971960c017675691b02097484dbfb6748f0011b6cda4d4d086a56ed8e`; Windows job `103541173642`, artifact `10297031578`, SHA-256 `ee60755b04d55234ad628e58ccd3712e3dad3e120e24c9af39215ef5bbc489f2`.
+- Evidence-binding head `3131d39f6bbc6ac4f960ef1f8fa905e534ede0ef`: MAVI Quality Gate #274, Task 10 Staging Security #54 and Task 10 Runtime Qualification #117 passed; the exact Trackers 2.6 suite re-passed on both hosted CPU candidates after qualification metadata binding.
+- Run #117 verification artifacts: Linux artifact `10298280385`, SHA-256 `3bdb0eec69117c90ccc0d9f2af64f122233701d29104d106f7fa49d6d24aab43`; Windows artifact `10297601208`, SHA-256 `96db978da611e5725f88f1b75baf25fd49e628ac658b2164c92d29a53c0718e4`.
+- Codex substantive review found one P2 exact-head evidence-integrity issue. The workflow was corrected to explicitly checkout the PR source head, record the executed/event/PR-head SHAs, and verify them before accepting evidence. Codex re-reviewed corrected head `81f476f4f0` and reported no major issues; the finding thread is resolved.
+- Qualification record intentionally keeps `windows-x86_64-cuda`, `linux-x86_64-cuda`, both offline-install gates, CCTV quality baseline, and Linux/NVIDIA recovery-performance pending.
+
 **Purpose:** Replace the Task-9 fixture tracker with an attempt-scoped adapter around the exact qualified `trackers==2.6.0` / `supervision==0.30.2` runtime without importing legacy Supervision ByteTrack semantics, leaking predicted-only evidence, depending on backend row order, or allowing Person/Vehicle identity crossover.
 
 **Critical review finding before coding:** the pre-Task-8 pipeline profile still carries legacy-looking `minimumMatchingThreshold=0.8` semantics and the current threshold relationship permits `trackActivationThreshold < highConfidenceThreshold`. Those values/names do **not** map safely to Trackers 2.6.0. Trackers 2.6.0 expects a minimum IoU **similarity** threshold and only spawns new tracks from the high-confidence set. Task 8 therefore corrects the versioned profile first; it must not translate the old `0.8` value directly into `minimum_iou_threshold`.
@@ -990,7 +1002,7 @@ minimumConsecutiveFrames    = 2
 
 This is a candidate configuration, not an accuracy claim. Later CCTV qualification may tune it through a new profile hash/evidence event.
 
-- [ ] **Step 0: Correct and lock profile semantics before adapter implementation**
+- [x] **Step 0: Correct and lock profile semantics before adapter implementation**
 
 Change `ByteTrackProfile` / JSON as follows:
 
@@ -1005,7 +1017,7 @@ Do **not** implement a compatibility alias for `minimumMatchingThreshold`; fail 
 
 Because the pipeline-profile bytes change, the old CPU qualification evidence must not be represented as evidence for the corrected profile. On the implementation branch, after calculating the corrected profile hash, update the qualification record to that hash, set both `linux-x86_64-cpu` and `windows-x86_64-cpu` required gates back to `pending`, and remove their old evidence entries. The runtime profile may still retain its independently established hosted-CPU runtime identities; only the candidate pipeline qualification is reopened. The two CPU gates return to `passed` only after Step 10/11 produces fresh evidence for the corrected profile and real adapter.
 
-- [ ] **Step 1: Write fast tests for the exact profile/backend parameter mapping**
+- [x] **Step 1: Write fast tests for the exact profile/backend parameter mapping**
 
 Tests must prove the exact native constructor arguments and reject the legacy mapping:
 
@@ -1020,7 +1032,7 @@ referenceFrameRate=30 -> frame_rate=30.0
 
 Also test non-integral 30-Hz lost-budget values, reversed confidence-threshold relationships, stale `minimumMatchingThreshold`, and invalid reference-rate/IoU values.
 
-- [ ] **Step 2: Build a lazy third-party boundary**
+- [x] **Step 2: Build a lazy third-party boundary**
 
 Create a private `_ByteTrackBindings` / loader in `tracking/bytetrack.py`.
 
@@ -1033,7 +1045,7 @@ Requirements:
 
 Add an AST/import regression analogous to the Task-7 lazy MMDetection boundary.
 
-- [ ] **Step 3: Implement strict frame/input validation before either native tracker mutates**
+- [x] **Step 3: Implement strict frame/input validation before either native tracker mutates**
 
 On each call:
 - materialize the input sequence exactly once;
@@ -1044,7 +1056,7 @@ On each call:
 
 This intentionally fails before native mutation instead of relying on Trackers 2.6.0's warning/skip behaviour for backwards or duplicate timestamps. Update the adapter's last-frame state only after both class updates succeed.
 
-- [ ] **Step 4: Implement exact normalized-to-native conversion**
+- [x] **Step 4: Implement exact normalized-to-native conversion**
 
 For each class independently, convert the original normalized MAVI box using the **current** frame geometry:
 
@@ -1063,7 +1075,7 @@ Construct a native detection set with:
 
 Regression: normalized `(.1,.2,.3,.4)` on a 200×100 frame must produce `[20,20,80,60]`. Source MAVI candidates must remain unchanged.
 
-- [ ] **Step 5: Create two completely independent association domains and update both every frame**
+- [x] **Step 5: Create two completely independent association domains and update both every frame**
 
 Each adapter instance owns fresh attempt-local state:
 
@@ -1078,7 +1090,7 @@ Call **both** native trackers on every frame, including an empty detection set. 
 
 If one native update raises after the other has already mutated, translate the failure and abort the attempt; do not attempt state rollback. Task 9 creates a fresh adapter on the next attempt, so partially advanced tracker state is never reused.
 
-- [ ] **Step 6: Prove and validate ordinal round-trip instead of trusting output order**
+- [x] **Step 6: Prove and validate ordinal round-trip instead of trusting output order**
 
 Trackers 2.6.0 may return rows in a different order. For a non-empty class input, validate native output before emitting anything:
 
@@ -1092,7 +1104,7 @@ Trackers 2.6.0 may return rows in a different order. For a non-empty class input
 
 Recover original normalized box and confidence **only** from the ordinal map. Never use native output position, native/predicted XYXY, native confidence, or `tracked_objects` as MAVI evidence.
 
-- [ ] **Step 7: Implement tentative suppression and deterministic MAVI-owned IDs**
+- [x] **Step 7: Implement tentative suppression and deterministic MAVI-owned IDs**
 
 `tracker_id == -1` emits nothing and creates no MAVI mapping. No tentative observation is backfilled later.
 
@@ -1107,7 +1119,7 @@ Existing mappings never change. Native ID values/order never influence MAVI allo
 
 Return all emitted `TrackCandidate` values sorted by original global `frame_ordinal` so backend reordering cannot change MAVI output order.
 
-- [ ] **Step 8: Translate every tracker-boundary failure once**
+- [x] **Step 8: Translate every tracker-boundary failure once**
 
 Any native construction/update exception or malformed native result is translated by raising the existing `TrackerError(local_diagnostic_message)`. Do **not** pass `code` or `disposition` arguments to its constructor: the existing type already fixes `failure_code == "vision_tracker_failed"` and `runtime_disposition == RuntimeDisposition.CONTINUE`.
 
@@ -1115,7 +1127,7 @@ Do not leak third-party exception text/types across the adapter boundary. MAVI i
 
 Do not catch/translate process-level exceptions such as `KeyboardInterrupt`/`SystemExit`.
 
-- [ ] **Step 9: Complete the fast fake-backend regression matrix**
+- [x] **Step 9: Complete the fast fake-backend regression matrix**
 
 `test_bytetrack_adapter.py` must cover at least:
 
@@ -1137,7 +1149,7 @@ Do not catch/translate process-level exceptions such as `KeyboardInterrupt`/`Sys
 - construction/update exception -> `TrackerError` with `vision_tracker_failed` and `CONTINUE`;
 - no top-level Trackers/Supervision import.
 
-- [ ] **Step 10: Add exact-package Linux/Windows ByteTrack qualification tests**
+- [x] **Step 10: Add exact-package Linux/Windows ByteTrack qualification tests**
 
 `test_bytetrack_runtime.py` runs only after the qualified vision-runtime graph is installed and must fail, not skip, if Trackers/Supervision are absent or version-drifted.
 
@@ -1155,7 +1167,7 @@ Against the exact installed `trackers==2.6.0` and `supervision==0.30.2`, prove:
 
 These are backend-contract/behaviour tests, not CCTV accuracy claims.
 
-- [ ] **Step 11: Extend Task-10 qualification CI and produce truthful fresh evidence**
+- [x] **Step 11: Extend Task-10 qualification CI and produce truthful fresh evidence**
 
 Update `.github/workflows/task10-runtime-qualification.yml` triggers to include Task-8 production/test/profile inputs, especially:
 - `src/vision/mavi_vision/tracking/**`;
@@ -1172,7 +1184,7 @@ After the qualified runtime packages are installed on both hosted CPU candidates
 
 Only after both Linux and Windows runs pass may the qualification record bind the corrected pipeline-profile hash and fresh CPU evidence. Never reuse the old CPU evidence as if it had exercised the corrected tracking profile.
 
-- [ ] **Step 12: Full Task-8 acceptance, documentation, merge and cleanup**
+- [x] **Step 12: Full Task-8 acceptance, documentation, merge and cleanup**
 
 Require on the final substantive PR head:
 - MAVI Quality Gate green;
