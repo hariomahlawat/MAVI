@@ -138,6 +138,19 @@ jobs:
           Write-Host "task12-windows-sdk=$sdk"
           Write-Host "task12-cl=$cl"
 
+      - name: Verify qualified Linux host ABI
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          test "$ID" = "ubuntu"
+          test "$VERSION_ID" = "24.04"
+          test "$(uname -m)" = "x86_64"
+          test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.39"
+          echo "task12-linux-host=ubuntu-$VERSION_ID-$(uname -m)"
+          echo "task12-linux-native-abi=$(getconf GNU_LIBC_VERSION)"
+
       - name: Stabilize Linux native extension environment
         if: runner.os == 'Linux'
         shell: bash
