@@ -18,9 +18,10 @@
 - **Task 4 is complete.** Framework-neutral detector-runtime contracts, stable typed dependency failures, operational-only runtime/device/watchdog settings, and immutable provenance are implemented. Provenance is bound to the live qualified dependency graph, exact interpreter identity, platform/device qualification state and verified release lock; development drift is explicitly recorded as `unverified`.
 - **Task 5 is complete.** The dedicated `VisionExecutionLane` serializes accepted synchronous runtime work on one process-scoped thread, preserves already-submitted native work across asyncio cancellation, and makes shutdown idempotent and cancellation-safe. `InferenceActivity` provides lock-protected monotonic start/completion state for the later watchdog supervisor and correctly handles the cross-thread pre-start sampling race.
 - **Task 6 is complete.** `RTMDetDetector` now provides the deterministic framework-neutral normalization boundary: verified runtime/profile identity checks, strict source-vocabulary validation, finite XYXY/confidence validation, frame-bound clipping, zero-area discard, normalized XYWH conversion, canonical ordering, and frame-local ordinals. No secondary NMS or generic detection cap is introduced. Signed zero is canonicalized before sorting so backend permutation cannot alter serialized output or ordinal assignment.
-- **Tasks 7–11 and Task 13 remain implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
+- **Task 7 is complete.** The production MMDetection/RTMDet runtime now consumes only verified local release artifacts, enforces a deterministic data-only resolved-config contract before MMEngine loading, lazily loads the qualified runtime graph, verifies exact ordered vocabulary, exact platform-qualified Python and PyTorch/TorchVision binary identities, owns the single RGB→BGR conversion, emits framework-neutral raw detections, and preserves typed CUDA/runtime failures. The real production runtime path is exercised on the qualified Linux and Windows CPU candidates. This does **not** promote the overall release to production `verified`: NVIDIA hardware qualification and hashed offline wheelhouse/release locks remain open under Task 1.
+- **Tasks 8–11 and Task 13 remain implementation work and may proceed while Task 1 hardware/release evidence is open.** They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
 - **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task:** Task 7 — qualified MMDetection/RTMDet runtime integration and RGB→BGR boundary.
+- **Next implementation task:** Task 8 — class-separated ByteTrack with timestamped empty-frame updates and stable ordinal round-trip.
 
 ## Global Constraints
 
@@ -869,11 +870,11 @@ class MMDetectionRuntime(DetectorRuntime):
     def close(self) -> None: ...
 ```
 
-- [ ] **Step 1: Add a qualified runtime optional dependency group**
+- [x] **Step 1: Add a qualified runtime optional dependency group**
 
 Use Task-1 selected semantic versions in `[project.optional-dependencies].vision-runtime`. Production still installs from platform/device hash locks; `pyproject.toml` does not replace those locks. Base/core installation must remain free of heavyweight model runtime packages.
 
-- [ ] **Step 2: Write the RGB/BGR regression test**
+- [x] **Step 2: Write the RGB/BGR regression test**
 
 Internal pure helper:
 
@@ -883,27 +884,27 @@ def _rgb_to_bgr(image_rgb: NDArray[np.uint8]) -> NDArray[np.uint8]: ...
 
 Input `[11, 22, 33]` must become `[33, 22, 11]`, remain `uint8` H×W×3 contiguous, and leave source bytes unchanged.
 
-- [ ] **Step 3: Implement lazy heavy-framework loading**
+- [x] **Step 3: Implement lazy heavy-framework loading**
 
 Core unit-test collection/import must not require PyTorch/MMDetection. Resolve heavy imports during runtime construction or a backend-loader helper; missing/incompatible packages become `RuntimeCompatibilityError` before leasing.
 
-- [ ] **Step 4: Load only verified local resolved config/checkpoint paths**
+- [x] **Step 4: Load only verified local resolved config/checkpoint paths**
 
 Consume `VerifiedReleaseSelection`. Reject unresolved `_base_`, URL/model-zoo aliases, or artifact paths outside the trusted model release. No API accepts a model alias.
 
-- [ ] **Step 5: Verify ordered runtime vocabulary exactly**
+- [x] **Step 5: Verify ordered runtime vocabulary exactly**
 
 Read detector runtime class metadata after construction and require exact ordered equality with the manifest vocabulary. Mismatch -> runtime unavailable before any lease.
 
-- [ ] **Step 6: Implement warm-up**
+- [x] **Step 6: Implement warm-up**
 
 Generate an in-memory channel-distinct RGB frame, convert exactly once, run inference, and validate output contract without creating evidence artifacts.
 
-- [ ] **Step 7: Implement inference conversion and error translation**
+- [x] **Step 7: Implement inference conversion and error translation**
 
 Wrap activity start/completion in `try/finally`; convert RGB once; run MMDetection; return only `RawDetection` values in original decoded-frame pixel XYXY coordinates. Translate CUDA OOM, poisoned-context errors, and invalid outputs to the Task-4 typed errors. No tensor/`DetDataSample` escapes.
 
-- [ ] **Step 8: Run fast tests and a real local smoke test**
+- [x] **Step 8: Run fast tests and a real local smoke test**
 
 ```powershell
 cd src/vision
@@ -913,12 +914,21 @@ python ../../tools/vision/probe_runtime.py --config <resolved-config> --checkpoi
 
 Expected: all fast tests pass; real smoke passes without network access and vocabulary matches.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```powershell
 git add mavi_vision/runtime/mmdetection.py tests/test_rtmdet_colour_space.py pyproject.toml
 git commit -m "feat: integrate local RTMDet runtime"
 ```
+
+**Completion evidence — 2026-09-12**
+
+- Substantive implementation head: `b43d6a43bffc85b82b759268b90e980a8ca6c8d4`.
+- MAVI Quality Gate #265: passed — Domain 71/71, Application 23/23, Integration 150/150, Python 456 passed with 11 platform skips, repository verification passed, and Task-10 release-metadata relationships validated.
+- Task 10 Runtime Qualification #107: passed on qualified Linux Python 3.12.14 and Windows Python 3.12.10 CPU candidates using the real production `MMDetectionRuntime` path.
+- Final Codex substantive review on `b43d6a43bf`: “Didn't find any major issues.”
+- Release boundary remains explicit: CPU runtime integration is qualified for these hosted candidates; CUDA/NVIDIA qualification and hashed offline wheelhouse/release locks remain pending under Task 1 and must not be inferred from Task 7 completion.
+
 
 ---
 
