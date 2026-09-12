@@ -1200,7 +1200,7 @@ Then update this plan with exact evidence while retaining the global Task-10 par
 
 ### Task 9: Compose a Fresh Attempt Pipeline Around the Recoverable Shared Detector Runtime
 
-**Status (reviewed 2026-09-12): READY FOR IMPLEMENTATION after the planning corrections below.** Task 9 composes the already-qualified Task-7 detector boundary and Task-8 class-separated ByteTrack adapter into the existing `VideoProcessor`. It must not move lease authority, runtime lifecycle/recovery, or persistence into the pipeline layer.
+**Status (2026-09-12): IMPLEMENTATION COMPLETE; FINAL MERGE/CLEANUP PENDING.** Task 9 composes the already-qualified Task-7 detector boundary and Task-8 class-separated ByteTrack adapter into the existing `VideoProcessor`. It must not move lease authority, runtime lifecycle/recovery, or persistence into the pipeline layer.
 
 **Additional corrections locked by this review:**
 
@@ -1258,7 +1258,7 @@ The production composition root later binds `runtime_provider=lambda: supervisor
 - `runtime_failure_sink` is a local health-notification seam, not a job-terminal action. It must be synchronous, thread-safe, non-blocking, non-throwing and perform no network/control-plane I/O from the vision lane.
 - Importing `mavi_vision.pipeline.production_processor` must not eagerly import PyTorch, MMDetection, MMCV, Trackers or Supervision.
 
-- [ ] **Step 0: Preserve typed dependency failures through `VideoProcessor` before composing attempts**
+- [x] **Step 0: Preserve typed dependency failures through `VideoProcessor` before composing attempts**
 
 Write RED regressions proving:
 - detector `GpuOutOfMemoryError` exits `VideoProcessor` as the exact same exception object;
@@ -1282,7 +1282,7 @@ Apply the same invariant to any `VideoProcessor` exception region in which a fut
 
 This distinction is intentional: `ProductionVisionProcessor` may notify the local supervisor of the typed error, while `WorkerRunner` later re-checks lease ownership before any authoritative terminal API call.
 
-- [ ] **Step 1: RED — lock construction order, fresh attempt state, and runtime replacement compatibility**
+- [x] **Step 1: RED — lock construction order, fresh attempt state, and runtime replacement compatibility**
 
 Use recording fakes for `RTMDetDetector`, `ByteTrackTracker`, `staging_factory` and `VideoProcessor`. Assert the exact order:
 
@@ -1312,7 +1312,7 @@ Required assertions:
 
 Keep the production API free of test-only constructor hooks; monkeypatch module-level adapter/processor symbols in the unit test.
 
-- [ ] **Step 2: Write exact failure-notification tests**
+- [x] **Step 2: Write exact failure-notification tests**
 
 Cover both construction-time and processing-time typed failures:
 - `RTMDetDetector` / runtime inference `GpuOutOfMemoryError` -> sink called exactly once with the exact RECOVER error, then the same error rethrows;
@@ -1325,7 +1325,7 @@ Cover both construction-time and processing-time typed failures:
 
 The sink is a local health-notification boundary only. Task 9 does not recover/rebuild the detector and does not call the control-plane failure API. Do **not** add a lease check immediately before `runtime_failure_sink(exc)`, because doing so would erase runtime-health information that the supervisor needs independently of job ownership.
 
-- [ ] **Step 3: Implement minimal deterministic attempt composition**
+- [x] **Step 3: Implement minimal deterministic attempt composition**
 
 Implementation shape:
 
@@ -1354,7 +1354,7 @@ def process(...):
 
 The facade must not cache the provider result beyond the call, call the provider twice, inspect `RuntimeDisposition`, catch generic exceptions, perform async work, rebuild/close the runtime, or create staging outside the supplied factory. Document the sink callback contract in the class docstring.
 
-- [ ] **Step 4: Add import-boundary and lightweight composition regressions**
+- [x] **Step 4: Add import-boundary and lightweight composition regressions**
 
 Add tests proving:
 - importing `mavi_vision.pipeline.production_processor` does not load `torch`, `mmdet`, `mmcv`, `trackers` or `supervision`;
@@ -1364,7 +1364,7 @@ Add tests proving:
 
 These tests must run in the ordinary MAVI Quality Gate without optional ML packages.
 
-- [ ] **Step 5: Add an exact-package Linux/Windows production-composition smoke**
+- [x] **Step 5: Add an exact-package Linux/Windows production-composition smoke**
 
 Create `test_production_processor_runtime.py`, gated by `MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1`. In qualified mode it must fail, not skip, if exact packages are missing or drifted.
 
@@ -1381,7 +1381,7 @@ Run attempt 1 and attempt 2 through the same runtime provider and prove:
 
 Extend `.github/workflows/task10-runtime-qualification.yml` to trigger on `src/vision/mavi_vision/pipeline/**`, `src/vision/tests/test_production_processor*.py`, and `src/vision/tests/test_process_video.py`, then run this qualified smoke on both Linux and Windows after the exact candidate graph is installed. The smoke uses no model checkpoint and introduces no new production network dependency.
 
-- [ ] **Step 6: Run complete Task-9 regression and repository verification**
+- [x] **Step 6: Run complete Task-9 regression and repository verification**
 
 Focused:
 
@@ -1404,6 +1404,21 @@ Hosted exact-head acceptance:
 - Task 10 Staging Security green if triggered by the changed paths;
 - clean substantive Codex review with all legitimate findings resolved.
 
+**Task-9 implementation evidence (exact implementation head `0b34640c5453979f1d4833eff3659cc09dfe7056`):**
+
+- TDD RED — typed dependency preservation: MAVI Quality Gate #276 / run `34696676008` failed exactly the three new regressions (`3 failed, 499 passed, 12 skipped`), proving OOM/tracker collapse and lease-loss replacement before the fix.
+- Typed-error GREEN: MAVI Quality Gate #278 / run `34696894884`: PASS.
+- TDD RED — production composition: MAVI Quality Gate #279 / run `34697065369` failed the deliberate `ProductionVisionProcessor` stub contract (`16 failed, 503 passed, 12 skipped`) without unrelated regressions.
+- Facade GREEN: MAVI Quality Gate #281 / run `34697296761`: PASS.
+- Exact implementation-head repository gate: MAVI Quality Gate #283 / run `34697544693`: PASS.
+- Exact implementation-head Task 10 Runtime Qualification #123 / run `34697544697`: PASS on both hosted CPU platforms.
+  - Ubuntu job `103563506515`: PASS; artifact `10299183348`; SHA-256 `25a600c30961a4d2b32e1ca3f84a7079042d905b05b647bdfc995171a47f1407`.
+  - Windows job `103563506652`: PASS; artifact `10299178503`; SHA-256 `e963426cd1d59fce2107dff4ae2b90a770b54a7636d926fe73ff7be895b472d4`.
+- Both runtime jobs passed the expanded no-heavy-import boundary suite, exact `trackers==2.6.0` / `supervision==0.30.2`, exact production attempt-composition qualification, real RTMDet-M CPU probe/runtime smoke, and final qualification-evidence verification.
+- The topic branch is `8` commits ahead / `0` behind the Task-10 integration branch at this evidence point; merge base is exactly `9f229234699d13aa6093eb9dd7438a60a1557a86`.
+- No Task-9 code changes claim completion of CUDA/NVIDIA, offline wheelhouse, CCTV-quality, watchdog or recovery-performance gates; those remain explicitly pending under later Task-10 work.
+
+**Final closure rule:** Step 7 may be marked complete only after the documentation closure head itself passes all triggered exact-head gates, receives a clean substantive Codex review with all legitimate findings resolved, is squash-merged into `feature/task-10-rtmdet-bytetrack` with expected-head protection, and the resulting integration SHA is verified.
 - [ ] **Step 7: Commit, close evidence, merge and cleanup**
 
 Recommended reviewable commits before squash:
