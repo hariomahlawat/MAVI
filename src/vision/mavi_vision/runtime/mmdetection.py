@@ -278,6 +278,9 @@ def _validate_data_expression(node: ast.AST) -> None:
 def _validate_data_only_config_ast(tree: ast.Module) -> None:
     """Require a pure top-level assignment document, never executable Python."""
     for statement in tree.body:
+        if isinstance(statement, (ast.Import, ast.ImportFrom)):
+            raise RuntimeCompatibilityError("resolved_config_import_forbidden")
+
         if isinstance(statement, ast.Assign):
             if not statement.targets or any(
                 not isinstance(target, ast.Name) for target in statement.targets
