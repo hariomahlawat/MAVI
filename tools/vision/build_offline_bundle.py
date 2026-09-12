@@ -699,11 +699,36 @@ def _repository_head(repository_root: Path) -> str:
     return head
 
 
+def _assert_packaged_source_clean(repository_root: Path) -> None:
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repository_root),
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+                "--",
+                "src/vision/mavi_vision",
+                "src/vision/pyproject.toml",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise OfflineBundleError("bundle_source_commit_unverifiable") from exc
+    if completed.stdout.strip():
+        raise OfflineBundleError("bundle_source_dirty")
+
+
 def _validate_source_commit_against_checkout(
     value: str,
     repository_root: Path,
 ) -> None:
     _validate_source_commit(value)
+    _assert_packaged_source_clean(repository_root)
     if _repository_head(repository_root) != value:
         raise OfflineBundleError("bundle_source_commit_mismatch")
 
