@@ -223,11 +223,13 @@ def _verified_local_artifact(
 
 
 def _assignment_targets(node: ast.Assign | ast.AnnAssign) -> tuple[str, ...]:
+    """Collect every name stored by an assignment, including destructuring."""
     targets = node.targets if isinstance(node, ast.Assign) else [node.target]
     names: list[str] = []
     for target in targets:
-        if isinstance(target, ast.Name):
-            names.append(target.id)
+        for child in ast.walk(target):
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                names.append(child.id)
     return tuple(names)
 
 
