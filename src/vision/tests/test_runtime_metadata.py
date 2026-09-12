@@ -107,3 +107,23 @@ def test_pyproject_qualified_runtime_extra_matches_frozen_semantic_graph() -> No
         "Pillow": semantic["pillow"],
     }
 
+
+
+def test_runtime_qualification_binds_evidence_to_exact_checked_out_source() -> None:
+    workflow_path = (
+        Path(__file__).parents[3]
+        / ".github"
+        / "workflows"
+        / "task10-runtime-qualification.yml"
+    )
+    workflow = workflow_path.read_text(encoding="utf-8")
+
+    assert "MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
+    assert "MAVI_EVENT_SHA: ${{ github.sha }}" in workflow
+    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
+    assert "executed_source_sha = subprocess.check_output(" in workflow
+    assert '["git", "rev-parse", "HEAD"]' in workflow
+    assert '"headSha": executed_source_sha' in workflow
+    assert '"eventSha": os.environ["MAVI_EVENT_SHA"]' in workflow
+    assert '"prHeadSha": os.environ.get("MAVI_PR_HEAD_SHA") or None' in workflow
+    assert 'if bytetrack.get("headSha") != executed_source_sha:' in workflow

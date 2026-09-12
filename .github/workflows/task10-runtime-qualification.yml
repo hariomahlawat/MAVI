@@ -76,11 +76,17 @@ jobs:
       MAX_JOBS: '2'
       RTMDET_CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
       RTMDET_CHECKPOINT_SHA256: 229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b
-      MAVI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      MAVI_EVENT_SHA: ${{ github.sha }}
+      MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      MAVI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
       MAVI_RUNTIME_VARIANT: ${{ matrix.runtime-variant }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -276,6 +282,7 @@ jobs:
           import json
           import os
           import platform
+          import subprocess
           from pathlib import Path
 
           from mavi_vision.runtime.profile import load_pipeline_profile
@@ -290,12 +297,33 @@ jobs:
           if qualification["pipelineProfileSha256"] != profile_sha256:
               raise SystemExit("bytetrack_qualification_profile_hash_mismatch")
 
+          executed_source_sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"],
+              text=True,
+          ).strip()
+          expected_source_sha = os.environ["MAVI_EXPECTED_SOURCE_SHA"]
+          if executed_source_sha != expected_source_sha:
+              raise SystemExit(
+                  "bytetrack_qualification_source_sha_mismatch:"
+                  + json.dumps(
+                      {
+                          "executed": executed_source_sha,
+                          "expected": expected_source_sha,
+                          "event": os.environ["MAVI_EVENT_SHA"],
+                          "prHead": os.environ.get("MAVI_PR_HEAD_SHA") or None,
+                      },
+                      sort_keys=True,
+                  )
+              )
+
           profile = load_pipeline_profile(profile_path)
           tracker = profile.tracker
           record = {
               "status": "passed",
               "runtimeVariant": os.environ["MAVI_RUNTIME_VARIANT"],
-              "headSha": os.environ.get("MAVI_PR_HEAD_SHA") or os.environ["GITHUB_SHA"],
+              "headSha": executed_source_sha,
+              "eventSha": os.environ["MAVI_EVENT_SHA"],
+              "prHeadSha": os.environ.get("MAVI_PR_HEAD_SHA") or None,
               "profileSha256": profile_sha256,
               "effectiveNativeParameters": {
                   "frame_rate": tracker.reference_frame_rate,
@@ -472,6 +500,8 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import os
+          import subprocess
           from pathlib import Path
 
           root = Path("qualification-evidence")
@@ -525,6 +555,21 @@ jobs:
           ).hexdigest()
           if bytetrack.get("profileSha256") != profile_hash:
               raise SystemExit("bytetrack_qualification_profile_hash_mismatch")
+
+          executed_source_sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"],
+              text=True,
+          ).strip()
+          expected_source_sha = os.environ["MAVI_EXPECTED_SOURCE_SHA"]
+          if executed_source_sha != expected_source_sha:
+              raise SystemExit("qualification_checkout_source_sha_mismatch")
+          if bytetrack.get("headSha") != executed_source_sha:
+              raise SystemExit("bytetrack_evidence_source_sha_mismatch")
+          expected_pr_head = os.environ.get("MAVI_PR_HEAD_SHA") or None
+          if bytetrack.get("prHeadSha") != expected_pr_head:
+              raise SystemExit("bytetrack_evidence_pr_head_sha_mismatch")
+          if bytetrack.get("eventSha") != os.environ["MAVI_EVENT_SHA"]:
+              raise SystemExit("bytetrack_evidence_event_sha_mismatch")
 
           resolved = json.load((root / "resolved-config.json").open(encoding="utf-8"))
           runtime = json.load((root / "runtime.json").open(encoding="utf-8"))
