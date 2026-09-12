@@ -1675,7 +1675,7 @@ Squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head pro
 ---
 ### Task 11: Runtime Supervisor, Recovery, Watchdog, and Production Worker Composition
 
-**Status (reviewed 2026-09-12): READY FOR IMPLEMENTATION after the hardening below.**
+**Status (closed 2026-09-12): IMPLEMENTED, REVIEWED, SQUASH-MERGED, AND VERIFIED.**
 
 **Accepted planning baseline:** `a160c0a9820a07e43baf20bdf4e2c548c59b1255` before this Task-11 planning revision.
 
@@ -2049,9 +2049,20 @@ Require:
 - substantive Codex review focused on state ownership, recovery count, watchdog deadlock avoidance, lease precedence, production readiness and shutdown ownership;
 - zero unresolved legitimate review threads.
 
-- [ ] **Step 16: Guarded squash merge and closure**
+- [x] **Step 16: Guarded squash merge and closure**
 
 Squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head protection. Verify exact squash/tree identity, update this plan with final evidence, and confirm no Task-12/14 qualification claim entered Task 11.
+
+**Closure evidence (2026-09-12):**
+- final reviewed topic head: `16cce226cf5bbd0e910de544e00bbb438cef7003`;
+- final Codex review on that exact head: no major issues; all four legitimate review threads resolved;
+- exact-head MAVI Quality Gate run `34707992713`: PASS, including `569 passed, 13 skipped` Python contracts plus repository/.NET/frontend gates;
+- exact-head Task 10 Staging Security run `34707992633`: PASS;
+- exact-head Task 10 Runtime Qualification run `34707992772`: PASS on both Ubuntu and native Windows qualified CPU candidates;
+- guarded squash merge PR #27 with expected head `16cce226cf5bbd0e910de544e00bbb438cef7003` produced `11fa992a4934647bed438c3da3eee6588901fea7`;
+- squash tree `d8996aebab4282bca74cbd5a3860bafd69e51402` exactly equals the final topic-head tree, proving no merge-time content drift;
+- integration branch `feature/task-10-rtmdet-bytetrack` advanced from `8e22573cf1633a8b0f7d2d0cdda2e9bcbcbba345` to the guarded squash commit;
+- scope audit confirmed no Task-11 result `/complete` persistence, PostgreSQL write path, Task-12 offline-bundle completion, Task-14 GPU qualification claim, production CUDA-to-CPU fallback, or worker-health schema expansion.
 
 **Reviewer rejection gate — do not merge Task 11 if any of the following is true:**
 - supervisor lifecycle state is mutated directly from the vision lane thread;
