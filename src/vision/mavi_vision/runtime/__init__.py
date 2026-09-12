@@ -6,7 +6,9 @@ from mavi_vision.runtime.errors import (
     GpuRuntimeError,
     InferenceContractError,
     ProcessingDependencyError,
+    RuntimeCompatibilityError,
     RuntimeDisposition,
+    RuntimeStartupError,
     TrackerError,
 )
 from mavi_vision.runtime.execution_lane import ProcessExecutor, VisionExecutionLane
@@ -16,6 +18,7 @@ from mavi_vision.runtime.interfaces import (
     RawDetection,
     RuntimeMetadata,
 )
+from mavi_vision.runtime.mmdetection import MMDetectionRuntime
 from mavi_vision.runtime.provenance import (
     GpuIdentity,
     PlatformIdentity,
@@ -33,13 +36,16 @@ __all__ = [
     "InferenceContractError",
     "InferenceActivity",
     "InferenceActivitySnapshot",
+    "MMDetectionRuntime",
     "PixelBoxXYXY",
     "PlatformIdentity",
     "ProcessingDependencyError",
     "ProcessExecutor",
     "RawDetection",
+    "RuntimeCompatibilityError",
     "RuntimeDisposition",
     "RuntimeMetadata",
+    "RuntimeStartupError",
     "RuntimeProvenance",
     "TrackerError",
     "TrackerParameters",
