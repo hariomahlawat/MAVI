@@ -517,6 +517,29 @@ def test_freeze_tool_rejects_corrupt_wheel(tmp_path: Path) -> None:
         )
 
 
+def test_freeze_tool_ignores_nested_vendored_dist_info_metadata(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    wheel = _write_wheel(
+        wheelhouse,
+        filename="setuptools-like.whl",
+        name="setuptools",
+        version="84.0.0",
+    )
+    with zipfile.ZipFile(wheel, "a") as archive:
+        archive.writestr(
+            "setuptools/_vendor/example-1.0.dist-info/METADATA",
+            "Metadata-Version: 2.1\nName: vendored-example\nVersion: 1.0\n\n",
+        )
+
+    record = tool.inspect_wheel(wheel)
+
+    assert record.name == "setuptools"
+    assert record.version == "84.0.0"
+
+
 def test_freeze_tool_rejects_missing_or_duplicate_metadata(tmp_path: Path) -> None:
     tool = _load_freeze_tool()
     wheelhouse = tmp_path / "wheels"
