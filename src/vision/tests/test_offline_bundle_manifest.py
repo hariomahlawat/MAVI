@@ -179,6 +179,67 @@ def test_bundle_rejects_mavi_wheel_from_different_source_tree(
         tool.build_bundle_from_verified_inputs(inputs, tmp_path / "bundle")
 
 
+def test_mavi_wheel_metadata_accepts_pyproject_optional_dependencies(
+    tmp_path: Path,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+    project = tool.VISION_ROOT / "pyproject.toml"
+    project.write_text(
+        project.read_text(encoding="utf-8")
+        + '\n[project.optional-dependencies]\ndev = ["pytest>=8.4"]\n',
+        encoding="utf-8",
+    )
+
+    wheel = next(inputs.wheelhouse.glob("mavi_vision-*.whl"))
+    wheel.unlink()
+    package_init = (tool.VISION_ROOT / "mavi_vision" / "__init__.py").read_bytes()
+    wheel = _write_wheel(
+        inputs.wheelhouse,
+        filename="mavi_vision-0.1.0-py3-none-any.whl",
+        name="mavi-vision",
+        version="0.1.0",
+        package_files={"mavi_vision/__init__.py": package_init},
+        requires_python=">=3.12,<3.14",
+        requires_dist=('pytest>=8.4; extra == "dev"',),
+    )
+
+    tool._verify_mavi_wheel_source(
+        wheel_records={"mavi-vision": tool.inspect_wheel(wheel)},
+        source_root=tool.VISION_ROOT,
+    )
+
+
+def test_mavi_wheel_metadata_rejects_wrong_optional_dependency_extra(
+    tmp_path: Path,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+    project = tool.VISION_ROOT / "pyproject.toml"
+    project.write_text(
+        project.read_text(encoding="utf-8")
+        + '\n[project.optional-dependencies]\ndev = ["pytest>=8.4"]\n',
+        encoding="utf-8",
+    )
+
+    wheel = next(inputs.wheelhouse.glob("mavi_vision-*.whl"))
+    wheel.unlink()
+    package_init = (tool.VISION_ROOT / "mavi_vision" / "__init__.py").read_bytes()
+    wheel = _write_wheel(
+        inputs.wheelhouse,
+        filename="mavi_vision-0.1.0-py3-none-any.whl",
+        name="mavi-vision",
+        version="0.1.0",
+        package_files={"mavi_vision/__init__.py": package_init},
+        requires_python=">=3.12,<3.14",
+        requires_dist=('pytest>=8.4; extra == "other"',),
+    )
+
+    with pytest.raises(tool.OfflineBundleError, match="mavi_wheel_metadata_mismatch"):
+        tool._verify_mavi_wheel_source(
+            wheel_records={"mavi-vision": tool.inspect_wheel(wheel)},
+            source_root=tool.VISION_ROOT,
+        )
+
+
 def test_bundle_rejects_mavi_wheel_with_stale_project_metadata(
     tmp_path: Path,
 ) -> None:
