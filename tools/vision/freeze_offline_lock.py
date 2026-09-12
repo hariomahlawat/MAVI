@@ -88,52 +88,95 @@ def _parse_wheel_filename(
     )
 
 
-def _python_tags_compatible(
-    record: WheelRecord,
-    *,
-    python_version: str,
-) -> bool:
+def _target_python_identity(python_version: str) -> tuple[int, int]:
     match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.[0-9]+", python_version)
     if match is None:
         raise FreezeOfflineLockError("wheel_python_identity_invalid")
-    major = int(match.group(1))
-    minor = int(match.group(2))
-
-    for tag in record.python_tags:
-        if tag == f"py{major}":
-            return True
-        if tag in {f"py{major}{minor}", f"cp{major}{minor}"}:
-            return True
-        abi_match = re.fullmatch(r"cp([0-9])([0-9]+)", tag)
-        if (
-            abi_match is not None
-            and "abi3" in record.abi_tags
-            and int(abi_match.group(1)) == major
-            and int(abi_match.group(2)) <= minor
-        ):
-            return True
-    return False
+    return int(match.group(1)), int(match.group(2))
 
 
-def _platform_tags_compatible(
-    record: WheelRecord,
+def _interpreter_tag_compatible(
+    python_tag: str,
+    *,
+    abi_tags: tuple[str, ...],
+    major: int,
+    minor: int,
+) -> bool:
+    if python_tag == f"py{major}":
+        return True
+    if python_tag in {f"py{major}{minor}", f"cp{major}{minor}"}:
+        return True
+    abi_match = re.fullmatch(r"cp([0-9])([0-9]+)", python_tag)
+    return (
+        abi_match is not None
+        and "abi3" in abi_tags
+        and int(abi_match.group(1)) == major
+        and int(abi_match.group(2)) <= minor
+    )
+
+
+def _python_abi_pair_compatible(
+    python_tag: str,
+    abi_tag: str,
+    *,
+    major: int,
+    minor: int,
+) -> bool:
+    if python_tag in {f"py{major}", f"py{major}{minor}"}:
+        return abi_tag == "none"
+    if python_tag == f"cp{major}{minor}":
+        return abi_tag in {f"cp{major}{minor}", "abi3", "none"}
+
+    abi_match = re.fullmatch(r"cp([0-9])([0-9]+)", python_tag)
+    return (
+        abi_match is not None
+        and abi_tag == "abi3"
+        and int(abi_match.group(1)) == major
+        and int(abi_match.group(2)) <= minor
+    )
+
+
+def _platform_tag_compatible(
+    platform_tag: str,
     *,
     platform_variant: str,
 ) -> bool:
-    if "any" in record.platform_tags:
+    if platform_tag == "any":
         return True
     if platform_variant.startswith("linux-x86_64-"):
-        return any(
-            (
-                tag.startswith("linux_")
-                or tag.startswith("manylinux")
-            )
-            and tag.endswith("_x86_64")
-            for tag in record.platform_tags
-        )
+        return (
+            platform_tag.startswith("linux_")
+            or platform_tag.startswith("manylinux")
+        ) and platform_tag.endswith("_x86_64")
     if platform_variant.startswith("windows-x86_64-"):
-        return "win_amd64" in record.platform_tags
+        return platform_tag == "win_amd64"
     raise FreezeOfflineLockError("wheel_platform_variant_invalid")
+
+
+def _wheel_tag_triple_compatible(
+    python_tag: str,
+    abi_tag: str,
+    platform_tag: str,
+    *,
+    platform_variant: str,
+    major: int,
+    minor: int,
+) -> bool:
+    if not _python_abi_pair_compatible(
+        python_tag,
+        abi_tag,
+        major=major,
+        minor=minor,
+    ):
+        return False
+    if not _platform_tag_compatible(
+        platform_tag,
+        platform_variant=platform_variant,
+    ):
+        return False
+    if platform_tag == "any" and abi_tag != "none":
+        return False
+    return True
 
 
 def validate_wheel_record_for_target(
@@ -142,11 +185,44 @@ def validate_wheel_record_for_target(
     platform_variant: str,
     python_version: str,
 ) -> None:
-    if not _python_tags_compatible(record, python_version=python_version):
+    major, minor = _target_python_identity(python_version)
+
+    has_interpreter = any(
+        _interpreter_tag_compatible(
+            python_tag,
+            abi_tags=record.abi_tags,
+            major=major,
+            minor=minor,
+        )
+        for python_tag in record.python_tags
+    )
+    if not has_interpreter:
         raise FreezeOfflineLockError("wheel_python_incompatible")
-    if not _platform_tags_compatible(record, platform_variant=platform_variant):
+
+    has_platform = any(
+        _platform_tag_compatible(
+            platform_tag,
+            platform_variant=platform_variant,
+        )
+        for platform_tag in record.platform_tags
+    )
+    if not has_platform:
         raise FreezeOfflineLockError("wheel_platform_incompatible")
 
+    for python_tag in record.python_tags:
+        for abi_tag in record.abi_tags:
+            for platform_tag in record.platform_tags:
+                if _wheel_tag_triple_compatible(
+                    python_tag,
+                    abi_tag,
+                    platform_tag,
+                    platform_variant=platform_variant,
+                    major=major,
+                    minor=minor,
+                ):
+                    return
+
+    raise FreezeOfflineLockError("wheel_tag_incompatible")
 
 def inspect_wheel(path: Path) -> WheelRecord:
     if not path.is_file() or path.suffix.lower() != ".whl":
