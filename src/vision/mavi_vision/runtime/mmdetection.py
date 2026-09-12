@@ -234,11 +234,16 @@ def _validate_resolved_config(path: Path) -> None:
             # ordinary class/type names and other non-resource text constants.
             candidate = node.value.strip()
             parsed_reference = urlsplit(candidate)
+            posix_path = PurePosixPath(candidate)
+            windows_path = PureWindowsPath(candidate)
             if (
                 parsed_reference.scheme
                 or parsed_reference.netloc
-                or PurePosixPath(candidate).is_absolute()
-                or PureWindowsPath(candidate).is_absolute()
+                or posix_path.is_absolute()
+                or bool(windows_path.anchor)
+                or candidate.startswith(("~/", "~\\"))
+                or ".." in posix_path.parts
+                or ".." in windows_path.parts
             ):
                 raise RuntimeCompatibilityError(
                     "resolved_config_external_resource_forbidden"
@@ -253,6 +258,56 @@ def _validate_resolved_config(path: Path) -> None:
                     raise RuntimeCompatibilityError(
                         "resolved_config_external_checkpoint_forbidden"
                     )
+
+
+_FORBIDDEN_RESOURCE_KEYS = frozenset(
+    {
+        "checkpoint",
+        "load_from",
+        "pretrained",
+        "resume_from",
+    }
+)
+
+
+def _validate_loaded_config_resources(value: Any) -> None:
+    """Reject model-construction directives that can load unverified bytes."""
+    if isinstance(value, Mapping):
+        for raw_key, item in value.items():
+            key = str(raw_key)
+            if key in _FORBIDDEN_RESOURCE_KEYS and item is not None:
+                raise RuntimeCompatibilityError(
+                    f"resolved_config_external_resource_directive:{key}"
+                )
+
+            if key == "custom_imports" and item:
+                raise RuntimeCompatibilityError(
+                    "resolved_config_custom_imports_forbidden"
+                )
+
+            if key == "init_cfg" and item is not None:
+                if isinstance(item, Mapping):
+                    init_type = item.get("type")
+                    if (
+                        isinstance(init_type, str)
+                        and init_type.casefold() == "pretrained"
+                    ):
+                        raise RuntimeCompatibilityError(
+                            "resolved_config_pretrained_init_forbidden"
+                        )
+                elif isinstance(item, (list, tuple)):
+                    pass
+                else:
+                    raise RuntimeCompatibilityError(
+                        "resolved_config_init_cfg_invalid"
+                    )
+
+            _validate_loaded_config_resources(item)
+        return
+
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _validate_loaded_config_resources(item)
 
 
 def _mapping_child(parent: Any, key: str) -> MutableMapping[str, Any]:
@@ -367,6 +422,7 @@ class MMDetectionRuntime:
 
         try:
             config = bindings.config_fromfile(str(config_path))
+            _validate_loaded_config_resources(config)
             _apply_profile_inference_floor(
                 config,
                 release.profile.detector_inference_floor,
