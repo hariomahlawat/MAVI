@@ -270,6 +270,45 @@ _FORBIDDEN_RESOURCE_KEYS = frozenset(
 )
 
 
+def _plain_config_view(config: Any) -> Mapping[str, Any]:
+    """Return an inspectable snapshot of an MMEngine Config-like object."""
+    if isinstance(config, Mapping):
+        return config
+
+    to_dict = getattr(config, "to_dict", None)
+    if not callable(to_dict):
+        raise RuntimeCompatibilityError("resolved_config_wrapper_invalid")
+
+    try:
+        snapshot = to_dict()
+    except Exception as exc:
+        raise RuntimeCompatibilityError("resolved_config_wrapper_invalid") from exc
+
+    if not isinstance(snapshot, Mapping):
+        raise RuntimeCompatibilityError("resolved_config_wrapper_invalid")
+    return snapshot
+
+
+def _validate_init_cfg(value: Any) -> None:
+    if isinstance(value, Mapping):
+        init_type = value.get("type")
+        if isinstance(init_type, str) and init_type.casefold() == "pretrained":
+            raise RuntimeCompatibilityError(
+                "resolved_config_pretrained_init_forbidden"
+            )
+        _validate_loaded_config_resources(value)
+        return
+
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            if not isinstance(item, Mapping):
+                raise RuntimeCompatibilityError("resolved_config_init_cfg_invalid")
+            _validate_init_cfg(item)
+        return
+
+    raise RuntimeCompatibilityError("resolved_config_init_cfg_invalid")
+
+
 def _validate_loaded_config_resources(value: Any) -> None:
     """Reject model-construction directives that can load unverified bytes."""
     if isinstance(value, Mapping):
@@ -286,21 +325,8 @@ def _validate_loaded_config_resources(value: Any) -> None:
                 )
 
             if key == "init_cfg" and item is not None:
-                if isinstance(item, Mapping):
-                    init_type = item.get("type")
-                    if (
-                        isinstance(init_type, str)
-                        and init_type.casefold() == "pretrained"
-                    ):
-                        raise RuntimeCompatibilityError(
-                            "resolved_config_pretrained_init_forbidden"
-                        )
-                elif isinstance(item, (list, tuple)):
-                    pass
-                else:
-                    raise RuntimeCompatibilityError(
-                        "resolved_config_init_cfg_invalid"
-                    )
+                _validate_init_cfg(item)
+                continue
 
             _validate_loaded_config_resources(item)
         return
@@ -422,7 +448,7 @@ class MMDetectionRuntime:
 
         try:
             config = bindings.config_fromfile(str(config_path))
-            _validate_loaded_config_resources(config)
+            _validate_loaded_config_resources(_plain_config_view(config))
             _apply_profile_inference_floor(
                 config,
                 release.profile.detector_inference_floor,
