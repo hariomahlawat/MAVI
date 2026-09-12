@@ -38,6 +38,10 @@
           "Aug 13 2026 02:47:42"
         ],
         "compiler": "GCC 13.3.0"
+      },
+      "binaryVersions": {
+        "torch": "2.6.0+cpu",
+        "torchvision": "0.21.0+cpu"
       }
     },
     "windows-x86_64-cpu": {
@@ -54,6 +58,10 @@
           "Apr  8 2025 12:21:36"
         ],
         "compiler": "MSC v.1943 64 bit (AMD64)"
+      },
+      "binaryVersions": {
+        "torch": "2.6.0+cpu",
+        "torchvision": "0.21.0+cpu"
       }
     },
     "linux-x86_64-cuda": {
