@@ -122,4 +122,8 @@ def test_task12_workflow_covers_wheel_inputs_and_uses_pinned_reproduction() -> N
     assert '"mavi-vision[vision-runtime]==0.1.0"' not in workflow
     assert "Materialize reviewed locked runtime closure" in workflow
     assert "--require-hashes" in workflow
+    assert "Stabilize Linux native extension environment" in workflow
+    assert "-frandom-seed=mavi-task12" in workflow
+    assert "Prove clean MMCV wheel reproducibility" in workflow
+    assert 'test "$first_hash" = "$second_hash"' in workflow
 
