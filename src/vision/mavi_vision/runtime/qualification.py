@@ -7,6 +7,12 @@ from typing import Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from mavi_vision.runtime.offline_lock import (
+    OfflineLockError,
+    load_offline_runtime_lock,
+    validate_offline_runtime_lock_for_runtime,
+)
+
 from mavi_vision.runtime.manifest import (
     ArtifactRef,
     ModelManifest,
@@ -682,9 +688,23 @@ def verify_runtime_release_locks(
     runtime_profile_path: Path,
     profile: _RuntimeProfileSchema,
 ) -> Mapping[str, Path]:
-    """Verify every qualified runtime lock against exact local bytes."""
+    """Verify every qualified runtime lock against exact local bytes and identity."""
     verified: dict[str, Path] = {}
     root = runtime_profile_path.parent
+    semantic_graph = {
+        "torch": profile.semantic_graph.torch,
+        "torchvision": profile.semantic_graph.torchvision,
+        "mmcv": profile.semantic_graph.mmcv,
+        "mmengine": profile.semantic_graph.mmengine,
+        "mmdet": profile.semantic_graph.mmdet,
+        "trackers": profile.semantic_graph.trackers,
+        "supervision": profile.semantic_graph.supervision,
+        "scipy": profile.semantic_graph.scipy,
+        "numpy": profile.semantic_graph.numpy,
+        "opencv-python": profile.semantic_graph.opencv_python,
+        "av": profile.semantic_graph.av,
+        "pillow": profile.semantic_graph.pillow,
+    }
 
     for variant, lock in profile.release_locks.items():
         if lock.status != "qualified-offline-lock":
@@ -696,6 +716,31 @@ def verify_runtime_release_locks(
         lock_path = resolve_release_artifact(root, artifact)
         if sha256_release_file(lock_path) != lock.sha256:
             raise ReleaseMetadataError("runtime_release_lock_hash_mismatch")
+
+        platform = profile.platform_variants[variant]
+        if platform.python_identity is None:
+            raise ReleaseMetadataError("runtime_release_lock_python_identity_required")
+        binary_versions = (
+            {
+                "torch": platform.binary_versions.torch,
+                "torchvision": platform.binary_versions.torchvision,
+            }
+            if platform.binary_versions is not None
+            else None
+        )
+        try:
+            parsed = load_offline_runtime_lock(lock_path)
+            validate_offline_runtime_lock_for_runtime(
+                parsed,
+                expected_variant=variant,
+                expected_python_version=platform.python_identity.version,
+                semantic_graph=semantic_graph,
+                binary_versions=binary_versions,
+                platform_status=platform.status,
+            )
+        except OfflineLockError as exc:
+            raise ReleaseMetadataError(exc.code) from exc
+
         verified[variant] = lock_path
 
     return MappingProxyType(verified)
