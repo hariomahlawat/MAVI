@@ -28,6 +28,7 @@ _REQUIRED_RUNTIME_VERSION_KEYS = frozenset(
     }
 )
 _CUDA_DEVICE_PATTERN = re.compile(r"cuda:(\d+)", re.ASCII)
+_GIT_COMMIT_PATTERN = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", re.ASCII)
 
 
 def _require_text(value: str, *, code: str) -> str:
@@ -208,17 +209,22 @@ def _resolve_mavi_identity(
             or mavi_commit == "unknown-development"
         ):
             raise ValueError("production_mavi_identity_required")
-        return (
-            _require_text(mavi_build, code="mavi_build_invalid"),
-            _require_text(mavi_commit, code="mavi_commit_invalid"),
-        )
+        resolved_build = _require_text(mavi_build, code="mavi_build_invalid")
+        resolved_commit = _require_text(mavi_commit, code="mavi_commit_invalid")
+        if _GIT_COMMIT_PATTERN.fullmatch(resolved_commit) is None:
+            raise ValueError("mavi_commit_invalid")
+        return resolved_build, resolved_commit
 
     resolved_build = mavi_build or "unknown-development"
     resolved_commit = mavi_commit or "unknown-development"
-    return (
-        _require_text(resolved_build, code="mavi_build_invalid"),
-        _require_text(resolved_commit, code="mavi_commit_invalid"),
-    )
+    resolved_build = _require_text(resolved_build, code="mavi_build_invalid")
+    resolved_commit = _require_text(resolved_commit, code="mavi_commit_invalid")
+    if (
+        resolved_commit != "unknown-development"
+        and _GIT_COMMIT_PATTERN.fullmatch(resolved_commit) is None
+    ):
+        raise ValueError("mavi_commit_invalid")
+    return resolved_build, resolved_commit
 
 
 def _validate_device_relationship(
