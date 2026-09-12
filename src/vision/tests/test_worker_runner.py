@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,14 @@ from mavi_vision.common.analytical import VisionProcessingResult
 from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.process_video import VideoProcessingError
+from mavi_vision.runtime.errors import (
+    GpuOutOfMemoryError,
+    GpuRuntimeError,
+    InferenceContractError,
+    ProcessingDependencyError,
+    RuntimeDisposition,
+    TrackerError,
+)
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiError
@@ -236,6 +245,100 @@ def test_video_processing_failure_is_controlled_once(tmp_path: Path) -> None:
 
     assert result is True
     assert client.failures == [("vision_processing_failed", "Vision processing failed.")]
+
+
+@pytest.mark.parametrize(
+    ("error_type", "expected_code"),
+    [
+        (InferenceContractError, "vision_inference_contract_failed"),
+        (GpuOutOfMemoryError, "vision_gpu_out_of_memory"),
+        (GpuRuntimeError, "vision_gpu_runtime_failed"),
+        (TrackerError, "vision_tracker_failed"),
+    ],
+)
+def test_processing_dependency_failure_uses_approved_stable_code(
+    tmp_path: Path,
+    error_type: type[ProcessingDependencyError],
+    expected_code: str,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    local_diagnostic = r"checkpoint=C:\\secret\\rtmdet.pth token=do-not-send"
+    processor = RecordingProcessor(error=error_type(local_diagnostic))
+
+    result = asyncio.run(
+        WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+    )
+
+    assert result is True
+    assert client.heartbeats == [5.0]
+    assert len(processor.calls) == 1
+    assert client.failures == [(expected_code, "Vision processing failed.")]
+    assert local_diagnostic not in (client.failures[0][1] or "")
+    assert client.events == ["lease", "heartbeat", f"fail:{expected_code}"]
+
+
+def test_unapproved_processing_dependency_code_fails_closed(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    local_diagnostic = r"checkpoint=C:\\secret\\future.pth token=do-not-send"
+    processor = RecordingProcessor(
+        error=ProcessingDependencyError(
+            "vision_future_dependency_failed",
+            RuntimeDisposition.RECOVER,
+            local_diagnostic,
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="mavi_vision.worker.runner"):
+        result = asyncio.run(
+            WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+        )
+
+    assert result is True
+    assert client.failures == [("vision_processing_failed", "Vision processing failed.")]
+    assert local_diagnostic not in (client.failures[0][1] or "")
+    assert "vision_future_dependency_failed" in caplog.text
+    assert local_diagnostic not in caplog.text
+    assert client.events == ["lease", "heartbeat", "fail:vision_processing_failed"]
+
+
+def test_processing_dependency_terminal_fail_error_is_not_retried(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FailingTerminalWorkerApiClient(lease)
+    processor = RecordingProcessor(
+        error=GpuOutOfMemoryError("local CUDA diagnostic must not leave worker")
+    )
+
+    with pytest.raises(WorkerApiError, match="worker API request failed"):
+        asyncio.run(
+            WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+        )
+
+    assert client.heartbeats == [5.0]
+    assert len(processor.calls) == 1
+    assert client.failures == [
+        ("vision_gpu_out_of_memory", "Vision processing failed.")
+    ]
+    assert client.events == [
+        "lease",
+        "heartbeat",
+        "fail:vision_gpu_out_of_memory",
+    ]
 
 
 def test_processor_lease_loss_is_api_error_without_terminal_failure(tmp_path: Path) -> None:

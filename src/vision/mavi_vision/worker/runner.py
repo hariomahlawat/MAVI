@@ -1,16 +1,32 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol
+from typing import Final, Protocol
 from uuid import UUID
 
 from mavi_vision.common.analytical import VisionProcessingResult
 from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.process_video import VideoProcessingError
+from mavi_vision.runtime.errors import ProcessingDependencyError
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import MediaStoreError
 from mavi_vision.worker.client import WorkerApiError
+
+
+_LOGGER = logging.getLogger(__name__)
+
+_APPROVED_PROCESSING_DEPENDENCY_CODES: Final[frozenset[str]] = frozenset(
+    {
+        "vision_inference_contract_failed",
+        "vision_gpu_out_of_memory",
+        "vision_gpu_runtime_failed",
+        "vision_tracker_failed",
+    }
+)
+_GENERIC_PROCESSING_FAILURE_CODE: Final = "vision_processing_failed"
+_PROCESSING_FAILURE_MESSAGE: Final = "Vision processing failed."
 
 
 # Worker collaborators
@@ -116,6 +132,23 @@ class WorkerRunner:
                 lease,
                 "source_media_integrity_failed",
                 "Leased source media failed integrity verification.",
+            )
+            return True
+        except ProcessingDependencyError as exc:
+            # The runtime-health sink has already observed this model-neutral error.
+            # This layer owns only the leased-job terminal mapping. Never trust a
+            # future/custom typed code as a wire contract without explicit review.
+            failure_code = exc.failure_code
+            if failure_code not in _APPROVED_PROCESSING_DEPENDENCY_CODES:
+                _LOGGER.warning(
+                    "Unallowlisted processing dependency failure code: %s",
+                    failure_code,
+                )
+                failure_code = _GENERIC_PROCESSING_FAILURE_CODE
+            await self._best_effort_fail(
+                lease,
+                failure_code,
+                _PROCESSING_FAILURE_MESSAGE,
             )
             return True
         except VideoProcessingError as exc:
