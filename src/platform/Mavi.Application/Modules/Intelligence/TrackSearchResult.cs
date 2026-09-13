@@ -46,7 +46,7 @@ public sealed record TrackDetailRow(
     string? DetectorVersion,
     string? TrackerName,
     string? TrackerVersion,
-    DateTimeOffset? CompletedAtUtc,
+    DateTimeOffset CompletedAtUtc,
     DateTimeOffset RecordingStartUtc,
     DateTimeOffset RecordingEndUtc,
     long VideoDurationMs,
