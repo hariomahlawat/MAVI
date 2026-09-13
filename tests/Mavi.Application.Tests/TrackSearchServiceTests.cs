@@ -80,19 +80,67 @@ public sealed class TrackSearchServiceTests
     [Fact]
     public async Task ValidCursorIsPassedAsSeekPosition()
     {
+        var query = ValidQuery();
         var expected = new TrackCursorPosition(
             FixedNow,
             new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero),
-            Guid.CreateVersion7());
+            Guid.CreateVersion7(),
+            TrackCursorCodec.ComputeFilterFingerprint(query));
         var repository = new FakeTrackSearchRepository([]);
         var service = new TrackSearchService(repository, FixedClock);
 
         var result = await service.SearchAsync(
-            ValidQuery() with { Cursor = TrackCursorCodec.Encode(expected) },
+            query with { Cursor = TrackCursorCodec.Encode(expected) },
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(expected, repository.LastCursor);
+    }
+
+    [Fact]
+    public async Task CursorCannotBeReusedWithDifferentFilters()
+    {
+        var repository = new FakeTrackSearchRepository([]);
+        var service = new TrackSearchService(repository, FixedClock);
+        var original = ValidQuery();
+        var cursor = new TrackCursorPosition(
+            FixedNow,
+            FixedNow.AddMinutes(-1),
+            Guid.CreateVersion7(),
+            TrackCursorCodec.ComputeFilterFingerprint(original));
+
+        var result = await service.SearchAsync(
+            original with
+            {
+                MinimumConfidence = 0.9,
+                Cursor = TrackCursorCodec.Encode(cursor),
+            },
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(0, repository.SearchCalls);
+    }
+
+    [Theory]
+    [InlineData(-61)]
+    [InlineData(2)]
+    public async Task CursorOutsideValidityWindowIsRejected(int minutesFromNow)
+    {
+        var repository = new FakeTrackSearchRepository([]);
+        var service = new TrackSearchService(repository, FixedClock);
+        var query = ValidQuery();
+        var cursor = new TrackCursorPosition(
+            FixedNow.AddMinutes(minutesFromNow),
+            FixedNow.AddMinutes(-1),
+            Guid.CreateVersion7(),
+            TrackCursorCodec.ComputeFilterFingerprint(query));
+
+        var result = await service.SearchAsync(
+            query with { Cursor = TrackCursorCodec.Encode(cursor) },
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(0, repository.SearchCalls);
     }
 
     private static TrackSearchQuery ValidQuery() => new(
