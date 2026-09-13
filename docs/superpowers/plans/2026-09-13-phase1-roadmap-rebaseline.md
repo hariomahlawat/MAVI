@@ -1,8 +1,10 @@
 # Phase-1 Roadmap Re-baseline — 13 September 2026
 
-**Status:** Authoritative planning re-baseline before Task 13 implementation.
+**Status:** Authoritative Phase-1 roadmap. Task 13 is complete and Task 14 is the active backend task.
 
-**Baseline commit:** `f7f13183fd0119be58a63bac2c9fbac580ff719d`
+**Original re-baseline commit:** `f7f13183fd0119be58a63bac2c9fbac580ff719d`
+
+**Task-14 planning baseline:** Task 13 merged as PR #30 at `928b31b8b947c2da5ab7869f09213c88bc063dc4`.
 
 ## Purpose
 
@@ -32,8 +34,8 @@ The remaining critical backend gap is successful result acceptance. `WorkerRunne
 
 | Task | Authoritative scope | Primary dependency |
 |---|---|---|
-| **Task 13** | Validated, atomic vision-result completion and persistence | Actual Tasks 11–12 complete |
-| **Task 14** | Track search and evidence-content APIs | Task 13 durable intelligence |
+| **Task 13** | Validated, atomic vision-result completion and persistence — **Complete** | Actual Tasks 11–12 complete |
+| **Task 14** | Track search and evidence-content APIs — **Active** | Task 13 durable intelligence |
 | **Task 15** | React application foundation, Cameras, Import and Processing UI | Stable existing APIs + Task 13 processing completion |
 | **Task 16** | React Visual Search and Evidence Review | Task 14 Track/evidence APIs |
 | **Task 17** | Phase-1 end-to-end hardening, qualification closure, ground truth and offline acceptance | Tasks 13–16 |
@@ -83,9 +85,9 @@ If implementation changes after the freeze, downstream generated artifacts, meta
 
 ## Branch and review discipline
 
-For Task 13:
+For each remaining task:
 
-- create one topic branch from the accepted merged/re-baselined integration head;
+- create one topic branch from the accepted merged integration head;
 - use small cohesive commits rather than multiple competing heads;
 - open one PR;
 - keep implementation commits separate from any later generated-artifact/rebind/evidence commits;
@@ -103,5 +105,6 @@ In particular, do not begin Visual Search/Evidence Review before Track/evidence 
 For remaining Phase-1 sequencing:
 
 1. this re-baseline document controls task numbering;
-2. `2026-09-13-task-13-vision-result-persistence.md` controls Task-13 implementation;
-3. older task plans remain historical design/evidence records unless explicitly updated to reference this re-baseline.
+2. `2026-09-13-task-13-vision-result-persistence.md` records the completed Task-13 implementation baseline;
+3. `2026-09-13-task-14-track-search-evidence-apis.md` controls Task-14 implementation;
+4. older task plans remain historical design/evidence records unless explicitly updated to reference this re-baseline.
