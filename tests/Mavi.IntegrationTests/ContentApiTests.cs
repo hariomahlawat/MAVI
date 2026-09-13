@@ -192,6 +192,62 @@ public sealed class ContentApiTests
     }
 
     [Fact]
+    public async Task LinkedEvidenceParentReturnsStableContentUnavailable()
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
+            return;
+
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        var video = await Task14TestData.SeedBaseVideoAsync(factory);
+        var track = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            video,
+            new DateTimeOffset(2026, 9, 13, 8, 0, 0, TimeSpan.Zero),
+            1_000);
+
+        string thumbnailKey;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+            thumbnailKey = (await db.Artifacts
+                .SingleAsync(x => x.Id == track.ThumbnailArtifactId))
+                .StorageKey;
+        }
+
+        var thumbnailPath = EvidencePath(factory, thumbnailKey);
+        var parent = Path.GetDirectoryName(thumbnailPath)!;
+        var fileName = Path.GetFileName(thumbnailPath);
+        var bytes = await File.ReadAllBytesAsync(thumbnailPath);
+        var external = Path.Combine(factory.EvidenceRoot, "linked-parent-target");
+        Directory.CreateDirectory(external);
+        await File.WriteAllBytesAsync(Path.Combine(external, fileName), bytes);
+
+        Directory.Delete(parent, recursive: true);
+        try
+        {
+            Directory.CreateSymbolicLink(parent, external);
+        }
+        catch (Exception exception) when (
+            exception is UnauthorizedAccessException or
+            IOException or
+            PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync(
+            $"/api/artifacts/{track.ThumbnailArtifactId:D}/content");
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains(
+            "artifact_content_unavailable",
+            await response.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ExistingVideoWithWrongSourceArtifactTypeFailsAsIntegrityIncident()
     {
         using var factory = new ApiTestFactory();
