@@ -36,6 +36,23 @@ def _snake_to_camel(name: str) -> str:
 
 _COMPLETION_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
 _COMPLETION_EVIDENCE_MAX_BYTES = 512 * 1024 * 1024
+_COMPLETION_INTEGER_WIRE_NAMES = frozenset(
+    {
+        "attemptCount",
+        "framesProcessed",
+        "processingDurationMs",
+        "sizeBytes",
+        "offsetMs",
+        "sourceFrameNumber",
+        "startOffsetMs",
+        "endOffsetMs",
+        "detectionCount",
+        "configuredDeviceIndex",
+        "index",
+        "vramBytes",
+        "minimumConsecutiveFrames",
+    }
+)
 _CONTRACT_EDGE_WHITESPACE = frozenset(
     chr(code)
     for code in (
@@ -57,6 +74,25 @@ _CONTRACT_EDGE_WHITESPACE = frozenset(
 
 def _completion_json_float(value: str) -> Decimal:
     return Decimal(value)
+
+
+def _normalize_completion_json_numbers(value, field_name: str | None = None):
+    if isinstance(value, Decimal):
+        if field_name in _COMPLETION_INTEGER_WIRE_NAMES:
+            if value == value.to_integral_value():
+                return int(value)
+            # Preserve invalidity through JSON re-serialization. Strict integer
+            # validation rejects this string instead of accepting a rounded float.
+            return str(value)
+        return float(value)
+    if isinstance(value, list):
+        return [_normalize_completion_json_numbers(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _normalize_completion_json_numbers(item, key)
+            for key, item in value.items()
+        }
+    return value
 
 
 def _completion_integral(value: object, *, minimum: int, maximum: int) -> int:
@@ -406,6 +442,7 @@ class VisionJobComplete(ControlPlaneModel):
 
         try:
             payload = json.loads(text, parse_float=_completion_json_float)
+            payload = _normalize_completion_json_numbers(payload)
             normalized = json.dumps(
                 payload,
                 ensure_ascii=False,
