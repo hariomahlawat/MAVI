@@ -7,6 +7,8 @@ public static class WorkerContractRules
     public const string SchemaVersion = "2.0";
     public const int MaximumCompletionTracks = 10_000;
     public const long MaximumCompletionRequestBodyBytes = 32L * 1024 * 1024;
+    public const long MaximumCompletionArtifactBytes = 64L * 1024 * 1024;
+    public const long MaximumCompletionEvidenceBytes = 512L * 1024 * 1024;
 
     // Worker identity rules
     public static bool IsCanonicalWorkerId(string? value)
