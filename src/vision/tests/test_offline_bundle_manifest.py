@@ -149,10 +149,7 @@ dependencies = []
         files[name] = path
 
     tool.VISION_ROOT = mavi_source_root
-    if bypass_revalidation:
-        tool._revalidate_assembly_boundary = lambda _inputs: None
-
-    return tool, tool.VerifiedBundleInputs(
+    inputs = tool.VerifiedBundleInputs(
         source_commit=tool._repository_head(tool.ROOT),
         release_status="qualification-candidate",
         platform_variant="linux-x86_64-cpu",
@@ -170,6 +167,13 @@ dependencies = []
         resolved_config_sha256=tool.sha256_file(files["config"]),
         wheelhouse=wheelhouse,
     )
+    if bypass_revalidation:
+        tool._revalidate_assembly_boundary = lambda _inputs: {
+            inputs.platform_variant: inputs.runtime_lock_path,
+        }
+        tool._verify_bundled_release_selection = lambda _stage, _release_status: None
+
+    return tool, inputs
 
 
 def _relative_file_bytes(root: Path) -> dict[str, bytes]:
@@ -470,6 +474,70 @@ def test_same_inputs_create_identical_bundle_bytes(tmp_path: Path) -> None:
 
     assert first_manifest == second_manifest
     assert _relative_file_bytes(first) == _relative_file_bytes(second)
+
+
+def test_bundle_carries_all_verified_runtime_locks_and_binds_them_to_id(
+    tmp_path: Path,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+    selected_lock = tool.load_offline_runtime_lock(inputs.runtime_lock_path)
+    windows_lock = OfflineRuntimeLock(
+        schema_version=selected_lock.schema_version,
+        platform_variant="windows-x86_64-cpu",
+        python_version="3.12.10",
+        distributions=selected_lock.distributions,
+    )
+    windows_lock_path = tmp_path / "windows-x86_64-cpu.lock"
+    windows_lock_path.write_bytes(serialize_offline_runtime_lock(windows_lock))
+
+    tool._revalidate_assembly_boundary = lambda _inputs: {
+        inputs.platform_variant: inputs.runtime_lock_path,
+        "windows-x86_64-cpu": windows_lock_path,
+    }
+
+    first = tmp_path / "bundle-a"
+    first_manifest = tool.build_bundle_from_verified_inputs(inputs, first)
+
+    assert (
+        first
+        / "release"
+        / "runtime"
+        / "mmdetection-phase1-v1"
+        / "linux-x86_64-cpu.lock"
+    ).is_file()
+    assert (
+        first
+        / "release"
+        / "runtime"
+        / "mmdetection-phase1-v1"
+        / "windows-x86_64-cpu.lock"
+    ).is_file()
+
+    artifact_variants = {
+        item.platform_variant
+        for item in first_manifest.artifacts
+        if item.purpose == "runtime-lock"
+    }
+    assert artifact_variants == {
+        "linux-x86_64-cpu",
+        "windows-x86_64-cpu",
+    }
+
+    changed_windows_lock = replace(
+        windows_lock,
+        distributions=(
+            *windows_lock.distributions[:-1],
+            replace(
+                windows_lock.distributions[-1],
+                sha256="f" * 64,
+            ),
+        ),
+    )
+    windows_lock_path.write_bytes(serialize_offline_runtime_lock(changed_windows_lock))
+
+    second = tmp_path / "bundle-b"
+    second_manifest = tool.build_bundle_from_verified_inputs(inputs, second)
+    assert second_manifest.bundle_id != first_manifest.bundle_id
 
 
 def test_bundle_manifest_lists_every_product_file_once_except_itself(
