@@ -10,6 +10,9 @@ namespace Mavi.Infrastructure.Persistence.Migrations;
 [Migration("20260914053000_AddProcessingVisibilitySequence")]
 public sealed class AddProcessingVisibilitySequence : Migration
 {
+    private static readonly string[] VideoVisibilityColumns =
+        ["video_asset_id", "visibility_sequence"];
+
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.CreateSequence<long>(
@@ -42,7 +45,7 @@ public sealed class AddProcessingVisibilitySequence : Migration
         migrationBuilder.CreateIndex(
             name: "ix_processing_runs_video_visibility",
             table: "processing_runs",
-            columns: new[] { "video_asset_id", "visibility_sequence" },
+            columns: VideoVisibilityColumns,
             filter: "status = 'Completed' AND visibility_sequence IS NOT NULL");
     }
 
