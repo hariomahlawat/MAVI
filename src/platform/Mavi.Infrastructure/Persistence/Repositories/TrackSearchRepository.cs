@@ -20,7 +20,8 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
             join observation in db.Observations.AsNoTracking()
                 on track.RepresentativeObservationId equals observation.Id into observations
             from observation in observations.DefaultIfEmpty()
-            where run.Status == ProcessingRunStatus.Completed
+            where run.Status == ProcessingRunStatus.Completed &&
+                  run.CompletedAtUtc != null
             select new { track, run, video, camera, observation };
 
         if (query.ProcessingRunId is { } runId)
@@ -33,6 +34,7 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
                 !db.ProcessingRuns.AsNoTracking().Any(other =>
                     other.VideoAssetId == x.video.Id &&
                     other.Status == ProcessingRunStatus.Completed &&
+                    other.CompletedAtUtc != null &&
                     (other.CompletedAtUtc > x.run.CompletedAtUtc ||
                      (other.CompletedAtUtc == x.run.CompletedAtUtc && other.Id.CompareTo(x.run.Id) > 0))));
         }
@@ -95,7 +97,9 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
             join observation in db.Observations.AsNoTracking()
                 on track.RepresentativeObservationId equals observation.Id into observations
             from observation in observations.DefaultIfEmpty()
-            where track.Id == trackId && run.Status == ProcessingRunStatus.Completed
+            where track.Id == trackId &&
+                  run.Status == ProcessingRunStatus.Completed &&
+                  run.CompletedAtUtc != null
             select new TrackDetailRow(
                 track.Id,
                 track.ProcessingRunId,
