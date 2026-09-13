@@ -35,6 +35,9 @@ def _snake_to_camel(name: str) -> str:
 
 _COMPLETION_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
 _COMPLETION_EVIDENCE_MAX_BYTES = 512 * 1024 * 1024
+_COMPLETION_DEPENDENCY_VERSION_MAX_COUNT = 128
+_TRACKER_POSITIVE_MIN = 1e-9
+_TRACKER_POSITIVE_MAX = 1e9
 _COMPLETION_INTEGER_WIRE_NAMES = frozenset(
     {
         "attemptCount",
@@ -453,12 +456,20 @@ class VisionGpuIdentity(ControlPlaneModel):
 
 
 class VisionTrackerParameters(ControlPlaneModel):
-    reference_frame_rate: float = Field(gt=0, allow_inf_nan=False)
+    reference_frame_rate: float = Field(
+        ge=_TRACKER_POSITIVE_MIN,
+        le=_TRACKER_POSITIVE_MAX,
+        allow_inf_nan=False,
+    )
     track_activation_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
     high_confidence_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
     minimum_iou_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
     minimum_consecutive_frames: CompletionInt32 = Field(ge=1, le=2_147_483_647)
-    lost_track_buffer_seconds: float = Field(gt=0, allow_inf_nan=False)
+    lost_track_buffer_seconds: float = Field(
+        ge=_TRACKER_POSITIVE_MIN,
+        le=_TRACKER_POSITIVE_MAX,
+        allow_inf_nan=False,
+    )
 
 
 class VisionRuntimeProvenance(ControlPlaneModel):
@@ -478,7 +489,10 @@ class VisionRuntimeProvenance(ControlPlaneModel):
     runtime_variant: ProvenanceIdentity
     platform_lock_sha256: Sha256 | None = None
     detector_backend: ProvenanceIdentity
-    dependency_versions: dict[ProvenanceIdentity, ProvenanceIdentity] = Field(min_length=1)
+    dependency_versions: dict[ProvenanceIdentity, ProvenanceIdentity] = Field(
+        min_length=1,
+        max_length=_COMPLETION_DEPENDENCY_VERSION_MAX_COUNT,
+    )
     ffmpeg_version: ProvenanceDetail | None = None
     platform: VisionPlatformIdentity
     configured_device_policy: Literal["cpu", "cuda", "auto"]
@@ -551,6 +565,13 @@ class VisionJobComplete(ControlPlaneModel):
         )
         if evidence_bytes > _COMPLETION_EVIDENCE_MAX_BYTES:
             raise ValueError("completion evidence size limit exceeded")
+        for track in self.tracks:
+            if track.detection_count > self.frames_processed:
+                raise ValueError("track detectionCount cannot exceed framesProcessed")
+            if track.representative.source_frame_number >= self.frames_processed:
+                raise ValueError(
+                    "representative sourceFrameNumber must be below framesProcessed"
+                )
         return self
 
 
