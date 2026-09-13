@@ -123,7 +123,7 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         }
     }
 
-    private async Task<AcceptedEvidenceSealResult> VerifyExistingAcceptedAsync(
+    private static async Task<AcceptedEvidenceSealResult> VerifyExistingAcceptedAsync(
         string destinationPath,
         string acceptedStorageKey,
         long expectedSizeBytes,
