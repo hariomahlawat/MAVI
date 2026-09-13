@@ -8,6 +8,7 @@ from uuid import UUID
 
 
 _SHA256_PATTERN = r"[0-9a-f]{64}"
+_TRACK_ID_PATTERN = r"[a-z0-9][a-z0-9._-]{0,63}"
 _STORAGE_SEGMENT_PATTERN = r"[^/\\]+"
 
 
@@ -116,7 +117,7 @@ class ProcessedTrack:
     trajectory_artifact: ArtifactDescriptor
 
     def __post_init__(self) -> None:
-        if not self.track_id or len(self.track_id) > 64:
+        if fullmatch(_TRACK_ID_PATTERN, self.track_id) is None:
             raise ValueError("track_id_invalid")
         if self.start_offset_ms < 0 or self.end_offset_ms < self.start_offset_ms:
             raise ValueError("track_offsets_invalid")
