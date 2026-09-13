@@ -35,8 +35,6 @@ public sealed class TrackCursorCodecTests
     [Fact]
     public void RejectsOverlongCursor()
     {
-        var codec = new TrackCursorCodec();
-
         Assert.False(TrackCursorCodec.TryDecode(
             new string('A', TrackCursorCodec.MaximumEncodedLength + 1),
             out _));
