@@ -133,7 +133,8 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
                 AcceptedEvidenceSealStatus.Sealed,
                 acceptedStorageKey,
                 copied.SizeBytes,
-                copied.Sha256);
+                copied.Sha256,
+                CreatedNew: true);
         }
         finally
         {
@@ -173,7 +174,23 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
             AcceptedEvidenceSealStatus.Sealed,
             acceptedStorageKey,
             actual.SizeBytes,
-            actual.Sha256);
+            actual.Sha256,
+            CreatedNew: false);
+    }
+
+    public Task DeleteAcceptedAsync(
+        string acceptedStorageKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        StorageRootSafety.EnsureNoLinkedExistingComponents(_evidenceRoot);
+
+        var destinationPath = ResolveAcceptedPath(acceptedStorageKey);
+        var parentPath = Path.GetDirectoryName(destinationPath)!;
+        EnsureExistingPathDoesNotEscapeRoot(parentPath);
+
+        DurableFilePublication.DeletePublished(destinationPath, parentPath);
+        return Task.CompletedTask;
     }
 
     private static async Task<(long SizeBytes, string Sha256, bool ExceededLimit)> CopyAndHashAsync(
