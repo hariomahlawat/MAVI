@@ -44,11 +44,29 @@ public static class TrackEndpoints
             : Results.Ok(ToDetail(row));
     }
 
+    private static readonly HashSet<string> SupportedQueryKeys =
+        new(StringComparer.Ordinal)
+        {
+            "cameraId",
+            "videoAssetId",
+            "processingRunId",
+            "objectClass",
+            "fromUtc",
+            "toUtc",
+            "minimumDurationMs",
+            "minimumConfidence",
+            "cursor",
+            "limit",
+        };
+
     private static bool TryParseQuery(
         IQueryCollection values,
         out TrackSearchQuery? query)
     {
         query = null;
+        if (values.Keys.Any(key => !SupportedQueryKeys.Contains(key)))
+            return false;
+
         if (!TryGuid(values, "cameraId", out var cameraId) ||
             !TryGuid(values, "videoAssetId", out var videoId) ||
             !TryGuid(values, "processingRunId", out var runId) ||
