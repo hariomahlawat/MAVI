@@ -114,7 +114,7 @@ public sealed class TrackSearchServiceTests
         Guid.CreateVersion7(),
         "CAM-01",
         "Gate",
-        "Person",
+        ObjectClass.Person,
         timestamp,
         timestamp.AddSeconds(1),
         0,
@@ -123,7 +123,7 @@ public sealed class TrackSearchServiceTests
         5,
         0.8,
         0.9,
-        "Unreviewed",
+        ReviewStatus.Unreviewed,
         Guid.CreateVersion7());
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
