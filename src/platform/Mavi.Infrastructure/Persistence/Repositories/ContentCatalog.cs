@@ -1,5 +1,4 @@
 using Mavi.Application.Modules.Evidence;
-using Mavi.Domain.Intelligence;
 using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
 using Microsoft.EntityFrameworkCore;
@@ -29,50 +28,40 @@ public sealed class ContentCatalog(MaviDbContext db) : IContentCatalog
 
     public Task<ContentDescriptor?> GetEvidenceContentAsync(
         Guid artifactId,
-        CancellationToken cancellationToken)
-    {
-        var thumbnails =
-            from artifact in db.Artifacts.AsNoTracking()
-            join observation in db.Observations.AsNoTracking()
-                on artifact.Id equals observation.ThumbnailArtifactId
-            join track in db.Tracks.AsNoTracking()
-                on observation.TrackId equals track.Id
-            join run in db.ProcessingRuns.AsNoTracking()
-                on track.ProcessingRunId equals run.Id
-            where artifact.Id == artifactId &&
-                  artifact.ArtifactType == ArtifactType.Thumbnail &&
-                  run.Status == ProcessingRunStatus.Completed &&
-                  run.CompletedAtUtc != null
-            select new ContentDescriptor(
+        CancellationToken cancellationToken) =>
+        db.Artifacts
+            .AsNoTracking()
+            .Where(artifact =>
+                artifact.Id == artifactId &&
+                (
+                    (
+                        artifact.ArtifactType == ArtifactType.Thumbnail &&
+                        db.Observations.AsNoTracking().Any(observation =>
+                            observation.ThumbnailArtifactId == artifact.Id &&
+                            db.Tracks.AsNoTracking().Any(track =>
+                                track.Id == observation.TrackId &&
+                                db.ProcessingRuns.AsNoTracking().Any(run =>
+                                    run.Id == track.ProcessingRunId &&
+                                    run.Status == ProcessingRunStatus.Completed &&
+                                    run.CompletedAtUtc != null)))
+                    ) ||
+                    (
+                        artifact.ArtifactType == ArtifactType.TrackTrajectory &&
+                        db.Tracks.AsNoTracking().Any(track =>
+                            track.TrajectoryArtifactId == artifact.Id &&
+                            db.ProcessingRuns.AsNoTracking().Any(run =>
+                                run.Id == track.ProcessingRunId &&
+                                run.Status == ProcessingRunStatus.Completed &&
+                                run.CompletedAtUtc != null))
+                    )
+                ))
+            .Select(artifact => new ContentDescriptor(
                 artifact.Id,
                 artifact.ArtifactType,
                 artifact.StorageKey,
                 artifact.MimeType,
                 artifact.SizeBytes,
                 artifact.Sha256,
-                ContentStorageKind.AcceptedEvidence);
-
-        var trajectories =
-            from artifact in db.Artifacts.AsNoTracking()
-            join track in db.Tracks.AsNoTracking()
-                on artifact.Id equals track.TrajectoryArtifactId
-            join run in db.ProcessingRuns.AsNoTracking()
-                on track.ProcessingRunId equals run.Id
-            where artifact.Id == artifactId &&
-                  artifact.ArtifactType == ArtifactType.TrackTrajectory &&
-                  run.Status == ProcessingRunStatus.Completed &&
-                  run.CompletedAtUtc != null
-            select new ContentDescriptor(
-                artifact.Id,
-                artifact.ArtifactType,
-                artifact.StorageKey,
-                artifact.MimeType,
-                artifact.SizeBytes,
-                artifact.Sha256,
-                ContentStorageKind.AcceptedEvidence);
-
-        return thumbnails.Concat(trajectories)
-            .Distinct()
+                ContentStorageKind.AcceptedEvidence))
             .SingleOrDefaultAsync(cancellationToken);
-    }
 }
