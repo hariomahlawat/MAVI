@@ -17,6 +17,7 @@ public sealed class TrackCursorCodecTests
 
         var encoded = TrackCursorCodec.Encode(position);
 
+        Assert.InRange(encoded.Length, 1, TrackCursorCodec.MaximumEncodedLength);
         Assert.True(TrackCursorCodec.TryDecode(encoded, out var decoded));
         Assert.NotNull(decoded);
         Assert.Equal(position.SnapshotUtc, decoded!.SnapshotUtc);
