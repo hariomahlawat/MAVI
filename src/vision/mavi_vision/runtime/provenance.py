@@ -191,7 +191,9 @@ class RuntimeProvenance:
         )
 
         if self.verification_status == "verified" and (
-            self.qualification_id is None or self.qualification_sha256 is None
+            self.qualification_id is None
+            or self.qualification_sha256 is None
+            or self.platform_lock_sha256 is None
         ):
             raise ValueError("verified_provenance_qualification_required")
         if self.input_colour_space != "RGB":
