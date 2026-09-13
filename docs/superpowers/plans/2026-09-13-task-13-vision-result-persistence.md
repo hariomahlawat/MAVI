@@ -298,29 +298,41 @@ This gives deterministic local numbering without adding another arbitrary Python
 
 ## 9. Artifact retention model
 
-### 9.1 Do not move accepted artifacts during completion
+### 9.1 Worker staging is never authoritative evidence
 
-Task 9/10 already securely publishes artifacts beneath:
+Task 9/10 securely publishes worker output beneath:
 
 ```text
 staging/{jobId}/attempt-{attemptCount:0000}/...
 ```
 
-Task 13 shall not rename or copy those files into another namespace during the database completion transaction.
+Those paths remain worker-writable and therefore must not be referenced by authoritative `Artifact` rows after completion.
 
-Moving files and committing PostgreSQL cannot be made one atomic transaction; introducing such a move creates filesystem/DB split-brain failure modes.
+### 9.2 Seal accepted evidence into a platform-owned root
 
-### 9.2 Durable evidence in place
+Before creating authoritative intelligence, the platform shall stream each accepted staging artifact exactly once into a separate platform-owned evidence root while simultaneously verifying the expected byte length and lowercase SHA-256.
 
-For a successful accepted attempt:
+The accepted logical key is deterministic and attempt-scoped, for example:
 
-> The immutable attempt-scoped artifact becomes durable evidence in place when the authoritative PostgreSQL transaction commits an `Artifact` row referencing its verified storage key.
+```text
+evidence/{jobId}/attempt-{attemptCount:0000}/thumbnails/{trackId}-{sha256}.jpg
+evidence/{jobId}/attempt-{attemptCount:0000}/trajectories/{trackId}-{sha256}.msgpack
+```
 
-The word `staging` therefore describes creation isolation, not the eventual retention status of an accepted artifact.
+Publication into the evidence root is create-once and never overwrites an existing accepted key. A pre-existing accepted object is reusable only when its exact size and SHA-256 match the expected facts.
 
-### 9.3 Abandoned-attempt cleanup
+Production deployment must grant the Python worker no write access to the accepted-evidence root.
 
-Garbage collection of unaccepted attempt directories is explicitly out of scope for Task 13 and may be designed separately after successful result persistence is proven.
+### 9.3 Database atomicity and orphaned sealed evidence
+
+Filesystem publication and PostgreSQL commit cannot form one distributed transaction. Task 13 therefore uses the safer failure direction:
+
+- PostgreSQL never commits a reference to mutable staging bytes;
+- evidence is sealed before the DB graph references it;
+- a later DB rollback may leave an unreferenced sealed object;
+- no committed row may reference a missing or mutable accepted object.
+
+Cleanup of unreferenced sealed objects and abandoned staging attempts is a later lifecycle/garbage-collection concern.
 
 ---
 
@@ -546,9 +558,9 @@ BEGIN
   validate lease + attempt + lifecycle
   load ProcessingRun + VideoAsset
   validate full result
-  verify all artifact bytes
+  seal + verify all artifact bytes into platform-owned evidence storage
 
-  create Artifact entities
+  create Artifact entities using sealed evidence keys
   create Track entities
   create representative Observation entities
 
@@ -928,7 +940,7 @@ Task 13 is complete only when all of the following are true:
 5. Stale/expired/reclaimed attempts cannot complete.
 6. Current-attempt artifact namespace is enforced.
 7. Every accepted evidence artifact is verified for size and SHA-256.
-8. Tracks, representative observations and artifacts are authoritative only after PostgreSQL commit.
+8. Tracks, representative observations and artifacts are authoritative only after PostgreSQL commit; authoritative Artifact rows reference only platform-owned sealed evidence keys, never worker staging.
 9. Completion is atomic: no partial intelligence survives a failed transaction.
 10. Exact duplicate completion retry is idempotent.
 11. ProcessingRun, VisionJob and VideoAsset finish in mutually consistent successful states.

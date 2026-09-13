@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -66,7 +67,11 @@ class FakeWorkerApiClient:
         result: VisionProcessingResult,
         processing_duration_ms: int,
         provenance: object,
+        *,
+        authorize_publish=None,
     ) -> object:
+        if authorize_publish is not None:
+            authorize_publish()
         self.events.append("complete")
         self.completions.append((result, processing_duration_ms, provenance))
         return object()
@@ -91,10 +96,43 @@ class FailingCompletionWorkerApiClient(FakeWorkerApiClient):
         result: VisionProcessingResult,
         processing_duration_ms: int,
         provenance: object,
+        *,
+        authorize_publish=None,
     ) -> object:
+        if authorize_publish is not None:
+            authorize_publish()
         self.events.append("complete")
         self.completions.append((result, processing_duration_ms, provenance))
         raise WorkerApiError("worker API request failed")
+
+
+class ExpiringAtCompletionPublicationApi(FakeWorkerApiClient):
+    async def heartbeat(
+        self, lease: VisionJobLease, progress_percent: float
+    ) -> VisionJobHeartbeatResponse:
+        self.events.append("heartbeat")
+        self.heartbeats.append(progress_percent)
+        return VisionJobHeartbeatResponse(
+            schemaVersion="2.0",
+            progressPercent=5.0,
+            leaseExpiresAtUtc=datetime.now(timezone.utc) + timedelta(seconds=0.03),
+        )
+
+    async def complete(
+        self,
+        lease: VisionJobLease,
+        result: VisionProcessingResult,
+        processing_duration_ms: int,
+        provenance: object,
+        *,
+        authorize_publish=None,
+    ) -> object:
+        await asyncio.sleep(0.05)
+        if authorize_publish is not None:
+            authorize_publish()
+        self.events.append("complete")
+        self.completions.append((result, processing_duration_ms, provenance))
+        return object()
 
 
 class FailingHeartbeatWorkerApiClient(FakeWorkerApiClient):
@@ -423,6 +461,34 @@ def test_processor_lease_loss_is_api_error_without_terminal_failure(tmp_path: Pa
     assert client.heartbeats == [5.0]
     assert len(processor.calls) == 1
     assert client.failures == []
+
+
+def test_completion_publication_rechecks_lease_after_payload_projection(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = ExpiringAtCompletionPublicationApi(lease)
+    processor = RecordingProcessor(make_result(lease))
+
+    with pytest.raises(WorkerApiError, match="lease ownership lost"):
+        asyncio.run(
+            WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                processor,
+                heartbeat_interval_seconds=30.0,
+                runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            ).run_once()
+        )
+
+    assert client.heartbeats == [5.0]
+    assert client.failures == []
+    assert client.completions == []
+    assert client.events == ["lease", "heartbeat"]
 
 
 def test_completion_transport_error_is_not_followed_by_failure(tmp_path: Path) -> None:

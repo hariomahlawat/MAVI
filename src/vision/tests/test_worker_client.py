@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from mavi_vision.common.analytical import VisionProcessingResult
 from mavi_vision.common.control_plane import VisionJobCompleteResponse, VisionJobLease
+from mavi_vision.common.lease import LeaseLostError
 from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.runtime.provenance import PlatformIdentity, RuntimeProvenance, TrackerParameters
 from mavi_vision.worker.client import WorkerApiClient, WorkerApiError
@@ -224,6 +225,40 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
 
     assert isinstance(response, VisionJobCompleteResponse)
     assert response.processing_run_id == expected.processing_run_id
+
+
+def test_complete_rechecks_authority_after_payload_projection_before_http(
+    tmp_path: Path,
+) -> None:
+    expected = lease()
+    published = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal published
+        published = True
+        return httpx.Response(500)
+
+    async def invoke() -> None:
+        injected = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client = WorkerApiClient(settings(tmp_path), injected)
+        try:
+            with pytest.raises(LeaseLostError):
+                await client.complete(
+                    expected,
+                    VisionProcessingResult(
+                        job_id=expected.job_id,
+                        frames_processed=1,
+                        tracks=(),
+                    ),
+                    125,
+                    provenance(),
+                    authorize_publish=lambda: (_ for _ in ()).throw(LeaseLostError()),
+                )
+        finally:
+            await client.aclose()
+
+    asyncio.run(invoke())
+    assert published is False
 
 
 def test_api_error_never_surfaces_lease_token_or_raw_body(tmp_path: Path) -> None:

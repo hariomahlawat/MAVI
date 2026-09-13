@@ -1,5 +1,6 @@
 import json
 import re
+from collections.abc import Callable
 from typing import Final
 
 import httpx
@@ -100,6 +101,8 @@ class WorkerApiClient:
         result: VisionProcessingResult,
         processing_duration_ms: int,
         provenance: RuntimeProvenance,
+        *,
+        authorize_publish: Callable[[], None] | None = None,
     ) -> VisionJobCompleteResponse:
         if result.job_id != lease.job_id:
             raise WorkerApiError("vision result does not belong to leased job")
@@ -152,9 +155,12 @@ class WorkerApiClient:
                 for track in result.tracks
             ),
         )
+        body = request.model_dump_json(by_alias=True)
+        if authorize_publish is not None:
+            authorize_publish()
         response = await self._post(
             f"/api/vision/jobs/{lease.job_id}/complete",
-            request.model_dump_json(by_alias=True),
+            body,
         )
         self._raise_for_status(response)
         return VisionJobCompleteResponse.model_validate_json(response.content)

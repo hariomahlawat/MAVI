@@ -194,8 +194,12 @@ class _WatchdogApi:
         result: VisionProcessingResult,
         processing_duration_ms: int,
         provenance: object,
+        *,
+        authorize_publish=None,
     ) -> object:
         del lease, processing_duration_ms
+        if authorize_publish is not None:
+            authorize_publish()
         self.completions.append((result, provenance))
         return object()
 

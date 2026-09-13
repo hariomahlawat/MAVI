@@ -60,6 +60,8 @@ class WorkerApi(Protocol):
         result: VisionProcessingResult,
         processing_duration_ms: int,
         provenance: RuntimeProvenance,
+        *,
+        authorize_publish: Callable[[], None] | None = None,
     ) -> object: ...
 
 
@@ -177,7 +179,7 @@ class WorkerRunner:
                 else None
             )
             processing_started = self._duration_clock()
-            result = await self._process_with_lease_heartbeats(
+            result, completion_guard = await self._process_with_lease_heartbeats(
                 lease,
                 source_path,
                 heartbeat,
@@ -236,30 +238,35 @@ class WorkerRunner:
             )
             return True
 
-        if provenance_snapshot is None:
-            await self._best_effort_fail(
+        try:
+            completion_guard.check_owned()
+            if provenance_snapshot is None:
+                await self._best_effort_fail(
+                    lease,
+                    "vision_runtime_provenance_unavailable",
+                    "Vision runtime provenance is unavailable.",
+                )
+                return True
+
+            elapsed_seconds = max(0.0, self._duration_clock() - processing_started)
+            processing_duration_ms = int(round(elapsed_seconds * 1000.0))
+            await self._api_client.complete(
                 lease,
-                "vision_runtime_provenance_unavailable",
-                "Vision runtime provenance is unavailable.",
+                result,
+                processing_duration_ms,
+                provenance_snapshot,
+                authorize_publish=completion_guard.check_owned,
             )
             return True
-
-        elapsed_seconds = max(0.0, self._duration_clock() - processing_started)
-        processing_duration_ms = int(round(elapsed_seconds * 1000.0))
-        await self._api_client.complete(
-            lease,
-            result,
-            processing_duration_ms,
-            provenance_snapshot,
-        )
-        return True
+        except LeaseLostError as exc:
+            raise WorkerApiError("lease ownership lost") from exc
 
     async def _process_with_lease_heartbeats(
         self,
         lease: VisionJobLease,
         source_path: Path,
         heartbeat: VisionJobHeartbeatResponse,
-    ) -> VisionProcessingResult:
+    ) -> tuple[VisionProcessingResult, LeaseGuard]:
         if self._processor is None:
             raise RuntimeError("processor_missing")
 
@@ -311,7 +318,7 @@ class WorkerRunner:
                         lease_guard.check_owned()
                         raise
                     lease_guard.check_owned()
-                    return result
+                    return result, lease_guard
 
                 if self._watchdog_is_expired():
                     await self._handle_watchdog_expiry(

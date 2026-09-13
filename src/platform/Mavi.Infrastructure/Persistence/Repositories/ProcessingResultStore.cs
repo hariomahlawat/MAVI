@@ -15,7 +15,7 @@ public sealed class ProcessingResultStore(
     TimeProvider timeProvider,
     ILeaseCapabilityService leaseCapabilities,
     VisionResultValidator validator,
-    IArtifactIntegrityVerifier artifactVerifier) : IProcessingResultStore
+    IAcceptedEvidenceStore acceptedEvidenceStore) : IProcessingResultStore
 {
     public async Task<VisionCompletionResult> CompleteAsync(
         Guid jobId,
@@ -91,27 +91,48 @@ public sealed class ProcessingResultStore(
             video.ProcessingStatus != VideoProcessingStatus.Processing)
             return VisionCompletionResult.Failure("vision_job_completion_conflict");
 
+        var acceptedStorageKeys = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var track in result.Tracks)
         {
-            var thumbnail = await artifactVerifier.VerifyAsync(
+            var thumbnailAcceptedKey = AcceptedEvidenceKey(
+                jobId,
+                result.AttemptCount,
+                "thumbnails",
+                track.TrackId,
+                track.Representative.Thumbnail.Sha256,
+                "jpg");
+            var thumbnail = await acceptedEvidenceStore.SealAsync(
                 track.Representative.Thumbnail.StorageKey,
+                thumbnailAcceptedKey,
                 track.Representative.Thumbnail.SizeBytes,
                 track.Representative.Thumbnail.Sha256,
                 cancellationToken);
-            if (thumbnail.Status == ArtifactIntegrityStatus.Missing)
-                return VisionCompletionResult.Failure("vision_result_artifact_missing");
-            if (thumbnail.Status != ArtifactIntegrityStatus.Valid)
-                return VisionCompletionResult.Failure("vision_result_artifact_integrity_failed");
+            var thumbnailFailure = MapSealFailure(thumbnail.Status);
+            if (thumbnailFailure is not null)
+                return VisionCompletionResult.Failure(thumbnailFailure);
+            acceptedStorageKeys.Add(
+                track.Representative.Thumbnail.StorageKey,
+                thumbnail.StorageKey ?? thumbnailAcceptedKey);
 
-            var trajectory = await artifactVerifier.VerifyAsync(
+            var trajectoryAcceptedKey = AcceptedEvidenceKey(
+                jobId,
+                result.AttemptCount,
+                "trajectories",
+                track.TrackId,
+                track.TrajectoryArtifact.Sha256,
+                "msgpack");
+            var trajectory = await acceptedEvidenceStore.SealAsync(
                 track.TrajectoryArtifact.StorageKey,
+                trajectoryAcceptedKey,
                 track.TrajectoryArtifact.SizeBytes,
                 track.TrajectoryArtifact.Sha256,
                 cancellationToken);
-            if (trajectory.Status == ArtifactIntegrityStatus.Missing)
-                return VisionCompletionResult.Failure("vision_result_artifact_missing");
-            if (trajectory.Status != ArtifactIntegrityStatus.Valid)
-                return VisionCompletionResult.Failure("vision_result_artifact_integrity_failed");
+            var trajectoryFailure = MapSealFailure(trajectory.Status);
+            if (trajectoryFailure is not null)
+                return VisionCompletionResult.Failure(trajectoryFailure);
+            acceptedStorageKeys.Add(
+                track.TrajectoryArtifact.StorageKey,
+                trajectory.StorageKey ?? trajectoryAcceptedKey);
         }
 
         var createdAtUtc = timeProvider.GetUtcNow();
@@ -123,7 +144,7 @@ public sealed class ProcessingResultStore(
 
             var thumbnailArtifact = Artifact.Create(
                 ArtifactType.Thumbnail,
-                accepted.Representative.Thumbnail.StorageKey,
+                acceptedStorageKeys[accepted.Representative.Thumbnail.StorageKey],
                 accepted.Representative.Thumbnail.MediaType,
                 accepted.Representative.Thumbnail.SizeBytes,
                 accepted.Representative.Thumbnail.Sha256,
@@ -131,7 +152,7 @@ public sealed class ProcessingResultStore(
 
             var trajectoryArtifact = Artifact.Create(
                 ArtifactType.TrackTrajectory,
-                accepted.TrajectoryArtifact.StorageKey,
+                acceptedStorageKeys[accepted.TrajectoryArtifact.StorageKey],
                 accepted.TrajectoryArtifact.MediaType,
                 accepted.TrajectoryArtifact.SizeBytes,
                 accepted.TrajectoryArtifact.Sha256,
@@ -182,7 +203,12 @@ public sealed class ProcessingResultStore(
         var completionNowUtc = timeProvider.GetUtcNow();
         try
         {
-            job.Complete(workerId, tokenMatches, completionNowUtc, result.CompletionDigest);
+            job.Complete(
+                workerId,
+                tokenMatches,
+                authorityNowUtc,
+                completionNowUtc,
+                result.CompletionDigest);
         }
         catch (DomainValidationException)
         {
@@ -209,4 +235,22 @@ public sealed class ProcessingResultStore(
             result.Tracks.Count,
             completionNowUtc);
     }
+
+    private static string AcceptedEvidenceKey(
+        Guid jobId,
+        int attemptCount,
+        string category,
+        string trackId,
+        string sha256,
+        string extension) =>
+        $"evidence/{jobId:D}/attempt-{attemptCount:0000}/{category}/{trackId}-{sha256}.{extension}";
+
+    private static string? MapSealFailure(AcceptedEvidenceSealStatus status) => status switch
+    {
+        AcceptedEvidenceSealStatus.Sealed => null,
+        AcceptedEvidenceSealStatus.Missing => "vision_result_artifact_missing",
+        AcceptedEvidenceSealStatus.IntegrityMismatch => "vision_result_artifact_integrity_failed",
+        AcceptedEvidenceSealStatus.DestinationConflict => "vision_result_artifact_integrity_failed",
+        _ => "vision_result_artifact_integrity_failed",
+    };
 }

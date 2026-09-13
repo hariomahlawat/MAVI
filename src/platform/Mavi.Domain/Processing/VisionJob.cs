@@ -52,22 +52,47 @@ public sealed class VisionJob
     }
 
     public void Complete(string workerId, bool leaseTokenMatches, DateTimeOffset nowUtc) =>
-        CompleteCore(workerId, leaseTokenMatches, nowUtc, null);
+        CompleteCore(workerId, leaseTokenMatches, nowUtc, nowUtc, null);
 
     public void Complete(string workerId, bool leaseTokenMatches, DateTimeOffset nowUtc, string completionDigest)
     {
         if (!IsCanonicalSha256(completionDigest))
             throw new DomainValidationException("vision_job_completion_digest_invalid", "Completion digest must be canonical SHA-256.");
-        CompleteCore(workerId, leaseTokenMatches, nowUtc, completionDigest);
+        CompleteCore(workerId, leaseTokenMatches, nowUtc, nowUtc, completionDigest);
     }
 
-    private void CompleteCore(string workerId, bool leaseTokenMatches, DateTimeOffset nowUtc, string? completionDigest)
+    public void Complete(
+        string workerId,
+        bool leaseTokenMatches,
+        DateTimeOffset authorityNowUtc,
+        DateTimeOffset completedAtUtc,
+        string completionDigest)
     {
-        RequireValidLease(workerId, leaseTokenMatches, nowUtc);
+        if (!IsCanonicalSha256(completionDigest))
+            throw new DomainValidationException("vision_job_completion_digest_invalid", "Completion digest must be canonical SHA-256.");
+        if (completedAtUtc < authorityNowUtc)
+            throw Invalid();
+
+        CompleteCore(
+            workerId,
+            leaseTokenMatches,
+            authorityNowUtc,
+            completedAtUtc,
+            completionDigest);
+    }
+
+    private void CompleteCore(
+        string workerId,
+        bool leaseTokenMatches,
+        DateTimeOffset authorityNowUtc,
+        DateTimeOffset completedAtUtc,
+        string? completionDigest)
+    {
+        RequireValidLease(workerId, leaseTokenMatches, authorityNowUtc);
         Status = VisionJobStatus.Completed;
         ProgressPercent = 100;
         CompletionDigest = completionDigest;
-        CompletedAtUtc = nowUtc.ToUniversalTime();
+        CompletedAtUtc = completedAtUtc.ToUniversalTime();
     }
 
     public void Fail(string workerId, bool leaseTokenMatches, string code, string? details, DateTimeOffset nowUtc)

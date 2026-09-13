@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Mavi.Application.Abstractions.Storage;
@@ -44,6 +45,7 @@ public sealed class VisionResultCompletionApiTests
         Assert.Equal(1, response.TracksAccepted);
 
         await AssertCompletedGraphAsync(factory, lease, videoId);
+        await AssertAcceptedEvidenceIsSealedFromStagingAsync(factory, request);
 
         using var replay = await client.PostAsJsonAsync(
             $"/api/vision/jobs/{lease.JobId}/complete",
@@ -105,17 +107,17 @@ public sealed class VisionResultCompletionApiTests
     }
 
     [Fact]
-    public async Task LeaseExpiryAfterArtifactVerificationRollsBackFirstSave()
+    public async Task LeaseExpiryDuringEvidenceSealingUsesLockedAuthorityTime()
     {
         var clock = new MutableTimeProvider(Now);
-        var verifier = new ExpiringIntegrityVerifier(clock);
+        var sealer = new AdvancingAcceptedEvidenceStore(clock);
         using var factory = new ApiTestFactory
         {
             Clock = clock,
             OverrideServices = services =>
             {
-                services.RemoveAll<IArtifactIntegrityVerifier>();
-                services.AddSingleton<IArtifactIntegrityVerifier>(verifier);
+                services.RemoveAll<IAcceptedEvidenceStore>();
+                services.AddSingleton<IAcceptedEvidenceStore>(sealer);
             }
         };
         await factory.ResetAndMigrateAsync();
@@ -124,28 +126,25 @@ public sealed class VisionResultCompletionApiTests
         using var client = factory.CreateClient();
         (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
         var lease = await LeaseAsync(client, "gpu-sdd-01");
-        verifier.ExpireAtUtc = lease.LeaseExpiresAtUtc;
+        sealer.AdvanceToUtc = lease.LeaseExpiresAtUtc;
         var request = await BuildRequestAsync(factory, lease);
 
-        using var rejected = await client.PostAsJsonAsync(
+        using var completed = await client.PostAsJsonAsync(
             $"/api/vision/jobs/{lease.JobId}/complete",
             request);
 
-        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
-        Assert.Contains(
-            "vision_job_lease_invalid",
-            await rejected.Content.ReadAsStringAsync(),
-            StringComparison.Ordinal);
-        Assert.Equal(2, verifier.VerificationCount);
+        Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        Assert.Equal(2, sealer.SealCount);
+        Assert.True(clock.GetUtcNow() >= lease.LeaseExpiresAtUtc);
 
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
-        Assert.Empty(await db.Tracks.ToListAsync());
-        Assert.Empty(await db.Observations.ToListAsync());
-        Assert.Equal(1, await db.Artifacts.CountAsync());
-        Assert.Equal(VisionJobStatus.Leased, (await db.VisionJobs.SingleAsync()).Status);
-        Assert.Equal(ProcessingRunStatus.Running, (await db.ProcessingRuns.SingleAsync()).Status);
-        Assert.Equal(VideoProcessingStatus.Processing, (await db.VideoAssets.SingleAsync()).ProcessingStatus);
+        Assert.Equal(1, await db.Tracks.CountAsync());
+        Assert.Equal(1, await db.Observations.CountAsync());
+        Assert.Equal(3, await db.Artifacts.CountAsync());
+        Assert.Equal(VisionJobStatus.Completed, (await db.VisionJobs.SingleAsync()).Status);
+        Assert.Equal(ProcessingRunStatus.Completed, (await db.ProcessingRuns.SingleAsync()).Status);
+        Assert.Equal(VideoProcessingStatus.Processed, (await db.VideoAssets.SingleAsync()).ProcessingStatus);
     }
 
     [Fact]
@@ -303,6 +302,41 @@ public sealed class VisionResultCompletionApiTests
         Assert.Equal(2, await db.Artifacts.CountAsync(x =>
             x.ArtifactType == ArtifactType.Thumbnail ||
             x.ArtifactType == ArtifactType.TrackTrajectory));
+    }
+
+    private static async Task AssertAcceptedEvidenceIsSealedFromStagingAsync(
+        ApiTestFactory factory,
+        VisionJobCompleteRequest request)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        var evidence = await db.Artifacts
+            .Where(x => x.ArtifactType == ArtifactType.Thumbnail ||
+                        x.ArtifactType == ArtifactType.TrackTrajectory)
+            .OrderBy(x => x.StorageKey)
+            .ToListAsync();
+
+        Assert.Equal(2, evidence.Count);
+        Assert.All(evidence, artifact => Assert.StartsWith("evidence/", artifact.StorageKey, StringComparison.Ordinal));
+
+        var track = request.Tracks!.Single();
+        var stagingThumbnailPath = Path.Combine(
+            factory.MediaRoot,
+            track.Representative!.Thumbnail!.StorageKey!.Replace('/', Path.DirectorySeparatorChar));
+        await File.WriteAllBytesAsync(stagingThumbnailPath, Encoding.UTF8.GetBytes("mutated-after-acceptance"));
+
+        foreach (var artifact in evidence)
+        {
+            var relative = artifact.StorageKey["evidence/".Length..]
+                .Replace('/', Path.DirectorySeparatorChar);
+            var acceptedPath = Path.Combine(factory.EvidenceRoot, relative);
+            Assert.True(File.Exists(acceptedPath));
+            var bytes = await File.ReadAllBytesAsync(acceptedPath);
+            Assert.Equal(artifact.SizeBytes, bytes.LongLength);
+            Assert.Equal(
+                artifact.Sha256,
+                Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant());
+        }
     }
 
     private static async Task<VisionJobLeaseContract> LeaseAsync(
@@ -470,26 +504,29 @@ public sealed class VisionResultCompletionApiTests
     }
 }
 
-internal sealed class ExpiringIntegrityVerifier(MutableTimeProvider clock) : IArtifactIntegrityVerifier
+internal sealed class AdvancingAcceptedEvidenceStore(MutableTimeProvider clock) : IAcceptedEvidenceStore
 {
-    public DateTimeOffset? ExpireAtUtc { get; set; }
-    public int VerificationCount { get; private set; }
+    public DateTimeOffset? AdvanceToUtc { get; set; }
+    public int SealCount { get; private set; }
 
-    public Task<ArtifactIntegrityVerification> VerifyAsync(
-        string storageKey,
+    public Task<AcceptedEvidenceSealResult> SealAsync(
+        string sourceStorageKey,
+        string acceptedStorageKey,
         long expectedSizeBytes,
         string expectedSha256,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        Assert.False(string.IsNullOrWhiteSpace(storageKey));
-        VerificationCount++;
+        Assert.StartsWith("staging/", sourceStorageKey, StringComparison.Ordinal);
+        Assert.StartsWith("evidence/", acceptedStorageKey, StringComparison.Ordinal);
+        SealCount++;
 
-        if (VerificationCount == 2 && ExpireAtUtc is { } expiry && clock.GetUtcNow() < expiry)
+        if (SealCount == 2 && AdvanceToUtc is { } expiry && clock.GetUtcNow() < expiry)
             clock.Advance(expiry - clock.GetUtcNow());
 
-        return Task.FromResult(new ArtifactIntegrityVerification(
-            ArtifactIntegrityStatus.Valid,
+        return Task.FromResult(new AcceptedEvidenceSealResult(
+            AcceptedEvidenceSealStatus.Sealed,
+            acceptedStorageKey,
             expectedSizeBytes,
             expectedSha256));
     }
