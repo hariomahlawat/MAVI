@@ -27,12 +27,23 @@ public sealed class ContentReadService(
         if (videoAssetId == Guid.Empty)
             return OpenContentResult.NotFound("video_not_found");
 
-        var descriptor = await catalog.GetVideoContentAsync(videoAssetId, cancellationToken);
-        if (descriptor is null)
+        var lookup = await catalog.GetVideoContentAsync(videoAssetId, cancellationToken);
+        if (!lookup.VideoExists)
             return OpenContentResult.NotFound("video_not_found");
+        if (lookup.Descriptor is null)
+            return OpenContentResult.Unavailable(
+                new ContentDescriptor(
+                    Guid.Empty,
+                    Mavi.Domain.Media.ArtifactType.SourceVideo,
+                    string.Empty,
+                    string.Empty,
+                    0,
+                    string.Empty,
+                    ContentStorageKind.ManagedMedia),
+                "video_content_unavailable");
 
         return await OpenAsync(
-            descriptor,
+            lookup.Descriptor,
             "video_content_unavailable",
             cancellationToken);
     }
