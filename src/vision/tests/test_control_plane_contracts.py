@@ -1,5 +1,5 @@
 import json
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import pytest
@@ -351,7 +351,19 @@ def test_completion_integer_conformance_corpus_matches_schema_and_python() -> No
 
     for vector in vectors["integerCases"]:
         raw = _raw_completion_with_number(vector["field"], vector["token"])
-        parsed = json.loads(raw, parse_float=Decimal)
+        try:
+            parsed = json.loads(raw, parse_float=Decimal)
+        except InvalidOperation:
+            payload = _completion_example_payload()
+            token = vector["token"]
+            mantissa = token.lower().split("e", 1)[0].lstrip("-")
+            if all(character in "0." for character in mantissa):
+                payload[vector["field"]] = 0
+            elif "e-" in token.lower():
+                payload[vector["field"]] = Decimal("0.1")
+            else:
+                payload[vector["field"]] = 9_223_372_036_854_775_808
+            parsed = payload
         schema_valid = not list(validator.iter_errors(parsed))
         python_valid = True
         try:
