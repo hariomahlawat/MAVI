@@ -237,6 +237,7 @@ Application-internal cursor payload:
 
 ```text
 version = 1
+snapshotUtc
 startTimestampUtc
 trackId
 ```
@@ -244,6 +245,8 @@ trackId
 Encode as bounded base64url UTF-8 JSON (or an equivalently deterministic opaque format).
 
 The cursor carries no authorization claim. It is an untrusted pagination position and must be fully validated.
+
+`snapshotUtc` freezes the completed-run visibility boundary established by the first page. Every continuation page must evaluate both the candidate run and the “is there a later completed run?” anti-exists predicate using `CompletedAtUtc <= snapshotUtc`. This prevents reprocessing completed after page 1 from replacing a video's result set midway through pagination.
 
 Maximum encoded cursor length shall be explicit (recommended <= 256 bytes).
 
@@ -716,7 +719,8 @@ Create failing tests before repository implementation for:
 10. deterministic next cursor;
 11. second cursor page has no duplicate/omitted boundary row;
 12. insertion of a newer Track between page requests does not disturb continuation;
-13. malformed cursor/query returns `track_search_invalid`.
+13. completion of a replacement ProcessingRun between page requests does not replace the snapshotted run on continuation pages;
+14. malformed cursor/query returns `track_search_invalid`.
 
 ### Phase B — Detail projection
 
@@ -779,7 +783,7 @@ Before the first Codex review, perform an internal read-only audit of the comple
 |---|---|
 | Search scope | default results contain only latest completed intelligence per video |
 | Historical integrity | old completed Tracks remain addressable by Track ID |
-| Pagination | concurrent newer inserts cannot duplicate/skip continuation rows |
+| Pagination | concurrent newer inserts or later reprocessing cannot duplicate/skip/replace the snapshotted continuation set |
 | Time | filters use UTC interval overlap, not local-time guesswork |
 | Contracts | no storage key/path escapes API DTOs |
 | DB authority | filesystem existence alone never authorizes content |
