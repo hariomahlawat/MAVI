@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import platform
 import re
+from math import isfinite
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal, Mapping
@@ -30,6 +31,9 @@ _REQUIRED_RUNTIME_VERSION_KEYS = frozenset(
 )
 _CUDA_DEVICE_PATTERN = re.compile(r"cuda:(\d+)", re.ASCII)
 _GIT_COMMIT_PATTERN = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", re.ASCII)
+_TRACKER_POSITIVE_MIN = 1e-9
+_TRACKER_POSITIVE_MAX = 1e9
+_MAX_DEPENDENCY_VERSIONS = 128
 
 
 def _require_text(value: str, *, code: str) -> str:
@@ -114,6 +118,27 @@ class TrackerParameters:
     minimum_consecutive_frames: int
     lost_track_buffer_seconds: float
 
+    def __post_init__(self) -> None:
+        for value, code in (
+            (self.reference_frame_rate, "tracker_reference_frame_rate_invalid"),
+            (self.lost_track_buffer_seconds, "tracker_lost_buffer_invalid"),
+        ):
+            if (
+                not isfinite(value)
+                or value < _TRACKER_POSITIVE_MIN
+                or value > _TRACKER_POSITIVE_MAX
+            ):
+                raise ValueError(code)
+        for value, code in (
+            (self.track_activation_threshold, "tracker_activation_threshold_invalid"),
+            (self.high_confidence_threshold, "tracker_high_confidence_invalid"),
+            (self.minimum_iou_threshold, "tracker_minimum_iou_invalid"),
+        ):
+            if not isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError(code)
+        if self.minimum_consecutive_frames < 1:
+            raise ValueError("tracker_minimum_consecutive_frames_invalid")
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeProvenance:
@@ -175,6 +200,8 @@ class RuntimeProvenance:
         versions = dict(self.dependency_versions)
         if not versions:
             raise ValueError("runtime_dependency_versions_required")
+        if len(versions) > _MAX_DEPENDENCY_VERSIONS:
+            raise ValueError("runtime_dependency_versions_too_many")
         object.__setattr__(
             self,
             "dependency_versions",
