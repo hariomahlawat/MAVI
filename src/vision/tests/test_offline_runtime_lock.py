@@ -69,6 +69,7 @@ def _write_wheel(
                 f"Tag: {python_tag}-{abi_tag}-{platform_tag}\n\n"
             )
             archive.writestr(f"{dist_info}/WHEEL", wheel_metadata)
+        archive.writestr(f"{dist_info}/RECORD", f"{dist_info}/RECORD,,\n")
         if duplicate_metadata:
             archive.writestr(
                 f"other-{version}.dist-info/METADATA",
