@@ -22,11 +22,18 @@ class PreparedTrack:
     object_class: ObjectClass
     start_offset_ms: int
     end_offset_ms: int
-    confidence: float
+    detection_count: int
+    mean_confidence: float
+    max_confidence: float
     representative: RepresentativeObservation
     trajectory: tuple[TrajectoryPoint, ...]
     thumbnail_payload: bytes
     trajectory_payload: bytes
+
+    @property
+    def confidence(self) -> float:
+        """Backward-compatible read alias for historical tests/callers."""
+        return self.mean_confidence
 
 
 def prepare_track(
@@ -36,6 +43,7 @@ def prepare_track(
     start_offset_ms: int,
     end_offset_ms: int,
     confidence_sum: float,
+    max_confidence: float,
     observation_count: int,
     representative: RepresentativeObservation | None,
     representative_crop: np.ndarray | None,
@@ -47,8 +55,12 @@ def prepare_track(
         raise ValueError("track_observation_missing")
 
     points = tuple(trajectory)
-    if not points:
+    if not points or len(points) != observation_count:
         raise ValueError("track_observation_missing")
+
+    mean_confidence = confidence_sum / observation_count
+    if not 0.0 <= mean_confidence <= max_confidence <= 1.0:
+        raise ValueError("track_confidence_invalid")
 
     trajectory_payload = serialize_trajectory(points)
     thumbnail_payload = _encode_jpeg(representative_crop)
@@ -58,7 +70,9 @@ def prepare_track(
         object_class=object_class,
         start_offset_ms=start_offset_ms,
         end_offset_ms=end_offset_ms,
-        confidence=confidence_sum / observation_count,
+        detection_count=observation_count,
+        mean_confidence=mean_confidence,
+        max_confidence=max_confidence,
         representative=representative,
         trajectory=points,
         thumbnail_payload=thumbnail_payload,

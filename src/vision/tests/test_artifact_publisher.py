@@ -39,7 +39,9 @@ def _prepared_track() -> PreparedTrack:
         object_class=ObjectClass.PERSON,
         start_offset_ms=0,
         end_offset_ms=0,
-        confidence=0.9,
+        detection_count=1,
+        mean_confidence=0.9,
+        max_confidence=0.9,
         representative=representative,
         trajectory=trajectory,
         thumbnail_payload=b"jpeg-payload",
@@ -131,5 +133,8 @@ def test_successful_publication_returns_processed_track_with_attempt_keys(tmp_pa
     track = publisher.publish_track(_prepared_track())
 
     assert track.track_id == "person-0001"
+    assert track.detection_count == 1
+    assert track.mean_confidence == pytest.approx(0.9)
+    assert track.max_confidence == pytest.approx(0.9)
     assert "/attempt-0002/thumbnails/" in track.thumbnail.storage_key
     assert "/attempt-0002/trajectories/" in track.trajectory_artifact.storage_key

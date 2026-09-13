@@ -44,16 +44,15 @@ class ArtifactPublisher:
             authorize_publish=self._lease_guard.check_owned,
         )
 
-        # Do not hand a stale analytical result back to orchestration even if the
-        # lease is lost immediately after the second atomic publication. Artifacts
-        # remain confined to this attempt's isolated namespace.
         self._lease_guard.check_owned()
         return ProcessedTrack(
             track_id=prepared.track_id,
             object_class=prepared.object_class,
             start_offset_ms=prepared.start_offset_ms,
             end_offset_ms=prepared.end_offset_ms,
-            confidence=prepared.confidence,
+            detection_count=prepared.detection_count,
+            mean_confidence=prepared.mean_confidence,
+            max_confidence=prepared.max_confidence,
             representative=prepared.representative,
             trajectory=prepared.trajectory,
             thumbnail=thumbnail,
