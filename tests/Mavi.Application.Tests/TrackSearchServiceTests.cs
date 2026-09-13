@@ -26,7 +26,7 @@ public sealed class TrackSearchServiceTests
     public async Task InvalidConfidenceIsRejected()
     {
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository);
+        var service = new TrackSearchService(repository, FixedClock);
 
         var result = await service.SearchAsync(
             ValidQuery() with { MinimumConfidence = double.NaN },
@@ -40,7 +40,7 @@ public sealed class TrackSearchServiceTests
     public async Task FromMustPrecedeTo()
     {
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository);
+        var service = new TrackSearchService(repository, FixedClock);
         var instant = new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero);
 
         var result = await service.SearchAsync(
@@ -61,7 +61,7 @@ public sealed class TrackSearchServiceTests
             Row(new DateTimeOffset(2026, 9, 13, 10, 0, 1, TimeSpan.Zero)),
         };
         var repository = new FakeTrackSearchRepository(rows);
-        var service = new TrackSearchService(repository);
+        var service = new TrackSearchService(repository, FixedClock);
 
         var result = await service.SearchAsync(
             ValidQuery() with { Limit = 2 },
@@ -85,7 +85,7 @@ public sealed class TrackSearchServiceTests
             new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero),
             Guid.CreateVersion7());
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository);
+        var service = new TrackSearchService(repository, FixedClock);
 
         var result = await service.SearchAsync(
             ValidQuery() with { Cursor = TrackCursorCodec.Encode(expected) },
