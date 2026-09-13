@@ -75,12 +75,12 @@
     "linux-x86_64-cpu": {
       "status": "qualified-offline-lock",
       "artifact": "linux-x86_64-cpu.lock",
-      "sha256": "ca31caaac276de80577d387f3b1f392a544f9c5f068c57afc457ce77bdff494e"
+      "sha256": "f41a5f3d51227fd8aa14b47621e618d23e87203a907b80f4978a1b043812ae5b"
     },
     "windows-x86_64-cpu": {
       "status": "qualified-offline-lock",
       "artifact": "windows-x86_64-cpu.lock",
-      "sha256": "1e053be68da42aede0c496d86f14e97323f1086252a3773a61c1e9678d302690"
+      "sha256": "01dc201b10cb1691f5b5ded02d53fce9b73921f00b7c06ae0e00774e4d30c78c"
     },
     "linux-x86_64-cuda": {
       "status": "pending-hardware-qualification"
