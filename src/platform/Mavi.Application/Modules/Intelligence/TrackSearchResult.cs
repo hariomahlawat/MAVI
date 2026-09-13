@@ -1,3 +1,5 @@
+using Mavi.Domain.Intelligence;
+
 namespace Mavi.Application.Modules.Intelligence;
 
 public sealed record TrackSearchPage(
@@ -11,7 +13,7 @@ public sealed record TrackSearchRow(
     Guid CameraId,
     string CameraCode,
     string CameraName,
-    string ObjectClass,
+    ObjectClass ObjectClass,
     DateTimeOffset StartTimestampUtc,
     DateTimeOffset EndTimestampUtc,
     long StartOffsetMs,
@@ -20,7 +22,7 @@ public sealed record TrackSearchRow(
     int DetectionCount,
     double MeanConfidence,
     double MaxConfidence,
-    string ReviewStatus,
+    ReviewStatus ReviewStatus,
     Guid? ThumbnailArtifactId);
 
 public sealed record TrackDetailRow(
