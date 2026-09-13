@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+import jsonschema
 from pydantic import ValidationError
 
 from mavi_vision.common.control_plane import (
@@ -223,3 +224,25 @@ def test_completion_model_rejects_unknown_members() -> None:
 
     with pytest.raises(ValidationError):
         VisionJobComplete.model_validate_json(json.dumps(payload))
+
+def test_verified_completion_schema_requires_qualification_and_platform_lock() -> None:
+    example_path = ROOT / "contracts/examples/vision-job-complete-v2.example.json"
+    schema_path = ROOT / "contracts/schemas/vision-job-complete-v2.schema.json"
+    payload = json.loads(example_path.read_text())
+    schema = json.loads(schema_path.read_text())
+
+    payload["provenance"]["verificationStatus"] = "verified"
+    payload["provenance"].pop("qualificationId", None)
+    payload["provenance"].pop("qualificationSha256", None)
+    payload["provenance"].pop("platformLockSha256", None)
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            instance=payload,
+            schema=schema,
+            format_checker=jsonschema.FormatChecker(),
+        )
+
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))
+
