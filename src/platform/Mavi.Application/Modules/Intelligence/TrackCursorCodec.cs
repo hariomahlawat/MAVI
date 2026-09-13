@@ -25,10 +25,14 @@ public static class TrackCursorCodec
                 position.FilterFingerprint),
             JsonOptions);
 
-        return Convert.ToBase64String(payload)
+        var encoded = Convert.ToBase64String(payload)
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
+        if (encoded.Length > MaximumEncodedLength)
+            throw new InvalidOperationException(
+                "Task 14 cursor exceeded its published size envelope.");
+        return encoded;
     }
 
     public static bool TryDecode(string? cursor, out TrackCursorPosition? position)
