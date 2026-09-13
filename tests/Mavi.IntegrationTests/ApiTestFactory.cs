@@ -27,6 +27,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     public string MediaRoot => _mediaRoot;
     public string EvidenceRoot => _evidenceRoot;
     public TimeProvider Clock { get; init; } = TimeProvider.System;
+    public Action<DbContextOptionsBuilder>? ConfigureDbContext { get; init; }
     public Action<IServiceCollection>? OverrideServices { get; init; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -53,7 +54,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
             services.AddSingleton(Clock);
             services.RemoveAll<DbContextOptions<MaviDbContext>>();
             services.AddDbContext<MaviDbContext>(options =>
-                options.UseNpgsql(ConnectionString, npgsql => npgsql.UseVector()));
+            {
+                options.UseNpgsql(ConnectionString, npgsql => npgsql.UseVector());
+                ConfigureDbContext?.Invoke(options);
+            });
             OverrideServices?.Invoke(services);
         });
     }
