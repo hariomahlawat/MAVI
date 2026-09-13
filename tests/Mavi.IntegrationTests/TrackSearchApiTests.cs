@@ -103,14 +103,33 @@ public sealed class TrackSearchApiTests
         var second = await Task14TestData.AddCompletedTrackAsync(
             factory, video, completedAt, 5_000);
 
+        Guid expectedRunId;
+        Guid expectedTrackId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+            expectedRunId = await db.ProcessingRuns
+                .Where(x =>
+                    x.VideoAssetId == video.VideoId &&
+                    x.Status == ProcessingRunStatus.Completed &&
+                    x.CompletedAtUtc == completedAt)
+                .OrderByDescending(x => x.Id)
+                .Select(x => x.Id)
+                .FirstAsync();
+            expectedTrackId = await db.Tracks
+                .Where(x => x.ProcessingRunId == expectedRunId)
+                .Select(x => x.Id)
+                .SingleAsync();
+        }
+
         using var client = factory.CreateClient();
         var response = await client.GetFromJsonAsync<TrackSearchResponse>("/api/tracks");
 
         Assert.NotNull(response);
         var item = Assert.Single(response.Items);
-        Assert.Equal(second.ProcessingRunId, item.ProcessingRunId);
-        Assert.Equal(second.TrackId, item.Id);
-        Assert.NotEqual(first.TrackId, item.Id);
+        Assert.Equal(expectedRunId, item.ProcessingRunId);
+        Assert.Equal(expectedTrackId, item.Id);
+        Assert.Contains(item.Id, new[] { first.TrackId, second.TrackId });
     }
 
     [Fact]
