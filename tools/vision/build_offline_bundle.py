@@ -871,26 +871,56 @@ def _repository_head(repository_root: Path) -> str:
     return head
 
 
-def _assert_packaged_source_clean(repository_root: Path) -> None:
+def _is_mavi_wheel_build_input(logical_path: str) -> bool:
+    path = PurePosixPath(logical_path)
+    parts = path.parts
+    if len(parts) >= 3 and parts[:3] == ("src", "vision", "mavi_vision"):
+        return True
+    return len(parts) == 3 and parts[:2] == ("src", "vision")
+
+
+def _git_changed_paths(repository_root: Path) -> set[str]:
+    commands = (
+        (
+            "diff",
+            "--name-only",
+            "-z",
+            "HEAD",
+            "--",
+            "src/vision",
+        ),
+        (
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            "src/vision",
+        ),
+    )
+    changed: set[str] = set()
     try:
-        completed = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repository_root),
-                "status",
-                "--porcelain=v1",
-                "--untracked-files=all",
-                "--",
-                "src/vision",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        for arguments in commands:
+            completed = subprocess.run(
+                ["git", "-C", str(repository_root), *arguments],
+                check=True,
+                capture_output=True,
+            )
+            changed.update(
+                os.fsdecode(raw_path)
+                for raw_path in completed.stdout.split(b"\0")
+                if raw_path
+            )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise OfflineBundleError("bundle_source_commit_unverifiable") from exc
-    if completed.stdout.strip():
+    return changed
+
+
+def _assert_packaged_source_clean(repository_root: Path) -> None:
+    if any(
+        _is_mavi_wheel_build_input(path)
+        for path in _git_changed_paths(repository_root)
+    ):
         raise OfflineBundleError("bundle_source_dirty")
 
 
