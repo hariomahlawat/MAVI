@@ -330,6 +330,13 @@ def _raw_completion_with_number(field: str, token: str) -> str:
     return raw.replace(marker, replacement, 1)
 
 
+def _load_completion_schema_exact() -> dict[str, object]:
+    return json.loads(
+        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text(),
+        parse_float=Decimal,
+    )
+
+
 def _exact_schema_validator(schema: dict[str, object]):
     number = jsonschema.Draft202012Validator.TYPE_CHECKER.redefine(
         "number",
@@ -361,9 +368,7 @@ def _exact_schema_validator(schema: dict[str, object]):
 
 def test_completion_integer_conformance_corpus_matches_schema_and_python() -> None:
     vectors = json.loads(COMPLETION_CONFORMANCE.read_text())
-    schema = json.loads(
-        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text()
-    )
+    schema = _load_completion_schema_exact()
     validator = _exact_schema_validator(schema)
 
     for vector in vectors["integerCases"]:
@@ -446,9 +451,7 @@ def test_completion_tracker_number_envelope_matches_schema_and_python(
     token: str,
     accepted: bool,
 ) -> None:
-    schema = json.loads(
-        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text()
-    )
+    schema = _load_completion_schema_exact()
     validator = _exact_schema_validator(schema)
 
     for field in ("referenceFrameRate", "lostTrackBufferSeconds"):
