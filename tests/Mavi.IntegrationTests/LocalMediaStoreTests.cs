@@ -113,9 +113,20 @@ public sealed class LocalMediaStoreTests : IDisposable
         Directory.CreateDirectory(_root);
         var outside = Path.Combine(Path.GetTempPath(), $"mavi-outside-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outside);
-        Directory.CreateSymbolicLink(Path.Combine(_root, "escape"), outside);
         try
         {
+            try
+            {
+                Directory.CreateSymbolicLink(Path.Combine(_root, "escape"), outside);
+            }
+            catch (Exception exception) when (
+                exception is UnauthorizedAccessException or
+                IOException or
+                PlatformNotSupportedException)
+            {
+                return;
+            }
+
             var store = CreateStore();
             await Assert.ThrowsAsync<ArgumentException>(() =>
                 store.WriteAsync("escape/new-directory/video.mp4", new MemoryStream([1]), CancellationToken.None));
@@ -126,6 +137,61 @@ public sealed class LocalMediaStoreTests : IDisposable
         {
             Directory.Delete(outside, true);
         }
+    }
+
+    [Fact]
+    public async Task ReadRejectsLinkedParentEvenWhenTargetRemainsInsideRoot()
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
+            return;
+
+        Directory.CreateDirectory(_root);
+        var target = Path.Combine(_root, "target");
+        Directory.CreateDirectory(target);
+        await File.WriteAllBytesAsync(Path.Combine(target, "video.mp4"), [1, 2, 3]);
+
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(_root, "linked"), target);
+        }
+        catch (Exception exception) when (
+            exception is UnauthorizedAccessException or
+            IOException or
+            PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        var store = CreateStore();
+        await Assert.ThrowsAnyAsync<IOException>(
+            () => store.OpenReadAsync("linked/video.mp4", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ReadRejectsSymlinkLeaf()
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
+            return;
+
+        Directory.CreateDirectory(_root);
+        var target = Path.Combine(_root, "target.mp4");
+        await File.WriteAllBytesAsync(target, [1, 2, 3]);
+
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(_root, "linked.mp4"), target);
+        }
+        catch (Exception exception) when (
+            exception is UnauthorizedAccessException or
+            IOException or
+            PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        var store = CreateStore();
+        await Assert.ThrowsAnyAsync<IOException>(
+            () => store.OpenReadAsync("linked.mp4", CancellationToken.None));
     }
 
     [Fact]
