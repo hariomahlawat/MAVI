@@ -100,7 +100,7 @@ The audit additionally identifies one integrity-hardening gap worth fixing in th
 
 This pass may modify only the Task-9 worker scheduling, source snapshot/cancellation logic, media timestamp resolver and associated tests/documentation. Existing hardened staging code is reviewed as satisfying the Task-9 POSIX worker invariant and is not to be refactored further without a reproducible failure.
 
-No Task 10 detector/runtime integration, no ByteTrack/RTMDet, no Task 11 completion endpoint, no result-ingestion schema, no Python database access and no .NET persistence changes.
+No Task 10 detector/runtime integration, no ByteTrack/RTMDet, no Task 13 completion endpoint, no result-ingestion schema, no Python database access and no .NET persistence changes.
 
 ## 5. Merge gate
 
