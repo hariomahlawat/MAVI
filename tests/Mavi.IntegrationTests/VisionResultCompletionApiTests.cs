@@ -10,6 +10,7 @@ using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
 using Mavi.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -315,6 +316,42 @@ public sealed class VisionResultCompletionApiTests
             factory.EvidenceRoot,
             acceptedKey["evidence/".Length..].Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(acceptedPath));
+    }
+
+    [Fact]
+    public async Task PersistenceFailureCompensatesAllNewlySealedEvidence()
+    {
+        var clock = new MutableTimeProvider(Now);
+        var interceptor = new FailNextSaveChangesInterceptor();
+        using var factory = new ApiTestFactory
+        {
+            Clock = clock,
+            ConfigureDbContext = options => options.AddInterceptors(interceptor),
+        };
+        await factory.ResetAndMigrateAsync();
+        var videoId = await SeedVideoAsync(factory);
+
+        using var client = factory.CreateClient();
+        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
+        var lease = await LeaseAsync(client, "gpu-sdd-01");
+        var request = await BuildRequestAsync(factory, lease);
+
+        interceptor.FailNextSaveChanges = true;
+        using var failed = await client.PostAsJsonAsync(
+            $"/api/vision/jobs/{lease.JobId}/complete",
+            request);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
+        Assert.Empty(Directory.Exists(factory.EvidenceRoot)
+            ? Directory.GetFiles(factory.EvidenceRoot, "*", SearchOption.AllDirectories)
+            : []);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        Assert.Empty(await db.Tracks.ToListAsync());
+        Assert.Empty(await db.Observations.ToListAsync());
+        Assert.Equal(1, await db.Artifacts.CountAsync());
+        Assert.Equal(VisionJobStatus.Leased, (await db.VisionJobs.SingleAsync()).Status);
     }
 
     [Fact]
@@ -635,5 +672,26 @@ internal sealed class AdvancingAcceptedEvidenceStore(MutableTimeProvider clock) 
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.CompletedTask;
+    }
+}
+
+
+internal sealed class FailNextSaveChangesInterceptor : SaveChangesInterceptor
+{
+    public bool FailNextSaveChanges { get; set; }
+
+    public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        DbContextEventData eventData,
+        InterceptionResult<int> result,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (FailNextSaveChanges)
+        {
+            FailNextSaveChanges = false;
+            throw new InvalidOperationException("Injected Task-13 persistence failure.");
+        }
+
+        return base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 }
