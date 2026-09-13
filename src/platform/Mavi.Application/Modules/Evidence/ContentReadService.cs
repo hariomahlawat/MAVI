@@ -4,15 +4,21 @@ namespace Mavi.Application.Modules.Evidence;
 
 public sealed record OpenContentResult(
     bool IsSuccess,
+    bool IsNotFound,
     ContentDescriptor? Descriptor,
     Stream? Stream,
     string? ErrorCode)
 {
-    public static OpenContentResult NotFound(string code) => new(false, null, null, code);
-    public static OpenContentResult Unavailable(ContentDescriptor descriptor, string code) =>
-        new(false, descriptor, null, code);
+    public static OpenContentResult NotFound(string code) =>
+        new(false, true, null, null, code);
+
+    public static OpenContentResult Unavailable(
+        string code,
+        ContentDescriptor? descriptor = null) =>
+        new(false, false, descriptor, null, code);
+
     public static OpenContentResult Success(ContentDescriptor descriptor, Stream stream) =>
-        new(true, descriptor, stream, null);
+        new(true, false, descriptor, stream, null);
 }
 
 public sealed class ContentReadService(
@@ -31,16 +37,7 @@ public sealed class ContentReadService(
         if (!lookup.VideoExists)
             return OpenContentResult.NotFound("video_not_found");
         if (lookup.Descriptor is null)
-            return OpenContentResult.Unavailable(
-                new ContentDescriptor(
-                    Guid.Empty,
-                    Mavi.Domain.Media.ArtifactType.SourceVideo,
-                    string.Empty,
-                    string.Empty,
-                    0,
-                    string.Empty,
-                    ContentStorageKind.ManagedMedia),
-                "video_content_unavailable");
+            return OpenContentResult.Unavailable("video_content_unavailable");
 
         return await OpenAsync(
             lookup.Descriptor,
@@ -71,7 +68,7 @@ public sealed class ContentReadService(
         CancellationToken cancellationToken)
     {
         if (!DescriptorIsValid(descriptor))
-            return OpenContentResult.Unavailable(descriptor, unavailableCode);
+            return OpenContentResult.Unavailable(unavailableCode, descriptor);
 
         Stream? stream = null;
         try
@@ -88,7 +85,7 @@ public sealed class ContentReadService(
             if (!stream.CanRead || !stream.CanSeek || stream.Length != descriptor.SizeBytes)
             {
                 await stream.DisposeAsync();
-                return OpenContentResult.Unavailable(descriptor, unavailableCode);
+                return OpenContentResult.Unavailable(unavailableCode, descriptor);
             }
 
             return OpenContentResult.Success(descriptor, stream);
@@ -103,7 +100,7 @@ public sealed class ContentReadService(
         {
             if (stream is not null)
                 await stream.DisposeAsync();
-            return OpenContentResult.Unavailable(descriptor, unavailableCode);
+            return OpenContentResult.Unavailable(unavailableCode, descriptor);
         }
     }
 
