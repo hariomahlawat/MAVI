@@ -179,6 +179,59 @@ def test_bundle_rejects_mavi_wheel_from_different_source_tree(
         tool.build_bundle_from_verified_inputs(inputs, tmp_path / "bundle")
 
 
+@pytest.mark.parametrize(
+    "logical_path",
+    [
+        "mavi_vision/native_payload.pyd",
+        "mavi_vision/native_payload.so",
+        "mavi_startup.pth",
+    ],
+)
+def test_mavi_wheel_source_rejects_untracked_installable_payload(
+    tmp_path: Path,
+    logical_path: str,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+    wheel = next(inputs.wheelhouse.glob("mavi_vision-*.whl"))
+    with zipfile.ZipFile(wheel, "a") as archive:
+        archive.writestr(logical_path, b"untracked executable payload")
+
+    with pytest.raises(tool.OfflineBundleError, match="mavi_wheel_source_mismatch"):
+        tool._verify_mavi_wheel_source(
+            wheel_records={"mavi-vision": tool.inspect_wheel(wheel)},
+            source_root=tool.VISION_ROOT,
+        )
+
+
+def test_mavi_wheel_source_verifies_non_python_package_files(
+    tmp_path: Path,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+    package_root = tool.VISION_ROOT / "mavi_vision"
+    package_data = b'{"schemaVersion": 1}\n'
+    (package_root / "schema.json").write_bytes(package_data)
+
+    wheel = next(inputs.wheelhouse.glob("mavi_vision-*.whl"))
+    wheel.unlink()
+    package_init = (package_root / "__init__.py").read_bytes()
+    wheel = _write_wheel(
+        inputs.wheelhouse,
+        filename="mavi_vision-0.1.0-py3-none-any.whl",
+        name="mavi-vision",
+        version="0.1.0",
+        package_files={
+            "mavi_vision/__init__.py": package_init,
+            "mavi_vision/schema.json": package_data,
+        },
+        requires_python=">=3.12,<3.14",
+    )
+
+    tool._verify_mavi_wheel_source(
+        wheel_records={"mavi-vision": tool.inspect_wheel(wheel)},
+        source_root=tool.VISION_ROOT,
+    )
+
+
 def test_mavi_wheel_metadata_accepts_pyproject_optional_dependencies(
     tmp_path: Path,
 ) -> None:
@@ -267,6 +320,8 @@ def test_bundle_source_commit_rejects_dirty_packaged_source(
     (package / "__init__.py").write_text("value = 1\n", encoding="utf-8")
     project = repo / "src" / "vision" / "pyproject.toml"
     project.write_text("[project]\nname='mavi-vision'\nversion='0.1.0'\n", encoding="utf-8")
+    setup_cfg = repo / "src" / "vision" / "setup.cfg"
+    setup_cfg.write_text("[metadata]\nname = mavi-vision\n", encoding="utf-8")
 
     def run(*args: str) -> None:
         import subprocess
@@ -291,6 +346,11 @@ def test_bundle_source_commit_rejects_dirty_packaged_source(
 
     (package / "dirty.py").unlink()
     (package / "__init__.py").write_text("value = 2\n", encoding="utf-8")
+    with pytest.raises(tool.OfflineBundleError, match="bundle_source_dirty"):
+        tool._validate_source_commit_against_checkout(head, repo)
+
+    run("git", "checkout", "--", "src/vision/mavi_vision/__init__.py")
+    setup_cfg.write_text("[metadata]\nname = changed-name\n", encoding="utf-8")
     with pytest.raises(tool.OfflineBundleError, match="bundle_source_dirty"):
         tool._validate_source_commit_against_checkout(head, repo)
 
