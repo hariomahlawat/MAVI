@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace Mavi.Infrastructure.Storage;
 
-internal static class DurableFilePublication
+internal static partial class DurableFilePublication
 {
     private const int ErrorFileExists = 80;
     private const int ErrorAlreadyExists = 183;
@@ -65,10 +65,12 @@ internal static class DurableFilePublication
     }
 
 #pragma warning disable SYSLIB1054
-    [DllImport("libc", EntryPoint = "open", SetLastError = true)]
-    private static extern int Open(
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string pathname,
-        int flags);
+    [LibraryImport(
+        "libc",
+        EntryPoint = "open",
+        StringMarshalling = StringMarshalling.Utf8,
+        SetLastError = true)]
+    private static partial int Open(string pathname, int flags);
 
     [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
     private static extern int Fsync(int descriptor);
