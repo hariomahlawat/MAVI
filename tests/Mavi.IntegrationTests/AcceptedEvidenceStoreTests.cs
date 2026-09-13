@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Mavi.Application.Abstractions.Storage;
 using Mavi.Infrastructure.Storage;
+using Mavi.Contracts.Worker;
 using Microsoft.Extensions.Options;
 
 namespace Mavi.IntegrationTests;
@@ -101,6 +102,51 @@ public sealed class AcceptedEvidenceStoreTests : IDisposable
         Assert.Equal(AcceptedEvidenceSealStatus.IntegrityMismatch, result.Status);
         Assert.False(File.Exists(EvidencePath(acceptedKey)));
         Assert.Empty(FindTemporaryFiles());
+    }
+
+    [Fact]
+    public async Task OversizedSourceStopsAfterDeclaredSizeProbeByte()
+    {
+        Directory.CreateDirectory(_mediaRoot);
+        Directory.CreateDirectory(_evidenceRoot);
+        var source = new CountingReadStream(new byte[1024]);
+        var mediaStore = new ReadOnlyTestMediaStore(source);
+        var sealer = CreateSealer(mediaStore);
+        var acceptedKey =
+            $"evidence/job/attempt-0001/thumbnails/person-000001-{new string('a', 64)}.jpg";
+
+        var result = await sealer.SealAsync(
+            "staging/job/attempt-0001/thumbnails/person-000001.jpg",
+            acceptedKey,
+            3,
+            new string('a', 64),
+            CancellationToken.None);
+
+        Assert.Equal(AcceptedEvidenceSealStatus.IntegrityMismatch, result.Status);
+        Assert.Equal(4, source.BytesRead);
+        Assert.False(File.Exists(EvidencePath(acceptedKey)));
+        Assert.Empty(FindTemporaryFiles());
+    }
+
+    [Fact]
+    public async Task DeclaredArtifactAbovePolicyIsRejectedBeforeSourceOpen()
+    {
+        Directory.CreateDirectory(_mediaRoot);
+        Directory.CreateDirectory(_evidenceRoot);
+        var source = new CountingReadStream([1, 2, 3]);
+        var mediaStore = new ReadOnlyTestMediaStore(source);
+        var sealer = CreateSealer(mediaStore);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            sealer.SealAsync(
+                "staging/job/attempt-0001/thumbnails/person-000001.jpg",
+                $"evidence/job/attempt-0001/thumbnails/person-000001-{new string('a', 64)}.jpg",
+                WorkerContractRules.MaximumCompletionArtifactBytes + 1,
+                new string('a', 64),
+                CancellationToken.None));
+
+        Assert.False(mediaStore.WasOpened);
+        Assert.Equal(0, source.BytesRead);
     }
 
     [Fact]
@@ -226,4 +272,43 @@ public sealed class AcceptedEvidenceStoreTests : IDisposable
         Directory.Exists(_evidenceRoot)
             ? Directory.GetFiles(_evidenceRoot, "*.tmp", SearchOption.AllDirectories)
             : [];
+}
+
+
+internal sealed class ReadOnlyTestMediaStore(Stream source) : IMediaStore
+{
+    public bool WasOpened { get; private set; }
+
+    public Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        WasOpened = true;
+        return Task.FromResult(source);
+    }
+
+    public Task<MediaWriteResult> WriteAsync(
+        string storageKey,
+        Stream content,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public Task DeleteAsync(string storageKey, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+}
+
+internal sealed class CountingReadStream(byte[] bytes) : MemoryStream(bytes, writable: false)
+{
+    public long BytesRead { get; private set; }
+
+    public override async ValueTask<int> ReadAsync(
+        Memory<byte> buffer,
+        CancellationToken cancellationToken = default)
+    {
+        var count = await base.ReadAsync(buffer, cancellationToken);
+        BytesRead += count;
+        return count;
+    }
 }
