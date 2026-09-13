@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using Mavi.Domain.Cameras;
 using Mavi.Domain.Media;
 using Mavi.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -187,6 +188,59 @@ public sealed class ContentApiTests
         Assert.Contains(
             "artifact_content_unavailable",
             await mismatched.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExistingVideoWithWrongSourceArtifactTypeFailsAsIntegrityIncident()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        var now = new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero);
+        var camera = Camera.Create("CAM-BROKEN", "Broken Source", "UTC", now.AddMinutes(-5));
+        var bytes = new byte[] { 1, 2, 3 };
+        var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        var wrongSource = Artifact.Create(
+            ArtifactType.Thumbnail,
+            $"evidence/broken/{sha}.jpg",
+            "image/jpeg",
+            bytes.Length,
+            sha,
+            createdAtUtc: now.AddMinutes(-4));
+        var video = VideoAsset.Create(
+            Guid.CreateVersion7(),
+            camera.Id,
+            wrongSource.Id,
+            "broken.mp4",
+            now,
+            10_000,
+            25,
+            1,
+            640,
+            480,
+            "h264",
+            TimestampSource.Manual,
+            1.0,
+            "UTC",
+            0,
+            now.AddMinutes(-3));
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+            db.Cameras.Add(camera);
+            db.Artifacts.Add(wrongSource);
+            db.VideoAssets.Add(video);
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync($"/api/videos/{video.Id:D}/content");
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains(
+            "video_content_unavailable",
+            await response.Content.ReadAsStringAsync(),
             StringComparison.Ordinal);
     }
 
