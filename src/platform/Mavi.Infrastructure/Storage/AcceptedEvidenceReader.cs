@@ -42,8 +42,17 @@ public sealed class AcceptedEvidenceReader : IAcceptedEvidenceReader
         cancellationToken.ThrowIfCancellationRequested();
         var expectedPath = ResolvePath(acceptedStorageKey);
 
-        StorageRootSafety.EnsureNoLinkedExistingComponents(
-            Path.GetDirectoryName(expectedPath)!);
+        try
+        {
+            StorageRootSafety.EnsureNoLinkedExistingComponents(
+                Path.GetDirectoryName(expectedPath)!);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new UnsafeMediaPathException(
+                "Accepted-evidence reads may not traverse symbolic-link or reparse directories.",
+                exception);
+        }
 
         var stream = new FileStream(
             expectedPath,
