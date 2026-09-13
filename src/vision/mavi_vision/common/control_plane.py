@@ -175,13 +175,13 @@ class VisionJobLease(ControlPlaneModel):
     camera_id: UUID
     worker_id: WorkerId
     lease_token: LeaseToken
-    attempt_count: int = Field(ge=1)
+    attempt_count: int = Field(ge=1, le=2_147_483_647)
     lease_expires_at_utc: CanonicalUtcDateTime
     pipeline: str = Field(min_length=1, max_length=64)
     pipeline_version: str = Field(min_length=1, max_length=64)
     source_storage_key: StorageKey
     source_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
-    source_size_bytes: int = Field(ge=0)
+    source_size_bytes: int = Field(ge=0, le=9_223_372_036_854_775_807)
     recording_start_utc: CanonicalUtcDateTime
     recording_end_utc: CanonicalUtcDateTime
     duration_ms: int = Field(ge=0)
@@ -217,7 +217,7 @@ class VisionJobFail(ControlPlaneModel):
 class VisionCompletionArtifact(ControlPlaneModel):
     storage_key: StorageKey
     media_type: Literal["image/jpeg", "application/msgpack"]
-    size_bytes: int = Field(ge=0)
+    size_bytes: int = Field(ge=0, le=9_223_372_036_854_775_807)
     sha256: Sha256
 
 
@@ -235,8 +235,8 @@ class VisionCompletionBoundingBox(ControlPlaneModel):
 
 
 class VisionCompletionRepresentative(ControlPlaneModel):
-    offset_ms: int = Field(ge=0)
-    source_frame_number: int = Field(ge=0)
+    offset_ms: int = Field(ge=0, le=9_223_372_036_854_775_807)
+    source_frame_number: int = Field(ge=0, le=9_223_372_036_854_775_807)
     confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     quality_score: float = Field(ge=0, le=1, allow_inf_nan=False)
     bounding_box: VisionCompletionBoundingBox
@@ -246,9 +246,9 @@ class VisionCompletionRepresentative(ControlPlaneModel):
 class VisionCompletionTrack(ControlPlaneModel):
     track_id: TrackId
     object_class: Literal["person", "vehicle"]
-    start_offset_ms: int = Field(ge=0)
-    end_offset_ms: int = Field(ge=0)
-    detection_count: int = Field(gt=0)
+    start_offset_ms: int = Field(ge=0, le=9_223_372_036_854_775_807)
+    end_offset_ms: int = Field(ge=0, le=9_223_372_036_854_775_807)
+    detection_count: int = Field(gt=0, le=2_147_483_647)
     mean_confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     max_confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     representative: VisionCompletionRepresentative
@@ -281,8 +281,8 @@ class VisionPlatformIdentity(ControlPlaneModel):
 
 class VisionGpuIdentity(ControlPlaneModel):
     name: ProvenanceDetail
-    index: int = Field(ge=0)
-    vram_bytes: int = Field(gt=0)
+    index: int = Field(ge=0, le=2_147_483_647)
+    vram_bytes: int = Field(gt=0, le=9_223_372_036_854_775_807)
     driver_version: ProvenanceDetail
     cuda_runtime_version: ProvenanceDetail
 
@@ -292,7 +292,7 @@ class VisionTrackerParameters(ControlPlaneModel):
     track_activation_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
     high_confidence_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
     minimum_iou_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
-    minimum_consecutive_frames: int = Field(ge=1)
+    minimum_consecutive_frames: int = Field(ge=1, le=2_147_483_647)
     lost_track_buffer_seconds: float = Field(gt=0, allow_inf_nan=False)
 
 
@@ -317,7 +317,7 @@ class VisionRuntimeProvenance(ControlPlaneModel):
     ffmpeg_version: ProvenanceDetail | None = None
     platform: VisionPlatformIdentity
     configured_device_policy: Literal["cpu", "cuda", "auto"]
-    configured_device_index: int = Field(ge=0)
+    configured_device_index: int = Field(ge=0, le=2_147_483_647)
     actual_device: ProvenanceIdentity
     gpu: VisionGpuIdentity | None = None
     mavi_build: ProvenanceIdentity
@@ -343,9 +343,9 @@ class VisionJobComplete(ControlPlaneModel):
     job_id: UUID
     worker_id: WorkerId
     lease_token: LeaseToken
-    attempt_count: int = Field(ge=1)
-    frames_processed: int = Field(ge=0)
-    processing_duration_ms: int = Field(ge=0)
+    attempt_count: int = Field(ge=1, le=2_147_483_647)
+    frames_processed: int = Field(ge=0, le=9_223_372_036_854_775_807)
+    processing_duration_ms: int = Field(ge=0, le=9_223_372_036_854_775_807)
     provenance: VisionRuntimeProvenance
     tracks: tuple[VisionCompletionTrack, ...]
 
