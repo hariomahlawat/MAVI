@@ -57,6 +57,7 @@ public sealed class AcceptedEvidenceStoreTests : IDisposable
 
         Assert.Equal(AcceptedEvidenceSealStatus.Sealed, result.Status);
         Assert.Equal(acceptedKey, result.StorageKey);
+        Assert.True(result.CreatedNew);
 
         var acceptedPath = EvidencePath(acceptedKey);
         Assert.True(File.Exists(acceptedPath));
@@ -176,6 +177,34 @@ public sealed class AcceptedEvidenceStoreTests : IDisposable
 
         Assert.Equal(AcceptedEvidenceSealStatus.Sealed, first.Status);
         Assert.Equal(AcceptedEvidenceSealStatus.Sealed, second.Status);
+        Assert.True(first.CreatedNew);
+        Assert.False(second.CreatedNew);
+    }
+
+    [Fact]
+    public async Task DeleteAcceptedRemovesPublishedObject()
+    {
+        var mediaStore = CreateMediaStore();
+        var sealer = CreateSealer(mediaStore);
+        var source = await mediaStore.WriteAsync(
+            "staging/job/attempt-0001/thumbnails/person-000001.jpg",
+            new MemoryStream([7, 8, 9]),
+            CancellationToken.None);
+        var acceptedKey =
+            $"evidence/job/attempt-0001/thumbnails/person-000001-{source.Sha256}.jpg";
+
+        var sealedResult = await sealer.SealAsync(
+            "staging/job/attempt-0001/thumbnails/person-000001.jpg",
+            acceptedKey,
+            source.SizeBytes,
+            source.Sha256,
+            CancellationToken.None);
+        Assert.True(sealedResult.CreatedNew);
+        Assert.True(File.Exists(EvidencePath(acceptedKey)));
+
+        await sealer.DeleteAcceptedAsync(acceptedKey, CancellationToken.None);
+
+        Assert.False(File.Exists(EvidencePath(acceptedKey)));
     }
 
     [Fact]
