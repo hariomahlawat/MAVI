@@ -26,7 +26,7 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
             throw new InvalidOperationException("MediaStorage:RootPath is required.");
         }
 
-        _rootPath = Path.GetFullPath(options.Value.RootPath);
+        _rootPath = StorageRootSafety.NormalizeAndValidateRoot(options.Value.RootPath);
         _rootPrefix = Path.EndsInDirectorySeparator(_rootPath)
             ? _rootPath
             : _rootPath + Path.DirectorySeparatorChar;
