@@ -83,6 +83,7 @@ public sealed class VisionResultValidator
         var trackIds = new HashSet<string>(StringComparer.Ordinal);
         var artifactKeys = new HashSet<string>(StringComparer.Ordinal);
         var tracks = new List<ValidatedTrackResult>(request.Tracks.Count);
+        long aggregateEvidenceBytes = 0;
 
         foreach (var contract in request.Tracks)
         {
@@ -137,6 +138,18 @@ public sealed class VisionResultValidator
                 $"{expectedPrefix}/trajectories/{trackId}.msgpack",
                 "application/msgpack",
                 artifactKeys);
+
+            try
+            {
+                aggregateEvidenceBytes = checked(
+                    aggregateEvidenceBytes + thumbnail.SizeBytes + trajectory.SizeBytes);
+            }
+            catch (OverflowException)
+            {
+                throw Invalid("artifact_evidence_size_invalid");
+            }
+            if (aggregateEvidenceBytes > WorkerContractRules.MaximumCompletionEvidenceBytes)
+                throw Invalid("artifact_evidence_size_invalid");
 
             tracks.Add(new ValidatedTrackResult(
                 trackId,
@@ -278,7 +291,8 @@ public sealed class VisionResultValidator
     {
         if (!string.Equals(value.StorageKey, expectedStorageKey, StringComparison.Ordinal) ||
             !string.Equals(value.MediaType, expectedMediaType, StringComparison.Ordinal) ||
-            value.SizeBytes is not >= 0)
+            value.SizeBytes is not >= 0 ||
+            value.SizeBytes > WorkerContractRules.MaximumCompletionArtifactBytes)
             throw Invalid("artifact_descriptor_invalid");
 
         var sha = Sha(value.Sha256, "artifact_sha256_invalid");
@@ -427,12 +441,27 @@ public sealed class VisionResultValidator
 
     private static string Required(string? value, string code)
     {
-        if (string.IsNullOrWhiteSpace(value) ||
+        if (string.IsNullOrEmpty(value) ||
             value.Contains('\0') ||
-            !string.Equals(value, value.Trim(), StringComparison.Ordinal))
+            IsContractEdgeWhitespace(value[0]) ||
+            IsContractEdgeWhitespace(value[^1]))
             throw Invalid(code);
         return value;
     }
+
+    private static bool IsContractEdgeWhitespace(char value) =>
+        value is >= '\u0009' and <= '\u000D' or
+            '\u0020' or
+            '\u0085' or
+            '\u00A0' or
+            '\u1680' or
+            >= '\u2000' and <= '\u200A' or
+            '\u2028' or
+            '\u2029' or
+            '\u202F' or
+            '\u205F' or
+            '\u3000' or
+            '\uFEFF';
 
     private static string RequiredBounded(string? value, int maximumLength, string code)
     {
