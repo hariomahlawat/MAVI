@@ -170,6 +170,46 @@ public sealed class WorkerContractV2Tests
     }
 
     [Fact]
+    public void CompletionIntegerConformanceCorpusMatchesDotNet()
+    {
+        var root = FindRepositoryRoot();
+        var examplePath = Path.Combine(root, "contracts/examples/vision-job-complete-v2.example.json");
+        var vectorsPath = Path.Combine(root, "contracts/test-vectors/vision-job-complete-v2-conformance.json");
+        var example = JsonNode.Parse(File.ReadAllText(examplePath))!.AsObject();
+        using var vectors = JsonDocument.Parse(File.ReadAllText(vectorsPath));
+
+        foreach (var vector in vectors.RootElement.GetProperty("integerCases").EnumerateArray())
+        {
+            var name = vector.GetProperty("name").GetString()!;
+            var field = vector.GetProperty("field").GetString()!;
+            var token = vector.GetProperty("token").GetString()!;
+            var accepted = vector.GetProperty("accepted").GetBoolean();
+
+            var raw = example.ToJsonString();
+            var marker = $"\\\"{field}\\\":{example[field]!.ToJsonString()}";
+            Assert.Contains(marker, raw, StringComparison.Ordinal);
+            raw = raw.Replace(
+                marker,
+                $"\\\"{field}\\\":{token}",
+                StringComparison.Ordinal);
+
+            var succeeded = true;
+            try
+            {
+                JsonSerializer.Deserialize<VisionJobCompleteRequest>(raw, JsonOptions());
+            }
+            catch (JsonException)
+            {
+                succeeded = false;
+            }
+
+            Assert.True(
+                succeeded == accepted,
+                $"Conformance vector '{name}' expected accepted={accepted} but .NET accepted={succeeded}.");
+        }
+    }
+
+    [Fact]
     public void CompletionIntegralNumbersRejectFractions()
     {
         var path = Path.Combine(FindRepositoryRoot(), "contracts/examples/vision-job-complete-v2.example.json");
