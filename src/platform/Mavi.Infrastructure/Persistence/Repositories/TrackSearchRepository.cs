@@ -8,6 +8,7 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
 {
     public async Task<IReadOnlyList<TrackSearchRow>> SearchAsync(
         TrackSearchQuery query,
+        DateTimeOffset snapshotUtc,
         TrackCursorPosition? cursor,
         int take,
         CancellationToken cancellationToken)
@@ -21,7 +22,8 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
                 on track.RepresentativeObservationId equals observation.Id into observations
             from observation in observations.DefaultIfEmpty()
             where run.Status == ProcessingRunStatus.Completed &&
-                  run.CompletedAtUtc != null
+                  run.CompletedAtUtc != null &&
+                  run.CompletedAtUtc <= snapshotUtc
             select new { track, run, video, camera, observation };
 
         if (query.ProcessingRunId is { } runId)
@@ -35,6 +37,7 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
                     other.VideoAssetId == x.video.Id &&
                     other.Status == ProcessingRunStatus.Completed &&
                     other.CompletedAtUtc != null &&
+                    other.CompletedAtUtc <= snapshotUtc &&
                     (other.CompletedAtUtc > x.run.CompletedAtUtc ||
                      (other.CompletedAtUtc == x.run.CompletedAtUtc && other.Id.CompareTo(x.run.Id) > 0))));
         }
