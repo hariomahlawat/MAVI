@@ -6,11 +6,14 @@ public sealed record TrackCursorPosition(
     Guid TrackId,
     string FilterFingerprint);
 
+public sealed record TrackSearchRepositoryPage(
+    IReadOnlyList<TrackSearchRow> Items,
+    DateTimeOffset SnapshotUtc);
+
 public interface ITrackSearchRepository
 {
-    Task<IReadOnlyList<TrackSearchRow>> SearchAsync(
+    Task<TrackSearchRepositoryPage> SearchAsync(
         TrackSearchQuery query,
-        DateTimeOffset snapshotUtc,
         TrackCursorPosition? cursor,
         int take,
         CancellationToken cancellationToken);
