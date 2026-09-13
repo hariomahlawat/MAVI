@@ -19,8 +19,15 @@ public sealed class AcceptedEvidenceReader : IAcceptedEvidenceReader
     public AcceptedEvidenceReader(IOptions<MediaStorageOptions> options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        if (string.IsNullOrWhiteSpace(options.Value.RootPath))
+            throw new InvalidOperationException("MediaStorage:RootPath is required.");
         if (string.IsNullOrWhiteSpace(options.Value.EvidenceRootPath))
             throw new InvalidOperationException("MediaStorage:EvidenceRootPath is required.");
+        if (!StorageRootSafety.AreDisjointAndLinkFree(
+                options.Value.RootPath,
+                options.Value.EvidenceRootPath))
+            throw new InvalidOperationException(
+                "MediaStorage roots must be physically disjoint and link-free.");
 
         _rootPath = StorageRootSafety.NormalizeAndValidateRoot(options.Value.EvidenceRootPath);
         _rootPrefix = Path.EndsInDirectorySeparator(_rootPath)
