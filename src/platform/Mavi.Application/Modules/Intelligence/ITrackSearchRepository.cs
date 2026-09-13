@@ -3,7 +3,8 @@ namespace Mavi.Application.Modules.Intelligence;
 public sealed record TrackCursorPosition(
     DateTimeOffset SnapshotUtc,
     DateTimeOffset StartTimestampUtc,
-    Guid TrackId);
+    Guid TrackId,
+    string FilterFingerprint);
 
 public interface ITrackSearchRepository
 {
