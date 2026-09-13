@@ -59,9 +59,14 @@ def _write_wheel(
         archive.writestr(f"{dist_info}/METADATA", metadata)
         if include_wheel_metadata:
             parts = filename[:-4].split("-")
-            python_tag = parts[-3].split(".", 1)[0]
-            abi_tag = parts[-2].split(".", 1)[0]
-            platform_tag = parts[-1].split(".", 1)[0]
+            if len(parts) >= 5:
+                python_tag = parts[-3].split(".", 1)[0]
+                abi_tag = parts[-2].split(".", 1)[0]
+                platform_tag = parts[-1].split(".", 1)[0]
+            else:
+                # Deliberately malformed filenames still need structurally valid
+                # archive metadata so inspect_wheel reaches filename validation.
+                python_tag, abi_tag, platform_tag = "py3", "none", "any"
             wheel_metadata = (
                 "Wheel-Version: 1.0\n"
                 "Generator: mavi-tests\n"
@@ -597,6 +602,55 @@ def test_freeze_tool_accepts_manylinux_at_qualified_glibc_baseline(
     _write_wheel(
         wheelhouse,
         filename="sample-1.0.0-cp312-cp312-manylinux_2_39_x86_64.whl",
+        name="sample",
+        version="1.0.0",
+    )
+
+    lock = tool.freeze_wheelhouse(
+        wheelhouse,
+        platform_variant="linux-x86_64-cpu",
+        python_version="3.12.14",
+    )
+
+    assert [item.name for item in lock.distributions] == ["sample"]
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "sample-1.0.0-cp30-abi3-manylinux_2_17_x86_64.whl",
+        "sample-1.0.0-cp31-abi3-manylinux_2_17_x86_64.whl",
+    ],
+)
+def test_freeze_tool_rejects_pre_python32_abi3_tags(
+    tmp_path: Path,
+    filename: str,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename=filename,
+        name="sample",
+        version="1.0.0",
+    )
+
+    with pytest.raises(tool.FreezeOfflineLockError, match="wheel_python_incompatible"):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="linux-x86_64-cpu",
+            python_version="3.12.14",
+        )
+
+
+def test_freeze_tool_accepts_python32_abi3_lower_bound(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="sample-1.0.0-cp32-abi3-manylinux_2_17_x86_64.whl",
         name="sample",
         version="1.0.0",
     )
