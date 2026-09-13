@@ -137,6 +137,7 @@ def test_inference_activity_rejects_invalid_start_clock(started_at: float) -> No
 
 ROOT = Path(__file__).resolve().parents[3]
 WATCHDOG_LEASE_EXAMPLE = ROOT / "contracts/examples/vision-job-lease-v2.example.json"
+PROVENANCE_SENTINEL = object()
 
 
 def _watchdog_lease() -> VisionJobLease:
@@ -162,6 +163,7 @@ class _WatchdogApi:
         self.release_on_heartbeat = release_on_heartbeat
         self.heartbeats: list[float] = []
         self.failures: list[str] = []
+        self.completions: list[tuple[VisionProcessingResult, object]] = []
 
     async def lease(self) -> VisionJobLease | None:
         return self.lease_value
@@ -185,6 +187,21 @@ class _WatchdogApi:
     ) -> None:
         del lease, failure_message
         self.failures.append(failure_code)
+
+    async def complete(
+        self,
+        lease: VisionJobLease,
+        result: VisionProcessingResult,
+        processing_duration_ms: int,
+        provenance: object,
+        *,
+        authorize_publish=None,
+    ) -> object:
+        del lease, processing_duration_ms
+        if authorize_publish is not None:
+            authorize_publish()
+        self.completions.append((result, provenance))
+        return object()
 
 
 class _BlockingProcessor:
@@ -257,6 +274,7 @@ def test_watchdog_polling_does_not_postpone_absolute_heartbeat_schedule(
             watchdog_expired=watchdog_expired,
             watchdog_poll_seconds=0.001,
             monotonic_clock=lambda: clock[0],
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
         ).run_once()
     )
 
@@ -264,7 +282,9 @@ def test_watchdog_polling_does_not_postpone_absolute_heartbeat_schedule(
     assert started.is_set() is True
     assert poll_count >= 2
     assert len(client.heartbeats) >= 2
-    assert client.failures == ["task9_result_submission_not_implemented"]
+    assert client.failures == []
+    assert len(client.completions) == 1
+    assert client.completions[0][1] is PROVENANCE_SENTINEL
 
 
 def test_watchdog_expiry_with_unwind_in_grace_surfaces_only_lease_loss(

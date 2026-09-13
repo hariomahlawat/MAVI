@@ -151,6 +151,13 @@ public sealed class VideoAsset
         ProcessingStatus = VideoProcessingStatus.Processing;
     }
 
+    public void MarkProcessed()
+    {
+        if (ProcessingStatus != VideoProcessingStatus.Processing)
+            throw new DomainValidationException("video_processing_transition_invalid", "Video processing is not active.");
+        ProcessingStatus = VideoProcessingStatus.Processed;
+    }
+
     public void MarkProcessingFailed()
     {
         if (ProcessingStatus is not (VideoProcessingStatus.Queued or VideoProcessingStatus.Processing))

@@ -35,7 +35,8 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
         object_class=ObjectClass.PERSON,
         start_offset_ms=0,
         end_offset_ms=40,
-        confidence_sum=1.8,
+        confidence_sum=1.7,
+        max_confidence=0.9,
         observation_count=2,
         representative=_representative(),
         representative_crop=crop,
@@ -46,7 +47,8 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
         object_class=ObjectClass.PERSON,
         start_offset_ms=0,
         end_offset_ms=40,
-        confidence_sum=1.8,
+        confidence_sum=1.7,
+        max_confidence=0.9,
         observation_count=2,
         representative=_representative(),
         representative_crop=crop,
@@ -55,7 +57,10 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
 
     assert isinstance(first, PreparedTrack)
     assert first == second
-    assert first.confidence == pytest.approx(0.9)
+    assert first.detection_count == 2
+    assert first.mean_confidence == pytest.approx(0.85)
+    assert first.max_confidence == pytest.approx(0.9)
+    assert first.confidence == first.mean_confidence
     assert first.thumbnail_payload.startswith(b"\xff\xd8")
     assert first.thumbnail_payload.endswith(b"\xff\xd9")
     assert deserialize_trajectory(first.trajectory_payload) == trajectory
@@ -69,6 +74,7 @@ def test_prepare_track_rejects_missing_observations() -> None:
             start_offset_ms=0,
             end_offset_ms=0,
             confidence_sum=0.0,
+            max_confidence=0.0,
             observation_count=0,
             representative=_representative(),
             representative_crop=np.ones((2, 2, 3), dtype=np.uint8),

@@ -1,0 +1,157 @@
+{
+  "integerCases": [
+    {
+      "name": "plain integer",
+      "field": "attemptCount",
+      "token": "1",
+      "accepted": true
+    },
+    {
+      "name": "decimal integral",
+      "field": "attemptCount",
+      "token": "1.0",
+      "accepted": true
+    },
+    {
+      "name": "scaled integral",
+      "field": "attemptCount",
+      "token": "1.000",
+      "accepted": true
+    },
+    {
+      "name": "exponent integral",
+      "field": "attemptCount",
+      "token": "1e0",
+      "accepted": true
+    },
+    {
+      "name": "fraction",
+      "field": "attemptCount",
+      "token": "1.5",
+      "accepted": false
+    },
+    {
+      "name": "infinitesimal fraction",
+      "field": "attemptCount",
+      "token": "1.000000000000000000000000000001",
+      "accepted": false
+    },
+    {
+      "name": "int32 maximum",
+      "field": "attemptCount",
+      "token": "2147483647.0",
+      "accepted": true
+    },
+    {
+      "name": "int32 overflow",
+      "field": "attemptCount",
+      "token": "2147483648",
+      "accepted": false
+    },
+    {
+      "name": "int64 above 2^53 exact",
+      "field": "framesProcessed",
+      "token": "9007199254740993.0",
+      "accepted": true
+    },
+    {
+      "name": "int64 maximum decimal",
+      "field": "framesProcessed",
+      "token": "9223372036854775807.0",
+      "accepted": true
+    },
+    {
+      "name": "int64 overflow",
+      "field": "framesProcessed",
+      "token": "9223372036854775808",
+      "accepted": false
+    },
+    {
+      "name": "extreme positive exponent zero",
+      "field": "processingDurationMs",
+      "token": "0e1000000000000000000",
+      "accepted": true
+    },
+    {
+      "name": "extreme positive exponent negative zero",
+      "field": "processingDurationMs",
+      "token": "-0e1000000000000000000",
+      "accepted": true
+    },
+    {
+      "name": "extreme positive exponent nonzero overflow",
+      "field": "processingDurationMs",
+      "token": "1e1000000000000000000",
+      "accepted": false
+    },
+    {
+      "name": "extreme negative exponent nonintegral",
+      "field": "processingDurationMs",
+      "token": "1e-1000000000000000000",
+      "accepted": false
+    },
+    {
+      "name": "large exponent balanced by long mantissa",
+      "field": "processingDurationMs",
+      "token": "0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001e1001",
+      "accepted": true
+    }
+  ],
+  "provenanceEdgeCases": [
+    {
+      "name": "ordinary",
+      "value": "rtmdet-m",
+      "accepted": true
+    },
+    {
+      "name": "internal space",
+      "value": "rtmdet m",
+      "accepted": true
+    },
+    {
+      "name": "leading ASCII space",
+      "value": " rtmdet",
+      "accepted": false
+    },
+    {
+      "name": "trailing ASCII space",
+      "value": "rtmdet ",
+      "accepted": false
+    },
+    {
+      "name": "leading U+0085",
+      "value": "rtmdet",
+      "accepted": false
+    },
+    {
+      "name": "trailing U+0085",
+      "value": "rtmdet",
+      "accepted": false
+    },
+    {
+      "name": "leading U+FEFF",
+      "value": "﻿rtmdet",
+      "accepted": false
+    },
+    {
+      "name": "trailing U+FEFF",
+      "value": "rtmdet﻿",
+      "accepted": false
+    },
+    {
+      "name": "internal U+0085",
+      "value": "rtmdet",
+      "accepted": true
+    },
+    {
+      "name": "internal U+FEFF",
+      "value": "rtm﻿det",
+      "accepted": true
+    },
+    {
+      "name": "embedded NUL",
+      "value": "rtm\u0000det",
+      "accepted": false
+    }
+  ]
+}

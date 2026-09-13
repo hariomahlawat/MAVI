@@ -36,6 +36,8 @@ public static class DependencyInjection
         services.AddScoped<IVideoCatalog, VideoCatalog>();
         services.AddScoped<VideoImportService>();
         services.AddScoped<IProcessingOrchestrator, ProcessingOrchestrator>();
+        services.AddScoped<IProcessingResultStore, ProcessingResultStore>();
+        services.AddSingleton<VisionResultValidator>();
         services.AddSingleton<ILeaseCapabilityService, LeaseCapabilityService>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ITimeZoneService, SystemTimeZoneService>();
@@ -43,6 +45,9 @@ public static class DependencyInjection
         services.AddOptions<MediaStorageOptions>()
             .Bind(configuration.GetSection(MediaStorageOptions.SectionName))
             .Validate(options => !string.IsNullOrWhiteSpace(options.RootPath), "MediaStorage:RootPath is required.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.EvidenceRootPath), "MediaStorage:EvidenceRootPath is required.")
+            .Validate(options => StorageRootSafety.AreDisjointAndLinkFree(options.RootPath, options.EvidenceRootPath),
+                "MediaStorage roots must be physically disjoint and may not traverse symbolic-link/reparse components.")
             .ValidateOnStart();
         services.AddOptions<MediaProcessingOptions>()
             .Bind(configuration.GetSection(MediaProcessingOptions.SectionName))
@@ -78,6 +83,7 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<LocalizationOptions>, LocalizationOptionsValidator>();
         services.AddSingleton<LocalMediaStore>();
         services.AddSingleton<IMediaStore>(provider => provider.GetRequiredService<LocalMediaStore>());
+        services.AddSingleton<IAcceptedEvidenceStore, AcceptedEvidenceStore>();
         services.AddSingleton<ILocalMediaPathResolver>(provider => provider.GetRequiredService<LocalMediaStore>());
         services.AddSingleton<IVideoMetadataReader, FfprobeVideoMetadataReader>();
         return services;

@@ -34,7 +34,7 @@ REQUIRED_PATHS = [
     "src/vision/config/pipelines/phase1-detection-tracking-v1.json",
     "src/vision/runtime/mmdetection-phase1-v1/runtime.json",
     "contracts/schemas/vision-job-lease-v2.schema.json",
-    "contracts/schemas/vision-result.schema.json",
+    "contracts/schemas/vision-job-complete-v2.schema.json",
     "contracts/schemas/worker-health-v2.schema.json",
 ]
 
@@ -124,7 +124,7 @@ def check_contracts(errors: list[str]) -> None:
 
     stems = [
         "vision-job-lease-request-v2", "vision-job-lease-v2", "vision-job-heartbeat-v2",
-        "vision-job-heartbeat-response-v2", "vision-job-fail-v2", "worker-health-v2", "vision-result",
+        "vision-job-heartbeat-response-v2", "vision-job-fail-v2", "vision-job-complete-v2", "worker-health-v2",
     ]
     pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:

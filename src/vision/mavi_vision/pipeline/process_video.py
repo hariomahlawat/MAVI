@@ -48,19 +48,14 @@ class _TrackAccumulator:
     start_offset_ms: int
     end_offset_ms: int
     confidence_sum: float = 0.0
+    max_confidence: float = 0.0
     observation_count: int = 0
     trajectory: list[TrajectoryPoint] = field(default_factory=list)
     representative: _RepresentativeCandidate | None = None
 
 
 class VideoProcessor:
-    """Deterministic Task-9 orchestration for exactly one leased job attempt.
-
-    Lease ownership is represented by a shared ``LeaseGuard`` rather than scattered
-    boolean cancellation callbacks. CPU-only track preparation is separated from
-    filesystem publication, and all artifacts are written through the guarded
-    ``ArtifactPublisher`` into this processor's attempt-scoped staging namespace.
-    """
+    """Deterministic, model-independent processing for one leased job attempt."""
 
     def __init__(
         self,
@@ -88,8 +83,6 @@ class VideoProcessor:
         ):
             raise VideoProcessingError("pipeline_configuration_invalid")
 
-        # Startup cleanup is confined to this exact attempt, but it is still a
-        # mutation. Never perform it once ownership is known to be lost or expired.
         lease_guard.check_owned()
         try:
             self._artifact_store.cleanup()
@@ -133,6 +126,10 @@ class VideoProcessor:
 
                         accumulator.end_offset_ms = frame.offset_ms
                         accumulator.confidence_sum += candidate.confidence
+                        accumulator.max_confidence = max(
+                            accumulator.max_confidence,
+                            candidate.confidence,
+                        )
                         accumulator.observation_count += 1
                         bbox = candidate.bounding_box
                         accumulator.trajectory.append(
@@ -158,8 +155,6 @@ class VideoProcessor:
                                 crop=self._crop_rgb(frame, bbox),
                             )
         except SourceSnapshotCancelled as exc:
-            # Snapshot cancellation is the source-integrity layer's cooperative
-            # representation of lease loss. Normalize it to the ownership exception.
             raise LeaseLostError() from exc
         except LeaseLostError:
             raise
@@ -170,9 +165,6 @@ class VideoProcessor:
             try:
                 self._cleanup_best_effort(lease_guard)
             except LeaseLostError:
-                # Runtime health is independent of lease authority. Never mutate
-                # staging after ownership loss, but preserve the dependency signal
-                # so the local supervisor can classify/recover the runtime.
                 pass
             raise
         except VideoReadError as exc:
@@ -192,17 +184,13 @@ class VideoProcessor:
                 lease_guard.check_owned()
                 accumulator = tracks[track_id]
                 representative = accumulator.representative
-
-                # Preparation is pure CPU work. If ownership expires during encoding
-                # or serialization, the following guard prevents publication. The
-                # low-level store then checks the same guard again immediately before
-                # each atomic destination replacement.
                 prepared = prepare_track(
                     track_id=track_id,
                     object_class=accumulator.object_class,
                     start_offset_ms=accumulator.start_offset_ms,
                     end_offset_ms=accumulator.end_offset_ms,
                     confidence_sum=accumulator.confidence_sum,
+                    max_confidence=accumulator.max_confidence,
                     observation_count=accumulator.observation_count,
                     representative=(
                         None if representative is None else representative.observation
@@ -223,17 +211,11 @@ class VideoProcessor:
                 tracks=tuple(processed_tracks),
             )
         except LeaseLostError:
-            # Never cleanup after ownership loss. This attempt is structurally
-            # isolated from replacements, and leaving its private subtree is safer
-            # than mutating shared filesystem state as a stale worker.
             raise
         except ProcessingDependencyError:
             try:
                 self._cleanup_best_effort(lease_guard)
             except LeaseLostError:
-                # Preserve local runtime-health classification while refusing stale
-                # cleanup. WorkerRunner still applies lease precedence before any
-                # terminal control-plane mutation.
                 pass
             raise
         except VideoProcessingError:
@@ -278,9 +260,6 @@ class VideoProcessor:
         return np.ascontiguousarray(crop.copy(), dtype=np.uint8)
 
     def _cleanup_best_effort(self, lease_guard: LeaseGuard) -> None:
-        # Lease loss takes precedence over any concurrent processing error. The guard
-        # is checked immediately at the mutation boundary so a stale worker never
-        # cleans even its own attempt after authority has been lost.
         lease_guard.check_owned()
         try:
             self._artifact_store.cleanup()

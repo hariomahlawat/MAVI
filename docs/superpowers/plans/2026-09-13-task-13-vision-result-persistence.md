@@ -298,29 +298,44 @@ This gives deterministic local numbering without adding another arbitrary Python
 
 ## 9. Artifact retention model
 
-### 9.1 Do not move accepted artifacts during completion
+### 9.1 Worker staging is never authoritative evidence
 
-Task 9/10 already securely publishes artifacts beneath:
+Task 9/10 securely publishes worker output beneath:
 
 ```text
 staging/{jobId}/attempt-{attemptCount:0000}/...
 ```
 
-Task 13 shall not rename or copy those files into another namespace during the database completion transaction.
+Those paths remain worker-writable and therefore must not be referenced by authoritative `Artifact` rows after completion.
 
-Moving files and committing PostgreSQL cannot be made one atomic transaction; introducing such a move creates filesystem/DB split-brain failure modes.
+### 9.2 Seal accepted evidence into a platform-owned root
 
-### 9.2 Durable evidence in place
+Before creating authoritative intelligence, the platform shall stream each accepted staging artifact exactly once into a separate platform-owned evidence root while simultaneously verifying the expected byte length and lowercase SHA-256.
 
-For a successful accepted attempt:
+The accepted logical key is deterministic and attempt-scoped, for example:
 
-> The immutable attempt-scoped artifact becomes durable evidence in place when the authoritative PostgreSQL transaction commits an `Artifact` row referencing its verified storage key.
+```text
+evidence/{jobId}/attempt-{attemptCount:0000}/thumbnails/{trackId}-{sha256}.jpg
+evidence/{jobId}/attempt-{attemptCount:0000}/trajectories/{trackId}-{sha256}.msgpack
+```
 
-The word `staging` therefore describes creation isolation, not the eventual retention status of an accepted artifact.
+Publication into the evidence root is create-once and never overwrites an existing accepted key. A pre-existing accepted object is reusable only when its exact size and SHA-256 match the expected facts.
 
-### 9.3 Abandoned-attempt cleanup
+Production deployment must grant the Python worker no write access to the accepted-evidence root.
 
-Garbage collection of unaccepted attempt directories is explicitly out of scope for Task 13 and may be designed separately after successful result persistence is proven.
+### 9.3 Database atomicity and orphaned sealed evidence
+
+Filesystem publication and PostgreSQL commit cannot form one distributed transaction. Task 13 therefore uses the safer failure direction:
+
+- PostgreSQL never commits a reference to mutable staging bytes;
+- evidence is sealed before the DB graph references it;
+- a normal request failure after one or more new seals must compensate by removing every accepted-evidence object created by that completion invocation;
+- a pre-existing identical accepted object is never owned by the current invocation and must never be removed by compensation;
+- once PostgreSQL commit has succeeded, accepted evidence is retained permanently by this lifecycle;
+- if final commit outcome is indeterminate, evidence is retained rather than risking deletion of an object that may already be referenced;
+- no committed row may reference a missing or mutable accepted object.
+
+A later garbage collector may reclaim crash/power-loss/indeterminate-commit leftovers and abandoned staging attempts, but normal validation, sealing and pre-commit persistence failures must not create unbounded permanent evidence growth.
 
 ---
 
@@ -546,9 +561,9 @@ BEGIN
   validate lease + attempt + lifecycle
   load ProcessingRun + VideoAsset
   validate full result
-  verify all artifact bytes
+  seal + verify all artifact bytes into platform-owned evidence storage
 
-  create Artifact entities
+  create Artifact entities using sealed evidence keys
   create Track entities
   create representative Observation entities
 
@@ -789,6 +804,77 @@ Artifacts                   = thumbnail + trajectory per track
 runtime provenance          = present
 ```
 
+
+### 20.9 Final hardening invariants and shared conformance corpus
+
+The final Task-13 close-out shall treat the following as protocol/security invariants, not review-specific patches.
+
+#### Exact integer semantics
+
+Every completion field whose contract type is integer shall be interpreted from the JSON number token by exact mathematical value.
+
+- integer lexical forms such as `1`, `1.0`, `1.000` and `1e0` are acceptable only when their exact mathematical value is integral and within the declared Int32/Int64 wire range;
+- a non-integral value shall never become acceptable through binary floating-point rounding;
+- values such as `1.000000000000000000000000000001` are invalid for integer fields;
+- values above 2^53 remain exact for acceptance/rejection decisions;
+- JSON Schema, Python/Pydantic and .NET shall agree on every corpus vector.
+
+#### Provenance edge-character semantics
+
+The completion contract shall own one explicit leading/trailing code-point rule for provenance identity/detail strings.
+
+- JSON Schema `\\s` / `\\S`, Python `.strip()`, and .NET `Trim()` shall not independently define the wire rule;
+- U+0000 remains prohibited anywhere;
+- exceptional code points whose classifications differ by runtime, including U+0085 and U+FEFF, shall have explicit expected outcomes;
+- the same code-point corpus shall be exercised against Schema, Python and .NET.
+
+#### Bounded evidence sealing
+
+Declared artifact size is an enforcement boundary as well as an integrity fact.
+
+- reject descriptors that exceed the configured per-artifact policy before copying;
+- validate the aggregate declared evidence size for a completion before sealing;
+- while sealing, read/write at most the declared size plus one probe byte;
+- abort immediately on the first byte beyond the declared size;
+- never copy an entire oversized/sparse source merely to discover that its final size is invalid;
+- temporary accepted-evidence files shall be removed on every failed seal;
+- every successful seal reports whether the accepted object was newly created by that invocation or was a pre-existing idempotent object;
+- a failed completion compensates all newly created accepted objects before returning/propagating the failure;
+- compensation never deletes pre-existing idempotent accepted objects;
+- Stream.Length/file metadata may be used only as an optimization, never as the sole security authority.
+
+#### Shared adversarial conformance corpus
+
+Maintain checked-in accepted/rejected vectors covering at minimum:
+
+- integer lexical encodings and Int32/Int64 boundaries;
+- numbers above 2^53;
+- infinitesimally non-integral decimals;
+- extreme exponent forms, including zero mantissas whose exponent is outside normal Decimal implementation limits;
+- provenance leading/trailing Unicode edge characters and U+0000;
+- verified/unverified provenance dependency combinations;
+- artifact declared-size boundary, first-byte overflow, per-artifact maximum and aggregate maximum.
+
+The corpus shall be consumed by JSON Schema tests, Python/Pydantic tests and .NET contract/validation tests wherever the invariant applies. A future cross-language/security-sensitive contract shall define this corpus during planning rather than relying on review to discover semantic gaps.
+
+### 20.10 Final close-out order
+
+Task-13 implementation shall close in this order:
+
+1. update/freeze these hardening invariants;
+2. implement all remaining bounded fixes and shared adversarial tests;
+3. run focused contract/evidence/provenance tests;
+4. run full Quality Gate, Staging Security and Runtime Qualification;
+5. obtain a targeted review of the remediated findings;
+6. obtain one final broad Critical/P1/P2 implementation review;
+7. freeze the exact implementation SHA;
+8. generate deterministic artifacts and perform Task-12 lock/metadata rebind;
+9. run final Offline Bundle and exact-head qualification;
+10. merge with expected-head protection and clean the Task-13 branch.
+
+No Task-12 lock/bundle metadata shall be rebound before the implementation SHA is frozen.
+
+
 ---
 
 ## 21. Expected files
@@ -927,8 +1013,8 @@ Task 13 is complete only when all of the following are true:
 4. Successful worker attempts call `/complete`, not the placeholder failure.
 5. Stale/expired/reclaimed attempts cannot complete.
 6. Current-attempt artifact namespace is enforced.
-7. Every accepted evidence artifact is verified for size and SHA-256.
-8. Tracks, representative observations and artifacts are authoritative only after PostgreSQL commit.
+7. Every accepted evidence artifact is verified for size and SHA-256, and sealing is resource-bounded: per-artifact/aggregate policy is enforced before publication and copying stops on the first byte beyond the declared size.
+8. Tracks, representative observations and artifacts are authoritative only after PostgreSQL commit; authoritative Artifact rows reference only platform-owned sealed evidence keys, never worker staging.
 9. Completion is atomic: no partial intelligence survives a failed transaction.
 10. Exact duplicate completion retry is idempotent.
 11. ProcessingRun, VisionJob and VideoAsset finish in mutually consistent successful states.
@@ -937,8 +1023,9 @@ Task 13 is complete only when all of the following are true:
 14. All existing Task-9/10 artifact-security and lease tests remain green.
 15. Task-11 runtime supervisor/recovery tests remain green.
 16. Task-12 runtime qualification and offline bundle gates remain green after required artifact/metadata rebind.
-17. Final exact-head review has no unresolved Critical/P1/P2 implementation findings.
-18. PR is merged with expected-head protection and repository branch state is cleaned.
+17. JSON Schema, Python/Pydantic and .NET pass the same adversarial conformance corpus for exact integer semantics and provenance edge-character semantics.
+18. Final exact-head review has no unresolved Critical/P1/P2 implementation findings.
+19. PR is merged with expected-head protection and repository branch state is cleaned.
 
 ---
 
@@ -952,3 +1039,63 @@ After Task 13 merges:
 - **Task 17** performs final Phase-1 end-to-end hardening, remaining real/offline qualification, ground truth and acceptance.
 
 Do not start Task 14 implementation until Task 13's merged exact head and authoritative persistence behavior are verified.
+
+
+---
+
+## Final adversarial subsystem audit before implementation freeze
+
+Task 13 shall not be frozen by reacting only to reviewer comments. Before the implementation SHA is frozen, the complete completion/persistence subsystem must be audited against the following invariants and the corresponding adversarial tests.
+
+### A. Capability-first lock discipline
+
+After the authoritative `VisionJob` row is locked, cheap identity/capability/lifecycle checks must execute before full result validation, canonicalization, sorting, serialization, hashing, evidence I/O, or graph construction. An invalid lease capability must not be able to hold the job row lock while expensive result work is performed.
+
+### B. Crash-consistent evidence namespace
+
+On Linux, every directory entry from the configured evidence root through the accepted object's parent must be re-synchronized on each sealing attempt, including already-visible ancestors that may have survived a previous failed `fsync`. Visibility is not proof of durability.
+
+Once the accepted destination name has been durably linked, cleanup of the temporary publication name is housekeeping only. Failure to remove or synchronize removal of that temporary name must never cause the accepted object to be reported as unpublished or lose `CreatedNew` ownership. Temporary-name cleanup is best-effort and must not strand authoritative ownership outside normal compensation.
+
+### C. Structurally unambiguous completion digest
+
+The completion digest is an idempotency identity, not a loose concatenation. Canonical hashing must include:
+- a digest-format/version domain separator;
+- explicit collection counts for variable-length collections;
+- explicit presence markers for optional structured values such as GPU identity;
+- framed scalar values;
+- deterministic ordinal ordering for maps and tracks.
+
+No sentinel string may encode absence where the same literal can be supplied as data.
+
+### D. Bounded nested contract collections
+
+Collections nested inside the completion payload must have explicit protocol limits in JSON Schema, Python/Pydantic, and .NET model binding. In particular:
+- `tracks` remains capped at the Task-13 track limit;
+- `dependencyVersions` has a finite property-count limit;
+- `pythonBuild` is rejected during binding if it contains more than the canonical two elements.
+
+These limits must apply before application-layer validation wherever practical.
+
+### E. Cross-runtime finite numeric envelope
+
+Every positive floating-point provenance field must have one finite, shared representable envelope across JSON Schema, Python, and .NET. Values that overflow to infinity or underflow to zero in binary64 must be rejected by the published schema as well as both runtimes.
+
+### F. Internal analytical consistency
+
+For any non-empty track result:
+- `detectionCount <= framesProcessed`;
+- representative `sourceFrameNumber < framesProcessed`;
+- the bounding box must remain valid after conversion to the persisted float representation, not merely in the incoming double representation.
+
+The authoritative platform must reject analytically impossible metadata rather than relying on the worker to be well behaved.
+
+### G. Release stopping rule
+
+The implementation SHA may be frozen only when:
+1. all definite Critical/P1/P2-equivalent defects found by this internal audit are closed;
+2. all material invariant gaps above have deterministic regression coverage;
+3. Quality, Staging Security and Runtime Qualification are green on the exact implementation SHA;
+4. one broad independent review of that exact SHA reports no remaining material blocker.
+
+Only after that freeze may Task-12 deterministic wheel/lock/metadata rebind occur.

@@ -8,6 +8,7 @@ from uuid import UUID
 
 
 _SHA256_PATTERN = r"[0-9a-f]{64}"
+_TRACK_ID_PATTERN = r"[a-z0-9][a-z0-9._-]{0,63}"
 _STORAGE_SEGMENT_PATTERN = r"[^/\\]+"
 
 
@@ -22,7 +23,7 @@ def _require_unit_interval(value: float, name: str) -> None:
 
 
 def _validate_storage_key(value: str) -> None:
-    if not value or value.startswith(("/", "\\")) or "\\" in value:
+    if not value or len(value) > 512 or value.startswith(("/", "\\")) or "\\" in value:
         raise ValueError("artifact_storage_key_invalid")
     parts = value.split("/")
     if any(part in {"", ".", ".."} for part in parts):
@@ -107,20 +108,31 @@ class ProcessedTrack:
     object_class: ObjectClass
     start_offset_ms: int
     end_offset_ms: int
-    confidence: float
+    detection_count: int
+    mean_confidence: float
+    max_confidence: float
     representative: RepresentativeObservation
     trajectory: tuple[TrajectoryPoint, ...]
     thumbnail: ArtifactDescriptor
     trajectory_artifact: ArtifactDescriptor
 
     def __post_init__(self) -> None:
-        if not self.track_id or len(self.track_id) > 64:
+        if fullmatch(_TRACK_ID_PATTERN, self.track_id) is None:
             raise ValueError("track_id_invalid")
         if self.start_offset_ms < 0 or self.end_offset_ms < self.start_offset_ms:
             raise ValueError("track_offsets_invalid")
-        _require_unit_interval(self.confidence, "track_confidence")
+        if self.detection_count <= 0:
+            raise ValueError("track_detection_count_invalid")
+        _require_unit_interval(self.mean_confidence, "track_mean_confidence")
+        _require_unit_interval(self.max_confidence, "track_max_confidence")
+        if self.mean_confidence > self.max_confidence:
+            raise ValueError("track_confidence_order_invalid")
+        if self.representative.confidence > self.max_confidence:
+            raise ValueError("representative_confidence_exceeds_track_max")
         if not self.trajectory:
             raise ValueError("trajectory_required")
+        if len(self.trajectory) != self.detection_count:
+            raise ValueError("trajectory_detection_count_mismatch")
         offsets = [point.offset_ms for point in self.trajectory]
         if any(current <= previous for previous, current in zip(offsets, offsets[1:])):
             raise ValueError("trajectory_offsets_not_monotonic")
@@ -128,6 +140,11 @@ class ProcessedTrack:
             raise ValueError("trajectory_offsets_outside_track")
         if not self.start_offset_ms <= self.representative.offset_ms <= self.end_offset_ms:
             raise ValueError("representative_outside_track")
+
+    @property
+    def confidence(self) -> float:
+        """Backward-compatible read alias for the historical mean-confidence field."""
+        return self.mean_confidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,5 +154,12 @@ class VisionProcessingResult:
     tracks: tuple[ProcessedTrack, ...]
 
     def __post_init__(self) -> None:
+        if self.job_id.int == 0:
+            raise ValueError("job_id_invalid")
         if self.frames_processed < 0:
             raise ValueError("frames_processed_invalid")
+        if self.frames_processed == 0 and self.tracks:
+            raise ValueError("tracks_require_processed_frames")
+        track_ids = tuple(track.track_id for track in self.tracks)
+        if len(track_ids) != len(set(track_ids)):
+            raise ValueError("track_id_duplicate")

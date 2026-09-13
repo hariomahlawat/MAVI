@@ -1,4 +1,5 @@
 using Mavi.Api.Endpoints;
+using Mavi.Api.Middleware;
 using Mavi.Application.Health;
 using Mavi.Application;
 using Mavi.Application.Modules.Media;
@@ -25,6 +26,7 @@ builder.Services.Configure<FormOptions>(options =>
 });
 
 var app = builder.Build();
+app.UseVisionCompletionRequestLimits();
 
 app.MapGet("/api/health", () =>
 {

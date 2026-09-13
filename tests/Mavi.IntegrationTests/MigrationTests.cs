@@ -157,6 +157,35 @@ public sealed class MigrationTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task VisionResultCompletionMigrationAddsProvenanceAndDigestGuardrail()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var db = fixture.CreateDbContext();
+        await db.Database.MigrateAsync();
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+
+        await using (var provenance = new NpgsqlCommand(
+            "SELECT data_type FROM information_schema.columns WHERE table_name='processing_runs' AND column_name='runtime_provenance_json';",
+            connection))
+            Assert.Equal("jsonb", await provenance.ExecuteScalarAsync());
+
+        await using (var digest = new NpgsqlCommand(
+            "SELECT data_type FROM information_schema.columns WHERE table_name='vision_jobs' AND column_name='completion_digest';",
+            connection))
+            Assert.Equal("character varying", await digest.ExecuteScalarAsync());
+
+        await using (var constraint = new NpgsqlCommand(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='ck_vision_jobs_completion_digest';",
+            connection))
+        {
+            var definition = Assert.IsType<string>(await constraint.ExecuteScalarAsync());
+            Assert.Contains("^[0-9a-f]{64}$", definition, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task HardenedLeaseMigrationCreatesHashConstraintAndExpiryIndex()
     {
         await fixture.ResetDatabaseAsync();
@@ -234,6 +263,11 @@ public sealed class MigrationTests(PostgresFixture fixture)
         Assert.Contains("status", indexDefinition, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Leased", indexDefinition, StringComparison.Ordinal);
         await reader.DisposeAsync();
+
+        // Bring the historical fixture forward to today's model before exercising
+        // today's orchestrator. The assertions above remain scoped to the hardened
+        // lease migration itself.
+        await db.Database.MigrateAsync();
 
         // Operational acceptance: the current v2 orchestrator must reclaim the invalidated legacy lease.
         var startedAtUtc = new DateTimeOffset(2026, 9, 9, 0, 0, 0, TimeSpan.Zero);

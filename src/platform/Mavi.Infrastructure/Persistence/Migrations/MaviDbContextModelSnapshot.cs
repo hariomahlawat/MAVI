@@ -570,6 +570,10 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("configuration_json");
 
+                    b.Property<string>("RuntimeProvenanceJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("runtime_provenance_json");
+
                     b.Property<string>("DetectorName")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
@@ -677,6 +681,11 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("completed_at_utc");
 
+                    b.Property<string>("CompletionDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("completion_digest");
+
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
@@ -742,6 +751,8 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     b.ToTable("vision_jobs", null, t =>
                         {
                             t.HasCheckConstraint("ck_vision_jobs_attempts", "attempt_count >= 0");
+
+                            t.HasCheckConstraint("ck_vision_jobs_completion_digest", "completion_digest IS NULL OR completion_digest ~ '^[0-9a-f]{64}$'");
 
                             t.HasCheckConstraint("ck_vision_jobs_lease_token_hash", "lease_token_hash IS NULL OR octet_length(lease_token_hash) = 32");
 

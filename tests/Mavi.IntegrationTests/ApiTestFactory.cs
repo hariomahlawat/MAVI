@@ -12,6 +12,7 @@ namespace Mavi.IntegrationTests;
 public sealed class ApiTestFactory : WebApplicationFactory<Program>
 {
     private readonly string _mediaRoot = Path.Combine(Path.GetTempPath(), $"mavi-api-media-{Guid.NewGuid():N}");
+    private readonly string _evidenceRoot = Path.Combine(Path.GetTempPath(), $"mavi-api-evidence-{Guid.NewGuid():N}");
 
     // Configuration
     public ApiTestFactory()
@@ -24,7 +25,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
 
     public string ConnectionString { get; }
     public string MediaRoot => _mediaRoot;
+    public string EvidenceRoot => _evidenceRoot;
     public TimeProvider Clock { get; init; } = TimeProvider.System;
+    public Action<DbContextOptionsBuilder>? ConfigureDbContext { get; init; }
+    public Action<IServiceCollection>? OverrideServices { get; init; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -36,6 +40,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
             {
                 ["ConnectionStrings:Mavi"] = ConnectionString,
                 ["MediaStorage:RootPath"] = _mediaRoot,
+                ["MediaStorage:EvidenceRootPath"] = _evidenceRoot,
                 ["MediaProcessing:FfprobePath"] = "ffprobe",
                 ["MediaProcessing:FfmpegPath"] = "ffmpeg",
                 ["MediaProcessing:ProbeTimeoutSeconds"] = "30",
@@ -49,7 +54,11 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
             services.AddSingleton(Clock);
             services.RemoveAll<DbContextOptions<MaviDbContext>>();
             services.AddDbContext<MaviDbContext>(options =>
-                options.UseNpgsql(ConnectionString, npgsql => npgsql.UseVector()));
+            {
+                options.UseNpgsql(ConnectionString, npgsql => npgsql.UseVector());
+                ConfigureDbContext?.Invoke(options);
+            });
+            OverrideServices?.Invoke(services);
         });
     }
 
@@ -57,6 +66,12 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     {
         base.Dispose(disposing);
         if (disposing && Directory.Exists(_mediaRoot)) Directory.Delete(_mediaRoot, true);
+        if (disposing && Directory.Exists(_evidenceRoot))
+        {
+            foreach (var file in Directory.GetFiles(_evidenceRoot, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
+            Directory.Delete(_evidenceRoot, true);
+        }
     }
 
     // Database lifecycle

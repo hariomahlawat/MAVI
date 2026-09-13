@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Mavi.Contracts.Worker;
 using Mavi.Domain.Cameras;
 using Mavi.Domain.Media;
@@ -24,6 +25,22 @@ public sealed class WorkerContractV2Tests
 
         Assert.Equal("2.0", contract.SchemaVersion);
         Assert.Equal("gpu-sdd-01", contract.WorkerId);
+        Assert.True(JsonElement.DeepEquals(expected.RootElement, actual.RootElement));
+    }
+
+    [Fact]
+    public void CanonicalCompletionExampleRoundTripsThroughPublicContract()
+    {
+        var path = Path.Combine(FindRepositoryRoot(), "contracts/examples/vision-job-complete-v2.example.json");
+        using var expected = JsonDocument.Parse(File.ReadAllText(path));
+        var contract = JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+            expected.RootElement.GetRawText(),
+            JsonOptions())!;
+        using var actual = JsonDocument.Parse(JsonSerializer.Serialize(contract, JsonOptions()));
+
+        Assert.Equal("2.0", contract.SchemaVersion);
+        Assert.Equal("gpu-sdd-01", contract.WorkerId);
+        Assert.Single(contract.Tracks!);
         Assert.True(JsonElement.DeepEquals(expected.RootElement, actual.RootElement));
     }
 
@@ -103,6 +120,147 @@ public sealed class WorkerContractV2Tests
             Assert.True((int)response.StatusCode is >= 400 and < 500,
                 $"Vector '{name}' returned unexpected HTTP {(int)response.StatusCode}.");
         }
+    }
+
+    [Fact]
+    public async Task CompletionRequestOverDedicatedBodyLimitIsRejectedBeforeBinding()
+    {
+        using var factory = new ApiTestFactory();
+        using var client = factory.CreateClient();
+        using var content = new StringContent("{}", Encoding.UTF8, "application/json");
+        content.Headers.ContentLength = WorkerContractRules.MaximumCompletionRequestBodyBytes + 1;
+
+        using var response = await client.PostAsync(
+            $"/api/vision/jobs/{Guid.CreateVersion7()}/complete",
+            content);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+    }
+
+    [Fact]
+    public void CompletionTrackCollectionIsBoundedDuringJsonBinding()
+    {
+        var tracks = string.Join(',', Enumerable.Repeat("{}", WorkerContractRules.MaximumCompletionTracks + 1));
+        var json = "{\"schemaVersion\":\"2.0\",\"tracks\":[" + tracks + "]}";
+
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<VisionJobCompleteRequest>(json, JsonOptions()));
+    }
+
+    [Fact]
+    public void CompletionDependencyVersionsAreBoundedDuringJsonBinding()
+    {
+        var path = Path.Combine(
+            FindRepositoryRoot(),
+            "contracts/examples/vision-job-complete-v2.example.json");
+        var payload = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        var dependencies = new JsonObject();
+        for (var index = 0; index < WorkerContractRules.MaximumCompletionDependencyVersions; index++)
+            dependencies[$"dep{index:D3}"] = "1";
+        dependencies["trackers"] = "2.6.0";
+        payload["provenance"]!["dependencyVersions"] = dependencies;
+
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+                payload.ToJsonString(),
+                JsonOptions()));
+    }
+
+    [Fact]
+    public void CompletionPythonBuildIsBoundedDuringJsonBinding()
+    {
+        var path = Path.Combine(
+            FindRepositoryRoot(),
+            "contracts/examples/vision-job-complete-v2.example.json");
+        var payload = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        payload["provenance"]!["platform"]!["pythonBuild"] =
+            new JsonArray("main", "Sep 2026", "unexpected");
+
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+                payload.ToJsonString(),
+                JsonOptions()));
+    }
+
+    [Fact]
+    public void CompletionIntegralNumbersAcceptMathematicallyIntegralJsonNumbers()
+    {
+        var path = Path.Combine(FindRepositoryRoot(), "contracts/examples/vision-job-complete-v2.example.json");
+        var payload = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        payload["attemptCount"] = 1.0;
+        payload["framesProcessed"] = 3.0;
+        payload["processingDurationMs"] = 1250.0;
+        payload["tracks"]![0]!["detectionCount"] = 3.0;
+        payload["tracks"]![0]!["startOffsetMs"] = 0.0;
+        payload["tracks"]![0]!["endOffsetMs"] = 80.0;
+        payload["tracks"]![0]!["representative"]!["offsetMs"] = 40.0;
+        payload["tracks"]![0]!["representative"]!["sourceFrameNumber"] = 1.0;
+
+        var contract = JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+            payload.ToJsonString(),
+            JsonOptions());
+
+        Assert.NotNull(contract);
+        Assert.Equal(1, contract.AttemptCount);
+        Assert.Equal(3, contract.Tracks![0].DetectionCount);
+    }
+
+    [Fact]
+    public void CompletionIntegerConformanceCorpusMatchesDotNet()
+    {
+        var root = FindRepositoryRoot();
+        var examplePath = Path.Combine(root, "contracts/examples/vision-job-complete-v2.example.json");
+        var vectorsPath = Path.Combine(root, "contracts/test-vectors/vision-job-complete-v2-conformance.json");
+        var example = JsonNode.Parse(File.ReadAllText(examplePath))!.AsObject();
+        using var vectors = JsonDocument.Parse(File.ReadAllText(vectorsPath));
+
+        foreach (var vector in vectors.RootElement.GetProperty("integerCases").EnumerateArray())
+        {
+            var name = vector.GetProperty("name").GetString()!;
+            var field = vector.GetProperty("field").GetString()!;
+            var token = vector.GetProperty("token").GetString()!;
+            var accepted = vector.GetProperty("accepted").GetBoolean();
+
+            var raw = example.ToJsonString();
+            var pattern =
+                $"(\\\"{Regex.Escape(field)}\\\"\\s*:\\s*)" +
+                @"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?";
+            var matches = Regex.Matches(raw, pattern, RegexOptions.CultureInvariant);
+            Assert.Single(matches);
+            raw = Regex.Replace(
+                raw,
+                pattern,
+                match => match.Groups[1].Value + token,
+                RegexOptions.CultureInvariant,
+                TimeSpan.FromSeconds(1));
+
+            var succeeded = true;
+            try
+            {
+                JsonSerializer.Deserialize<VisionJobCompleteRequest>(raw, JsonOptions());
+            }
+            catch (JsonException)
+            {
+                succeeded = false;
+            }
+
+            Assert.True(
+                succeeded == accepted,
+                $"Conformance vector '{name}' expected accepted={accepted} but .NET accepted={succeeded}.");
+        }
+    }
+
+    [Fact]
+    public void CompletionIntegralNumbersRejectFractions()
+    {
+        var path = Path.Combine(FindRepositoryRoot(), "contracts/examples/vision-job-complete-v2.example.json");
+        var payload = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        payload["attemptCount"] = 1.5;
+
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+                payload.ToJsonString(),
+                JsonOptions()));
     }
 
     [Theory]

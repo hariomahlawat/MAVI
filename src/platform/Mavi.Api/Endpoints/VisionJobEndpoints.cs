@@ -13,6 +13,7 @@ public static class VisionJobEndpoints
         jobs.MapPost("/lease", LeaseAsync);
         jobs.MapPost("/{id:guid}/heartbeat", HeartbeatAsync);
         jobs.MapPost("/{id:guid}/fail", FailAsync);
+        jobs.MapPost("/{id:guid}/complete", CompleteAsync);
         return endpoints;
     }
 
@@ -57,6 +58,43 @@ public static class VisionJobEndpoints
             return Problem(400, "vision_job_failure_invalid", "Failure input is invalid.");
         var result = await orchestrator.FailAsync(id, workerId, request.LeaseToken!, request.FailureCode, request.FailureMessage, cancellationToken);
         return Result(result);
+    }
+
+    private static async Task<IResult> CompleteAsync(
+        Guid id,
+        VisionJobCompleteRequest request,
+        IProcessingResultStore resultStore,
+        CancellationToken cancellationToken)
+    {
+        if (request.SchemaVersion != WorkerContractRules.SchemaVersion) return VersionProblem();
+        if (!WorkerContractRules.TryNormalizeWorkerId(request.WorkerId, out var workerId)) return WorkerProblem();
+        if (!WorkerContractRules.IsCanonicalLeaseToken(request.LeaseToken))
+            return Problem(400, "vision_job_completion_invalid", "Completion input is invalid.");
+
+        var result = await resultStore.CompleteAsync(
+            id,
+            workerId,
+            request.LeaseToken!,
+            request,
+            cancellationToken);
+
+        if (result.IsSuccess)
+        {
+            return Results.Ok(new VisionJobCompleteResponse(
+                WorkerContractRules.SchemaVersion,
+                id,
+                result.ProcessingRunId!.Value,
+                result.TracksAccepted,
+                result.CompletedAtUtc!.Value));
+        }
+
+        var status = result.ErrorCode switch
+        {
+            "vision_job_not_found" => 404,
+            "vision_result_invalid" => 400,
+            _ => 409,
+        };
+        return Problem(status, result.ErrorCode!, "The vision job completion was rejected.");
     }
 
     // Public mapping and safe errors

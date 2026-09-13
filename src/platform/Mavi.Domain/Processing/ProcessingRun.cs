@@ -4,7 +4,6 @@ namespace Mavi.Domain.Processing;
 
 public sealed class ProcessingRun
 {
-    // Construction
     private ProcessingRun() { }
 
     public static ProcessingRun Create(Guid videoAssetId, string pipelineVersion, string configurationJson, DateTimeOffset nowUtc)
@@ -14,17 +13,21 @@ public sealed class ProcessingRun
         if (string.IsNullOrWhiteSpace(configurationJson)) throw Invalid("processing_configuration_required");
         return new ProcessingRun
         {
-            Id = Guid.CreateVersion7(), VideoAssetId = videoAssetId, Status = ProcessingRunStatus.Queued,
-            PipelineVersion = pipelineVersion.Trim(), ConfigurationJson = configurationJson,
+            Id = Guid.CreateVersion7(),
+            VideoAssetId = videoAssetId,
+            Status = ProcessingRunStatus.Queued,
+            PipelineVersion = pipelineVersion.Trim(),
+            ConfigurationJson = configurationJson,
             QueuedAtUtc = nowUtc.ToUniversalTime(),
         };
     }
 
-    // State transitions
     public void MarkRunning(string workerId, DateTimeOffset startedAtUtc)
     {
         if (Status != ProcessingRunStatus.Queued || !WorkerIdRules.IsCanonical(workerId)) throw Invalid("processing_transition_invalid");
-        Status = ProcessingRunStatus.Running; WorkerId = workerId; StartedAtUtc = startedAtUtc.ToUniversalTime();
+        Status = ProcessingRunStatus.Running;
+        WorkerId = workerId;
+        StartedAtUtc = startedAtUtc.ToUniversalTime();
     }
 
     public void AssignLease(string workerId, DateTimeOffset nowUtc)
@@ -40,22 +43,74 @@ public sealed class ProcessingRun
         WorkerId = workerId;
     }
 
-    public void MarkCompleted(long framesProcessed, int tracksCreated, long durationMs, DateTimeOffset completedAtUtc)
+    public void MarkCompleted(long framesProcessed, int tracksCreated, long durationMs, DateTimeOffset completedAtUtc) =>
+        MarkCompletedCore(framesProcessed, tracksCreated, durationMs, null, null, null, null, null, completedAtUtc);
+
+    public void MarkCompleted(
+        long framesProcessed,
+        int tracksCreated,
+        long durationMs,
+        string detectorName,
+        string detectorVersion,
+        string trackerName,
+        string trackerVersion,
+        string runtimeProvenanceJson,
+        DateTimeOffset completedAtUtc)
     {
-        if (Status != ProcessingRunStatus.Running || framesProcessed < 0 || tracksCreated < 0 || durationMs < 0) throw Invalid("processing_transition_invalid");
-        Status = ProcessingRunStatus.Completed; FramesProcessed = framesProcessed; TracksCreated = tracksCreated;
-        ProcessingDurationMs = durationMs; CompletedAtUtc = completedAtUtc.ToUniversalTime();
+        if (!ValidIdentity(detectorName) || !ValidIdentity(detectorVersion) ||
+            !ValidIdentity(trackerName) || !ValidIdentity(trackerVersion) ||
+            string.IsNullOrWhiteSpace(runtimeProvenanceJson))
+            throw Invalid("processing_provenance_invalid");
+
+        MarkCompletedCore(
+            framesProcessed,
+            tracksCreated,
+            durationMs,
+            detectorName.Trim(),
+            detectorVersion.Trim(),
+            trackerName.Trim(),
+            trackerVersion.Trim(),
+            runtimeProvenanceJson,
+            completedAtUtc);
+    }
+
+    private void MarkCompletedCore(
+        long framesProcessed,
+        int tracksCreated,
+        long durationMs,
+        string? detectorName,
+        string? detectorVersion,
+        string? trackerName,
+        string? trackerVersion,
+        string? runtimeProvenanceJson,
+        DateTimeOffset completedAtUtc)
+    {
+        if (Status != ProcessingRunStatus.Running || framesProcessed < 0 || tracksCreated < 0 || durationMs < 0)
+            throw Invalid("processing_transition_invalid");
+
+        Status = ProcessingRunStatus.Completed;
+        FramesProcessed = framesProcessed;
+        TracksCreated = tracksCreated;
+        ProcessingDurationMs = durationMs;
+        DetectorName = detectorName;
+        DetectorVersion = detectorVersion;
+        TrackerName = trackerName;
+        TrackerVersion = trackerVersion;
+        RuntimeProvenanceJson = runtimeProvenanceJson;
+        CompletedAtUtc = completedAtUtc.ToUniversalTime();
     }
 
     public void MarkFailed(string errorCode, string? details, DateTimeOffset failedAtUtc)
     {
-        if (Status is ProcessingRunStatus.Completed or ProcessingRunStatus.Cancelled || string.IsNullOrWhiteSpace(errorCode)) throw Invalid("processing_transition_invalid");
+        if (Status is ProcessingRunStatus.Completed or ProcessingRunStatus.Cancelled || string.IsNullOrWhiteSpace(errorCode))
+            throw Invalid("processing_transition_invalid");
         if (errorCode.Length > 64 || details?.Length > 4000) throw Invalid("processing_failure_invalid");
-        Status = ProcessingRunStatus.Failed; ErrorCode = errorCode; ErrorDetails = details;
+        Status = ProcessingRunStatus.Failed;
+        ErrorCode = errorCode;
+        ErrorDetails = details;
         CompletedAtUtc = failedAtUtc.ToUniversalTime();
     }
 
-    // Properties
     public Guid Id { get; private set; }
     public Guid VideoAssetId { get; private set; }
     public ProcessingRunStatus Status { get; private set; }
@@ -65,6 +120,7 @@ public sealed class ProcessingRun
     public string? TrackerName { get; private set; }
     public string? TrackerVersion { get; private set; }
     public string ConfigurationJson { get; private set; } = string.Empty;
+    public string? RuntimeProvenanceJson { get; private set; }
     public string? WorkerId { get; private set; }
     public DateTimeOffset QueuedAtUtc { get; private set; }
     public DateTimeOffset? StartedAtUtc { get; private set; }
@@ -75,5 +131,6 @@ public sealed class ProcessingRun
     public string? ErrorCode { get; private set; }
     public string? ErrorDetails { get; private set; }
 
+    private static bool ValidIdentity(string value) => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= 128;
     private static DomainValidationException Invalid(string code) => new(code, "The processing run operation is invalid.");
 }

@@ -9,6 +9,7 @@ from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.pipeline.production_processor import ProductionVisionProcessor
 from mavi_vision.runtime.activity import InferenceActivity
 from mavi_vision.runtime.execution_lane import ProcessExecutor, VisionExecutionLane
+from mavi_vision.runtime.provenance import RuntimeProvenance
 from mavi_vision.runtime.supervisor import RuntimeState, RuntimeSupervisor
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.local_media_store import LocalMediaStore
@@ -32,6 +33,7 @@ def build_runner(
     watchdog_expired: Callable[[], bool] | None = None,
     watchdog_expiry_sink: Callable[[], None] | None = None,
     watchdog_grace_seconds: float | None = None,
+    runtime_provenance_provider: Callable[[], RuntimeProvenance | None] | None = None,
 ) -> WorkerRunner:
     """Compose the control-plane runner without granting it runtime ownership."""
     return WorkerRunner(
@@ -49,6 +51,7 @@ def build_runner(
             if watchdog_grace_seconds is None
             else watchdog_grace_seconds
         ),
+        runtime_provenance_provider=runtime_provenance_provider,
     )
 
 
@@ -172,6 +175,7 @@ async def _run_worker(
             watchdog_expired=supervisor.watchdog_expired,
             watchdog_expiry_sink=supervisor.report_watchdog_expiry,
             watchdog_grace_seconds=settings.watchdog_grace_seconds,
+            runtime_provenance_provider=lambda: supervisor.provenance,
         )
 
         return await supervised_loop(

@@ -4,26 +4,51 @@ namespace Mavi.Domain.Intelligence;
 
 public sealed class Observation
 {
-    // Construction
     private Observation() { }
 
-    public static Observation Create(Guid trackId, ObservationType observationType, long sourceFrameNumber,
-        long videoOffsetMs, DateTimeOffset recordingStartUtc, float x, float y, float width, float height,
-        double confidence, double qualityScore)
+    public static Observation Create(
+        Guid trackId,
+        ObservationType observationType,
+        long sourceFrameNumber,
+        long videoOffsetMs,
+        DateTimeOffset recordingStartUtc,
+        float x,
+        float y,
+        float width,
+        float height,
+        double confidence,
+        double qualityScore,
+        DateTimeOffset? createdAtUtc = null)
     {
-        if (trackId == Guid.Empty || sourceFrameNumber < 0 || videoOffsetMs < 0 || !BoxValid(x, y, width, height) || !InRange(confidence) || !InRange(qualityScore))
+        if (trackId == Guid.Empty || sourceFrameNumber < 0 || videoOffsetMs < 0 ||
+            !BoxValid(x, y, width, height) || !InRange(confidence) || !InRange(qualityScore))
             throw new DomainValidationException("observation_invalid", "The observation data is invalid.");
+
         return new Observation
         {
-            Id = Guid.CreateVersion7(), TrackId = trackId, ObservationType = observationType,
-            SourceFrameNumber = sourceFrameNumber, VideoOffsetMs = videoOffsetMs,
-            TimestampUtc = recordingStartUtc.ToUniversalTime().AddMilliseconds(videoOffsetMs), BoundingBoxX = x,
-            BoundingBoxY = y, BoundingBoxWidth = width, BoundingBoxHeight = height, Confidence = confidence,
-            QualityScore = qualityScore, CreatedAtUtc = DateTimeOffset.UtcNow,
+            Id = Guid.CreateVersion7(),
+            TrackId = trackId,
+            ObservationType = observationType,
+            SourceFrameNumber = sourceFrameNumber,
+            VideoOffsetMs = videoOffsetMs,
+            TimestampUtc = recordingStartUtc.ToUniversalTime().AddMilliseconds(videoOffsetMs),
+            BoundingBoxX = x,
+            BoundingBoxY = y,
+            BoundingBoxWidth = width,
+            BoundingBoxHeight = height,
+            Confidence = confidence,
+            QualityScore = qualityScore,
+            CreatedAtUtc = (createdAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime(),
         };
     }
 
-    // Properties
+    public void AttachThumbnailArtifact(Guid artifactId)
+    {
+        if (artifactId == Guid.Empty || (ThumbnailArtifactId.HasValue && ThumbnailArtifactId.Value != artifactId))
+            throw new DomainValidationException("observation_thumbnail_attachment_invalid", "Observation thumbnail attachment is invalid.");
+        ThumbnailArtifactId = artifactId;
+    }
+
     public Guid Id { get; private set; }
     public Guid TrackId { get; private set; }
     public ObservationType ObservationType { get; private set; }
@@ -41,6 +66,7 @@ public sealed class Observation
 
     private static bool BoxValid(float x, float y, float width, float height) =>
         float.IsFinite(x) && float.IsFinite(y) && float.IsFinite(width) && float.IsFinite(height) &&
-        x >= 0 && y >= 0 && width >= 0 && height >= 0 && x + width <= 1 && y + height <= 1;
+        x >= 0 && y >= 0 && width > 0 && height > 0 && x + width <= 1 && y + height <= 1;
+
     private static bool InRange(double value) => double.IsFinite(value) && value is >= 0 and <= 1;
 }

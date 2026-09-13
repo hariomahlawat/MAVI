@@ -28,6 +28,7 @@ public sealed class ConfigurationValidationTests
     // Invalid configuration
     [Theory]
     [InlineData("MediaStorage:RootPath", "")]
+    [InlineData("MediaStorage:EvidenceRootPath", "")]
     [InlineData("MediaProcessing:FfprobePath", " ")]
     [InlineData("MediaProcessing:ProbeTimeoutSeconds", "0")]
     [InlineData("MediaProcessing:ProbeTimeoutSeconds", "301")]
@@ -59,6 +60,56 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
+    public void OverlappingMediaAndEvidenceRootsAreRejected()
+    {
+        var sharedRoot = Path.Combine(Path.GetTempPath(), "mavi-config-overlap");
+        using var provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["MediaStorage:RootPath"] = sharedRoot,
+            ["MediaStorage:EvidenceRootPath"] = Path.Combine(sharedRoot, "evidence"),
+        });
+
+        Assert.Throws<OptionsValidationException>(() =>
+            _ = provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value);
+    }
+
+    [Fact]
+    public void LinkedEvidenceRootIsRejected()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"mavi-config-link-root-{Guid.NewGuid():N}");
+        var link = Path.Combine(Path.GetTempPath(), $"mavi-config-link-evidence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(link, root);
+            }
+            catch (Exception exception) when (
+                exception is PlatformNotSupportedException or UnauthorizedAccessException)
+            {
+                return;
+            }
+
+            using var provider = BuildProvider(new Dictionary<string, string?>
+            {
+                ["MediaStorage:RootPath"] = root,
+                ["MediaStorage:EvidenceRootPath"] = link,
+            });
+
+            Assert.Throws<OptionsValidationException>(() =>
+                _ = provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value);
+        }
+        finally
+        {
+            if (Directory.Exists(link))
+                Directory.Delete(link);
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public void ApplicationContractsDoNotExposePhysicalRootPath()
     {
         var applicationAssembly = typeof(VideoMetadata).Assembly;
@@ -82,7 +133,8 @@ public sealed class ConfigurationValidationTests
         var values = new Dictionary<string, string?>
         {
             ["ConnectionStrings:Mavi"] = "Host=localhost;Database=mavi_test;Username=postgres",
-            ["MediaStorage:RootPath"] = Path.GetTempPath(),
+            ["MediaStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "mavi-config-media"),
+            ["MediaStorage:EvidenceRootPath"] = Path.Combine(Path.GetTempPath(), "mavi-config-evidence"),
             ["MediaProcessing:FfprobePath"] = "ffprobe",
             ["MediaProcessing:FfmpegPath"] = "ffmpeg",
             ["MediaProcessing:ProbeTimeoutSeconds"] = "30",
