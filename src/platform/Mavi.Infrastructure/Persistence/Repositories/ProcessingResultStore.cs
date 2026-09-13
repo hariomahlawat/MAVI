@@ -19,6 +19,19 @@ public sealed class ProcessingResultStore(
     IAcceptedEvidenceStore acceptedEvidenceStore,
     ILogger<ProcessingResultStore> logger) : IProcessingResultStore
 {
+    private static readonly Action<ILogger, Guid, Exception?> LogRollbackConfirmationFailure =
+        LoggerMessage.Define<Guid>(
+            LogLevel.Error,
+            new EventId(1301, nameof(LogRollbackConfirmationFailure)),
+            "Unable to confirm rollback after Task-13 completion commit failure for job {JobId}; newly sealed evidence is retained for safety.");
+
+    private static readonly Action<ILogger, Guid, string, Exception?> LogEvidenceCompensationFailure =
+        LoggerMessage.Define<Guid, string>(
+            LogLevel.Error,
+            new EventId(1302, nameof(LogEvidenceCompensationFailure)),
+            "Task-13 evidence compensation failed for job {JobId} and accepted key {AcceptedStorageKey}.");
+
+
     public async Task<VisionCompletionResult> CompleteAsync(
         Guid jobId,
         string workerId,
@@ -256,10 +269,7 @@ public sealed class ProcessingResultStore(
             catch (Exception rollbackException)
             {
                 compensationSafe = false;
-                logger.LogError(
-                    rollbackException,
-                    "Unable to confirm rollback after Task-13 completion commit failure for job {JobId}; newly sealed evidence is retained for safety.",
-                    jobId);
+                LogRollbackConfirmationFailure(logger, jobId, rollbackException);
             }
 
             throw;
@@ -286,7 +296,7 @@ public sealed class ProcessingResultStore(
     }
 
     private static async Task CompensateNewlySealedEvidenceAsync(
-        IReadOnlyList<string> newlySealedKeys,
+        List<string> newlySealedKeys,
         Guid jobId,
         IAcceptedEvidenceStore acceptedEvidenceStore,
         ILogger<ProcessingResultStore> logger)
@@ -301,11 +311,11 @@ public sealed class ProcessingResultStore(
             }
             catch (Exception exception)
             {
-                logger.LogError(
-                    exception,
-                    "Task-13 evidence compensation failed for job {JobId} and accepted key {AcceptedStorageKey}.",
+                LogEvidenceCompensationFailure(
+                    logger,
                     jobId,
-                    newlySealedKeys[index]);
+                    newlySealedKeys[index],
+                    exception);
             }
         }
     }
