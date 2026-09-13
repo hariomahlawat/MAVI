@@ -14,6 +14,27 @@ public sealed class AcceptedEvidenceStoreTests : IDisposable
         Path.Combine(Path.GetTempPath(), $"mavi-accepted-evidence-{Guid.NewGuid():N}");
 
     [Fact]
+    public void DurablePublicationOwnsNestedHierarchyCreation()
+    {
+        var type = typeof(LocalMediaStore).Assembly.GetType(
+            "Mavi.Infrastructure.Storage.DurableFilePublication");
+        Assert.NotNull(type);
+        var method = type.GetMethod(
+            "EnsureDirectoryHierarchy",
+            System.Reflection.BindingFlags.Static |
+            System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var nested = Path.Combine(_evidenceRoot, "job", "attempt-0001", "thumbnails");
+        Assert.False(Directory.Exists(nested));
+
+        method.Invoke(null, [nested]);
+
+        Assert.True(Directory.Exists(nested));
+    }
+
+    [Fact]
     public async Task SealCopiesVerifiedBytesIntoPlatformOwnedEvidenceRoot()
     {
         var mediaStore = CreateMediaStore();

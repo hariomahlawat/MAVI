@@ -135,3 +135,16 @@ def test_completion_rejects_dimensions_that_cannot_survive_float_persistence() -
 def test_completion_schema_caps_track_collection() -> None:
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
     assert schema["properties"]["tracks"]["maxItems"] == 10_000
+
+
+def test_completion_accepts_exact_int64_maximum_decimal_encoding() -> None:
+    raw = EXAMPLE.read_text(encoding="utf-8")
+    raw = raw.replace(
+        '"framesProcessed": 3',
+        '"framesProcessed": 9223372036854775807.0',
+        1,
+    )
+
+    model = VisionJobComplete.model_validate_json(raw)
+
+    assert model.frames_processed == 9_223_372_036_854_775_807

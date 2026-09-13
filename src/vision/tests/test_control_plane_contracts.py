@@ -276,3 +276,21 @@ def test_completion_provenance_text_bounds_match_schema_and_python_model(mutate)
     with pytest.raises(ValidationError):
         VisionJobComplete.model_validate_json(json.dumps(payload))
 
+
+
+def test_completion_provenance_rejects_nul_consistently() -> None:
+    example_path = ROOT / "contracts/examples/vision-job-complete-v2.example.json"
+    schema_path = ROOT / "contracts/schemas/vision-job-complete-v2.schema.json"
+    payload = json.loads(example_path.read_text())
+    schema = json.loads(schema_path.read_text())
+    payload["provenance"]["modelId"] = "rtmdet\u0000m"
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            instance=payload,
+            schema=schema,
+            format_checker=jsonschema.FormatChecker(),
+        )
+
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))

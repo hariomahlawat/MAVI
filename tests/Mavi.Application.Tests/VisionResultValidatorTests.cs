@@ -60,6 +60,7 @@ public sealed class VisionResultValidatorTests
     [InlineData("underflow-dimension")]
     [InlineData("overlong-platform-detail")]
     [InlineData("padded-runtime-variant")]
+    [InlineData("nul-provenance")]
     public void InvalidResultIsRejectedWithoutRepair(string mutation)
     {
         var validator = new VisionResultValidator();
@@ -172,6 +173,10 @@ public sealed class VisionResultValidatorTests
                         BoundingBox = new VisionBoundingBoxContract(.1, .2, 1e-300, .4)
                     }
                 }]
+            },
+            "nul-provenance" => request with
+            {
+                Provenance = request.Provenance! with { ModelId = "rtmdet\0m" }
             },
             _ => request,
         };
