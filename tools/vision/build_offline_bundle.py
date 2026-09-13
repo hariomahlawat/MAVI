@@ -787,7 +787,14 @@ def _verify_mavi_wheel_source(*, wheel_records: dict, source_root: Path) -> None
         raise OfflineBundleError("mavi_wheel_missing")
 
     source_files: dict[str, bytes] = {}
-    for path in sorted(package_root.rglob("*.py")):
+    for path in sorted(package_root.rglob("*")):
+        relative_to_package = path.relative_to(package_root)
+        if "__pycache__" in relative_to_package.parts or path.suffix in {".pyc", ".pyo"}:
+            continue
+        if _path_is_link_or_reparse(path):
+            raise OfflineBundleError("bundle_input_link_forbidden")
+        if path.is_dir():
+            continue
         _assert_safe_regular_file(path)
         logical = path.relative_to(source_root).as_posix()
         source_files[logical] = path.read_bytes()
@@ -796,25 +803,39 @@ def _verify_mavi_wheel_source(*, wheel_records: dict, source_root: Path) -> None
         project_document = tomllib.loads(project_path.read_text(encoding="utf-8"))
         project = project_document["project"]
         with zipfile.ZipFile(record.path) as archive:
-            wheel_source_names = {
-                name
-                for name in archive.namelist()
-                if name.startswith("mavi_vision/") and name.endswith(".py")
-            }
-            if wheel_source_names != set(source_files):
+            member_names = [
+                info.filename
+                for info in archive.infolist()
+                if not info.is_dir()
+            ]
+            if len(member_names) != len(set(member_names)):
                 raise OfflineBundleError("mavi_wheel_source_mismatch")
-            for logical, expected_bytes in source_files.items():
-                if archive.read(logical) != expected_bytes:
-                    raise OfflineBundleError("mavi_wheel_source_mismatch")
+            for name in member_names:
+                try:
+                    validate_bundle_relative_path(name)
+                except OfflineBundleError as exc:
+                    raise OfflineBundleError("mavi_wheel_source_mismatch") from exc
 
             metadata_names = [
                 name
-                for name in archive.namelist()
+                for name in member_names
                 if name.endswith(".dist-info/METADATA")
                 and name.count("/") == 1
             ]
             if len(metadata_names) != 1:
                 raise OfflineBundleError("mavi_wheel_metadata_mismatch")
+            dist_info_root = metadata_names[0].split("/", 1)[0]
+            installable_members = {
+                name
+                for name in member_names
+                if not name.startswith(dist_info_root + "/")
+            }
+            if installable_members != set(source_files):
+                raise OfflineBundleError("mavi_wheel_source_mismatch")
+            for logical, expected_bytes in source_files.items():
+                if archive.read(logical) != expected_bytes:
+                    raise OfflineBundleError("mavi_wheel_source_mismatch")
+
             metadata = Parser().parsestr(
                 archive.read(metadata_names[0]).decode("utf-8")
             )
@@ -861,8 +882,7 @@ def _assert_packaged_source_clean(repository_root: Path) -> None:
                 "--porcelain=v1",
                 "--untracked-files=all",
                 "--",
-                "src/vision/mavi_vision",
-                "src/vision/pyproject.toml",
+                "src/vision",
             ],
             check=True,
             capture_output=True,
