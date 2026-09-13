@@ -9,9 +9,7 @@ public sealed record TrackSearchServiceResult(
     public static TrackSearchServiceResult Invalid() => new(false, null, "track_search_invalid");
 }
 
-public sealed class TrackSearchService(
-    ITrackSearchRepository repository,
-    TrackCursorCodec cursorCodec)
+public sealed class TrackSearchService(ITrackSearchRepository repository)
 {
     public async Task<TrackSearchServiceResult> SearchAsync(
         TrackSearchQuery query,
@@ -21,7 +19,7 @@ public sealed class TrackSearchService(
             return TrackSearchServiceResult.Invalid();
 
         TrackCursorPosition? cursor = null;
-        if (query.Cursor is not null && !cursorCodec.TryDecode(query.Cursor, out cursor))
+        if (query.Cursor is not null && !TrackCursorCodec.TryDecode(query.Cursor, out cursor))
             return TrackSearchServiceResult.Invalid();
 
         var rows = await repository.SearchAsync(
@@ -33,7 +31,7 @@ public sealed class TrackSearchService(
         var hasMore = rows.Count > query.Limit;
         var items = hasMore ? rows.Take(query.Limit).ToArray() : rows;
         var nextCursor = hasMore && items.Count > 0
-            ? cursorCodec.Encode(new TrackCursorPosition(items[^1].StartTimestampUtc, items[^1].Id))
+            ? TrackCursorCodec.Encode(new TrackCursorPosition(items[^1].StartTimestampUtc, items[^1].Id))
             : null;
 
         return TrackSearchServiceResult.Success(new TrackSearchPage(items, nextCursor));
@@ -57,8 +55,8 @@ public sealed class TrackSearchService(
             (!double.IsFinite(confidence) || confidence is < 0 or > 1))
             return false;
 
-        if (query.FromUtc is { Offset: not TimeSpan.Zero } ||
-            query.ToUtc is { Offset: not TimeSpan.Zero })
+        if ((query.FromUtc is { } fromValue && fromValue.Offset != TimeSpan.Zero) ||
+            (query.ToUtc is { } toValue && toValue.Offset != TimeSpan.Zero))
             return false;
 
         if (query.FromUtc is { } from &&
