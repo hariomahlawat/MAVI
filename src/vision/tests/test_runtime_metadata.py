@@ -143,3 +143,15 @@ def test_task12_linux_native_bundle_is_bound_to_qualified_host_abi() -> None:
     assert 'test "$VERSION_ID" = "24.04"' in workflow
     assert 'test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.39"' in workflow
     assert 'test "$max_glibcxx" = "GLIBCXX_3.4.33"' in workflow
+
+
+def test_task12_gate_covers_complete_vision_project_tree() -> None:
+    workflow_path = (
+        Path(__file__).parents[3]
+        / ".github"
+        / "workflows"
+        / "task12-offline-bundle.yml"
+    )
+    workflow = workflow_path.read_text(encoding="utf-8")
+
+    assert "      - 'src/vision/**'" in workflow
