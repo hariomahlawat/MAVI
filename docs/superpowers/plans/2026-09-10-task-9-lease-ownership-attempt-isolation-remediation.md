@@ -14,7 +14,7 @@
 
 - Work only on `feature/task-9-deterministic-track-pipeline`; PR target remains `feature/visual-intelligence-memory`.
 - Preserve the frozen Task-7/7A v2 worker HTTP contract; no wire-schema changes.
-- Do not add Task 10 RTMDet/ByteTrack/model runtime or Task 11 completion/result-ingestion behavior.
+- Do not add Task 10 RTMDet/ByteTrack/model runtime or Task 13 completion/result-ingestion behavior.
 - Python must not connect directly to PostgreSQL.
 - Server-returned `leaseExpiresAtUtc` remains authoritative.
 - Processing must stop or fail closed once lease ownership is cancelled or its authoritative deadline expires.

@@ -7,7 +7,7 @@
 **Branch:** `feature/task-10-rtmdet-bytetrack`  
 **Parent capability:** Visual Intelligence Memory  
 **Predecessor:** Task 9 deterministic track-processing pipeline  
-**Successor boundary:** Task 11 authoritative result completion and persistence
+**Successor boundary:** Task 13 authoritative result completion and persistence
 
 ## 1. Purpose
 
@@ -63,7 +63,7 @@ Task 10 shall:
 10. support an explicit CPU mode on both Windows and Linux;
 11. remain fully offline in production;
 12. freeze model identity separately from pipeline behaviour and deployment placement;
-13. expose complete runtime/model/profile/platform provenance for Task 11 to persist later;
+13. expose complete runtime/model/profile/platform provenance for Task 13 to persist later;
 14. make `verified` an evidence-backed qualification state rather than a manually asserted label;
 15. fail closed when model/runtime integrity or readiness is not proven;
 16. contain recoverable CUDA faults and terminate safely on hung/poisoned native inference;
@@ -103,7 +103,7 @@ These remain later capabilities or separate architectural decisions.
 Implementation and review shall treat the following as hard invariants:
 
 1. **Lease authority is absolute.** Once ownership is lost, no terminal worker API request, artifact publication, or mutation cleanup is permitted by that stale attempt.
-2. **Model code is not operational authority.** Python produces analytical candidates/results only; Task 11 and the platform remain authoritative for persistence.
+2. **Model code is not operational authority.** Python produces analytical candidates/results only; Task 13 and the platform remain authoritative for persistence.
 3. **No model-specific framework object escapes the runtime adapter.**
 4. **One worker process owns at most one active video job and one selected detector runtime/device.**
 5. **Detector runtime is process-scoped; tracker and staging state are attempt-scoped.**
@@ -450,7 +450,7 @@ Each processing attempt receives an immutable snapshot including:
 
 MAVI build/commit identity is mandatory in production. Development may record an explicit `unknown`/dirty state.
 
-Task 10 constructs this provenance but does not change platform persistence. Task 11 decides how it is carried in the completion contract and persisted authoritatively.
+Task 10 constructs this provenance but does not change platform persistence. Task 13 decides how it is carried in the completion contract and persisted authoritatively.
 
 ## 10. Image, colour-space, and detector-coordinate contract
 
@@ -1427,7 +1427,7 @@ After this hardened design is accepted and converted into an implementation plan
 15. **Production qualification:** Linux/NVIDIA long-run, recovery/watchdog, CCTV metrics, resource/performance baseline.
 16. **Regression closure:** full Task-9 tests, full repository quality gate, exact-head hosted CI, and code review before merge.
 
-No Task-11 persistence/completion work is included.
+No result persistence/completion work (re-baselined as Task 13) is included.
 
 ## 28. Definition of Done
 
@@ -1466,7 +1466,7 @@ Task 10 is complete only when all of the following are demonstrated:
 - Task-9 lease-loss, attempt-isolation, source-integrity, timeline, and artifact-safety tests remain green;
 - no PostgreSQL write path is added to Python;
 - worker-health-v2 schema remains unchanged and non-ready workers do not falsely emit `ready`;
-- Task-11 completion/persistence remains out of scope;
+- Task-13 completion/persistence remains out of scope;
 - the full exact-head hosted repository quality gate is green.
 
 ## 29. Architectural decision record
