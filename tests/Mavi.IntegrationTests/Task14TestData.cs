@@ -33,7 +33,10 @@ internal static class Task14TestData
         var start = (recordingStartUtc ??
             new DateTimeOffset(2026, 9, 13, 6, 0, 0, TimeSpan.Zero)).ToUniversalTime();
         var camera = Camera.Create(cameraCode, "Task 14 Camera", "UTC", start.AddMinutes(-5));
-        var sourceBytes = Enumerable.Range(0, 512).Select(index => (byte)(index % 251)).ToArray();
+        var cameraSalt = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cameraCode));
+        var sourceBytes = Enumerable.Range(0, 512)
+            .Select(index => (byte)((index + cameraSalt[index % cameraSalt.Length]) % 251))
+            .ToArray();
         var sourceKey = $"source/{cameraCode.ToLowerInvariant()}/sample.mp4";
         var sourceSha = Sha256(sourceBytes);
         var source = Artifact.Create(
