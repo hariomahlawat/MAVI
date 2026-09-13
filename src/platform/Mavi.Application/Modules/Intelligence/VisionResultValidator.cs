@@ -106,7 +106,7 @@ public sealed class VisionResultValidator
                 endOffsetMs > videoDurationMs)
                 throw Invalid("track_offsets_invalid");
             if (contract.DetectionCount is not >= 1 ||
-                contract.DetectionCount > request.FramesProcessed)
+                contract.DetectionCount > request.FramesProcessed.Value)
                 throw Invalid("detection_count_invalid");
             if (!Unit(contract.MeanConfidence) || !Unit(contract.MaxConfidence) ||
                 contract.MeanConfidence > contract.MaxConfidence)
@@ -117,7 +117,7 @@ public sealed class VisionResultValidator
             var representative = contract.Representative;
             if (representative.OffsetMs is not { } repOffset || repOffset < startOffsetMs || repOffset > endOffsetMs ||
                 representative.SourceFrameNumber is not >= 0 ||
-                representative.SourceFrameNumber >= request.FramesProcessed ||
+                representative.SourceFrameNumber >= request.FramesProcessed.Value ||
                 !Unit(representative.Confidence) || !Unit(representative.QualityScore) ||
                 representative.Confidence > contract.MaxConfidence ||
                 representative.BoundingBox is null || representative.Thumbnail is null)
