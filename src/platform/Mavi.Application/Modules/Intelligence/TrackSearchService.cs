@@ -9,7 +9,9 @@ public sealed record TrackSearchServiceResult(
     public static TrackSearchServiceResult Invalid() => new(false, null, "track_search_invalid");
 }
 
-public sealed class TrackSearchService(ITrackSearchRepository repository)
+public sealed class TrackSearchService(
+    ITrackSearchRepository repository,
+    TimeProvider timeProvider)
 {
     public async Task<TrackSearchServiceResult> SearchAsync(
         TrackSearchQuery query,
@@ -22,8 +24,10 @@ public sealed class TrackSearchService(ITrackSearchRepository repository)
         if (query.Cursor is not null && !TrackCursorCodec.TryDecode(query.Cursor, out cursor))
             return TrackSearchServiceResult.Invalid();
 
+        var snapshotUtc = cursor?.SnapshotUtc ?? timeProvider.GetUtcNow().ToUniversalTime();
         var rows = await repository.SearchAsync(
             query,
+            snapshotUtc,
             cursor,
             checked(query.Limit + 1),
             cancellationToken);
@@ -31,7 +35,10 @@ public sealed class TrackSearchService(ITrackSearchRepository repository)
         var hasMore = rows.Count > query.Limit;
         var items = hasMore ? rows.Take(query.Limit).ToArray() : rows;
         var nextCursor = hasMore && items.Count > 0
-            ? TrackCursorCodec.Encode(new TrackCursorPosition(items[^1].StartTimestampUtc, items[^1].Id))
+            ? TrackCursorCodec.Encode(new TrackCursorPosition(
+                snapshotUtc,
+                items[^1].StartTimestampUtc,
+                items[^1].Id))
             : null;
 
         return TrackSearchServiceResult.Success(new TrackSearchPage(items, nextCursor));
