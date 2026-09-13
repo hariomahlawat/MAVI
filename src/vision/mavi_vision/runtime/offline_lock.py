@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from packaging.version import InvalidVersion, Version
+
 
 _SCHEMA = "mavi-offline-lock-v1"
 _SUPPORTED_VARIANTS = frozenset(
@@ -252,7 +254,13 @@ def _parse_requirement(line: str) -> LockedDistribution:
 def _valid_exact_version(version: str) -> bool:
     if not _VERSION_RE.fullmatch(version):
         return False
-    return not any(token in version for token in ("*", "<", ">", "=", "~"))
+    if any(token in version for token in ("*", "<", ">", "=", "~")):
+        return False
+    try:
+        Version(version)
+    except InvalidVersion:
+        return False
+    return True
 
 
 __all__ = [
