@@ -4,7 +4,7 @@
 
 **Goal:** Build a deterministic, model-independent Python vision-processing pipeline that reads a leased MP4 by logical storage key, verifies source integrity, decodes frames using media timestamps, produces deterministic fixture detections/tracks, selects representative evidence, writes staged thumbnail/trajectory artifacts, and returns an internal track-oriented processing result without yet adding a completion API or database writes.
 
-**Architecture:** ASP.NET Core remains the operational authority and PostgreSQL remains exclusively owned by the .NET platform. Python consumes the frozen Task-7/7A v2 lease contract and Task-8 worker/storage boundary, performs only local media processing, and returns an internal analytical result that will be translated into the external completion contract in Task 11. Task 9 must be deterministic and model-independent so Task 10 can replace only detector/tracker adapters with RTMDet/ByteTrack.
+**Architecture:** ASP.NET Core remains the operational authority and PostgreSQL remains exclusively owned by the .NET platform. Python consumes the frozen Task-7/7A v2 lease contract and Task-8 worker/storage boundary, performs only local media processing, and returns an internal analytical result that will be translated into the external completion contract in Task 13. Task 9 must be deterministic and model-independent so Task 10 can replace only detector/tracker adapters with RTMDet/ByteTrack.
 
 **Tech Stack:** Python 3.13+, PyAV, NumPy, Pillow, MessagePack, existing Pydantic/httpx worker stack, pytest. No PyTorch, CUDA, MMDetection, ByteTrack, PostgreSQL client, pgvector client, or external network dependency in this task.
 
@@ -615,7 +615,7 @@ git commit -m "feat: add deterministic task9 video processor"
 
 **Interfaces:**
 - `WorkerRunner` gains an injected processing callable/protocol but retains lease, heartbeat, fail and backoff semantics from Task 8.
-- Successful deterministic processing in Task 9 must **not** be represented as completion because the Task-11 completion endpoint does not exist yet.
+- Successful deterministic processing in Task 9 must **not** be represented as completion because the Task-13 completion endpoint does not exist yet.
 
 - [ ] **Step 1: Write RED worker integration tests**
 
@@ -762,13 +762,13 @@ Task 9 is complete only when all of the following are demonstrated by tests and 
 ## Deliberately Deferred to Later Tasks
 
 - **Task 10:** RTMDet and ByteTrack production adapters, GPU/model manifests, real inference thresholds and device selection.
-- **Task 11:** external result-completion contract, .NET validation, atomic persistence of Tracks/Artifacts/ProcessingRun/VisionJob completion.
-- **Task 12+:** searchable track APIs, evidence streaming and operator UI.
+- **Task 13:** external result-completion contract, .NET validation, atomic persistence of Tracks/Artifacts/ProcessingRun/VisionJob completion.
+- **Task 14+:** searchable track APIs, evidence streaming and operator UI.
 
 ## Self-Review of This Plan
 
 - **Spec coverage:** preserves recorded-MP4-only Phase 1, track-primary memory, logical storage keys, Python/.NET separation, UTC-vs-offset rules and deterministic testing.
 - **Post-Task-8 corrections incorporated:** Python 3.13, frozen v2 worker control plane, post-lease backoff semantics, current local-development quality-gate discipline.
-- **Architectural debt avoided:** legacy `VisionResult` v1 is not expanded into Task 9; result submission remains deferred to Task 11.
+- **Architectural debt avoided:** legacy `VisionResult` v1 is not expanded into Task 9; result submission remains deferred to Task 13.
 - **Type consistency:** `ObjectClass`, `NormalizedBoundingBox`, `DecodedFrame`, `TrajectoryPoint`, `ArtifactDescriptor`, `ProcessedTrack` and `VisionProcessingResult` are introduced before any dependent task.
 - **Scope control:** no learned model, GPU stack, database access, completion endpoint or UI work appears in Task 9.
