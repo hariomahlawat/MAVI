@@ -437,8 +437,8 @@ public sealed class VisionResultValidator
     private static string RequiredSafeIdentifier(string? value, string code)
     {
         var text = Required(value, code);
-        if (text.Length > 64 || !IsAsciiAlphaNumeric(text[0]) ||
-            text.Skip(1).Any(character => !IsAsciiAlphaNumeric(character) && character is not '.' and not '_' and not '-'))
+        if (text.Length > 64 || !IsAsciiLowerAlphaNumeric(text[0]) ||
+            text.Skip(1).Any(character => !IsAsciiLowerAlphaNumeric(character) && character is not '.' and not '_' and not '-'))
             throw Invalid(code);
         return text;
     }
@@ -533,8 +533,8 @@ public sealed class VisionResultValidator
         double.IsFinite(item) &&
         item >= WorkerContractRules.MinimumPositiveTrackerParameter &&
         item <= WorkerContractRules.MaximumPositiveTrackerParameter;
-    private static bool IsAsciiAlphaNumeric(char value) =>
-        value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9';
+    private static bool IsAsciiLowerAlphaNumeric(char value) =>
+        value is >= 'a' and <= 'z' or >= '0' and <= '9';
 
     private static VisionResultValidationException Invalid(string reason) => new(reason);
 }
