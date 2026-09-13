@@ -18,6 +18,7 @@ from mavi_vision.worker.runner import WorkerRunner
 
 ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE = ROOT / "contracts/examples/vision-job-lease-v2.example.json"
+PROVENANCE_SENTINEL = object()
 
 
 def make_lease() -> VisionJobLease:
@@ -38,6 +39,7 @@ class HeartbeatCountingApi:
         self.heartbeats: list[float] = []
         self.heartbeat_times: list[float] = []
         self.failures: list[str] = []
+        self.completions: list[tuple[VisionProcessingResult, object]] = []
 
     async def lease(self) -> VisionJobLease | None:
         return self.lease_value
@@ -56,6 +58,17 @@ class HeartbeatCountingApi:
         failure_message: str | None = None,
     ) -> None:
         self.failures.append(failure_code)
+
+    async def complete(
+        self,
+        lease: VisionJobLease,
+        result: VisionProcessingResult,
+        processing_duration_ms: int,
+        provenance: object,
+    ) -> object:
+        del lease, processing_duration_ms
+        self.completions.append((result, provenance))
+        return object()
 
 
 class ShortDeadlineApi(HeartbeatCountingApi):
@@ -257,6 +270,7 @@ def test_long_processing_renews_lease_periodically(tmp_path: Path) -> None:
             2.0,
             processor,
             heartbeat_interval_seconds=0.01,
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
         ).run_once()
     )
 
@@ -265,7 +279,9 @@ def test_long_processing_renews_lease_periodically(tmp_path: Path) -> None:
     assert processor.attempt_count_seen == lease.attempt_count
     assert len(client.heartbeats) >= 2
     assert client.heartbeats[0] == 5.0
-    assert client.failures == ["task9_result_submission_not_implemented"]
+    assert client.failures == []
+    assert len(client.completions) == 1
+    assert client.completions[0][1] is PROVENANCE_SENTINEL
 
 
 def test_server_deadline_overrides_longer_configured_heartbeat_interval(
@@ -284,6 +300,7 @@ def test_server_deadline_overrides_longer_configured_heartbeat_interval(
             processor,
             heartbeat_interval_seconds=30.0,
             heartbeat_request_timeout_seconds=30.0,
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
         ).run_once()
     )
 
