@@ -195,6 +195,57 @@ public sealed class TrackSearchApiTests
         Assert.Contains(third.TrackId, combined);
     }
 
+    [Fact]
+    public async Task CursorSnapshotPreventsReprocessingFromReplacingContinuationSet()
+    {
+        var clock = new AdvancingTimeProvider(
+            new DateTimeOffset(2026, 9, 13, 12, 0, 0, TimeSpan.Zero));
+        using var factory = new ApiTestFactory { Clock = clock };
+        await factory.ResetAndMigrateAsync();
+
+        var olderVideo = await Task14TestData.SeedBaseVideoAsync(
+            factory,
+            "CAM-SNAP-A",
+            new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero));
+        var newerVideo = await Task14TestData.SeedBaseVideoAsync(
+            factory,
+            "CAM-SNAP-B",
+            new DateTimeOffset(2026, 9, 13, 11, 0, 0, TimeSpan.Zero));
+
+        var oldContinuation = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            olderVideo,
+            new DateTimeOffset(2026, 9, 13, 11, 30, 0, TimeSpan.Zero),
+            5_000);
+        _ = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            newerVideo,
+            new DateTimeOffset(2026, 9, 13, 11, 40, 0, TimeSpan.Zero),
+            5_000);
+
+        using var client = factory.CreateClient();
+        var page1 = await client.GetFromJsonAsync<TrackSearchResponse>(
+            "/api/tracks?limit=1");
+        Assert.NotNull(page1);
+        Assert.Single(page1.Items);
+        Assert.NotNull(page1.NextCursor);
+
+        clock.Advance(TimeSpan.FromMinutes(10));
+        var replacement = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            olderVideo,
+            new DateTimeOffset(2026, 9, 13, 12, 5, 0, TimeSpan.Zero),
+            20_000);
+
+        var page2 = await client.GetFromJsonAsync<TrackSearchResponse>(
+            $"/api/tracks?limit=1&cursor={Uri.EscapeDataString(page1.NextCursor!)}");
+
+        Assert.NotNull(page2);
+        var continuation = Assert.Single(page2.Items);
+        Assert.Equal(oldContinuation.TrackId, continuation.Id);
+        Assert.NotEqual(replacement.TrackId, continuation.Id);
+    }
+
     [Theory]
     [InlineData("/api/tracks?limit=0")]
     [InlineData("/api/tracks?limit=101")]
@@ -267,4 +318,13 @@ public sealed class TrackSearchApiTests
         Assert.Equal(oldTrack.ThumbnailArtifactId, detail.Representative.ThumbnailArtifactId);
         Assert.Equal(oldTrack.TrajectoryArtifactId, detail.TrajectoryArtifactId);
     }
+    private sealed class AdvancingTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        private DateTimeOffset _now = now;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public void Advance(TimeSpan duration) => _now = _now.Add(duration);
+    }
+
 }
