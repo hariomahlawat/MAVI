@@ -155,3 +155,10 @@ def test_task12_gate_covers_complete_vision_project_tree() -> None:
     workflow = workflow_path.read_text(encoding="utf-8")
 
     assert "      - 'src/vision/**'" in workflow
+
+
+def test_pyproject_declares_packaging_runtime_dependency() -> None:
+    pyproject_path = Path(__file__).parents[1] / "pyproject.toml"
+    pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+
+    assert "packaging>=26,<27" in pyproject["project"]["dependencies"]
