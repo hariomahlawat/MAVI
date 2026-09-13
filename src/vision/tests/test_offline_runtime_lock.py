@@ -262,6 +262,10 @@ def test_rejects_noncanonical_text_encoding(
             "offline_lock_requirement_invalid",
         ),
         (
+            f"sample==1..0 --hash=sha256:{_HASH_D}",
+            "offline_lock_requirement_invalid",
+        ),
+        (
             f"MAVI_Vision==0.1.0 --hash=sha256:{_HASH_B}",
             "offline_lock_name_noncanonical",
         ),
@@ -283,6 +287,22 @@ def test_rejects_unsafe_or_noncanonical_requirement_rows(
     with pytest.raises(OfflineLockError) as exc:
         load_offline_runtime_lock(_write_lock(tmp_path, _lock_text(rows=rows)))
     _assert_code(exc, code)
+
+
+def test_serializer_rejects_pep440_invalid_exact_version() -> None:
+    lock = OfflineRuntimeLock(
+        schema_version="mavi-offline-lock-v1",
+        platform_variant="linux-x86_64-cpu",
+        python_version="3.12.14",
+        distributions=(
+            LockedDistribution("mavi-vision", "0.1.0", _HASH_B),
+            LockedDistribution("sample", "1..0", _HASH_D),
+        ),
+    )
+
+    with pytest.raises(OfflineLockError) as exc:
+        serialize_offline_runtime_lock(lock)
+    _assert_code(exc, "offline_lock_requirement_invalid")
 
 
 def test_rejects_duplicate_package_names(tmp_path: Path) -> None:
