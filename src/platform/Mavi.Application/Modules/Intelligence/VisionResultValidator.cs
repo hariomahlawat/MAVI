@@ -310,7 +310,7 @@ public sealed class VisionResultValidator
         long framesProcessed,
         long processingDurationMs,
         VisionRuntimeProvenanceContract provenance,
-        IReadOnlyList<ValidatedTrackResult> tracks)
+        List<ValidatedTrackResult> tracks)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
