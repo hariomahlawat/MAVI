@@ -875,6 +875,9 @@ def _is_mavi_wheel_build_input(logical_path: str) -> bool:
     path = PurePosixPath(logical_path)
     parts = path.parts
     if len(parts) >= 3 and parts[:3] == ("src", "vision", "mavi_vision"):
+        package_parts = parts[3:]
+        if "__pycache__" in package_parts or path.suffix in {".pyc", ".pyo"}:
+            return False
         return True
     return len(parts) == 3 and parts[:2] == ("src", "vision")
 
@@ -892,6 +895,15 @@ def _git_changed_paths(repository_root: Path) -> set[str]:
         (
             "ls-files",
             "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            "src/vision",
+        ),
+        (
+            "ls-files",
+            "--others",
+            "--ignored",
             "--exclude-standard",
             "-z",
             "--",
