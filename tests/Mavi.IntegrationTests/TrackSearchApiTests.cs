@@ -92,7 +92,7 @@ public sealed class TrackSearchApiTests
     }
 
     [Fact]
-    public async Task EqualCompletionTimestampsUseRunIdAsDeterministicTieBreaker()
+    public async Task EqualCompletionTimestampsUseVisibilitySequenceAsAuthoritativeOrder()
     {
         using var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
@@ -103,33 +103,14 @@ public sealed class TrackSearchApiTests
         var second = await Task14TestData.AddCompletedTrackAsync(
             factory, video, completedAt, 5_000);
 
-        Guid expectedRunId;
-        Guid expectedTrackId;
-        using (var scope = factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
-            expectedRunId = await db.ProcessingRuns
-                .Where(x =>
-                    x.VideoAssetId == video.VideoId &&
-                    x.Status == ProcessingRunStatus.Completed &&
-                    x.CompletedAtUtc == completedAt)
-                .OrderByDescending(x => x.Id)
-                .Select(x => x.Id)
-                .FirstAsync();
-            expectedTrackId = await db.Tracks
-                .Where(x => x.ProcessingRunId == expectedRunId)
-                .Select(x => x.Id)
-                .SingleAsync();
-        }
-
         using var client = factory.CreateClient();
         var response = await client.GetFromJsonAsync<TrackSearchResponse>("/api/tracks");
 
         Assert.NotNull(response);
         var item = Assert.Single(response.Items);
-        Assert.Equal(expectedRunId, item.ProcessingRunId);
-        Assert.Equal(expectedTrackId, item.Id);
-        Assert.Contains(item.Id, new[] { first.TrackId, second.TrackId });
+        Assert.Equal(second.ProcessingRunId, item.ProcessingRunId);
+        Assert.Equal(second.TrackId, item.Id);
+        Assert.NotEqual(first.TrackId, item.Id);
     }
 
     [Fact]
@@ -495,12 +476,13 @@ public sealed class TrackSearchApiTests
         Assert.NotNull(page1);
         Assert.NotNull(page1.NextCursor);
 
-        // Simulate a host clock stepping backwards before reprocessing completes.
-        clock.Advance(TimeSpan.FromMinutes(-30));
+        // Simulate completion on a host whose wall clock is behind the API host.
+        // Cursor lifetime validation continues to use the API clock, while
+        // publication order must be independent of this skewed completion time.
         var replacement = await Task14TestData.AddCompletedTrackAsync(
             factory,
             olderVideo,
-            clock.GetUtcNow(),
+            clock.GetUtcNow().AddHours(-2),
             20_000);
 
         var page2 = await client.GetFromJsonAsync<TrackSearchResponse>(
