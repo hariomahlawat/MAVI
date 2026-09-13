@@ -57,6 +57,8 @@ public sealed class VisionResultValidatorTests
     [InlineData("verified-without-qualification")]
     [InlineData("overlong-model-id")]
     [InlineData("overlong-tracker-version")]
+    [InlineData("overlong-platform-detail")]
+    [InlineData("padded-runtime-variant")]
     public void InvalidResultIsRejectedWithoutRepair(string mutation)
     {
         var validator = new VisionResultValidator();
@@ -145,6 +147,20 @@ public sealed class VisionResultValidatorTests
                         ["trackers"] = new string('v', 129)
                     }
                 }
+            },
+            "overlong-platform-detail" => request with
+            {
+                Provenance = request.Provenance! with
+                {
+                    Platform = request.Provenance.Platform! with
+                    {
+                        PythonCompiler = new string('c', 257)
+                    }
+                }
+            },
+            "padded-runtime-variant" => request with
+            {
+                Provenance = request.Provenance! with { RuntimeVariant = " padded " }
             },
             _ => request,
         };

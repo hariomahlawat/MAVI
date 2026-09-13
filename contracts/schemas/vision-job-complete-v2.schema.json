@@ -239,51 +239,41 @@
       ],
       "properties": {
         "system": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         },
         "release": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         },
         "version": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         },
         "machine": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         },
         "processor": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         },
         "pythonVersion": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         },
         "pythonImplementation": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         },
         "pythonBuild": {
           "type": "array",
           "prefixItems": [
             {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/detailText"
             },
             {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/detailText"
             }
           ],
           "minItems": 2,
           "maxItems": 2
         },
         "pythonCompiler": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         }
       }
     },
@@ -302,8 +292,7 @@
       ],
       "properties": {
         "name": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         },
         "index": {
           "type": "integer",
@@ -314,12 +303,10 @@
           "minimum": 1
         },
         "driverVersion": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         },
         "cudaRuntimeVersion": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/detailText"
         }
       }
     },
@@ -394,12 +381,10 @@
       ],
       "properties": {
         "modelId": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/identityText"
         },
         "modelVersion": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/identityText"
         },
         "modelManifestSha256": {
           "$ref": "#/$defs/sha256"
@@ -411,22 +396,23 @@
           "$ref": "#/$defs/sha256"
         },
         "pipelineProfileId": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/identityText"
         },
         "pipelineProfileVersion": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/identityText"
         },
         "pipelineProfileSha256": {
           "$ref": "#/$defs/sha256"
         },
         "qualificationId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identityText"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "qualificationSha256": {
           "anyOf": [
@@ -446,15 +432,13 @@
           ]
         },
         "runtimeProfileId": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/identityText"
         },
         "runtimeProfileSha256": {
           "$ref": "#/$defs/sha256"
         },
         "runtimeVariant": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/identityText"
         },
         "platformLockSha256": {
           "anyOf": [
@@ -467,23 +451,27 @@
           ]
         },
         "detectorBackend": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/identityText"
         },
         "dependencyVersions": {
           "type": "object",
           "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/identityText"
+          },
           "additionalProperties": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/identityText"
           }
         },
         "ffmpegVersion": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1
+          "anyOf": [
+            {
+              "$ref": "#/$defs/detailText"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "platform": {
           "$ref": "#/$defs/platform"
@@ -501,19 +489,16 @@
           "minimum": 0
         },
         "actualDevice": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/identityText"
         },
         "gpu": {
           "$ref": "#/$defs/gpu"
         },
         "maviBuild": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/identityText"
         },
         "maviCommit": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/identityText"
         },
         "framePolicy": {
           "const": "every-frame"
@@ -545,8 +530,7 @@
             ],
             "properties": {
               "qualificationId": {
-                "type": "string",
-                "minLength": 1
+                "$ref": "#/$defs/identityText"
               },
               "qualificationSha256": {
                 "$ref": "#/$defs/sha256"
@@ -558,6 +542,18 @@
           }
         }
       ]
+    },
+    "identityText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+    },
+    "detailText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
     }
   }
 }

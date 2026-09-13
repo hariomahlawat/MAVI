@@ -74,6 +74,42 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
+    public void LinkedEvidenceRootIsRejected()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"mavi-config-link-root-{Guid.NewGuid():N}");
+        var link = Path.Combine(Path.GetTempPath(), $"mavi-config-link-evidence-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(link, root);
+            }
+            catch (Exception exception) when (
+                exception is PlatformNotSupportedException or UnauthorizedAccessException)
+            {
+                return;
+            }
+
+            using var provider = BuildProvider(new Dictionary<string, string?>
+            {
+                ["MediaStorage:RootPath"] = root,
+                ["MediaStorage:EvidenceRootPath"] = link,
+            });
+
+            Assert.Throws<OptionsValidationException>(() =>
+                _ = provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value);
+        }
+        finally
+        {
+            if (Directory.Exists(link))
+                Directory.Delete(link);
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public void ApplicationContractsDoNotExposePhysicalRootPath()
     {
         var applicationAssembly = typeof(VideoMetadata).Assembly;

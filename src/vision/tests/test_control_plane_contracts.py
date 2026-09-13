@@ -246,3 +246,33 @@ def test_verified_completion_schema_requires_qualification_and_platform_lock() -
     with pytest.raises(ValidationError):
         VisionJobComplete.model_validate_json(json.dumps(payload))
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload["provenance"].__setitem__("modelId", "m" * 129),
+        lambda payload: payload["provenance"]["dependencyVersions"].__setitem__(
+            "trackers", "v" * 129
+        ),
+        lambda payload: payload["provenance"]["platform"].__setitem__(
+            "pythonCompiler", "c" * 257
+        ),
+        lambda payload: payload["provenance"].__setitem__("runtimeVariant", " padded "),
+    ],
+)
+def test_completion_provenance_text_bounds_match_schema_and_python_model(mutate) -> None:
+    example_path = ROOT / "contracts/examples/vision-job-complete-v2.example.json"
+    schema_path = ROOT / "contracts/schemas/vision-job-complete-v2.schema.json"
+    payload = json.loads(example_path.read_text())
+    schema = json.loads(schema_path.read_text())
+    mutate(payload)
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            instance=payload,
+            schema=schema,
+            format_checker=jsonschema.FormatChecker(),
+        )
+
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))
+

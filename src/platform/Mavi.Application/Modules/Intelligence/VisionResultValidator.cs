@@ -188,54 +188,60 @@ public sealed class VisionResultValidator
         Sha(value.ModelManifestSha256, "provenance_model_manifest_invalid");
         Sha(value.CheckpointSha256, "provenance_checkpoint_invalid");
         Sha(value.ResolvedConfigSha256, "provenance_config_invalid");
-        Required(value.PipelineProfileId, "provenance_pipeline_profile_invalid");
-        Required(value.PipelineProfileVersion, "provenance_pipeline_profile_version_invalid");
+        RequiredBounded(value.PipelineProfileId, 128, "provenance_pipeline_profile_invalid");
+        RequiredBounded(value.PipelineProfileVersion, 128, "provenance_pipeline_profile_version_invalid");
         Sha(value.PipelineProfileSha256, "provenance_pipeline_profile_hash_invalid");
-        Required(value.RuntimeProfileId, "provenance_runtime_profile_invalid");
+        RequiredBounded(value.RuntimeProfileId, 128, "provenance_runtime_profile_invalid");
         Sha(value.RuntimeProfileSha256, "provenance_runtime_profile_hash_invalid");
-        Required(value.RuntimeVariant, "provenance_runtime_variant_invalid");
-        Required(value.DetectorBackend, "provenance_detector_invalid");
-        Required(value.MaviBuild, "provenance_mavi_build_invalid");
-        Required(value.MaviCommit, "provenance_mavi_commit_invalid");
+        RequiredBounded(value.RuntimeVariant, 128, "provenance_runtime_variant_invalid");
+        RequiredBounded(value.DetectorBackend, 128, "provenance_detector_invalid");
+        RequiredBounded(value.MaviBuild, 128, "provenance_mavi_build_invalid");
+        RequiredBounded(value.MaviCommit, 128, "provenance_mavi_commit_invalid");
 
         if (value.VerificationStatus is not ("verified" or "unverified"))
             throw Invalid("provenance_verification_status_invalid");
         if (value.VerificationStatus == "verified")
         {
-            Required(value.QualificationId, "provenance_qualification_required");
+            RequiredBounded(value.QualificationId, 128, "provenance_qualification_required");
             Sha(value.QualificationSha256, "provenance_qualification_hash_required");
             Sha(value.PlatformLockSha256, "provenance_platform_lock_required");
         }
         else
         {
+            OptionalBounded(value.QualificationId, 128, "provenance_qualification_invalid");
             OptionalSha(value.QualificationSha256, "provenance_qualification_hash_invalid");
             OptionalSha(value.PlatformLockSha256, "provenance_platform_lock_invalid");
         }
 
-        if (value.DependencyVersions is null || value.DependencyVersions.Count == 0 ||
-            value.DependencyVersions.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || string.IsNullOrWhiteSpace(pair.Value)))
+        if (value.DependencyVersions is null || value.DependencyVersions.Count == 0)
             throw Invalid("provenance_dependencies_invalid");
+        foreach (var pair in value.DependencyVersions)
+        {
+            RequiredBounded(pair.Key, 128, "provenance_dependency_key_invalid");
+            RequiredBounded(pair.Value, 128, "provenance_dependency_version_invalid");
+        }
         if (!value.DependencyVersions.TryGetValue("trackers", out var trackerVersion))
             throw Invalid("provenance_tracker_version_missing");
         trackerVersion = RequiredBounded(trackerVersion, 128, "provenance_tracker_version_invalid");
+        OptionalBounded(value.FfmpegVersion, 256, "provenance_ffmpeg_version_invalid");
 
-        if (value.Platform is null ||
-            string.IsNullOrWhiteSpace(value.Platform.System) ||
-            string.IsNullOrWhiteSpace(value.Platform.Release) ||
-            string.IsNullOrWhiteSpace(value.Platform.Version) ||
-            string.IsNullOrWhiteSpace(value.Platform.Machine) ||
-            string.IsNullOrWhiteSpace(value.Platform.Processor) ||
-            string.IsNullOrWhiteSpace(value.Platform.PythonVersion) ||
-            string.IsNullOrWhiteSpace(value.Platform.PythonImplementation) ||
-            value.Platform.PythonBuild is not { Count: 2 } ||
-            value.Platform.PythonBuild.Any(string.IsNullOrWhiteSpace) ||
-            string.IsNullOrWhiteSpace(value.Platform.PythonCompiler))
+        if (value.Platform is null || value.Platform.PythonBuild is not { Count: 2 })
             throw Invalid("provenance_platform_invalid");
+        RequiredBounded(value.Platform.System, 256, "provenance_platform_invalid");
+        RequiredBounded(value.Platform.Release, 256, "provenance_platform_invalid");
+        RequiredBounded(value.Platform.Version, 256, "provenance_platform_invalid");
+        RequiredBounded(value.Platform.Machine, 256, "provenance_platform_invalid");
+        RequiredBounded(value.Platform.Processor, 256, "provenance_platform_invalid");
+        RequiredBounded(value.Platform.PythonVersion, 256, "provenance_platform_invalid");
+        RequiredBounded(value.Platform.PythonImplementation, 256, "provenance_platform_invalid");
+        foreach (var buildPart in value.Platform.PythonBuild)
+            RequiredBounded(buildPart, 256, "provenance_platform_invalid");
+        RequiredBounded(value.Platform.PythonCompiler, 256, "provenance_platform_invalid");
 
         if (value.ConfiguredDevicePolicy is not ("cpu" or "cuda" or "auto") ||
-            value.ConfiguredDeviceIndex is not >= 0 ||
-            string.IsNullOrWhiteSpace(value.ActualDevice))
+            value.ConfiguredDeviceIndex is not >= 0)
             throw Invalid("provenance_device_invalid");
+        RequiredBounded(value.ActualDevice, 128, "provenance_device_invalid");
         if (value.FramePolicy != "every-frame" || value.InputColourSpace != "RGB")
             throw Invalid("provenance_pipeline_semantics_invalid");
 
@@ -249,10 +255,14 @@ public sealed class VisionResultValidator
             !Positive(tracker.LostTrackBufferSeconds))
             throw Invalid("provenance_tracker_parameters_invalid");
 
-        if (value.Gpu is not null &&
-            (string.IsNullOrWhiteSpace(value.Gpu.Name) || value.Gpu.Index is not >= 0 || value.Gpu.VramBytes is not > 0 ||
-             string.IsNullOrWhiteSpace(value.Gpu.DriverVersion) || string.IsNullOrWhiteSpace(value.Gpu.CudaRuntimeVersion)))
-            throw Invalid("provenance_gpu_invalid");
+        if (value.Gpu is not null)
+        {
+            if (value.Gpu.Index is not >= 0 || value.Gpu.VramBytes is not > 0)
+                throw Invalid("provenance_gpu_invalid");
+            RequiredBounded(value.Gpu.Name, 256, "provenance_gpu_invalid");
+            RequiredBounded(value.Gpu.DriverVersion, 256, "provenance_gpu_invalid");
+            RequiredBounded(value.Gpu.CudaRuntimeVersion, 256, "provenance_gpu_invalid");
+        }
 
         return (modelId, modelVersion, trackerVersion);
     }
@@ -428,6 +438,15 @@ public sealed class VisionResultValidator
         if (value is not { Length: 64 } || value.Any(character => !(character is >= '0' and <= '9' or >= 'a' and <= 'f')))
             throw Invalid(code);
         return value;
+    }
+
+    private static void OptionalBounded(
+        string? value,
+        int maximumLength,
+        string code)
+    {
+        if (value is not null)
+            RequiredBounded(value, maximumLength, code);
     }
 
     private static void OptionalSha(string? value, string code)

@@ -111,6 +111,41 @@ public sealed class AcceptedEvidenceStoreTests : IDisposable
         Assert.Equal(AcceptedEvidenceSealStatus.Sealed, second.Status);
     }
 
+    [Fact]
+    public void LinkedEvidenceRootIsRejectedByStoreConstructor()
+    {
+        Directory.CreateDirectory(_mediaRoot);
+        var linkedEvidence =
+            Path.Combine(Path.GetTempPath(), $"mavi-linked-evidence-{Guid.NewGuid():N}");
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(linkedEvidence, _mediaRoot);
+            }
+            catch (Exception exception) when (
+                exception is PlatformNotSupportedException or UnauthorizedAccessException)
+            {
+                return;
+            }
+
+            var mediaStore = CreateMediaStore();
+            Assert.Throws<InvalidOperationException>(() =>
+                new AcceptedEvidenceStore(
+                    mediaStore,
+                    Options.Create(new MediaStorageOptions
+                    {
+                        RootPath = _mediaRoot,
+                        EvidenceRootPath = linkedEvidence,
+                    })));
+        }
+        finally
+        {
+            if (Directory.Exists(linkedEvidence))
+                Directory.Delete(linkedEvidence);
+        }
+    }
+
     [Theory]
     [InlineData("staging/job/a.jpg")]
     [InlineData("evidence/../escape.jpg")]

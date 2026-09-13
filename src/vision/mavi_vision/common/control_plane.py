@@ -63,6 +63,34 @@ def _track_id(value: str) -> str:
     return value
 
 
+def _bounded_trimmed_text(value: str, *, maximum_length: int, label: str) -> str:
+    if (
+        len(value) > maximum_length
+        or not value
+        or value != value.strip()
+    ):
+        raise ValueError(
+            f"{label} must be non-empty, trimmed, and at most {maximum_length} characters"
+        )
+    return value
+
+
+def _provenance_identity(value: str) -> str:
+    return _bounded_trimmed_text(
+        value,
+        maximum_length=128,
+        label="provenance identity",
+    )
+
+
+def _provenance_detail(value: str) -> str:
+    return _bounded_trimmed_text(
+        value,
+        maximum_length=256,
+        label="provenance detail",
+    )
+
+
 def _sha256(value: str) -> str:
     if _SHA256_PATTERN.fullmatch(value) is None:
         raise ValueError("SHA-256 must use canonical lowercase hexadecimal syntax")
@@ -108,6 +136,8 @@ StorageKey = Annotated[StrictStr, AfterValidator(_storage_key)]
 TrackId = Annotated[StrictStr, AfterValidator(_track_id)]
 Sha256 = Annotated[StrictStr, AfterValidator(_sha256)]
 CanonicalUtcDateTime = Annotated[datetime, BeforeValidator(_canonical_utc_wire)]
+ProvenanceIdentity = Annotated[StrictStr, AfterValidator(_provenance_identity)]
+ProvenanceDetail = Annotated[StrictStr, AfterValidator(_provenance_detail)]
 
 
 class ControlPlaneModel(BaseModel):
@@ -238,23 +268,23 @@ class VisionCompletionTrack(ControlPlaneModel):
 
 
 class VisionPlatformIdentity(ControlPlaneModel):
-    system: StrictStr = Field(min_length=1)
-    release: StrictStr = Field(min_length=1)
-    version: StrictStr = Field(min_length=1)
-    machine: StrictStr = Field(min_length=1)
-    processor: StrictStr = Field(min_length=1)
-    python_version: StrictStr = Field(min_length=1)
-    python_implementation: StrictStr = Field(min_length=1)
-    python_build: tuple[StrictStr, StrictStr]
-    python_compiler: StrictStr = Field(min_length=1)
+    system: ProvenanceDetail
+    release: ProvenanceDetail
+    version: ProvenanceDetail
+    machine: ProvenanceDetail
+    processor: ProvenanceDetail
+    python_version: ProvenanceDetail
+    python_implementation: ProvenanceDetail
+    python_build: tuple[ProvenanceDetail, ProvenanceDetail]
+    python_compiler: ProvenanceDetail
 
 
 class VisionGpuIdentity(ControlPlaneModel):
-    name: StrictStr = Field(min_length=1)
+    name: ProvenanceDetail
     index: int = Field(ge=0)
     vram_bytes: int = Field(gt=0)
-    driver_version: StrictStr = Field(min_length=1)
-    cuda_runtime_version: StrictStr = Field(min_length=1)
+    driver_version: ProvenanceDetail
+    cuda_runtime_version: ProvenanceDetail
 
 
 class VisionTrackerParameters(ControlPlaneModel):
@@ -267,34 +297,35 @@ class VisionTrackerParameters(ControlPlaneModel):
 
 
 class VisionRuntimeProvenance(ControlPlaneModel):
-    model_id: StrictStr = Field(min_length=1)
-    model_version: StrictStr = Field(min_length=1)
+    model_id: ProvenanceIdentity
+    model_version: ProvenanceIdentity
     model_manifest_sha256: Sha256
     checkpoint_sha256: Sha256
     resolved_config_sha256: Sha256
-    pipeline_profile_id: StrictStr = Field(min_length=1)
-    pipeline_profile_version: StrictStr = Field(min_length=1)
+    pipeline_profile_id: ProvenanceIdentity
+    pipeline_profile_version: ProvenanceIdentity
     pipeline_profile_sha256: Sha256
-    qualification_id: StrictStr | None = None
+    qualification_id: ProvenanceIdentity | None = None
     qualification_sha256: Sha256 | None = None
     verification_status: Literal["verified", "unverified"]
-    runtime_profile_id: StrictStr = Field(min_length=1)
+    runtime_profile_id: ProvenanceIdentity
     runtime_profile_sha256: Sha256
-    runtime_variant: StrictStr = Field(min_length=1)
+    runtime_variant: ProvenanceIdentity
     platform_lock_sha256: Sha256 | None = None
-    detector_backend: StrictStr = Field(min_length=1)
-    dependency_versions: dict[StrictStr, StrictStr] = Field(min_length=1)
-    ffmpeg_version: StrictStr | None = None
+    detector_backend: ProvenanceIdentity
+    dependency_versions: dict[ProvenanceIdentity, ProvenanceIdentity] = Field(min_length=1)
+    ffmpeg_version: ProvenanceDetail | None = None
     platform: VisionPlatformIdentity
     configured_device_policy: Literal["cpu", "cuda", "auto"]
     configured_device_index: int = Field(ge=0)
-    actual_device: StrictStr = Field(min_length=1)
+    actual_device: ProvenanceIdentity
     gpu: VisionGpuIdentity | None = None
-    mavi_build: StrictStr = Field(min_length=1)
-    mavi_commit: StrictStr = Field(min_length=1)
+    mavi_build: ProvenanceIdentity
+    mavi_commit: ProvenanceIdentity
     frame_policy: Literal["every-frame"]
     tracker_parameters: VisionTrackerParameters
     input_colour_space: Literal["RGB"]
+
 
     @model_validator(mode="after")
     def validate_verified_binding(self) -> "VisionRuntimeProvenance":

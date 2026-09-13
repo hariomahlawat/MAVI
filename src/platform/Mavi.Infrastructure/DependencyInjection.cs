@@ -46,8 +46,8 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(MediaStorageOptions.SectionName))
             .Validate(options => !string.IsNullOrWhiteSpace(options.RootPath), "MediaStorage:RootPath is required.")
             .Validate(options => !string.IsNullOrWhiteSpace(options.EvidenceRootPath), "MediaStorage:EvidenceRootPath is required.")
-            .Validate(options => AreStorageRootsDisjoint(options.RootPath, options.EvidenceRootPath),
-                "MediaStorage:EvidenceRootPath must be disjoint from MediaStorage:RootPath.")
+            .Validate(options => StorageRootSafety.AreDisjointAndLinkFree(options.RootPath, options.EvidenceRootPath),
+                "MediaStorage roots must be disjoint and may not traverse symbolic-link/reparse components.")
             .ValidateOnStart();
         services.AddOptions<MediaProcessingOptions>()
             .Bind(configuration.GetSection(MediaProcessingOptions.SectionName))
@@ -87,26 +87,6 @@ public static class DependencyInjection
         services.AddSingleton<ILocalMediaPathResolver>(provider => provider.GetRequiredService<LocalMediaStore>());
         services.AddSingleton<IVideoMetadataReader, FfprobeVideoMetadataReader>();
         return services;
-    }
-
-    private static bool AreStorageRootsDisjoint(string rootPath, string evidenceRootPath)
-    {
-        if (string.IsNullOrWhiteSpace(rootPath) || string.IsNullOrWhiteSpace(evidenceRootPath))
-            return false;
-
-        var comparison = OperatingSystem.IsWindows()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-        var root = Path.GetFullPath(rootPath)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var evidence = Path.GetFullPath(evidenceRootPath)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var rootPrefix = root + Path.DirectorySeparatorChar;
-        var evidencePrefix = evidence + Path.DirectorySeparatorChar;
-
-        return !string.Equals(root, evidence, comparison) &&
-               !evidence.StartsWith(rootPrefix, comparison) &&
-               !root.StartsWith(evidencePrefix, comparison);
     }
 
     private static bool IsValidExtension(string extension) =>

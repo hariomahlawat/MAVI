@@ -32,7 +32,8 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
             throw new InvalidOperationException("MediaStorage:EvidenceRootPath is required.");
 
         _mediaStore = mediaStore;
-        _evidenceRoot = Path.GetFullPath(options.Value.EvidenceRootPath);
+        _evidenceRoot = StorageRootSafety.NormalizeAndValidateRoot(
+            options.Value.EvidenceRootPath);
         _evidenceRootPrefix = Path.EndsInDirectorySeparator(_evidenceRoot)
             ? _evidenceRoot
             : _evidenceRoot + Path.DirectorySeparatorChar;
@@ -48,11 +49,13 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         if (expectedSizeBytes < 0 || !IsCanonicalSha256(expectedSha256))
             throw new ArgumentException("Expected artifact integrity facts are invalid.");
         cancellationToken.ThrowIfCancellationRequested();
+        StorageRootSafety.EnsureNoLinkedExistingComponents(_evidenceRoot);
 
         var destinationPath = ResolveAcceptedPath(acceptedStorageKey);
         var parentPath = Path.GetDirectoryName(destinationPath)!;
         EnsureExistingPathDoesNotEscapeRoot(parentPath);
         Directory.CreateDirectory(parentPath);
+        StorageRootSafety.EnsureNoLinkedExistingComponents(_evidenceRoot);
         EnsureExistingPathDoesNotEscapeRoot(parentPath);
 
         if (File.Exists(destinationPath))
