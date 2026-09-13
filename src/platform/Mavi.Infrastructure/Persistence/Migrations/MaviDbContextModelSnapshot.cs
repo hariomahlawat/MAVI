@@ -570,6 +570,10 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("configuration_json");
 
+                    b.Property<string>("RuntimeProvenanceJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("runtime_provenance_json");
+
                     b.Property<string>("DetectorName")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
@@ -677,6 +681,11 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("completed_at_utc");
 
+                    b.Property<string>("CompletionDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("completion_digest");
+
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
@@ -742,6 +751,117 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     b.ToTable("vision_jobs", null, t =>
                         {
                             t.HasCheckConstraint("ck_vision_jobs_attempts", "attempt_count >= 0");
+
+                            t.HasCheckConstraint("ck_vision_jobs_completion_digest", "completion_digest IS NULL OR completion_digest ~ '^[0-9a-f]{64}
+                            t.HasCheckConstraint("ck_vision_jobs_lease_token_hash", "lease_token_hash IS NULL OR octet_length(lease_token_hash) = 32");
+
+                            t.HasCheckConstraint("ck_vision_jobs_progress", "progress_percent >= 0 AND progress_percent <= 100");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Intelligence.Entity", b =>
+                {
+                    b.HasOne("Mavi.Domain.Media.Artifact", null)
+                        .WithMany()
+                        .HasForeignKey("RepresentativeArtifactId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Intelligence.Observation", b =>
+                {
+                    b.HasOne("Mavi.Domain.Media.Artifact", null)
+                        .WithMany()
+                        .HasForeignKey("ThumbnailArtifactId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Intelligence.Track", b =>
+                {
+                    b.HasOne("Mavi.Domain.Intelligence.Entity", null)
+                        .WithMany()
+                        .HasForeignKey("EntityId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Mavi.Domain.Processing.ProcessingRun", null)
+                        .WithMany()
+                        .HasForeignKey("ProcessingRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Observation", null)
+                        .WithMany()
+                        .HasForeignKey("RepresentativeObservationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Mavi.Domain.Media.Artifact", null)
+                        .WithMany()
+                        .HasForeignKey("TrajectoryArtifactId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Mavi.Domain.Media.VideoAsset", null)
+                        .WithMany()
+                        .HasForeignKey("VideoAssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Intelligence.VisualAttribute", b =>
+                {
+                    b.HasOne("Mavi.Domain.Intelligence.Observation", null)
+                        .WithMany()
+                        .HasForeignKey("ObservationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Media.VideoAsset", b =>
+                {
+                    b.HasOne("Mavi.Domain.Cameras.Camera", null)
+                        .WithMany()
+                        .HasForeignKey("CameraId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Media.Artifact", null)
+                        .WithMany()
+                        .HasForeignKey("SourceArtifactId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Processing.ProcessingRun", b =>
+                {
+                    b.HasOne("Mavi.Domain.Media.VideoAsset", null)
+                        .WithMany()
+                        .HasForeignKey("VideoAssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.Processing.VisionJob", b =>
+                {
+                    b.HasOne("Mavi.Domain.Processing.ProcessingRun", null)
+                        .WithOne()
+                        .HasForeignKey("Mavi.Domain.Processing.VisionJob", "ProcessingRunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+");
 
                             t.HasCheckConstraint("ck_vision_jobs_lease_token_hash", "lease_token_hash IS NULL OR octet_length(lease_token_hash) = 32");
 

@@ -1,0 +1,212 @@
+using Mavi.Application.Abstractions.Security;
+using Mavi.Application.Abstractions.Storage;
+using Mavi.Application.Modules.Intelligence;
+using Mavi.Contracts.Worker;
+using Mavi.Domain.Common;
+using Mavi.Domain.Intelligence;
+using Mavi.Domain.Media;
+using Mavi.Domain.Processing;
+using Microsoft.EntityFrameworkCore;
+
+namespace Mavi.Infrastructure.Persistence.Repositories;
+
+public sealed class ProcessingResultStore(
+    MaviDbContext db,
+    TimeProvider timeProvider,
+    ILeaseCapabilityService leaseCapabilities,
+    VisionResultValidator validator,
+    IArtifactIntegrityVerifier artifactVerifier) : IProcessingResultStore
+{
+    public async Task<VisionCompletionResult> CompleteAsync(
+        Guid jobId,
+        string workerId,
+        string leaseToken,
+        VisionJobCompleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var job = await db.VisionJobs
+            .FromSqlInterpolated($"SELECT * FROM vision_jobs WHERE id = {jobId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+        if (job is null)
+            return VisionCompletionResult.Failure("vision_job_not_found");
+
+        var run = await db.ProcessingRuns
+            .SingleAsync(x => x.Id == job.ProcessingRunId, cancellationToken);
+        var video = await db.VideoAssets
+            .SingleAsync(x => x.Id == run.VideoAssetId, cancellationToken);
+
+        ValidatedVisionResult result;
+        try
+        {
+            result = validator.Validate(jobId, request, video.DurationMs);
+        }
+        catch (VisionResultValidationException)
+        {
+            return VisionCompletionResult.Failure("vision_result_invalid");
+        }
+
+        if (!string.Equals(request.SchemaVersion, WorkerContractRules.SchemaVersion, StringComparison.Ordinal) ||
+            !string.Equals(request.WorkerId, workerId, StringComparison.Ordinal) ||
+            !string.Equals(request.LeaseToken, leaseToken, StringComparison.Ordinal))
+            return VisionCompletionResult.Failure("vision_result_invalid");
+
+        var tokenMatches = job.LeaseTokenHash is { Length: 32 } &&
+                           leaseCapabilities.Matches(leaseToken, job.LeaseTokenHash);
+
+        if (job.Status == VisionJobStatus.Completed)
+        {
+            if (job.AttemptCount != result.AttemptCount ||
+                !string.Equals(job.LeaseOwner, workerId, StringComparison.Ordinal) ||
+                !tokenMatches ||
+                !string.Equals(job.CompletionDigest, result.CompletionDigest, StringComparison.Ordinal) ||
+                run.Status != ProcessingRunStatus.Completed ||
+                video.ProcessingStatus != VideoProcessingStatus.Processed ||
+                job.CompletedAtUtc is null)
+                return VisionCompletionResult.Failure("vision_job_completion_conflict");
+
+            await transaction.CommitAsync(cancellationToken);
+            return VisionCompletionResult.Success(
+                run.Id,
+                run.TracksCreated,
+                job.CompletedAtUtc.Value);
+        }
+
+        if (job.Status != VisionJobStatus.Leased)
+            return VisionCompletionResult.Failure("vision_job_not_leased");
+        if (job.AttemptCount != result.AttemptCount)
+            return VisionCompletionResult.Failure("vision_job_attempt_mismatch");
+
+        var authorityNowUtc = timeProvider.GetUtcNow();
+        if (!string.Equals(job.LeaseOwner, workerId, StringComparison.Ordinal) ||
+            !tokenMatches ||
+            job.LeaseExpiresAtUtc is null ||
+            job.LeaseExpiresAtUtc <= authorityNowUtc)
+            return VisionCompletionResult.Failure("vision_job_lease_invalid");
+
+        if (run.Status != ProcessingRunStatus.Running ||
+            video.ProcessingStatus != VideoProcessingStatus.Processing)
+            return VisionCompletionResult.Failure("vision_job_completion_conflict");
+
+        foreach (var track in result.Tracks)
+        {
+            var thumbnail = await artifactVerifier.VerifyAsync(
+                track.Representative.Thumbnail.StorageKey,
+                track.Representative.Thumbnail.SizeBytes,
+                track.Representative.Thumbnail.Sha256,
+                cancellationToken);
+            if (thumbnail.Status == ArtifactIntegrityStatus.Missing)
+                return VisionCompletionResult.Failure("vision_result_artifact_missing");
+            if (thumbnail.Status != ArtifactIntegrityStatus.Valid)
+                return VisionCompletionResult.Failure("vision_result_artifact_integrity_failed");
+
+            var trajectory = await artifactVerifier.VerifyAsync(
+                track.TrajectoryArtifact.StorageKey,
+                track.TrajectoryArtifact.SizeBytes,
+                track.TrajectoryArtifact.Sha256,
+                cancellationToken);
+            if (trajectory.Status == ArtifactIntegrityStatus.Missing)
+                return VisionCompletionResult.Failure("vision_result_artifact_missing");
+            if (trajectory.Status != ArtifactIntegrityStatus.Valid)
+                return VisionCompletionResult.Failure("vision_result_artifact_integrity_failed");
+        }
+
+        var createdAtUtc = timeProvider.GetUtcNow();
+        var graph = new List<(Track Track, Observation Observation)>(result.Tracks.Count);
+
+        for (var index = 0; index < result.Tracks.Count; index++)
+        {
+            var accepted = result.Tracks[index];
+
+            var thumbnailArtifact = Artifact.Create(
+                ArtifactType.Thumbnail,
+                accepted.Representative.Thumbnail.StorageKey,
+                accepted.Representative.Thumbnail.MediaType,
+                accepted.Representative.Thumbnail.SizeBytes,
+                accepted.Representative.Thumbnail.Sha256,
+                createdAtUtc: createdAtUtc);
+
+            var trajectoryArtifact = Artifact.Create(
+                ArtifactType.TrackTrajectory,
+                accepted.TrajectoryArtifact.StorageKey,
+                accepted.TrajectoryArtifact.MediaType,
+                accepted.TrajectoryArtifact.SizeBytes,
+                accepted.TrajectoryArtifact.Sha256,
+                createdAtUtc: createdAtUtc);
+
+            var track = Track.Create(
+                run.Id,
+                video.Id,
+                index + 1,
+                accepted.ObjectClass,
+                accepted.StartOffsetMs,
+                accepted.EndOffsetMs,
+                video.RecordingStartUtc,
+                accepted.DetectionCount,
+                accepted.MeanConfidence,
+                accepted.MaxConfidence,
+                createdAtUtc);
+
+            var representative = accepted.Representative;
+            var observation = Observation.Create(
+                track.Id,
+                ObservationType.Representative,
+                representative.SourceFrameNumber,
+                representative.OffsetMs,
+                video.RecordingStartUtc,
+                checked((float)representative.X),
+                checked((float)representative.Y),
+                checked((float)representative.Width),
+                checked((float)representative.Height),
+                representative.Confidence,
+                representative.QualityScore,
+                createdAtUtc);
+
+            track.AttachTrajectoryArtifact(trajectoryArtifact.Id);
+            observation.AttachThumbnailArtifact(thumbnailArtifact.Id);
+
+            db.Artifacts.AddRange(thumbnailArtifact, trajectoryArtifact);
+            db.Tracks.Add(track);
+            db.Observations.Add(observation);
+            graph.Add((track, observation));
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        foreach (var (track, observation) in graph)
+            track.AttachRepresentativeObservation(observation.Id);
+
+        var completionNowUtc = timeProvider.GetUtcNow();
+        try
+        {
+            job.Complete(workerId, tokenMatches, completionNowUtc, result.CompletionDigest);
+        }
+        catch (DomainValidationException)
+        {
+            return VisionCompletionResult.Failure("vision_job_lease_invalid");
+        }
+
+        run.MarkCompleted(
+            result.FramesProcessed,
+            result.Tracks.Count,
+            result.ProcessingDurationMs,
+            result.DetectorName,
+            result.DetectorVersion,
+            result.TrackerName,
+            result.TrackerVersion,
+            result.RuntimeProvenanceJson,
+            completionNowUtc);
+        video.MarkProcessed();
+
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return VisionCompletionResult.Success(
+            run.Id,
+            result.Tracks.Count,
+            completionNowUtc);
+    }
+}

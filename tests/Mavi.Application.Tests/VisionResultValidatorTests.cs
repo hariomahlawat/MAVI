@@ -21,7 +21,7 @@ public sealed class VisionResultValidatorTests
         Assert.Equal(["person-000001", "vehicle-000002"], first.Tracks.Select(x => x.TrackId));
         Assert.Equal(64, first.CompletionDigest.Length);
         Assert.Equal(first.CompletionDigest, second.CompletionDigest);
-        Assert.Equal("mmdetection", first.DetectorName);
+        Assert.Equal("rtmdet-m", first.DetectorName);
         Assert.Equal("2.6.0", first.TrackerVersion);
     }
 

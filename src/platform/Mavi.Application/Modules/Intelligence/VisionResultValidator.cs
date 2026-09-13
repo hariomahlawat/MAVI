@@ -183,7 +183,7 @@ public sealed class VisionResultValidator
     private static (string DetectorName, string DetectorVersion, string TrackerVersion) ValidateProvenance(
         VisionRuntimeProvenanceContract value)
     {
-        Required(value.ModelId, "provenance_model_id_invalid");
+        var modelId = Required(value.ModelId, "provenance_model_id_invalid");
         var modelVersion = Required(value.ModelVersion, "provenance_model_version_invalid");
         Sha(value.ModelManifestSha256, "provenance_model_manifest_invalid");
         Sha(value.CheckpointSha256, "provenance_checkpoint_invalid");
@@ -194,7 +194,7 @@ public sealed class VisionResultValidator
         Required(value.RuntimeProfileId, "provenance_runtime_profile_invalid");
         Sha(value.RuntimeProfileSha256, "provenance_runtime_profile_hash_invalid");
         Required(value.RuntimeVariant, "provenance_runtime_variant_invalid");
-        var detectorBackend = Required(value.DetectorBackend, "provenance_detector_invalid");
+        Required(value.DetectorBackend, "provenance_detector_invalid");
         Required(value.MaviBuild, "provenance_mavi_build_invalid");
         Required(value.MaviCommit, "provenance_mavi_commit_invalid");
 
@@ -253,7 +253,7 @@ public sealed class VisionResultValidator
              string.IsNullOrWhiteSpace(value.Gpu.DriverVersion) || string.IsNullOrWhiteSpace(value.Gpu.CudaRuntimeVersion)))
             throw Invalid("provenance_gpu_invalid");
 
-        return (detectorBackend, modelVersion, trackerVersion);
+        return (modelId, modelVersion, trackerVersion);
     }
 
     private static ValidatedArtifactDescriptor ValidateArtifact(

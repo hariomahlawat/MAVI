@@ -36,6 +36,8 @@ public static class DependencyInjection
         services.AddScoped<IVideoCatalog, VideoCatalog>();
         services.AddScoped<VideoImportService>();
         services.AddScoped<IProcessingOrchestrator, ProcessingOrchestrator>();
+        services.AddScoped<IProcessingResultStore, ProcessingResultStore>();
+        services.AddSingleton<VisionResultValidator>();
         services.AddSingleton<ILeaseCapabilityService, LeaseCapabilityService>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ITimeZoneService, SystemTimeZoneService>();
@@ -78,6 +80,7 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<LocalizationOptions>, LocalizationOptionsValidator>();
         services.AddSingleton<LocalMediaStore>();
         services.AddSingleton<IMediaStore>(provider => provider.GetRequiredService<LocalMediaStore>());
+        services.AddSingleton<IArtifactIntegrityVerifier, ArtifactIntegrityVerifier>();
         services.AddSingleton<ILocalMediaPathResolver>(provider => provider.GetRequiredService<LocalMediaStore>());
         services.AddSingleton<IVideoMetadataReader, FfprobeVideoMetadataReader>();
         return services;
