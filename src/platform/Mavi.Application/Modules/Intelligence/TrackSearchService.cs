@@ -13,6 +13,8 @@ public sealed class TrackSearchService(
     ITrackSearchRepository repository,
     TimeProvider timeProvider)
 {
+    private static readonly TimeSpan MaximumCursorAge = TimeSpan.FromHours(1);
+    private static readonly TimeSpan MaximumFutureSkew = TimeSpan.FromMinutes(1);
     public async Task<TrackSearchServiceResult> SearchAsync(
         TrackSearchQuery query,
         CancellationToken cancellationToken)
@@ -20,11 +22,26 @@ public sealed class TrackSearchService(
         if (!IsValid(query))
             return TrackSearchServiceResult.Invalid();
 
-        TrackCursorPosition? cursor = null;
-        if (query.Cursor is not null && !TrackCursorCodec.TryDecode(query.Cursor, out cursor))
-            return TrackSearchServiceResult.Invalid();
+        var nowUtc = timeProvider.GetUtcNow().ToUniversalTime();
+        var filterFingerprint = TrackCursorCodec.ComputeFilterFingerprint(query);
 
-        var snapshotUtc = cursor?.SnapshotUtc ?? timeProvider.GetUtcNow().ToUniversalTime();
+        TrackCursorPosition? cursor = null;
+        if (query.Cursor is not null)
+        {
+            if (!TrackCursorCodec.TryDecode(query.Cursor, out cursor) ||
+                cursor is null ||
+                !string.Equals(
+                    cursor.FilterFingerprint,
+                    filterFingerprint,
+                    StringComparison.Ordinal) ||
+                cursor.SnapshotUtc < nowUtc - MaximumCursorAge ||
+                cursor.SnapshotUtc > nowUtc + MaximumFutureSkew)
+            {
+                return TrackSearchServiceResult.Invalid();
+            }
+        }
+
+        var snapshotUtc = cursor?.SnapshotUtc ?? nowUtc;
         var rows = await repository.SearchAsync(
             query,
             snapshotUtc,
@@ -38,7 +55,8 @@ public sealed class TrackSearchService(
             ? TrackCursorCodec.Encode(new TrackCursorPosition(
                 snapshotUtc,
                 items[^1].StartTimestampUtc,
-                items[^1].Id))
+                items[^1].Id,
+                filterFingerprint))
             : null;
 
         return TrackSearchServiceResult.Success(new TrackSearchPage(items, nextCursor));
