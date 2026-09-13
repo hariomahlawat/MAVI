@@ -126,7 +126,7 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
                 run.DetectorVersion,
                 run.TrackerName,
                 run.TrackerVersion,
-                run.CompletedAtUtc,
+                run.CompletedAtUtc!.Value,
                 video.RecordingStartUtc,
                 video.RecordingEndUtc,
                 video.DurationMs,
