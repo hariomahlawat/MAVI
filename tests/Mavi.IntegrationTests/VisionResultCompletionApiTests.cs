@@ -337,11 +337,11 @@ public sealed class VisionResultCompletionApiTests
         var request = await BuildRequestAsync(factory, lease);
 
         interceptor.FailNextSaveChanges = true;
-        using var failed = await client.PostAsJsonAsync(
-            $"/api/vision/jobs/{lease.JobId}/complete",
-            request);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.PostAsJsonAsync(
+                $"/api/vision/jobs/{lease.JobId}/complete",
+                request));
 
-        Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
         Assert.Empty(Directory.Exists(factory.EvidenceRoot)
             ? Directory.GetFiles(factory.EvidenceRoot, "*", SearchOption.AllDirectories)
             : []);
