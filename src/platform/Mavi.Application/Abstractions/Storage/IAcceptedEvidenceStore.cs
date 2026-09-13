@@ -12,7 +12,8 @@ public sealed record AcceptedEvidenceSealResult(
     AcceptedEvidenceSealStatus Status,
     string? StorageKey = null,
     long? SizeBytes = null,
-    string? Sha256 = null);
+    string? Sha256 = null,
+    bool CreatedNew = false);
 
 public interface IAcceptedEvidenceStore
 {
@@ -21,5 +22,9 @@ public interface IAcceptedEvidenceStore
         string acceptedStorageKey,
         long expectedSizeBytes,
         string expectedSha256,
+        CancellationToken cancellationToken);
+
+    Task DeleteAcceptedAsync(
+        string acceptedStorageKey,
         CancellationToken cancellationToken);
 }
