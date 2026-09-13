@@ -241,7 +241,7 @@ internal static class StorageRootSafety
         if (string.Equals(candidate, root, StringComparison.Ordinal))
             return true;
         if (root == "/")
-            return candidate.StartsWith("/", StringComparison.Ordinal);
+            return candidate.StartsWith('/');
         return candidate.StartsWith(root + "/", StringComparison.Ordinal);
     }
 
