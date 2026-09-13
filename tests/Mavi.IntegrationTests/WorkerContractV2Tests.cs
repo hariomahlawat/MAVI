@@ -148,6 +148,41 @@ public sealed class WorkerContractV2Tests
     }
 
     [Fact]
+    public void CompletionDependencyVersionsAreBoundedDuringJsonBinding()
+    {
+        var path = Path.Combine(
+            FindRepositoryRoot(),
+            "contracts/examples/vision-job-complete-v2.example.json");
+        var payload = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        var dependencies = new JsonObject();
+        for (var index = 0; index < WorkerContractRules.MaximumCompletionDependencyVersions; index++)
+            dependencies[$"dep{index:D3}"] = "1";
+        dependencies["trackers"] = "2.6.0";
+        payload["provenance"]!["dependencyVersions"] = dependencies;
+
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+                payload.ToJsonString(),
+                JsonOptions()));
+    }
+
+    [Fact]
+    public void CompletionPythonBuildIsBoundedDuringJsonBinding()
+    {
+        var path = Path.Combine(
+            FindRepositoryRoot(),
+            "contracts/examples/vision-job-complete-v2.example.json");
+        var payload = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        payload["provenance"]!["platform"]!["pythonBuild"] =
+            new JsonArray("main", "Sep 2026", "unexpected");
+
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+                payload.ToJsonString(),
+                JsonOptions()));
+    }
+
+    [Fact]
     public void CompletionIntegralNumbersAcceptMathematicallyIntegralJsonNumbers()
     {
         var path = Path.Combine(FindRepositoryRoot(), "contracts/examples/vision-job-complete-v2.example.json");
