@@ -46,7 +46,7 @@ public sealed class ContentReadServiceTests
             "evidence/job/file.jpg",
             "image/jpeg",
             sizeBytes: 3);
-        var catalog = new FakeCatalog(videoDescriptor, evidenceDescriptor);
+        var catalog = new FakeCatalog(videoDescriptor, evidenceDescriptor, videoExists: true);
         var media = new FakeMediaStore([1, 2, 3]);
         var evidence = new FakeEvidenceReader([4, 5, 6]);
         var service = new ContentReadService(catalog, media, evidence);
@@ -62,6 +62,27 @@ public sealed class ContentReadServiceTests
         Assert.Equal(1, evidence.OpenCalls);
         await video.Stream!.DisposeAsync();
         await artifact.Stream!.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ExistingVideoWithBrokenSourceRelationshipIsUnavailable()
+    {
+        var media = new FakeMediaStore([1, 2, 3]);
+        var evidence = new FakeEvidenceReader([1]);
+        var service = new ContentReadService(
+            new FakeCatalog(videoExists: true),
+            media,
+            evidence);
+
+        var result = await service.OpenVideoAsync(
+            Guid.CreateVersion7(),
+            CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.False(result.IsNotFound);
+        Assert.Equal("video_content_unavailable", result.ErrorCode);
+        Assert.Equal(0, media.OpenCalls);
+        Assert.Equal(0, evidence.OpenCalls);
     }
 
     [Fact]
@@ -109,12 +130,13 @@ public sealed class ContentReadServiceTests
 
     private sealed class FakeCatalog(
         ContentDescriptor? video = null,
-        ContentDescriptor? evidence = null) : IContentCatalog
+        ContentDescriptor? evidence = null,
+        bool videoExists = false) : IContentCatalog
     {
         public Task<VideoContentLookup> GetVideoContentAsync(
             Guid videoAssetId,
             CancellationToken cancellationToken) =>
-            Task.FromResult(new VideoContentLookup(video is not null, video));
+            Task.FromResult(new VideoContentLookup(videoExists || video is not null, video));
 
         public Task<ContentDescriptor?> GetEvidenceContentAsync(
             Guid artifactId,
