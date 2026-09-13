@@ -13,6 +13,8 @@ from email.parser import BytesParser
 from email.policy import default
 from pathlib import Path
 
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.tags import parse_tag
 from packaging.utils import InvalidWheelFilename, canonicalize_name, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
@@ -41,6 +43,8 @@ class WheelRecord:
     version: str
     sha256: str
     tags: tuple[tuple[str, str, str], ...]
+    requires_python: str | None
+    requires_dist: tuple[str, ...]
 
 
 def sha256_file(path: Path) -> str:
@@ -80,6 +84,150 @@ def _target_python_identity(python_version: str) -> tuple[int, int]:
     if match is None:
         raise FreezeOfflineLockError("wheel_python_identity_invalid")
     return int(match.group(1)), int(match.group(2))
+
+
+def _target_marker_environment(
+    *,
+    platform_variant: str,
+    python_version: str,
+    extra: str,
+) -> dict[str, str]:
+    major, minor = _target_python_identity(python_version)
+    if platform_variant.startswith("linux-x86_64-"):
+        os_name = "posix"
+        sys_platform = "linux"
+        platform_system = "Linux"
+        platform_machine = "x86_64"
+    elif platform_variant.startswith("windows-x86_64-"):
+        os_name = "nt"
+        sys_platform = "win32"
+        platform_system = "Windows"
+        platform_machine = "AMD64"
+    else:
+        raise FreezeOfflineLockError("wheel_platform_variant_invalid")
+
+    return {
+        "implementation_name": "cpython",
+        "implementation_version": python_version,
+        "os_name": os_name,
+        "platform_machine": platform_machine,
+        "platform_release": "",
+        "platform_system": platform_system,
+        "platform_version": "",
+        "python_full_version": python_version,
+        "platform_python_implementation": "CPython",
+        "python_version": f"{major}.{minor}",
+        "sys_platform": sys_platform,
+        "extra": extra,
+    }
+
+
+def _validated_requires_python(message) -> str | None:
+    values = message.get_all("Requires-Python", [])
+    if len(values) > 1:
+        raise FreezeOfflineLockError("wheel_metadata_invalid")
+    if not values:
+        return None
+
+    value = str(values[0]).strip()
+    if not value:
+        raise FreezeOfflineLockError("wheel_metadata_invalid")
+    try:
+        SpecifierSet(value)
+    except InvalidSpecifier as exc:
+        raise FreezeOfflineLockError("wheel_metadata_invalid") from exc
+    return value
+
+
+def _validated_requires_dist(message) -> tuple[str, ...]:
+    requirements: list[str] = []
+    for raw_value in message.get_all("Requires-Dist", []):
+        value = str(raw_value).strip()
+        if not value:
+            raise FreezeOfflineLockError("wheel_metadata_invalid")
+        try:
+            Requirement(value)
+        except InvalidRequirement as exc:
+            raise FreezeOfflineLockError("wheel_metadata_invalid") from exc
+        requirements.append(value)
+    return tuple(requirements)
+
+
+def _requirement_applies(
+    requirement: Requirement,
+    *,
+    platform_variant: str,
+    python_version: str,
+    extra: str,
+) -> bool:
+    marker = requirement.marker
+    if marker is None:
+        return True
+
+    marker_text = str(marker)
+    if re.search(r"\b(?:platform_release|platform_version)\b", marker_text):
+        raise FreezeOfflineLockError("wheel_dependency_marker_unsupported")
+
+    environment = _target_marker_environment(
+        platform_variant=platform_variant,
+        python_version=python_version,
+        extra=extra,
+    )
+    return marker.evaluate(environment=environment, context="requirement")
+
+
+def validate_wheelhouse_dependency_closure(
+    records: dict[str, WheelRecord],
+    *,
+    platform_variant: str,
+    python_version: str,
+) -> None:
+    pending = [(name, "") for name in sorted(records)]
+    processed: set[tuple[str, str]] = set()
+
+    while pending:
+        name, extra = pending.pop(0)
+        context = (name, extra)
+        if context in processed:
+            continue
+        processed.add(context)
+
+        record = records[name]
+        for raw_requirement in record.requires_dist:
+            requirement = Requirement(raw_requirement)
+            if not _requirement_applies(
+                requirement,
+                platform_variant=platform_variant,
+                python_version=python_version,
+                extra=extra,
+            ):
+                continue
+            if requirement.url is not None:
+                raise FreezeOfflineLockError(
+                    "wheel_dependency_direct_url_forbidden"
+                )
+
+            dependency_name = canonicalize_distribution_name(requirement.name)
+            dependency = records.get(dependency_name)
+            if dependency is None:
+                raise FreezeOfflineLockError("wheel_dependency_missing")
+
+            dependency_version = Version(dependency.version)
+            if requirement.specifier and not requirement.specifier.contains(
+                dependency_version,
+                prereleases=None,
+            ):
+                raise FreezeOfflineLockError(
+                    "wheel_dependency_version_mismatch"
+                )
+
+            for requested_extra in sorted(requirement.extras):
+                pending.append(
+                    (
+                        dependency_name,
+                        canonicalize_name(requested_extra),
+                    )
+                )
 
 
 def _pure_python_tag_compatible(
@@ -210,6 +358,13 @@ def validate_wheel_record_for_target(
     python_version: str,
 ) -> None:
     major, minor = _target_python_identity(python_version)
+    if record.requires_python is not None:
+        requires_python = SpecifierSet(record.requires_python)
+        if not requires_python.contains(
+            Version(python_version),
+            prereleases=None,
+        ):
+            raise FreezeOfflineLockError("wheel_requires_python_incompatible")
 
     has_interpreter = any(
         _interpreter_tag_compatible(
@@ -344,12 +499,17 @@ def inspect_wheel(path: Path) -> WheelRecord:
     if wheel_tags != set(tags):
         raise FreezeOfflineLockError("wheel_metadata_invalid")
 
+    requires_python = _validated_requires_python(message)
+    requires_dist = _validated_requires_dist(message)
+
     return WheelRecord(
         path=path,
         name=name,
         version=version,
         sha256=sha256_file(path),
         tags=tags,
+        requires_python=requires_python,
+        requires_dist=requires_dist,
     )
 
 
@@ -382,6 +542,12 @@ def freeze_wheelhouse(
         if record.name in by_name:
             raise FreezeOfflineLockError("duplicate_distribution")
         by_name[record.name] = record
+
+    validate_wheelhouse_dependency_closure(
+        by_name,
+        platform_variant=platform_variant,
+        python_version=python_version,
+    )
 
     distributions = tuple(
         LockedDistribution(
