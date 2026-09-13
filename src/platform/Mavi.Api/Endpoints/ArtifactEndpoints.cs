@@ -19,9 +19,9 @@ public static class ArtifactEndpoints
         var result = await service.OpenEvidenceAsync(id, cancellationToken);
         if (!result.IsSuccess)
             return Problem(
-                result.Descriptor is null ? 404 : 500,
+                result.IsNotFound ? 404 : 500,
                 result.ErrorCode!,
-                result.Descriptor is null
+                result.IsNotFound
                     ? "Artifact was not found."
                     : "Artifact content is unavailable.");
 
