@@ -449,12 +449,11 @@ def _infer_model_root(inputs: VerifiedBundleInputs) -> Path:
 
 
 def _revalidate_assembly_boundary(inputs: VerifiedBundleInputs) -> None:
-    if inputs.release_status == "qualification-candidate":
-        return
-    if inputs.release_status != "production":
+    if inputs.release_status not in {"qualification-candidate", "production"}:
         raise OfflineBundleError("bundle_release_status_invalid")
 
     model_root = _infer_model_root(inputs)
+    allow_unverified = inputs.release_status == "qualification-candidate"
     try:
         selection = verify_release_selection(
             model_root=model_root,
@@ -462,7 +461,7 @@ def _revalidate_assembly_boundary(inputs: VerifiedBundleInputs) -> None:
             profile_path=inputs.pipeline_profile_path,
             runtime_profile_path=inputs.runtime_profile_path,
             qualification_path=inputs.qualification_path,
-            allow_unverified=False,
+            allow_unverified=allow_unverified,
         )
         runtime_profile = load_runtime_profile(inputs.runtime_profile_path)
         verified_locks = verify_runtime_release_locks(
@@ -480,7 +479,7 @@ def _revalidate_assembly_boundary(inputs: VerifiedBundleInputs) -> None:
         for gate in MANDATORY_QUALIFICATION_GATES
     )
     validate_release_mode(
-        "production",
+        inputs.release_status,
         verification_status=selection.verification_status,
         runtime_qualification_status=selection.runtime_qualification_status,
         qualification_overall_result=qualification.overall_result,
