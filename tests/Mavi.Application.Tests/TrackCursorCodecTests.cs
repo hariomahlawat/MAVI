@@ -27,8 +27,6 @@ public sealed class TrackCursorCodecTests
     [InlineData("A")]
     public void RejectsMalformedCursor(string cursor)
     {
-        var codec = new TrackCursorCodec();
-
         Assert.False(TrackCursorCodec.TryDecode(cursor, out _));
     }
 
