@@ -10,6 +10,7 @@ using Mavi.Domain.Processing;
 using Mavi.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Mavi.IntegrationTests;
 
@@ -49,11 +50,127 @@ public sealed class VisionResultCompletionApiTests
             request);
         Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
 
+        using var conflictingReplay = await client.PostAsJsonAsync(
+            $"/api/vision/jobs/{lease.JobId}/complete",
+            request with { ProcessingDurationMs = request.ProcessingDurationMs + 1 });
+        Assert.Equal(HttpStatusCode.Conflict, conflictingReplay.StatusCode);
+        Assert.Contains(
+            "vision_job_completion_conflict",
+            await conflictingReplay.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
         Assert.Equal(1, await db.Tracks.CountAsync());
         Assert.Equal(1, await db.Observations.CountAsync());
         Assert.Equal(3, await db.Artifacts.CountAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentExactCompletionSerializesToOneAuthoritativeGraph()
+    {
+        var clock = new MutableTimeProvider(Now);
+        using var factory = new ApiTestFactory { Clock = clock };
+        await factory.ResetAndMigrateAsync();
+        var videoId = await SeedVideoAsync(factory);
+
+        using var client = factory.CreateClient();
+        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
+        var lease = await LeaseAsync(client, "gpu-sdd-01");
+        var request = await BuildRequestAsync(factory, lease);
+
+        using var clientA = factory.CreateClient();
+        using var clientB = factory.CreateClient();
+        var responses = await Task.WhenAll(
+            clientA.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", request),
+            clientB.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", request));
+
+        try
+        {
+            Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+            Assert.Equal(1, await db.Tracks.CountAsync());
+            Assert.Equal(1, await db.Observations.CountAsync());
+            Assert.Equal(3, await db.Artifacts.CountAsync());
+            Assert.Equal(VisionJobStatus.Completed, (await db.VisionJobs.SingleAsync()).Status);
+            Assert.Equal(ProcessingRunStatus.Completed, (await db.ProcessingRuns.SingleAsync()).Status);
+            Assert.Equal(VideoProcessingStatus.Processed, (await db.VideoAssets.SingleAsync()).ProcessingStatus);
+        }
+        finally
+        {
+            foreach (var response in responses) response.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task LeaseExpiryAfterArtifactVerificationRollsBackFirstSave()
+    {
+        var clock = new MutableTimeProvider(Now);
+        var verifier = new ExpiringIntegrityVerifier(clock);
+        using var factory = new ApiTestFactory
+        {
+            Clock = clock,
+            OverrideServices = services =>
+            {
+                services.RemoveAll<IArtifactIntegrityVerifier>();
+                services.AddSingleton<IArtifactIntegrityVerifier>(verifier);
+            }
+        };
+        await factory.ResetAndMigrateAsync();
+        var videoId = await SeedVideoAsync(factory);
+
+        using var client = factory.CreateClient();
+        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
+        var lease = await LeaseAsync(client, "gpu-sdd-01");
+        verifier.ExpireAtUtc = lease.LeaseExpiresAtUtc;
+        var request = await BuildRequestAsync(factory, lease);
+
+        using var rejected = await client.PostAsJsonAsync(
+            $"/api/vision/jobs/{lease.JobId}/complete",
+            request);
+
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        Assert.Contains(
+            "vision_job_lease_invalid",
+            await rejected.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+        Assert.Equal(2, verifier.VerificationCount);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        Assert.Empty(await db.Tracks.ToListAsync());
+        Assert.Empty(await db.Observations.ToListAsync());
+        Assert.Equal(1, await db.Artifacts.CountAsync());
+        Assert.Equal(VisionJobStatus.Leased, (await db.VisionJobs.SingleAsync()).Status);
+        Assert.Equal(ProcessingRunStatus.Running, (await db.ProcessingRuns.SingleAsync()).Status);
+        Assert.Equal(VideoProcessingStatus.Processing, (await db.VideoAssets.SingleAsync()).ProcessingStatus);
+    }
+
+    [Fact]
+    public async Task ExpiredLeaseCannotComplete()
+    {
+        var clock = new MutableTimeProvider(Now);
+        using var factory = new ApiTestFactory { Clock = clock };
+        await factory.ResetAndMigrateAsync();
+        var videoId = await SeedVideoAsync(factory);
+
+        using var client = factory.CreateClient();
+        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
+        var lease = await LeaseAsync(client, "gpu-sdd-01");
+        var request = await BuildRequestAsync(factory, lease);
+        clock.Advance(lease.LeaseExpiresAtUtc - clock.GetUtcNow());
+
+        using var rejected = await client.PostAsJsonAsync(
+            $"/api/vision/jobs/{lease.JobId}/complete",
+            request);
+
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        Assert.Contains(
+            "vision_job_lease_invalid",
+            await rejected.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -350,5 +467,30 @@ public sealed class VisionResultCompletionApiTests
         db.AddRange(camera, source, video);
         await db.SaveChangesAsync();
         return video.Id;
+    }
+}
+
+internal sealed class ExpiringIntegrityVerifier(MutableTimeProvider clock) : IArtifactIntegrityVerifier
+{
+    public DateTimeOffset? ExpireAtUtc { get; set; }
+    public int VerificationCount { get; private set; }
+
+    public Task<ArtifactIntegrityVerification> VerifyAsync(
+        string storageKey,
+        long expectedSizeBytes,
+        string expectedSha256,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Assert.False(string.IsNullOrWhiteSpace(storageKey));
+        VerificationCount++;
+
+        if (VerificationCount == 2 && ExpireAtUtc is { } expiry && clock.GetUtcNow() < expiry)
+            clock.Advance(expiry - clock.GetUtcNow());
+
+        return Task.FromResult(new ArtifactIntegrityVerification(
+            ArtifactIntegrityStatus.Valid,
+            expectedSizeBytes,
+            expectedSha256));
     }
 }

@@ -183,8 +183,8 @@ public sealed class VisionResultValidator
     private static (string DetectorName, string DetectorVersion, string TrackerVersion) ValidateProvenance(
         VisionRuntimeProvenanceContract value)
     {
-        var modelId = Required(value.ModelId, "provenance_model_id_invalid");
-        var modelVersion = Required(value.ModelVersion, "provenance_model_version_invalid");
+        var modelId = RequiredBounded(value.ModelId, 128, "provenance_model_id_invalid");
+        var modelVersion = RequiredBounded(value.ModelVersion, 128, "provenance_model_version_invalid");
         Sha(value.ModelManifestSha256, "provenance_model_manifest_invalid");
         Sha(value.CheckpointSha256, "provenance_checkpoint_invalid");
         Sha(value.ResolvedConfigSha256, "provenance_config_invalid");
@@ -215,8 +215,9 @@ public sealed class VisionResultValidator
         if (value.DependencyVersions is null || value.DependencyVersions.Count == 0 ||
             value.DependencyVersions.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || string.IsNullOrWhiteSpace(pair.Value)))
             throw Invalid("provenance_dependencies_invalid");
-        if (!value.DependencyVersions.TryGetValue("trackers", out var trackerVersion) || string.IsNullOrWhiteSpace(trackerVersion))
+        if (!value.DependencyVersions.TryGetValue("trackers", out var trackerVersion))
             throw Invalid("provenance_tracker_version_missing");
+        trackerVersion = RequiredBounded(trackerVersion, 128, "provenance_tracker_version_invalid");
 
         if (value.Platform is null ||
             string.IsNullOrWhiteSpace(value.Platform.System) ||
@@ -412,6 +413,14 @@ public sealed class VisionResultValidator
         if (string.IsNullOrWhiteSpace(value) || !string.Equals(value, value.Trim(), StringComparison.Ordinal))
             throw Invalid(code);
         return value;
+    }
+
+    private static string RequiredBounded(string? value, int maximumLength, string code)
+    {
+        var text = Required(value, code);
+        if (text.Length > maximumLength)
+            throw Invalid(code);
+        return text;
     }
 
     private static string Sha(string? value, string code)

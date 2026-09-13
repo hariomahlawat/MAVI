@@ -118,6 +118,9 @@ def test_process_builds_one_deterministic_track_and_artifacts(tmp_path: Path) ->
     track = result.tracks[0]
     assert track.track_id == "person-0001"
     assert track.object_class is ObjectClass.PERSON
+    assert track.detection_count == 3
+    assert track.mean_confidence == pytest.approx(0.9)
+    assert track.max_confidence == pytest.approx(0.9)
     assert track.start_offset_ms <= track.representative.offset_ms <= track.end_offset_ms
     assert track.representative.offset_ms == track.start_offset_ms
     offsets = [point.offset_ms for point in track.trajectory]
@@ -134,6 +137,38 @@ def test_process_builds_one_deterministic_track_and_artifacts(tmp_path: Path) ->
     assert track.thumbnail.sha256 == sha256(thumbnail_path.read_bytes()).hexdigest()
     assert track.trajectory_artifact.size_bytes == trajectory_path.stat().st_size
     assert track.trajectory_artifact.sha256 == sha256(trajectory_path.read_bytes()).hexdigest()
+
+
+def test_representative_quality_is_independent_from_max_confidence(tmp_path: Path) -> None:
+    source = tmp_path / "quality-vs-confidence.mp4"
+    _write_tiny_mp4(source, frame_count=2)
+    size, digest = _source_facts(source)
+    detections = {
+        0: (
+            DetectionCandidate(
+                ObjectClass.PERSON,
+                0.80,
+                NormalizedBoundingBox(0.20, 0.20, 0.50, 0.40),
+            ),
+        ),
+        1: (
+            DetectionCandidate(
+                ObjectClass.PERSON,
+                0.95,
+                NormalizedBoundingBox(0.0, 0.0, 0.10, 0.10),
+            ),
+        ),
+    }
+
+    result = _run(_processor(tmp_path, detections), source, size, digest)
+    track = result.tracks[0]
+
+    assert track.detection_count == 2
+    assert track.mean_confidence == pytest.approx(0.875)
+    assert track.max_confidence == pytest.approx(0.95)
+    assert track.representative.confidence == pytest.approx(0.80)
+    assert track.representative.confidence < track.max_confidence
+    assert track.representative.offset_ms == track.start_offset_ms
 
 
 def test_process_zero_detections_returns_no_tracks_or_track_artifacts(tmp_path: Path) -> None:

@@ -225,6 +225,42 @@ def test_task9_pipeline_heartbeats_then_processes_with_shared_attempt_guard(
     assert processor.events == ["process"]
 
 
+def test_runtime_replacement_cannot_rebind_completed_result_provenance(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    old_provenance = object()
+    new_provenance = object()
+    current_provenance = [old_provenance]
+
+    class RuntimeReplacingProcessor(RecordingProcessor):
+        def process(self, **kwargs) -> VisionProcessingResult:
+            current_provenance[0] = new_provenance
+            return super().process(**kwargs)
+
+    processor = RuntimeReplacingProcessor(make_result(lease))
+
+    result = asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            runtime_provenance_provider=lambda: current_provenance[0],
+        ).run_once()
+    )
+
+    assert result is True
+    assert current_provenance[0] is new_provenance
+    assert len(client.completions) == 1
+    assert client.completions[0][2] is old_provenance
+    assert client.failures == []
+
+
 def test_unconfigured_task9_processor_reports_controlled_failure(tmp_path: Path) -> None:
     media = tmp_path / "videos" / "input.mp4"
     media.parent.mkdir()
