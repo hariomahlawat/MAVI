@@ -140,7 +140,7 @@ public sealed class WorkerContractV2Tests
     public void CompletionTrackCollectionIsBoundedDuringJsonBinding()
     {
         var tracks = string.Join(',', Enumerable.Repeat("{}", WorkerContractRules.MaximumCompletionTracks + 1));
-        var json = $"""{"schemaVersion":"2.0","tracks":[{{tracks}}]}""";
+        var json = "{\"schemaVersion\":\"2.0\",\"tracks\":[" + tracks + "]}";
 
         Assert.Throws<JsonException>(() =>
             JsonSerializer.Deserialize<VisionJobCompleteRequest>(json, JsonOptions()));
