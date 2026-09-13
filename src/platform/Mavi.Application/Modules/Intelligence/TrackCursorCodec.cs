@@ -1,4 +1,4 @@
-using System.Text;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -21,7 +21,8 @@ public static class TrackCursorCodec
                 1,
                 position.SnapshotUtc.ToUniversalTime(),
                 position.StartTimestampUtc.ToUniversalTime(),
-                position.TrackId),
+                position.TrackId,
+                position.FilterFingerprint),
             JsonOptions);
 
         return Convert.ToBase64String(payload)
@@ -62,7 +63,8 @@ public static class TrackCursorCodec
                 payload.TrackId == Guid.Empty ||
                 payload.TrackId.Version != 7 ||
                 payload.SnapshotUtc.Offset != TimeSpan.Zero ||
-                payload.StartTimestampUtc.Offset != TimeSpan.Zero)
+                payload.StartTimestampUtc.Offset != TimeSpan.Zero ||
+                !IsSha256(payload.FilterFingerprint))
             {
                 return false;
             }
@@ -70,7 +72,8 @@ public static class TrackCursorCodec
             position = new TrackCursorPosition(
                 payload.SnapshotUtc,
                 payload.StartTimestampUtc,
-                payload.TrackId);
+                payload.TrackId,
+                payload.FilterFingerprint);
             return true;
         }
         catch (Exception exception) when (
@@ -80,9 +83,42 @@ public static class TrackCursorCodec
         }
     }
 
+    public static string ComputeFilterFingerprint(TrackSearchQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var payload = JsonSerializer.SerializeToUtf8Bytes(
+            new FilterPayload(
+                query.CameraId,
+                query.VideoAssetId,
+                query.ProcessingRunId,
+                query.ObjectClass,
+                query.FromUtc?.ToUniversalTime(),
+                query.ToUtc?.ToUniversalTime(),
+                query.MinimumDurationMs,
+                query.MinimumConfidence),
+            JsonOptions);
+        return Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
+    }
+
+    private static bool IsSha256(string? value) =>
+        value is { Length: 64 } &&
+        value.All(character =>
+            character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
     private sealed record CursorPayload(
         int Version,
         DateTimeOffset SnapshotUtc,
         DateTimeOffset StartTimestampUtc,
-        Guid TrackId);
+        Guid TrackId,
+        string FilterFingerprint);
+
+    private sealed record FilterPayload(
+        Guid? CameraId,
+        Guid? VideoAssetId,
+        Guid? ProcessingRunId,
+        Mavi.Domain.Intelligence.ObjectClass? ObjectClass,
+        DateTimeOffset? FromUtc,
+        DateTimeOffset? ToUtc,
+        long? MinimumDurationMs,
+        double? MinimumConfidence);
 }
