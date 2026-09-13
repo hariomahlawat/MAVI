@@ -66,6 +66,31 @@
       "token": "9223372036854775808",
       "accepted": false
     }
+,
+    {
+      "name": "extreme positive exponent zero",
+      "field": "processingDurationMs",
+      "token": "0e1000000000000000000",
+      "accepted": true
+    },
+    {
+      "name": "extreme positive exponent negative zero",
+      "field": "processingDurationMs",
+      "token": "-0e1000000000000000000",
+      "accepted": true
+    },
+    {
+      "name": "extreme positive exponent nonzero overflow",
+      "field": "processingDurationMs",
+      "token": "1e1000000000000000000",
+      "accepted": false
+    },
+    {
+      "name": "extreme negative exponent nonintegral",
+      "field": "processingDurationMs",
+      "token": "1e-1000000000000000000",
+      "accepted": false
+    }
   ],
   "provenanceEdgeCases": [
     {
