@@ -59,9 +59,13 @@ public sealed class ContentReadService(
         string unavailableCode,
         CancellationToken cancellationToken)
     {
+        if (!DescriptorIsValid(descriptor))
+            return OpenContentResult.Unavailable(descriptor, unavailableCode);
+
+        Stream? stream = null;
         try
         {
-            var stream = descriptor.StorageKind switch
+            stream = descriptor.StorageKind switch
             {
                 ContentStorageKind.ManagedMedia =>
                     await mediaStore.OpenReadAsync(descriptor.StorageKey, cancellationToken),
@@ -83,9 +87,42 @@ public sealed class ContentReadService(
             DirectoryNotFoundException or
             IOException or
             UnauthorizedAccessException or
-            ArgumentException)
+            ArgumentException or
+            NotSupportedException)
         {
+            if (stream is not null)
+                await stream.DisposeAsync();
             return OpenContentResult.Unavailable(descriptor, unavailableCode);
         }
+    }
+
+    private static bool DescriptorIsValid(ContentDescriptor descriptor)
+    {
+        if (descriptor.ArtifactId == Guid.Empty ||
+            descriptor.SizeBytes < 0 ||
+            descriptor.Sha256 is not { Length: 64 } ||
+            descriptor.Sha256.Any(character =>
+                character is not (>= '0' and <= '9' or >= 'a' and <= 'f')))
+            return false;
+
+        return descriptor switch
+        {
+            {
+                ArtifactType: Mavi.Domain.Media.ArtifactType.SourceVideo,
+                StorageKind: ContentStorageKind.ManagedMedia,
+                MimeType: "video/mp4"
+            } => true,
+            {
+                ArtifactType: Mavi.Domain.Media.ArtifactType.Thumbnail,
+                StorageKind: ContentStorageKind.AcceptedEvidence,
+                MimeType: "image/jpeg"
+            } => true,
+            {
+                ArtifactType: Mavi.Domain.Media.ArtifactType.TrackTrajectory,
+                StorageKind: ContentStorageKind.AcceptedEvidence,
+                MimeType: "application/msgpack"
+            } => true,
+            _ => false,
+        };
     }
 }
