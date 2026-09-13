@@ -2,6 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using Mavi.Contracts.Api.Tracks;
 using Mavi.Domain.Intelligence;
+using Mavi.Domain.Processing;
+using Mavi.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Mavi.IntegrationTests;
 
@@ -233,6 +237,75 @@ public sealed class TrackSearchApiTests
         Assert.Equal(
             new[] { firstTrack.TrackId, secondTrack.TrackId }.OrderBy(x => x).ToArray(),
             new[] { firstItem.Id, secondItem.Id }.OrderBy(x => x).ToArray());
+    }
+
+    [Fact]
+    public async Task FirstPageWaitsForInFlightCompletionVisibilityBarrier()
+    {
+        var now = new DateTimeOffset(2026, 9, 13, 12, 0, 0, TimeSpan.Zero);
+        var clock = new AdvancingTimeProvider(now);
+        using var factory = new ApiTestFactory { Clock = clock };
+        await factory.ResetAndMigrateAsync();
+
+        var video = await Task14TestData.SeedBaseVideoAsync(
+            factory,
+            "CAM-BARRIER",
+            new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero));
+        var oldTrack = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            video,
+            now.AddHours(-1),
+            1_000);
+
+        using var completionScope = factory.Services.CreateScope();
+        var completionDb = completionScope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        await using var completionTransaction =
+            await completionDb.Database.BeginTransactionAsync();
+        await ProcessingVisibilityBarrier.AcquireCompletionSharedAsync(
+            completionDb,
+            CancellationToken.None);
+
+        var replacementRun = ProcessingRun.Create(
+            video.VideoId,
+            "phase1-detection-tracking-v1",
+            "{}",
+            now.AddMinutes(-2));
+        replacementRun.MarkRunning("worker-barrier", now.AddMinutes(-1));
+        var replacementTrack = Track.Create(
+            replacementRun.Id,
+            video.VideoId,
+            localTrackNumber: 1,
+            ObjectClass.Person,
+            startOffsetMs: 5_000,
+            endOffsetMs: 7_000,
+            video.RecordingStartUtc,
+            detectionCount: 8,
+            meanConfidence: 0.9,
+            maxConfidence: 0.95,
+            createdAtUtc: now);
+        replacementRun.MarkCompleted(
+            framesProcessed: 100,
+            tracksCreated: 1,
+            durationMs: 2_000,
+            completedAtUtc: now);
+
+        completionDb.ProcessingRuns.Add(replacementRun);
+        completionDb.Tracks.Add(replacementTrack);
+        await completionDb.SaveChangesAsync();
+
+        using var client = factory.CreateClient();
+        var searchTask = client.GetFromJsonAsync<TrackSearchResponse>("/api/tracks");
+        var first = await Task.WhenAny(searchTask, Task.Delay(250));
+
+        Assert.NotSame(searchTask, first);
+
+        await completionTransaction.CommitAsync();
+
+        var response = await searchTask;
+        Assert.NotNull(response);
+        var item = Assert.Single(response.Items);
+        Assert.Equal(replacementTrack.Id, item.Id);
+        Assert.DoesNotContain(response.Items, x => x.Id == oldTrack.TrackId);
     }
 
     [Fact]
