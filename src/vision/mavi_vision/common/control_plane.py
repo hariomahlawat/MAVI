@@ -1,3 +1,4 @@
+import base64
 import re
 from datetime import datetime, timezone
 from typing import Annotated, Literal
@@ -12,11 +13,14 @@ from pydantic import (
     StrictStr,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 
 _WORKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", re.ASCII)
 _FAILURE_CODE_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}", re.ASCII)
+_TRACK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", re.ASCII)
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 _CANONICAL_UTC_PATTERN = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z",
     re.ASCII,
@@ -53,13 +57,30 @@ def _failure_code(value: str) -> str:
     return value
 
 
+def _track_id(value: str) -> str:
+    if _TRACK_ID_PATTERN.fullmatch(value) is None:
+        raise ValueError("trackId must use the canonical safe identifier syntax")
+    return value
+
+
+def _sha256(value: str) -> str:
+    if _SHA256_PATTERN.fullmatch(value) is None:
+        raise ValueError("SHA-256 must use canonical lowercase hexadecimal syntax")
+    return value
+
+
 def _lease_token(value: str) -> str:
-    import base64
-    if len(value) != 43 or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-" for c in value):
+    if len(value) != 43 or any(
+        c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+        for c in value
+    ):
         raise ValueError("leaseToken must be canonical unpadded Base64Url")
     try:
         decoded = base64.b64decode(value + "=", altchars=b"-_", validate=True)
-        if len(decoded) != 32 or base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii") != value:
+        if (
+            len(decoded) != 32
+            or base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii") != value
+        ):
             raise ValueError("invalid canonical token encoding")
     except Exception as exc:
         raise ValueError("leaseToken must encode 32 bytes") from exc
@@ -68,9 +89,15 @@ def _lease_token(value: str) -> str:
 
 def _storage_key(value: str) -> str:
     segments = value.split("/")
-    if not 1 <= len(value) <= 512 or value.startswith("/") or value.endswith("/") or \
-            "\\" in value or ":" in value or any(segment in ("", ".", "..") for segment in segments):
-        raise ValueError("sourceStorageKey must be a logical relative storage key")
+    if (
+        not 1 <= len(value) <= 512
+        or value.startswith("/")
+        or value.endswith("/")
+        or "\\" in value
+        or ":" in value
+        or any(segment in ("", ".", "..") for segment in segments)
+    ):
+        raise ValueError("storage key must be a logical relative storage key")
     return value
 
 
@@ -78,6 +105,8 @@ WorkerId = Annotated[StrictStr, AfterValidator(_worker_id)]
 FailureCode = Annotated[StrictStr, AfterValidator(_failure_code)]
 LeaseToken = Annotated[StrictStr, AfterValidator(_lease_token)]
 StorageKey = Annotated[StrictStr, AfterValidator(_storage_key)]
+TrackId = Annotated[StrictStr, AfterValidator(_track_id)]
+Sha256 = Annotated[StrictStr, AfterValidator(_sha256)]
 CanonicalUtcDateTime = Annotated[datetime, BeforeValidator(_canonical_utc_wire)]
 
 
@@ -95,7 +124,10 @@ class ControlPlaneModel(BaseModel):
     @field_validator("*", mode="after")
     @classmethod
     def require_utc_datetimes(cls, value: object) -> object:
-        if isinstance(value, datetime) and (value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(value)):
+        if isinstance(value, datetime) and (
+            value.tzinfo is None
+            or value.utcoffset() != timezone.utc.utcoffset(value)
+        ):
             raise ValueError("cross-system datetime must be timezone-aware UTC")
         return value
 
@@ -150,6 +182,158 @@ class VisionJobFail(ControlPlaneModel):
     lease_token: LeaseToken
     failure_code: FailureCode
     failure_message: str | None = Field(default=None, max_length=4000)
+
+
+class VisionCompletionArtifact(ControlPlaneModel):
+    storage_key: StorageKey
+    media_type: Literal["image/jpeg", "application/msgpack"]
+    size_bytes: int = Field(ge=0)
+    sha256: Sha256
+
+
+class VisionCompletionBoundingBox(ControlPlaneModel):
+    x: float = Field(ge=0, le=1, allow_inf_nan=False)
+    y: float = Field(ge=0, le=1, allow_inf_nan=False)
+    width: float = Field(gt=0, le=1, allow_inf_nan=False)
+    height: float = Field(gt=0, le=1, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "VisionCompletionBoundingBox":
+        if self.x + self.width > 1 or self.y + self.height > 1:
+            raise ValueError("boundingBox must be fully normalized inside [0,1]")
+        return self
+
+
+class VisionCompletionRepresentative(ControlPlaneModel):
+    offset_ms: int = Field(ge=0)
+    source_frame_number: int = Field(ge=0)
+    confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
+    quality_score: float = Field(ge=0, le=1, allow_inf_nan=False)
+    bounding_box: VisionCompletionBoundingBox
+    thumbnail: VisionCompletionArtifact
+
+
+class VisionCompletionTrack(ControlPlaneModel):
+    track_id: TrackId
+    object_class: Literal["person", "vehicle"]
+    start_offset_ms: int = Field(ge=0)
+    end_offset_ms: int = Field(ge=0)
+    detection_count: int = Field(gt=0)
+    mean_confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
+    max_confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
+    representative: VisionCompletionRepresentative
+    trajectory_artifact: VisionCompletionArtifact
+
+    @model_validator(mode="after")
+    def validate_track_semantics(self) -> "VisionCompletionTrack":
+        if self.end_offset_ms < self.start_offset_ms:
+            raise ValueError("track offsets are invalid")
+        if self.mean_confidence > self.max_confidence:
+            raise ValueError("meanConfidence cannot exceed maxConfidence")
+        if self.representative.confidence > self.max_confidence:
+            raise ValueError("representative confidence cannot exceed maxConfidence")
+        if not self.start_offset_ms <= self.representative.offset_ms <= self.end_offset_ms:
+            raise ValueError("representative observation must lie inside the track")
+        return self
+
+
+class VisionPlatformIdentity(ControlPlaneModel):
+    system: StrictStr = Field(min_length=1)
+    release: StrictStr = Field(min_length=1)
+    version: StrictStr = Field(min_length=1)
+    machine: StrictStr = Field(min_length=1)
+    processor: StrictStr = Field(min_length=1)
+    python_version: StrictStr = Field(min_length=1)
+    python_implementation: StrictStr = Field(min_length=1)
+    python_build: tuple[StrictStr, StrictStr]
+    python_compiler: StrictStr = Field(min_length=1)
+
+
+class VisionGpuIdentity(ControlPlaneModel):
+    name: StrictStr = Field(min_length=1)
+    index: int = Field(ge=0)
+    vram_bytes: int = Field(gt=0)
+    driver_version: StrictStr = Field(min_length=1)
+    cuda_runtime_version: StrictStr = Field(min_length=1)
+
+
+class VisionTrackerParameters(ControlPlaneModel):
+    reference_frame_rate: float = Field(gt=0, allow_inf_nan=False)
+    track_activation_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
+    high_confidence_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
+    minimum_iou_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
+    minimum_consecutive_frames: int = Field(ge=1)
+    lost_track_buffer_seconds: float = Field(gt=0, allow_inf_nan=False)
+
+
+class VisionRuntimeProvenance(ControlPlaneModel):
+    model_id: StrictStr = Field(min_length=1)
+    model_version: StrictStr = Field(min_length=1)
+    model_manifest_sha256: Sha256
+    checkpoint_sha256: Sha256
+    resolved_config_sha256: Sha256
+    pipeline_profile_id: StrictStr = Field(min_length=1)
+    pipeline_profile_version: StrictStr = Field(min_length=1)
+    pipeline_profile_sha256: Sha256
+    qualification_id: StrictStr | None = None
+    qualification_sha256: Sha256 | None = None
+    verification_status: Literal["verified", "unverified"]
+    runtime_profile_id: StrictStr = Field(min_length=1)
+    runtime_profile_sha256: Sha256
+    runtime_variant: StrictStr = Field(min_length=1)
+    platform_lock_sha256: Sha256 | None = None
+    detector_backend: StrictStr = Field(min_length=1)
+    dependency_versions: dict[StrictStr, StrictStr] = Field(min_length=1)
+    ffmpeg_version: StrictStr | None = None
+    platform: VisionPlatformIdentity
+    configured_device_policy: Literal["cpu", "cuda", "auto"]
+    configured_device_index: int = Field(ge=0)
+    actual_device: StrictStr = Field(min_length=1)
+    gpu: VisionGpuIdentity | None = None
+    mavi_build: StrictStr = Field(min_length=1)
+    mavi_commit: StrictStr = Field(min_length=1)
+    frame_policy: Literal["every-frame"]
+    tracker_parameters: VisionTrackerParameters
+    input_colour_space: Literal["RGB"]
+
+    @model_validator(mode="after")
+    def validate_verified_binding(self) -> "VisionRuntimeProvenance":
+        if self.verification_status == "verified" and (
+            self.qualification_id is None
+            or self.qualification_sha256 is None
+            or self.platform_lock_sha256 is None
+        ):
+            raise ValueError("verified provenance requires qualification and platform lock identities")
+        return self
+
+
+class VisionJobComplete(ControlPlaneModel):
+    schema_version: Literal["2.0"]
+    job_id: UUID
+    worker_id: WorkerId
+    lease_token: LeaseToken
+    attempt_count: int = Field(ge=1)
+    frames_processed: int = Field(ge=0)
+    processing_duration_ms: int = Field(ge=0)
+    provenance: VisionRuntimeProvenance
+    tracks: tuple[VisionCompletionTrack, ...]
+
+    @model_validator(mode="after")
+    def validate_result_semantics(self) -> "VisionJobComplete":
+        if self.frames_processed == 0 and self.tracks:
+            raise ValueError("tracks require at least one processed frame")
+        track_ids = [track.track_id for track in self.tracks]
+        if len(track_ids) != len(set(track_ids)):
+            raise ValueError("trackId values must be unique")
+        return self
+
+
+class VisionJobCompleteResponse(ControlPlaneModel):
+    schema_version: Literal["2.0"]
+    job_id: UUID
+    processing_run_id: UUID
+    tracks_accepted: int = Field(ge=0)
+    completed_at_utc: CanonicalUtcDateTime
 
 
 class WorkerHealth(ControlPlaneModel):

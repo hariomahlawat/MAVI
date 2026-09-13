@@ -1,7 +1,9 @@
-# MAVI cross-language contracts
+# Worker Contract Artifacts
 
-The worker control plane uses only schema version **2.0**. UUIDs identify durable jobs, runs, videos, and cameras; `workerId` is a case-sensitive opaque stable string. The retired v1 `mediaUri` job and UUID worker-health shapes are not supported.
+The worker control-plane contract is version 2.0. C# public contracts, JSON Schemas, checked-in examples and Python Pydantic models are maintained as one compatibility boundary.
 
-Each `*-v2.schema.json` file has one matching canonical example. Lease responses expose a logical `sourceStorageKey`, never a physical path, and expose the raw lease capability only at issuance. Heartbeat and failure requests present that capability; responses never echo it. PostgreSQL persists only its SHA-256 hash.
+Task 13 makes `vision-job-complete-v2` the canonical successful analytical-result contract. It is success-only: processing failures continue to use `vision-job-fail-v2`.
 
-`vision-result` v1 is a legacy observation-oriented result-side scaffold retained only until Task 13 freezes the production completion contract. It is not the canonical production result contract and must not be extended for new worker behavior. Task 13 introduces strict worker-control-plane v2 completion contracts with matching C#, JSON Schema, checked-in example and Pydantic models, then removes or explicitly retires this scaffold.
+The former observation-oriented `vision-result` v1 scaffold has been retired. New worker/result behavior must not recreate or extend it.
+
+All worker request schemas reject unknown members. Cross-system timestamps use canonical RFC3339 UTC `Z` syntax. Media is referenced by logical storage key and integrity facts; raw video frames and local filesystem paths never cross the normal worker API.

@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "2.0",
+  "jobId": "018fa7b6-2b31-7f42-9f33-9fd9f6fdd761",
+  "workerId": "gpu-sdd-01",
+  "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "attemptCount": 1,
+  "framesProcessed": 3,
+  "processingDurationMs": 1250,
+  "provenance": {
+    "modelId": "rtmdet-m-coco-phase1",
+    "modelVersion": "1",
+    "modelManifestSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "checkpointSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "resolvedConfigSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "pipelineProfileId": "phase1-detection-tracking",
+    "pipelineProfileVersion": "1",
+    "pipelineProfileSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "qualificationId": null,
+    "qualificationSha256": null,
+    "verificationStatus": "unverified",
+    "runtimeProfileId": "mmdetection-phase1-v1",
+    "runtimeProfileSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "runtimeVariant": "linux-x86_64-cpu",
+    "platformLockSha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "detectorBackend": "mmdetection",
+    "dependencyVersions": {
+      "python": "3.12.14",
+      "trackers": "2.6.0"
+    },
+    "ffmpegVersion": null,
+    "platform": {
+      "system": "Linux",
+      "release": "6.8.0",
+      "version": "qualified-host",
+      "machine": "x86_64",
+      "processor": "x86_64",
+      "pythonVersion": "3.12.14",
+      "pythonImplementation": "CPython",
+      "pythonBuild": ["main", "Sep 1 2026"],
+      "pythonCompiler": "GCC 13.3.0"
+    },
+    "configuredDevicePolicy": "cpu",
+    "configuredDeviceIndex": 0,
+    "actualDevice": "cpu",
+    "gpu": null,
+    "maviBuild": "task13-example",
+    "maviCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "framePolicy": "every-frame",
+    "trackerParameters": {
+      "referenceFrameRate": 30.0,
+      "trackActivationThreshold": 0.25,
+      "highConfidenceThreshold": 0.1,
+      "minimumIouThreshold": 0.2,
+      "minimumConsecutiveFrames": 2,
+      "lostTrackBufferSeconds": 1.0
+    },
+    "inputColourSpace": "RGB"
+  },
+  "tracks": [
+    {
+      "trackId": "person-000001",
+      "objectClass": "person",
+      "startOffsetMs": 0,
+      "endOffsetMs": 80,
+      "detectionCount": 3,
+      "meanConfidence": 0.9,
+      "maxConfidence": 0.95,
+      "representative": {
+        "offsetMs": 40,
+        "sourceFrameNumber": 1,
+        "confidence": 0.9,
+        "qualityScore": 0.88,
+        "boundingBox": {
+          "x": 0.1,
+          "y": 0.2,
+          "width": 0.3,
+          "height": 0.5
+        },
+        "thumbnail": {
+          "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd761/attempt-0001/thumbnails/person-000001.jpg",
+          "mediaType": "image/jpeg",
+          "sizeBytes": 1234,
+          "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+        }
+      },
+      "trajectoryArtifact": {
+        "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd761/attempt-0001/trajectories/person-000001.msgpack",
+        "mediaType": "application/msgpack",
+        "sizeBytes": 128,
+        "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+      }
+    }
+  ]
+}
