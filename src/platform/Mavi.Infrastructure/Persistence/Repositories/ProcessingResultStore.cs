@@ -15,7 +15,8 @@ public sealed class ProcessingResultStore(
     TimeProvider timeProvider,
     ILeaseCapabilityService leaseCapabilities,
     VisionResultValidator validator,
-    IAcceptedEvidenceStore acceptedEvidenceStore) : IProcessingResultStore
+    IAcceptedEvidenceStore acceptedEvidenceStore,
+    ILogger<ProcessingResultStore> logger) : IProcessingResultStore
 {
     public async Task<VisionCompletionResult> CompleteAsync(
         Guid jobId,
@@ -91,8 +92,15 @@ public sealed class ProcessingResultStore(
             return VisionCompletionResult.Failure("vision_job_completion_conflict");
 
         var acceptedStorageKeys = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var track in result.Tracks)
+        var newlySealedKeys = new List<string>();
+        var databaseCommitAttempted = false;
+        var databaseCommitSucceeded = false;
+        var compensationSafe = true;
+
+        try
         {
+            foreach (var track in result.Tracks)
+            {
             var thumbnailAcceptedKey = AcceptedEvidenceKey(
                 jobId,
                 result.AttemptCount,
@@ -106,6 +114,8 @@ public sealed class ProcessingResultStore(
                 track.Representative.Thumbnail.SizeBytes,
                 track.Representative.Thumbnail.Sha256,
                 cancellationToken);
+            if (thumbnail.CreatedNew && thumbnail.StorageKey is { } createdThumbnailKey)
+                newlySealedKeys.Add(createdThumbnailKey);
             var thumbnailFailure = MapSealFailure(thumbnail.Status);
             if (thumbnailFailure is not null)
                 return VisionCompletionResult.Failure(thumbnailFailure);
@@ -126,13 +136,15 @@ public sealed class ProcessingResultStore(
                 track.TrajectoryArtifact.SizeBytes,
                 track.TrajectoryArtifact.Sha256,
                 cancellationToken);
+            if (trajectory.CreatedNew && trajectory.StorageKey is { } createdTrajectoryKey)
+                newlySealedKeys.Add(createdTrajectoryKey);
             var trajectoryFailure = MapSealFailure(trajectory.Status);
             if (trajectoryFailure is not null)
                 return VisionCompletionResult.Failure(trajectoryFailure);
             acceptedStorageKeys.Add(
                 track.TrajectoryArtifact.StorageKey,
                 trajectory.StorageKey ?? trajectoryAcceptedKey);
-        }
+            }
 
         var createdAtUtc = timeProvider.GetUtcNow();
         var graph = new List<(Track Track, Observation Observation)>(result.Tracks.Count);
@@ -227,12 +239,74 @@ public sealed class ProcessingResultStore(
         video.MarkProcessed();
 
         await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+
+        databaseCommitAttempted = true;
+        try
+        {
+            await transaction.CommitAsync(cancellationToken);
+            databaseCommitSucceeded = true;
+        }
+        catch
+        {
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            catch (Exception rollbackException)
+            {
+                compensationSafe = false;
+                logger.LogError(
+                    rollbackException,
+                    "Unable to confirm rollback after Task-13 completion commit failure for job {JobId}; newly sealed evidence is retained for safety.",
+                    jobId);
+            }
+
+            throw;
+        }
 
         return VisionCompletionResult.Success(
             run.Id,
             result.Tracks.Count,
             completionNowUtc);
+        }
+        finally
+        {
+            if (!databaseCommitSucceeded &&
+                (!databaseCommitAttempted || compensationSafe) &&
+                newlySealedKeys.Count > 0)
+            {
+                await CompensateNewlySealedEvidenceAsync(
+                    newlySealedKeys,
+                    jobId,
+                    acceptedEvidenceStore,
+                    logger);
+            }
+        }
+    }
+
+    private static async Task CompensateNewlySealedEvidenceAsync(
+        IReadOnlyList<string> newlySealedKeys,
+        Guid jobId,
+        IAcceptedEvidenceStore acceptedEvidenceStore,
+        ILogger<ProcessingResultStore> logger)
+    {
+        for (var index = newlySealedKeys.Count - 1; index >= 0; index--)
+        {
+            try
+            {
+                await acceptedEvidenceStore.DeleteAcceptedAsync(
+                    newlySealedKeys[index],
+                    CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(
+                    exception,
+                    "Task-13 evidence compensation failed for job {JobId} and accepted key {AcceptedStorageKey}.",
+                    jobId,
+                    newlySealedKeys[index]);
+            }
+        }
     }
 
     private static string AcceptedEvidenceKey(
