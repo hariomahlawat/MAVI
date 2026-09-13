@@ -119,7 +119,8 @@ public static class TrackEndpoints
         if (raw is null)
             return true;
         if (!Enum.TryParse<ObjectClass>(raw, ignoreCase: true, out var value) ||
-            !Enum.IsDefined(value))
+            !Enum.IsDefined(value) ||
+            !string.Equals(raw, value.ToString(), StringComparison.OrdinalIgnoreCase))
             return false;
         result = value;
         return true;
@@ -138,7 +139,7 @@ public static class TrackEndpoints
         if (!DateTimeOffset.TryParse(
                 raw,
                 CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind,
+                DateTimeStyles.None,
                 out var value) ||
             value.Offset != TimeSpan.Zero)
             return false;
