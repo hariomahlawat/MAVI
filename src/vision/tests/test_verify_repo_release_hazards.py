@@ -114,7 +114,7 @@ def test_task12_workflow_covers_wheel_inputs_and_uses_pinned_reproduction() -> N
         Path(__file__).parents[3] / ".github" / "workflows" / "task12-offline-bundle.yml"
     ).read_text(encoding="utf-8")
 
-    assert "'src/vision/mavi_vision/**'" in workflow
+    assert "'src/vision/**'" in workflow
     assert "python -m pip wheel" in workflow
     assert "--no-build-isolation" in workflow
     assert "--no-deps" in workflow
