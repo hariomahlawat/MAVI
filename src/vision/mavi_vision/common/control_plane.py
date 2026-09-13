@@ -79,15 +79,38 @@ def _completion_json_float(value: str) -> _CompletionJsonNumber:
     return _CompletionJsonNumber(value)
 
 
-def _bounded_exponent(value: str | None) -> int:
+def _parse_completion_exponent(
+    value: str | None,
+    *,
+    fraction_length: int,
+    mantissa_digit_count: int,
+) -> int:
     if value is None:
         return 0
+
     negative = value.startswith("-")
     digits = value.lstrip("+-").lstrip("0") or "0"
-    if len(digits) > 3:
-        return -1000 if negative else 1000
-    exponent = int(digits)
-    return -exponent if negative else exponent
+
+    if negative:
+        # A negative exponent increases the fractional scale. Once its
+        # magnitude exceeds the complete non-zero mantissa width, the value
+        # cannot be mathematically integral.
+        limit = mantissa_digit_count
+        if len(digits) > len(str(limit)) or (
+            len(digits) == len(str(limit)) and digits > str(limit)
+        ):
+            raise ValueError("completion integer must be mathematically integral")
+        return -int(digits)
+
+    # A positive exponent may cancel fractional digits and append zeroes.
+    # If it exceeds the fractional scale by more than the Int64 decimal
+    # envelope, a non-zero value cannot fit any completion wire integer.
+    limit = fraction_length + 19
+    if len(digits) > len(str(limit)) or (
+        len(digits) == len(str(limit)) and digits > str(limit)
+    ):
+        raise ValueError("completion integer is outside the wire-type range")
+    return int(digits)
 
 
 def _completion_integer_token(value: str) -> int:
@@ -105,7 +128,11 @@ def _completion_integer_token(value: str) -> int:
     if all(character == "0" for character in digits):
         return 0
 
-    exponent = _bounded_exponent(match.group("exponent"))
+    exponent = _parse_completion_exponent(
+        match.group("exponent"),
+        fraction_length=len(fraction),
+        mantissa_digit_count=len(digits),
+    )
     scale = len(fraction) - exponent
 
     if scale > 0:
