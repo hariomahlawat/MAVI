@@ -2851,7 +2851,7 @@ Earlier green commits do not satisfy this gate.
 
 - [ ] **Step 8: Request full-diff code review**
 
-Review for framework-type leakage, hidden network paths, lease precedence, Windows reparse handling, cross-attempt state leakage, RGB/BGR errors, native-ID leakage, metadata drift, generic production thread-pool use, unsafe native-thread cancellation, and accidental Task-11 persistence.
+Review for framework-type leakage, hidden network paths, lease precedence, Windows reparse handling, cross-attempt state leakage, RGB/BGR errors, native-ID leakage, metadata drift, generic production thread-pool use, unsafe native-thread cancellation, and accidental Task-13 result persistence.
 
 - [ ] **Step 9: Audit the Revision-2 Definition of Done item-by-item**
 
