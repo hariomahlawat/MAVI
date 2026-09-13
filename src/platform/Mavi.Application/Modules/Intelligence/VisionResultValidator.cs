@@ -229,7 +229,9 @@ public sealed class VisionResultValidator
             OptionalSha(value.PlatformLockSha256, "provenance_platform_lock_invalid");
         }
 
-        if (value.DependencyVersions is null || value.DependencyVersions.Count == 0)
+        if (value.DependencyVersions is null ||
+            value.DependencyVersions.Count == 0 ||
+            value.DependencyVersions.Count > WorkerContractRules.MaximumCompletionDependencyVersions)
             throw Invalid("provenance_dependencies_invalid");
         foreach (var pair in value.DependencyVersions)
         {
@@ -526,7 +528,11 @@ public sealed class VisionResultValidator
                persistedY + persistedHeight <= 1;
     }
 
-    private static bool Positive(double? value) => value is { } item && double.IsFinite(item) && item > 0;
+    private static bool Positive(double? value) =>
+        value is { } item &&
+        double.IsFinite(item) &&
+        item >= WorkerContractRules.MinimumPositiveTrackerParameter &&
+        item <= WorkerContractRules.MaximumPositiveTrackerParameter;
     private static bool IsAsciiAlphaNumeric(char value) =>
         value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9';
 
