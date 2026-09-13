@@ -256,6 +256,65 @@ public sealed class VisionResultCompletionApiTests
         Assert.Equal(VisionJobStatus.Leased, (await db.VisionJobs.SingleAsync()).Status);
         Assert.Equal(ProcessingRunStatus.Running, (await db.ProcessingRuns.SingleAsync()).Status);
         Assert.Equal(VideoProcessingStatus.Processing, (await db.VideoAssets.SingleAsync()).ProcessingStatus);
+        Assert.Empty(Directory.Exists(factory.EvidenceRoot)
+            ? Directory.GetFiles(factory.EvidenceRoot, "*", SearchOption.AllDirectories)
+            : []);
+    }
+
+    [Fact]
+    public async Task FailedCompletionDoesNotDeletePreExistingIdempotentEvidence()
+    {
+        var clock = new MutableTimeProvider(Now);
+        using var factory = new ApiTestFactory { Clock = clock };
+        await factory.ResetAndMigrateAsync();
+        var videoId = await SeedVideoAsync(factory);
+
+        using var client = factory.CreateClient();
+        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
+        var lease = await LeaseAsync(client, "gpu-sdd-01");
+        var request = await BuildRequestAsync(factory, lease);
+        var track = request.Tracks!.Single();
+        var thumbnail = track.Representative!.Thumbnail!;
+        var acceptedKey =
+            $"evidence/{lease.JobId:D}/attempt-{lease.AttemptCount:0000}/thumbnails/" +
+            $"person-000001-{thumbnail.Sha256}.jpg";
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var sealer = scope.ServiceProvider.GetRequiredService<IAcceptedEvidenceStore>();
+            var preExisting = await sealer.SealAsync(
+                thumbnail.StorageKey!,
+                acceptedKey,
+                thumbnail.SizeBytes!.Value,
+                thumbnail.Sha256!,
+                CancellationToken.None);
+            Assert.Equal(AcceptedEvidenceSealStatus.Sealed, preExisting.Status);
+            Assert.True(preExisting.CreatedNew);
+        }
+
+        request = request with
+        {
+            Tracks =
+            [
+                track with
+                {
+                    TrajectoryArtifact = track.TrajectoryArtifact! with
+                    {
+                        Sha256 = new string('0', 64)
+                    }
+                }
+            ]
+        };
+
+        using var rejected = await client.PostAsJsonAsync(
+            $"/api/vision/jobs/{lease.JobId}/complete",
+            request);
+
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        var acceptedPath = Path.Combine(
+            factory.EvidenceRoot,
+            acceptedKey["evidence/".Length..].Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(acceptedPath));
     }
 
     [Fact]
@@ -568,5 +627,13 @@ internal sealed class AdvancingAcceptedEvidenceStore(MutableTimeProvider clock) 
             acceptedStorageKey,
             expectedSizeBytes,
             expectedSha256));
+    }
+
+    public Task DeleteAcceptedAsync(
+        string acceptedStorageKey,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
     }
 }
