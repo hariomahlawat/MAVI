@@ -38,6 +38,12 @@ internal static class DurableFilePublication
             "Durable accepted-evidence directory creation is supported only on Windows and Linux.");
     }
 
+    public static void EnsurePublishedDirectoryDurable(string parentPath)
+    {
+        if (OperatingSystem.IsLinux())
+            FlushDirectory(parentPath);
+    }
+
     public static void DeletePublished(string destinationPath, string parentPath)
     {
         if (!File.Exists(destinationPath))
@@ -184,10 +190,12 @@ internal static class DurableFilePublication
         int flags);
 #pragma warning restore CA2101
 
+#pragma warning disable CA2101 // POSIX link(2) requires UTF-8; marshaling is explicit and intentional.
     [DllImport("libc", EntryPoint = "link", SetLastError = true)]
     private static extern int Link(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string oldpath,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string newpath);
+#pragma warning restore CA2101
 
     [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
     private static extern int Fsync(int descriptor);
