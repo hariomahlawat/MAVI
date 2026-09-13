@@ -5,6 +5,7 @@ using Mavi.Application;
 using Mavi.Application.Modules.Cameras;
 using Mavi.Application.Modules.Media;
 using Mavi.Application.Modules.Intelligence;
+using Mavi.Application.Modules.Evidence;
 using Mavi.Infrastructure.Media;
 using Mavi.Infrastructure.Security;
 using Mavi.Infrastructure.Persistence;
@@ -37,6 +38,11 @@ public static class DependencyInjection
         services.AddScoped<VideoImportService>();
         services.AddScoped<IProcessingOrchestrator, ProcessingOrchestrator>();
         services.AddScoped<IProcessingResultStore, ProcessingResultStore>();
+        services.AddScoped<ITrackSearchRepository, TrackSearchRepository>();
+        services.AddScoped<TrackSearchService>();
+        services.AddSingleton<TrackCursorCodec>();
+        services.AddScoped<IContentCatalog, ContentCatalog>();
+        services.AddScoped<ContentReadService>();
         services.AddSingleton<VisionResultValidator>();
         services.AddSingleton<ILeaseCapabilityService, LeaseCapabilityService>();
         services.AddSingleton(TimeProvider.System);
@@ -84,6 +90,7 @@ public static class DependencyInjection
         services.AddSingleton<LocalMediaStore>();
         services.AddSingleton<IMediaStore>(provider => provider.GetRequiredService<LocalMediaStore>());
         services.AddSingleton<IAcceptedEvidenceStore, AcceptedEvidenceStore>();
+        services.AddSingleton<IAcceptedEvidenceReader, AcceptedEvidenceReader>();
         services.AddSingleton<ILocalMediaPathResolver>(provider => provider.GetRequiredService<LocalMediaStore>());
         services.AddSingleton<IVideoMetadataReader, FfprobeVideoMetadataReader>();
         return services;
