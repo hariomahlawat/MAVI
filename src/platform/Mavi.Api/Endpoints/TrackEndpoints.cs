@@ -268,7 +268,7 @@ public static class TrackEndpoints
             row.ProcessingRunId,
             row.VideoAssetId,
             new TrackCameraResponse(row.CameraId, row.CameraCode, row.CameraName),
-            row.ObjectClass,
+            row.ObjectClass.ToString(),
             row.LocalTrackNumber,
             row.StartOffsetMs,
             row.EndOffsetMs,
@@ -278,7 +278,7 @@ public static class TrackEndpoints
             row.DetectionCount,
             row.MeanConfidence,
             row.MaxConfidence,
-            row.ReviewStatus,
+            row.ReviewStatus.ToString(),
             new TrackProcessingResponse(
                 row.PipelineVersion,
                 row.DetectorName,
