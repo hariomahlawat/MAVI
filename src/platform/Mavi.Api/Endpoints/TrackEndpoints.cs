@@ -138,10 +138,9 @@ public static class TrackEndpoints
             return true;
 
         var explicitUtc =
-            raw.Contains('T', StringComparison.Ordinal) &&
+            raw.Contains('T') &&
             (raw.EndsWith('Z') ||
-             raw.EndsWith("+00:00", StringComparison.Ordinal) ||
-             raw.EndsWith("-00:00", StringComparison.Ordinal));
+             raw.EndsWith("+00:00", StringComparison.Ordinal));
         if (!explicitUtc ||
             !DateTimeOffset.TryParse(
                 raw,
@@ -225,7 +224,7 @@ public static class TrackEndpoints
         row.CameraId,
         row.CameraCode,
         row.CameraName,
-        row.ObjectClass,
+        row.ObjectClass.ToString(),
         row.StartTimestampUtc,
         row.EndTimestampUtc,
         row.StartOffsetMs,
@@ -234,7 +233,7 @@ public static class TrackEndpoints
         row.DetectionCount,
         row.MeanConfidence,
         row.MaxConfidence,
-        row.ReviewStatus,
+        row.ReviewStatus.ToString(),
         row.ThumbnailArtifactId,
         row.ThumbnailArtifactId is { } thumbnailId
             ? $"/api/artifacts/{thumbnailId:D}/content"
