@@ -2,7 +2,6 @@ using System.Buffers;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Win32.SafeHandles;
 using Mavi.Application.Abstractions.Storage;
 using Microsoft.Extensions.Options;
@@ -235,28 +234,28 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
 
     private static string GetWindowsOpenedPath(SafeFileHandle handle)
     {
-        var buffer = new StringBuilder(512);
+        var buffer = new char[512];
         var length = GetFinalPathNameByHandle(
             handle,
             buffer,
-            checked((uint)buffer.Capacity),
+            checked((uint)buffer.Length),
             0);
         if (length == 0)
             throw new Win32Exception(Marshal.GetLastWin32Error());
 
-        if (length >= buffer.Capacity)
+        if (length >= buffer.Length)
         {
-            buffer.EnsureCapacity(checked((int)length + 1));
+            buffer = new char[checked((int)length + 1)];
             length = GetFinalPathNameByHandle(
                 handle,
                 buffer,
-                checked((uint)buffer.Capacity),
+                checked((uint)buffer.Length),
                 0);
-            if (length == 0 || length >= buffer.Capacity)
+            if (length == 0 || length >= buffer.Length)
                 throw new Win32Exception(Marshal.GetLastWin32Error());
         }
 
-        var path = buffer.ToString();
+        var path = new string(buffer, 0, checked((int)length));
         if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
             path = @"\\" + path[8..];
         else if (path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
@@ -274,7 +273,7 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
         ExactSpelling = true)]
     private static extern uint GetFinalPathNameByHandle(
         SafeFileHandle hFile,
-        [Out] StringBuilder lpszFilePath,
+        [Out] char[] lpszFilePath,
         uint cchFilePath,
         uint dwFlags);
 #pragma warning restore SYSLIB1054
