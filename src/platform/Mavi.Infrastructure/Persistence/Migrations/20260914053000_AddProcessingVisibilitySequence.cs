@@ -24,15 +24,38 @@ public sealed class AddProcessingVisibilitySequence : Migration
             type: "bigint",
             nullable: true);
 
-        // Existing completed rows predate the publication protocol. Giving each
-        // one a sequence places all historical intelligence before the first
-        // post-migration search/completion watermark. Exact relative order is
-        // immaterial because future latest-run selection is sequence-based.
-        migrationBuilder.Sql($$"""
-            UPDATE processing_runs
-            SET visibility_sequence = nextval('{{ProcessingVisibilityBarrier.SequenceName}}')
-            WHERE status = 'Completed'
-              AND completed_at_utc IS NOT NULL;
+        // Existing completed rows predate the publication protocol. Preserve
+        // their established CompletedAtUtc/Id ordering exactly while translating
+        // it into the new monotonic publication order. Do not use nextval() from
+        // an unordered UPDATE: PostgreSQL does not guarantee row visitation order.
+        migrationBuilder.Sql($"""
+            WITH ranked AS (
+                SELECT
+                    id,
+                    row_number() OVER (
+                        ORDER BY completed_at_utc ASC, id ASC
+                    )::bigint AS visibility_sequence
+                FROM processing_runs
+                WHERE status = 'Completed'
+                  AND completed_at_utc IS NOT NULL
+            )
+            UPDATE processing_runs AS run
+            SET visibility_sequence = ranked.visibility_sequence
+            FROM ranked
+            WHERE run.id = ranked.id;
+
+            SELECT setval(
+                '{{ProcessingVisibilityBarrier.SequenceName}}',
+                COALESCE(
+                    (SELECT MAX(visibility_sequence) FROM processing_runs),
+                    1
+                ),
+                EXISTS (
+                    SELECT 1
+                    FROM processing_runs
+                    WHERE visibility_sequence IS NOT NULL
+                )
+            );
             """);
 
         migrationBuilder.CreateIndex(
