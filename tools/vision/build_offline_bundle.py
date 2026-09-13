@@ -31,6 +31,7 @@ from freeze_offline_lock import (  # noqa: E402
     inspect_wheel,
     sha256_file,
     validate_wheel_record_for_target,
+    validate_wheelhouse_dependency_closure,
 )
 from mavi_vision.runtime.manifest import (  # noqa: E402
     ReleaseMetadataError,
@@ -599,6 +600,15 @@ def _validate_wheelhouse(wheelhouse: Path, lock):
         if record.name in records:
             raise OfflineBundleError("wheelhouse_duplicate_distribution")
         records[record.name] = record
+
+    try:
+        validate_wheelhouse_dependency_closure(
+            records,
+            platform_variant=lock.platform_variant,
+            python_version=lock.python_version,
+        )
+    except ValueError as exc:
+        raise OfflineBundleError(str(exc)) from exc
 
     expected = {item.name: item for item in lock.distributions}
     if set(records) != set(expected):
