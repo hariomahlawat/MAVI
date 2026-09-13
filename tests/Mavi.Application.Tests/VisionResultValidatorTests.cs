@@ -231,6 +231,52 @@ public sealed class VisionResultValidatorTests
             validator.Validate(JobId, Request(tracks), 10_000));
     }
 
+    [Fact]
+    public void DetectionCountCannotExceedFramesProcessed()
+    {
+        var validator = new VisionResultValidator();
+        var track = Track("person-000001", "person") with { DetectionCount = 21 };
+
+        Assert.Throws<VisionResultValidationException>(() =>
+            validator.Validate(JobId, Request(track), 10_000));
+    }
+
+    [Fact]
+    public void RepresentativeFrameMustBelongToProcessedFrameEnvelope()
+    {
+        var validator = new VisionResultValidator();
+        var track = Track("person-000001", "person");
+        track = track with
+        {
+            Representative = track.Representative! with { SourceFrameNumber = 20 }
+        };
+
+        Assert.Throws<VisionResultValidationException>(() =>
+            validator.Validate(JobId, Request(track), 10_000));
+    }
+
+    [Theory]
+    [InlineData(1e-10)]
+    [InlineData(1e10)]
+    public void TrackerPositiveParametersUseSharedFiniteEnvelope(double value)
+    {
+        var validator = new VisionResultValidator();
+        var provenance = Provenance();
+        provenance = provenance with
+        {
+            TrackerParameters = provenance.TrackerParameters! with
+            {
+                ReferenceFrameRate = value
+            }
+        };
+
+        Assert.Throws<VisionResultValidationException>(() =>
+            validator.Validate(
+                JobId,
+                Request(Track("person-000001", "person")) with { Provenance = provenance },
+                10_000));
+    }
+
     private static VisionJobCompleteRequest Request(params VisionTrackResultContract[] tracks) =>
         new(
             "2.0",
