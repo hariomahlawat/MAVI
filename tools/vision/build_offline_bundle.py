@@ -18,7 +18,7 @@ import zipfile
 from email.parser import Parser
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Literal, Mapping
 
 ROOT = Path(__file__).resolve().parents[2]
 VISION_ROOT = ROOT / "src" / "vision"
@@ -188,7 +188,9 @@ def build_bundle_from_verified_inputs(
     ):
         _assert_safe_regular_file(path)
     _assert_safe_directory(inputs.wheelhouse)
-    _revalidate_assembly_boundary(inputs)
+    verified_locks = _revalidate_assembly_boundary(inputs)
+    for lock_path in verified_locks.values():
+        _assert_safe_regular_file(lock_path)
 
     if sha256_file(inputs.checkpoint_path) != inputs.checkpoint_sha256:
         raise OfflineBundleError("checkpoint_hash_mismatch")
@@ -299,15 +301,16 @@ def build_bundle_from_verified_inputs(
             "release/runtime/mmdetection-phase1-v1/runtime.json",
             purpose="runtime-profile",
         )
-        add_file(
-            inputs.runtime_lock_path,
-            (
-                "release/runtime/mmdetection-phase1-v1/"
-                f"{inputs.platform_variant}.lock"
-            ),
-            purpose="runtime-lock",
-            platform_variant=inputs.platform_variant,
-        )
+        for variant, lock_path in sorted(verified_locks.items()):
+            add_file(
+                lock_path,
+                (
+                    "release/runtime/mmdetection-phase1-v1/"
+                    f"{variant}.lock"
+                ),
+                purpose="runtime-lock",
+                platform_variant=variant,
+            )
 
         install_path = stage / "INSTALL.txt"
         install_payload = _install_instructions(inputs).encode("utf-8")
@@ -325,7 +328,8 @@ def build_bundle_from_verified_inputs(
         )
 
         artifacts = sorted(artifacts, key=lambda item: item.relative_path)
-        bundle_id = _bundle_id(inputs)
+        _verify_bundled_release_selection(stage, inputs.release_status)
+        bundle_id = _bundle_id(inputs, verified_locks)
         manifest = BundleManifest(
             schema_version="1.0",
             bundle_id=bundle_id,
@@ -448,7 +452,9 @@ def _infer_model_root(inputs: VerifiedBundleInputs) -> Path:
     return root
 
 
-def _revalidate_assembly_boundary(inputs: VerifiedBundleInputs) -> None:
+def _revalidate_assembly_boundary(
+    inputs: VerifiedBundleInputs,
+) -> Mapping[str, Path]:
     if inputs.release_status not in {"qualification-candidate", "production"}:
         raise OfflineBundleError("bundle_release_status_invalid")
 
@@ -503,6 +509,49 @@ def _revalidate_assembly_boundary(inputs: VerifiedBundleInputs) -> None:
         or selection.manifest.resolved_config.sha256 != inputs.resolved_config_sha256
     ):
         raise OfflineBundleError("bundle_verified_inputs_mismatch")
+
+    return verified_locks
+
+
+def _verify_bundled_release_selection(
+    stage: Path,
+    release_status: str,
+) -> None:
+    try:
+        verify_release_selection(
+            model_root=stage / "release" / "models",
+            manifest_path=(
+                stage
+                / "release"
+                / "models"
+                / "manifests"
+                / "rtmdet-m-coco-phase1-v1.json"
+            ),
+            profile_path=(
+                stage
+                / "release"
+                / "config"
+                / "pipelines"
+                / "phase1-detection-tracking-v1.json"
+            ),
+            runtime_profile_path=(
+                stage
+                / "release"
+                / "runtime"
+                / "mmdetection-phase1-v1"
+                / "runtime.json"
+            ),
+            qualification_path=(
+                stage
+                / "release"
+                / "models"
+                / "qualifications"
+                / "rtmdet-m-coco-phase1-v1.json"
+            ),
+            allow_unverified=release_status == "qualification-candidate",
+        )
+    except ReleaseMetadataError as exc:
+        raise OfflineBundleError(exc.code) from exc
 
 
 def build_offline_bundle(
@@ -609,7 +658,10 @@ def _install_instructions(inputs: VerifiedBundleInputs) -> str:
     )
 
 
-def _bundle_id(inputs: VerifiedBundleInputs) -> str:
+def _bundle_id(
+    inputs: VerifiedBundleInputs,
+    verified_locks: Mapping[str, Path],
+) -> str:
     identity = {
         "sourceCommit": inputs.source_commit,
         "platformVariant": inputs.platform_variant,
@@ -619,6 +671,10 @@ def _bundle_id(inputs: VerifiedBundleInputs) -> str:
         "pipelineProfileSha256": sha256_file(inputs.pipeline_profile_path),
         "qualificationRecordSha256": sha256_file(inputs.qualification_path),
         "releaseLockSha256": sha256_file(inputs.runtime_lock_path),
+        "qualifiedReleaseLocks": {
+            variant: sha256_file(path)
+            for variant, path in sorted(verified_locks.items())
+        },
         "hostCompatibility": asdict(
             _bundle_host_compatibility(inputs.platform_variant)
         ),
