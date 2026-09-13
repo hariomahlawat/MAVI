@@ -322,6 +322,8 @@ def test_bundle_source_commit_rejects_dirty_packaged_source(
     project.write_text("[project]\nname='mavi-vision'\nversion='0.1.0'\n", encoding="utf-8")
     setup_cfg = repo / "src" / "vision" / "setup.cfg"
     setup_cfg.write_text("[metadata]\nname = mavi-vision\n", encoding="utf-8")
+    ignore = repo / "src" / "vision" / ".gitignore"
+    ignore.write_text("*.pth\n__pycache__/\n*.pyc\n", encoding="utf-8")
 
     def run(*args: str) -> None:
         import subprocess
@@ -353,6 +355,18 @@ def test_bundle_source_commit_rejects_dirty_packaged_source(
     setup_cfg.write_text("[metadata]\nname = changed-name\n", encoding="utf-8")
     with pytest.raises(tool.OfflineBundleError, match="bundle_source_dirty"):
         tool._validate_source_commit_against_checkout(head, repo)
+
+    run("git", "checkout", "--", "src/vision/setup.cfg")
+    ignored_payload = package / "ignored_payload.pth"
+    ignored_payload.write_text("import unexpected_payload\n", encoding="utf-8")
+    with pytest.raises(tool.OfflineBundleError, match="bundle_source_dirty"):
+        tool._validate_source_commit_against_checkout(head, repo)
+
+    ignored_payload.unlink()
+    cache = package / "__pycache__"
+    cache.mkdir()
+    (cache / "generated.pyc").write_bytes(b"generated")
+    tool._validate_source_commit_against_checkout(head, repo)
 
 
 def test_bundle_source_commit_must_match_repository_checkout() -> None:
