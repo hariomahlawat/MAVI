@@ -50,11 +50,23 @@ def _write_wheel(
     duplicate_metadata: bool = False,
     dist_info_name: str | None = None,
     include_wheel_metadata: bool = True,
+    requires_python: str | None = None,
+    requires_dist: tuple[str, ...] = (),
+    provides_extra: tuple[str, ...] = (),
 ) -> Path:
     path = root / filename
     root.mkdir(parents=True, exist_ok=True)
     dist_info = dist_info_name or f"{name.replace('-', '_')}-{version}.dist-info"
-    metadata = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n\n"
+    metadata_lines = [
+        "Metadata-Version: 2.1",
+        f"Name: {name}",
+        f"Version: {version}",
+    ]
+    if requires_python is not None:
+        metadata_lines.append(f"Requires-Python: {requires_python}")
+    metadata_lines.extend(f"Provides-Extra: {item}" for item in provides_extra)
+    metadata_lines.extend(f"Requires-Dist: {item}" for item in requires_dist)
+    metadata = "\n".join(metadata_lines) + "\n\n"
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(f"{dist_info}/METADATA", metadata)
         if include_wheel_metadata:
@@ -885,3 +897,193 @@ def test_freeze_tool_refuses_differing_lock_without_replace(tmp_path: Path) -> N
 
     tool.write_lock(output, lock, replace=True)
     assert output.read_bytes() == serialize_offline_runtime_lock(lock)
+
+
+def test_freeze_tool_rejects_requires_python_outside_exact_target(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="sample-1.0.0-py3-none-any.whl",
+        name="sample",
+        version="1.0.0",
+        requires_python=">=3.12.15",
+    )
+
+    with pytest.raises(
+        tool.FreezeOfflineLockError,
+        match="wheel_requires_python_incompatible",
+    ):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="linux-x86_64-cpu",
+            python_version="3.12.14",
+        )
+
+
+def test_freeze_tool_accepts_requires_python_matching_exact_target(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="sample-1.0.0-py3-none-any.whl",
+        name="sample",
+        version="1.0.0",
+        requires_python=">=3.12,<3.13",
+    )
+
+    lock = tool.freeze_wheelhouse(
+        wheelhouse,
+        platform_variant="linux-x86_64-cpu",
+        python_version="3.12.14",
+    )
+
+    assert [item.name for item in lock.distributions] == ["sample"]
+
+
+def test_freeze_tool_rejects_missing_required_distribution(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="root-1.0.0-py3-none-any.whl",
+        name="root",
+        version="1.0.0",
+        requires_dist=("dependency>=2",),
+    )
+
+    with pytest.raises(
+        tool.FreezeOfflineLockError,
+        match="wheel_dependency_missing",
+    ):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="linux-x86_64-cpu",
+            python_version="3.12.14",
+        )
+
+
+def test_freeze_tool_rejects_incompatible_required_distribution_version(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="root-1.0.0-py3-none-any.whl",
+        name="root",
+        version="1.0.0",
+        requires_dist=("dependency>=2",),
+    )
+    _write_wheel(
+        wheelhouse,
+        filename="dependency-1.0.0-py3-none-any.whl",
+        name="dependency",
+        version="1.0.0",
+    )
+
+    with pytest.raises(
+        tool.FreezeOfflineLockError,
+        match="wheel_dependency_version_mismatch",
+    ):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="linux-x86_64-cpu",
+            python_version="3.12.14",
+        )
+
+
+def test_freeze_tool_evaluates_dependency_markers_for_target_environment(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="root-1.0.0-py3-none-any.whl",
+        name="root",
+        version="1.0.0",
+        requires_dist=(
+            'windows-only>=1; sys_platform == "win32"',
+        ),
+    )
+
+    lock = tool.freeze_wheelhouse(
+        wheelhouse,
+        platform_variant="linux-x86_64-cpu",
+        python_version="3.12.14",
+    )
+
+    assert [item.name for item in lock.distributions] == ["root"]
+
+    with pytest.raises(
+        tool.FreezeOfflineLockError,
+        match="wheel_dependency_missing",
+    ):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="windows-x86_64-cpu",
+            python_version="3.12.10",
+        )
+
+
+def test_freeze_tool_propagates_requested_dependency_extras(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="root-1.0.0-py3-none-any.whl",
+        name="root",
+        version="1.0.0",
+        requires_dist=("dependency[feature]>=1",),
+    )
+    _write_wheel(
+        wheelhouse,
+        filename="dependency-1.0.0-py3-none-any.whl",
+        name="dependency",
+        version="1.0.0",
+        provides_extra=("feature",),
+        requires_dist=('extra-dependency>=1; extra == "feature"',),
+    )
+
+    with pytest.raises(
+        tool.FreezeOfflineLockError,
+        match="wheel_dependency_missing",
+    ):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="linux-x86_64-cpu",
+            python_version="3.12.14",
+        )
+
+
+def test_freeze_tool_rejects_direct_url_dependency(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheelhouse = tmp_path / "wheels"
+    _write_wheel(
+        wheelhouse,
+        filename="root-1.0.0-py3-none-any.whl",
+        name="root",
+        version="1.0.0",
+        requires_dist=("dependency @ https://example.invalid/dependency.whl",),
+    )
+
+    with pytest.raises(
+        tool.FreezeOfflineLockError,
+        match="wheel_dependency_direct_url_forbidden",
+    ):
+        tool.freeze_wheelhouse(
+            wheelhouse,
+            platform_variant="linux-x86_64-cpu",
+            python_version="3.12.14",
+        )
