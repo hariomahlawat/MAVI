@@ -62,7 +62,7 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         var destinationPath = ResolveAcceptedPath(acceptedStorageKey);
         var parentPath = Path.GetDirectoryName(destinationPath)!;
         EnsureExistingPathDoesNotEscapeRoot(parentPath);
-        DurableFilePublication.EnsureDirectoryHierarchy(parentPath);
+        DurableFilePublication.EnsureDirectoryHierarchy(_evidenceRoot, parentPath);
         StorageRootSafety.EnsureNoLinkedExistingComponents(_evidenceRoot);
         EnsureExistingPathDoesNotEscapeRoot(parentPath);
 
@@ -139,8 +139,7 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         finally
         {
             await source.DisposeAsync();
-            if (File.Exists(temporaryPath))
-                File.Delete(temporaryPath);
+            TryDeleteTemporary(temporaryPath);
         }
     }
 
@@ -321,6 +320,22 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
             }
 
             current = current.Parent!;
+        }
+    }
+
+    private static void TryDeleteTemporary(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException)
+        {
+            // The accepted destination, if any, has independent create-once
+            // ownership. A leftover hidden temporary name is maintenance garbage
+            // and must not mask the primary sealing result.
         }
     }
 
