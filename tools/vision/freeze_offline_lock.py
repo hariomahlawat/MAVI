@@ -117,8 +117,8 @@ def _interpreter_tag_compatible(
     return (
         abi_match is not None
         and abi_tag == "abi3"
-        and int(abi_match.group(1)) == major
-        and int(abi_match.group(2)) <= minor
+        and int(abi_match.group(1)) == major == 3
+        and 2 <= int(abi_match.group(2)) <= minor
     )
 
 
@@ -142,8 +142,8 @@ def _python_abi_pair_compatible(
     return (
         abi_match is not None
         and abi_tag == "abi3"
-        and int(abi_match.group(1)) == major
-        and int(abi_match.group(2)) <= minor
+        and int(abi_match.group(1)) == major == 3
+        and 2 <= int(abi_match.group(2)) <= minor
     )
 
 
