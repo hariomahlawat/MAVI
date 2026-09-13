@@ -25,6 +25,7 @@ from mavi_vision.worker.runner import WorkerRunner
 
 ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE = ROOT / "contracts/examples/vision-job-lease-v2.example.json"
+PROVENANCE_SENTINEL = object()
 
 
 # Test doubles
@@ -33,6 +34,7 @@ class FakeWorkerApiClient:
         self.leased_job = leased_job
         self.heartbeats: list[float] = []
         self.failures: list[tuple[str, str | None]] = []
+        self.completions: list[tuple[VisionProcessingResult, int, object]] = []
         self.events: list[str] = []
 
     async def lease(self) -> VisionJobLease | None:
@@ -58,6 +60,17 @@ class FakeWorkerApiClient:
         self.events.append(f"fail:{failure_code}")
         self.failures.append((failure_code, failure_message))
 
+    async def complete(
+        self,
+        lease: VisionJobLease,
+        result: VisionProcessingResult,
+        processing_duration_ms: int,
+        provenance: object,
+    ) -> object:
+        self.events.append("complete")
+        self.completions.append((result, processing_duration_ms, provenance))
+        return object()
+
 
 class FailingTerminalWorkerApiClient(FakeWorkerApiClient):
     async def fail(
@@ -68,6 +81,19 @@ class FailingTerminalWorkerApiClient(FakeWorkerApiClient):
     ) -> None:
         self.events.append(f"fail:{failure_code}")
         self.failures.append((failure_code, failure_message))
+        raise WorkerApiError("worker API request failed")
+
+
+class FailingCompletionWorkerApiClient(FakeWorkerApiClient):
+    async def complete(
+        self,
+        lease: VisionJobLease,
+        result: VisionProcessingResult,
+        processing_duration_ms: int,
+        provenance: object,
+    ) -> object:
+        self.events.append("complete")
+        self.completions.append((result, processing_duration_ms, provenance))
         raise WorkerApiError("worker API request failed")
 
 
@@ -166,8 +192,16 @@ def test_task9_pipeline_heartbeats_then_processes_with_shared_attempt_guard(
     client = FakeWorkerApiClient(lease)
     processor = RecordingProcessor(make_result(lease))
 
+    duration_times = iter([10.0, 10.25])
     result = asyncio.run(
-        WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            duration_clock=lambda: next(duration_times),
+        ).run_once()
     )
 
     assert result is True
@@ -181,17 +215,13 @@ def test_task9_pipeline_heartbeats_then_processes_with_shared_attempt_guard(
     assert call["expected_source_sha256"] == lease.source_sha256
     assert isinstance(call["lease_guard"], LeaseGuard)
     assert call["lease_guard"].is_lost() is False
-    assert client.failures == [
-        (
-            "task9_result_submission_not_implemented",
-            "Task 9 result submission is not implemented.",
-        )
-    ]
-    assert client.events == [
-        "lease",
-        "heartbeat",
-        "fail:task9_result_submission_not_implemented",
-    ]
+    assert client.failures == []
+    assert len(client.completions) == 1
+    completed_result, duration_ms, provenance = client.completions[0]
+    assert completed_result == processor.result
+    assert duration_ms == 250
+    assert provenance is PROVENANCE_SENTINEL
+    assert client.events == ["lease", "heartbeat", "complete"]
     assert processor.events == ["process"]
 
 
@@ -359,27 +389,30 @@ def test_processor_lease_loss_is_api_error_without_terminal_failure(tmp_path: Pa
     assert client.failures == []
 
 
-def test_terminal_fail_error_is_not_followed_by_second_fail(tmp_path: Path) -> None:
+def test_completion_transport_error_is_not_followed_by_failure(tmp_path: Path) -> None:
     lease = make_lease()
     media = tmp_path / "videos" / "input.mp4"
     media.parent.mkdir()
     media.write_bytes(b"video")
-    client = FailingTerminalWorkerApiClient(lease)
+    client = FailingCompletionWorkerApiClient(lease)
     processor = RecordingProcessor(make_result(lease))
 
     with pytest.raises(WorkerApiError):
         asyncio.run(
-            WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+            WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                processor,
+                runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            ).run_once()
         )
 
     assert client.heartbeats == [5.0]
     assert len(processor.calls) == 1
-    assert client.failures == [
-        (
-            "task9_result_submission_not_implemented",
-            "Task 9 result submission is not implemented.",
-        )
-    ]
+    assert client.failures == []
+    assert len(client.completions) == 1
+    assert client.events == ["lease", "heartbeat", "complete"]
 
 
 def test_heartbeat_api_error_propagates_without_processing_for_polling_backoff(
