@@ -6,7 +6,7 @@ namespace Mavi.Application.Modules.Intelligence;
 
 public static class TrackCursorCodec
 {
-    public const int MaximumEncodedLength = 256;
+    public const int MaximumEncodedLength = 512;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
