@@ -122,7 +122,7 @@ public sealed class AcceptedEvidenceReaderTests : IDisposable
         }
 
         var reader = CreateReader();
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<IOException>(
             () => reader.OpenReadAsync("evidence/job/file.jpg", CancellationToken.None));
     }
 
