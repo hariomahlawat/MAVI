@@ -136,7 +136,14 @@ public static class TrackEndpoints
             return false;
         if (raw is null)
             return true;
-        if (!DateTimeOffset.TryParse(
+
+        var explicitUtc =
+            raw.Contains('T', StringComparison.Ordinal) &&
+            (raw.EndsWith('Z') ||
+             raw.EndsWith("+00:00", StringComparison.Ordinal) ||
+             raw.EndsWith("-00:00", StringComparison.Ordinal));
+        if (!explicitUtc ||
+            !DateTimeOffset.TryParse(
                 raw,
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.None,
