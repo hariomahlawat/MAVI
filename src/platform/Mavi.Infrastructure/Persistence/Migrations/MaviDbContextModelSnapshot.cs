@@ -23,6 +23,8 @@ namespace Mavi.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.HasSequence<long>("processing_visibility_sequence");
+
             modelBuilder.Entity("Mavi.Domain.Cameras.Camera", b =>
                 {
                     b.Property<Guid>("Id")
@@ -636,6 +638,10 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("tracks_created");
 
+                    b.Property<long?>("VisibilitySequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("visibility_sequence");
+
                     b.Property<Guid>("VideoAssetId")
                         .HasColumnType("uuid")
                         .HasColumnName("video_asset_id");
@@ -648,6 +654,15 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("VisibilitySequence")
+                        .IsUnique()
+                        .HasDatabaseName("ux_processing_runs_visibility_sequence")
+                        .HasFilter("visibility_sequence IS NOT NULL");
+
+                    b.HasIndex("VideoAssetId", "VisibilitySequence")
+                        .HasDatabaseName("ix_processing_runs_video_visibility")
+                        .HasFilter("status = 'Completed' AND visibility_sequence IS NOT NULL");
 
                     b.HasIndex("VideoAssetId")
                         .IsUnique()

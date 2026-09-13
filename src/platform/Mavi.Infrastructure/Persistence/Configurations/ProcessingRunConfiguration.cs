@@ -29,6 +29,7 @@ public sealed class ProcessingRunConfiguration : IEntityTypeConfiguration<Proces
         builder.Property(x => x.QueuedAtUtc).HasColumnName("queued_at_utc");
         builder.Property(x => x.StartedAtUtc).HasColumnName("started_at_utc");
         builder.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
+        builder.Property(x => x.VisibilitySequence).HasColumnName("visibility_sequence");
         builder.Property(x => x.FramesProcessed).HasColumnName("frames_processed");
         builder.Property(x => x.TracksCreated).HasColumnName("tracks_created");
         builder.Property(x => x.ProcessingDurationMs).HasColumnName("processing_duration_ms");
@@ -38,6 +39,13 @@ public sealed class ProcessingRunConfiguration : IEntityTypeConfiguration<Proces
         builder.HasOne<VideoAsset>().WithMany().HasForeignKey(x => x.VideoAssetId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(x => x.VideoAssetId);
         builder.HasIndex(x => x.Status);
+        builder.HasIndex(x => x.VisibilitySequence)
+            .IsUnique()
+            .HasDatabaseName("ux_processing_runs_visibility_sequence")
+            .HasFilter("visibility_sequence IS NOT NULL");
+        builder.HasIndex(x => new { x.VideoAssetId, x.VisibilitySequence })
+            .HasDatabaseName("ix_processing_runs_video_visibility")
+            .HasFilter("status = 'Completed' AND visibility_sequence IS NOT NULL");
         builder.HasIndex(x => x.VideoAssetId).IsUnique().HasDatabaseName("ux_processing_runs_active_video")
             .HasFilter("status IN ('Queued', 'Running')");
     }

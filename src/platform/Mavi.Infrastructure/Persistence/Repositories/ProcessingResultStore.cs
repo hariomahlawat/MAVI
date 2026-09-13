@@ -252,14 +252,18 @@ public sealed class ProcessingResultStore(
         foreach (var (track, observation) in graph)
             track.AttachRepresentativeObservation(observation.Id);
 
-        // Serialize the transition from uncommitted completion to
-        // search-visible intelligence. First-page Track search takes the
-        // exclusive counterpart before sampling its snapshot, so a run can
-        // never carry a pre-snapshot CompletedAtUtc while remaining invisible
-        // to that first page.
-        await ProcessingVisibilityBarrier.AcquireCompletionSharedAsync(
+        // Publish completion through a database-owned monotonic visibility
+        // sequence. Completion takes the exclusive advisory lock immediately
+        // before allocation and retains it through final save/commit. First-page
+        // searches take the shared counterpart, so readers remain concurrent
+        // while no later completion can receive a sequence inside their snapshot.
+        await ProcessingVisibilityBarrier.AcquireCompletionExclusiveAsync(
             db,
             cancellationToken);
+        var visibilitySequence =
+            await ProcessingVisibilityBarrier.AllocateSequenceAsync(
+                db,
+                cancellationToken);
         var completionNowUtc = timeProvider.GetUtcNow();
         try
         {
@@ -285,6 +289,7 @@ public sealed class ProcessingResultStore(
             result.TrackerVersion,
             result.RuntimeProvenanceJson,
             completionNowUtc);
+        run.AssignCompletionVisibilitySequence(visibilitySequence);
         video.MarkProcessed();
 
         await db.SaveChangesAsync(cancellationToken);

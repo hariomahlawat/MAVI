@@ -186,6 +186,41 @@ public sealed class MigrationTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task ProcessingVisibilityMigrationCreatesMonotonicSequenceAndIndexes()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var db = fixture.CreateDbContext();
+        await db.Database.MigrateAsync();
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+
+        await using (var sequence = new NpgsqlCommand(
+            "SELECT EXISTS (SELECT 1 FROM pg_class WHERE relkind='S' AND relname='processing_visibility_sequence');",
+            connection))
+            Assert.True((bool)(await sequence.ExecuteScalarAsync() ?? false));
+
+        await using (var unique = new NpgsqlCommand(
+            "SELECT indexdef FROM pg_indexes WHERE indexname='ux_processing_runs_visibility_sequence';",
+            connection))
+        {
+            var definition = Assert.IsType<string>(await unique.ExecuteScalarAsync());
+            Assert.Contains("UNIQUE", definition, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("visibility_sequence IS NOT NULL", definition, StringComparison.OrdinalIgnoreCase);
+        }
+
+        await using (var lookup = new NpgsqlCommand(
+            "SELECT indexdef FROM pg_indexes WHERE indexname='ix_processing_runs_video_visibility';",
+            connection))
+        {
+            var definition = Assert.IsType<string>(await lookup.ExecuteScalarAsync());
+            Assert.Contains("video_asset_id", definition, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("visibility_sequence", definition, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Completed", definition, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task HardenedLeaseMigrationCreatesHashConstraintAndExpiryIndex()
     {
         await fixture.ResetDatabaseAsync();

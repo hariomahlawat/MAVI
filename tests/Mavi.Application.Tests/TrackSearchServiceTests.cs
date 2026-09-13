@@ -73,6 +73,7 @@ public sealed class TrackSearchServiceTests
         Assert.NotNull(result.Page.NextCursor);
         Assert.True(TrackCursorCodec.TryDecode(result.Page.NextCursor, out var position));
         Assert.Equal(FixedNow, position!.SnapshotUtc);
+        Assert.Equal(101, position.SnapshotVisibilitySequence);
         Assert.Equal(rows[1].Id, position.TrackId);
         Assert.Equal(rows[1].StartTimestampUtc, position.StartTimestampUtc);
     }
@@ -83,6 +84,7 @@ public sealed class TrackSearchServiceTests
         var query = ValidQuery();
         var expected = new TrackCursorPosition(
             FixedNow,
+            101,
             new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero),
             Guid.CreateVersion7(),
             TrackCursorCodec.ComputeFilterFingerprint(query));
@@ -105,6 +107,7 @@ public sealed class TrackSearchServiceTests
         var original = ValidQuery();
         var cursor = new TrackCursorPosition(
             FixedNow,
+            101,
             FixedNow.AddMinutes(-1),
             Guid.CreateVersion7(),
             TrackCursorCodec.ComputeFilterFingerprint(original));
@@ -131,6 +134,7 @@ public sealed class TrackSearchServiceTests
         var query = ValidQuery();
         var cursor = new TrackCursorPosition(
             FixedNow.AddMinutes(minutesFromNow),
+            101,
             FixedNow.AddMinutes(-1),
             Guid.CreateVersion7(),
             TrackCursorCodec.ComputeFilterFingerprint(query));
@@ -198,7 +202,7 @@ public sealed class TrackSearchServiceTests
             LastSnapshotUtc = cursor?.SnapshotUtc ?? FixedNow;
             LastCursor = cursor;
             return Task.FromResult(
-                new TrackSearchRepositoryPage(rows, LastSnapshotUtc));
+                new TrackSearchRepositoryPage(rows, LastSnapshotUtc, 101));
         }
 
         public Task<TrackDetailRow?> GetDetailAsync(

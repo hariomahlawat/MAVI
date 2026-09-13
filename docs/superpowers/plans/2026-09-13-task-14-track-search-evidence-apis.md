@@ -1,6 +1,8 @@
 # Task 14 — Track Search and Evidence Content APIs
 
-**Status:** Approved implementation plan. Implementation must follow this baseline unless the plan is deliberately amended first.
+**Status:** Approved implementation plan, amended 14 Sep 2026 for monotonic processing visibility. Implementation must follow this baseline unless the plan is deliberately amended first.
+
+**Amendment rationale:** exact-head review exposed two sibling defects in the original wall-clock/advisory-lock pagination barrier: host-clock rollback/skew could move a later completion inside an earlier cursor snapshot, and exclusive first-page locks serialized readers. The authoritative design now uses a PostgreSQL-owned monotonic visibility sequence plus shared-reader/exclusive-completion advisory locking. `CompletedAtUtc` remains audit/display metadata and is no longer the pagination publication boundary or authoritative latest-completed ordering.
 
 **Planning baseline:** Task 13 merged as PR #30 at `928b31b8b947c2da5ab7869f09213c88bc063dc4`.
 
@@ -109,10 +111,9 @@ Task 14 therefore defines:
 
 For each VideoAsset, search only Tracks belonging to its **latest completed ProcessingRun**.
 
-“Latest completed” is selected deterministically by:
+“Latest completed” is selected deterministically by the run's unique PostgreSQL-owned `VisibilitySequence DESC`.
 
-1. `CompletedAtUtc DESC`;
-2. `Id DESC` as the unique tie-breaker.
+`CompletedAtUtc` remains the real-world completion timestamp returned to clients, but it is deliberately not used to decide publication order because host clocks may skew or move backwards.
 
 A later queued/running/failed run does not hide the last completed intelligence.
 
@@ -236,8 +237,9 @@ Id DESC
 Application-internal cursor payload:
 
 ```text
-version = 1
+version = 2
 snapshotUtc
+snapshotVisibilitySequence
 startTimestampUtc
 trackId
 filterFingerprint
@@ -251,21 +253,22 @@ The cursor carries no authorization claim. It is an untrusted pagination positio
 
 Cursors expire one hour after `snapshotUtc` and snapshots more than one minute in the future are rejected. This prevents stale/forged cursors from becoming an undocumented historical-search mechanism while allowing normal operator pagination.
 
-`snapshotUtc` freezes the completed-run visibility boundary established by the first page. Every continuation page must evaluate both the candidate run and the “is there a later completed run?” anti-exists predicate using `CompletedAtUtc <= snapshotUtc`. This prevents reprocessing completed after page 1 from replacing a video's result set midway through pagination.
+`snapshotUtc` exists only for cursor lifetime/future-skew validation. The completed-run publication boundary is `snapshotVisibilitySequence`. Every continuation page must evaluate both the candidate run and the “is there a later completed run?” anti-exists predicate using `VisibilitySequence <= snapshotVisibilitySequence`. This prevents reprocessing completed after page 1 from replacing a video's result set midway through pagination even when application clocks skew or step backwards.
 
 ### Commit-visibility barrier
 
-Application completion timestamps alone are not a sufficient visibility watermark because a completion transaction can assign `CompletedAtUtc` before its final PostgreSQL commit.
+Wall-clock timestamps are not suitable publication watermarks: they may be assigned before commit, differ between hosts, or move backwards. Task 14 therefore uses a dedicated PostgreSQL sequence, `processing_visibility_sequence`, as the authoritative monotonic publication order.
 
-Task 14 therefore shares one PostgreSQL transaction-level advisory-lock protocol with Task 13 completion:
+Task 14 shares one PostgreSQL transaction-level advisory-lock protocol with Task 13 completion:
 
-- an active processing completion takes the **shared** transaction advisory lock immediately before sampling `CompletedAtUtc`, and holds it through the final save and transaction commit;
-- a first-page Track search starts a transaction, takes the **exclusive** counterpart, then samples `snapshotUtc` and executes the first-page query while holding that lock;
-- continuation pages use the issued `snapshotUtc` and do not reacquire the exclusive barrier.
+- a completion transaction takes the **exclusive** advisory lock immediately before allocating its `VisibilitySequence`, then holds the lock through the final save and commit;
+- a first-page Track search starts a transaction and takes the **shared** counterpart, allowing multiple first-page readers to execute concurrently;
+- while holding the shared lock, the search allocates its own `snapshotVisibilitySequence` from the same PostgreSQL sequence and executes the first-page query;
+- continuation pages reuse the issued `snapshotVisibilitySequence` and do not reacquire the barrier.
 
-This guarantees that any completion whose timestamp can compare `<= snapshotUtc` has already committed and was visible to the first-page query. A completion that starts the visibility transition after first-page search acquires the exclusive barrier cannot sample its completion timestamp until that search transaction releases the barrier.
+Consequently, every completed run visible to page 1 has `VisibilitySequence <= snapshotVisibilitySequence`, while any completion that can commit after that first-page transaction releases its shared lock receives a strictly greater sequence. The invariant is independent of application clocks and does not serialize readers.
 
-The barrier is an infrastructure concurrency protocol; direct data-repair paths that create completed ProcessingRuns must preserve the same invariant.
+The barrier and sequence are infrastructure publication protocols; direct data-repair/import paths that create completed ProcessingRuns must allocate and persist a valid visibility sequence before those rows can become searchable.
 
 Maximum encoded cursor length shall be explicit (maximum 512 encoded characters).
 
@@ -621,7 +624,7 @@ Only `ProcessingRun.Status == Completed`.
 
 For default search, use a SQL-translatable anti-exists/subquery equivalent:
 
-“there is no later completed ProcessingRun for this VideoAsset under the `CompletedAtUtc, Id` ordering.”
+“there is no later completed ProcessingRun for this VideoAsset with a greater `VisibilitySequence` inside the cursor's visibility snapshot.”
 
 Do not load all runs into memory.
 

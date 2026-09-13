@@ -326,9 +326,13 @@ public sealed class TrackSearchApiTests
         var completionDb = completionScope.ServiceProvider.GetRequiredService<MaviDbContext>();
         await using var completionTransaction =
             await completionDb.Database.BeginTransactionAsync();
-        await ProcessingVisibilityBarrier.AcquireCompletionSharedAsync(
+        await ProcessingVisibilityBarrier.AcquireCompletionExclusiveAsync(
             completionDb,
             CancellationToken.None);
+        var replacementVisibilitySequence =
+            await ProcessingVisibilityBarrier.AllocateSequenceAsync(
+                completionDb,
+                CancellationToken.None);
 
         var replacementRun = ProcessingRun.Create(
             video.VideoId,
@@ -353,6 +357,8 @@ public sealed class TrackSearchApiTests
             tracksCreated: 1,
             durationMs: 2_000,
             completedAtUtc: now);
+        replacementRun.AssignCompletionVisibilitySequence(
+            replacementVisibilitySequence);
 
         completionDb.ProcessingRuns.Add(replacementRun);
         completionDb.Tracks.Add(replacementTrack);
@@ -371,6 +377,37 @@ public sealed class TrackSearchApiTests
         var item = Assert.Single(response.Items);
         Assert.Equal(replacementTrack.Id, item.Id);
         Assert.DoesNotContain(response.Items, x => x.Id == oldTrack.TrackId);
+    }
+
+    [Fact]
+    public async Task ConcurrentFirstPageSearchesShareVisibilityBarrier()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+
+        var video = await Task14TestData.SeedBaseVideoAsync(factory, "CAM-SHARED");
+        _ = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            video,
+            new DateTimeOffset(2026, 9, 13, 11, 0, 0, TimeSpan.Zero),
+            1_000);
+
+        using var blockerScope = factory.Services.CreateScope();
+        var blockerDb = blockerScope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        await using var blockerTransaction =
+            await blockerDb.Database.BeginTransactionAsync();
+        await ProcessingVisibilityBarrier.AcquireSearchSharedAsync(
+            blockerDb,
+            CancellationToken.None);
+
+        using var client = factory.CreateClient();
+        var searchTask = client.GetFromJsonAsync<TrackSearchResponse>("/api/tracks");
+        var completed = await Task.WhenAny(searchTask, Task.Delay(TimeSpan.FromSeconds(2)));
+
+        Assert.Same(searchTask, completed);
+        Assert.NotNull(await searchTask);
+
+        await blockerTransaction.RollbackAsync();
     }
 
     [Fact]
@@ -422,6 +459,64 @@ public sealed class TrackSearchApiTests
         var continuation = Assert.Single(page2.Items);
         Assert.Equal(oldContinuation.TrackId, continuation.Id);
         Assert.NotEqual(replacement.TrackId, continuation.Id);
+    }
+
+    [Fact]
+    public async Task ClockRollbackCannotMoveReprocessingInsideExistingCursorSnapshot()
+    {
+        var clock = new AdvancingTimeProvider(
+            new DateTimeOffset(2026, 9, 13, 12, 0, 0, TimeSpan.Zero));
+        using var factory = new ApiTestFactory { Clock = clock };
+        await factory.ResetAndMigrateAsync();
+
+        var olderVideo = await Task14TestData.SeedBaseVideoAsync(
+            factory,
+            "CAM-CLOCK-A",
+            new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero));
+        var newerVideo = await Task14TestData.SeedBaseVideoAsync(
+            factory,
+            "CAM-CLOCK-B",
+            new DateTimeOffset(2026, 9, 13, 11, 0, 0, TimeSpan.Zero));
+
+        var oldContinuation = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            olderVideo,
+            new DateTimeOffset(2026, 9, 13, 11, 30, 0, TimeSpan.Zero),
+            5_000);
+        _ = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            newerVideo,
+            new DateTimeOffset(2026, 9, 13, 11, 40, 0, TimeSpan.Zero),
+            5_000);
+
+        using var client = factory.CreateClient();
+        var page1 = await client.GetFromJsonAsync<TrackSearchResponse>(
+            "/api/tracks?limit=1");
+        Assert.NotNull(page1);
+        Assert.NotNull(page1.NextCursor);
+
+        // Simulate a host clock stepping backwards before reprocessing completes.
+        clock.Advance(TimeSpan.FromMinutes(-30));
+        var replacement = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            olderVideo,
+            clock.GetUtcNow(),
+            20_000);
+
+        var page2 = await client.GetFromJsonAsync<TrackSearchResponse>(
+            $"/api/tracks?limit=1&cursor={Uri.EscapeDataString(page1.NextCursor!)}");
+
+        Assert.NotNull(page2);
+        var continuation = Assert.Single(page2.Items);
+        Assert.Equal(oldContinuation.TrackId, continuation.Id);
+        Assert.NotEqual(replacement.TrackId, continuation.Id);
+
+        // A fresh search uses visibility sequence, not the regressed completion
+        // clock, to identify the newest authoritative run.
+        var fresh = await client.GetFromJsonAsync<TrackSearchResponse>(
+            $"/api/tracks?videoAssetId={olderVideo.VideoId:D}");
+        Assert.NotNull(fresh);
+        Assert.Equal(replacement.TrackId, Assert.Single(fresh.Items).Id);
     }
 
     [Theory]

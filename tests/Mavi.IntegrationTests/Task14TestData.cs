@@ -172,12 +172,24 @@ internal static class Task14TestData
         await db.SaveChangesAsync();
 
         track.AttachRepresentativeObservation(observation.Id);
+
+        await using var completionTransaction =
+            await db.Database.BeginTransactionAsync();
+        await ProcessingVisibilityBarrier.AcquireCompletionExclusiveAsync(
+            db,
+            CancellationToken.None);
+        var visibilitySequence =
+            await ProcessingVisibilityBarrier.AllocateSequenceAsync(
+                db,
+                CancellationToken.None);
         run.MarkCompleted(
             framesProcessed: 100,
             tracksCreated: 1,
             durationMs: 2_000,
             completedAtUtc: completedAtUtc);
+        run.AssignCompletionVisibilitySequence(visibilitySequence);
         await db.SaveChangesAsync();
+        await completionTransaction.CommitAsync();
 
         return new CompletedTrack(
             run.Id,

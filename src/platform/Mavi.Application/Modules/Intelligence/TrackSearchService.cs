@@ -47,6 +47,7 @@ public sealed class TrackSearchService(
             checked(query.Limit + 1),
             cancellationToken);
         var snapshotUtc = repositoryPage.SnapshotUtc;
+        var snapshotVisibilitySequence = repositoryPage.SnapshotVisibilitySequence;
         var rows = repositoryPage.Items;
 
         var hasMore = rows.Count > query.Limit;
@@ -54,6 +55,7 @@ public sealed class TrackSearchService(
         var nextCursor = hasMore && items.Count > 0
             ? TrackCursorCodec.Encode(new TrackCursorPosition(
                 snapshotUtc,
+                snapshotVisibilitySequence,
                 items[^1].StartTimestampUtc,
                 items[^1].Id,
                 filterFingerprint))

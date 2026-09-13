@@ -55,6 +55,22 @@ public sealed class Task13CompletionDomainTests
     }
 
     [Fact]
+    public void CompletedRunAcceptsOnePositiveVisibilitySequence()
+    {
+        var run = ProcessingRun.Create(Guid.CreateVersion7(), "v1", "{}", Now);
+        run.AssignLease("worker-a", Now);
+        run.MarkCompleted(20, 2, 900, Now.AddSeconds(1));
+
+        run.AssignCompletionVisibilitySequence(42);
+
+        Assert.Equal(42, run.VisibilitySequence);
+        Assert.Equal(
+            "processing_visibility_sequence_invalid",
+            Assert.Throws<DomainValidationException>(
+                () => run.AssignCompletionVisibilitySequence(43)).Code);
+    }
+
+    [Fact]
     public void EvidenceRelationshipsAreOneTimeAndIdempotentForSameId()
     {
         var track = Track.Create(

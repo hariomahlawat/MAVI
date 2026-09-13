@@ -18,8 +18,9 @@ public static class TrackCursorCodec
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(
             new CursorPayload(
-                1,
+                2,
                 position.SnapshotUtc.ToUniversalTime(),
+                position.SnapshotVisibilitySequence,
                 position.StartTimestampUtc.ToUniversalTime(),
                 position.TrackId,
                 position.FilterFingerprint),
@@ -63,7 +64,8 @@ public static class TrackCursorCodec
 
             var payload = JsonSerializer.Deserialize<CursorPayload>(bytes, JsonOptions);
             if (payload is null ||
-                payload.Version != 1 ||
+                payload.Version != 2 ||
+                payload.SnapshotVisibilitySequence <= 0 ||
                 payload.TrackId == Guid.Empty ||
                 payload.TrackId.Version != 7 ||
                 payload.SnapshotUtc.Offset != TimeSpan.Zero ||
@@ -75,6 +77,7 @@ public static class TrackCursorCodec
 
             position = new TrackCursorPosition(
                 payload.SnapshotUtc,
+                payload.SnapshotVisibilitySequence,
                 payload.StartTimestampUtc,
                 payload.TrackId,
                 payload.FilterFingerprint);
@@ -112,6 +115,7 @@ public static class TrackCursorCodec
     private sealed record CursorPayload(
         int Version,
         DateTimeOffset SnapshotUtc,
+        long SnapshotVisibilitySequence,
         DateTimeOffset StartTimestampUtc,
         Guid TrackId,
         string FilterFingerprint);

@@ -18,35 +18,45 @@ public sealed class TrackSearchRepository(
         {
             var continuationRows = await BuildQuery(
                     query,
-                    cursor.SnapshotUtc,
+                    cursor.SnapshotVisibilitySequence,
                     cursor)
                 .Take(take)
                 .ToArrayAsync(cancellationToken);
             return new TrackSearchRepositoryPage(
                 continuationRows,
-                cursor.SnapshotUtc);
+                cursor.SnapshotUtc,
+                cursor.SnapshotVisibilitySequence);
         }
 
         await using var transaction =
             await db.Database.BeginTransactionAsync(cancellationToken);
 
-        // Completion transactions hold the shared counterpart immediately before
-        // sampling CompletedAtUtc and until commit. Taking the exclusive lock here
-        // therefore creates a commit-safe visibility cut: every completion whose
-        // timestamp may compare <= this snapshot is already committed and visible,
-        // while later completions cannot sample their completion timestamp until
-        // this first-page transaction releases the barrier.
-        await ProcessingVisibilityBarrier.AcquireSearchExclusiveAsync(
+        // Concurrent readers share the visibility barrier. While this transaction
+        // holds the shared lock, completion cannot acquire the exclusive counterpart
+        // and therefore cannot allocate a completion sequence. Allocating the
+        // snapshot sequence from PostgreSQL gives pagination a monotonic,
+        // clock-independent commit boundary.
+        await ProcessingVisibilityBarrier.AcquireSearchSharedAsync(
             db,
             cancellationToken);
+        var snapshotVisibilitySequence =
+            await ProcessingVisibilityBarrier.AllocateSequenceAsync(
+                db,
+                cancellationToken);
         var snapshotUtc = timeProvider.GetUtcNow().ToUniversalTime();
 
-        var rows = await BuildQuery(query, snapshotUtc, cursor: null)
+        var rows = await BuildQuery(
+                query,
+                snapshotVisibilitySequence,
+                cursor: null)
             .Take(take)
             .ToArrayAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
-        return new TrackSearchRepositoryPage(rows, snapshotUtc);
+        return new TrackSearchRepositoryPage(
+            rows,
+            snapshotUtc,
+            snapshotVisibilitySequence);
     }
 
     public Task<TrackDetailRow?> GetDetailAsync(
@@ -110,7 +120,7 @@ public sealed class TrackSearchRepository(
 
     private IQueryable<TrackSearchRow> BuildQuery(
         TrackSearchQuery query,
-        DateTimeOffset snapshotUtc,
+        long snapshotVisibilitySequence,
         TrackCursorPosition? cursor)
     {
         var tracks =
@@ -123,7 +133,8 @@ public sealed class TrackSearchRepository(
             from observation in observations.DefaultIfEmpty()
             where run.Status == ProcessingRunStatus.Completed &&
                   run.CompletedAtUtc != null &&
-                  run.CompletedAtUtc <= snapshotUtc
+                  run.VisibilitySequence != null &&
+                  run.VisibilitySequence <= snapshotVisibilitySequence
             select new { track, run, video, camera, observation };
 
         if (query.ProcessingRunId is { } runId)
@@ -137,10 +148,9 @@ public sealed class TrackSearchRepository(
                     other.VideoAssetId == x.video.Id &&
                     other.Status == ProcessingRunStatus.Completed &&
                     other.CompletedAtUtc != null &&
-                    other.CompletedAtUtc <= snapshotUtc &&
-                    (other.CompletedAtUtc > x.run.CompletedAtUtc ||
-                     (other.CompletedAtUtc == x.run.CompletedAtUtc &&
-                      other.Id.CompareTo(x.run.Id) > 0))));
+                    other.VisibilitySequence != null &&
+                    other.VisibilitySequence <= snapshotVisibilitySequence &&
+                    other.VisibilitySequence > x.run.VisibilitySequence));
         }
 
         if (query.CameraId is { } cameraId)
