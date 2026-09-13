@@ -1,5 +1,4 @@
 using Mavi.Application.Modules.Evidence;
-using Microsoft.Net.Http.Headers;
 
 namespace Mavi.Api.Endpoints;
 
@@ -34,7 +33,7 @@ public static class ArtifactEndpoints
         ContentDescriptor descriptor,
         Stream stream)
     {
-        context.Response.Headers.ETag = $""{descriptor.Sha256}"";
+        context.Response.Headers.ETag = $"\\\"{descriptor.Sha256}\\\"";
         context.Response.Headers.AcceptRanges = "bytes";
         return Results.Stream(
             stream,
