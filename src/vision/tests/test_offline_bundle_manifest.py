@@ -604,6 +604,30 @@ def test_bundle_rejects_nonempty_destination(tmp_path: Path) -> None:
     assert (output / "stale.txt").read_text(encoding="utf-8") == "stale"
 
 
+def test_bundle_rejects_incomplete_wheel_dependency_closure(
+    tmp_path: Path,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+    wheel = next(inputs.wheelhouse.glob("mavi_vision-*.whl"))
+    wheel.unlink()
+    package_init = (tool.VISION_ROOT / "mavi_vision" / "__init__.py").read_bytes()
+    _write_wheel(
+        inputs.wheelhouse,
+        filename="mavi_vision-0.1.0-py3-none-any.whl",
+        name="mavi-vision",
+        version="0.1.0",
+        package_files={"mavi_vision/__init__.py": package_init},
+        requires_python=">=3.12,<3.14",
+        requires_dist=("missing-dependency>=1",),
+    )
+
+    with pytest.raises(tool.OfflineBundleError, match="wheel_dependency_missing"):
+        tool.build_bundle_from_verified_inputs(
+            inputs,
+            tmp_path / "incomplete-dependency-output",
+        )
+
+
 def test_bundle_rejects_extra_or_missing_wheel(tmp_path: Path) -> None:
     tool, inputs = _fixture_inputs(tmp_path)
     extra = _write_wheel(
