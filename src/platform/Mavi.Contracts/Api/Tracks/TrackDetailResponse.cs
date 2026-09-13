@@ -30,7 +30,7 @@ public sealed record TrackProcessingResponse(
     string? DetectorVersion,
     string? TrackerName,
     string? TrackerVersion,
-    DateTimeOffset? CompletedAtUtc);
+    DateTimeOffset CompletedAtUtc);
 
 public sealed record TrackVideoResponse(
     DateTimeOffset RecordingStartUtc,
