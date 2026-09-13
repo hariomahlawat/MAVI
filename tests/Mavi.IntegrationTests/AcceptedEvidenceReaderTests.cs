@@ -1,21 +1,33 @@
 using Mavi.Application.Abstractions.Storage;
-using Microsoft.Extensions.DependencyInjection;
+using Mavi.Infrastructure.Storage;
+using Microsoft.Extensions.Options;
 
 namespace Mavi.IntegrationTests;
 
-[Collection(DatabaseIntegrationGroup.Name)]
-public sealed class AcceptedEvidenceReaderTests
+public sealed class AcceptedEvidenceReaderTests : IDisposable
 {
+    private readonly string _baseRoot = Path.Combine(
+        Path.GetTempPath(),
+        "mavi-task14-reader-" + Guid.NewGuid().ToString("N"));
+    private readonly string _mediaRoot;
+    private readonly string _evidenceRoot;
+
+    public AcceptedEvidenceReaderTests()
+    {
+        _mediaRoot = Path.Combine(_baseRoot, "media");
+        _evidenceRoot = Path.Combine(_baseRoot, "evidence");
+        Directory.CreateDirectory(_mediaRoot);
+        Directory.CreateDirectory(_evidenceRoot);
+    }
+
     [Fact]
     public async Task OpensCanonicalAcceptedEvidenceAsSeekableReadOnlyStream()
     {
-        using var factory = new ApiTestFactory();
-        await factory.ResetAndMigrateAsync();
         const string key = "evidence/job/attempt-0001/thumbnails/person-000001.jpg";
         var bytes = new byte[] { 1, 2, 3, 4, 5 };
-        Task14TestData.WriteEvidence(factory, key, bytes);
+        WriteEvidence(key, bytes);
 
-        var reader = factory.Services.GetRequiredService<IAcceptedEvidenceReader>();
+        var reader = CreateReader();
         await using var stream = await reader.OpenReadAsync(key, CancellationToken.None);
 
         Assert.True(stream.CanRead);
@@ -32,9 +44,7 @@ public sealed class AcceptedEvidenceReaderTests
     [InlineData("staging/job/file.jpg")]
     public async Task RejectsNonCanonicalEvidenceKeys(string key)
     {
-        using var factory = new ApiTestFactory();
-        await factory.ResetAndMigrateAsync();
-        var reader = factory.Services.GetRequiredService<IAcceptedEvidenceReader>();
+        var reader = CreateReader();
 
         await Assert.ThrowsAsync<ArgumentException>(
             () => reader.OpenReadAsync(key, CancellationToken.None));
@@ -46,13 +56,10 @@ public sealed class AcceptedEvidenceReaderTests
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
             return;
 
-        using var factory = new ApiTestFactory();
-        await factory.ResetAndMigrateAsync();
-        var target = Path.Combine(factory.EvidenceRoot, "target.jpg");
-        Directory.CreateDirectory(factory.EvidenceRoot);
+        var target = Path.Combine(_evidenceRoot, "target.jpg");
         await File.WriteAllBytesAsync(target, new byte[] { 7, 8, 9 });
 
-        var linkDirectory = Path.Combine(factory.EvidenceRoot, "job", "attempt-0001", "thumbnails");
+        var linkDirectory = Path.Combine(_evidenceRoot, "job", "attempt-0001", "thumbnails");
         Directory.CreateDirectory(linkDirectory);
         var link = Path.Combine(linkDirectory, "person-000001.jpg");
         try
@@ -68,11 +75,87 @@ public sealed class AcceptedEvidenceReaderTests
             return;
         }
 
-        var reader = factory.Services.GetRequiredService<IAcceptedEvidenceReader>();
+        var reader = CreateReader();
 
         await Assert.ThrowsAsync<IOException>(
             () => reader.OpenReadAsync(
                 "evidence/job/attempt-0001/thumbnails/person-000001.jpg",
                 CancellationToken.None));
+    }
+
+    [Fact]
+    public void RejectsOverlappingStorageRoots()
+    {
+        var nestedEvidence = Path.Combine(_mediaRoot, "evidence");
+        Directory.CreateDirectory(nestedEvidence);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            new AcceptedEvidenceReader(Options.Create(new MediaStorageOptions
+            {
+                RootPath = _mediaRoot,
+                EvidenceRootPath = nestedEvidence,
+            })));
+    }
+
+    [Fact]
+    public async Task RejectsLinkedParentComponent()
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
+            return;
+
+        var external = Path.Combine(_baseRoot, "external");
+        Directory.CreateDirectory(external);
+        await File.WriteAllBytesAsync(Path.Combine(external, "file.jpg"), new byte[] { 1 });
+
+        var jobLink = Path.Combine(_evidenceRoot, "job");
+        try
+        {
+            Directory.CreateSymbolicLink(jobLink, external);
+        }
+        catch (Exception exception) when (
+            exception is UnauthorizedAccessException or
+            IOException or
+            PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        var reader = CreateReader();
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => reader.OpenReadAsync("evidence/job/file.jpg", CancellationToken.None));
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_baseRoot))
+                Directory.Delete(_baseRoot, recursive: true);
+        }
+        catch (IOException)
+        {
+            // Best-effort test cleanup.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best-effort test cleanup.
+        }
+    }
+
+    private IAcceptedEvidenceReader CreateReader() =>
+        new AcceptedEvidenceReader(Options.Create(new MediaStorageOptions
+        {
+            RootPath = _mediaRoot,
+            EvidenceRootPath = _evidenceRoot,
+        }));
+
+    private void WriteEvidence(string storageKey, byte[] bytes)
+    {
+        const string prefix = "evidence/";
+        var relative = storageKey[prefix.Length..]
+            .Replace('/', Path.DirectorySeparatorChar);
+        var path = Path.Combine(_evidenceRoot, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bytes);
     }
 }
