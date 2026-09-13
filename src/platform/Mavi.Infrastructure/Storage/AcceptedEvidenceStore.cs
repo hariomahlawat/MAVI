@@ -114,11 +114,11 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                DurableFilePublication.Publish(temporaryPath, destinationPath, parentPath);
-            }
-            catch (IOException) when (File.Exists(destinationPath))
+            var publication = DurableFilePublication.Publish(
+                temporaryPath,
+                destinationPath,
+                parentPath);
+            if (publication == DurablePublicationOutcome.DestinationAlreadyExists)
             {
                 return await VerifyExistingAcceptedAsync(
                     destinationPath,
