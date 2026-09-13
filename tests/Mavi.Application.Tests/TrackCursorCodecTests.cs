@@ -1,4 +1,5 @@
 using Mavi.Application.Modules.Intelligence;
+using Mavi.Domain.Intelligence;
 
 namespace Mavi.Application.Tests;
 
@@ -7,7 +8,6 @@ public sealed class TrackCursorCodecTests
     [Fact]
     public void RoundTripPreservesCanonicalUtcPosition()
     {
-        
         var query = Query();
         var position = new TrackCursorPosition(
             new DateTimeOffset(2026, 9, 13, 11, 0, 0, TimeSpan.Zero),
@@ -23,28 +23,7 @@ public sealed class TrackCursorCodecTests
         Assert.Equal(position.StartTimestampUtc, decoded.StartTimestampUtc);
         Assert.Equal(position.TrackId, decoded.TrackId);
         Assert.Equal(position.FilterFingerprint, decoded.FilterFingerprint);
-        [Fact]
-    public void FilterFingerprintChangesWhenSemanticFilterChanges()
-    {
-        var baseline = TrackCursorCodec.ComputeFilterFingerprint(Query());
-        var changed = TrackCursorCodec.ComputeFilterFingerprint(
-            Query() with { MinimumConfidence = 0.9 });
-
-        Assert.NotEqual(baseline, changed);
     }
-
-    private static TrackSearchQuery Query() => new(
-        CameraId: null,
-        VideoAssetId: null,
-        ProcessingRunId: null,
-        ObjectClass: Mavi.Domain.Intelligence.ObjectClass.Person,
-        FromUtc: null,
-        ToUtc: null,
-        MinimumDurationMs: null,
-        MinimumConfidence: null,
-        Cursor: null,
-        Limit: 50);
-}
 
     [Theory]
     [InlineData("")]
@@ -75,4 +54,26 @@ public sealed class TrackCursorCodecTests
 
         Assert.False(TrackCursorCodec.TryDecode(encoded, out _));
     }
+
+    [Fact]
+    public void FilterFingerprintChangesWhenSemanticFilterChanges()
+    {
+        var baseline = TrackCursorCodec.ComputeFilterFingerprint(Query());
+        var changed = TrackCursorCodec.ComputeFilterFingerprint(
+            Query() with { MinimumConfidence = 0.9 });
+
+        Assert.NotEqual(baseline, changed);
+    }
+
+    private static TrackSearchQuery Query() => new(
+        CameraId: null,
+        VideoAssetId: null,
+        ProcessingRunId: null,
+        ObjectClass: ObjectClass.Person,
+        FromUtc: null,
+        ToUtc: null,
+        MinimumDurationMs: null,
+        MinimumConfidence: null,
+        Cursor: null,
+        Limit: 50);
 }
