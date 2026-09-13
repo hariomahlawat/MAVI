@@ -40,7 +40,6 @@ public static class DependencyInjection
         services.AddScoped<IProcessingResultStore, ProcessingResultStore>();
         services.AddScoped<ITrackSearchRepository, TrackSearchRepository>();
         services.AddScoped<TrackSearchService>();
-        services.AddSingleton<TrackCursorCodec>();
         services.AddScoped<IContentCatalog, ContentCatalog>();
         services.AddScoped<ContentReadService>();
         services.AddSingleton<VisionResultValidator>();
