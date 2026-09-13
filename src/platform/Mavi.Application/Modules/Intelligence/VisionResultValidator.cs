@@ -427,7 +427,9 @@ public sealed class VisionResultValidator
 
     private static string Required(string? value, string code)
     {
-        if (string.IsNullOrWhiteSpace(value) || !string.Equals(value, value.Trim(), StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(value) ||
+            value.Contains('\0') ||
+            !string.Equals(value, value.Trim(), StringComparison.Ordinal))
             throw Invalid(code);
         return value;
     }

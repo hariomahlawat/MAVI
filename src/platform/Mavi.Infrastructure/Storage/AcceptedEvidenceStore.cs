@@ -59,7 +59,7 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         var destinationPath = ResolveAcceptedPath(acceptedStorageKey);
         var parentPath = Path.GetDirectoryName(destinationPath)!;
         EnsureExistingPathDoesNotEscapeRoot(parentPath);
-        Directory.CreateDirectory(parentPath);
+        DurableFilePublication.EnsureDirectoryHierarchy(parentPath);
         StorageRootSafety.EnsureNoLinkedExistingComponents(_evidenceRoot);
         EnsureExistingPathDoesNotEscapeRoot(parentPath);
 

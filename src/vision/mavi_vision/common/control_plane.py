@@ -1,5 +1,7 @@
 import base64
+import json
 import re
+from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
@@ -30,6 +32,13 @@ _CANONICAL_UTC_PATTERN = re.compile(
 def _snake_to_camel(name: str) -> str:
     parts = name.split("_")
     return parts[0] + "".join(part.title() for part in parts[1:])
+
+
+def _completion_json_float(value: str) -> int | float:
+    decimal = Decimal(value)
+    if decimal == decimal.to_integral_value():
+        return int(decimal)
+    return float(decimal)
 
 
 def _completion_integral(value: object, *, minimum: int, maximum: int) -> int:
@@ -87,6 +96,7 @@ def _bounded_trimmed_text(value: str, *, maximum_length: int, label: str) -> str
     if (
         len(value) > maximum_length
         or not value
+        or "\x00" in value
         or value != value.strip()
     ):
         raise ValueError(
@@ -361,6 +371,29 @@ class VisionRuntimeProvenance(ControlPlaneModel):
 
 
 class VisionJobComplete(ControlPlaneModel):
+    @classmethod
+    def model_validate_json(cls, json_data, **kwargs):
+        if isinstance(json_data, (bytes, bytearray)):
+            try:
+                text = bytes(json_data).decode("utf-8")
+            except UnicodeDecodeError:
+                return super().model_validate_json(json_data, **kwargs)
+        else:
+            text = json_data
+
+        try:
+            payload = json.loads(text, parse_float=_completion_json_float)
+            normalized = json.dumps(
+                payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return super().model_validate_json(json_data, **kwargs)
+
+        return super().model_validate_json(normalized, **kwargs)
+
     schema_version: Literal["2.0"]
     job_id: UUID
     worker_id: WorkerId

@@ -12,6 +12,26 @@ internal static class DurableFilePublication
     private const int LinuxOpenDirectory = 0x10000;
     private const int LinuxOpenCloseOnExec = 0x80000;
 
+    public static void EnsureDirectoryHierarchy(string targetPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetPath);
+
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(targetPath);
+            return;
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            EnsureLinuxDirectoryHierarchy(targetPath);
+            return;
+        }
+
+        throw new PlatformNotSupportedException(
+            "Durable accepted-evidence directory creation is supported only on Windows and Linux.");
+    }
+
     public static void Publish(string temporaryPath, string destinationPath, string parentPath)
     {
         if (OperatingSystem.IsWindows())
@@ -39,6 +59,41 @@ internal static class DurableFilePublication
 
         throw new PlatformNotSupportedException(
             "Durable accepted-evidence publication is supported only on Windows and Linux.");
+    }
+
+    private static void EnsureLinuxDirectoryHierarchy(string targetPath)
+    {
+        var target = Path.GetFullPath(targetPath);
+        var missing = new Stack<string>();
+        var current = target;
+
+        while (!Directory.Exists(current))
+        {
+            missing.Push(current);
+            var parent = Path.GetDirectoryName(current);
+            if (string.IsNullOrEmpty(parent) ||
+                string.Equals(parent, current, StringComparison.Ordinal))
+            {
+                throw new DirectoryNotFoundException(
+                    $"Unable to resolve an existing ancestor for evidence directory: {targetPath}");
+            }
+
+            current = parent;
+        }
+
+        while (missing.Count > 0)
+        {
+            var directory = missing.Pop();
+            Directory.CreateDirectory(directory);
+
+            // Persist both the new directory inode and the parent entry that links
+            // it into the namespace before any authoritative DB row can reference it.
+            FlushDirectory(directory);
+            var parent = Path.GetDirectoryName(directory)
+                ?? throw new DirectoryNotFoundException(
+                    $"Evidence directory has no parent: {directory}");
+            FlushDirectory(parent);
+        }
     }
 
     private static void FlushDirectory(string path)
