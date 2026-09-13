@@ -329,10 +329,13 @@ Filesystem publication and PostgreSQL commit cannot form one distributed transac
 
 - PostgreSQL never commits a reference to mutable staging bytes;
 - evidence is sealed before the DB graph references it;
-- a later DB rollback may leave an unreferenced sealed object;
+- a normal request failure after one or more new seals must compensate by removing every accepted-evidence object created by that completion invocation;
+- a pre-existing identical accepted object is never owned by the current invocation and must never be removed by compensation;
+- once PostgreSQL commit has succeeded, accepted evidence is retained permanently by this lifecycle;
+- if final commit outcome is indeterminate, evidence is retained rather than risking deletion of an object that may already be referenced;
 - no committed row may reference a missing or mutable accepted object.
 
-Cleanup of unreferenced sealed objects and abandoned staging attempts is a later lifecycle/garbage-collection concern.
+A later garbage collector may reclaim crash/power-loss/indeterminate-commit leftovers and abandoned staging attempts, but normal validation, sealing and pre-commit persistence failures must not create unbounded permanent evidence growth.
 
 ---
 
@@ -835,6 +838,9 @@ Declared artifact size is an enforcement boundary as well as an integrity fact.
 - abort immediately on the first byte beyond the declared size;
 - never copy an entire oversized/sparse source merely to discover that its final size is invalid;
 - temporary accepted-evidence files shall be removed on every failed seal;
+- every successful seal reports whether the accepted object was newly created by that invocation or was a pre-existing idempotent object;
+- a failed completion compensates all newly created accepted objects before returning/propagating the failure;
+- compensation never deletes pre-existing idempotent accepted objects;
 - Stream.Length/file metadata may be used only as an optimization, never as the sole security authority.
 
 #### Shared adversarial conformance corpus
@@ -844,6 +850,7 @@ Maintain checked-in accepted/rejected vectors covering at minimum:
 - integer lexical encodings and Int32/Int64 boundaries;
 - numbers above 2^53;
 - infinitesimally non-integral decimals;
+- extreme exponent forms, including zero mantissas whose exponent is outside normal Decimal implementation limits;
 - provenance leading/trailing Unicode edge characters and U+0000;
 - verified/unverified provenance dependency combinations;
 - artifact declared-size boundary, first-byte overflow, per-artifact maximum and aggregate maximum.
