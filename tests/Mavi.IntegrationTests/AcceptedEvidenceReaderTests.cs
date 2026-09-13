@@ -27,7 +27,7 @@ public sealed class AcceptedEvidenceReaderTests
     [Theory]
     [InlineData("../outside.jpg")]
     [InlineData("evidence/../outside.jpg")]
-    [InlineData("evidence\outside.jpg")]
+    [InlineData(@"evidence\outside.jpg")]
     [InlineData("C:/evidence/outside.jpg")]
     [InlineData("staging/job/file.jpg")]
     public async Task RejectsNonCanonicalEvidenceKeys(string key)
