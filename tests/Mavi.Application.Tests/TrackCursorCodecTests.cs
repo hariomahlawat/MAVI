@@ -7,14 +7,14 @@ public sealed class TrackCursorCodecTests
     [Fact]
     public void RoundTripPreservesCanonicalUtcPosition()
     {
-        var codec = new TrackCursorCodec();
+        
         var position = new TrackCursorPosition(
             new DateTimeOffset(2026, 9, 13, 10, 20, 30, TimeSpan.Zero),
             Guid.CreateVersion7());
 
-        var encoded = codec.Encode(position);
+        var encoded = TrackCursorCodec.Encode(position);
 
-        Assert.True(codec.TryDecode(encoded, out var decoded));
+        Assert.True(TrackCursorCodec.TryDecode(encoded, out var decoded));
         Assert.NotNull(decoded);
         Assert.Equal(position.StartTimestampUtc, decoded!.StartTimestampUtc);
         Assert.Equal(position.TrackId, decoded.TrackId);
@@ -29,7 +29,7 @@ public sealed class TrackCursorCodecTests
     {
         var codec = new TrackCursorCodec();
 
-        Assert.False(codec.TryDecode(cursor, out _));
+        Assert.False(TrackCursorCodec.TryDecode(cursor, out _));
     }
 
     [Fact]
@@ -37,7 +37,7 @@ public sealed class TrackCursorCodecTests
     {
         var codec = new TrackCursorCodec();
 
-        Assert.False(codec.TryDecode(
+        Assert.False(TrackCursorCodec.TryDecode(
             new string('A', TrackCursorCodec.MaximumEncodedLength + 1),
             out _));
     }
@@ -51,6 +51,6 @@ public sealed class TrackCursorCodecTests
             .Replace('+', '-')
             .Replace('/', '_');
 
-        Assert.False(new TrackCursorCodec().TryDecode(encoded, out _));
+        Assert.False(TrackCursorCodec.TryDecode(encoded, out _));
     }
 }
