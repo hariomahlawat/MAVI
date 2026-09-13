@@ -391,3 +391,35 @@ def test_completion_provenance_edge_corpus_matches_schema_and_python() -> None:
 
         assert schema_valid is vector["accepted"], vector["name"]
         assert python_valid is vector["accepted"], vector["name"]
+
+
+def test_completion_artifact_and_aggregate_evidence_limits_are_enforced() -> None:
+    payload = _completion_example_payload()
+    track = payload["tracks"][0]
+
+    track["trajectoryArtifact"]["sizeBytes"] = 64 * 1024 * 1024 + 1
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))
+
+    payload = _completion_example_payload()
+    template = payload["tracks"][0]
+    tracks = []
+    for index in range(1, 6):
+        track = json.loads(json.dumps(template))
+        track_id = f"person-{index:06d}"
+        track["trackId"] = track_id
+        track["representative"]["thumbnail"]["storageKey"] = (
+            f"staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd761/"
+            f"attempt-0001/thumbnails/{track_id}.jpg"
+        )
+        track["trajectoryArtifact"]["storageKey"] = (
+            f"staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd761/"
+            f"attempt-0001/trajectories/{track_id}.msgpack"
+        )
+        track["representative"]["thumbnail"]["sizeBytes"] = 60 * 1024 * 1024
+        track["trajectoryArtifact"]["sizeBytes"] = 60 * 1024 * 1024
+        tracks.append(track)
+    payload["tracks"] = tracks
+
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))
