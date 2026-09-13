@@ -16,3 +16,8 @@ public sealed record ContentDescriptor(
     long SizeBytes,
     string Sha256,
     ContentStorageKind StorageKind);
+
+
+public sealed record VideoContentLookup(
+    bool VideoExists,
+    ContentDescriptor? Descriptor);
