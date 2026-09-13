@@ -62,6 +62,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mavi-task10-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cpu-candidate:
     name: CPU ${{ matrix.os }} Python ${{ matrix.python-version }} Torch 2.6.0
@@ -155,8 +159,15 @@ jobs:
           "DISTUTILS_USE_SDK=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MSSdk=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Clone MMCV 2.1.0 source
-        run: git clone --depth 1 --branch v2.1.0 https://github.com/open-mmlab/mmcv.git .qualification-mmcv
+      - name: Checkout immutable MMCV 2.1.0 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .qualification-mmcv
+          git -C .qualification-mmcv remote add origin https://github.com/open-mmlab/mmcv.git
+          git -C .qualification-mmcv fetch --depth 1 origin 57c4e25e06e2d4f8a9357c84bcd24089a284dc88
+          git -C .qualification-mmcv checkout --detach FETCH_HEAD
+          test "$(git -C .qualification-mmcv rev-parse HEAD)" = "57c4e25e06e2d4f8a9357c84bcd24089a284dc88"
 
       - name: Build/install MMCV 2.1.0 against installed PyTorch
         working-directory: .qualification-mmcv
@@ -424,7 +435,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p qualification-evidence
-          git clone --depth 1 --branch v3.3.0 https://github.com/open-mmlab/mmdetection.git .qualification-mmdet
+          git init .qualification-mmdet
+          git -C .qualification-mmdet remote add origin https://github.com/open-mmlab/mmdetection.git
+          git -C .qualification-mmdet fetch --depth 1 origin 44ebd17b145c2372c4b700bfb9cb20dbd28ab64a
+          git -C .qualification-mmdet checkout --detach FETCH_HEAD
+          test "$(git -C .qualification-mmdet rev-parse HEAD)" = "44ebd17b145c2372c4b700bfb9cb20dbd28ab64a"
           python - <<'PY'
           import os
           import urllib.request

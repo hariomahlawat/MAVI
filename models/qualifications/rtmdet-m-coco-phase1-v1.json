@@ -8,7 +8,7 @@
   "pipelineProfileId": "phase1-detection-tracking-v1",
   "pipelineProfileSha256": "1d109f4dd666f18d1a234bf89d13ff3347cff09f48ce0f3c1c6c95714e4c530f",
   "runtimeProfileId": "mmdetection-phase1-v1",
-  "runtimeProfileSha256": "c79fa1537ed92354511695483ec984e6dfd430db4e931005dd57160ad337fe11",
+  "runtimeProfileSha256": "8dfc39e6184ec22f8c4b714ac4bf0e0df223bf441276e98916023d7b9dab8b0f",
   "requiredGates": {
     "windows-x86_64-cpu": "passed",
     "windows-x86_64-cuda": "pending",
@@ -22,13 +22,13 @@
   "evidence": {
     "windows-x86_64-cpu": {
       "kind": "github-actions",
-      "reference": "run=34689119149;job=103541173642;artifact=10297031578;head=81f476f4f00cf381ff14f33a91d8ba547c85db1b",
-      "sha256": "ee60755b04d55234ad628e58ccd3712e3dad3e120e24c9af39215ef5bbc489f2"
+      "reference": "run=34740540263;job=103679381173;artifact=10312129704;head=695be6f69421eec006837636b36d6375043a5f2b",
+      "sha256": "ed5f977c3c31b91475d1def1ce7ab41c1fb3831a992b1be85cfb46d2d10e489a"
     },
     "linux-x86_64-cpu": {
       "kind": "github-actions",
-      "reference": "run=34689119149;job=103541173536;artifact=10297181212;head=81f476f4f00cf381ff14f33a91d8ba547c85db1b",
-      "sha256": "33cf750971960c017675691b02097484dbfb6748f0011b6cda4d4d086a56ed8e"
+      "reference": "run=34740540263;job=103679381111;artifact=10312274171;head=695be6f69421eec006837636b36d6375043a5f2b",
+      "sha256": "f69b2e7deb9961b23faa8797fa18861686b05cdb367a7d81438e73ce99ace349"
     }
   },
   "overallResult": "pending"

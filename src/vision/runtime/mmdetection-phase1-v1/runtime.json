@@ -73,10 +73,14 @@
   },
   "releaseLocks": {
     "linux-x86_64-cpu": {
-      "status": "pending-wheelhouse-freeze"
+      "status": "qualified-offline-lock",
+      "artifact": "linux-x86_64-cpu.lock",
+      "sha256": "818e25a6926d678044d00c25e121cf099901fbe67d667863ac343111414e5590"
     },
     "windows-x86_64-cpu": {
-      "status": "pending-wheelhouse-freeze"
+      "status": "qualified-offline-lock",
+      "artifact": "windows-x86_64-cpu.lock",
+      "sha256": "e9023b483e79660cfb26eaa63d977c16eb6829a1f56986498aaaabdbad2edb80"
     },
     "linux-x86_64-cuda": {
       "status": "pending-hardware-qualification"

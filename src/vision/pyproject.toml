@@ -12,6 +12,7 @@ dependencies = [
   "httpx>=0.28,<0.29",
   "msgpack>=1.1,<2",
   "numpy>=2.2,<3",
+  "packaging>=26,<27",
   "Pillow>=11,<12",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",

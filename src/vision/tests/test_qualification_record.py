@@ -23,6 +23,39 @@ def _sha(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _offline_lock_bytes(
+    variant: str,
+    *,
+    python_version: str,
+    torch_version: str,
+    torchvision_version: str,
+) -> bytes:
+    versions = {
+        "av": "16.1.0",
+        "mavi-vision": "0.1.0",
+        "mmcv": "2.1.0",
+        "mmdet": "3.3.0",
+        "mmengine": "0.10.7",
+        "numpy": "2.5.3",
+        "opencv-python": "5.0.0.93",
+        "pillow": "11.3.0",
+        "scipy": "1.18.1",
+        "supervision": "0.30.2",
+        "torch": torch_version,
+        "torchvision": torchvision_version,
+        "trackers": "2.6.0",
+    }
+    rows = [
+        "# schema: mavi-offline-lock-v1",
+        f"# platform-variant: {variant}",
+        f"# python-version: {python_version}",
+    ]
+    for name, version in sorted(versions.items()):
+        digest = _sha(f"{variant}:{name}:{version}".encode("utf-8"))
+        rows.append(f"{name}=={version} --hash=sha256:{digest}")
+    return ("\n".join(rows) + "\n").encode("utf-8")
+
+
 def _profile_payload() -> dict:
     return {
         "schemaVersion": "1.0",
@@ -152,18 +185,29 @@ def _release_fixture(
         "linux-x86_64-cuda",
         "windows-x86_64-cuda",
     )
+    lock_payloads: dict[str, bytes] = {}
     if runtime_qualified:
         lock_dir = tmp_path / "locks"
         lock_dir.mkdir()
         for variant in release_lock_variants:
-            (lock_dir / f"{variant}.lock").write_bytes(variant.encode("utf-8"))
+            variant_identity = platform_variants[variant]
+            binary_versions = variant_identity["binaryVersions"]
+            python_version = variant_identity["pythonIdentity"]["version"]
+            payload = _offline_lock_bytes(
+                variant,
+                python_version=python_version,
+                torch_version=binary_versions["torch"],
+                torchvision_version=binary_versions["torchvision"],
+            )
+            lock_payloads[variant] = payload
+            (lock_dir / f"{variant}.lock").write_bytes(payload)
 
     release_locks = {
         variant: (
             {
                 "status": "qualified-offline-lock",
                 "artifact": f"locks/{variant}.lock",
-                "sha256": _sha(variant.encode("utf-8")),
+                "sha256": _sha(lock_payloads[variant]),
             }
             if runtime_qualified
             else {
@@ -331,7 +375,7 @@ def test_verified_release_selection_checks_all_exact_byte_relationships(
     )
     assert (
         selection.runtime_release_locks["linux-x86_64-cpu"].sha256
-        == _sha(b"linux-x86_64-cpu")
+        == _sha((tmp_path / "locks/linux-x86_64-cpu.lock").read_bytes())
     )
 
 
