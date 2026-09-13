@@ -49,6 +49,7 @@ def _write_wheel(
     version: str,
     duplicate_metadata: bool = False,
     dist_info_name: str | None = None,
+    include_wheel_metadata: bool = True,
 ) -> Path:
     path = root / filename
     root.mkdir(parents=True, exist_ok=True)
@@ -56,6 +57,18 @@ def _write_wheel(
     metadata = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n\n"
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(f"{dist_info}/METADATA", metadata)
+        if include_wheel_metadata:
+            parts = filename[:-4].split("-")
+            python_tag = parts[-3].split(".", 1)[0]
+            abi_tag = parts[-2].split(".", 1)[0]
+            platform_tag = parts[-1].split(".", 1)[0]
+            wheel_metadata = (
+                "Wheel-Version: 1.0\n"
+                "Generator: mavi-tests\n"
+                "Root-Is-Purelib: true\n"
+                f"Tag: {python_tag}-{abi_tag}-{platform_tag}\n\n"
+            )
+            archive.writestr(f"{dist_info}/WHEEL", wheel_metadata)
         if duplicate_metadata:
             archive.writestr(
                 f"other-{version}.dist-info/METADATA",
@@ -418,6 +431,22 @@ def test_freeze_tool_reads_name_and_version_from_valid_wheel_metadata(
     assert record.name == "mavi-vision"
     assert record.version == "0.1.0"
     assert record.sha256 == tool.sha256_file(wheel)
+
+
+def test_freeze_tool_rejects_wheel_without_required_wheel_metadata(
+    tmp_path: Path,
+) -> None:
+    tool = _load_freeze_tool()
+    wheel = _write_wheel(
+        tmp_path / "wheels",
+        filename="sample-1.0.0-py3-none-any.whl",
+        name="sample",
+        version="1.0.0",
+        include_wheel_metadata=False,
+    )
+
+    with pytest.raises(tool.FreezeOfflineLockError, match="wheel_metadata_invalid"):
+        tool.inspect_wheel(wheel)
 
 
 @pytest.mark.parametrize(
