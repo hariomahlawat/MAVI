@@ -151,6 +151,10 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         string expectedSha256,
         CancellationToken cancellationToken)
     {
+        var parentPath = Path.GetDirectoryName(destinationPath)
+            ?? throw new DirectoryNotFoundException(
+                "Accepted evidence destination has no parent directory.");
+        DurableFilePublication.EnsurePublishedDirectoryDurable(parentPath);
         await using var stream = new FileStream(
             destinationPath,
             FileMode.Open,
