@@ -307,7 +307,9 @@ def test_server_deadline_overrides_longer_configured_heartbeat_interval(
     assert result is True
     assert len(client.heartbeat_times) >= 2
     assert client.heartbeat_times[1] - client.heartbeat_times[0] < 0.30
-    assert client.failures == ["task9_result_submission_not_implemented"]
+    assert client.failures == []
+    assert len(client.completions) == 1
+    assert client.completions[0][1] is PROVENANCE_SENTINEL
 
 
 def test_event_loop_stall_cannot_bypass_processing_thread_lease_guard(
