@@ -34,17 +34,39 @@ def _snake_to_camel(name: str) -> str:
     return parts[0] + "".join(part.title() for part in parts[1:])
 
 
-def _completion_json_float(value: str) -> int | float:
-    decimal = Decimal(value)
-    if decimal == decimal.to_integral_value():
-        return int(decimal)
-    return float(decimal)
+_COMPLETION_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
+_COMPLETION_EVIDENCE_MAX_BYTES = 512 * 1024 * 1024
+_CONTRACT_EDGE_WHITESPACE = frozenset(
+    chr(code)
+    for code in (
+        *range(0x0009, 0x000E),
+        0x0020,
+        0x0085,
+        0x00A0,
+        0x1680,
+        *range(0x2000, 0x200B),
+        0x2028,
+        0x2029,
+        0x202F,
+        0x205F,
+        0x3000,
+        0xFEFF,
+    )
+)
+
+
+def _completion_json_float(value: str) -> Decimal:
+    return Decimal(value)
 
 
 def _completion_integral(value: object, *, minimum: int, maximum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
         raise ValueError("completion integer must be a JSON number")
-    if isinstance(value, float):
+    if isinstance(value, Decimal):
+        if value != value.to_integral_value():
+            raise ValueError("completion integer must be mathematically integral")
+        value = int(value)
+    elif isinstance(value, float):
         if not value.is_integer():
             raise ValueError("completion integer must be mathematically integral")
         value = int(value)
@@ -97,7 +119,8 @@ def _bounded_trimmed_text(value: str, *, maximum_length: int, label: str) -> str
         len(value) > maximum_length
         or not value
         or "\x00" in value
-        or value != value.strip()
+        or value[0] in _CONTRACT_EDGE_WHITESPACE
+        or value[-1] in _CONTRACT_EDGE_WHITESPACE
     ):
         raise ValueError(
             f"{label} must be non-empty, trimmed, and at most {maximum_length} characters"
@@ -249,7 +272,7 @@ class VisionJobFail(ControlPlaneModel):
 class VisionCompletionArtifact(ControlPlaneModel):
     storage_key: StorageKey
     media_type: Literal["image/jpeg", "application/msgpack"]
-    size_bytes: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    size_bytes: CompletionInt64 = Field(ge=0, le=_COMPLETION_ARTIFACT_MAX_BYTES)
     sha256: Sha256
 
 
@@ -411,6 +434,12 @@ class VisionJobComplete(ControlPlaneModel):
         track_ids = [track.track_id for track in self.tracks]
         if len(track_ids) != len(set(track_ids)):
             raise ValueError("trackId values must be unique")
+        evidence_bytes = sum(
+            track.representative.thumbnail.size_bytes + track.trajectory_artifact.size_bytes
+            for track in self.tracks
+        )
+        if evidence_bytes > _COMPLETION_EVIDENCE_MAX_BYTES:
+            raise ValueError("completion evidence size limit exceeded")
         return self
 
 
