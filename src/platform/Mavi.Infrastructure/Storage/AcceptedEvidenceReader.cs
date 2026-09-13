@@ -63,7 +63,7 @@ public sealed class AcceptedEvidenceReader : IAcceptedEvidenceReader
         if (string.IsNullOrWhiteSpace(storageKey) ||
             storageKey.Length > MaximumStorageKeyLength ||
             !storageKey.StartsWith(AcceptedPrefix, StringComparison.Ordinal) ||
-            storageKey.Contains('\') ||
+            storageKey.Contains('\\') ||
             storageKey.Contains(':') ||
             storageKey.Split('/').Any(segment => segment is "" or "." or ".."))
         {
