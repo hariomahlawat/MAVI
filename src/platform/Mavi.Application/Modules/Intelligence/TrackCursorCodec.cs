@@ -19,6 +19,7 @@ public static class TrackCursorCodec
         var payload = JsonSerializer.SerializeToUtf8Bytes(
             new CursorPayload(
                 1,
+                position.SnapshotUtc.ToUniversalTime(),
                 position.StartTimestampUtc.ToUniversalTime(),
                 position.TrackId),
             JsonOptions);
@@ -60,12 +61,14 @@ public static class TrackCursorCodec
                 payload.Version != 1 ||
                 payload.TrackId == Guid.Empty ||
                 payload.TrackId.Version != 7 ||
+                payload.SnapshotUtc.Offset != TimeSpan.Zero ||
                 payload.StartTimestampUtc.Offset != TimeSpan.Zero)
             {
                 return false;
             }
 
             position = new TrackCursorPosition(
+                payload.SnapshotUtc,
                 payload.StartTimestampUtc,
                 payload.TrackId);
             return true;
@@ -79,6 +82,7 @@ public static class TrackCursorCodec
 
     private sealed record CursorPayload(
         int Version,
+        DateTimeOffset SnapshotUtc,
         DateTimeOffset StartTimestampUtc,
         Guid TrackId);
 }
