@@ -252,6 +252,14 @@ public sealed class ProcessingResultStore(
         foreach (var (track, observation) in graph)
             track.AttachRepresentativeObservation(observation.Id);
 
+        // Serialize the transition from uncommitted completion to
+        // search-visible intelligence. First-page Track search takes the
+        // exclusive counterpart before sampling its snapshot, so a run can
+        // never carry a pre-snapshot CompletedAtUtc while remaining invisible
+        // to that first page.
+        await ProcessingVisibilityBarrier.AcquireCompletionSharedAsync(
+            db,
+            cancellationToken);
         var completionNowUtc = timeProvider.GetUtcNow();
         try
         {
