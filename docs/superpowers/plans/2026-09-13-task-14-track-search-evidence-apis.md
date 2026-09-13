@@ -240,11 +240,16 @@ version = 1
 snapshotUtc
 startTimestampUtc
 trackId
+filterFingerprint
 ```
 
 Encode as bounded base64url UTF-8 JSON (or an equivalently deterministic opaque format).
 
 The cursor carries no authorization claim. It is an untrusted pagination position and must be fully validated.
+
+`filterFingerprint` binds the cursor to the semantic search filters (camera/video/run/object class/time window/minimum duration/minimum confidence). Reusing a cursor with changed filters is invalid. Page size is intentionally not part of the fingerprint.
+
+Cursors expire one hour after `snapshotUtc` and snapshots more than one minute in the future are rejected. This prevents stale/forged cursors from becoming an undocumented historical-search mechanism while allowing normal operator pagination.
 
 `snapshotUtc` freezes the completed-run visibility boundary established by the first page. Every continuation page must evaluate both the candidate run and the “is there a later completed run?” anti-exists predicate using `CompletedAtUtc <= snapshotUtc`. This prevents reprocessing completed after page 1 from replacing a video's result set midway through pagination.
 
@@ -648,7 +653,8 @@ Mapping:
 
 - malformed search/cursor: 400;
 - unknown/non-authoritative resource: 404;
-- authoritative DB row whose expected immutable file is absent, unsafe or length-mismatched: 500 with the corresponding `*_content_unavailable` code.
+- authoritative DB row whose expected immutable file is absent, unsafe or length-mismatched: 500 with the corresponding `*_content_unavailable` code;
+- existing VideoAsset whose SourceArtifact relationship is missing, wrong-type or otherwise structurally invalid: 500 `video_content_unavailable`, not 404.
 
 Do not convert a platform storage-integrity incident into 404; that would hide operational corruption.
 
@@ -720,7 +726,9 @@ Create failing tests before repository implementation for:
 11. second cursor page has no duplicate/omitted boundary row;
 12. insertion of a newer Track between page requests does not disturb continuation;
 13. completion of a replacement ProcessingRun between page requests does not replace the snapshotted run on continuation pages;
-14. malformed cursor/query returns `track_search_invalid`.
+14. cursor reuse with changed filters is rejected;
+15. stale/future cursor snapshots are rejected;
+16. malformed cursor/query returns `track_search_invalid`.
 
 ### Phase B — Detail projection
 
