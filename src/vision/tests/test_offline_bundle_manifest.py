@@ -59,12 +59,23 @@ def _write_wheel(
     metadata = "\n".join(metadata_lines) + "\n\n"
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(f"{dist_info}/METADATA", metadata)
+        parts = filename[:-4].split("-")
+        python_tag = parts[-3].split(".", 1)[0]
+        abi_tag = parts[-2].split(".", 1)[0]
+        platform_tag = parts[-1].split(".", 1)[0]
+        wheel_metadata = (
+            "Wheel-Version: 1.0\n"
+            "Generator: mavi-tests\n"
+            "Root-Is-Purelib: true\n"
+            f"Tag: {python_tag}-{abi_tag}-{platform_tag}\n\n"
+        )
+        archive.writestr(f"{dist_info}/WHEEL", wheel_metadata)
         for logical_path, payload in sorted((package_files or {}).items()):
             archive.writestr(logical_path, payload)
     return path
 
 
-def _fixture_inputs(tmp_path: Path):
+def _fixture_inputs(tmp_path: Path, *, bypass_revalidation: bool = True):
     tool = _load_bundle_tool()
     source = tmp_path / "source"
     mavi_source_root = source / "vision"
@@ -137,6 +148,8 @@ dependencies = []
         files[name] = path
 
     tool.VISION_ROOT = mavi_source_root
+    if bypass_revalidation:
+        tool._revalidate_assembly_boundary = lambda _inputs: None
 
     return tool, tool.VerifiedBundleInputs(
         source_commit=tool._repository_head(tool.ROOT),
@@ -384,11 +397,23 @@ def test_verified_bundle_inputs_cannot_redirect_mavi_source_tree(
     assert "mavi_source_root" not in tool.VerifiedBundleInputs.__dataclass_fields__
 
 
+def test_direct_assembler_revalidates_candidate_metadata(
+    tmp_path: Path,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path, bypass_revalidation=False)
+
+    with pytest.raises(tool.OfflineBundleError, match="model_manifest_invalid"):
+        tool.build_bundle_from_verified_inputs(
+            inputs,
+            tmp_path / "candidate-bundle",
+        )
+
+
 def test_direct_assembler_rechecks_production_release_eligibility(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    tool, inputs = _fixture_inputs(tmp_path)
+    tool, inputs = _fixture_inputs(tmp_path, bypass_revalidation=False)
 
     class Manifest:
         verification_status = "unverified"
