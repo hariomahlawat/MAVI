@@ -12,7 +12,7 @@
 
 ## Current Execution Status — 2026-09-12
 
-- **Task 1 remains open as a release-qualification task.** Bounded Tasks 1A/1B are complete: the frozen Python 3.12 hosted CPU semantic graph, self-contained resolved RTMDet-M config, restricted checkpoint loading, and real Linux/Windows CPU inference are verified. Linux/Windows NVIDIA qualification and hashed offline wheelhouse locks remain pending and must not be inferred.
+- **Task 1 remains open only for the remaining hardware/performance qualification boundary.** The frozen Python 3.12 hosted CPU semantic graph, self-contained resolved RTMDet-M config, restricted checkpoint loading, and real Linux/Windows CPU inference are verified. Task 12 subsequently completed the qualified Windows/Linux CPU offline locks and reproducible offline bundles. Linux/Windows NVIDIA and final CCTV/performance qualification remain future evidence work and must not be inferred.
 - **Task 2 and corrective Task 2A are complete.** Frozen resolved-config identity is enforced in CI, qualification evidence is preserved as a complete non-hidden artifact set, resolver publication is alias-safe/atomic, and native Windows staging includes the additional post-replace rollback and native-name length regressions.
 - **Task 3 is complete.** MAVI now has strict model-manifest, pipeline-profile and qualification-record loaders; exact-byte release identities; trusted-root/no-link artifact resolution; an evidence-backed `VerifiedReleaseSelection`; and repository verification that explicitly prevents a pending release from being presented as production-qualified.
 - **Task 4 is complete.** Framework-neutral detector-runtime contracts, stable typed dependency failures, operational-only runtime/device/watchdog settings, and immutable provenance are implemented. Provenance is bound to the live qualified dependency graph, exact interpreter identity, platform/device qualification state and verified release lock; development drift is explicitly recorded as `unverified`.
@@ -21,9 +21,11 @@
 - **Task 7 is complete.** The production MMDetection/RTMDet runtime now consumes only verified local release artifacts, enforces a deterministic data-only resolved-config contract before MMEngine loading, lazily loads the qualified runtime graph, verifies exact ordered vocabulary, exact platform-qualified Python and PyTorch/TorchVision binary identities, owns the single RGB→BGR conversion, emits framework-neutral raw detections, and preserves typed CUDA/runtime failures. The real production runtime path is exercised on the qualified Linux and Windows CPU candidates. This does **not** promote the overall release to production `verified`: NVIDIA hardware qualification and hashed offline wheelhouse/release locks remain open under Task 1.
 - **Task 8 is complete.** The exact `trackers==2.6.0` / `supervision==0.30.2` class-separated ByteTrack adapter is implemented with corrected versioned profile semantics, timestamped empty-frame updates, strict ordinal round-trip, MAVI-owned deterministic IDs, attempt invalidation after partial native failure, and exact-package Linux/Windows qualification evidence. This closes the hosted-CPU Task-8 gate only; it does not promote the overall release to production `verified`.
 - **Task 9 is complete.** The fresh production attempt-composition facade is merged into the Task-10 integration branch with typed dependency failures preserved through `VideoProcessor`, one runtime-provider snapshot per accepted attempt, fresh detector/tracker/staging/processor state per attempt, exact-package Linux/Windows qualification, and post-merge validation complete.
-- **Task 10 is complete.** Worker-side typed runtime/tracker failures are allowlisted at the control-plane boundary, unknown typed codes fail closed, terminal messages are sanitized, and Task-9 lease-loss precedence remains authoritative. **Task 11 and Task 13 remain implementation work** and may proceed while Task 1 hardware/release evidence is open. They must continue to treat the selected runtime as partially qualified and must not claim production `verified` status unless the complete selected runtime binding is actually qualified.
-- **Task 12 remains blocked on the hashed wheelhouse/release-lock portion of Task 1. Task 14 remains blocked on Task 1 GPU qualification and Task 12 offline-bundle evidence. Task 15 is final closure only after every mandatory gate is complete.**
-- **Next implementation task:** Task 11 — implement the runtime supervisor, readiness gate, bounded recovery, watchdog, execution-lane worker dispatch, and production worker composition.
+- **Task 10 is complete.** Worker-side typed runtime/tracker failures are allowlisted at the control-plane boundary, unknown typed codes fail closed, terminal messages are sanitized, and Task-9 lease-loss precedence remains authoritative.
+- **Actual Task 11 is complete.** Runtime supervision, readiness gating, bounded recovery, watchdog containment, dedicated execution-lane worker dispatch and production worker composition are merged.
+- **Actual Task 12 is complete.** Reproducible offline runtime bundles, exact CPU runtime locks, supply-chain verification and exact-head Windows/Linux qualification are merged.
+- **Roadmap re-baseline (13 September 2026):** the remaining master Phase-1 sequence is now Task 13 result completion/persistence → Task 14 Track/evidence APIs → Task 15 React foundation → Task 16 React visual search/review → Task 17 final qualification/hardening/acceptance. See `2026-09-13-phase1-roadmap-rebaseline.md`.
+- **Next implementation task:** Task 13 — validated, atomic vision-result completion and persistence.
 
 ## Global Constraints
 
@@ -43,7 +45,7 @@
 - Windows support includes security-equivalent artifact staging; do not weaken the existing POSIX `dir_fd`/no-follow protections to make Windows pass.
 - Lease loss outranks all detector/tracker/runtime failures. A stale attempt must not `/fail`, publish artifacts, or clean mutable filesystem state.
 - `worker-health-v2` remains unchanged. Never emit its `ready` payload while the internal runtime is not actually `READY`.
-- No direct Python PostgreSQL writes, Task-11 `/complete`, ReID, face recognition, ANPR, cross-camera tracking, embeddings, VLM/LLM reasoning, or behaviour classification.
+- No direct Python PostgreSQL writes, Task-13 `/complete` persistence inside Task 10, ReID, face recognition, ANPR, cross-camera tracking, embeddings, VLM/LLM reasoning, or behaviour classification.
 - No model weights, operational CCTV, biometric datasets, credentials, or private qualification media are committed to Git.
 - Hosted GitHub Actions remains authoritative for repository/code quality; hardware qualification is additional evidence, not a replacement.
 
@@ -2062,7 +2064,7 @@ Squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head pro
 - guarded squash merge PR #27 with expected head `16cce226cf5bbd0e910de544e00bbb438cef7003` produced `11fa992a4934647bed438c3da3eee6588901fea7`;
 - squash tree `d8996aebab4282bca74cbd5a3860bafd69e51402` exactly equals the final topic-head tree, proving no merge-time content drift;
 - integration branch `feature/task-10-rtmdet-bytetrack` advanced from `8e22573cf1633a8b0f7d2d0cdda2e9bcbcbba345` to the guarded squash commit;
-- scope audit confirmed no Task-11 result `/complete` persistence, PostgreSQL write path, Task-12 offline-bundle completion, Task-14 GPU qualification claim, production CUDA-to-CPU fallback, or worker-health schema expansion.
+- scope audit confirmed no result `/complete` persistence (re-baselined as Task 13), PostgreSQL write path, Task-12 offline-bundle completion, GPU qualification claim, production CUDA-to-CPU fallback, or worker-health schema expansion.
 
 **Reviewer rejection gate — do not merge Task 11 if any of the following is true:**
 - supervisor lifecycle state is mutated directly from the vision lane thread;
@@ -2079,7 +2081,7 @@ Squash-merge only into `feature/task-10-rtmdet-bytetrack` with expected-head pro
 - worker-health-v2 emits invented non-ready statuses;
 - `WorkerRunner` learns MMDetection/CUDA/model-manifest details;
 - lane shutdown has two owners or may be skipped/doubled;
-- Task-11 persistence `/complete`, PostgreSQL writes, Task-12 wheelhouse or Task-14 hardware qualification scope leaks in.
+- result persistence `/complete` (re-baselined as Task 13), PostgreSQL writes, Task-12 wheelhouse or hardware-qualification scope leaks in.
 
 ---
 ### Task 12: Build Reproducible Offline Runtime Bundles and Strengthen Supply-Chain Verification
@@ -2672,7 +2674,9 @@ Do not merge if:
 
 ---
 
-### Task 13: Add Hosted Windows + Linux Vision Adapter CI and Move Core CI to the Qualified Python Minor
+### Superseded future plan: Hosted Windows + Linux Vision Adapter CI (formerly Task 13; retained as Task-17 input)
+
+> **Roadmap note (13 September 2026):** this heading's old task number is superseded. The technical work remains useful but is no longer the next Task 13. Execute it only as part of the re-baselined Task-17 hardening/qualification scope unless an earlier focused regression gate requires it.
 
 **Files:**
 - Modify: `.github/workflows/quality-gate.yml`
@@ -2710,7 +2714,9 @@ git commit -m "ci: add cross-platform vision adapter gate"
 
 ---
 
-### Task 14: Execute Real-Model, Offline, CCTV, Recovery, and Performance Qualification and Finalize `verified`
+### Deferred Phase-1 qualification work (formerly Task 14; now Task-17 scope)
+
+> **Roadmap note (13 September 2026):** the technical qualification requirements remain mandatory, but the old Task-14 number is superseded. Task 14 is now Track Search and Evidence Content APIs; this qualification work is consolidated into Task 17.
 
 **Files:**
 - Create: `tools/vision/qualify_phase1.py`
@@ -2778,7 +2784,9 @@ Never add external CCTV or the checkpoint to Git.
 
 ---
 
-### Task 15: Full End-to-End Regression, Exact-Head CI, and Review Closure
+### Deferred Phase-1 final regression and closure (formerly Task 15; now Task-17 scope)
+
+> **Roadmap note (13 September 2026):** the exact-head closure requirements remain mandatory. Task 15 is now the React application foundation; this closure work is consolidated into Task 17.
 
 **Files:**
 - No new production files expected.
@@ -2877,19 +2885,22 @@ Task 3  Manifest/profile/qualification integrity
                                            |
                                            +--> Task 10 Typed failure propagation
                                                     |
-                                                    +--> Task 11 Supervisor/watchdog/main
+                                                    +--> Actual Task 11 Supervisor/watchdog/main
                                                              |
-                                                             +--> Task 13 Hosted adapter CI
+                                                             +--> Actual Task 12 Offline bundle
                                                                       |
-                                                                      +-------------------┐
-                                                                                          |
-Task 1 GPU qualification ------------------------------┐                                  |
-Task 1 hashed wheelhouse/release locks ----------------+--> Task 12 Offline bundle -------+--> Task 14 Real qualification
-                                                                                                  |
-                                                                                                  +--> Task 15 Closure
+                                                                      +--> Task 13 Result completion/persistence
+                                                                               |
+                                                                               +--> Task 14 Track/evidence APIs
+                                                                                        |
+                                                                                        +--> Task 15 React foundation
+                                                                                                 |
+                                                                                                 +--> Task 16 Visual search/review
+                                                                                                          |
+Task 1 remaining GPU/CCTV/performance qualification ----------------------------------------------------+--> Task 17 Hardening/qualification/closure
 ```
 
-The completed hosted-CPU/config gate and cross-platform staging gate are sufficient to begin framework-neutral Tasks 3–11 and Task 13 after Task 2A is green. The still-open Task-1 hardware/release evidence is an explicit blocker for Task 12/14 and therefore for final Task-15 closure; it must never be converted into an inferred qualification.
+Task 12 has closed the qualified Windows/Linux CPU offline-lock and reproducible-bundle prerequisite. Remaining GPU/CCTV/performance qualification is a Task-17 acceptance input, not a reason to skip the authoritative result-persistence and search layers.
 
 ## Self-Review / Spec Coverage Matrix
 
@@ -2901,23 +2912,23 @@ The completed hosted-CPU/config gate and cross-platform staging gate are suffici
 | Secure Windows/POSIX staging | Task 2 |
 | Manifest/profile/qualification separation | Task 3 |
 | Resolved config + vocabulary integrity | Tasks 1, 3, 7 |
-| Evidence-backed `verified` | Tasks 3, 14 |
-| RGB/BGR contract | Tasks 6, 7, 13, 14 |
+| Evidence-backed `verified` | Tasks 3, 17 |
+| RGB/BGR contract | Tasks 6, 7, 17 |
 | ByteTrack pixel/timestamp/ordinal/empty-frame semantics | Task 8 |
 | No tentative backfill / matched-only evidence | Task 8 |
 | Typed runtime failure propagation | Tasks 4, 9, 10 |
-| Lease-loss precedence | Tasks 10, 11, 15 |
+| Lease-loss precedence | Tasks 10, 11, 13, 17 |
 | OOM recovery / poisoned runtime | Task 11 |
-| Hung native inference watchdog | Tasks 5, 11, 14 |
+| Hung native inference watchdog | Tasks 5, 11, 17 |
 | Complete dependency-graph qualification | Task 1 |
-| Offline hashed deployment | Tasks 1, 12, 14 |
-| Windows + Linux hosted CI | Task 13 |
-| CCTV quality/performance baseline | Task 14 |
-| No generic second NMS/cap | Tasks 6, 14 |
-| Full provenance | Tasks 4, 7, 14 |
+| Offline hashed deployment | Tasks 1, 12, 17 |
+| Windows + Linux hosted CI | Task 17 |
+| CCTV quality/performance baseline | Task 17 |
+| No generic second NMS/cap | Tasks 6, 17 |
+| Full provenance | Tasks 4, 7, 13, 17 |
 | Health-v2 unchanged/truthful | Task 11 |
-| Task-11 persistence excluded | Tasks 9, 15 |
-| Exact-head regression/CI/review | Task 15 |
+| Result persistence excluded before Task 13 | Tasks 9–12 |
+| Exact-head regression/CI/review | Task 17 |
 
 ## Placeholder and Type-Consistency Review
 
