@@ -14,7 +14,7 @@ public sealed class TrackCursorCodec
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
-    public string Encode(TrackCursorPosition position)
+    public static string Encode(TrackCursorPosition position)
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(
             new CursorPayload(
@@ -29,7 +29,7 @@ public sealed class TrackCursorCodec
             .Replace('/', '_');
     }
 
-    public bool TryDecode(string? cursor, out TrackCursorPosition? position)
+    public static bool TryDecode(string? cursor, out TrackCursorPosition? position)
     {
         position = null;
         if (string.IsNullOrWhiteSpace(cursor) ||
