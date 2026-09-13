@@ -105,7 +105,8 @@ public sealed class VisionResultValidator
                 contract.EndOffsetMs is not { } endOffsetMs || endOffsetMs < startOffsetMs ||
                 endOffsetMs > videoDurationMs)
                 throw Invalid("track_offsets_invalid");
-            if (contract.DetectionCount is not >= 1)
+            if (contract.DetectionCount is not >= 1 ||
+                contract.DetectionCount > request.FramesProcessed)
                 throw Invalid("detection_count_invalid");
             if (!Unit(contract.MeanConfidence) || !Unit(contract.MaxConfidence) ||
                 contract.MeanConfidence > contract.MaxConfidence)
@@ -116,15 +117,14 @@ public sealed class VisionResultValidator
             var representative = contract.Representative;
             if (representative.OffsetMs is not { } repOffset || repOffset < startOffsetMs || repOffset > endOffsetMs ||
                 representative.SourceFrameNumber is not >= 0 ||
+                representative.SourceFrameNumber >= request.FramesProcessed ||
                 !Unit(representative.Confidence) || !Unit(representative.QualityScore) ||
                 representative.Confidence > contract.MaxConfidence ||
                 representative.BoundingBox is null || representative.Thumbnail is null)
                 throw Invalid("representative_invalid");
 
             var box = representative.BoundingBox;
-            if (!Unit(box.X) || !Unit(box.Y) ||
-                !PersistablePositiveDimension(box.Width) || !PersistablePositiveDimension(box.Height) ||
-                box.X!.Value + box.Width!.Value > 1 || box.Y!.Value + box.Height!.Value > 1)
+            if (!PersistableNormalizedBox(box.X, box.Y, box.Width, box.Height))
                 throw Invalid("bounding_box_invalid");
 
             var expectedPrefix = $"staging/{routeJobId:D}/attempt-{request.AttemptCount.Value:0000}";
@@ -333,6 +333,7 @@ public sealed class VisionResultValidator
         void AddNumber<T>(T value) where T : IFormattable =>
             Add(value.ToString(null, CultureInfo.InvariantCulture));
 
+        Add("mavi:vision-completion-digest:v2");
         Add(jobId.ToString("D"));
         AddNumber(attemptCount);
         AddNumber(framesProcessed);
@@ -354,7 +355,8 @@ public sealed class VisionResultValidator
         Add(provenance.RuntimeVariant!);
         AddNullable(provenance.PlatformLockSha256);
         Add(provenance.DetectorBackend!);
-        foreach (var pair in provenance.DependencyVersions!.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        AddNumber(provenance.DependencyVersions!.Count);
+        foreach (var pair in provenance.DependencyVersions.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             Add(pair.Key);
             Add(pair.Value);
@@ -375,11 +377,10 @@ public sealed class VisionResultValidator
         Add(provenance.ConfiguredDevicePolicy!);
         AddNumber(provenance.ConfiguredDeviceIndex!.Value);
         Add(provenance.ActualDevice!);
-        if (provenance.Gpu is null)
-        {
-            Add("<no-gpu>");
-        }
-        else
+        Span<byte> gpuMarker = stackalloc byte[1];
+        gpuMarker[0] = provenance.Gpu is null ? (byte)0 : (byte)1;
+        hash.AppendData(gpuMarker);
+        if (provenance.Gpu is not null)
         {
             Add(provenance.Gpu.Name!);
             AddNumber(provenance.Gpu.Index!.Value);
@@ -400,6 +401,7 @@ public sealed class VisionResultValidator
         AddNumber(tracker.LostTrackBufferSeconds!.Value);
         Add(provenance.InputColourSpace!);
 
+        AddNumber(tracks.Count);
         foreach (var track in tracks)
         {
             Add(track.TrackId);
@@ -496,6 +498,34 @@ public sealed class VisionResultValidator
     private static bool PositiveUnit(double? value) => Unit(value) && value > 0;
     private static bool PersistablePositiveDimension(double? value) =>
         PositiveUnit(value) && value >= float.Epsilon;
+
+    private static bool PersistableNormalizedBox(
+        double? x,
+        double? y,
+        double? width,
+        double? height)
+    {
+        if (!Unit(x) || !Unit(y) ||
+            !PersistablePositiveDimension(width) ||
+            !PersistablePositiveDimension(height) ||
+            x!.Value + width!.Value > 1 ||
+            y!.Value + height!.Value > 1)
+            return false;
+
+        var persistedX = (float)x.Value;
+        var persistedY = (float)y.Value;
+        var persistedWidth = (float)width.Value;
+        var persistedHeight = (float)height.Value;
+        return float.IsFinite(persistedX) &&
+               float.IsFinite(persistedY) &&
+               float.IsFinite(persistedWidth) &&
+               float.IsFinite(persistedHeight) &&
+               persistedWidth > 0 &&
+               persistedHeight > 0 &&
+               persistedX + persistedWidth <= 1 &&
+               persistedY + persistedHeight <= 1;
+    }
+
     private static bool Positive(double? value) => value is { } item && double.IsFinite(item) && item > 0;
     private static bool IsAsciiAlphaNumeric(char value) =>
         value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9';
