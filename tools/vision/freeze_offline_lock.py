@@ -13,6 +13,7 @@ from email.parser import BytesParser
 from email.policy import default
 from pathlib import Path
 
+from packaging.tags import parse_tag
 from packaging.utils import InvalidWheelFilename, canonicalize_name, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
 
@@ -253,15 +254,30 @@ def inspect_wheel(path: Path) -> WheelRecord:
 
     try:
         with zipfile.ZipFile(path, "r") as archive:
+            archive_names = archive.namelist()
             metadata_names = [
                 name
-                for name in archive.namelist()
+                for name in archive_names
                 if name.endswith(".dist-info/METADATA")
                 and name.count("/") == 1
             ]
             if len(metadata_names) != 1:
                 raise FreezeOfflineLockError("wheel_metadata_invalid")
+            metadata_dir = metadata_names[0].split("/", 1)[0]
+            wheel_names = [
+                name
+                for name in archive_names
+                if name == f"{metadata_dir}/WHEEL"
+            ]
+            record_names = [
+                name
+                for name in archive_names
+                if name == f"{metadata_dir}/RECORD"
+            ]
+            if len(wheel_names) != 1 or len(record_names) != 1:
+                raise FreezeOfflineLockError("wheel_metadata_invalid")
             payload = archive.read(metadata_names[0])
+            wheel_payload = archive.read(wheel_names[0])
     except FreezeOfflineLockError:
         raise
     except (OSError, KeyError, zipfile.BadZipFile) as exc:
@@ -286,7 +302,6 @@ def inspect_wheel(path: Path) -> WheelRecord:
     if filename_name != name or filename_version != metadata_version:
         raise FreezeOfflineLockError("wheel_filename_metadata_mismatch")
 
-    metadata_dir = metadata_names[0].split("/", 1)[0]
     if not metadata_dir.endswith(".dist-info"):
         raise FreezeOfflineLockError("wheel_dist_info_identity_mismatch")
     dist_info_identity = metadata_dir[: -len(".dist-info")]
@@ -302,6 +317,32 @@ def inspect_wheel(path: Path) -> WheelRecord:
         or parsed_dist_info_version != filename_version
     ):
         raise FreezeOfflineLockError("wheel_dist_info_identity_mismatch")
+
+    wheel_message = BytesParser(policy=default).parsebytes(wheel_payload)
+    if str(wheel_message.get("Wheel-Version", "")).strip() != "1.0":
+        raise FreezeOfflineLockError("wheel_metadata_invalid")
+    if str(wheel_message.get("Root-Is-Purelib", "")).strip().lower() not in {
+        "true",
+        "false",
+    }:
+        raise FreezeOfflineLockError("wheel_metadata_invalid")
+    raw_wheel_tags = [
+        str(value).strip()
+        for value in wheel_message.get_all("Tag", [])
+        if str(value).strip()
+    ]
+    if not raw_wheel_tags:
+        raise FreezeOfflineLockError("wheel_metadata_invalid")
+    try:
+        wheel_tags = {
+            (tag.interpreter, tag.abi, tag.platform)
+            for value in raw_wheel_tags
+            for tag in parse_tag(value)
+        }
+    except (TypeError, ValueError) as exc:
+        raise FreezeOfflineLockError("wheel_metadata_invalid") from exc
+    if wheel_tags != set(tags):
+        raise FreezeOfflineLockError("wheel_metadata_invalid")
 
     return WheelRecord(
         path=path,
