@@ -42,12 +42,12 @@
     "framesProcessed": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 9223372036854775807
+      "maximum": 9223372036854776000
     },
     "processingDurationMs": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 9223372036854775807
+      "maximum": 9223372036854776000
     },
     "provenance": {
       "$ref": "#/$defs/provenance"
@@ -147,12 +147,12 @@
         "offsetMs": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "sourceFrameNumber": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "confidence": {
           "type": "number",
@@ -203,12 +203,12 @@
         "startOffsetMs": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "endOffsetMs": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "detectionCount": {
           "type": "integer",
@@ -312,7 +312,7 @@
         "vramBytes": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "driverVersion": {
           "$ref": "#/$defs/detailText"
@@ -336,7 +336,8 @@
       "properties": {
         "referenceFrameRate": {
           "type": "number",
-          "exclusiveMinimum": 0
+          "minimum": 1e-9,
+          "maximum": 1000000000
         },
         "trackActivationThreshold": {
           "type": "number",
@@ -360,7 +361,8 @@
         },
         "lostTrackBufferSeconds": {
           "type": "number",
-          "exclusiveMinimum": 0
+          "minimum": 1e-9,
+          "maximum": 1000000000
         }
       }
     },
@@ -474,7 +476,8 @@
           },
           "additionalProperties": {
             "$ref": "#/$defs/identityText"
-          }
+          },
+          "maxProperties": 128
         },
         "ffmpegVersion": {
           "anyOf": [
