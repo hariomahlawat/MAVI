@@ -370,6 +370,9 @@ internal sealed class CountingReadStream(byte[] bytes) : MemoryStream(bytes, wri
 internal sealed class ThrowingDisposeReadStream(byte[] bytes)
     : MemoryStream(bytes, writable: false)
 {
-    public override ValueTask DisposeAsync() =>
-        ValueTask.FromException(new IOException("Injected source disposal failure."));
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        throw new IOException("Injected source disposal failure.");
+    }
 }
