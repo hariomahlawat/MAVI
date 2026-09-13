@@ -142,8 +142,8 @@ public sealed class AcceptedEvidenceReaderTests : IDisposable
         }
     }
 
-    private IAcceptedEvidenceReader CreateReader() =>
-        new AcceptedEvidenceReader(Options.Create(new MediaStorageOptions
+    private AcceptedEvidenceReader CreateReader() =>
+        new(Options.Create(new MediaStorageOptions
         {
             RootPath = _mediaRoot,
             EvidenceRootPath = _evidenceRoot,
