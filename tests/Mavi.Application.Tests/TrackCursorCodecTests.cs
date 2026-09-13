@@ -62,8 +62,16 @@ public sealed class TrackCursorCodecTests
     public void RejectsNonPositiveVisibilitySequence()
     {
         var query = Query();
-        var raw = $"""{"Version":2,"SnapshotUtc":"2026-09-13T11:00:00+00:00","SnapshotVisibilitySequence":0,"StartTimestampUtc":"2026-09-13T10:20:30+00:00","TrackId":"{{Guid.CreateVersion7()}}","FilterFingerprint":"{{TrackCursorCodec.ComputeFilterFingerprint(query)}}"}""";
-        var encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(raw))
+        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            Version = 2,
+            SnapshotUtc = new DateTimeOffset(2026, 9, 13, 11, 0, 0, TimeSpan.Zero),
+            SnapshotVisibilitySequence = 0L,
+            StartTimestampUtc = new DateTimeOffset(2026, 9, 13, 10, 20, 30, TimeSpan.Zero),
+            TrackId = Guid.CreateVersion7(),
+            FilterFingerprint = TrackCursorCodec.ComputeFilterFingerprint(query),
+        });
+        var encoded = Convert.ToBase64String(bytes)
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
