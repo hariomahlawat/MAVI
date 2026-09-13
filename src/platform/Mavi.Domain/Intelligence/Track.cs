@@ -4,29 +4,61 @@ namespace Mavi.Domain.Intelligence;
 
 public sealed class Track
 {
-    // Construction
     private Track() { }
 
-    public static Track Create(Guid processingRunId, Guid videoAssetId, int localTrackNumber, ObjectClass objectClass,
-        long startOffsetMs, long endOffsetMs, DateTimeOffset recordingStartUtc, int detectionCount,
-        double meanConfidence, double maxConfidence)
+    public static Track Create(
+        Guid processingRunId,
+        Guid videoAssetId,
+        int localTrackNumber,
+        ObjectClass objectClass,
+        long startOffsetMs,
+        long endOffsetMs,
+        DateTimeOffset recordingStartUtc,
+        int detectionCount,
+        double meanConfidence,
+        double maxConfidence,
+        DateTimeOffset? createdAtUtc = null)
     {
-        if (processingRunId == Guid.Empty || videoAssetId == Guid.Empty || localTrackNumber < 0 || startOffsetMs < 0 || endOffsetMs < startOffsetMs || detectionCount <= 0)
+        if (processingRunId == Guid.Empty || videoAssetId == Guid.Empty || localTrackNumber < 0 ||
+            startOffsetMs < 0 || endOffsetMs < startOffsetMs || detectionCount <= 0)
             throw Invalid();
         if (!InRange(meanConfidence) || !InRange(maxConfidence) || maxConfidence < meanConfidence) throw Invalid();
+
         var start = recordingStartUtc.ToUniversalTime();
         return new Track
         {
-            Id = Guid.CreateVersion7(), ProcessingRunId = processingRunId, VideoAssetId = videoAssetId,
-            LocalTrackNumber = localTrackNumber, ObjectClass = objectClass, StartOffsetMs = startOffsetMs,
-            EndOffsetMs = endOffsetMs, StartTimestampUtc = start.AddMilliseconds(startOffsetMs),
-            EndTimestampUtc = start.AddMilliseconds(endOffsetMs), DurationMs = endOffsetMs - startOffsetMs,
-            DetectionCount = detectionCount, MeanConfidence = meanConfidence, MaxConfidence = maxConfidence,
-            ReviewStatus = ReviewStatus.Unreviewed, CreatedAtUtc = DateTimeOffset.UtcNow,
+            Id = Guid.CreateVersion7(),
+            ProcessingRunId = processingRunId,
+            VideoAssetId = videoAssetId,
+            LocalTrackNumber = localTrackNumber,
+            ObjectClass = objectClass,
+            StartOffsetMs = startOffsetMs,
+            EndOffsetMs = endOffsetMs,
+            StartTimestampUtc = start.AddMilliseconds(startOffsetMs),
+            EndTimestampUtc = start.AddMilliseconds(endOffsetMs),
+            DurationMs = endOffsetMs - startOffsetMs,
+            DetectionCount = detectionCount,
+            MeanConfidence = meanConfidence,
+            MaxConfidence = maxConfidence,
+            ReviewStatus = ReviewStatus.Unreviewed,
+            CreatedAtUtc = (createdAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime(),
         };
     }
 
-    // Properties
+    public void AttachTrajectoryArtifact(Guid artifactId)
+    {
+        if (artifactId == Guid.Empty || (TrajectoryArtifactId.HasValue && TrajectoryArtifactId.Value != artifactId))
+            throw new DomainValidationException("track_trajectory_attachment_invalid", "Track trajectory artifact attachment is invalid.");
+        TrajectoryArtifactId = artifactId;
+    }
+
+    public void AttachRepresentativeObservation(Guid observationId)
+    {
+        if (observationId == Guid.Empty || (RepresentativeObservationId.HasValue && RepresentativeObservationId.Value != observationId))
+            throw new DomainValidationException("track_representative_attachment_invalid", "Track representative observation attachment is invalid.");
+        RepresentativeObservationId = observationId;
+    }
+
     public Guid Id { get; private set; }
     public Guid ProcessingRunId { get; private set; }
     public Guid VideoAssetId { get; private set; }
