@@ -184,6 +184,53 @@ public sealed class VisionResultValidatorTests
         Assert.Throws<VisionResultValidationException>(() => validator.Validate(routeJobId, request, duration));
     }
 
+    [Fact]
+    public void ArtifactAbovePerItemPolicyIsRejected()
+    {
+        var validator = new VisionResultValidator();
+        var track = Track("person-000001", "person");
+        var oversized = track with
+        {
+            TrajectoryArtifact = track.TrajectoryArtifact! with
+            {
+                SizeBytes = WorkerContractRules.MaximumCompletionArtifactBytes + 1
+            }
+        };
+
+        Assert.Throws<VisionResultValidationException>(() =>
+            validator.Validate(JobId, Request(oversized), 10_000));
+    }
+
+    [Fact]
+    public void AggregateEvidenceAbovePolicyIsRejectedBeforePersistence()
+    {
+        var validator = new VisionResultValidator();
+        const long artifactBytes = 60L * 1024 * 1024;
+        var tracks = Enumerable.Range(1, 5)
+            .Select(index =>
+            {
+                var track = Track($"person-{index:000000}", "person");
+                return track with
+                {
+                    Representative = track.Representative! with
+                    {
+                        Thumbnail = track.Representative.Thumbnail! with
+                        {
+                            SizeBytes = artifactBytes
+                        }
+                    },
+                    TrajectoryArtifact = track.TrajectoryArtifact! with
+                    {
+                        SizeBytes = artifactBytes
+                    }
+                };
+            })
+            .ToArray();
+
+        Assert.Throws<VisionResultValidationException>(() =>
+            validator.Validate(JobId, Request(tracks), 10_000));
+    }
+
     private static VisionJobCompleteRequest Request(params VisionTrackResultContract[] tracks) =>
         new(
             "2.0",
