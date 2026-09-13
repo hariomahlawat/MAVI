@@ -9,6 +9,9 @@ public static class WorkerContractRules
     public const long MaximumCompletionRequestBodyBytes = 32L * 1024 * 1024;
     public const long MaximumCompletionArtifactBytes = 64L * 1024 * 1024;
     public const long MaximumCompletionEvidenceBytes = 512L * 1024 * 1024;
+    public const int MaximumCompletionDependencyVersions = 128;
+    public const double MinimumPositiveTrackerParameter = 1e-9;
+    public const double MaximumPositiveTrackerParameter = 1e9;
 
     // Worker identity rules
     public static bool IsCanonicalWorkerId(string? value)
