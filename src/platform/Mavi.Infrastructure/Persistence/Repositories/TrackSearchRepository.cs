@@ -77,7 +77,7 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
                 x.camera.Id,
                 x.camera.Code,
                 x.camera.Name,
-                x.track.ObjectClass.ToString(),
+                x.track.ObjectClass,
                 x.track.StartTimestampUtc,
                 x.track.EndTimestampUtc,
                 x.track.StartOffsetMs,
@@ -86,7 +86,7 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
                 x.track.DetectionCount,
                 x.track.MeanConfidence,
                 x.track.MaxConfidence,
-                x.track.ReviewStatus.ToString(),
+                x.track.ReviewStatus,
                 x.observation == null ? null : x.observation.ThumbnailArtifactId))
             .ToArrayAsync(cancellationToken);
     }
@@ -110,7 +110,7 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
                 camera.Id,
                 camera.Code,
                 camera.Name,
-                track.ObjectClass.ToString(),
+                track.ObjectClass,
                 track.LocalTrackNumber,
                 track.StartOffsetMs,
                 track.EndOffsetMs,
@@ -120,7 +120,7 @@ public sealed class TrackSearchRepository(MaviDbContext db) : ITrackSearchReposi
                 track.DetectionCount,
                 track.MeanConfidence,
                 track.MaxConfidence,
-                track.ReviewStatus.ToString(),
+                track.ReviewStatus,
                 run.PipelineVersion,
                 run.DetectorName,
                 run.DetectorVersion,
