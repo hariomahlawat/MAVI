@@ -213,6 +213,45 @@ public sealed class VisionResultCompletionApiTests
     }
 
     [Fact]
+    public async Task InvalidLeaseIsRejectedBeforeExpensiveResultValidation()
+    {
+        var clock = new MutableTimeProvider(Now);
+        using var factory = new ApiTestFactory { Clock = clock };
+        await factory.ResetAndMigrateAsync();
+        var videoId = await SeedVideoAsync(factory);
+
+        using var client = factory.CreateClient();
+        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
+        var lease = await LeaseAsync(client, "gpu-sdd-01");
+        var request = await BuildRequestAsync(factory, lease);
+        var wrongToken = string.Equals(
+            lease.LeaseToken,
+            new string('A', 43),
+            StringComparison.Ordinal)
+            ? new string('E', 43)
+            : new string('A', 43);
+        var track = request.Tracks!.Single();
+        request = request with
+        {
+            LeaseToken = wrongToken,
+            Tracks =
+            [
+                track with { EndOffsetMs = 60_001 }
+            ]
+        };
+
+        using var rejected = await client.PostAsJsonAsync(
+            $"/api/vision/jobs/{lease.JobId}/complete",
+            request);
+
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        Assert.Contains(
+            "vision_job_lease_invalid",
+            await rejected.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ArtifactIntegrityFailureRollsBackAllIntelligenceAndLeavesLeaseActive()
     {
         var clock = new MutableTimeProvider(Now);
@@ -546,7 +585,7 @@ public sealed class VisionResultCompletionApiTests
                     .9,
                     new VisionRepresentativeObservationContract(
                         500,
-                        10,
+                        1,
                         .88,
                         .8,
                         new VisionBoundingBoxContract(.1, .2, .3, .4),
