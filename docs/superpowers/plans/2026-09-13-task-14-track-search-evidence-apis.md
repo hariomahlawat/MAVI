@@ -253,7 +253,7 @@ Cursors expire one hour after `snapshotUtc` and snapshots more than one minute i
 
 `snapshotUtc` freezes the completed-run visibility boundary established by the first page. Every continuation page must evaluate both the candidate run and the “is there a later completed run?” anti-exists predicate using `CompletedAtUtc <= snapshotUtc`. This prevents reprocessing completed after page 1 from replacing a video's result set midway through pagination.
 
-Maximum encoded cursor length shall be explicit (recommended <= 256 bytes).
+Maximum encoded cursor length shall be explicit (maximum 512 encoded characters).
 
 ### 6.3 Seek predicate
 
