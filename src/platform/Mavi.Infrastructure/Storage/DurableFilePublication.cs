@@ -3,6 +3,12 @@ using System.Runtime.InteropServices;
 
 namespace Mavi.Infrastructure.Storage;
 
+internal enum DurablePublicationOutcome
+{
+    PublishedNew,
+    DestinationAlreadyExists,
+}
+
 internal static class DurableFilePublication
 {
     private const int ErrorFileExists = 80;
@@ -44,7 +50,10 @@ internal static class DurableFilePublication
             FlushDirectory(parentPath);
     }
 
-    public static void Publish(string temporaryPath, string destinationPath, string parentPath)
+    public static DurablePublicationOutcome Publish(
+        string temporaryPath,
+        string destinationPath,
+        string parentPath)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -52,21 +61,57 @@ internal static class DurableFilePublication
             {
                 var error = Marshal.GetLastWin32Error();
                 if (error is ErrorFileExists or ErrorAlreadyExists)
-                    throw new IOException("Accepted evidence already exists.");
+                    return DurablePublicationOutcome.DestinationAlreadyExists;
 
                 throw new IOException(
                     "Durable accepted-evidence publication failed.",
                     new Win32Exception(error));
             }
 
-            return;
+            return DurablePublicationOutcome.PublishedNew;
         }
 
         if (OperatingSystem.IsLinux())
         {
-            File.Move(temporaryPath, destinationPath, overwrite: false);
+            var linkResult = Link(temporaryPath, destinationPath);
+            if (linkResult != 0)
+            {
+                var error = Marshal.GetLastPInvokeError();
+                if (error == 17) // EEXIST
+                    return DurablePublicationOutcome.DestinationAlreadyExists;
+
+                throw new IOException(
+                    "Create-once accepted-evidence publication failed.",
+                    new Win32Exception(error));
+            }
+
+            try
+            {
+                FlushDirectory(parentPath);
+            }
+            catch
+            {
+                // The destination belongs to this invocation. Remove it before
+                // propagating the durability failure so it cannot be mistaken
+                // for a pre-existing idempotent accepted object on retry.
+                try
+                {
+                    File.Delete(destinationPath);
+                    FlushDirectory(parentPath);
+                }
+                catch
+                {
+                    // Preserve the original durability failure. Any inability to
+                    // compensate remains an operational fault and must not be
+                    // converted into a successful seal.
+                }
+
+                throw;
+            }
+
+            File.Delete(temporaryPath);
             FlushDirectory(parentPath);
-            return;
+            return DurablePublicationOutcome.PublishedNew;
         }
 
         throw new PlatformNotSupportedException(
@@ -138,6 +183,11 @@ internal static class DurableFilePublication
         [MarshalAs(UnmanagedType.LPUTF8Str)] string pathname,
         int flags);
 #pragma warning restore CA2101
+
+    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
+    private static extern int Link(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string oldpath,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string newpath);
 
     [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
     private static extern int Fsync(int descriptor);
