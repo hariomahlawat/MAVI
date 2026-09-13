@@ -801,6 +801,73 @@ Artifacts                   = thumbnail + trajectory per track
 runtime provenance          = present
 ```
 
+
+### 20.9 Final hardening invariants and shared conformance corpus
+
+The final Task-13 close-out shall treat the following as protocol/security invariants, not review-specific patches.
+
+#### Exact integer semantics
+
+Every completion field whose contract type is integer shall be interpreted from the JSON number token by exact mathematical value.
+
+- integer lexical forms such as `1`, `1.0`, `1.000` and `1e0` are acceptable only when their exact mathematical value is integral and within the declared Int32/Int64 wire range;
+- a non-integral value shall never become acceptable through binary floating-point rounding;
+- values such as `1.000000000000000000000000000001` are invalid for integer fields;
+- values above 2^53 remain exact for acceptance/rejection decisions;
+- JSON Schema, Python/Pydantic and .NET shall agree on every corpus vector.
+
+#### Provenance edge-character semantics
+
+The completion contract shall own one explicit leading/trailing code-point rule for provenance identity/detail strings.
+
+- JSON Schema `\\s` / `\\S`, Python `.strip()`, and .NET `Trim()` shall not independently define the wire rule;
+- U+0000 remains prohibited anywhere;
+- exceptional code points whose classifications differ by runtime, including U+0085 and U+FEFF, shall have explicit expected outcomes;
+- the same code-point corpus shall be exercised against Schema, Python and .NET.
+
+#### Bounded evidence sealing
+
+Declared artifact size is an enforcement boundary as well as an integrity fact.
+
+- reject descriptors that exceed the configured per-artifact policy before copying;
+- validate the aggregate declared evidence size for a completion before sealing;
+- while sealing, read/write at most the declared size plus one probe byte;
+- abort immediately on the first byte beyond the declared size;
+- never copy an entire oversized/sparse source merely to discover that its final size is invalid;
+- temporary accepted-evidence files shall be removed on every failed seal;
+- Stream.Length/file metadata may be used only as an optimization, never as the sole security authority.
+
+#### Shared adversarial conformance corpus
+
+Maintain checked-in accepted/rejected vectors covering at minimum:
+
+- integer lexical encodings and Int32/Int64 boundaries;
+- numbers above 2^53;
+- infinitesimally non-integral decimals;
+- provenance leading/trailing Unicode edge characters and U+0000;
+- verified/unverified provenance dependency combinations;
+- artifact declared-size boundary, first-byte overflow, per-artifact maximum and aggregate maximum.
+
+The corpus shall be consumed by JSON Schema tests, Python/Pydantic tests and .NET contract/validation tests wherever the invariant applies. A future cross-language/security-sensitive contract shall define this corpus during planning rather than relying on review to discover semantic gaps.
+
+### 20.10 Final close-out order
+
+Task-13 implementation shall close in this order:
+
+1. update/freeze these hardening invariants;
+2. implement all remaining bounded fixes and shared adversarial tests;
+3. run focused contract/evidence/provenance tests;
+4. run full Quality Gate, Staging Security and Runtime Qualification;
+5. obtain a targeted review of the remediated findings;
+6. obtain one final broad Critical/P1/P2 implementation review;
+7. freeze the exact implementation SHA;
+8. generate deterministic artifacts and perform Task-12 lock/metadata rebind;
+9. run final Offline Bundle and exact-head qualification;
+10. merge with expected-head protection and clean the Task-13 branch.
+
+No Task-12 lock/bundle metadata shall be rebound before the implementation SHA is frozen.
+
+
 ---
 
 ## 21. Expected files
@@ -939,7 +1006,7 @@ Task 13 is complete only when all of the following are true:
 4. Successful worker attempts call `/complete`, not the placeholder failure.
 5. Stale/expired/reclaimed attempts cannot complete.
 6. Current-attempt artifact namespace is enforced.
-7. Every accepted evidence artifact is verified for size and SHA-256.
+7. Every accepted evidence artifact is verified for size and SHA-256, and sealing is resource-bounded: per-artifact/aggregate policy is enforced before publication and copying stops on the first byte beyond the declared size.
 8. Tracks, representative observations and artifacts are authoritative only after PostgreSQL commit; authoritative Artifact rows reference only platform-owned sealed evidence keys, never worker staging.
 9. Completion is atomic: no partial intelligence survives a failed transaction.
 10. Exact duplicate completion retry is idempotent.
@@ -949,8 +1016,9 @@ Task 13 is complete only when all of the following are true:
 14. All existing Task-9/10 artifact-security and lease tests remain green.
 15. Task-11 runtime supervisor/recovery tests remain green.
 16. Task-12 runtime qualification and offline bundle gates remain green after required artifact/metadata rebind.
-17. Final exact-head review has no unresolved Critical/P1/P2 implementation findings.
-18. PR is merged with expected-head protection and repository branch state is cleaned.
+17. JSON Schema, Python/Pydantic and .NET pass the same adversarial conformance corpus for exact integer semantics and provenance edge-character semantics.
+18. Final exact-head review has no unresolved Critical/P1/P2 implementation findings.
+19. PR is merged with expected-head protection and repository branch state is cleaned.
 
 ---
 
