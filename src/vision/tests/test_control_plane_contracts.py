@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from mavi_vision.common.control_plane import (
 ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE = ROOT / "contracts/examples/vision-job-lease-v2.example.json"
 INVALID_VECTORS = ROOT / "contracts/test-vectors/control-plane-v2-invalid.json"
+COMPLETION_CONFORMANCE = ROOT / "contracts/test-vectors/vision-job-complete-v2-conformance.json"
 
 
 def test_canonical_lease_golden_example_round_trips_semantically() -> None:
@@ -294,3 +296,98 @@ def test_completion_provenance_rejects_nul_consistently() -> None:
 
     with pytest.raises(ValidationError):
         VisionJobComplete.model_validate_json(json.dumps(payload))
+
+
+def _completion_example_payload() -> dict[str, object]:
+    return json.loads(
+        (ROOT / "contracts/examples/vision-job-complete-v2.example.json").read_text()
+    )
+
+
+def _raw_completion_with_number(field: str, token: str) -> str:
+    payload = _completion_example_payload()
+    marker = f'"{field}":{json.dumps(payload[field], separators=(",", ":"))}'
+    raw = json.dumps(payload, separators=(",", ":"))
+    replacement = f'"{field}":{token}'
+    assert marker in raw
+    return raw.replace(marker, replacement, 1)
+
+
+def _exact_schema_validator(schema: dict[str, object]):
+    number = jsonschema.Draft202012Validator.TYPE_CHECKER.redefine(
+        "number",
+        lambda checker, instance: (
+            not isinstance(instance, bool)
+            and isinstance(instance, (int, float, Decimal))
+        ),
+    )
+    exact = number.redefine(
+        "integer",
+        lambda checker, instance: (
+            not isinstance(instance, bool)
+            and (
+                isinstance(instance, int)
+                or (isinstance(instance, float) and instance.is_integer())
+                or (
+                    isinstance(instance, Decimal)
+                    and instance == instance.to_integral_value()
+                )
+            )
+        ),
+    )
+    validator = jsonschema.validators.extend(
+        jsonschema.Draft202012Validator,
+        type_checker=exact,
+    )
+    return validator(schema, format_checker=jsonschema.FormatChecker())
+
+
+def test_completion_integer_conformance_corpus_matches_schema_and_python() -> None:
+    vectors = json.loads(COMPLETION_CONFORMANCE.read_text())
+    schema = json.loads(
+        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text()
+    )
+    validator = _exact_schema_validator(schema)
+
+    for vector in vectors["integerCases"]:
+        raw = _raw_completion_with_number(vector["field"], vector["token"])
+        parsed = json.loads(raw, parse_float=Decimal)
+        schema_valid = not list(validator.iter_errors(parsed))
+        python_valid = True
+        try:
+            VisionJobComplete.model_validate_json(raw)
+        except ValidationError:
+            python_valid = False
+
+        assert schema_valid is vector["accepted"], vector["name"]
+        assert python_valid is vector["accepted"], vector["name"]
+
+
+def test_completion_provenance_edge_corpus_matches_schema_and_python() -> None:
+    vectors = json.loads(COMPLETION_CONFORMANCE.read_text())
+    schema = json.loads(
+        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text()
+    )
+
+    for vector in vectors["provenanceEdgeCases"]:
+        payload = _completion_example_payload()
+        payload["provenance"]["modelId"] = vector["value"]
+
+        schema_valid = True
+        try:
+            jsonschema.validate(
+                instance=payload,
+                schema=schema,
+                format_checker=jsonschema.FormatChecker(),
+            )
+        except jsonschema.ValidationError:
+            schema_valid = False
+
+        python_valid = True
+        try:
+            VisionJobComplete.model_validate_json(json.dumps(payload))
+        except ValidationError:
+            python_valid = False
+
+        assert schema_valid is vector["accepted"], vector["name"]
+        assert python_valid is vector["accepted"], vector["name"]
