@@ -135,3 +135,16 @@ def test_task12_workflow_covers_wheel_inputs_and_uses_pinned_reproduction() -> N
     assert "gcc-14 -dumpfullversion -dumpversion" in workflow
     assert "14.44." in workflow
 
+
+
+def test_offline_bundle_contract_retains_all_qualified_runtime_locks() -> None:
+    contract = (
+        Path(__file__).parents[3]
+        / "infrastructure"
+        / "offline-bundle"
+        / "README.md"
+    ).read_text(encoding="utf-8")
+
+    assert "every qualified runtime lock referenced by `runtime.json`" in contract
+    assert "selected platform lock is the only lock used by the offline `pip install`" in contract
+    assert "hashes of **all qualified runtime locks included in the bundle**" in contract
