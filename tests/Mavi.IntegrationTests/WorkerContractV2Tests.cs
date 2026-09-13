@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Mavi.Contracts.Worker;
 using Mavi.Domain.Cameras;
 using Mavi.Domain.Media;
@@ -186,12 +187,17 @@ public sealed class WorkerContractV2Tests
             var accepted = vector.GetProperty("accepted").GetBoolean();
 
             var raw = example.ToJsonString();
-            var marker = $"\\\"{field}\\\":{example[field]!.ToJsonString()}";
-            Assert.Contains(marker, raw, StringComparison.Ordinal);
-            raw = raw.Replace(
-                marker,
-                $"\\\"{field}\\\":{token}",
-                StringComparison.Ordinal);
+            var pattern =
+                $"(\\\"{Regex.Escape(field)}\\\"\\s*:\\s*)" +
+                @"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?";
+            var matches = Regex.Matches(raw, pattern, RegexOptions.CultureInvariant);
+            Assert.Single(matches);
+            raw = Regex.Replace(
+                raw,
+                pattern,
+                match => match.Groups[1].Value + token,
+                RegexOptions.CultureInvariant,
+                TimeSpan.FromSeconds(1));
 
             var succeeded = true;
             try
