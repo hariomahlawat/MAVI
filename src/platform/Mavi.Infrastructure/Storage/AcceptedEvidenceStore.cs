@@ -268,9 +268,13 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         {
             File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.ReadOnly);
         }
-        catch (PlatformNotSupportedException)
+        catch (Exception exception) when (
+            exception is PlatformNotSupportedException or
+            IOException or
+            UnauthorizedAccessException)
         {
-            // Root ACL/ownership remains the authoritative immutability boundary.
+            // Root ACL/ownership and create-once publication are the authoritative
+            // immutability boundary. Read-only attributes are defense-in-depth.
         }
     }
 
