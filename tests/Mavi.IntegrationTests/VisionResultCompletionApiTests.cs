@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using Mavi.Application.Abstractions.Storage;
 using Mavi.Contracts.Worker;
 using Mavi.Domain.Cameras;
@@ -166,7 +167,9 @@ public sealed class VisionResultCompletionApiTests
         Assert.Equal(3, run.FramesProcessed);
         Assert.Equal(1, run.TracksCreated);
         Assert.Equal(1250, run.ProcessingDurationMs);
-        Assert.Contains("\"modelId\":\"rtmdet-m\"", run.RuntimeProvenanceJson, StringComparison.Ordinal);
+        Assert.NotNull(run.RuntimeProvenanceJson);
+        using (var provenance = JsonDocument.Parse(run.RuntimeProvenanceJson!))
+            Assert.Equal("rtmdet-m", provenance.RootElement.GetProperty("modelId").GetString());
 
         Assert.Equal(videoId, video.Id);
         Assert.Equal(VideoProcessingStatus.Processed, video.ProcessingStatus);

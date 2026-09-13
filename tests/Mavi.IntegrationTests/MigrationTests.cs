@@ -261,6 +261,11 @@ public sealed class MigrationTests(PostgresFixture fixture)
         Assert.Contains("Leased", indexDefinition, StringComparison.Ordinal);
         await reader.DisposeAsync();
 
+        // Bring the historical fixture forward to today's model before exercising
+        // today's orchestrator. The assertions above remain scoped to the hardened
+        // lease migration itself.
+        await db.Database.MigrateAsync();
+
         // Operational acceptance: the current v2 orchestrator must reclaim the invalidated legacy lease.
         var startedAtUtc = new DateTimeOffset(2026, 9, 9, 0, 0, 0, TimeSpan.Zero);
         await using var reclaimDb = fixture.CreateDbContext();
