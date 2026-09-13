@@ -41,13 +41,13 @@ public sealed class TrackSearchService(
             }
         }
 
-        var snapshotUtc = cursor?.SnapshotUtc ?? nowUtc;
-        var rows = await repository.SearchAsync(
+        var repositoryPage = await repository.SearchAsync(
             query,
-            snapshotUtc,
             cursor,
             checked(query.Limit + 1),
             cancellationToken);
+        var snapshotUtc = repositoryPage.SnapshotUtc;
+        var rows = repositoryPage.Items;
 
         var hasMore = rows.Count > query.Limit;
         var items = hasMore ? rows.Take(query.Limit).ToArray() : rows;
