@@ -253,6 +253,9 @@ public sealed class TrackSearchApiTests
     [InlineData("/api/tracks?minimumConfidence=1.1")]
     [InlineData("/api/tracks?cursor=***")]
     [InlineData("/api/tracks?fromUtc=2026-09-13T10:00:00%2B05:30")]
+    [InlineData("/api/tracks?fromUtc=2026-09-13T10:00:00")]
+    [InlineData("/api/tracks?objectClass=0")]
+    [InlineData("/api/tracks?unknownFilter=value")]
     public async Task InvalidSearchReturnsStableError(string path)
     {
         using var factory = new ApiTestFactory();
