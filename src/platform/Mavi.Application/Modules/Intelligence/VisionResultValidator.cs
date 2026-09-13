@@ -72,6 +72,8 @@ public sealed class VisionResultValidator
             throw Invalid("processing_duration_invalid");
         if (request.Provenance is null || request.Tracks is null)
             throw Invalid("required_member_missing");
+        if (request.Tracks.Count > WorkerContractRules.MaximumCompletionTracks)
+            throw Invalid("track_count_invalid");
         if (request.FramesProcessed == 0 && request.Tracks.Count > 0)
             throw Invalid("tracks_without_frames");
         if (videoDurationMs <= 0)
@@ -119,7 +121,8 @@ public sealed class VisionResultValidator
                 throw Invalid("representative_invalid");
 
             var box = representative.BoundingBox;
-            if (!Unit(box.X) || !Unit(box.Y) || !PositiveUnit(box.Width) || !PositiveUnit(box.Height) ||
+            if (!Unit(box.X) || !Unit(box.Y) ||
+                !PersistablePositiveDimension(box.Width) || !PersistablePositiveDimension(box.Height) ||
                 box.X!.Value + box.Width!.Value > 1 || box.Y!.Value + box.Height!.Value > 1)
                 throw Invalid("bounding_box_invalid");
 
@@ -460,6 +463,8 @@ public sealed class VisionResultValidator
 
     private static bool Unit(double? value) => value is { } item && double.IsFinite(item) && item is >= 0 and <= 1;
     private static bool PositiveUnit(double? value) => Unit(value) && value > 0;
+    private static bool PersistablePositiveDimension(double? value) =>
+        PositiveUnit(value) && value >= float.Epsilon;
     private static bool Positive(double? value) => value is { } item && double.IsFinite(item) && item > 0;
     private static bool IsAsciiAlphaNumeric(char value) =>
         value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9';

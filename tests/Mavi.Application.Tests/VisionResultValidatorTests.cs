@@ -57,6 +57,7 @@ public sealed class VisionResultValidatorTests
     [InlineData("verified-without-qualification")]
     [InlineData("overlong-model-id")]
     [InlineData("overlong-tracker-version")]
+    [InlineData("underflow-dimension")]
     [InlineData("overlong-platform-detail")]
     [InlineData("padded-runtime-variant")]
     public void InvalidResultIsRejectedWithoutRepair(string mutation)

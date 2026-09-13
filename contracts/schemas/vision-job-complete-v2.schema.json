@@ -42,12 +42,12 @@
     "framesProcessed": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 9223372036854775807
+      "maximum": 9223372036854776000
     },
     "processingDurationMs": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 9223372036854775807
+      "maximum": 9223372036854776000
     },
     "provenance": {
       "$ref": "#/$defs/provenance"
@@ -56,7 +56,8 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/track"
-      }
+      },
+      "maxItems": 10000
     }
   },
   "$defs": {
@@ -92,7 +93,7 @@
         "sizeBytes": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "sha256": {
           "$ref": "#/$defs/sha256"
@@ -121,13 +122,13 @@
         },
         "width": {
           "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1
+          "maximum": 1,
+          "minimum": 1.401298464324817e-45
         },
         "height": {
           "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1
+          "maximum": 1,
+          "minimum": 1.401298464324817e-45
         }
       }
     },
@@ -146,12 +147,12 @@
         "offsetMs": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "sourceFrameNumber": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "confidence": {
           "type": "number",
@@ -202,12 +203,12 @@
         "startOffsetMs": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "endOffsetMs": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "detectionCount": {
           "type": "integer",
@@ -311,7 +312,7 @@
         "vramBytes": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 9223372036854775807
+          "maximum": 9223372036854776000
         },
         "driverVersion": {
           "$ref": "#/$defs/detailText"

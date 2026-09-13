@@ -8,11 +8,11 @@ public sealed record VisionJobCompleteRequest(
     Guid? JobId,
     string? WorkerId,
     string? LeaseToken,
-    int? AttemptCount,
-    long? FramesProcessed,
-    long? ProcessingDurationMs,
+    [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? AttemptCount,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? FramesProcessed,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? ProcessingDurationMs,
     VisionRuntimeProvenanceContract? Provenance,
-    IReadOnlyList<VisionTrackResultContract>? Tracks);
+    [property: JsonConverter(typeof(BoundedVisionTrackListJsonConverter))] IReadOnlyList<VisionTrackResultContract>? Tracks);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VisionRuntimeProvenanceContract(
@@ -36,7 +36,7 @@ public sealed record VisionRuntimeProvenanceContract(
     string? FfmpegVersion,
     VisionPlatformIdentityContract? Platform,
     string? ConfiguredDevicePolicy,
-    int? ConfiguredDeviceIndex,
+    [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? ConfiguredDeviceIndex,
     string? ActualDevice,
     VisionGpuIdentityContract? Gpu,
     string? MaviBuild,
@@ -60,8 +60,8 @@ public sealed record VisionPlatformIdentityContract(
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VisionGpuIdentityContract(
     string? Name,
-    int? Index,
-    long? VramBytes,
+    [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? Index,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? VramBytes,
     string? DriverVersion,
     string? CudaRuntimeVersion);
 
@@ -71,16 +71,16 @@ public sealed record VisionTrackerParametersContract(
     double? TrackActivationThreshold,
     double? HighConfidenceThreshold,
     double? MinimumIouThreshold,
-    int? MinimumConsecutiveFrames,
+    [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? MinimumConsecutiveFrames,
     double? LostTrackBufferSeconds);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VisionTrackResultContract(
     string? TrackId,
     string? ObjectClass,
-    long? StartOffsetMs,
-    long? EndOffsetMs,
-    int? DetectionCount,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? StartOffsetMs,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? EndOffsetMs,
+    [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? DetectionCount,
     double? MeanConfidence,
     double? MaxConfidence,
     VisionRepresentativeObservationContract? Representative,
@@ -88,8 +88,8 @@ public sealed record VisionTrackResultContract(
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VisionRepresentativeObservationContract(
-    long? OffsetMs,
-    long? SourceFrameNumber,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? OffsetMs,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? SourceFrameNumber,
     double? Confidence,
     double? QualityScore,
     VisionBoundingBoxContract? BoundingBox,
@@ -102,7 +102,7 @@ public sealed record VisionBoundingBoxContract(double? X, double? Y, double? Wid
 public sealed record VisionArtifactDescriptorContract(
     string? StorageKey,
     string? MediaType,
-    long? SizeBytes,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? SizeBytes,
     string? Sha256);
 
 public sealed record VisionJobCompleteResponse(

@@ -121,6 +121,67 @@ public sealed class WorkerContractV2Tests
         }
     }
 
+    [Fact]
+    public async Task CompletionRequestOverDedicatedBodyLimitIsRejectedBeforeBinding()
+    {
+        using var factory = new ApiTestFactory();
+        using var client = factory.CreateClient();
+        using var content = new StringContent("{}", Encoding.UTF8, "application/json");
+        content.Headers.ContentLength = WorkerContractRules.MaximumCompletionRequestBodyBytes + 1;
+
+        using var response = await client.PostAsync(
+            $"/api/vision/jobs/{Guid.CreateVersion7()}/complete",
+            content);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+    }
+
+    [Fact]
+    public void CompletionTrackCollectionIsBoundedDuringJsonBinding()
+    {
+        var tracks = string.Join(',', Enumerable.Repeat("{}", WorkerContractRules.MaximumCompletionTracks + 1));
+        var json = $"""{"schemaVersion":"2.0","tracks":[{{tracks}}]}""";
+
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<VisionJobCompleteRequest>(json, JsonOptions()));
+    }
+
+    [Fact]
+    public void CompletionIntegralNumbersAcceptMathematicallyIntegralJsonNumbers()
+    {
+        var path = Path.Combine(FindRepositoryRoot(), "contracts/examples/vision-job-complete-v2.example.json");
+        var payload = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        payload["attemptCount"] = 1.0;
+        payload["framesProcessed"] = 3.0;
+        payload["processingDurationMs"] = 1250.0;
+        payload["tracks"]![0]!["detectionCount"] = 3.0;
+        payload["tracks"]![0]!["startOffsetMs"] = 0.0;
+        payload["tracks"]![0]!["endOffsetMs"] = 80.0;
+        payload["tracks"]![0]!["representative"]!["offsetMs"] = 40.0;
+        payload["tracks"]![0]!["representative"]!["sourceFrameNumber"] = 1.0;
+
+        var contract = JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+            payload.ToJsonString(),
+            JsonOptions());
+
+        Assert.NotNull(contract);
+        Assert.Equal(1, contract.AttemptCount);
+        Assert.Equal(3, contract.Tracks![0].DetectionCount);
+    }
+
+    [Fact]
+    public void CompletionIntegralNumbersRejectFractions()
+    {
+        var path = Path.Combine(FindRepositoryRoot(), "contracts/examples/vision-job-complete-v2.example.json");
+        var payload = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        payload["attemptCount"] = 1.5;
+
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+                payload.ToJsonString(),
+                JsonOptions()));
+    }
+
     [Theory]
     [InlineData("gpu-sdd-01", true)]
     [InlineData(" gpu-sdd-01", false)]

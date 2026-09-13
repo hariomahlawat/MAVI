@@ -5,6 +5,8 @@ namespace Mavi.Contracts.Worker;
 public static class WorkerContractRules
 {
     public const string SchemaVersion = "2.0";
+    public const int MaximumCompletionTracks = 10_000;
+    public const long MaximumCompletionRequestBodyBytes = 32L * 1024 * 1024;
 
     // Worker identity rules
     public static bool IsCanonicalWorkerId(string? value)

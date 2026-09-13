@@ -32,6 +32,26 @@ def _snake_to_camel(name: str) -> str:
     return parts[0] + "".join(part.title() for part in parts[1:])
 
 
+def _completion_integral(value: object, *, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("completion integer must be a JSON number")
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError("completion integer must be mathematically integral")
+        value = int(value)
+    if value < minimum or value > maximum:
+        raise ValueError("completion integer is outside the wire-type range")
+    return value
+
+
+def _completion_int32(value: object) -> int:
+    return _completion_integral(value, minimum=-(2**31), maximum=2**31 - 1)
+
+
+def _completion_int64(value: object) -> int:
+    return _completion_integral(value, minimum=-(2**63), maximum=2**63 - 1)
+
+
 def _canonical_utc_wire(value: object, info: ValidationInfo) -> object:
     if info.mode == "json":
         if not isinstance(value, str) or _CANONICAL_UTC_PATTERN.fullmatch(value) is None:
@@ -136,6 +156,8 @@ StorageKey = Annotated[StrictStr, AfterValidator(_storage_key)]
 TrackId = Annotated[StrictStr, AfterValidator(_track_id)]
 Sha256 = Annotated[StrictStr, AfterValidator(_sha256)]
 CanonicalUtcDateTime = Annotated[datetime, BeforeValidator(_canonical_utc_wire)]
+CompletionInt32 = Annotated[int, BeforeValidator(_completion_int32)]
+CompletionInt64 = Annotated[int, BeforeValidator(_completion_int64)]
 ProvenanceIdentity = Annotated[StrictStr, AfterValidator(_provenance_identity)]
 ProvenanceDetail = Annotated[StrictStr, AfterValidator(_provenance_detail)]
 
@@ -217,15 +239,15 @@ class VisionJobFail(ControlPlaneModel):
 class VisionCompletionArtifact(ControlPlaneModel):
     storage_key: StorageKey
     media_type: Literal["image/jpeg", "application/msgpack"]
-    size_bytes: int = Field(ge=0, le=9_223_372_036_854_775_807)
+    size_bytes: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
     sha256: Sha256
 
 
 class VisionCompletionBoundingBox(ControlPlaneModel):
     x: float = Field(ge=0, le=1, allow_inf_nan=False)
     y: float = Field(ge=0, le=1, allow_inf_nan=False)
-    width: float = Field(gt=0, le=1, allow_inf_nan=False)
-    height: float = Field(gt=0, le=1, allow_inf_nan=False)
+    width: float = Field(ge=1.401298464324817e-45, le=1, allow_inf_nan=False)
+    height: float = Field(ge=1.401298464324817e-45, le=1, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def validate_bounds(self) -> "VisionCompletionBoundingBox":
@@ -235,8 +257,8 @@ class VisionCompletionBoundingBox(ControlPlaneModel):
 
 
 class VisionCompletionRepresentative(ControlPlaneModel):
-    offset_ms: int = Field(ge=0, le=9_223_372_036_854_775_807)
-    source_frame_number: int = Field(ge=0, le=9_223_372_036_854_775_807)
+    offset_ms: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    source_frame_number: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
     confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     quality_score: float = Field(ge=0, le=1, allow_inf_nan=False)
     bounding_box: VisionCompletionBoundingBox
@@ -246,9 +268,9 @@ class VisionCompletionRepresentative(ControlPlaneModel):
 class VisionCompletionTrack(ControlPlaneModel):
     track_id: TrackId
     object_class: Literal["person", "vehicle"]
-    start_offset_ms: int = Field(ge=0, le=9_223_372_036_854_775_807)
-    end_offset_ms: int = Field(ge=0, le=9_223_372_036_854_775_807)
-    detection_count: int = Field(gt=0, le=2_147_483_647)
+    start_offset_ms: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    end_offset_ms: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    detection_count: CompletionInt32 = Field(gt=0, le=2_147_483_647)
     mean_confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     max_confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
     representative: VisionCompletionRepresentative
@@ -281,8 +303,8 @@ class VisionPlatformIdentity(ControlPlaneModel):
 
 class VisionGpuIdentity(ControlPlaneModel):
     name: ProvenanceDetail
-    index: int = Field(ge=0, le=2_147_483_647)
-    vram_bytes: int = Field(gt=0, le=9_223_372_036_854_775_807)
+    index: CompletionInt32 = Field(ge=0, le=2_147_483_647)
+    vram_bytes: CompletionInt64 = Field(gt=0, le=9_223_372_036_854_775_807)
     driver_version: ProvenanceDetail
     cuda_runtime_version: ProvenanceDetail
 
@@ -292,7 +314,7 @@ class VisionTrackerParameters(ControlPlaneModel):
     track_activation_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
     high_confidence_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
     minimum_iou_threshold: float = Field(ge=0, le=1, allow_inf_nan=False)
-    minimum_consecutive_frames: int = Field(ge=1, le=2_147_483_647)
+    minimum_consecutive_frames: CompletionInt32 = Field(ge=1, le=2_147_483_647)
     lost_track_buffer_seconds: float = Field(gt=0, allow_inf_nan=False)
 
 
@@ -317,7 +339,7 @@ class VisionRuntimeProvenance(ControlPlaneModel):
     ffmpeg_version: ProvenanceDetail | None = None
     platform: VisionPlatformIdentity
     configured_device_policy: Literal["cpu", "cuda", "auto"]
-    configured_device_index: int = Field(ge=0, le=2_147_483_647)
+    configured_device_index: CompletionInt32 = Field(ge=0, le=2_147_483_647)
     actual_device: ProvenanceIdentity
     gpu: VisionGpuIdentity | None = None
     mavi_build: ProvenanceIdentity
@@ -343,11 +365,11 @@ class VisionJobComplete(ControlPlaneModel):
     job_id: UUID
     worker_id: WorkerId
     lease_token: LeaseToken
-    attempt_count: int = Field(ge=1, le=2_147_483_647)
-    frames_processed: int = Field(ge=0, le=9_223_372_036_854_775_807)
-    processing_duration_ms: int = Field(ge=0, le=9_223_372_036_854_775_807)
+    attempt_count: CompletionInt32 = Field(ge=1, le=2_147_483_647)
+    frames_processed: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    processing_duration_ms: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
     provenance: VisionRuntimeProvenance
-    tracks: tuple[VisionCompletionTrack, ...]
+    tracks: tuple[VisionCompletionTrack, ...] = Field(max_length=10_000)
 
     @model_validator(mode="after")
     def validate_result_semantics(self) -> "VisionJobComplete":

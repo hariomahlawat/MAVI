@@ -108,7 +108,7 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                File.Move(temporaryPath, destinationPath, overwrite: false);
+                DurableFilePublication.Publish(temporaryPath, destinationPath, parentPath);
             }
             catch (IOException) when (File.Exists(destinationPath))
             {
@@ -148,7 +148,7 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
             FileAccess.Read,
             FileShare.Read,
             bufferSize: 81_920,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
+            FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.WriteThrough);
         var actual = await HashAsync(stream, cancellationToken);
         if (actual.SizeBytes != expectedSizeBytes ||
             !string.Equals(actual.Sha256, expectedSha256, StringComparison.Ordinal))
@@ -185,6 +185,7 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
             destination,
             cancellationToken);
         await destination.FlushAsync(cancellationToken);
+        destination.Flush(flushToDisk: true);
         return result;
     }
 
