@@ -170,7 +170,16 @@ public sealed class ContentApiTests
             StringComparison.Ordinal);
 
         var trajectoryPath = EvidencePath(factory, trajectoryKey);
-        await File.AppendAllBytesAsync(trajectoryPath, new byte[] { 9, 9, 9 });
+        await using (var append = new FileStream(
+            trajectoryPath,
+            FileMode.Append,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 4096,
+            FileOptions.Asynchronous))
+        {
+            await append.WriteAsync(new byte[] { 9, 9, 9 });
+        }
 
         using var mismatched = await client.GetAsync(
             $"/api/artifacts/{track.TrajectoryArtifactId:D}/content");
