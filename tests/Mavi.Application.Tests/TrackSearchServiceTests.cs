@@ -187,18 +187,18 @@ public sealed class TrackSearchServiceTests
         public DateTimeOffset LastSnapshotUtc { get; private set; }
         public TrackCursorPosition? LastCursor { get; private set; }
 
-        public Task<IReadOnlyList<TrackSearchRow>> SearchAsync(
+        public Task<TrackSearchRepositoryPage> SearchAsync(
             TrackSearchQuery query,
-            DateTimeOffset snapshotUtc,
             TrackCursorPosition? cursor,
             int take,
             CancellationToken cancellationToken)
         {
             SearchCalls++;
             LastTake = take;
-            LastSnapshotUtc = snapshotUtc;
+            LastSnapshotUtc = cursor?.SnapshotUtc ?? FixedNow;
             LastCursor = cursor;
-            return Task.FromResult(rows);
+            return Task.FromResult(
+                new TrackSearchRepositoryPage(rows, LastSnapshotUtc));
         }
 
         public Task<TrackDetailRow?> GetDetailAsync(
