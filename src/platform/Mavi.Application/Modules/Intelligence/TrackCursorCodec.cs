@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace Mavi.Application.Modules.Intelligence;
 
-public sealed class TrackCursorCodec
+public static class TrackCursorCodec
 {
     public const int MaximumEncodedLength = 256;
 
