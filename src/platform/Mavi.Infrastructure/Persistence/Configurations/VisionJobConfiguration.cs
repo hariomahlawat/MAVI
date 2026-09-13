@@ -15,7 +15,7 @@ public sealed class VisionJobConfiguration : IEntityTypeConfiguration<VisionJob>
             t.HasCheckConstraint("ck_vision_jobs_lease_token_hash", "lease_token_hash IS NULL OR octet_length(lease_token_hash) = 32");
             t.HasCheckConstraint(
                 "ck_vision_jobs_completion_digest",
-                "completion_digest IS NULL OR completion_digest ~ '^[0-9a-f]{64}$'");
+                "completion_digest IS NULL OR (octet_length(completion_digest) = 64 AND completion_digest ~ '^[0-9a-f]+')");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).HasColumnName("id");

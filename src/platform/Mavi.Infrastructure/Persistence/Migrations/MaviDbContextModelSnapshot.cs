@@ -752,14 +752,7 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_vision_jobs_attempts", "attempt_count >= 0");
 
-                            t.HasCheckConstraint("ck_vision_jobs_completion_digest", "completion_digest IS NULL OR completion_digest ~ '^[0-9a-f]{64}
-                            t.HasCheckConstraint("ck_vision_jobs_lease_token_hash", "lease_token_hash IS NULL OR octet_length(lease_token_hash) = 32");
-
-                            t.HasCheckConstraint("ck_vision_jobs_progress", "progress_percent >= 0 AND progress_percent <= 100");
-                        });
-                });
-
-            ");
+                            t.HasCheckConstraint("ck_vision_jobs_completion_digest", "completion_digest IS NULL OR (octet_length(completion_digest) = 64 AND completion_digest ~ '^[0-9a-f]+')");
 
                             t.HasCheckConstraint("ck_vision_jobs_lease_token_hash", "lease_token_hash IS NULL OR octet_length(lease_token_hash) = 32");
 

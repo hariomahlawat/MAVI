@@ -28,7 +28,7 @@ public sealed class AddVisionResultCompletion : Migration
         migrationBuilder.AddCheckConstraint(
             name: "ck_vision_jobs_completion_digest",
             table: "vision_jobs",
-            sql: "completion_digest IS NULL OR completion_digest ~ '^[0-9a-f]{64}$'");
+            sql: "completion_digest IS NULL OR (octet_length(completion_digest) = 64 AND completion_digest ~ '^[0-9a-f]+')");
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
