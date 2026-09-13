@@ -47,7 +47,7 @@ public static class DependencyInjection
             .Validate(options => !string.IsNullOrWhiteSpace(options.RootPath), "MediaStorage:RootPath is required.")
             .Validate(options => !string.IsNullOrWhiteSpace(options.EvidenceRootPath), "MediaStorage:EvidenceRootPath is required.")
             .Validate(options => StorageRootSafety.AreDisjointAndLinkFree(options.RootPath, options.EvidenceRootPath),
-                "MediaStorage roots must be disjoint and may not traverse symbolic-link/reparse components.")
+                "MediaStorage roots must be physically disjoint and may not traverse symbolic-link/reparse components.")
             .ValidateOnStart();
         services.AddOptions<MediaProcessingOptions>()
             .Bind(configuration.GetSection(MediaProcessingOptions.SectionName))
