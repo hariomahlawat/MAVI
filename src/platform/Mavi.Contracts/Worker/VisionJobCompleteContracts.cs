@@ -32,6 +32,7 @@ public sealed record VisionRuntimeProvenanceContract(
     string? RuntimeVariant,
     string? PlatformLockSha256,
     string? DetectorBackend,
+    [property: JsonConverter(typeof(BoundedDependencyVersionsJsonConverter))]
     IReadOnlyDictionary<string, string>? DependencyVersions,
     string? FfmpegVersion,
     VisionPlatformIdentityContract? Platform,
@@ -54,6 +55,7 @@ public sealed record VisionPlatformIdentityContract(
     string? Processor,
     string? PythonVersion,
     string? PythonImplementation,
+    [property: JsonConverter(typeof(BoundedPythonBuildJsonConverter))]
     IReadOnlyList<string>? PythonBuild,
     string? PythonCompiler);
 
