@@ -1,4 +1,5 @@
 using Mavi.Application.Modules.Intelligence;
+using System.Text.Json;
 using Mavi.Contracts.Worker;
 
 namespace Mavi.Application.Tests;
@@ -21,6 +22,40 @@ public sealed class VisionResultValidatorCanonicalizationTests
     }
 
     [Fact]
+    public void ProvenanceEdgeConformanceCorpusMatchesDotNet()
+    {
+        var vectorsPath = Path.Combine(
+            FindRepositoryRoot(),
+            "contracts/test-vectors/vision-job-complete-v2-conformance.json");
+        using var vectors = JsonDocument.Parse(File.ReadAllText(vectorsPath));
+        var validator = new VisionResultValidator();
+
+        foreach (var vector in vectors.RootElement.GetProperty("provenanceEdgeCases").EnumerateArray())
+        {
+            var name = vector.GetProperty("name").GetString()!;
+            var value = vector.GetProperty("value").GetString()!;
+            var accepted = vector.GetProperty("accepted").GetBoolean();
+
+            var succeeded = true;
+            try
+            {
+                validator.Validate(
+                    JobId,
+                    Request(Provenance() with { ModelId = value }),
+                    10_000);
+            }
+            catch (VisionResultValidationException)
+            {
+                succeeded = false;
+            }
+
+            Assert.True(
+                succeeded == accepted,
+                $"Conformance vector '{name}' expected accepted={accepted} but .NET accepted={succeeded}.");
+        }
+    }
+
+    [Fact]
     public void ProvenanceIdentityBoundsCountUnicodeScalars()
     {
         var validator = new VisionResultValidator();
@@ -38,6 +73,16 @@ public sealed class VisionResultValidatorCanonicalizationTests
                 JobId,
                 Request(Provenance() with { ModelId = tooManyScalars }),
                 10_000));
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null &&
+               !File.Exists(Path.Combine(directory.FullName, "MAVI.sln")))
+            directory = directory.Parent;
+        return directory?.FullName
+            ?? throw new InvalidOperationException("Repository root was not found.");
     }
 
     private static VisionJobCompleteRequest Request(VisionRuntimeProvenanceContract provenance) =>
