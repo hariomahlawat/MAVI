@@ -80,9 +80,9 @@ public static class VideoEndpoints
         if (!result.IsSuccess)
         {
             return Problem(
-                result.Descriptor is null ? 404 : 500,
+                result.IsNotFound ? 404 : 500,
                 result.ErrorCode!,
-                result.Descriptor is null
+                result.IsNotFound
                     ? "Video was not found."
                     : "Video content is unavailable.");
         }
