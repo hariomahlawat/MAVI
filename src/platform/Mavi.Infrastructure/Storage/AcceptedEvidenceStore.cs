@@ -195,8 +195,11 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
             destination,
             maximumBytes,
             cancellationToken);
-        await destination.FlushAsync(cancellationToken);
-        destination.Flush(flushToDisk: true);
+        if (!result.ExceededLimit)
+        {
+            await destination.FlushAsync(cancellationToken);
+            destination.Flush(flushToDisk: true);
+        }
         return result;
     }
 
