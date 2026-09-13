@@ -38,6 +38,8 @@ app.MapHealthChecks("/health/live");
 app.MapCameraEndpoints();
 app.MapVideoEndpoints();
 app.MapVisionJobEndpoints();
+app.MapTrackEndpoints();
+app.MapArtifactEndpoints();
 app.MapGet("/api/system/config", (Microsoft.Extensions.Options.IOptions<LocalizationOptions> options) =>
     Results.Ok(new { displayTimeZoneId = options.Value.DefaultDisplayTimeZoneId }));
 
