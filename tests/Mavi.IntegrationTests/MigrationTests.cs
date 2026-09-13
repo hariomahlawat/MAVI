@@ -177,9 +177,12 @@ public sealed class MigrationTests(PostgresFixture fixture)
             Assert.Equal("character varying", await digest.ExecuteScalarAsync());
 
         await using (var constraint = new NpgsqlCommand(
-            "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_vision_jobs_completion_digest');",
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='ck_vision_jobs_completion_digest';",
             connection))
-            Assert.True((bool)(await constraint.ExecuteScalarAsync() ?? false));
+        {
+            var definition = Assert.IsType<string>(await constraint.ExecuteScalarAsync());
+            Assert.Contains("^[0-9a-f]{64}$", definition, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

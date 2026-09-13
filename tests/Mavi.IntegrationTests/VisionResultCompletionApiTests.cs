@@ -68,6 +68,45 @@ public sealed class VisionResultCompletionApiTests
         Assert.Equal(3, await db.Artifacts.CountAsync());
     }
 
+
+    [Fact]
+    public async Task ExactCompletedReplayRemainsIdempotentAfterVideoIsRequeued()
+    {
+        var clock = new MutableTimeProvider(Now);
+        using var factory = new ApiTestFactory { Clock = clock };
+        await factory.ResetAndMigrateAsync();
+        var videoId = await SeedVideoAsync(factory);
+
+        using var client = factory.CreateClient();
+        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
+        var lease = await LeaseAsync(client, "gpu-sdd-01");
+        var request = await BuildRequestAsync(factory, lease);
+
+        using (var completed = await client.PostAsJsonAsync(
+                   $"/api/vision/jobs/{lease.JobId}/complete",
+                   request))
+            Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+
+        using (var requeued = await client.PostAsync($"/api/videos/{videoId}/process", null))
+            requeued.EnsureSuccessStatusCode();
+
+        using var replay = await client.PostAsJsonAsync(
+            $"/api/vision/jobs/{lease.JobId}/complete",
+            request);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        var completedJob = await db.VisionJobs.SingleAsync(x => x.Id == lease.JobId);
+        var completedRun = await db.ProcessingRuns.SingleAsync(x => x.Id == lease.ProcessingRunId);
+        var video = await db.VideoAssets.SingleAsync(x => x.Id == videoId);
+
+        Assert.Equal(VisionJobStatus.Completed, completedJob.Status);
+        Assert.Equal(ProcessingRunStatus.Completed, completedRun.Status);
+        Assert.Equal(VideoProcessingStatus.Queued, video.ProcessingStatus);
+        Assert.Equal(2, await db.ProcessingRuns.CountAsync(x => x.VideoAssetId == videoId));
+    }
+
     [Fact]
     public async Task ConcurrentExactCompletionSerializesToOneAuthoritativeGraph()
     {

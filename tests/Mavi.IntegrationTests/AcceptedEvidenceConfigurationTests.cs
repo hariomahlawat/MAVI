@@ -74,6 +74,44 @@ public sealed class AcceptedEvidenceConfigurationTests
         }
     }
 
+
+    [Fact]
+    public void LinuxPhysicalIdentityCollapsesBindMountAliases()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var safety = typeof(LocalMediaStore).Assembly.GetType(
+            "Mavi.Infrastructure.Storage.StorageRootSafety");
+        Assert.NotNull(safety);
+        var resolver = safety.GetMethod(
+            "ResolveLinuxPhysicalPath",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(resolver);
+
+        string[] mountInfo =
+        [
+            "24 1 8:1 / / rw,relatime - ext4 /dev/sda1 rw",
+            "42 24 8:1 /srv/mavi/media/accepted /evidence rw,relatime - ext4 /dev/sda1 rw",
+        ];
+
+        var source = Assert.IsType<string>(resolver.Invoke(
+            null,
+            ["/srv/mavi/media/accepted", mountInfo]));
+        var alias = Assert.IsType<string>(resolver.Invoke(
+            null,
+            ["/evidence", mountInfo]));
+        var sourceChild = Assert.IsType<string>(resolver.Invoke(
+            null,
+            ["/srv/mavi/media/accepted/thumbnails", mountInfo]));
+        var aliasChild = Assert.IsType<string>(resolver.Invoke(
+            null,
+            ["/evidence/thumbnails", mountInfo]));
+
+        Assert.Equal(source, alias);
+        Assert.Equal(sourceChild, aliasChild);
+    }
+
     [Fact]
     public void AcceptedEvidenceStoreRejectsLinkedEvidenceRootEvenWithoutOptionsPipeline()
     {
