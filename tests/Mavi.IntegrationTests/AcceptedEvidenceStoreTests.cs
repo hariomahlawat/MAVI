@@ -130,6 +130,30 @@ public sealed class AcceptedEvidenceStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task SourceDisposeFailureOccursBeforeAcceptedPublication()
+    {
+        Directory.CreateDirectory(_mediaRoot);
+        Directory.CreateDirectory(_evidenceRoot);
+        var source = new ThrowingDisposeReadStream([1, 2, 3]);
+        var mediaStore = new ReadOnlyTestMediaStore(source);
+        var sealer = CreateSealer(mediaStore);
+        var sha = Convert.ToHexString(SHA256.HashData([1, 2, 3])).ToLowerInvariant();
+        var acceptedKey =
+            $"evidence/job/attempt-0001/thumbnails/person-000001-{sha}.jpg";
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            sealer.SealAsync(
+                "staging/job/attempt-0001/thumbnails/person-000001.jpg",
+                acceptedKey,
+                3,
+                sha,
+                CancellationToken.None));
+
+        Assert.False(File.Exists(EvidencePath(acceptedKey)));
+        Assert.Empty(FindTemporaryFiles());
+    }
+
+    [Fact]
     public async Task DeclaredArtifactAbovePolicyIsRejectedBeforeSourceOpen()
     {
         Directory.CreateDirectory(_mediaRoot);
@@ -340,4 +364,12 @@ internal sealed class CountingReadStream(byte[] bytes) : MemoryStream(bytes, wri
         BytesRead += count;
         return count;
     }
+}
+
+
+internal sealed class ThrowingDisposeReadStream(byte[] bytes)
+    : MemoryStream(bytes, writable: false)
+{
+    public override ValueTask DisposeAsync() =>
+        ValueTask.FromException(new IOException("Injected source disposal failure."));
 }
