@@ -405,6 +405,90 @@ def test_completion_provenance_edge_corpus_matches_schema_and_python() -> None:
         assert python_valid is vector["accepted"], vector["name"]
 
 
+def _raw_completion_with_tracker_number(field: str, token: str) -> str:
+    payload = _completion_example_payload()
+    raw = json.dumps(payload, separators=(",", ":"))
+    original = payload["provenance"]["trackerParameters"][field]
+    marker = f'"{field}":{json.dumps(original, separators=(",", ":"))}'
+    assert marker in raw
+    return raw.replace(marker, f'"{field}":{token}', 1)
+
+
+@pytest.mark.parametrize(
+    ("token", "accepted"),
+    [
+        ("1e-9", True),
+        ("1e9", True),
+        ("1e-10", False),
+        ("1e10", False),
+        ("1e400", False),
+        ("1e-400", False),
+    ],
+)
+def test_completion_tracker_number_envelope_matches_schema_and_python(
+    token: str,
+    accepted: bool,
+) -> None:
+    schema = json.loads(
+        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text()
+    )
+    validator = _exact_schema_validator(schema)
+
+    for field in ("referenceFrameRate", "lostTrackBufferSeconds"):
+        raw = _raw_completion_with_tracker_number(field, token)
+        parsed = json.loads(raw, parse_float=Decimal)
+        schema_valid = not list(validator.iter_errors(parsed))
+        python_valid = True
+        try:
+            VisionJobComplete.model_validate_json(raw)
+        except ValidationError:
+            python_valid = False
+
+        assert schema_valid is accepted, (field, token)
+        assert python_valid is accepted, (field, token)
+
+
+def test_completion_dependency_version_count_matches_schema_and_python() -> None:
+    payload = _completion_example_payload()
+    payload["provenance"]["dependencyVersions"] = {
+        **{
+            f"dep{index:03d}": "1"
+            for index in range(128)
+        },
+        "trackers": "2.6.0",
+    }
+    schema = json.loads(
+        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text()
+    )
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            instance=payload,
+            schema=schema,
+            format_checker=jsonschema.FormatChecker(),
+        )
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload["tracks"][0].__setitem__("detectionCount", 4),
+        lambda payload: payload["tracks"][0]["representative"].__setitem__(
+            "sourceFrameNumber", 3
+        ),
+    ],
+)
+def test_completion_rejects_analytically_impossible_frame_metadata(mutate) -> None:
+    payload = _completion_example_payload()
+    payload["framesProcessed"] = 3
+    mutate(payload)
+
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))
+
+
 def test_completion_artifact_and_aggregate_evidence_limits_are_enforced() -> None:
     payload = _completion_example_payload()
     track = payload["tracks"][0]
