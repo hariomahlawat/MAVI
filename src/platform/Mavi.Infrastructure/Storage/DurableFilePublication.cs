@@ -8,6 +8,9 @@ internal static class DurableFilePublication
     private const int ErrorFileExists = 80;
     private const int ErrorAlreadyExists = 183;
     private const uint MoveFileWriteThrough = 0x8;
+    private const int LinuxOpenReadOnly = 0;
+    private const int LinuxOpenDirectory = 0x10000;
+    private const int LinuxOpenCloseOnExec = 0x80000;
 
     public static void Publish(string temporaryPath, string destinationPath, string parentPath)
     {
@@ -40,15 +43,39 @@ internal static class DurableFilePublication
 
     private static void FlushDirectory(string path)
     {
-        using var handle = File.OpenHandle(
+        var descriptor = Open(
             path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete);
-        RandomAccess.FlushToDisk(handle);
+            LinuxOpenReadOnly | LinuxOpenDirectory | LinuxOpenCloseOnExec);
+        if (descriptor < 0)
+            throw new IOException(
+                "Unable to open accepted-evidence directory for durable synchronization.",
+                new Win32Exception(Marshal.GetLastPInvokeError()));
+
+        try
+        {
+            if (Fsync(descriptor) != 0)
+                throw new IOException(
+                    "Unable to durably synchronize accepted-evidence directory metadata.",
+                    new Win32Exception(Marshal.GetLastPInvokeError()));
+        }
+        finally
+        {
+            _ = Close(descriptor);
+        }
     }
 
 #pragma warning disable SYSLIB1054
+    [DllImport("libc", EntryPoint = "open", SetLastError = true)]
+    private static extern int Open(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string pathname,
+        int flags);
+
+    [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
+    private static extern int Fsync(int descriptor);
+
+    [DllImport("libc", EntryPoint = "close", SetLastError = true)]
+    private static extern int Close(int descriptor);
+
     [DllImport(
         "kernel32.dll",
         EntryPoint = "MoveFileExW",
