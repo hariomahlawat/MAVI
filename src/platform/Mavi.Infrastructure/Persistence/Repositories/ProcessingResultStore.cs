@@ -64,7 +64,6 @@ public sealed class ProcessingResultStore(
                 !tokenMatches ||
                 !string.Equals(job.CompletionDigest, result.CompletionDigest, StringComparison.Ordinal) ||
                 run.Status != ProcessingRunStatus.Completed ||
-                video.ProcessingStatus != VideoProcessingStatus.Processed ||
                 job.CompletedAtUtc is null)
                 return VisionCompletionResult.Failure("vision_job_completion_conflict");
 
