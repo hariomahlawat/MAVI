@@ -49,10 +49,78 @@ public sealed class ProcessingResultStore(
         if (job is null)
             return VisionCompletionResult.Failure("vision_job_not_found");
 
+        if (!string.Equals(request.SchemaVersion, WorkerContractRules.SchemaVersion, StringComparison.Ordinal) ||
+            request.JobId != jobId ||
+            !string.Equals(request.WorkerId, workerId, StringComparison.Ordinal) ||
+            !string.Equals(request.LeaseToken, leaseToken, StringComparison.Ordinal))
+            return VisionCompletionResult.Failure("vision_result_invalid");
+
+        // Capability/lifecycle checks are deliberately performed immediately after
+        // the row lock. An invalid caller must not hold FOR UPDATE while sorting,
+        // serializing, hashing, or otherwise validating a large completion body.
+        var tokenMatches = job.LeaseTokenHash is { Length: 32 } &&
+                           leaseCapabilities.Matches(leaseToken, job.LeaseTokenHash);
+
+        if (job.Status == VisionJobStatus.Completed)
+        {
+            if (!string.Equals(job.LeaseOwner, workerId, StringComparison.Ordinal) ||
+                !tokenMatches ||
+                request.AttemptCount != job.AttemptCount ||
+                job.CompletedAtUtc is null)
+                return VisionCompletionResult.Failure("vision_job_completion_conflict");
+
+            var completedRun = await db.ProcessingRuns
+                .SingleAsync(x => x.Id == job.ProcessingRunId, cancellationToken);
+            if (completedRun.Status != ProcessingRunStatus.Completed)
+                return VisionCompletionResult.Failure("vision_job_completion_conflict");
+
+            var completedVideo = await db.VideoAssets
+                .SingleAsync(x => x.Id == completedRun.VideoAssetId, cancellationToken);
+
+            ValidatedVisionResult replayResult;
+            try
+            {
+                replayResult = validator.Validate(jobId, request, completedVideo.DurationMs);
+            }
+            catch (VisionResultValidationException)
+            {
+                return VisionCompletionResult.Failure("vision_result_invalid");
+            }
+
+            if (!string.Equals(
+                    job.CompletionDigest,
+                    replayResult.CompletionDigest,
+                    StringComparison.Ordinal))
+                return VisionCompletionResult.Failure("vision_job_completion_conflict");
+
+            await transaction.CommitAsync(cancellationToken);
+            return VisionCompletionResult.Success(
+                completedRun.Id,
+                completedRun.TracksCreated,
+                job.CompletedAtUtc.Value);
+        }
+
+        if (job.Status != VisionJobStatus.Leased)
+            return VisionCompletionResult.Failure("vision_job_not_leased");
+
+        var authorityNowUtc = timeProvider.GetUtcNow();
+        if (!string.Equals(job.LeaseOwner, workerId, StringComparison.Ordinal) ||
+            !tokenMatches ||
+            job.LeaseExpiresAtUtc is null ||
+            job.LeaseExpiresAtUtc <= authorityNowUtc)
+            return VisionCompletionResult.Failure("vision_job_lease_invalid");
+
+        if (request.AttemptCount != job.AttemptCount)
+            return VisionCompletionResult.Failure("vision_job_attempt_mismatch");
+
         var run = await db.ProcessingRuns
             .SingleAsync(x => x.Id == job.ProcessingRunId, cancellationToken);
         var video = await db.VideoAssets
             .SingleAsync(x => x.Id == run.VideoAssetId, cancellationToken);
+
+        if (run.Status != ProcessingRunStatus.Running ||
+            video.ProcessingStatus != VideoProcessingStatus.Processing)
+            return VisionCompletionResult.Failure("vision_job_completion_conflict");
 
         ValidatedVisionResult result;
         try
@@ -63,47 +131,6 @@ public sealed class ProcessingResultStore(
         {
             return VisionCompletionResult.Failure("vision_result_invalid");
         }
-
-        if (!string.Equals(request.SchemaVersion, WorkerContractRules.SchemaVersion, StringComparison.Ordinal) ||
-            !string.Equals(request.WorkerId, workerId, StringComparison.Ordinal) ||
-            !string.Equals(request.LeaseToken, leaseToken, StringComparison.Ordinal))
-            return VisionCompletionResult.Failure("vision_result_invalid");
-
-        var tokenMatches = job.LeaseTokenHash is { Length: 32 } &&
-                           leaseCapabilities.Matches(leaseToken, job.LeaseTokenHash);
-
-        if (job.Status == VisionJobStatus.Completed)
-        {
-            if (job.AttemptCount != result.AttemptCount ||
-                !string.Equals(job.LeaseOwner, workerId, StringComparison.Ordinal) ||
-                !tokenMatches ||
-                !string.Equals(job.CompletionDigest, result.CompletionDigest, StringComparison.Ordinal) ||
-                run.Status != ProcessingRunStatus.Completed ||
-                job.CompletedAtUtc is null)
-                return VisionCompletionResult.Failure("vision_job_completion_conflict");
-
-            await transaction.CommitAsync(cancellationToken);
-            return VisionCompletionResult.Success(
-                run.Id,
-                run.TracksCreated,
-                job.CompletedAtUtc.Value);
-        }
-
-        if (job.Status != VisionJobStatus.Leased)
-            return VisionCompletionResult.Failure("vision_job_not_leased");
-        if (job.AttemptCount != result.AttemptCount)
-            return VisionCompletionResult.Failure("vision_job_attempt_mismatch");
-
-        var authorityNowUtc = timeProvider.GetUtcNow();
-        if (!string.Equals(job.LeaseOwner, workerId, StringComparison.Ordinal) ||
-            !tokenMatches ||
-            job.LeaseExpiresAtUtc is null ||
-            job.LeaseExpiresAtUtc <= authorityNowUtc)
-            return VisionCompletionResult.Failure("vision_job_lease_invalid");
-
-        if (run.Status != ProcessingRunStatus.Running ||
-            video.ProcessingStatus != VideoProcessingStatus.Processing)
-            return VisionCompletionResult.Failure("vision_job_completion_conflict");
 
         var acceptedStorageKeys = new Dictionary<string, string>(StringComparer.Ordinal);
         var newlySealedKeys = new List<string>();
