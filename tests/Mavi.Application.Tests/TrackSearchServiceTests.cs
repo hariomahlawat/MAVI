@@ -9,7 +9,7 @@ public sealed class TrackSearchServiceTests
     public async Task InvalidLimitIsRejectedBeforeRepositoryCall()
     {
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository, new TrackCursorCodec());
+        var service = new TrackSearchService(repository);
         var query = ValidQuery() with { Limit = 101 };
 
         var result = await service.SearchAsync(query, CancellationToken.None);
@@ -23,7 +23,7 @@ public sealed class TrackSearchServiceTests
     public async Task InvalidConfidenceIsRejected()
     {
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository, new TrackCursorCodec());
+        var service = new TrackSearchService(repository);
 
         var result = await service.SearchAsync(
             ValidQuery() with { MinimumConfidence = double.NaN },
@@ -37,7 +37,7 @@ public sealed class TrackSearchServiceTests
     public async Task FromMustPrecedeTo()
     {
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository, new TrackCursorCodec());
+        var service = new TrackSearchService(repository);
         var instant = new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero);
 
         var result = await service.SearchAsync(
@@ -58,8 +58,7 @@ public sealed class TrackSearchServiceTests
             Row(new DateTimeOffset(2026, 9, 13, 10, 0, 1, TimeSpan.Zero)),
         };
         var repository = new FakeTrackSearchRepository(rows);
-        var codec = new TrackCursorCodec();
-        var service = new TrackSearchService(repository, codec);
+        var service = new TrackSearchService(repository);
 
         var result = await service.SearchAsync(
             ValidQuery() with { Limit = 2 },
@@ -69,7 +68,7 @@ public sealed class TrackSearchServiceTests
         Assert.Equal(3, repository.LastTake);
         Assert.Equal(2, result.Page!.Items.Count);
         Assert.NotNull(result.Page.NextCursor);
-        Assert.True(codec.TryDecode(result.Page.NextCursor, out var position));
+        Assert.True(TrackCursorCodec.TryDecode(result.Page.NextCursor, out var position));
         Assert.Equal(rows[1].Id, position!.TrackId);
         Assert.Equal(rows[1].StartTimestampUtc, position.StartTimestampUtc);
     }
@@ -77,15 +76,14 @@ public sealed class TrackSearchServiceTests
     [Fact]
     public async Task ValidCursorIsPassedAsSeekPosition()
     {
-        var codec = new TrackCursorCodec();
         var expected = new TrackCursorPosition(
             new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero),
             Guid.CreateVersion7());
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository, codec);
+        var service = new TrackSearchService(repository);
 
         var result = await service.SearchAsync(
-            ValidQuery() with { Cursor = codec.Encode(expected) },
+            ValidQuery() with { Cursor = TrackCursorCodec.Encode(expected) },
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
