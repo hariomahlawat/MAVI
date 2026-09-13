@@ -163,6 +163,16 @@ public sealed class VisionResultValidatorTests
             {
                 Provenance = request.Provenance! with { RuntimeVariant = " padded " }
             },
+            "underflow-dimension" => request with
+            {
+                Tracks = [track with
+                {
+                    Representative = track.Representative! with
+                    {
+                        BoundingBox = new VisionBoundingBoxContract(.1, .2, 1e-300, .4)
+                    }
+                }]
+            },
             _ => request,
         };
 
