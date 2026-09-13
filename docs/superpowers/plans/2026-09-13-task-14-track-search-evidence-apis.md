@@ -253,6 +253,20 @@ Cursors expire one hour after `snapshotUtc` and snapshots more than one minute i
 
 `snapshotUtc` freezes the completed-run visibility boundary established by the first page. Every continuation page must evaluate both the candidate run and the “is there a later completed run?” anti-exists predicate using `CompletedAtUtc <= snapshotUtc`. This prevents reprocessing completed after page 1 from replacing a video's result set midway through pagination.
 
+### Commit-visibility barrier
+
+Application completion timestamps alone are not a sufficient visibility watermark because a completion transaction can assign `CompletedAtUtc` before its final PostgreSQL commit.
+
+Task 14 therefore shares one PostgreSQL transaction-level advisory-lock protocol with Task 13 completion:
+
+- an active processing completion takes the **shared** transaction advisory lock immediately before sampling `CompletedAtUtc`, and holds it through the final save and transaction commit;
+- a first-page Track search starts a transaction, takes the **exclusive** counterpart, then samples `snapshotUtc` and executes the first-page query while holding that lock;
+- continuation pages use the issued `snapshotUtc` and do not reacquire the exclusive barrier.
+
+This guarantees that any completion whose timestamp can compare `<= snapshotUtc` has already committed and was visible to the first-page query. A completion that starts the visibility transition after first-page search acquires the exclusive barrier cannot sample its completion timestamp until that search transaction releases the barrier.
+
+The barrier is an infrastructure concurrency protocol; direct data-repair paths that create completed ProcessingRuns must preserve the same invariant.
+
 Maximum encoded cursor length shall be explicit (maximum 512 encoded characters).
 
 ### 6.3 Seek predicate
@@ -654,6 +668,7 @@ Mapping:
 - malformed search/cursor: 400;
 - unknown/non-authoritative resource: 404;
 - authoritative DB row whose expected immutable file is absent, unsafe or length-mismatched: 500 with the corresponding `*_content_unavailable` code;
+- linked/reparse parent or leaf detection and low-level opened-handle identity failures are normalized by storage infrastructure to I/O-family safety failures so they cannot bypass the stable content error contract;
 - existing VideoAsset whose SourceArtifact relationship is missing, wrong-type or otherwise structurally invalid: 500 `video_content_unavailable`, not 404.
 
 Do not convert a platform storage-integrity incident into 404; that would hide operational corruption.
@@ -791,7 +806,7 @@ Before the first Codex review, perform an internal read-only audit of the comple
 |---|---|
 | Search scope | default results contain only latest completed intelligence per video |
 | Historical integrity | old completed Tracks remain addressable by Track ID |
-| Pagination | concurrent newer inserts or later reprocessing cannot duplicate/skip/replace the snapshotted continuation set |
+| Pagination | concurrent newer inserts, uncommitted completion transactions, or later reprocessing cannot duplicate/skip/replace the snapshotted continuation set |
 | Time | filters use UTC interval overlap, not local-time guesswork |
 | Contracts | no storage key/path escapes API DTOs |
 | DB authority | filesystem existence alone never authorizes content |
