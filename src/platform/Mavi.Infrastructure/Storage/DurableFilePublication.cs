@@ -18,19 +18,30 @@ internal static class DurableFilePublication
     private const int LinuxOpenDirectory = 0x10000;
     private const int LinuxOpenCloseOnExec = 0x80000;
 
-    public static void EnsureDirectoryHierarchy(string targetPath)
+    public static void EnsureDirectoryHierarchy(string durabilityRootPath, string targetPath)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(durabilityRootPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPath);
+
+        var durabilityRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(durabilityRootPath));
+        var target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(targetPath));
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var rootPrefix = durabilityRoot + Path.DirectorySeparatorChar;
+        if (!string.Equals(target, durabilityRoot, comparison) &&
+            !target.StartsWith(rootPrefix, comparison))
+            throw new ArgumentException("Evidence directory target must remain beneath the durability root.", nameof(targetPath));
 
         if (OperatingSystem.IsWindows())
         {
-            Directory.CreateDirectory(targetPath);
+            Directory.CreateDirectory(target);
             return;
         }
 
         if (OperatingSystem.IsLinux())
         {
-            EnsureLinuxDirectoryHierarchy(targetPath);
+            EnsureLinuxDirectoryHierarchy(durabilityRoot, target);
             return;
         }
 
@@ -115,8 +126,21 @@ internal static class DurableFilePublication
                 throw;
             }
 
-            File.Delete(temporaryPath);
-            FlushDirectory(parentPath);
+            // The accepted destination is already durable at this point. Removing
+            // the temporary hard-link name is housekeeping and must not turn a
+            // successful publication into an ownership-ambiguous failure.
+            try
+            {
+                File.Delete(temporaryPath);
+                FlushDirectory(parentPath);
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
+            {
+                // A later maintenance sweep may remove a leftover hidden temporary
+                // name. The accepted destination remains the authoritative object.
+            }
+
             return DurablePublicationOutcome.PublishedNew;
         }
 
@@ -124,33 +148,37 @@ internal static class DurableFilePublication
             "Durable accepted-evidence publication is supported only on Windows and Linux.");
     }
 
-    private static void EnsureLinuxDirectoryHierarchy(string targetPath)
+    private static void EnsureLinuxDirectoryHierarchy(
+        string durabilityRoot,
+        string target)
     {
-        var target = Path.GetFullPath(targetPath);
-        var missing = new Stack<string>();
+        Directory.CreateDirectory(target);
+
+        // Visibility is not proof of durability. A previous attempt may have
+        // created a directory and then failed while synchronizing its parent
+        // entry. Re-fsync the complete configured evidence-root chain on every
+        // attempt so retries repair that state before publication can commit.
+        var chain = new Stack<string>();
         var current = target;
-
-        while (!Directory.Exists(current))
+        while (true)
         {
-            missing.Push(current);
-            var parent = Path.GetDirectoryName(current);
-            if (string.IsNullOrEmpty(parent) ||
-                string.Equals(parent, current, StringComparison.Ordinal))
-            {
-                throw new DirectoryNotFoundException(
-                    $"Unable to resolve an existing ancestor for evidence directory: {targetPath}");
-            }
+            chain.Push(current);
+            if (string.Equals(current, durabilityRoot, StringComparison.Ordinal))
+                break;
 
-            current = parent;
+            current = Path.GetDirectoryName(current)
+                ?? throw new DirectoryNotFoundException(
+                    $"Evidence directory escaped its durability root: {target}");
         }
 
-        while (missing.Count > 0)
-        {
-            var directory = missing.Pop();
-            Directory.CreateDirectory(directory);
+        var rootParent = Path.GetDirectoryName(durabilityRoot)
+            ?? throw new DirectoryNotFoundException(
+                $"Evidence durability root has no parent: {durabilityRoot}");
+        FlushDirectory(rootParent);
 
-            // Persist both the new directory inode and the parent entry that links
-            // it into the namespace before any authoritative DB row can reference it.
+        while (chain.Count > 0)
+        {
+            var directory = chain.Pop();
             FlushDirectory(directory);
             var parent = Path.GetDirectoryName(directory)
                 ?? throw new DirectoryNotFoundException(
