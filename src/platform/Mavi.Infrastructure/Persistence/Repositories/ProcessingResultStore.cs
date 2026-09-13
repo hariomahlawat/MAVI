@@ -7,6 +7,7 @@ using Mavi.Domain.Intelligence;
 using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Mavi.Infrastructure.Persistence.Repositories;
 
