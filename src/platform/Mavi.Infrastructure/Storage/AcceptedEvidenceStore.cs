@@ -98,11 +98,16 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
 
         try
         {
-            var copied = await CopyAndHashAsync(
-                source,
-                temporaryPath,
-                expectedSizeBytes,
-                cancellationToken);
+            (long SizeBytes, string Sha256, bool ExceededLimit) copied;
+            await using (source)
+            {
+                copied = await CopyAndHashAsync(
+                    source,
+                    temporaryPath,
+                    expectedSizeBytes,
+                    cancellationToken);
+            }
+
             if (copied.ExceededLimit ||
                 copied.SizeBytes != expectedSizeBytes ||
                 !string.Equals(copied.Sha256, expectedSha256, StringComparison.Ordinal))
@@ -113,6 +118,9 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
                     Sha256: copied.Sha256);
             }
 
+            // All source-side operations, including disposal, are complete before
+            // the create-once accepted destination is published. No source cleanup
+            // failure can therefore obscure ownership of a newly accepted object.
             cancellationToken.ThrowIfCancellationRequested();
             var publication = DurableFilePublication.Publish(
                 temporaryPath,
@@ -138,7 +146,6 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         }
         finally
         {
-            await source.DisposeAsync();
             TryDeleteTemporary(temporaryPath);
         }
     }
