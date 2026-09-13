@@ -92,6 +92,52 @@ public sealed class TrackSearchApiTests
     }
 
     [Fact]
+    public async Task EqualCompletionTimestampsUseRunIdAsDeterministicTieBreaker()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        var video = await Task14TestData.SeedBaseVideoAsync(factory);
+        var completedAt = new DateTimeOffset(2026, 9, 13, 8, 0, 0, TimeSpan.Zero);
+        var first = await Task14TestData.AddCompletedTrackAsync(
+            factory, video, completedAt, 1_000);
+        var second = await Task14TestData.AddCompletedTrackAsync(
+            factory, video, completedAt, 5_000);
+
+        using var client = factory.CreateClient();
+        var response = await client.GetFromJsonAsync<TrackSearchResponse>("/api/tracks");
+
+        Assert.NotNull(response);
+        var item = Assert.Single(response.Items);
+        Assert.Equal(second.ProcessingRunId, item.ProcessingRunId);
+        Assert.Equal(second.TrackId, item.Id);
+        Assert.NotEqual(first.TrackId, item.Id);
+    }
+
+    [Fact]
+    public async Task ExplicitFailedRunReturnsNoTracks()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        var video = await Task14TestData.SeedBaseVideoAsync(factory);
+        _ = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            video,
+            new DateTimeOffset(2026, 9, 13, 8, 0, 0, TimeSpan.Zero),
+            1_000);
+        var failedRunId = await Task14TestData.AddFailedRunAsync(
+            factory,
+            video,
+            new DateTimeOffset(2026, 9, 13, 9, 0, 0, TimeSpan.Zero));
+
+        using var client = factory.CreateClient();
+        var response = await client.GetFromJsonAsync<TrackSearchResponse>(
+            $"/api/tracks?processingRunId={failedRunId:D}");
+
+        Assert.NotNull(response);
+        Assert.Empty(response.Items);
+    }
+
+    [Fact]
     public async Task TimeFilterUsesIntervalOverlap()
     {
         using var factory = new ApiTestFactory();
@@ -275,10 +321,10 @@ public sealed class TrackSearchApiTests
             replacementRun.Id,
             video.VideoId,
             localTrackNumber: 1,
-            ObjectClass.Person,
+            objectClass: ObjectClass.Person,
             startOffsetMs: 5_000,
             endOffsetMs: 7_000,
-            video.RecordingStartUtc,
+            recordingStartUtc: video.RecordingStartUtc,
             detectionCount: 8,
             meanConfidence: 0.9,
             maxConfidence: 0.95,
@@ -369,6 +415,7 @@ public sealed class TrackSearchApiTests
     [InlineData("/api/tracks?fromUtc=2026-09-13T10:00:00")]
     [InlineData("/api/tracks?objectClass=0")]
     [InlineData("/api/tracks?unknownFilter=value")]
+    [InlineData("/api/tracks?limit=1&limit=2")]
     public async Task InvalidSearchReturnsStableError(string path)
     {
         using var factory = new ApiTestFactory();
