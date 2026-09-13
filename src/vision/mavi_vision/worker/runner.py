@@ -14,6 +14,7 @@ from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.process_video import VideoProcessingError
 from mavi_vision.runtime.errors import ProcessingDependencyError
 from mavi_vision.runtime.execution_lane import ProcessExecutor
+from mavi_vision.runtime.provenance import RuntimeProvenance
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import MediaStoreError
 from mavi_vision.worker.client import WorkerApiError
@@ -52,6 +53,14 @@ class WorkerApi(Protocol):
         failure_code: str,
         failure_message: str | None = None,
     ) -> None: ...
+
+    async def complete(
+        self,
+        lease: VisionJobLease,
+        result: VisionProcessingResult,
+        processing_duration_ms: int,
+        provenance: RuntimeProvenance,
+    ) -> object: ...
 
 
 class MediaStore(Protocol):
@@ -95,6 +104,8 @@ class WorkerRunner:
         watchdog_poll_seconds: float = 1.0,
         fatal_terminator: Callable[[int], NoReturn] = os._exit,
         monotonic_clock: Callable[[], float] = time.monotonic,
+        runtime_provenance_provider: Callable[[], RuntimeProvenance | None] | None = None,
+        duration_clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         if heartbeat_interval_seconds <= 0:
             raise ValueError("heartbeat_interval_seconds must be positive")
@@ -117,6 +128,8 @@ class WorkerRunner:
         self._watchdog_poll_seconds = watchdog_poll_seconds
         self._fatal_terminator = fatal_terminator
         self._monotonic_clock = monotonic_clock
+        self._runtime_provenance_provider = runtime_provenance_provider
+        self._duration_clock = duration_clock
         self._fatal_termination_active = False
 
     @property
@@ -158,7 +171,13 @@ class WorkerRunner:
             return True
 
         try:
-            await self._process_with_lease_heartbeats(
+            provenance_snapshot = (
+                self._runtime_provenance_provider()
+                if self._runtime_provenance_provider is not None
+                else None
+            )
+            processing_started = self._duration_clock()
+            result = await self._process_with_lease_heartbeats(
                 lease,
                 source_path,
                 heartbeat,
@@ -217,10 +236,21 @@ class WorkerRunner:
             )
             return True
 
-        await self._api_client.fail(
+        if provenance_snapshot is None:
+            await self._best_effort_fail(
+                lease,
+                "vision_runtime_provenance_unavailable",
+                "Vision runtime provenance is unavailable.",
+            )
+            return True
+
+        elapsed_seconds = max(0.0, self._duration_clock() - processing_started)
+        processing_duration_ms = int(round(elapsed_seconds * 1000.0))
+        await self._api_client.complete(
             lease,
-            "task9_result_submission_not_implemented",
-            "Task 9 result submission is not implemented.",
+            result,
+            processing_duration_ms,
+            provenance_snapshot,
         )
         return True
 
