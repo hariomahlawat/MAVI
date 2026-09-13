@@ -157,6 +157,32 @@ public sealed class MigrationTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task VisionResultCompletionMigrationAddsProvenanceAndDigestGuardrail()
+    {
+        await fixture.ResetDatabaseAsync();
+        await using var db = fixture.CreateDbContext();
+        await db.Database.MigrateAsync();
+
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+
+        await using (var provenance = new NpgsqlCommand(
+            "SELECT data_type FROM information_schema.columns WHERE table_name='processing_runs' AND column_name='runtime_provenance_json';",
+            connection))
+            Assert.Equal("jsonb", await provenance.ExecuteScalarAsync());
+
+        await using (var digest = new NpgsqlCommand(
+            "SELECT data_type FROM information_schema.columns WHERE table_name='vision_jobs' AND column_name='completion_digest';",
+            connection))
+            Assert.Equal("character varying", await digest.ExecuteScalarAsync());
+
+        await using (var constraint = new NpgsqlCommand(
+            "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_vision_jobs_completion_digest');",
+            connection))
+            Assert.True((bool)(await constraint.ExecuteScalarAsync() ?? false));
+    }
+
+    [Fact]
     public async Task HardenedLeaseMigrationCreatesHashConstraintAndExpiryIndex()
     {
         await fixture.ResetDatabaseAsync();

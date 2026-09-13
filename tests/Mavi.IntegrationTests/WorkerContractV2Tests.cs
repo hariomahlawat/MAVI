@@ -27,6 +27,22 @@ public sealed class WorkerContractV2Tests
         Assert.True(JsonElement.DeepEquals(expected.RootElement, actual.RootElement));
     }
 
+    [Fact]
+    public void CanonicalCompletionExampleRoundTripsThroughPublicContract()
+    {
+        var path = Path.Combine(FindRepositoryRoot(), "contracts/examples/vision-job-complete-v2.example.json");
+        using var expected = JsonDocument.Parse(File.ReadAllText(path));
+        var contract = JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+            expected.RootElement.GetRawText(),
+            JsonOptions())!;
+        using var actual = JsonDocument.Parse(JsonSerializer.Serialize(contract, JsonOptions()));
+
+        Assert.Equal("2.0", contract.SchemaVersion);
+        Assert.Equal("gpu-sdd-01", contract.WorkerId);
+        Assert.Single(contract.Tracks!);
+        Assert.True(JsonElement.DeepEquals(expected.RootElement, actual.RootElement));
+    }
+
     [Theory]
     [InlineData("source/camera/2026/09/09/video.mp4", true)]
     [InlineData("/source/video.mp4", false)]

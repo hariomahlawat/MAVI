@@ -56,7 +56,7 @@ public sealed class VisionResultValidationException(string reasonCode)
 
 public sealed class VisionResultValidator
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
     public ValidatedVisionResult Validate(Guid routeJobId, VisionJobCompleteRequest request, long videoDurationMs)
     {
@@ -158,7 +158,7 @@ public sealed class VisionResultValidator
 
         tracks.Sort((left, right) => StringComparer.Ordinal.Compare(left.TrackId, right.TrackId));
 
-        var runtimeJson = JsonSerializer.Serialize(request.Provenance, JsonOptions);
+        var runtimeJson = JsonSerializer.Serialize(request.Provenance, _jsonOptions);
         var digest = ComputeDigest(
             routeJobId,
             request.AttemptCount.Value,

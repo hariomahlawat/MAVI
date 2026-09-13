@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from mavi_vision.common.control_plane import (
+    VisionJobComplete,
     VisionJobFail,
     VisionJobHeartbeat,
     VisionJobHeartbeatResponse,
@@ -200,3 +201,25 @@ def test_failure_message_is_optional_and_nullable(include_member: bool, failure_
     if include_member:
         payload["failureMessage"] = failure_message
     assert VisionJobFail.model_validate_json(json.dumps(payload)).failure_message == failure_message
+
+
+def test_completion_example_is_accepted_by_canonical_python_model() -> None:
+    path = ROOT / "contracts/examples/vision-job-complete-v2.example.json"
+    model = VisionJobComplete.model_validate_json(path.read_text())
+
+    assert model.schema_version == "2.0"
+    assert model.worker_id == "gpu-sdd-01"
+    assert len(model.tracks) == 1
+    assert model.tracks[0].detection_count == 3
+    assert model.tracks[0].mean_confidence == 0.9
+    assert model.provenance.input_colour_space == "RGB"
+
+
+def test_completion_model_rejects_unknown_members() -> None:
+    payload = json.loads(
+        (ROOT / "contracts/examples/vision-job-complete-v2.example.json").read_text()
+    )
+    payload["unexpected"] = True
+
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))

@@ -370,6 +370,7 @@ def test_run_worker_composes_ready_processor_runner_and_single_owner_shutdown(
             == supervisor.report_watchdog_expiry
         )
         assert runner_kwargs["watchdog_grace_seconds"] == settings.watchdog_grace_seconds
+        assert callable(runner_kwargs["runtime_provenance_provider"])
 
         assert events[-3:] == ["supervisor-close", "lane-close", "client-close"]
         assert supervisor.close_calls == 1
