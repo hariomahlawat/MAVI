@@ -1489,7 +1489,25 @@ git commit -m "feat: add rtmdet and bytetrack adapters"
 
 ---
 
-## Task 11: Validate and Atomically Persist Worker Results
+## Phase-1 task-number re-baseline (13 September 2026)
+
+The original sections below were written before the production-runtime hardening sequence was expanded. Actual implementation consumed Task 11 for runtime supervision/production-worker composition and Task 12 for reproducible offline runtime bundles. Both are complete and merged.
+
+The authoritative remaining sequence is therefore:
+
+- **Task 13:** Validate and atomically persist worker results.
+- **Task 14:** Add Track Search and Evidence Content APIs.
+- **Task 15:** Add React Application Foundation, Cameras, Import and Processing UI.
+- **Task 16:** Add React Visual Search and Evidence Review.
+- **Task 17:** End-to-End PoC hardening, remaining qualification, ground truth and offline readiness.
+
+See `docs/superpowers/plans/2026-09-13-phase1-roadmap-rebaseline.md` for the rationale and `docs/superpowers/plans/2026-09-13-task-13-vision-result-persistence.md` for the current Task-13 implementation plan.
+
+The section content below is retained but renumbered accordingly.
+
+---
+
+## Task 13: Validate and Atomically Persist Worker Results
 
 **Files:**
 - Create: `src/platform/Mavi.Application/Modules/Intelligence/VisionResultValidator.cs`
@@ -1637,7 +1655,7 @@ git commit -m "feat: persist validated visual intelligence results"
 
 ---
 
-## Task 12: Add Track Search and Evidence Content APIs
+## Task 14: Add Track Search and Evidence Content APIs
 
 **Files:**
 - Create: `src/platform/Mavi.Application/Modules/Intelligence/ITrackSearchRepository.cs`
@@ -1713,7 +1731,7 @@ git commit -m "feat: add track search and evidence streaming"
 
 ---
 
-## Task 13: Add React Application Foundation, Cameras, Import and Processing UI
+## Task 15: Add React Application Foundation, Cameras, Import and Processing UI
 
 **Files:**
 - Modify: `src/web/mavi-web/package.json`
@@ -1797,7 +1815,7 @@ git commit -m "feat: add camera import and processing ui"
 
 ---
 
-## Task 14: Add React Visual Search and Evidence Review
+## Task 16: Add React Visual Search and Evidence Review
 
 **Files:**
 - Create: `src/web/mavi-web/src/api/tracks.ts`
@@ -1808,7 +1826,7 @@ git commit -m "feat: add camera import and processing ui"
 - Create: `src/web/mavi-web/src/features/video-review/VideoReviewPage.test.tsx`
 
 **Interfaces:**
-- Consumes: Task-12 Track/evidence APIs.
+- Consumes: Task-14 Track/evidence APIs.
 
 - [ ] **Step 1: Write failing Visual Search test**
 
@@ -1857,7 +1875,7 @@ git commit -m "feat: add visual track search and evidence review"
 
 ---
 
-## Task 15: End-to-End PoC Hardening, Ground Truth and Offline Readiness
+## Task 17: End-to-End PoC Hardening, Ground Truth and Offline Readiness
 
 **Files:**
 - Create: `sample-data/ground-truth/phase1-example.json`
@@ -1988,9 +2006,9 @@ Do not execute all tasks without review. Recommended agentic checkpoints:
 2. **After Task 6:** manually prove managed import and evidence ownership.
 3. **After Task 8:** prove .NET↔Python job orchestration without AI.
 4. **After Task 10:** review detector/tracker runtime, license provenance and model manifest.
-5. **After Task 11:** inspect atomic intelligence persistence before exposing search.
-6. **After Task 14:** conduct operator-flow review of Import → Processing → Search → Review.
-7. **After Task 15:** formally decide whether Phase 1 is accepted before starting Phase 2 embeddings/entity memory.
+5. **After Task 13:** inspect atomic intelligence persistence before exposing search.
+6. **After Task 16:** conduct operator-flow review of Import → Processing → Search → Review.
+7. **After Task 17:** formally decide whether Phase 1 is accepted before starting Phase 2 embeddings/entity memory.
 
 # Final Phase-1 Acceptance Command Set
 
