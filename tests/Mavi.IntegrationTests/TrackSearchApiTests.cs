@@ -196,6 +196,46 @@ public sealed class TrackSearchApiTests
     }
 
     [Fact]
+    public async Task CursorPaginationUsesTrackIdAsDeterministicTieBreaker()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+
+        var start = new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero);
+        var firstVideo = await Task14TestData.SeedBaseVideoAsync(factory, "CAM-TIE-A", start);
+        var secondVideo = await Task14TestData.SeedBaseVideoAsync(factory, "CAM-TIE-B", start);
+
+        var firstTrack = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            firstVideo,
+            new DateTimeOffset(2026, 9, 13, 11, 0, 0, TimeSpan.Zero),
+            5_000);
+        var secondTrack = await Task14TestData.AddCompletedTrackAsync(
+            factory,
+            secondVideo,
+            new DateTimeOffset(2026, 9, 13, 11, 0, 0, TimeSpan.Zero),
+            5_000);
+
+        Assert.Equal(firstTrack.StartTimestampUtc, secondTrack.StartTimestampUtc);
+
+        using var client = factory.CreateClient();
+        var page1 = await client.GetFromJsonAsync<TrackSearchResponse>("/api/tracks?limit=1");
+        Assert.NotNull(page1);
+        var firstItem = Assert.Single(page1.Items);
+        Assert.NotNull(page1.NextCursor);
+
+        var page2 = await client.GetFromJsonAsync<TrackSearchResponse>(
+            $"/api/tracks?limit=1&cursor={Uri.EscapeDataString(page1.NextCursor!)}");
+        Assert.NotNull(page2);
+        var secondItem = Assert.Single(page2.Items);
+
+        Assert.NotEqual(firstItem.Id, secondItem.Id);
+        Assert.Equal(
+            new[] { firstTrack.TrackId, secondTrack.TrackId }.OrderBy(x => x).ToArray(),
+            new[] { firstItem.Id, secondItem.Id }.OrderBy(x => x).ToArray());
+    }
+
+    [Fact]
     public async Task CursorSnapshotPreventsReprocessingFromReplacingContinuationSet()
     {
         var clock = new AdvancingTimeProvider(
