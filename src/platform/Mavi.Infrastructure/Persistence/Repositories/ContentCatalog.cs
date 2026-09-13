@@ -41,7 +41,8 @@ public sealed class ContentCatalog(MaviDbContext db) : IContentCatalog
                 on track.ProcessingRunId equals run.Id
             where artifact.Id == artifactId &&
                   artifact.ArtifactType == ArtifactType.Thumbnail &&
-                  run.Status == ProcessingRunStatus.Completed
+                  run.Status == ProcessingRunStatus.Completed &&
+                  run.CompletedAtUtc != null
             select new ContentDescriptor(
                 artifact.Id,
                 artifact.ArtifactType,
@@ -59,7 +60,8 @@ public sealed class ContentCatalog(MaviDbContext db) : IContentCatalog
                 on track.ProcessingRunId equals run.Id
             where artifact.Id == artifactId &&
                   artifact.ArtifactType == ArtifactType.TrackTrajectory &&
-                  run.Status == ProcessingRunStatus.Completed
+                  run.Status == ProcessingRunStatus.Completed &&
+                  run.CompletedAtUtc != null
             select new ContentDescriptor(
                 artifact.Id,
                 artifact.ArtifactType,
