@@ -192,6 +192,8 @@ public sealed class BoundedVisionTrackListJsonConverter
             writer.WriteNullValue();
             return;
         }
+        if (value.Count > WorkerContractRules.MaximumCompletionTracks)
+            throw new JsonException("Completion track limit exceeded.");
 
         writer.WriteStartArray();
         foreach (var item in value)
@@ -247,6 +249,8 @@ public sealed class BoundedDependencyVersionsJsonConverter
             writer.WriteNullValue();
             return;
         }
+        if (value.Count > WorkerContractRules.MaximumCompletionDependencyVersions)
+            throw new JsonException("Completion dependency-version limit exceeded.");
 
         writer.WriteStartObject();
         foreach (var pair in value)
@@ -293,6 +297,8 @@ public sealed class BoundedPythonBuildJsonConverter
             writer.WriteNullValue();
             return;
         }
+        if (value.Count != 2)
+            throw new JsonException("pythonBuild must contain exactly two strings.");
 
         writer.WriteStartArray();
         foreach (var item in value)
