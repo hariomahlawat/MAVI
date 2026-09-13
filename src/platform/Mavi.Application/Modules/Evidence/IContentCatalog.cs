@@ -2,7 +2,7 @@ namespace Mavi.Application.Modules.Evidence;
 
 public interface IContentCatalog
 {
-    Task<ContentDescriptor?> GetVideoContentAsync(
+    Task<VideoContentLookup> GetVideoContentAsync(
         Guid videoAssetId,
         CancellationToken cancellationToken);
 
