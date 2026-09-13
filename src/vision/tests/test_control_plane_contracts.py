@@ -218,6 +218,23 @@ def test_completion_example_is_accepted_by_canonical_python_model() -> None:
     assert model.provenance.input_colour_space == "RGB"
 
 
+def test_completion_track_id_is_lowercase_filesystem_canonical() -> None:
+    payload = _completion_example_payload()
+    payload["tracks"][0]["trackId"] = "Person-000001"
+
+    schema = json.loads(
+        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text()
+    )
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            instance=payload,
+            schema=schema,
+            format_checker=jsonschema.FormatChecker(),
+        )
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))
+
+
 def test_completion_model_rejects_unknown_members() -> None:
     payload = json.loads(
         (ROOT / "contracts/examples/vision-job-complete-v2.example.json").read_text()
