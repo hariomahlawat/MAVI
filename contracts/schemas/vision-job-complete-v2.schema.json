@@ -36,15 +36,18 @@
     },
     "attemptCount": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "maximum": 2147483647
     },
     "framesProcessed": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "maximum": 9223372036854775807
     },
     "processingDurationMs": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "maximum": 9223372036854775807
     },
     "provenance": {
       "$ref": "#/$defs/provenance"
@@ -88,7 +91,8 @@
         },
         "sizeBytes": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "sha256": {
           "$ref": "#/$defs/sha256"
@@ -141,11 +145,13 @@
       "properties": {
         "offsetMs": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "sourceFrameNumber": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "confidence": {
           "type": "number",
@@ -195,15 +201,18 @@
         },
         "startOffsetMs": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "endOffsetMs": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "detectionCount": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 2147483647
         },
         "meanConfidence": {
           "type": "number",
@@ -296,11 +305,13 @@
         },
         "index": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 2147483647
         },
         "vramBytes": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 9223372036854775807
         },
         "driverVersion": {
           "$ref": "#/$defs/detailText"
@@ -343,7 +354,8 @@
         },
         "minimumConsecutiveFrames": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 2147483647
         },
         "lostTrackBufferSeconds": {
           "type": "number",
@@ -486,7 +498,8 @@
         },
         "configuredDeviceIndex": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 2147483647
         },
         "actualDevice": {
           "$ref": "#/$defs/identityText"
