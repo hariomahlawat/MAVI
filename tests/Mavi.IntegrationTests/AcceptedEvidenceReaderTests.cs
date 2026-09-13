@@ -42,6 +42,7 @@ public sealed class AcceptedEvidenceReaderTests : IDisposable
     [InlineData(@"evidence\outside.jpg")]
     [InlineData("C:/evidence/outside.jpg")]
     [InlineData("staging/job/file.jpg")]
+    [InlineData("evidence//file.jpg")]
     public async Task RejectsNonCanonicalEvidenceKeys(string key)
     {
         var reader = CreateReader();
@@ -121,7 +122,7 @@ public sealed class AcceptedEvidenceReaderTests : IDisposable
         }
 
         var reader = CreateReader();
-        await Assert.ThrowsAnyAsync<Exception>(
+        await Assert.ThrowsAsync<InvalidOperationException>(
             () => reader.OpenReadAsync("evidence/job/file.jpg", CancellationToken.None));
     }
 
