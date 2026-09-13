@@ -1,5 +1,9 @@
 using System.Buffers;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 using Mavi.Application.Abstractions.Storage;
 using Microsoft.Extensions.Options;
 
@@ -104,14 +108,35 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
     public Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        Stream stream = new FileStream(
-            ResolveLocalPath(storageKey),
+        var resolvedPath = ResolveLocalPath(storageKey);
+        try
+        {
+            StorageRootSafety.EnsureNoLinkedExistingComponents(Path.GetDirectoryName(resolvedPath)!);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new UnsafeMediaPathException(
+                "Managed media reads may not traverse symbolic-link or reparse directories.",
+                exception);
+        }
+
+        var stream = new FileStream(
+            resolvedPath,
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read,
             bufferSize: 81_920,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
-        return Task.FromResult(stream);
+        try
+        {
+            EnsureOpenedLeafMatchesExpectedPath(stream, resolvedPath);
+            return Task.FromResult<Stream>(stream);
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
     }
 
     public Task<bool> ExistsAsync(string storageKey, CancellationToken cancellationToken)
@@ -171,5 +196,101 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
 
             current = current.Parent!;
         }
+    }
+
+    private static void EnsureOpenedLeafMatchesExpectedPath(FileStream stream, string expectedPath)
+    {
+        var actualPath = GetOpenedPath(stream);
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (!string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(actualPath)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(expectedPath)),
+                comparison))
+        {
+            throw new UnsafeMediaPathException(
+                "Managed media leaf resolves through a symbolic link or reparse point.");
+        }
+    }
+
+    private static string GetOpenedPath(FileStream stream)
+    {
+        if (OperatingSystem.IsWindows())
+            return GetWindowsOpenedPath(stream.SafeFileHandle);
+
+        if (OperatingSystem.IsLinux())
+        {
+            var descriptor = stream.SafeFileHandle.DangerousGetHandle().ToInt64();
+            var descriptorPath = $"/proc/self/fd/{descriptor}";
+            var target = File.ResolveLinkTarget(descriptorPath, returnFinalTarget: true)
+                ?? throw new UnsafeMediaPathException(
+                    "Unable to resolve the opened managed-media file identity.");
+            return target.FullName;
+        }
+
+        throw new PlatformNotSupportedException(
+            "Secure managed-media reads are supported only on Windows and Linux.");
+    }
+
+    private static string GetWindowsOpenedPath(SafeFileHandle handle)
+    {
+        var buffer = new StringBuilder(512);
+        var length = GetFinalPathNameByHandle(
+            handle,
+            buffer,
+            checked((uint)buffer.Capacity),
+            0);
+        if (length == 0)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+
+        if (length >= buffer.Capacity)
+        {
+            buffer.EnsureCapacity(checked((int)length + 1));
+            length = GetFinalPathNameByHandle(
+                handle,
+                buffer,
+                checked((uint)buffer.Capacity),
+                0);
+            if (length == 0 || length >= buffer.Capacity)
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+
+        var path = buffer.ToString();
+        if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+            path = @"\\" + path[8..];
+        else if (path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+            path = path[4..];
+
+        return Path.GetFullPath(path);
+    }
+
+#pragma warning disable SYSLIB1054 // One bounded Win32 handle query; LibraryImport would require unsafe generation for this project.
+    [DllImport(
+        "kernel32.dll",
+        EntryPoint = "GetFinalPathNameByHandleW",
+        CharSet = CharSet.Unicode,
+        SetLastError = true,
+        ExactSpelling = true)]
+    private static extern uint GetFinalPathNameByHandle(
+        SafeFileHandle hFile,
+        [Out] StringBuilder lpszFilePath,
+        uint cchFilePath,
+        uint dwFlags);
+#pragma warning restore SYSLIB1054
+
+}
+
+
+internal sealed class UnsafeMediaPathException : IOException
+{
+    public UnsafeMediaPathException(string message)
+        : base(message)
+    {
+    }
+
+    public UnsafeMediaPathException(string message, Exception innerException)
+        : base(message, innerException)
+    {
     }
 }

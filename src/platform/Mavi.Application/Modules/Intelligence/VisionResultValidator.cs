@@ -306,7 +306,11 @@ public sealed class VisionResultValidator
 
         void AddNullable(string? value)
         {
-            Add(value is null ? "<null>" : value);
+            Span<byte> marker = stackalloc byte[1];
+            marker[0] = value is null ? (byte)0 : (byte)1;
+            hash.AppendData(marker);
+            if (value is not null)
+                Add(value);
         }
 
         void AddNumber<T>(T value) where T : IFormattable =>
@@ -428,7 +432,7 @@ public sealed class VisionResultValidator
     private static string RequiredBounded(string? value, int maximumLength, string code)
     {
         var text = Required(value, code);
-        if (text.Length > maximumLength)
+        if (text.EnumerateRunes().Count() > maximumLength)
             throw Invalid(code);
         return text;
     }

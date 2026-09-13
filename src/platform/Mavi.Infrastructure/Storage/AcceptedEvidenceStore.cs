@@ -79,6 +79,10 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         {
             return new AcceptedEvidenceSealResult(AcceptedEvidenceSealStatus.Missing);
         }
+        catch (UnsafeMediaPathException)
+        {
+            return new AcceptedEvidenceSealResult(AcceptedEvidenceSealStatus.IntegrityMismatch);
+        }
 
         var temporaryPath = Path.Combine(
             parentPath,
