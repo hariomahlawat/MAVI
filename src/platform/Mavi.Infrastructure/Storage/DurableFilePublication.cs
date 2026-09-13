@@ -32,6 +32,18 @@ internal static class DurableFilePublication
             "Durable accepted-evidence directory creation is supported only on Windows and Linux.");
     }
 
+    public static void DeletePublished(string destinationPath, string parentPath)
+    {
+        if (!File.Exists(destinationPath))
+            return;
+
+        File.SetAttributes(destinationPath, FileAttributes.Normal);
+        File.Delete(destinationPath);
+
+        if (OperatingSystem.IsLinux())
+            FlushDirectory(parentPath);
+    }
+
     public static void Publish(string temporaryPath, string destinationPath, string parentPath)
     {
         if (OperatingSystem.IsWindows())
