@@ -1657,6 +1657,8 @@ git commit -m "feat: persist validated visual intelligence results"
 
 ## Task 14: Add Track Search and Evidence Content APIs
 
+> **Authoritative Task-14 plan:** `docs/superpowers/plans/2026-09-13-task-14-track-search-evidence-apis.md`. The older checklist below is retained for historical context; where it differs, the dedicated Task-14 plan controls.
+
 **Files:**
 - Create: `src/platform/Mavi.Application/Modules/Intelligence/ITrackSearchRepository.cs`
 - Create: `src/platform/Mavi.Application/Modules/Intelligence/TrackSearchService.cs`
