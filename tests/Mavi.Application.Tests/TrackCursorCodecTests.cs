@@ -8,10 +8,12 @@ public sealed class TrackCursorCodecTests
     public void RoundTripPreservesCanonicalUtcPosition()
     {
         
+        var query = Query();
         var position = new TrackCursorPosition(
             new DateTimeOffset(2026, 9, 13, 11, 0, 0, TimeSpan.Zero),
             new DateTimeOffset(2026, 9, 13, 10, 20, 30, TimeSpan.Zero),
-            Guid.CreateVersion7());
+            Guid.CreateVersion7(),
+            TrackCursorCodec.ComputeFilterFingerprint(query));
 
         var encoded = TrackCursorCodec.Encode(position);
 
@@ -20,7 +22,29 @@ public sealed class TrackCursorCodecTests
         Assert.Equal(position.SnapshotUtc, decoded!.SnapshotUtc);
         Assert.Equal(position.StartTimestampUtc, decoded.StartTimestampUtc);
         Assert.Equal(position.TrackId, decoded.TrackId);
+        Assert.Equal(position.FilterFingerprint, decoded.FilterFingerprint);
+        [Fact]
+    public void FilterFingerprintChangesWhenSemanticFilterChanges()
+    {
+        var baseline = TrackCursorCodec.ComputeFilterFingerprint(Query());
+        var changed = TrackCursorCodec.ComputeFilterFingerprint(
+            Query() with { MinimumConfidence = 0.9 });
+
+        Assert.NotEqual(baseline, changed);
     }
+
+    private static TrackSearchQuery Query() => new(
+        CameraId: null,
+        VideoAssetId: null,
+        ProcessingRunId: null,
+        ObjectClass: Mavi.Domain.Intelligence.ObjectClass.Person,
+        FromUtc: null,
+        ToUtc: null,
+        MinimumDurationMs: null,
+        MinimumConfidence: null,
+        Cursor: null,
+        Limit: 50);
+}
 
     [Theory]
     [InlineData("")]
@@ -43,7 +67,7 @@ public sealed class TrackCursorCodecTests
     [Fact]
     public void RejectsCursorWithUnknownJsonMembers()
     {
-        var raw = """{"Version":1,"SnapshotUtc":"2026-09-13T11:00:00+00:00","StartTimestampUtc":"2026-09-13T10:20:30+00:00","TrackId":"0199479a-f71c-7c55-a1be-11798d372ce0","Extra":1}""";
+        var raw = """{"Version":1,"SnapshotUtc":"2026-09-13T11:00:00+00:00","StartTimestampUtc":"2026-09-13T10:20:30+00:00","TrackId":"0199479a-f71c-7c55-a1be-11798d372ce0","FilterFingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","Extra":1}""";
         var encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(raw))
             .TrimEnd('=')
             .Replace('+', '-')
