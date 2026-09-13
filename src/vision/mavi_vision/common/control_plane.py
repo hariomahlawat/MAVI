@@ -1,7 +1,6 @@
 import base64
 import json
 import re
-from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
@@ -72,18 +71,70 @@ _CONTRACT_EDGE_WHITESPACE = frozenset(
 )
 
 
-def _completion_json_float(value: str) -> Decimal:
-    return Decimal(value)
+class _CompletionJsonNumber(str):
+    pass
+
+
+def _completion_json_float(value: str) -> _CompletionJsonNumber:
+    return _CompletionJsonNumber(value)
+
+
+def _bounded_exponent(value: str | None) -> int:
+    if value is None:
+        return 0
+    negative = value.startswith("-")
+    digits = value.lstrip("+-").lstrip("0") or "0"
+    if len(digits) > 3:
+        return -1000 if negative else 1000
+    exponent = int(digits)
+    return -exponent if negative else exponent
+
+
+def _completion_integer_token(value: str) -> int:
+    match = re.fullmatch(
+        r"(?P<sign>-?)(?P<whole>0|[1-9]\d*)(?:\.(?P<fraction>\d+))?(?:[eE](?P<exponent>[+-]?\d+))?",
+        value,
+        re.ASCII,
+    )
+    if match is None:
+        raise ValueError("completion integer must be a JSON number")
+
+    whole = match.group("whole")
+    fraction = match.group("fraction") or ""
+    digits = whole + fraction
+    if all(character == "0" for character in digits):
+        return 0
+
+    exponent = _bounded_exponent(match.group("exponent"))
+    scale = len(fraction) - exponent
+
+    if scale > 0:
+        if scale > len(digits) or any(character != "0" for character in digits[-scale:]):
+            raise ValueError("completion integer must be mathematically integral")
+        integral_digits = digits[:-scale]
+    else:
+        zeros_to_append = -scale
+        if zeros_to_append > 19:
+            raise ValueError("completion integer is outside the wire-type range")
+        integral_digits = digits + ("0" * zeros_to_append)
+
+    integral_digits = integral_digits.lstrip("0") or "0"
+    if len(integral_digits) > 19:
+        raise ValueError("completion integer is outside the wire-type range")
+
+    result = int(integral_digits)
+    return -result if match.group("sign") == "-" else result
 
 
 def _normalize_completion_json_numbers(value, field_name: str | None = None):
-    if isinstance(value, Decimal):
+    if isinstance(value, _CompletionJsonNumber):
         if field_name in _COMPLETION_INTEGER_WIRE_NAMES:
-            if value == value.to_integral_value():
-                return int(value)
-            # Preserve invalidity through JSON re-serialization. Strict integer
-            # validation rejects this string instead of accepting a rounded float.
-            return str(value)
+            try:
+                return _completion_integer_token(value)
+            except ValueError:
+                # Preserve invalidity through JSON re-serialization. Strict integer
+                # validation rejects the string rather than accepting a rounded float.
+                return str(value)
         return float(value)
     if isinstance(value, list):
         return [_normalize_completion_json_numbers(item) for item in value]
@@ -96,13 +147,9 @@ def _normalize_completion_json_numbers(value, field_name: str | None = None):
 
 
 def _completion_integral(value: object, *, minimum: int, maximum: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("completion integer must be a JSON number")
-    if isinstance(value, Decimal):
-        if value != value.to_integral_value():
-            raise ValueError("completion integer must be mathematically integral")
-        value = int(value)
-    elif isinstance(value, float):
+    if isinstance(value, float):
         if not value.is_integer():
             raise ValueError("completion integer must be mathematically integral")
         value = int(value)
