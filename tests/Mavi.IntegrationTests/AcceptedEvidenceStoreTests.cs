@@ -30,7 +30,7 @@ public sealed class AcceptedEvidenceStoreTests : IDisposable
         var nested = Path.Combine(_evidenceRoot, "job", "attempt-0001", "thumbnails");
         Assert.False(Directory.Exists(nested));
 
-        method.Invoke(null, [nested]);
+        method.Invoke(null, [_evidenceRoot, nested]);
 
         Assert.True(Directory.Exists(nested));
     }
