@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Security.Cryptography;
 using Mavi.Application.Abstractions.Storage;
+using Mavi.Contracts.Worker;
 using Microsoft.Extensions.Options;
 
 namespace Mavi.Infrastructure.Storage;
@@ -51,7 +52,9 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         string expectedSha256,
         CancellationToken cancellationToken)
     {
-        if (expectedSizeBytes < 0 || !IsCanonicalSha256(expectedSha256))
+        if (expectedSizeBytes < 0 ||
+            expectedSizeBytes > WorkerContractRules.MaximumCompletionArtifactBytes ||
+            !IsCanonicalSha256(expectedSha256))
             throw new ArgumentException("Expected artifact integrity facts are invalid.");
         cancellationToken.ThrowIfCancellationRequested();
         StorageRootSafety.EnsureNoLinkedExistingComponents(_evidenceRoot);
@@ -95,8 +98,13 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
 
         try
         {
-            var copied = await CopyAndHashAsync(source, temporaryPath, cancellationToken);
-            if (copied.SizeBytes != expectedSizeBytes ||
+            var copied = await CopyAndHashAsync(
+                source,
+                temporaryPath,
+                expectedSizeBytes,
+                cancellationToken);
+            if (copied.ExceededLimit ||
+                copied.SizeBytes != expectedSizeBytes ||
                 !string.Equals(copied.Sha256, expectedSha256, StringComparison.Ordinal))
             {
                 return new AcceptedEvidenceSealResult(
@@ -149,8 +157,9 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
             FileShare.Read,
             bufferSize: 81_920,
             FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.WriteThrough);
-        var actual = await HashAsync(stream, cancellationToken);
-        if (actual.SizeBytes != expectedSizeBytes ||
+        var actual = await HashAsync(stream, expectedSizeBytes, cancellationToken);
+        if (actual.ExceededLimit ||
+            actual.SizeBytes != expectedSizeBytes ||
             !string.Equals(actual.Sha256, expectedSha256, StringComparison.Ordinal))
         {
             return new AcceptedEvidenceSealResult(
@@ -167,9 +176,10 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
             actual.Sha256);
     }
 
-    private static async Task<(long SizeBytes, string Sha256)> CopyAndHashAsync(
+    private static async Task<(long SizeBytes, string Sha256, bool ExceededLimit)> CopyAndHashAsync(
         Stream source,
         string destinationPath,
+        long maximumBytes,
         CancellationToken cancellationToken)
     {
         await using var destination = new FileStream(
@@ -183,20 +193,23 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         var result = await CopyAndHashCoreAsync(
             source,
             destination,
+            maximumBytes,
             cancellationToken);
         await destination.FlushAsync(cancellationToken);
         destination.Flush(flushToDisk: true);
         return result;
     }
 
-    private static Task<(long SizeBytes, string Sha256)> HashAsync(
+    private static Task<(long SizeBytes, string Sha256, bool ExceededLimit)> HashAsync(
         Stream source,
+        long maximumBytes,
         CancellationToken cancellationToken) =>
-        CopyAndHashCoreAsync(source, destination: null, cancellationToken);
+        CopyAndHashCoreAsync(source, destination: null, maximumBytes, cancellationToken);
 
-    private static async Task<(long SizeBytes, string Sha256)> CopyAndHashCoreAsync(
+    private static async Task<(long SizeBytes, string Sha256, bool ExceededLimit)> CopyAndHashCoreAsync(
         Stream source,
         Stream? destination,
+        long maximumBytes,
         CancellationToken cancellationToken)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(81_920);
@@ -206,8 +219,19 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
         {
             while (true)
             {
-                var count = await source.ReadAsync(buffer.AsMemory(), cancellationToken);
+                var remaining = maximumBytes - sizeBytes;
+                var requested = (int)Math.Min(buffer.Length, remaining + 1);
+                var count = await source.ReadAsync(buffer.AsMemory(0, requested), cancellationToken);
                 if (count == 0) break;
+
+                if (count > remaining)
+                {
+                    return (
+                        maximumBytes + 1,
+                        string.Empty,
+                        ExceededLimit: true);
+                }
+
                 if (destination is not null)
                     await destination.WriteAsync(buffer.AsMemory(0, count), cancellationToken);
                 hash.AppendData(buffer, 0, count);
@@ -216,7 +240,8 @@ public sealed class AcceptedEvidenceStore : IAcceptedEvidenceStore
 
             return (
                 sizeBytes,
-                Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant());
+                Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant(),
+                ExceededLimit: false);
         }
         finally
         {
