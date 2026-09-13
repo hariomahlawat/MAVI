@@ -58,11 +58,11 @@ internal static class Task14TestData
             width: 1920,
             height: 1080,
             codec: "h264",
-            TimestampSource.Manual,
-            1.0,
-            "UTC",
-            0,
-            start.AddMinutes(-3));
+            timestampSource: TimestampSource.Manual,
+            timestampConfidence: 1.0,
+            recordingTimeZoneId: "UTC",
+            recordingUtcOffsetMinutes: 0,
+            importedAtUtc: start.AddMinutes(-3));
 
         var physicalSource = Path.Combine(
             factory.MediaRoot,
@@ -111,7 +111,7 @@ internal static class Task14TestData
             startOffsetMs + 2_000,
             video.RecordingStartUtc,
             detectionCount: 8,
-            meanConfidence,
+            meanConfidence: meanConfidence,
             maxConfidence: Math.Min(1.0, meanConfidence + 0.10),
             createdAtUtc: completedAtUtc);
 
@@ -159,7 +159,7 @@ internal static class Task14TestData
             ObservationType.Representative,
             sourceFrameNumber: 25,
             videoOffsetMs: startOffsetMs + 1_000,
-            video.RecordingStartUtc,
+            recordingStartUtc: video.RecordingStartUtc,
             x: 0.1f,
             y: 0.2f,
             width: 0.3f,
@@ -176,7 +176,7 @@ internal static class Task14TestData
             framesProcessed: 100,
             tracksCreated: 1,
             durationMs: 2_000,
-            completedAtUtc);
+            completedAtUtc: completedAtUtc);
         await db.SaveChangesAsync();
 
         return new CompletedTrack(
