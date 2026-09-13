@@ -52,10 +52,11 @@ Task 12 does not bundle or install the operating system, CPython itself, NVIDIA/
     runtime/
       mmdetection-phase1-v1/
         runtime.json
-        <platform-variant>.lock
+        <qualified-platform-variant>.lock
+        <other-qualified-platform-variant>.lock
 ~~~
 
-A bundle contains only the lock and wheel closure for its own platform variant.
+A platform bundle contains the **wheel closure only for its selected platform variant**, but it retains **every qualified runtime lock referenced by `runtime.json`**. The selected platform lock is the only lock used by the offline `pip install` command; the additional qualified locks are immutable release metadata required by runtime startup verification. Pending/unqualified lock entries have no artifact and are not copied into the bundle.
 
 ## Integrity contract
 
@@ -63,7 +64,7 @@ A bundle contains only the lock and wheel closure for its own platform variant.
 
 The manifest is deterministic: canonical UTF-8/LF JSON with no timestamp, hostname, temporary/absolute build path, random identifier or filesystem modification time.
 
-`bundleId` is derived from immutable release identities, including the source commit, platform variant, runtime/profile/qualification identities and selected release-lock hash.
+`bundleId` is derived from immutable release identities, including the source commit, platform variant, runtime/profile/qualification identities, the selected release-lock hash, and the hashes of **all qualified runtime locks included in the bundle**.
 
 Before transfer or installation, validate every path, size and SHA-256 in the manifest against the bundle bytes. Transfer records may additionally record the SHA-256 of `bundle-manifest.json` itself.
 
@@ -114,7 +115,7 @@ Treat a completed bundle as immutable:
 3. transfer the complete directory without modification;
 4. validate all manifest entries after transfer;
 5. install only after validation succeeds;
-6. retain the reviewed manifest/lock with release records.
+6. retain the reviewed manifest, runtime profile and all qualified runtime locks with release records.
 
 Task 12 does not define organizational signing/PKI. A future signing layer must wrap these immutable hashes rather than replace file-level verification.
 
