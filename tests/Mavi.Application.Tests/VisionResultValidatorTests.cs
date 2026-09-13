@@ -232,6 +232,15 @@ public sealed class VisionResultValidatorTests
     }
 
     [Fact]
+    public void TrackIdentifiersUseOneLowercaseFilesystemCanonicalForm()
+    {
+        var validator = new VisionResultValidator();
+
+        Assert.Throws<VisionResultValidationException>(() =>
+            validator.Validate(JobId, Request(Track("Person-000001", "person")), 10_000));
+    }
+
+    [Fact]
     public void DetectionCountCannotExceedFramesProcessed()
     {
         var validator = new VisionResultValidator();
