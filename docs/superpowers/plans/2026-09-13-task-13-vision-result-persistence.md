@@ -1039,3 +1039,63 @@ After Task 13 merges:
 - **Task 17** performs final Phase-1 end-to-end hardening, remaining real/offline qualification, ground truth and acceptance.
 
 Do not start Task 14 implementation until Task 13's merged exact head and authoritative persistence behavior are verified.
+
+
+---
+
+## Final adversarial subsystem audit before implementation freeze
+
+Task 13 shall not be frozen by reacting only to reviewer comments. Before the implementation SHA is frozen, the complete completion/persistence subsystem must be audited against the following invariants and the corresponding adversarial tests.
+
+### A. Capability-first lock discipline
+
+After the authoritative `VisionJob` row is locked, cheap identity/capability/lifecycle checks must execute before full result validation, canonicalization, sorting, serialization, hashing, evidence I/O, or graph construction. An invalid lease capability must not be able to hold the job row lock while expensive result work is performed.
+
+### B. Crash-consistent evidence namespace
+
+On Linux, every directory entry from the configured evidence root through the accepted object's parent must be re-synchronized on each sealing attempt, including already-visible ancestors that may have survived a previous failed `fsync`. Visibility is not proof of durability.
+
+Once the accepted destination name has been durably linked, cleanup of the temporary publication name is housekeeping only. Failure to remove or synchronize removal of that temporary name must never cause the accepted object to be reported as unpublished or lose `CreatedNew` ownership. Temporary-name cleanup is best-effort and must not strand authoritative ownership outside normal compensation.
+
+### C. Structurally unambiguous completion digest
+
+The completion digest is an idempotency identity, not a loose concatenation. Canonical hashing must include:
+- a digest-format/version domain separator;
+- explicit collection counts for variable-length collections;
+- explicit presence markers for optional structured values such as GPU identity;
+- framed scalar values;
+- deterministic ordinal ordering for maps and tracks.
+
+No sentinel string may encode absence where the same literal can be supplied as data.
+
+### D. Bounded nested contract collections
+
+Collections nested inside the completion payload must have explicit protocol limits in JSON Schema, Python/Pydantic, and .NET model binding. In particular:
+- `tracks` remains capped at the Task-13 track limit;
+- `dependencyVersions` has a finite property-count limit;
+- `pythonBuild` is rejected during binding if it contains more than the canonical two elements.
+
+These limits must apply before application-layer validation wherever practical.
+
+### E. Cross-runtime finite numeric envelope
+
+Every positive floating-point provenance field must have one finite, shared representable envelope across JSON Schema, Python, and .NET. Values that overflow to infinity or underflow to zero in binary64 must be rejected by the published schema as well as both runtimes.
+
+### F. Internal analytical consistency
+
+For any non-empty track result:
+- `detectionCount <= framesProcessed`;
+- representative `sourceFrameNumber < framesProcessed`;
+- the bounding box must remain valid after conversion to the persisted float representation, not merely in the incoming double representation.
+
+The authoritative platform must reject analytically impossible metadata rather than relying on the worker to be well behaved.
+
+### G. Release stopping rule
+
+The implementation SHA may be frozen only when:
+1. all definite Critical/P1/P2-equivalent defects found by this internal audit are closed;
+2. all material invariant gaps above have deterministic regression coverage;
+3. Quality, Staging Security and Runtime Qualification are green on the exact implementation SHA;
+4. one broad independent review of that exact SHA reports no remaining material blocker.
+
+Only after that freeze may Task-12 deterministic wheel/lock/metadata rebind occur.
