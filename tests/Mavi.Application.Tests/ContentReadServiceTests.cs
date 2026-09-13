@@ -111,10 +111,10 @@ public sealed class ContentReadServiceTests
         ContentDescriptor? video = null,
         ContentDescriptor? evidence = null) : IContentCatalog
     {
-        public Task<ContentDescriptor?> GetVideoContentAsync(
+        public Task<VideoContentLookup> GetVideoContentAsync(
             Guid videoAssetId,
             CancellationToken cancellationToken) =>
-            Task.FromResult(video);
+            Task.FromResult(new VideoContentLookup(video is not null, video));
 
         public Task<ContentDescriptor?> GetEvidenceContentAsync(
             Guid artifactId,
