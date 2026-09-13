@@ -199,3 +199,104 @@ public sealed class BoundedVisionTrackListJsonConverter
         writer.WriteEndArray();
     }
 }
+
+
+public sealed class BoundedDependencyVersionsJsonConverter
+    : JsonConverter<IReadOnlyDictionary<string, string>?>
+{
+    public override bool HandleNull => true;
+
+    public override IReadOnlyDictionary<string, string>? Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType != JsonTokenType.StartObject)
+            throw new JsonException("Expected a dependency-version object.");
+
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        var propertyCount = 0;
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject)
+                return values;
+            if (reader.TokenType != JsonTokenType.PropertyName)
+                throw new JsonException("Expected a dependency-version property.");
+            if (++propertyCount > WorkerContractRules.MaximumCompletionDependencyVersions)
+                throw new JsonException("Completion dependency-version limit exceeded.");
+
+            var key = reader.GetString()
+                ?? throw new JsonException("Dependency-version key cannot be null.");
+            if (!reader.Read() || reader.TokenType != JsonTokenType.String)
+                throw new JsonException("Dependency-version value must be a string.");
+            values[key] = reader.GetString()
+                ?? throw new JsonException("Dependency-version value cannot be null.");
+        }
+
+        throw new JsonException("Incomplete dependency-version object.");
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        IReadOnlyDictionary<string, string>? value,
+        JsonSerializerOptions options)
+    {
+        if (value is null)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+
+        writer.WriteStartObject();
+        foreach (var pair in value)
+            writer.WriteString(pair.Key, pair.Value);
+        writer.WriteEndObject();
+    }
+}
+
+public sealed class BoundedPythonBuildJsonConverter
+    : JsonConverter<IReadOnlyList<string>?>
+{
+    public override bool HandleNull => true;
+
+    public override IReadOnlyList<string>? Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType != JsonTokenType.StartArray)
+            throw new JsonException("Expected a pythonBuild array.");
+
+        var values = new List<string>(2);
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndArray)
+                return values;
+            if (values.Count >= 2 || reader.TokenType != JsonTokenType.String)
+                throw new JsonException("pythonBuild must contain exactly two strings.");
+            values.Add(reader.GetString()
+                ?? throw new JsonException("pythonBuild value cannot be null."));
+        }
+
+        throw new JsonException("Incomplete pythonBuild array.");
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        IReadOnlyList<string>? value,
+        JsonSerializerOptions options)
+    {
+        if (value is null)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+
+        writer.WriteStartArray();
+        foreach (var item in value)
+            writer.WriteStringValue(item);
+        writer.WriteEndArray();
+    }
+}
