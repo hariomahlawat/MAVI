@@ -13,9 +13,11 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[2]
+PHASE1_ROOT = Path(__file__).resolve().parent
 VISION_ROOT = ROOT / "src" / "vision"
-if str(VISION_ROOT) not in sys.path:
-    sys.path.insert(0, str(VISION_ROOT))
+for candidate in (PHASE1_ROOT, VISION_ROOT):
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
 
 from mavi_vision.runtime.manifest import ReleaseMetadataError  # noqa: E402
 from mavi_vision.runtime.qualification import (  # noqa: E402
