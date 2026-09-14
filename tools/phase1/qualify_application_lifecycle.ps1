@@ -22,6 +22,21 @@ function Get-Sha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Get-HostIdentitySha256 {
+    $hostname = ([Environment]::MachineName).Trim().ToLowerInvariant()
+    $machineGuid = (Get-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name MachineGuid -ErrorAction Stop).MachineGuid
+    $machineGuid = ([string]$machineGuid).Trim().ToLowerInvariant()
+    if (-not $hostname -or -not $machineGuid) { throw "windows_host_identity_missing" }
+    $canonical = "windows|$hostname|$machineGuid"
+    $bytes = [Text.Encoding]::UTF8.GetBytes($canonical)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-", "").ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
+
 function Assert-InternetUnavailable {
     $proxyNames = @("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
     foreach ($name in $proxyNames) {
@@ -88,6 +103,7 @@ function Assert-IisHostingBinding([string]$SiteName, [string]$ExpectedPool, [str
         siteName = $SiteName
         applicationPool = $observedPool
         physicalPath = $destinationFull
+        hostIdentitySha256 = Get-HostIdentitySha256
         passed = $true
     }
 }
