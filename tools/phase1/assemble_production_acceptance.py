@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble and verify final Task-17 production acceptance evidence.
-
-This is intentionally post-promotion. Candidate evidence can qualify the release
-for promotion, but cannot satisfy this final production-acceptance contract.
-"""
+"""Assemble and independently verify final Task-17 production acceptance evidence."""
 
 from __future__ import annotations
 
@@ -15,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 
 ROOT = Path(__file__).resolve().parents[2]
 PHASE1_ROOT = Path(__file__).resolve().parent
@@ -27,6 +23,7 @@ from policy_identity import (  # noqa: E402
     CANONICAL_SUPPORTED_UPDATES,
     PolicyIdentityError,
     canonical_acceptance_profile,
+    canonical_production_prerequisites,
     sha256_file as policy_sha256_file,
 )
 
@@ -44,6 +41,15 @@ VARIANTS = (
     "linux-x86_64-cpu",
     "linux-x86_64-cuda",
 )
+PREREQUISITE_ROLES = {
+    "windows-operational-plane": "windowsOperationalPlane",
+    "database": "database",
+    "linux-vision-worker": "linuxVisionWorker",
+}
+LOG_ROLES = {
+    "api", "iis", "postgres",
+    "formal-worker", "empty-worker", "failure-worker",
+}
 
 
 class ProductionAcceptanceError(ValueError):
@@ -71,7 +77,10 @@ def load_json(path: Path, code: str) -> dict[str, Any]:
 def validate_schema(value: dict[str, Any], schema_name: str, code: str) -> None:
     schema = load_json(PHASE1_ROOT / schema_name, code + "_schema_unavailable")
     errors = sorted(
-        Draft202012Validator(schema).iter_errors(value),
+        Draft202012Validator(
+            schema,
+            format_checker=FormatChecker(),
+        ).iter_errors(value),
         key=lambda item: list(item.absolute_path),
     )
     if errors:
@@ -148,7 +157,7 @@ def validate_variant(
     target_manifest_sha256: str,
     acceptance_profile_sha256: str,
     mavi_build: str,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, dict[str, Any]]:
     value = load_json(path, "production_variant_invalid")
     validate_schema(
         value,
@@ -184,55 +193,273 @@ def validate_variant(
         sha256_file(path),
         value["bundleManifestSha256"],
         value["releaseLockSha256"],
+        value,
     )
 
 
-def validate_final_e2e(
-    path: Path,
+def validate_prerequisites(
+    evidence_path: Path,
     *,
+    windows_observation: Path,
+    database_observation: Path,
+    linux_observation: Path,
+    source_commit: str,
+    mavi_build: str,
+) -> str:
+    evidence = load_json(evidence_path, "production_prerequisite_evidence_invalid")
+    validate_schema(
+        evidence,
+        "production-prerequisite-evidence.schema.json",
+        "production_prerequisite_evidence",
+    )
+    canonical_policy, policy_sha = canonical_production_prerequisites(
+        ROOT / "config" / "acceptance" / "phase1-production-prerequisites-v1.json"
+    )
+    policy = load_json(canonical_policy, "production_prerequisite_policy_invalid")
+    validate_schema(
+        policy,
+        "production-prerequisite-policy.schema.json",
+        "production_prerequisite_policy",
+    )
+    if policy.get("approvalStatus") != "approved":
+        raise ProductionAcceptanceError(
+            "production_prerequisite_policy_not_approved"
+        )
+
+    observations = {
+        "windows-operational-plane": windows_observation,
+        "database": database_observation,
+        "linux-vision-worker": linux_observation,
+    }
+    expected_hash_fields = {
+        "windows-operational-plane": "windowsObservationSha256",
+        "database": "databaseObservationSha256",
+        "linux-vision-worker": "linuxObservationSha256",
+    }
+    for role, path in observations.items():
+        value = load_json(path, "production_prerequisite_observation_invalid")
+        validate_schema(
+            value,
+            "production-prerequisite-observation.schema.json",
+            "production_prerequisite_observation",
+        )
+        policy_key = PREREQUISITE_ROLES[role]
+        if (
+            value.get("role") != role
+            or value.get("values") != policy.get(policy_key)
+            or evidence.get(policy_key) != value.get("values")
+            or evidence.get(expected_hash_fields[role]) != sha256_file(path)
+        ):
+            raise ProductionAcceptanceError(
+                "production_prerequisite_observation_mismatch:" + role
+            )
+
+    if (
+        evidence.get("sourceCommit") != source_commit
+        or evidence.get("maviBuild") != mavi_build
+        or evidence.get("policySha256") != policy_sha
+        or not passed_result(evidence)
+    ):
+        raise ProductionAcceptanceError("production_prerequisite_binding_failed")
+    return sha256_file(evidence_path)
+
+
+def validate_scenario(
+    scenario_path: Path,
+    e2e_path: Path,
+    *,
+    mode: str,
     source_commit: str,
     target_manifest_sha256: str,
     acceptance_profile_sha256: str,
-    expected_corpus_sha256: str,
+    expected_corpus_sha256: str | None,
     mavi_build: str,
+    linux_cuda_variant_path: Path,
+    linux_cuda_variant: dict[str, Any],
     linux_cuda_bundle_sha256: str,
     linux_cuda_lock_sha256: str,
-) -> str:
-    value = load_json(path, "production_e2e_invalid")
+) -> tuple[str, str, str]:
+    scenario = load_json(scenario_path, "production_scenario_invalid")
     validate_schema(
-        value,
+        scenario,
+        "production-scenario-evidence.schema.json",
+        "production_scenario",
+    )
+    e2e = load_json(e2e_path, "production_e2e_invalid")
+    validate_schema(
+        e2e,
         "phase1-acceptance-evidence.schema.json",
         "production_e2e",
     )
     try:
         evidence_verifier.verify_acceptance(
-            value,
+            e2e,
             expected_source_commit=source_commit,
             expected_acceptance_profile_sha256=acceptance_profile_sha256,
-            expected_qualification_corpus_sha256=expected_corpus_sha256,
+            expected_qualification_corpus_sha256=(
+                expected_corpus_sha256 if mode == "formal" else None
+            ),
         )
     except evidence_verifier.EvidenceError as exc:
         raise ProductionAcceptanceError("production_e2e_invalid:" + exc.code) from exc
 
-    attestation = value.get("attestation", {})
-    release_expected = value.get("releaseExpected", {})
+    attestation = e2e.get("attestation", {})
+    release_expected = e2e.get("releaseExpected", {})
+    e2e_sha = sha256_file(e2e_path)
     if (
-        value.get("mode") != "formal"
-        or value.get("targetVerifiedManifestSha256") != target_manifest_sha256
+        scenario.get("mode") != mode
+        or scenario.get("sourceCommit") != source_commit
+        or scenario.get("maviBuild") != mavi_build
+        or scenario.get("targetVerifiedManifestSha256") != target_manifest_sha256
+        or scenario.get("linuxCudaVariantEvidenceSha256")
+        != sha256_file(linux_cuda_variant_path)
+        or scenario.get("productionBundleManifestSha256")
+        != linux_cuda_bundle_sha256
+        or scenario.get("productionReleaseLockSha256")
+        != linux_cuda_lock_sha256
+        or scenario.get("workerPythonSha256")
+        != linux_cuda_variant.get("workerPythonSha256")
+        or scenario.get("e2eEvidenceSha256") != e2e_sha
+        or not passed_result(scenario)
+        or e2e.get("mode") != mode
+        or e2e.get("targetVerifiedManifestSha256") != target_manifest_sha256
         or release_expected.get("modelManifestSha256") != target_manifest_sha256
         or attestation.get("verificationStatus") != "verified"
         or attestation.get("runtimeVariant") != "linux-x86_64-cuda"
         or attestation.get("maviBuild") != mavi_build
         or attestation.get("maviCommit") != source_commit
-        or attestation.get("productionBundleManifestSha256") != linux_cuda_bundle_sha256
+        or attestation.get("productionBundleManifestSha256")
+        != linux_cuda_bundle_sha256
         or attestation.get("platformLockSha256") != linux_cuda_lock_sha256
         or attestation.get("candidateBundleManifestSha256") is not None
         or attestation.get("candidateSelectedLockSha256") is not None
     ):
-        raise ProductionAcceptanceError("production_e2e_binding_failed")
+        raise ProductionAcceptanceError("production_scenario_binding_failed:" + mode)
+
     actual_device = attestation.get("actualDevice")
     if not isinstance(actual_device, str) or not actual_device.startswith("cuda:"):
-        raise ProductionAcceptanceError("production_e2e_cuda_required")
+        raise ProductionAcceptanceError("production_scenario_cuda_required:" + mode)
+
+    if e2e_sha == linux_cuda_variant.get("workerFlowEvidenceSha256"):
+        raise ProductionAcceptanceError(
+            "production_scenario_reused_variant_smoke:" + mode
+        )
+
+    if mode == "empty-scene-diagnostic":
+        if (
+            e2e.get("groundTruth") is not None
+            or e2e.get("metrics") is not None
+            or e2e.get("tracks", {}).get("total") != 0
+            or e2e.get("tracks", {}).get("detailsResolved") != 0
+            or e2e.get("evidenceReads", {}).get("passed") != 0
+        ):
+            raise ProductionAcceptanceError(
+                "production_empty_scene_false_positive"
+            )
+
+    return (
+        sha256_file(scenario_path),
+        e2e_sha,
+        scenario["workerLogSha256"],
+    )
+
+
+def validate_failure_reprocess(
+    path: Path,
+    *,
+    source_commit: str,
+    mavi_build: str,
+    target_manifest_sha256: str,
+    linux_cuda_variant_path: Path,
+    linux_cuda_variant: dict[str, Any],
+    linux_cuda_bundle_sha256: str,
+    linux_cuda_lock_sha256: str,
+) -> tuple[str, str]:
+    value = load_json(path, "production_failure_reprocess_invalid")
+    validate_schema(
+        value,
+        "production-failure-reprocess-evidence.schema.json",
+        "production_failure_reprocess",
+    )
+    media = value.get("sourceMedia", {})
+    attestation = value.get("reprocessAttestation", {})
+    media_hashes = {
+        media.get("localSha256"),
+        media.get("afterFailureSha256"),
+        media.get("afterFailureEtagSha256"),
+        media.get("afterReprocessSha256"),
+        media.get("afterReprocessEtagSha256"),
+    }
+    if (
+        value.get("sourceCommit") != source_commit
+        or value.get("maviBuild") != mavi_build
+        or value.get("targetVerifiedManifestSha256") != target_manifest_sha256
+        or value.get("productionBundleManifestSha256")
+        != linux_cuda_bundle_sha256
+        or value.get("productionReleaseLockSha256")
+        != linux_cuda_lock_sha256
+        or value.get("linuxCudaVariantEvidenceSha256")
+        != sha256_file(linux_cuda_variant_path)
+        or value.get("workerPythonSha256")
+        != linux_cuda_variant.get("workerPythonSha256")
+        or value.get("firstProcessingRunId")
+        == value.get("reprocessProcessingRunId")
+        or len(media_hashes) != 1
+        or None in media_hashes
+        or value.get("trackCount", 0) <= 0
+        or attestation.get("verificationStatus") != "verified"
+        or attestation.get("runtimeVariant") != "linux-x86_64-cuda"
+        or attestation.get("maviBuild") != mavi_build
+        or attestation.get("maviCommit") != source_commit
+        or attestation.get("modelManifestSha256") != target_manifest_sha256
+        or attestation.get("platformLockSha256") != linux_cuda_lock_sha256
+        or not isinstance(attestation.get("actualDevice"), str)
+        or not attestation["actualDevice"].startswith("cuda:")
+        or not passed_result(value)
+    ):
+        raise ProductionAcceptanceError("production_failure_reprocess_binding_failed")
+    return sha256_file(path), value["workerLogSha256"]
+
+
+def validate_log_inspection(
+    path: Path,
+    *,
+    source_commit: str,
+    mavi_build: str,
+    formal_e2e_sha256: str,
+    empty_e2e_sha256: str,
+    failure_sha256: str,
+    formal_worker_log_sha256: str,
+    empty_worker_log_sha256: str,
+    failure_worker_log_sha256: str,
+) -> str:
+    value = load_json(path, "production_log_inspection_invalid")
+    validate_schema(
+        value,
+        "production-log-inspection-evidence.schema.json",
+        "production_log_inspection",
+    )
+    logs = value.get("logs", [])
+    by_role = {
+        item.get("role"): item
+        for item in logs
+        if isinstance(item, dict)
+    }
+    if (
+        set(by_role) != LOG_ROLES
+        or value.get("sourceCommit") != source_commit
+        or value.get("maviBuild") != mavi_build
+        or value.get("formalE2eSha256") != formal_e2e_sha256
+        or value.get("emptySceneDiagnosticSha256") != empty_e2e_sha256
+        or value.get("failureReprocessSha256") != failure_sha256
+        or by_role["formal-worker"].get("sha256") != formal_worker_log_sha256
+        or by_role["empty-worker"].get("sha256") != empty_worker_log_sha256
+        or by_role["failure-worker"].get("sha256") != failure_worker_log_sha256
+        or value.get("result", {}).get("externalUrlHits") != []
+        or value.get("result", {}).get("telemetryOrLicenceHits") != []
+        or not passed_result(value)
+    ):
+        raise ProductionAcceptanceError("production_log_inspection_binding_failed")
     return sha256_file(path)
 
 
@@ -241,7 +468,7 @@ def validate_backup(
     *,
     source_commit: str,
     acceptance_profile_sha256: str,
-    final_e2e_sha256: str,
+    formal_e2e_sha256: str,
 ) -> str:
     value = load_json(path, "production_backup_restore_invalid")
     validate_schema(
@@ -252,7 +479,7 @@ def validate_backup(
     if (
         value.get("sourceCommit") != source_commit
         or value.get("acceptanceProfileSha256") != acceptance_profile_sha256
-        or value.get("acceptanceEvidenceSha256") != final_e2e_sha256
+        or value.get("acceptanceEvidenceSha256") != formal_e2e_sha256
         or value.get("cleanRestoreTarget") is not True
         or value.get("sourceDatabaseIdentity") == value.get("restoreDatabaseIdentity")
         or not passed_result(value)
@@ -321,6 +548,15 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         raise ProductionAcceptanceError("production_application_identity_mismatch")
     application_manifest_sha = sha256_file(args.application_manifest)
 
+    prerequisite_sha = validate_prerequisites(
+        args.prerequisite_evidence,
+        windows_observation=args.windows_prerequisite_observation,
+        database_observation=args.database_prerequisite_observation,
+        linux_observation=args.linux_prerequisite_observation,
+        source_commit=args.source_commit,
+        mavi_build=mavi_build,
+    )
+
     supported_policy_sha = policy_sha256_file(CANONICAL_SUPPORTED_UPDATES)
     fresh_sha = validate_lifecycle(
         args.fresh_install,
@@ -343,8 +579,9 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
     variant_evidence: dict[str, str] = {}
     bundle_hashes: dict[str, str] = {}
     lock_hashes: dict[str, str] = {}
+    variant_values: dict[str, dict[str, Any]] = {}
     for variant in VARIANTS:
-        evidence_sha, bundle_sha, lock_sha = validate_variant(
+        evidence_sha, bundle_sha, lock_sha, value = validate_variant(
             variant_paths[variant],
             variant=variant,
             source_commit=args.source_commit,
@@ -355,22 +592,69 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         variant_evidence[variant] = evidence_sha
         bundle_hashes[variant] = bundle_sha
         lock_hashes[variant] = lock_sha
+        variant_values[variant] = value
 
-    final_e2e_sha = validate_final_e2e(
+    linux_variant_path = variant_paths["linux-x86_64-cuda"]
+    linux_variant = variant_values["linux-x86_64-cuda"]
+    formal_scenario_sha, formal_e2e_sha, formal_log_sha = validate_scenario(
+        args.formal_scenario,
         args.final_e2e,
+        mode="formal",
         source_commit=args.source_commit,
         target_manifest_sha256=target_manifest_sha,
         acceptance_profile_sha256=profile_sha,
         expected_corpus_sha256=corpus_sha,
         mavi_build=mavi_build,
+        linux_cuda_variant_path=linux_variant_path,
+        linux_cuda_variant=linux_variant,
         linux_cuda_bundle_sha256=bundle_hashes["linux-x86_64-cuda"],
         linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
     )
+    empty_scenario_sha, empty_e2e_sha, empty_log_sha = validate_scenario(
+        args.empty_scene_scenario,
+        args.empty_scene_e2e,
+        mode="empty-scene-diagnostic",
+        source_commit=args.source_commit,
+        target_manifest_sha256=target_manifest_sha,
+        acceptance_profile_sha256=profile_sha,
+        expected_corpus_sha256=None,
+        mavi_build=mavi_build,
+        linux_cuda_variant_path=linux_variant_path,
+        linux_cuda_variant=linux_variant,
+        linux_cuda_bundle_sha256=bundle_hashes["linux-x86_64-cuda"],
+        linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
+    )
+    if formal_e2e_sha == empty_e2e_sha:
+        raise ProductionAcceptanceError("production_scenarios_not_distinct")
+
+    failure_sha, failure_log_sha = validate_failure_reprocess(
+        args.failure_reprocess,
+        source_commit=args.source_commit,
+        mavi_build=mavi_build,
+        target_manifest_sha256=target_manifest_sha,
+        linux_cuda_variant_path=linux_variant_path,
+        linux_cuda_variant=linux_variant,
+        linux_cuda_bundle_sha256=bundle_hashes["linux-x86_64-cuda"],
+        linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
+    )
+
+    log_inspection_sha = validate_log_inspection(
+        args.log_inspection,
+        source_commit=args.source_commit,
+        mavi_build=mavi_build,
+        formal_e2e_sha256=formal_e2e_sha,
+        empty_e2e_sha256=empty_e2e_sha,
+        failure_sha256=failure_sha,
+        formal_worker_log_sha256=formal_log_sha,
+        empty_worker_log_sha256=empty_log_sha,
+        failure_worker_log_sha256=failure_log_sha,
+    )
+
     backup_sha = validate_backup(
         args.backup_restore,
         source_commit=args.source_commit,
         acceptance_profile_sha256=profile_sha,
-        final_e2e_sha256=final_e2e_sha,
+        formal_e2e_sha256=formal_e2e_sha,
     )
 
     return {
@@ -380,13 +664,19 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         "verifiedModelManifestSha256": target_manifest_sha,
         "acceptanceProfileSha256": profile_sha,
         "applicationManifestSha256": application_manifest_sha,
+        "prerequisiteEvidenceSha256": prerequisite_sha,
         "freshInstallEvidenceSha256": fresh_sha,
         "offlineUpdateEvidenceSha256": update_sha,
         "backupRestoreEvidenceSha256": backup_sha,
         "productionVariantEvidenceSha256": variant_evidence,
         "productionBundleManifestSha256": bundle_hashes,
         "productionReleaseLockSha256": lock_hashes,
-        "finalE2eEvidenceSha256": final_e2e_sha,
+        "formalScenarioEvidenceSha256": formal_scenario_sha,
+        "finalE2eEvidenceSha256": formal_e2e_sha,
+        "emptySceneScenarioEvidenceSha256": empty_scenario_sha,
+        "emptySceneE2eEvidenceSha256": empty_e2e_sha,
+        "failureReprocessEvidenceSha256": failure_sha,
+        "logInspectionEvidenceSha256": log_inspection_sha,
         "result": {"passed": True, "failureCodes": []},
     }
 
@@ -398,11 +688,20 @@ def main() -> int:
     parser.add_argument("--acceptance-profile", type=Path, required=True)
     parser.add_argument("--application-artifact-root", type=Path, required=True)
     parser.add_argument("--application-manifest", type=Path, required=True)
+    parser.add_argument("--prerequisite-evidence", type=Path, required=True)
+    parser.add_argument("--windows-prerequisite-observation", type=Path, required=True)
+    parser.add_argument("--database-prerequisite-observation", type=Path, required=True)
+    parser.add_argument("--linux-prerequisite-observation", type=Path, required=True)
     parser.add_argument("--fresh-install", type=Path, required=True)
     parser.add_argument("--offline-update", type=Path, required=True)
-    parser.add_argument("--backup-restore", type=Path, required=True)
     parser.add_argument("--production-variant", action="append", default=[])
+    parser.add_argument("--formal-scenario", type=Path, required=True)
     parser.add_argument("--final-e2e", type=Path, required=True)
+    parser.add_argument("--empty-scene-scenario", type=Path, required=True)
+    parser.add_argument("--empty-scene-e2e", type=Path, required=True)
+    parser.add_argument("--failure-reprocess", type=Path, required=True)
+    parser.add_argument("--log-inspection", type=Path, required=True)
+    parser.add_argument("--backup-restore", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -429,7 +728,12 @@ def main() -> int:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2
 
-    print(json.dumps({"ok": True, "sha256": sha256_file(args.output)}, sort_keys=True))
+    print(
+        json.dumps(
+            {"ok": True, "sha256": sha256_file(args.output)},
+            sort_keys=True,
+        )
+    )
     return 0
 
 
