@@ -237,6 +237,11 @@ def validate_prerequisites(
         "database": "databaseObservationSha256",
         "linux-vision-worker": "linuxObservationSha256",
     }
+    topology_fields = {
+        "windows-operational-plane": "windowsOperationalPlane",
+        "database": "database",
+        "linux-vision-worker": "linuxVisionWorker",
+    }
     for role, path in observations.items():
         value = load_json(path, "production_prerequisite_observation_invalid")
         validate_schema(
@@ -250,6 +255,8 @@ def validate_prerequisites(
             or value.get("values") != policy.get(policy_key)
             or evidence.get(policy_key) != value.get("values")
             or evidence.get(expected_hash_fields[role]) != sha256_file(path)
+            or evidence.get("topologyIdentities", {}).get(topology_fields[role])
+            != value.get("topologyIdentity")
         ):
             raise ProductionAcceptanceError(
                 "production_prerequisite_observation_mismatch:" + role
