@@ -54,7 +54,7 @@ The engineering work is not discarded:
 - real-model/offline/CCTV/recovery/performance qualification remains required;
 - exact-head final regression and closure remain required.
 
-Unless a focused earlier gate requires them, these items are now consolidated into **Task 17 Phase-1 hardening and qualification closure**. Task 13 must preserve all existing runtime and offline-bundle qualification gates but must not make new GPU/CCTV/performance qualification claims.
+Unless a focused earlier gate requires them, these items are now consolidated into **Task 17 Phase-1 hardening and qualification closure**. Tasks 15–16 must preserve all existing runtime and offline-bundle qualification gates but must not make new GPU/CCTV/performance qualification claims.
 
 ## Release-process rule learned from Task 12
 
@@ -96,11 +96,11 @@ For each remaining task:
 - use expected-head protection for merge;
 - verify the merged target tree and clean obsolete topic branches after merge.
 
-## No premature frontend work
+## Frontend boundary discipline
 
 React feature work must not invent or own operational semantics that belong to the backend.
 
-In particular, do not begin Visual Search/Evidence Review before Track/evidence APIs exist, and do not treat “processing finished in Python” as authoritative completion before Task 13 commits Tracks/Artifacts/status transitions in PostgreSQL.
+Task 14 has now established the Track/evidence read boundary and Task 13 established authoritative processing completion. Task 15 therefore consumes Cameras, Import and Processing semantics exactly as exposed by the backend and must not pull Task-16 Visual Search/Evidence Review into scope. Browser state is never a substitute for PostgreSQL-authoritative processing or intelligence state.
 
 ## Source of truth
 
