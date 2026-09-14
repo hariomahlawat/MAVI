@@ -75,7 +75,40 @@ def run_checked(args: list[str]) -> str:
     return completed.stdout.strip() or completed.stderr.strip()
 
 
+def _resolved(path: Path) -> Path:
+    return path.resolve(strict=False)
+
+
+def _assert_disjoint_roots(paths: list[Path]) -> None:
+    resolved = [_resolved(path) for path in paths]
+    for index, first in enumerate(resolved):
+        for second in resolved[index + 1:]:
+            if first == second:
+                raise BackupRestoreError("backup_restore_roots_not_distinct")
+            try:
+                first.relative_to(second)
+                raise BackupRestoreError("backup_restore_roots_nested")
+            except ValueError:
+                pass
+            try:
+                second.relative_to(first)
+                raise BackupRestoreError("backup_restore_roots_nested")
+            except ValueError:
+                pass
+
+
 def execute(args: argparse.Namespace) -> dict[str, Any]:
+    _assert_disjoint_roots([
+        args.source_media_root,
+        args.source_evidence_root,
+        args.restore_media_root,
+        args.restore_evidence_root,
+        args.backup_dir,
+    ])
+
+    source_media_manifest = safe_tree_manifest(args.source_media_root)
+    source_evidence_manifest = safe_tree_manifest(args.source_evidence_root)
+
     if args.backup_dir.exists():
         if not args.backup_dir.is_dir() or any(args.backup_dir.iterdir()):
             raise BackupRestoreError("backup_destination_not_clean")
@@ -118,8 +151,12 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     }
     database_manifest_sha = write_manifest(database_dir / "manifest.json", database_manifest)
     media_manifest = safe_tree_manifest(media_dir)
+    if media_manifest["files"] != source_media_manifest["files"]:
+        raise BackupRestoreError("managed_source_backup_integrity_failed")
     media_manifest_sha = write_manifest(media_dir / "manifest.json", media_manifest)
     evidence_manifest = safe_tree_manifest(evidence_dir)
+    if evidence_manifest["files"] != source_evidence_manifest["files"]:
+        raise BackupRestoreError("accepted_evidence_backup_integrity_failed")
     evidence_manifest_sha = write_manifest(evidence_dir / "manifest.json", evidence_manifest)
 
     backup_manifest = {
