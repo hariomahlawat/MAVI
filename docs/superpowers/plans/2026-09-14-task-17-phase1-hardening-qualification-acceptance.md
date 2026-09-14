@@ -997,30 +997,37 @@ On a clean designated production-representative acceptance deployment (Windows/I
 
 1. verify Section-20.1 smoke evidence is complete and passing for every required Windows/Linux CPU/CUDA production bundle;
 2. verify the approved prerequisite baseline and record its versioned identities;
-3. validate the MAVI application deployment artifact hash;
-4. validate the exact Linux CUDA production-bundle bytes and bundle-manifest hash used by the full E2E;
-5. install the Linux CUDA vision runtime from that production bundle with Internet unavailable;
-6. start PostgreSQL/pgvector from the approved local deployment;
-7. start Mavi.Api behind the production-equivalent Windows/IIS host;
-8. start the qualified Linux NVIDIA worker;
-9. create/resolve qualification Camera;
-10. import controlled MP4;
-11. remove the client-side import working copy;
-12. prove managed source remains retrievable;
-13. process successfully and capture the exact completed ProcessingRun ID;
-14. fetch the completed-run attestation and require its final verified model/config/profile/qualification/runtime/platform-lock/MAVI-build identities to match the promoted release and exact Linux CUDA production-bundle manifest;
-15. search Person/Vehicle Tracks for the exact run;
-16. open Evidence Review;
-17. require at least one expected/matched Track and one resolved detail for the formal target-containing acceptance case;
-18. stream/hash the managed source and require both its SHA-256 and strong ETag to equal the original qualification-media hash; separately verify native source-video Range semantics;
-19. stream/hash at least one representative artifact and require its SHA-256 to equal its strong ETag digest;
-20. verify the exact corpus-manifest and ground-truth-manifest hashes, then execute formal ground-truth evaluation;
-21. run the separate empty-scene false-positive diagnostic;
-22. run failure/reprocess scenario;
-23. inspect logs for attempted Internet calls/telemetry/licence checks;
-24. retain machine-readable acceptance evidence bound to the application-build hash, Linux CUDA production-bundle hash, completed-run attestation, and all per-variant production-smoke evidence identities.
+3. validate the exact MAVI application deployment artifact bytes and SHA-256 from controlled offline media;
+4. on the clean/reprovisioned Windows/IIS operational plane, deploy or update **that exact hashed application artifact** using only controlled offline media and retain the deployment mechanism/tool version, command/configuration identity, exit status, destination identity and post-deploy application-build identity; a pre-existing deployment does not satisfy this proof;
+5. fail closed if deployment requires Internet access, substitutes different application bytes, silently reuses the prior deployment, leaves the prior application build active, or cannot prove the running Mavi.Api build matches the hashed acceptance artifact;
+6. validate the exact Linux CUDA production-bundle bytes and bundle-manifest hash used by the full E2E;
+7. install the Linux CUDA vision runtime from that production bundle with Internet unavailable;
+8. start PostgreSQL/pgvector from the approved local deployment;
+9. start Mavi.Api behind the production-equivalent Windows/IIS host and independently attest that the running application build/commit identity matches the just-deployed artifact;
+10. start the qualified Linux NVIDIA worker;
+11. create/resolve qualification Camera;
+12. import controlled MP4;
+13. remove the client-side import working copy;
+14. prove managed source remains retrievable;
+15. process successfully and capture the exact completed ProcessingRun ID;
+16. fetch the completed-run attestation and require its final verified model/config/profile/qualification/runtime/platform-lock/MAVI-build identities to match the promoted release and exact Linux CUDA production-bundle manifest;
+17. search Person/Vehicle Tracks for the exact run;
+18. open Evidence Review;
+19. require at least one expected/matched Track and one resolved detail for the formal target-containing acceptance case;
+20. stream/hash the managed source and require both its SHA-256 and strong ETag to equal the original qualification-media hash; separately verify native source-video Range semantics;
+21. stream/hash at least one representative artifact and require its SHA-256 to equal its strong ETag digest;
+22. verify the exact corpus-manifest and ground-truth-manifest hashes, then execute formal ground-truth evaluation;
+23. run the separate empty-scene false-positive diagnostic;
+24. run failure/reprocess scenario;
+25. inspect logs for attempted Internet calls/telemetry/licence checks;
+26. retain machine-readable acceptance evidence bound to the application-artifact SHA-256, offline deployment/update result, running application-build identity, Linux CUDA production-bundle hash, completed-run attestation, and all per-variant production-smoke evidence identities;
+27. after the successful product workflow, perform an **offline backup and restore qualification** using only local/approved network storage: back up PostgreSQL authoritative state plus every platform-owned managed-media/evidence storage root required to reconstruct the accepted case, record backup-set manifests/hashes and tool/version identities, restore into a clean/reprovisioned acceptance target, and prove that no Internet access is required;
+28. after restore, revalidate the retained Camera/VideoAsset/ProcessingRun/Track/Artifact identities, database relationships, managed-source SHA-256/ETag, representative-evidence SHA-256/ETag, Track search/detail results and completed-run attestation; then execute a bounded post-restore smoke proving API/UI/search/evidence retrieval operate from the restored state;
+29. fail the acceptance if backup omits an authoritative store, restore changes required identities/bytes, evidence/media bindings break, restored search/detail results are inconsistent, the restored application cannot operate offline, or the restore depends on unrecorded external state.
 
-This is the **final Phase-1 disconnected acceptance event**. A candidate acceptance, a green unit-test suite, an invalid-proxy CI run, or a single-platform production smoke is not a substitute.
+The application-install/update proof and backup/restore proof are mandatory ADR-003 acceptance claims. Their evidence packages must be immutable, hashed and referenced by the final Phase-1 acceptance record.
+
+This is the **final Phase-1 disconnected acceptance event**. A candidate acceptance, a green unit-test suite, an invalid-proxy CI run, a pre-existing IIS deployment, an untested backup, or a single-platform production smoke is not a substitute.
 
 ---
 
@@ -1320,7 +1327,12 @@ Search explicitly for:
 - production bundle built while release is still pending;
 - only Linux CUDA production bytes being disconnected-tested while Windows CPU/CUDA or Linux CPU production bundles remain unverified;
 - candidate-bundle evidence being reused as a substitute for post-promotion production-bundle install/runtime smoke;
-- manual evidence that cannot be tied to an exact source head.
+- manual evidence that cannot be tied to an exact source head;
+- application acceptance that hashes an artifact but never deploys/updates those exact bytes on the disconnected Windows/IIS plane;
+- a running Mavi.Api build whose independently observed build/commit identity does not match the accepted application artifact;
+- backup/restore claimed by documentation only, without an executed offline backup set and clean-target restore;
+- backup sets that omit PostgreSQL, managed source media or platform-owned accepted evidence required by the accepted case;
+- restore completion without post-restore revalidation of retained IDs, relationships, source/evidence hashes, search/detail results and completed-run attestation.
 
 Fix sibling defects discovered by this audit before external review.
 
@@ -1352,6 +1364,8 @@ For full completion, at minimum:
 - final release metadata passes repository/release-selection verification;
 - production bundles are generated only after legitimate release promotion;
 - every required Windows/Linux CPU/CUDA production bundle passes disconnected production-mode install/runtime smoke against its exact shipped bytes;
+- the exact hashed MAVI application deployment artifact is installed/updated from controlled offline media on the clean/reprovisioned Windows/IIS acceptance plane, and the running application identity is independently proven to match those bytes;
+- an offline backup and clean-target restore of PostgreSQL plus all required managed media/evidence stores succeeds using only local/approved network storage, followed by identity/hash/search/evidence revalidation;
 - final full production-topology disconnected acceptance succeeds;
 - exact-head automated gates are green;
 - final broad Codex review has no material Critical/P1/P2 blocker;
