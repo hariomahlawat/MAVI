@@ -4,12 +4,17 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion", "sourceCommit", "database", "managedSource", "acceptedEvidence",
+    "schemaVersion", "sourceCommit", "acceptanceEvidenceSha256", "executionEvidenceSha256",
+    "sourceDatabaseIdentity", "restoreDatabaseIdentity", "database", "managedSource", "acceptedEvidence",
     "backupManifestSha256", "cleanRestoreTarget", "postRestoreCheckSha256", "result"
   ],
   "properties": {
     "schemaVersion": { "const": "mavi-backup-restore-evidence-v1" },
     "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "acceptanceEvidenceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "executionEvidenceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "sourceDatabaseIdentity": { "type": "string", "minLength": 1 },
+    "restoreDatabaseIdentity": { "type": "string", "minLength": 1 },
     "database": { "$ref": "#/$defs/store" },
     "managedSource": { "$ref": "#/$defs/store" },
     "acceptedEvidence": { "$ref": "#/$defs/store" },
