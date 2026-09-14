@@ -229,14 +229,39 @@ export function parseCommittedSearch(params: URLSearchParams): SearchParseResult
   };
 }
 
+function scalePlainUnsignedDecimalText(value: string, power: number): string {
+  const [integerPart, fractionalPart = ''] = value.split('.');
+  const digits = integerPart + fractionalPart;
+  const decimalPosition = integerPart.length + power;
+
+  let scaled: string;
+  if (decimalPosition <= 0) {
+    scaled = '0.' + '0'.repeat(-decimalPosition) + digits;
+  } else if (decimalPosition >= digits.length) {
+    scaled = digits + '0'.repeat(decimalPosition - digits.length);
+  } else {
+    scaled = digits.slice(0, decimalPosition) + '.' + digits.slice(decimalPosition);
+  }
+
+  const [scaledInteger, scaledFraction = ''] = scaled.split('.');
+  const normalizedInteger = scaledInteger.replace(/^0+(?=\d)/, '') || '0';
+  const normalizedFraction = scaledFraction.replace(/0+$/, '');
+  return normalizedInteger + (normalizedFraction ? '.' + normalizedFraction : '');
+}
+
 export function secondsTextToMilliseconds(value: string): number | undefined {
   const trimmed = value.trim();
   if (trimmed === '') return undefined;
   if (!/^\d+(?:\.\d{1,3})?$/.test(trimmed)) {
     throw new RangeError('Minimum duration must use at most three decimal places.');
   }
-  const seconds = Number(trimmed);
-  const milliseconds = seconds * 1000;
+
+  const millisecondsText = scalePlainUnsignedDecimalText(trimmed, 3);
+  if (millisecondsText.includes('.')) {
+    throw new RangeError('Minimum duration must resolve to whole milliseconds.');
+  }
+
+  const milliseconds = Number(millisecondsText);
   if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
     throw new RangeError('Minimum duration is outside the supported range.');
   }
@@ -249,11 +274,13 @@ export function confidencePercentTextToFraction(value: string): number | undefin
   if (!/^\d+(?:\.\d{1,2})?$/.test(trimmed)) {
     throw new RangeError('Minimum confidence must use at most two decimal places.');
   }
+
   const percent = Number(trimmed);
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
     throw new RangeError('Minimum confidence must be between 0 and 100 percent.');
   }
-  return percent / 100;
+
+  return Number(scalePlainUnsignedDecimalText(trimmed, -2));
 }
 
 export function millisecondsToSecondsText(value: number | undefined): string {
