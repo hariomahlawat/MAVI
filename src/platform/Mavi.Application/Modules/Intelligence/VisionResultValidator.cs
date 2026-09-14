@@ -54,7 +54,7 @@ public sealed class VisionResultValidationException(string reasonCode)
     public string ReasonCode { get; } = reasonCode;
 }
 
-public sealed class VisionResultValidator(VisionRuntimeProvenanceParser provenanceParser)
+public sealed class VisionResultValidator
 {
     private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -79,7 +79,7 @@ public sealed class VisionResultValidator(VisionRuntimeProvenanceParser provenan
         if (videoDurationMs <= 0)
             throw Invalid("video_duration_invalid");
 
-        var provenance = provenanceParser.Parse(request.Provenance);
+        var provenance = VisionRuntimeProvenanceParser.Parse(request.Provenance);
         var trackIds = new HashSet<string>(StringComparer.Ordinal);
         var artifactKeys = new HashSet<string>(StringComparer.Ordinal);
         var tracks = new List<ValidatedTrackResult>(request.Tracks.Count);
