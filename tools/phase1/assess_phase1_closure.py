@@ -28,6 +28,7 @@ from mavi_vision.runtime.qualification import (  # noqa: E402
 )
 
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
+import assemble_production_acceptance as production_acceptance  # noqa: E402
 from policy_identity import (  # noqa: E402
     PolicyIdentityError,
     canonical_acceptance_profile,
@@ -155,6 +156,8 @@ def validate_quality(
     path: Path,
     source_commit: str,
     acceptance_profile_sha256: str,
+    expected_corpus_sha256: str | None,
+    expected_mavi_build: str | None,
 ) -> dict[str, Any]:
     value = load_json(path)
     validate_schema(value, Path(__file__).with_name("phase1-acceptance-evidence.schema.json"))
@@ -163,9 +166,12 @@ def validate_quality(
         value,
         expected_source_commit=source_commit,
         expected_acceptance_profile_sha256=acceptance_profile_sha256,
+        expected_qualification_corpus_sha256=expected_corpus_sha256,
     )
     if value.get("mode") != "formal":
         raise ClosureError("quality_formal_mode_required")
+    if expected_mavi_build is not None and value.get("attestation", {}).get("maviBuild") != expected_mavi_build:
+        raise ClosureError("quality_mavi_build_mismatch")
     metrics = value.get("metrics")
     if (
         not isinstance(metrics, dict)
@@ -187,6 +193,8 @@ def validate_performance(
     path: Path,
     source_commit: str,
     acceptance_profile_sha256: str,
+    acceptance_profile: dict[str, Any],
+    expected_mavi_build: str | None,
 ) -> dict[str, Any]:
     value = load_json(path)
     validate_schema(value, Path(__file__).with_name("recovery-performance-evidence.schema.json"))
@@ -197,16 +205,85 @@ def validate_performance(
         raise ClosureError("performance_schema_invalid")
     if value.get("runtimeVariant") != "linux-x86_64-cuda":
         raise ClosureError("performance_runtime_variant_invalid")
+    if expected_mavi_build is not None and value.get("maviBuild") != expected_mavi_build:
+        raise ClosureError("performance_mavi_build_mismatch")
+    thresholds = acceptance_profile.get("performanceThresholds")
+    if not isinstance(thresholds, dict) or value.get("thresholds") != thresholds:
+        raise ClosureError("performance_thresholds_mismatch")
+    if (
+        value.get("processingFps", 0) < thresholds["minimumProcessingFps"]
+        or value.get("p95EndToEndLatencyMs", float("inf")) > thresholds["maximumP95LatencyMs"]
+        or value.get("memoryGrowthBytes", float("inf")) > thresholds["maximumSoakGrowthBytes"]
+    ):
+        raise ClosureError("performance_recalculation_failed")
     if not _passed_result(value):
         raise ClosureError("performance_not_passed")
+    return value
+
+
+def validate_production_acceptance_record(
+    path: Path,
+    *,
+    source_commit: str,
+    mavi_build: str,
+    manifest_sha256: str,
+    acceptance_profile_sha256: str,
+    application_manifest_sha256: str,
+    fresh_install: Path,
+    offline_update: Path,
+    backup_restore: Path,
+    production_variants: dict[str, Path],
+    production_e2e: Path,
+    variant_bundle_hashes: dict[str, str],
+    variant_lock_hashes: dict[str, str],
+) -> dict[str, Any]:
+    value = load_json(path)
+    validate_schema(
+        value,
+        Path(__file__).with_name("production-acceptance-evidence.schema.json"),
+    )
+    expected_variant_evidence = {
+        variant: sha256_file(production_variants[variant])
+        for variant in production_acceptance.VARIANTS
+    }
+    if (
+        value.get("sourceCommit") != source_commit
+        or value.get("maviBuild") != mavi_build
+        or value.get("verifiedModelManifestSha256") != manifest_sha256
+        or value.get("acceptanceProfileSha256") != acceptance_profile_sha256
+        or value.get("applicationManifestSha256") != application_manifest_sha256
+        or value.get("freshInstallEvidenceSha256") != sha256_file(fresh_install)
+        or value.get("offlineUpdateEvidenceSha256") != sha256_file(offline_update)
+        or value.get("backupRestoreEvidenceSha256") != sha256_file(backup_restore)
+        or value.get("productionVariantEvidenceSha256") != expected_variant_evidence
+        or value.get("productionBundleManifestSha256") != variant_bundle_hashes
+        or value.get("productionReleaseLockSha256") != variant_lock_hashes
+        or value.get("finalE2eEvidenceSha256") != sha256_file(production_e2e)
+        or not _passed_result(value)
+    ):
+        raise ClosureError("production_acceptance_binding_mismatch")
     return value
 
 
 def assess(args: argparse.Namespace) -> dict[str, Any]:
     runtime = load_runtime_profile(args.runtime_profile)
     qualification = load_qualification_record(args.qualification)
-    _, acceptance_profile_sha256 = canonical_acceptance_profile(args.acceptance_profile)
+    canonical_profile_path, acceptance_profile_sha256 = canonical_acceptance_profile(args.acceptance_profile)
+    acceptance_profile = load_json(canonical_profile_path)
+    corpus_sha = acceptance_profile.get("qualificationCorpusManifestSha256")
+    expected_corpus_sha = corpus_sha if isinstance(corpus_sha, str) else None
     supported_updates_policy_sha256 = policy_sha256_file(CANONICAL_SUPPORTED_UPDATES)
+
+    application_manifest_sha256 = None
+    expected_mavi_build = None
+    if args.application_manifest is not None:
+        application_manifest = load_json(args.application_manifest)
+        if application_manifest.get("sourceCommit") != args.source_commit:
+            raise ClosureError("application_manifest_source_commit_mismatch")
+        expected_mavi_build = application_manifest.get("build")
+        if not isinstance(expected_mavi_build, str) or not expected_mavi_build:
+            raise ClosureError("application_manifest_build_invalid")
+        application_manifest_sha256 = sha256_file(args.application_manifest)
 
     pending: list[str] = []
     evidence_hashes: dict[str, str] = {}
@@ -236,6 +313,13 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         "linux-offline-install": args.linux_offline,
         "cctv-quality-baseline": args.quality,
         "linux-nvidia-recovery-performance": args.performance,
+        "application-manifest": args.application_manifest,
+        "production-windows-x86_64-cpu": args.production_windows_cpu,
+        "production-windows-x86_64-cuda": args.production_windows_cuda,
+        "production-linux-x86_64-cpu": args.production_linux_cpu,
+        "production-linux-x86_64-cuda": args.production_linux_cuda,
+        "production-e2e": args.production_e2e,
+        "production-acceptance": args.production_acceptance,
     }
     for name, path in optional_inputs.items():
         if path is None:
@@ -277,6 +361,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         )
         if value.get("os") != "windows":
             raise ClosureError("windows_offline_os_mismatch")
+        if expected_mavi_build is not None and value.get("maviBuild") != expected_mavi_build:
+            raise ClosureError("windows_offline_mavi_build_mismatch")
         evidence_hashes["windows-offline-install"] = sha256_file(args.windows_offline)
     if args.linux_offline is not None:
         value = load_json(args.linux_offline)
@@ -288,13 +374,114 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         )
         if value.get("os") != "linux":
             raise ClosureError("linux_offline_os_mismatch")
+        if expected_mavi_build is not None and value.get("maviBuild") != expected_mavi_build:
+            raise ClosureError("linux_offline_mavi_build_mismatch")
         evidence_hashes["linux-offline-install"] = sha256_file(args.linux_offline)
     if args.quality is not None:
-        validate_quality(args.quality, args.source_commit, acceptance_profile_sha256)
+        validate_quality(
+            args.quality,
+            args.source_commit,
+            acceptance_profile_sha256,
+            expected_corpus_sha,
+            expected_mavi_build,
+        )
         evidence_hashes["cctv-quality-baseline"] = sha256_file(args.quality)
     if args.performance is not None:
-        validate_performance(args.performance, args.source_commit, acceptance_profile_sha256)
+        validate_performance(
+            args.performance,
+            args.source_commit,
+            acceptance_profile_sha256,
+            acceptance_profile,
+            expected_mavi_build,
+        )
         evidence_hashes["linux-nvidia-recovery-performance"] = sha256_file(args.performance)
+
+    production_variant_paths = {
+        "windows-x86_64-cpu": args.production_windows_cpu,
+        "windows-x86_64-cuda": args.production_windows_cuda,
+        "linux-x86_64-cpu": args.production_linux_cpu,
+        "linux-x86_64-cuda": args.production_linux_cuda,
+    }
+    production_bundle_hashes: dict[str, str] = {}
+    production_lock_hashes: dict[str, str] = {}
+    if (
+        expected_mavi_build is not None
+        and all(path is not None for path in production_variant_paths.values())
+    ):
+        manifest_sha = sha256_file(args.manifest)
+        for variant, path in production_variant_paths.items():
+            assert path is not None
+            evidence_sha, bundle_sha, lock_sha = production_acceptance.validate_variant(
+                path,
+                variant=variant,
+                source_commit=args.source_commit,
+                target_manifest_sha256=manifest_sha,
+                acceptance_profile_sha256=acceptance_profile_sha256,
+                mavi_build=expected_mavi_build,
+            )
+            evidence_hashes["production-" + variant] = evidence_sha
+            production_bundle_hashes[variant] = bundle_sha
+            production_lock_hashes[variant] = lock_sha
+
+    final_e2e_sha = None
+    if (
+        args.production_e2e is not None
+        and expected_mavi_build is not None
+        and isinstance(expected_corpus_sha, str)
+        and "linux-x86_64-cuda" in production_bundle_hashes
+    ):
+        final_e2e_sha = production_acceptance.validate_final_e2e(
+            args.production_e2e,
+            source_commit=args.source_commit,
+            target_manifest_sha256=sha256_file(args.manifest),
+            acceptance_profile_sha256=acceptance_profile_sha256,
+            expected_corpus_sha256=expected_corpus_sha,
+            mavi_build=expected_mavi_build,
+            linux_cuda_bundle_sha256=production_bundle_hashes["linux-x86_64-cuda"],
+            linux_cuda_lock_sha256=production_lock_hashes["linux-x86_64-cuda"],
+        )
+        evidence_hashes["production-e2e"] = final_e2e_sha
+
+    if args.backup_restore is not None and final_e2e_sha is not None:
+        production_acceptance.validate_backup(
+            args.backup_restore,
+            source_commit=args.source_commit,
+            acceptance_profile_sha256=acceptance_profile_sha256,
+            final_e2e_sha256=final_e2e_sha,
+        )
+
+    if (
+        args.production_acceptance is not None
+        and expected_mavi_build is not None
+        and application_manifest_sha256 is not None
+        and args.fresh_install is not None
+        and args.offline_update is not None
+        and args.backup_restore is not None
+        and args.production_e2e is not None
+        and all(path is not None for path in production_variant_paths.values())
+        and len(production_bundle_hashes) == 4
+    ):
+        typed_variants = {
+            variant: path
+            for variant, path in production_variant_paths.items()
+            if path is not None
+        }
+        validate_production_acceptance_record(
+            args.production_acceptance,
+            source_commit=args.source_commit,
+            mavi_build=expected_mavi_build,
+            manifest_sha256=sha256_file(args.manifest),
+            acceptance_profile_sha256=acceptance_profile_sha256,
+            application_manifest_sha256=application_manifest_sha256,
+            fresh_install=args.fresh_install,
+            offline_update=args.offline_update,
+            backup_restore=args.backup_restore,
+            production_variants=typed_variants,
+            production_e2e=args.production_e2e,
+            variant_bundle_hashes=production_bundle_hashes,
+            variant_lock_hashes=production_lock_hashes,
+        )
+        evidence_hashes["production-acceptance"] = sha256_file(args.production_acceptance)
 
     # Only a fully promoted release may be called verified.
     promoted = False
@@ -344,6 +531,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pipeline-profile", type=Path, required=True)
     parser.add_argument("--runtime-profile", type=Path, required=True)
     parser.add_argument("--acceptance-profile", type=Path, required=True)
+    parser.add_argument("--application-manifest", type=Path)
     parser.add_argument("--fresh-install", type=Path)
     parser.add_argument("--offline-update", type=Path)
     parser.add_argument("--backup-restore", type=Path)
@@ -351,6 +539,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--linux-offline", type=Path)
     parser.add_argument("--quality", type=Path)
     parser.add_argument("--performance", type=Path)
+    parser.add_argument("--production-windows-cpu", type=Path)
+    parser.add_argument("--production-windows-cuda", type=Path)
+    parser.add_argument("--production-linux-cpu", type=Path)
+    parser.add_argument("--production-linux-cuda", type=Path)
+    parser.add_argument("--production-e2e", type=Path)
+    parser.add_argument("--production-acceptance", type=Path)
     parser.add_argument("--application-lifecycle-schema", type=Path, default=Path(__file__).with_name("application-lifecycle-evidence.schema.json"))
     parser.add_argument("--backup-restore-schema", type=Path, default=Path(__file__).with_name("backup-restore-evidence.schema.json"))
     parser.add_argument("--output", type=Path, required=True)
