@@ -118,7 +118,7 @@ describe('VideoReviewPage', () => {
     expect((video as HTMLVideoElement).currentTime).toBe(200);
 
     expect(video).toHaveAttribute('src', '/api/videos/' + videoId + '/content');
-    expect(screen.getByText('North Gate')).toBeInTheDocument();
+    expect(screen.getByText(/CAM-01.*North Gate/)).toBeInTheDocument();
     expect(screen.getByText(/08:00:00/)).toBeInTheDocument();
   });
 
