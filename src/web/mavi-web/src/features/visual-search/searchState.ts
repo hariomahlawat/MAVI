@@ -98,6 +98,15 @@ function compareCanonicalUtc(left: string, right: string): number {
   return leftFraction === rightFraction ? 0 : leftFraction < rightFraction ? -1 : 1;
 }
 
+export function compareUtcInstants(left: string, right: string): number {
+  const canonicalLeft = canonicalUtc(left);
+  const canonicalRight = canonicalUtc(right);
+  if (!canonicalLeft || !canonicalRight) {
+    throw new RangeError('UTC comparison requires valid explicit UTC instants.');
+  }
+  return compareCanonicalUtc(canonicalLeft, canonicalRight);
+}
+
 function canonicalDuration(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   if (!/^\d+$/.test(raw)) return undefined;
@@ -178,7 +187,7 @@ export function parseCommittedSearch(params: URLSearchParams): SearchParseResult
     filters.toUtc = value;
   }
 
-  if (filters.fromUtc && filters.toUtc && compareCanonicalUtc(filters.fromUtc, filters.toUtc) >= 0) {
+  if (filters.fromUtc && filters.toUtc && compareUtcInstants(filters.fromUtc, filters.toUtc) >= 0) {
     return {
       isValid: false,
       filters,
