@@ -77,10 +77,6 @@ def main() -> int:
             "isolationMethod": args.isolation_method,
             "variants": variants,
             "result": "passed",
-            "variantEvidence": {
-                "cpuSha256": cpu_sha,
-                "cudaSha256": cuda_sha,
-            },
         }
         args.output.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8", newline="\n")
     except (AssembleError, OSError, json.JSONDecodeError, KeyError) as exc:
