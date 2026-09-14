@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/production-prerequisite-observation-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","role","capturedAtUtc","values"],
+  "properties": {
+    "schemaVersion": { "const": "mavi-production-prerequisite-observation-v1" },
+    "role": { "enum": ["windows-operational-plane","database","linux-vision-worker"] },
+    "capturedAtUtc": { "type": "string", "format": "date-time" },
+    "values": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "minProperties": 1
+    }
+  }
+}
