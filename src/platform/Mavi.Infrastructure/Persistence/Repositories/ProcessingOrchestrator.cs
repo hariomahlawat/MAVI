@@ -50,6 +50,33 @@ public sealed class ProcessingOrchestrator(
         return new(true, video.ProcessingStatus.ToString(), row);
     }
 
+    public async Task<ProcessingRunAttestationSource?> GetCompletedRunAttestationAsync(
+        Guid processingRunId,
+        CancellationToken cancellationToken)
+    {
+        if (processingRunId == Guid.Empty)
+            return null;
+
+        return await db.ProcessingRuns
+            .AsNoTracking()
+            .Where(run =>
+                run.Id == processingRunId &&
+                run.Status == ProcessingRunStatus.Completed &&
+                run.CompletedAtUtc != null &&
+                run.RuntimeProvenanceJson != null)
+            .Select(run => new ProcessingRunAttestationSource(
+                run.Id,
+                run.VideoAssetId,
+                run.CompletedAtUtc!.Value,
+                run.PipelineVersion,
+                run.DetectorName,
+                run.DetectorVersion,
+                run.TrackerName,
+                run.TrackerVersion,
+                run.RuntimeProvenanceJson!))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
     // Atomic leasing
     public async Task<VisionLeaseView?> LeaseAsync(string workerId, CancellationToken cancellationToken)
     {
