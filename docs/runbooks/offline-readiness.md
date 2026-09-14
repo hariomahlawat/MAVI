@@ -46,3 +46,8 @@ A promoted release is not yet Phase-1 accepted. Final disconnected acceptance ad
 - backup/restore bound to the exact final formal production E2E.
 
 These proofs are assembled by `tools/phase1/assemble_production_acceptance.py` and independently reopened by `tools/phase1/assess_phase1_closure.py`. Missing or cross-spliced evidence remains pending/fails closed.
+
+
+Final production evidence is one acceptance execution, not a collection of independently clean files. Create a single immutable acceptance context before the final scenarios, checkpoint API/IIS/PostgreSQL logs at that point, and scan only the server/database bytes appended after the checkpoint. Formal, empty-scene and failure/reprocess scenarios must carry the same execution ID/context hash.
+
+Approved prerequisite versions must also be bound to the concrete topology exercised: the Windows prerequisite host identity must match lifecycle evidence, the database identity must match the backup source database, and the Linux prerequisite host identity must match the Linux-CUDA production worker host. Final Linux-CUDA scenarios must recompute and match the qualified virtual-environment fingerprint; the same base Python executable alone is not sufficient.
