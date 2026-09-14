@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
+PHASE1_ROOT = Path(__file__).resolve().parent
 VISION_ROOT = ROOT / "src" / "vision"
-if str(VISION_ROOT) not in sys.path:
-    sys.path.insert(0, str(VISION_ROOT))
+for candidate in (PHASE1_ROOT, VISION_ROOT):
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
 
 from mavi_vision.runtime.manifest import (  # noqa: E402
     ReleaseMetadataError,
@@ -33,6 +35,8 @@ from mavi_vision.runtime.qualification import (  # noqa: E402
     load_runtime_profile,
     verify_release_selection,
 )
+import verify_phase1_evidence as evidence_verifier  # noqa: E402
+from jsonschema import Draft202012Validator  # noqa: E402
 
 
 class PromotionError(ValueError):
@@ -58,6 +62,135 @@ def evidence_passed(value: dict[str, Any]) -> bool:
     return False
 
 
+def _validate_schema(value: dict[str, Any], schema_name: str) -> None:
+    schema_path = PHASE1_ROOT / schema_name
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PromotionError("promotion_schema_unavailable:" + schema_name) from exc
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(value),
+        key=lambda item: list(item.absolute_path),
+    )
+    if errors:
+        raise PromotionError(
+            "promotion_evidence_schema_invalid:"
+            + schema_name
+            + ":"
+            + "/".join(str(x) for x in errors[0].absolute_path)
+        )
+
+
+def _validate_platform_variant_evidence(
+    gate: str,
+    value: dict[str, Any],
+) -> None:
+    _validate_schema(value, "offline-variant-evidence.schema.json")
+    if value.get("variant") != gate:
+        raise PromotionError("promotion_variant_evidence_gate_mismatch:" + gate)
+    if value.get("bundleMode") != "qualification-candidate":
+        raise PromotionError("promotion_variant_evidence_not_candidate:" + gate)
+    if value.get("expectedHostCompatibility") != value.get("observedHostCompatibility"):
+        raise PromotionError("promotion_variant_host_mismatch:" + gate)
+    if (
+        value.get("installExitCode") != 0
+        or value.get("pipCheckPassed") is not True
+        or value.get("runtimeStarted") is not True
+        or value.get("realInferencePassed") is not True
+        or value.get("workerFlowPassed") is not True
+        or value.get("outboundNetworkUnavailable") is not True
+        or value.get("firstRunDownloadObserved") is not False
+        or value.get("result") != "passed"
+    ):
+        raise PromotionError("promotion_variant_evidence_not_passed:" + gate)
+    device = value.get("actualDevice")
+    if gate.endswith("-cpu") and device != "cpu":
+        raise PromotionError("promotion_variant_device_mismatch:" + gate)
+    if gate.endswith("-cuda") and not (
+        isinstance(device, str) and device.startswith("cuda:")
+    ):
+        raise PromotionError("promotion_variant_device_mismatch:" + gate)
+
+
+def _validate_offline_os_evidence(
+    gate: str,
+    value: dict[str, Any],
+    source_commit: str,
+) -> None:
+    _validate_schema(value, "offline-install-evidence.schema.json")
+    evidence_verifier.verify_offline_install(
+        value,
+        expected_source_commit=source_commit,
+    )
+    expected_os = "windows" if gate == "windows-offline-install" else "linux"
+    if value.get("os") != expected_os:
+        raise PromotionError("promotion_offline_os_mismatch:" + gate)
+    if value.get("bundleMode") != "qualification-candidate":
+        raise PromotionError("promotion_offline_evidence_not_candidate:" + gate)
+
+
+def _validate_quality_evidence(
+    value: dict[str, Any],
+    source_commit: str,
+) -> None:
+    _validate_schema(value, "phase1-acceptance-evidence.schema.json")
+    evidence_verifier.verify_acceptance(
+        value,
+        expected_source_commit=source_commit,
+    )
+    metrics = value.get("metrics")
+    if (
+        value.get("mode") != "formal"
+        or not isinstance(metrics, dict)
+        or metrics.get("mode") != "qualification"
+        or metrics.get("qualification", {}).get("passed") is not True
+    ):
+        raise PromotionError("promotion_quality_not_formally_qualified")
+    per_class = metrics.get("perClass")
+    if not isinstance(per_class, dict):
+        raise PromotionError("promotion_quality_per_class_missing")
+    for object_class in ("Person", "Vehicle"):
+        row = per_class.get(object_class)
+        if not isinstance(row, dict) or row.get("groundTruthEventCount", 0) <= 0:
+            raise PromotionError("promotion_quality_class_coverage_missing:" + object_class)
+
+
+def _validate_performance_evidence(
+    value: dict[str, Any],
+) -> None:
+    _validate_schema(value, "recovery-performance-evidence.schema.json")
+    if not evidence_passed(value):
+        raise PromotionError("promotion_performance_not_passed")
+
+
+def validate_gate_evidence(
+    gate: str,
+    value: dict[str, Any],
+    *,
+    source_commit: str,
+) -> None:
+    if value.get("sourceCommit") != source_commit:
+        raise PromotionError("promotion_evidence_source_mismatch:" + gate)
+    if gate in {
+        "windows-x86_64-cpu",
+        "windows-x86_64-cuda",
+        "linux-x86_64-cpu",
+        "linux-x86_64-cuda",
+    }:
+        _validate_platform_variant_evidence(gate, value)
+        return
+    if gate in {"windows-offline-install", "linux-offline-install"}:
+        _validate_offline_os_evidence(gate, value, source_commit)
+        return
+    if gate == "cctv-quality-baseline":
+        _validate_quality_evidence(value, source_commit)
+        return
+    if gate == "linux-nvidia-recovery-performance":
+        _validate_performance_evidence(value)
+        return
+    raise PromotionError("promotion_gate_unknown:" + gate)
+
+
 def load_gate_evidence(
     path: Path,
     *,
@@ -71,10 +204,13 @@ def load_gate_evidence(
         raise PromotionError("promotion_evidence_invalid:" + gate) from exc
     if not isinstance(value, dict):
         raise PromotionError("promotion_evidence_invalid:" + gate)
-    if value.get("sourceCommit") != expected_source_commit:
-        raise PromotionError("promotion_evidence_source_mismatch:" + gate)
-    if not evidence_passed(value):
-        raise PromotionError("promotion_evidence_not_passed:" + gate)
+
+    validate_gate_evidence(
+        gate,
+        value,
+        source_commit=expected_source_commit,
+    )
+
     return {
         "kind": "task17-evidence",
         "reference": path.name,
