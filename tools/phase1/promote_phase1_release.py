@@ -36,6 +36,7 @@ from mavi_vision.runtime.qualification import (  # noqa: E402
     verify_release_selection,
 )
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
+from compute_target_verified_manifest import build_target_manifest, sha256_bytes as target_sha256_bytes  # noqa: E402
 from jsonschema import Draft202012Validator  # noqa: E402
 
 
@@ -168,9 +169,12 @@ def validate_gate_evidence(
     value: dict[str, Any],
     *,
     source_commit: str,
+    target_verified_manifest_sha256: str,
 ) -> None:
     if value.get("sourceCommit") != source_commit:
         raise PromotionError("promotion_evidence_source_mismatch:" + gate)
+    if value.get("targetVerifiedManifestSha256") != target_verified_manifest_sha256:
+        raise PromotionError("promotion_evidence_target_manifest_mismatch:" + gate)
     if gate in {
         "windows-x86_64-cpu",
         "windows-x86_64-cuda",
@@ -196,6 +200,7 @@ def load_gate_evidence(
     *,
     gate: str,
     expected_source_commit: str,
+    target_verified_manifest_sha256: str,
 ) -> dict[str, str]:
     try:
         payload = path.read_bytes()
@@ -209,6 +214,7 @@ def load_gate_evidence(
         gate,
         value,
         source_commit=expected_source_commit,
+        target_verified_manifest_sha256=target_verified_manifest_sha256,
     )
 
     return {
@@ -275,6 +281,12 @@ def build_promoted_metadata(
 
     _assert_runtime_ready(runtime_raw)
 
+    qualification_id = qualification_raw.get("qualificationId")
+    if not isinstance(qualification_id, str) or not qualification_id:
+        raise PromotionError("promotion_qualification_id_invalid")
+    target_manifest_bytes = build_target_manifest(manifest_raw, qualification_id)
+    target_manifest_sha = target_sha256_bytes(target_manifest_bytes)
+
     missing = [
         gate
         for gate in sorted(MANDATORY_QUALIFICATION_GATES)
@@ -290,6 +302,7 @@ def build_promoted_metadata(
             path,
             gate=gate,
             expected_source_commit=expected_source_commit,
+            target_verified_manifest_sha256=target_manifest_sha,
         )
         gates[gate] = "passed"
 
@@ -298,14 +311,8 @@ def build_promoted_metadata(
     if any(gate not in evidence for gate in MANDATORY_QUALIFICATION_GATES):
         raise PromotionError("promotion_gate_evidence_missing")
 
-    manifest = dict(manifest_raw)
-    qualification_id = qualification_raw.get("qualificationId")
-    if not isinstance(qualification_id, str) or not qualification_id:
-        raise PromotionError("promotion_qualification_id_invalid")
-    manifest["verificationStatus"] = "verified"
-    manifest["qualificationId"] = qualification_id
-    manifest_bytes = canonical_json(manifest)
-    final_manifest_sha = sha256_bytes(manifest_bytes)
+    manifest_bytes = target_manifest_bytes
+    final_manifest_sha = target_manifest_sha
 
     qualification = dict(qualification_raw)
     qualification["modelManifestSha256"] = final_manifest_sha
