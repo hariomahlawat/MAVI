@@ -138,7 +138,7 @@ public sealed class ConfigurationValidationTests
             ["MediaProcessing:FfprobePath"] = "ffprobe",
             ["MediaProcessing:FfmpegPath"] = "ffmpeg",
             ["MediaProcessing:ProbeTimeoutSeconds"] = "30",
-            ["VideoImport:MaximumFileSizeBytes"] = "10737418240",
+            ["VideoImport:MaximumFileSizeBytes"] = "3221225472",
             ["VideoImport:MultipartOverheadBytes"] = "1048576",
             ["VideoImport:AllowedExtensions:0"] = ".mp4",
             ["Localization:DefaultDisplayTimeZoneId"] = "Asia/Kolkata",
