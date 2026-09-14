@@ -1,10 +1,10 @@
-import { Navigate, createBrowserRouter } from 'react-router-dom';
+import { Navigate, createBrowserRouter, type RouteObject } from 'react-router-dom';
 import AppShell from './AppShell';
 import CamerasPage from '../features/cameras/CamerasPage';
 import VideoImportPage from '../features/video-import/VideoImportPage';
 import ProcessingPage from '../features/processing/ProcessingPage';
 
-export const router = createBrowserRouter([
+export const appRoutes: RouteObject[] = [
   {
     path: '/',
     element: <AppShell />,
@@ -24,4 +24,6 @@ export const router = createBrowserRouter([
       },
     ],
   },
-]);
+];
+
+export const router = createBrowserRouter(appRoutes);
