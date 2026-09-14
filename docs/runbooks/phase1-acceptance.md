@@ -50,13 +50,14 @@ Formal runs require a target-containing corpus. Empty-scene diagnostic runs are 
 
 ## Application artifact and offline lifecycle
 
-Create the application artifact manifest after publishing MAVI:
+Publish MAVI with an immutable build identity compiled into `Mavi.Api.dll`, then create the application artifact manifest with the same identities:
 
 ~~~text
+dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:MaviBuild=<build-id> -p:MaviCommit=<exact-commit> -o <published-root>
 python tools/phase1/build_application_artifact_manifest.py --artifact-root <published-root> --source-commit <exact-commit> --build <build-id> --output <published-root>/mavi-application-manifest.json
 ~~~
 
-The deployed host must set MAVI_BUILD and MAVI_COMMIT. GET /api/health must independently report those values.
+`GET /api/health` reads `MaviBuild` and `MaviCommit` from compile-time assembly metadata. Do not set environment variables to manufacture build identity. The lifecycle qualifier compares the manifest identity with the independently reported running binary identity; relabeling manifest JSON without rebuilding the binary must fail. `unknown-development` is never a formal promotion/production identity.
 
 For fresh install use tools/phase1/qualify_application_lifecycle.ps1 with Mode=fresh-install against a clean/reprovisioned Windows/IIS destination. A pre-existing deployment is not acceptable.
 
@@ -81,7 +82,9 @@ Required variants:
 
 Each variant qualification verifies all bundle hashes, source commit, full frozen hostCompatibility, exact CPython patch version, unavailable outbound Internet, clean venv, strict no-index/hash-only installation, pip check, real local RTMDet inference, required actual device and full worker-flow evidence for the same variant.
 
-Use tools/phase1/qualify_windows_offline.ps1 for Windows CPU+CUDA and tools/phase1/qualify_linux_offline.sh for Linux CPU+CUDA. Both wrappers require the frozen `config/acceptance/phase1-acceptance-v1.json` so worker-flow, variant and OS-level evidence retain the exact acceptance-policy SHA-256. Worker-flow evidence must come from the same exact candidate bundle/lock and attested runtime platform as the qualification host.
+Use tools/phase1/qualify_windows_offline.ps1 for Windows CPU+CUDA and tools/phase1/qualify_linux_offline.sh for Linux CPU+CUDA. Both wrappers require the frozen `config/acceptance/phase1-acceptance-v1.json`, the controlled qualification media/corpus, the MAVI API/media root, and the frozen MAVI build identity.
+
+The variant qualifier creates a clean venv, installs the exact bundle lock with no-index/hash-only semantics, and then launches `mavi_vision.worker.main` from that newly installed venv. While that exact worker process is alive it runs the public-API E2E harness and generates the worker-flow evidence itself. A previously generated/detached worker-evidence JSON is not accepted. Variant evidence retains the installed Python executable SHA-256, worker-command SHA-256, worker-log SHA-256, worker-flow evidence SHA-256, bundle/lock identities, host identity, device and MAVI build.
 
 A CPU run never substitutes for CUDA. A CUDA run that falls back to CPU fails.
 
@@ -105,7 +108,7 @@ Finalize with tools/phase1/qualify_backup_restore.py finalize. Restore evidence 
 
 tools/phase1/verify_phase1_evidence.py performs schema and semantic validation on transferred evidence.
 
-tools/phase1/assess_phase1_closure.py is the final truth-state assessor. Before real-world evidence exists it must report implementation-complete-evidence-pending. Use --require-complete only when expecting release-verified.
+`tools/phase1/assess_phase1_closure.py` is the final truth-state assessor. Before real-world evidence exists it must report `implementation-complete-evidence-pending`. Promotion alone is not closure: the assessor also requires the application manifest, four production variant evidence files, final production E2E and the independently assembled production-acceptance record. It re-hashes the underlying files and compares them to that record before allowing `release-verified`. Use `--require-complete` only when expecting final production acceptance.
 
 The assessor must never be weakened merely to remove a pending item.
 
@@ -113,15 +116,26 @@ The assessor must never be weakened merely to remove a pending item.
 
 Do not hand-edit pending release metadata to verified.
 
-After every mandatory qualification gate has real evidence and the runtime is fully qualified, use tools/phase1/promote_phase1_release.py. The promotion constructor requires exact-source evidence, all four qualified runtime variants and locks, preserves mandatory gate names, constructs deterministic final manifest/qualification bytes and re-runs canonical release selection.
+After every mandatory qualification gate has real evidence and the runtime is fully qualified, use `tools/phase1/promote_phase1_release.py`.
 
-Promotion must be status/evidence-only. Any model/config/profile/runtime behavior change invalidates earlier evidence.
+Promotion requires **all eight mandatory gate evidence files again**, even if the pending qualification record already contains an older `passed` entry. It never grandfathers prior evidence references. Supply the canonical acceptance profile, the exact approved corpus manifest and ground-truth manifest, the frozen MAVI build identity, and one `--gate-evidence gate=path` argument for every mandatory gate. Promotion re-hashes and schema-validates every supplied object, requires the canonical corpus/media/ground-truth relationship, recomputes the performance threshold decision from the canonical profile, verifies cross-gate source/build/profile/target-manifest identities, reconstructs deterministic final manifest/qualification bytes and re-runs canonical release selection.
+
+Promotion must be status/evidence-only. Any model/config/profile/runtime/application-build behavior change invalidates earlier evidence.
 
 ## Production bundles and final acceptance
 
-After promotion: build production bundles for all four variants; run disconnected production-mode smoke on every exact bundle; execute final production-topology acceptance on Windows/IIS plus Linux NVIDIA; execute fresh-install and update proofs; execute formal target-containing E2E; execute empty-scene diagnostic and failure/reprocess; execute backup/restore; verify no Internet, telemetry or licence dependency; retain immutable evidence hashes.
+After promotion:
 
-Candidate-bundle evidence does not replace post-promotion production-bundle smoke.
+1. build **production** bundles for all four Windows/Linux CPU/CUDA variants;
+2. run `qualify_offline_variant.py`/the OS wrappers against each exact production bundle so the worker-flow proof is generated from the exact installed production venv;
+3. execute the final production-topology target-containing E2E on Windows/IIS plus the exact Linux NVIDIA/CUDA production bundle, with `--expected-mavi-build <build-id>`;
+4. require that production E2E attestation carries the promoted platform lock and exact Linux-CUDA `productionBundleManifestSha256`;
+5. execute fresh-install and supported offline-update proofs for the exact compiled application artifact;
+6. execute backup/restore **using the final production E2E evidence as the accepted case**, so the final backup evidence's `acceptanceEvidenceSha256` equals the exact final-E2E file hash;
+7. assemble `mavi-phase1-production-acceptance-evidence-v1` with `tools/phase1/assemble_production_acceptance.py`, supplying the exact application artifact+manifest, fresh/update evidence, all four production variant evidence files, final E2E evidence and final backup/restore evidence;
+8. pass those underlying files plus the resulting production-acceptance record to `assess_phase1_closure.py`.
+
+`release-verified` is impossible unless closure independently reopens and reconciles those production artifacts. Candidate-bundle evidence never substitutes for post-promotion production-bundle execution.
 
 ## Engineering stopping rule
 
