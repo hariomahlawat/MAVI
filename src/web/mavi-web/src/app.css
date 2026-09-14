@@ -126,6 +126,7 @@ input:disabled, select:disabled { opacity: 0.65; cursor: not-allowed; }
 .alert--success { border-color: #166534; background: #052e16; color: #bbf7d0; }
 .alert--warning { border-color: #92400e; background: #451a03; color: #fde68a; }
 .alert--error { border-color: #991b1b; background: #450a0a; color: #fecaca; }
+.inline-alert-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 
 .loading-state { margin: 16px 0; color: #94a3b8; }
 .empty-state { display: grid; place-items: start; gap: 4px; padding: 20px 0; color: #94a3b8; }
