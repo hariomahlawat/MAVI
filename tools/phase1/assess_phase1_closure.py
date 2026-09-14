@@ -255,6 +255,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             args.offline_update,
             expected_mode="offline-update",
             source_commit=args.source_commit,
+            supported_updates_policy_sha256=supported_updates_policy_sha256,
             schema_path=args.application_lifecycle_schema,
         )
         evidence_hashes["offline-update"] = sha256_file(args.offline_update)
