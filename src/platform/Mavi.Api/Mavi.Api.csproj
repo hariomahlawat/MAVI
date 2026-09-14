@@ -26,7 +26,7 @@
     <ItemGroup>
       <_MaviFrontendFiles Include="$(MaviFrontendDirectory)/dist/**/*" />
       <ResolvedFileToPublish Include="@(_MaviFrontendFiles)">
-        <RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <RelativePath>wwwroot/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
         <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
       </ResolvedFileToPublish>
