@@ -116,20 +116,32 @@ def test_log_inspection_rejects_worker_log_from_other_execution(
     tmp_path: Path,
     monkeypatch,
 ):
+    roles = (
+        "api", "iis", "postgres",
+        "formal-worker", "empty-worker", "failure-worker",
+    )
+    paths = {}
+    entries = []
+    for role in roles:
+        path = tmp_path / f"{role}.log"
+        payload = f"{role} clean local log\n".encode()
+        path.write_bytes(payload)
+        paths[role] = path
+        entries.append({
+            "role": role,
+            "path": path.name,
+            "sizeBytes": len(payload),
+            "sha256": mod.hashlib.sha256(payload).hexdigest(),
+        })
+
     value = {
         "sourceCommit": "a" * 40,
         "maviBuild": "build-a",
         "formalE2eSha256": "1" * 64,
         "emptySceneDiagnosticSha256": "2" * 64,
         "failureReprocessSha256": "3" * 64,
-        "logs": [
-            {"role": "api", "sha256": "a" * 64},
-            {"role": "iis", "sha256": "b" * 64},
-            {"role": "postgres", "sha256": "c" * 64},
-            {"role": "formal-worker", "sha256": "d" * 64},
-            {"role": "empty-worker", "sha256": "e" * 64},
-            {"role": "failure-worker", "sha256": "f" * 64},
-        ],
+        "allowedHosts": ["localhost", "127.0.0.1", "::1"],
+        "logs": entries,
         "result": {
             "passed": True,
             "externalUrlHits": [],
@@ -140,18 +152,28 @@ def test_log_inspection_rejects_worker_log_from_other_execution(
     path = tmp_path / "logs.json"
     path.write_text(json.dumps(value), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+
     with pytest.raises(
         mod.ProductionAcceptanceError,
         match="production_log_inspection_binding_failed",
     ):
         mod.validate_log_inspection(
             path,
+            log_paths=paths,
             source_commit="a" * 40,
             mavi_build="build-a",
             formal_e2e_sha256="1" * 64,
             empty_e2e_sha256="2" * 64,
             failure_sha256="3" * 64,
             formal_worker_log_sha256="9" * 64,
-            empty_worker_log_sha256="e" * 64,
-            failure_worker_log_sha256="f" * 64,
+            empty_worker_log_sha256=next(
+                item["sha256"]
+                for item in entries
+                if item["role"] == "empty-worker"
+            ),
+            failure_worker_log_sha256=next(
+                item["sha256"]
+                for item in entries
+                if item["role"] == "failure-worker"
+            ),
         )
