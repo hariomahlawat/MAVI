@@ -9,6 +9,9 @@ public sealed record ProcessingRunAttestationSource(
     string? DetectorVersion,
     string? TrackerName,
     string? TrackerVersion,
+    long FramesProcessed,
+    int TracksCreated,
+    long ProcessingDurationMs,
     string? RuntimeProvenanceJson);
 
 public sealed record QueueProcessingResult(bool IsSuccess, Guid? ProcessingRunId, string? ErrorCode);
