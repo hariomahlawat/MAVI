@@ -270,7 +270,7 @@ function decimalScaleByPowerOfTen(value: number, power: number): string {
   const [integerPart, fractionalPart = ''] = mantissa.split('.');
   const sign = integerPart.startsWith('-') ? '-' : '';
   const unsignedInteger = sign ? integerPart.slice(1) : integerPart;
-  const digits = (unsignedInteger + fractionalPart).replace(/^0+(?=\d)/, '');
+  const digits = unsignedInteger + fractionalPart;
   const decimalPosition = unsignedInteger.length + exponent + power;
 
   let scaled: string;
