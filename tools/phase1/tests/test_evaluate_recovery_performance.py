@@ -19,6 +19,7 @@ def observation():
         "sourceCommit": "a" * 40,
         "targetVerifiedManifestSha256": "c" * 64,
         "acceptanceProfileSha256": "b" * 64,
+        "maviBuild": "build-a",
         "runtimeVariant": "linux-x86_64-cuda",
         "actualDevice": "cuda:0",
         "noTrackStateLeakAcrossVideos": True,
