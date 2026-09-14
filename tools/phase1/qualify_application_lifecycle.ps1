@@ -141,31 +141,15 @@ if ($Mode -eq "fresh-install") {
     $priorManifestPath = Join-Path $Destination "mavi-application-manifest.json"
     if (-not (Test-Path -LiteralPath $priorManifestPath -PathType Leaf)) { throw "update_prior_manifest_missing" }
 
-    $priorManifest = Get-Content -LiteralPath $priorManifestPath -Raw | ConvertFrom-Json
-    $policy = Get-Content -LiteralPath $SupportedUpdatesPath -Raw | ConvertFrom-Json
-    if ($policy.schemaVersion -ne "mavi-phase1-supported-updates-v1") { throw "supported_updates_policy_invalid" }
+    $priorValidationJson = & $Python "$PSScriptRoot\validate_supported_update.py" --policy $SupportedUpdatesPath --prior-manifest $priorManifestPath --prior-root $Destination
+    if ($LASTEXITCODE -ne 0) { throw "update_prior_release_validation_failed" }
+    $priorValidation = $priorValidationJson | ConvertFrom-Json
+    if (-not $priorValidation.ok) { throw "update_prior_release_validation_failed" }
 
-    $supported = @($policy.priorReleases | Where-Object { $_.sourceCommit -eq $priorManifest.sourceCommit })
-    if ($supported.Count -ne 1) { throw "update_prior_release_not_supported" }
-
-    $migrationPolicy = [string]$supported[0].migrationPolicy
-    if ($migrationPolicy -notin @("none", "required")) { throw "update_migration_policy_invalid" }
-
-    $priorManifestSha = Get-Sha256 $priorManifestPath
-    $expectedPriorManifestSha = [string]$supported[0].applicationManifestSha256
-    if (-not $expectedPriorManifestSha -or $expectedPriorManifestSha -notmatch '^[0-9a-f]{64}$') { throw "update_prior_release_identity_not_frozen" }
-    if ($priorManifestSha -ne $expectedPriorManifestSha) { throw "update_prior_release_manifest_mismatch" }
-
-    $priorVerifyArgs = @(
-        "$PSScriptRoot\build_application_artifact_manifest.py",
-        "--artifact-root", $Destination,
-        "--source-commit", "0000000000000000000000000000000000000000",
-        "--build", "verify-only-placeholder",
-        "--output", $priorManifestPath,
-        "--verify-only"
-    )
-    & $Python @priorVerifyArgs
-    if ($LASTEXITCODE -ne 0) { throw "update_prior_release_integrity_failed" }
+    $migrationPolicy = [string]$priorValidation.migrationPolicy
+    $priorManifestSha = [string]$priorValidation.applicationManifestSha256
+    $priorCommit = [string]$priorValidation.sourceCommit
+    $priorBuild = [string]$priorValidation.build
 
     if (-not $PreUpdateAcceptanceEvidence -or -not (Test-Path -LiteralPath $PreUpdateAcceptanceEvidence -PathType Leaf)) { throw "update_pre_state_evidence_missing" }
 
@@ -173,12 +157,11 @@ if ($Mode -eq "fresh-install") {
     $postStateOutput = "$EvidenceOutput.post-update-state.json"
     if ((Test-Path -LiteralPath $preStateOutput) -or (Test-Path -LiteralPath $postStateOutput)) { throw "update_state_check_output_exists" }
 
-    $priorCommit = [string]$priorManifest.sourceCommit
     Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $priorCommit -Output $preStateOutput
 
     $priorRelease = [ordered]@{
         sourceCommit = $priorCommit
-        build = [string]$priorManifest.build
+        build = $priorBuild
         applicationManifestSha256 = $priorManifestSha
         supported = $true
     }
