@@ -15,7 +15,7 @@ CUDA bundle qualification remains pending hardware qualification. Task 12 does n
 
 ### Qualification candidate
 
-A qualification-candidate bundle is integrity checked and fully installable from local wheel bytes, but it may carry an `unverified` manifest and `pending` qualification record. It exists so Task 14 can execute true network-disconnected and hardware qualification.
+A qualification-candidate bundle is integrity checked and fully installable from local wheel bytes, but it may carry an `unverified` manifest and `pending` qualification record. It exists so Task 17 can execute true network-disconnected and hardware qualification.
 
 It must not be represented as a production-qualified release.
 
@@ -123,4 +123,4 @@ Task 12 does not define organizational signing/PKI. A future signing layer must 
 
 The hosted Task-12 workflow proves reproducible wheel locking, no-index installation, compiled-runtime import and local model smoke with invalid proxy endpoints as an accidental-network tripwire.
 
-That is not the formal disconnected-install qualification. Task 14 still executes installation and real inference with network connectivity disabled and records the Windows/Linux qualification evidence.
+That is not the formal disconnected-install qualification. Task 17 owns installation and real inference with network connectivity disabled and records the Windows/Linux qualification evidence.
