@@ -374,6 +374,8 @@ Reject non-finite/out-of-range values; do not silently clamp.
 
 This is a correctness boundary.
 
+Task 16 updates ADR-004 to align the accepted time architecture with the already-shipped Task-14 UTC-only search API. The API boundary remains UTC. React may convert operator-entered wall time to a UTC boundary **only** through the central explicit-IANA-zone conversion utility defined here; browser timezone inference and fixed-offset arithmetic remain prohibited. This is a deliberate ADR amendment, not an accidental frontend assumption.
+
 Task-14 accepts explicit UTC instants.
 
 Task-16 must not let browser local timezone become an implicit authority.
@@ -431,7 +433,13 @@ Time input controls remain disabled until `displayTimeZoneId` has loaded success
 
 Committed `fromUtc`/`toUtc` values in the URL shall be normalized explicit UTC strings ending in `Z`.
 
-The UI reconstructs configured-zone display values from those committed UTC instants.
+The UI reconstructs configured-zone display/input values from those committed UTC instants using a dedicated inverse helper:
+
+`configuredUtcToWallTime(utcValue, displayTimeZoneId)`
+
+This helper must use `Intl.DateTimeFormat.formatToParts` with the explicit configured IANA zone and emit the canonical `datetime-local` wall representation. It must not use browser-local Date getters or UTC-string slicing as a substitute for configured-zone conversion.
+
+Cold URL load, Back/Forward navigation and Reset/recommit behavior must all use this inverse conversion when rehydrating From/To draft controls.
 
 ### 9.5 Validation
 
@@ -609,13 +617,19 @@ This avoids duplicate state ownership.
 
 ## 14. Review-page identity safety
 
-After Track detail resolves:
+After Track detail resolves, compare canonical GUID identity rather than raw string spelling.
 
-if:
+Both identities must first pass the existing standard GUID-shape validation and then be normalized to lowercase canonical hyphenated text for comparison.
 
-`detail.videoAssetId !== routeVideoAssetId`
+Conceptually:
 
-render an invalid-target error and do not mount/play the source video.
+`normalizeGuid(detail.videoAssetId) !== normalizeGuid(routeVideoAssetId)`
+
+means invalid review target.
+
+This explicitly allows equivalent uppercase/lowercase GUID spellings while still failing closed when durable identities differ.
+
+On mismatch, render an invalid-target error and do not mount/play the source video.
 
 This guards malformed/stale copied URLs and future routing mistakes.
 
@@ -674,10 +688,20 @@ The implementation must guard:
 
 - repeated `loadedmetadata` events;
 - route changes from one Track to another;
+- **same-source Track changes where `videoContentUrl` does not change and `loadedmetadata` will not fire again**;
 - stale event handlers from a previous Track;
 - invalid/non-finite duration;
 - invalid negative offsets despite backend guarantees;
 - media load failure.
+
+Seeking must be keyed to the selected Track identity/start offset, not only to a media-source change.
+
+When the selected Track changes:
+
+1. compute a new seek identity from the Track ID and start offset;
+2. if the existing video element already has metadata (`readyState >= HTMLMediaElement.HAVE_METADATA`), apply the new seek immediately;
+3. otherwise wait for the matching source's `loadedmetadata`;
+4. ignore stale handlers/effects belonging to a previous Track/source.
 
 The seek helper should be independently testable.
 
@@ -901,7 +925,8 @@ Write RED tests for:
 - zero clamp;
 - duration clamp;
 - repeated metadata event;
-- route change;
+- route change across different videos;
+- **same-video Track A -> Track B change after metadata is already loaded, proving the seek updates without another `loadedmetadata` event**;
 - media error.
 
 Then implement Review.
@@ -992,7 +1017,11 @@ At minimum:
 - ambiguous DST wall time rejected;
 - browser timezone does not affect result;
 - round-trip candidate matching returns exactly one valid instant;
-- time controls do not use browser-timezone fallback when system config is unavailable.
+- time controls do not use browser-timezone fallback when system config is unavailable;
+- UTC -> configured-wall inverse conversion for cold URL hydration;
+- UTC -> configured-wall inverse conversion after Back/Forward;
+- inverse conversion with browser timezone different from configured zone;
+- inverse conversion on dates around DST transitions.
 
 ### Visual Search
 
