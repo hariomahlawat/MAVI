@@ -2,7 +2,7 @@
 
 **Status:** Normative addendum to `2026-09-14-task-17-phase1-hardening-qualification-acceptance.md`.
 
-This addendum closes four qualification-proof gaps identified during the PR #37 six-dimension engineering audit. Where this addendum is stricter or more explicit than the earlier Task-17 planning text, this addendum controls. It does not expand Phase-1 product functionality; it makes existing qualification claims provable.
+This addendum closes six qualification-proof gaps identified during the PR #37 internal/final-review cycle. Where this addendum is stricter or more explicit than the earlier Task-17 planning text, this addendum controls. It does not expand Phase-1 product functionality; it makes existing qualification claims provable.
 
 ---
 
@@ -122,23 +122,75 @@ Required regression coverage includes:
 
 ---
 
-## E. Definition-of-done amendment
+## E. Offline application installation/update must exercise the exact accepted artifact
+
+ADR-003 requires offline installation and update procedures to be testable. Final Phase-1 acceptance shall therefore prove deployment of the exact accepted MAVI application artifact, not merely hash an artifact while using a pre-existing IIS deployment.
+
+The final disconnected acceptance shall:
+
+1. receive the versioned MAVI application deployment artifact through controlled offline media;
+2. compute and retain its SHA-256 before deployment;
+3. deploy or update those exact bytes onto a clean/reprovisioned production-representative Windows/IIS application plane with outbound Internet unavailable;
+4. retain the deployment mechanism/tool version, command/configuration identity, exit result and destination identity;
+5. start Mavi.Api only after that deployment/update step;
+6. independently observe the running application build/commit identity and require it to match the accepted artifact/release identity;
+7. prove the deployed React/static assets and API operate without remote dependencies.
+
+The proof fails closed if the deployment requires Internet connectivity, silently reuses a prior application deployment, substitutes different bytes, cannot reproduce the intended update path, or the running build identity differs from the accepted artifact.
+
+Required negative coverage includes: valid artifact hash + old pre-existing IIS deployment -> **cannot pass**.
+
+---
+
+## F. Offline backup and restore must be exercised before Phase-1 acceptance
+
+ADR-003 also requires backup and restore procedures to be testable. Reprocessing a failed vision run is not a substitute for disaster-recovery proof.
+
+After a successful controlled acceptance case has produced authoritative state, the final disconnected acceptance shall execute an offline backup and clean-target restore using only local/approved network storage.
+
+The backup set shall cover, at minimum, every authoritative store required to reconstruct the accepted case:
+
+- PostgreSQL/pgvector authoritative database state;
+- managed source-video storage;
+- platform-owned accepted evidence/artifact storage;
+- any required local configuration/metadata whose loss would make the retained authoritative rows or artifacts unusable, excluding secrets that must be reprovisioned through the approved security process.
+
+Backup evidence shall record exact tool/version identities, commands/configuration, source identities, backup-set file manifest, byte sizes and SHA-256 hashes. Restore shall occur into a clean/reprovisioned target rather than over the still-working source deployment.
+
+After restore, acceptance shall independently revalidate:
+
+- Camera, VideoAsset, ProcessingRun, Track and Artifact IDs and required relationships;
+- managed source bytes by full SHA-256 + strong ETag against the pre-backup accepted media identity;
+- representative evidence bytes by SHA-256 + strong ETag;
+- Track search and Track detail for the retained accepted run;
+- completed-run attestation/release provenance;
+- API/UI/search/evidence-retrieval operation without Internet connectivity.
+
+The proof fails if any authoritative store is omitted, required IDs/relationships are lost, restored bytes differ, search/evidence bindings break, restore depends on Internet access/unrecorded external state, or the post-restore product smoke cannot operate from restored state.
+
+Required negative coverage includes an intentionally incomplete backup-set manifest (for example DB-only without managed media/evidence), which must be rejected before a restore can be accepted.
+
+---
+
+## G. Definition-of-done amendment
 
 Task 17 cannot be declared fully complete unless, in addition to the main plan's existing Definition of Done:
 
 - every scored annotation set is cryptographically/semantically bound to the exact processed media and authoritative duration before scoring;
 - Windows CPU and CUDA functional qualification exercise the real worker -> detector -> ByteTrack -> secure native-Windows staging/publication path required by the accepted Task-10 contract;
 - every candidate and production qualification host satisfies the complete frozen host-compatibility/native-ABI contract for its selected bundle;
-- formal CCTV-quality evidence contains nonzero reviewed coverage and approved passing policy for both Person and Vehicle.
+- formal CCTV-quality evidence contains nonzero reviewed coverage and approved passing policy for both Person and Vehicle;
+- the exact hashed MAVI application artifact is actually deployed/updated on the disconnected Windows/IIS plane and the running build identity matches it;
+- offline backup and clean-target restore of PostgreSQL plus all required managed media/evidence stores is executed and post-restore integrity/functionality is revalidated.
 
 These are acceptance-proof requirements. They must not be weakened to make unavailable evidence appear complete.
 
 ---
 
-## F. Review closure rule
+## H. Review closure rule
 
 The engineering acceptance and stopping rule is recorded in:
 
 `docs/superpowers/plans/2026-09-14-pr37-engineering-acceptance-review.md`
 
-After these four proof gaps are implemented in the authoritative Task-17 contracts, PR #37 shall undergo one final broad exact-head review. New comments are triaged against accepted requirements; only genuine material blockers keep the PR open. Optional hardening or scope expansion is recorded separately rather than extending the review indefinitely.
+After these six proof gaps are implemented in the authoritative Task-17 contracts, PR #37 shall undergo one final broad exact-head review. New comments are triaged against accepted requirements; only genuine material blockers keep the PR open. Optional hardening or scope expansion is recorded separately rather than extending the review indefinitely.
