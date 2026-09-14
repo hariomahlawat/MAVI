@@ -23,6 +23,7 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("vector");
+        modelBuilder.HasSequence<long>(ProcessingVisibilityBarrier.SequenceName);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(MaviDbContext).Assembly);
     }
 }

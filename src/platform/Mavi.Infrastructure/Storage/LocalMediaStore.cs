@@ -241,7 +241,9 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
             checked((uint)buffer.Length),
             0);
         if (length == 0)
-            throw new Win32Exception(Marshal.GetLastWin32Error());
+            throw new UnsafeMediaPathException(
+                "Unable to resolve the opened file identity.",
+                new Win32Exception(Marshal.GetLastWin32Error()));
 
         if (length >= buffer.Length)
         {
@@ -252,7 +254,9 @@ public sealed class LocalMediaStore : IMediaStore, ILocalMediaPathResolver
                 checked((uint)buffer.Length),
                 0);
             if (length == 0 || length >= buffer.Length)
-                throw new Win32Exception(Marshal.GetLastWin32Error());
+                throw new UnsafeMediaPathException(
+                    "Unable to resolve the opened file identity.",
+                    new Win32Exception(Marshal.GetLastWin32Error()));
         }
 
         var path = new string(buffer, 0, checked((int)length));

@@ -100,6 +100,16 @@ public sealed class ProcessingRun
         CompletedAtUtc = completedAtUtc.ToUniversalTime();
     }
 
+    public void AssignCompletionVisibilitySequence(long visibilitySequence)
+    {
+        if (Status != ProcessingRunStatus.Completed ||
+            VisibilitySequence is not null ||
+            visibilitySequence <= 0)
+            throw Invalid("processing_visibility_sequence_invalid");
+
+        VisibilitySequence = visibilitySequence;
+    }
+
     public void MarkFailed(string errorCode, string? details, DateTimeOffset failedAtUtc)
     {
         if (Status is ProcessingRunStatus.Completed or ProcessingRunStatus.Cancelled || string.IsNullOrWhiteSpace(errorCode))
@@ -125,6 +135,7 @@ public sealed class ProcessingRun
     public DateTimeOffset QueuedAtUtc { get; private set; }
     public DateTimeOffset? StartedAtUtc { get; private set; }
     public DateTimeOffset? CompletedAtUtc { get; private set; }
+    public long? VisibilitySequence { get; private set; }
     public long FramesProcessed { get; private set; }
     public int TracksCreated { get; private set; }
     public long? ProcessingDurationMs { get; private set; }

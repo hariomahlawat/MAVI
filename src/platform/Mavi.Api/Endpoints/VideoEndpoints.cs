@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Contracts.Api.Processing;
+using Mavi.Application.Modules.Evidence;
 
 namespace Mavi.Api.Endpoints;
 
@@ -20,6 +21,7 @@ public static class VideoEndpoints
         videos.MapGet("/{id:guid}", GetAsync).WithName("GetVideo");
         videos.MapPost("/{id:guid}/process", ProcessAsync);
         videos.MapGet("/{id:guid}/processing", ProcessingAsync);
+        videos.MapGet("/{id:guid}/content", ContentAsync);
         return endpoints;
     }
 
@@ -66,6 +68,29 @@ public static class VideoEndpoints
         var result = await orchestrator.GetStatusAsync(id, cancellationToken);
         return result.Found ? Results.Ok(new { videoStatus = result.VideoStatus, latestRun = result.LatestRun })
             : Problem(404, "video_not_found", "Video was not found.");
+    }
+
+    private static async Task<IResult> ContentAsync(
+        Guid id,
+        HttpContext context,
+        ContentReadService service,
+        CancellationToken cancellationToken)
+    {
+        var result = await service.OpenVideoAsync(id, cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return Problem(
+                result.IsNotFound ? 404 : 500,
+                result.ErrorCode!,
+                result.IsNotFound
+                    ? "Video was not found."
+                    : "Video content is unavailable.");
+        }
+
+        return ArtifactEndpoints.StreamResult(
+            context,
+            result.Descriptor!,
+            result.Stream!);
     }
 
     private static async Task<IResult> GetAsync(Guid id, IVideoCatalog catalog, CancellationToken cancellationToken)

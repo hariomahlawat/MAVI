@@ -1,0 +1,66 @@
+name: Task 14 Read Security
+
+on:
+  pull_request:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'src/platform/Mavi.Infrastructure/Storage/AcceptedEvidenceReader.cs'
+      - 'src/platform/Mavi.Infrastructure/Storage/LocalMediaStore.cs'
+      - 'src/platform/Mavi.Infrastructure/Storage/StorageRootSafety.cs'
+      - 'src/platform/Mavi.Application/Abstractions/Storage/IAcceptedEvidenceReader.cs'
+      - 'tests/Mavi.IntegrationTests/AcceptedEvidenceReaderTests.cs'
+      - 'tests/Mavi.IntegrationTests/LocalMediaStoreTests.cs'
+      - '.github/workflows/task14-read-security.yml'
+      - 'docs/superpowers/plans/2026-09-13-task-14-track-search-evidence-apis.md'
+  push:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'src/platform/Mavi.Infrastructure/Storage/AcceptedEvidenceReader.cs'
+      - 'src/platform/Mavi.Infrastructure/Storage/LocalMediaStore.cs'
+      - 'src/platform/Mavi.Infrastructure/Storage/StorageRootSafety.cs'
+      - 'src/platform/Mavi.Application/Abstractions/Storage/IAcceptedEvidenceReader.cs'
+      - 'tests/Mavi.IntegrationTests/AcceptedEvidenceReaderTests.cs'
+      - 'tests/Mavi.IntegrationTests/LocalMediaStoreTests.cs'
+      - '.github/workflows/task14-read-security.yml'
+      - 'docs/superpowers/plans/2026-09-13-task-14-track-search-evidence-apis.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mavi-task14-read-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  read-security:
+    name: Read security / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Run accepted-evidence read security tests
+        run: >-
+          dotnet test tests/Mavi.IntegrationTests/Mavi.IntegrationTests.csproj
+          --configuration Release
+          --filter FullyQualifiedName~AcceptedEvidenceReaderTests
+          --nologo
+
+      - name: Run managed-media read security tests
+        run: >-
+          dotnet test tests/Mavi.IntegrationTests/Mavi.IntegrationTests.csproj
+          --configuration Release
+          --filter FullyQualifiedName~LocalMediaStoreTests
+          --nologo
