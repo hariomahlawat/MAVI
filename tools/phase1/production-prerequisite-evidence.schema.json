@@ -6,7 +6,7 @@
   "required": [
     "schemaVersion","sourceCommit","maviBuild","policySha256",
     "windowsObservationSha256","databaseObservationSha256",
-    "linuxObservationSha256","windowsOperationalPlane","database",
+    "linuxObservationSha256","topologyIdentities","windowsOperationalPlane","database",
     "linuxVisionWorker","result"
   ],
   "properties": {
@@ -17,6 +17,16 @@
     "windowsObservationSha256": { "$ref": "#/$defs/sha256" },
     "databaseObservationSha256": { "$ref": "#/$defs/sha256" },
     "linuxObservationSha256": { "$ref": "#/$defs/sha256" },
+    "topologyIdentities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["windowsOperationalPlane","database","linuxVisionWorker"],
+      "properties": {
+        "windowsOperationalPlane": { "type": "string", "minLength": 1 },
+        "database": { "type": "string", "minLength": 1 },
+        "linuxVisionWorker": { "type": "string", "minLength": 1 }
+      }
+    },
     "windowsOperationalPlane": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
     "database": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
     "linuxVisionWorker": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
