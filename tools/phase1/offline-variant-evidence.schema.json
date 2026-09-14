@@ -7,7 +7,7 @@
     "schemaVersion","sourceCommit","targetVerifiedManifestSha256","acceptanceProfileSha256","variant","bundleMode","bundleManifestSha256",
     "releaseLockSha256","expectedHostCompatibility","observedHostCompatibility",
     "installCommand","installExitCode","pipCheckPassed","runtimeStarted",
-    "realInferencePassed","workerFlowPassed","workerFlowEvidenceSha256",
+    "realInferencePassed","workerFlowPassed","workerFlowEvidenceSha256","workerPythonSha256","workerCommandSha256","workerLogSha256",
     "actualDevice","outboundNetworkUnavailable","networkIsolation","firstRunDownloadObserved","result"
   ],
   "properties": {
@@ -28,6 +28,9 @@
     "realInferencePassed": { "type": "boolean" },
     "workerFlowPassed": { "type": "boolean" },
     "workerFlowEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "workerPythonSha256": { "$ref": "#/$defs/sha256" },
+    "workerCommandSha256": { "$ref": "#/$defs/sha256" },
+    "workerLogSha256": { "$ref": "#/$defs/sha256" },
     "actualDevice": { "type": "string", "minLength": 1 },
     "outboundNetworkUnavailable": { "const": true },
     "networkIsolation": {
