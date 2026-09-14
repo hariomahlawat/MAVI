@@ -17,6 +17,7 @@ def variant(name: str, commit: str) -> dict:
     return {
         "schemaVersion": "mavi-offline-variant-evidence-v1",
         "sourceCommit": commit,
+        "targetVerifiedManifestSha256": "e" * 64,
         "variant": name,
         "bundleMode": "qualification-candidate",
         "bundleManifestSha256": "a" * 64,
@@ -29,6 +30,7 @@ def variant(name: str, commit: str) -> dict:
         "runtimeStarted": True,
         "realInferencePassed": True,
         "workerFlowPassed": True,
+        "workerFlowEvidenceSha256": "f" * 64,
         "actualDevice": "cuda:0" if name.endswith("cuda") else "cpu",
         "outboundNetworkUnavailable": True,
         "firstRunDownloadObserved": False,
