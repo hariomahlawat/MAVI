@@ -528,6 +528,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        if not args.expected_mavi_build or args.expected_mavi_build == "unknown-development":
+            raise PromotionError("promotion_mavi_build_not_frozen")
         gate_evidence = parse_gate_arguments(args.gate_evidence)
         manifest_raw = read_release_json(args.manifest, code="model_manifest_invalid")
         qualification_raw = read_release_json(args.qualification, code="qualification_record_invalid")
