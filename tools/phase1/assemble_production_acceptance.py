@@ -19,6 +19,7 @@ if str(PHASE1_ROOT) not in sys.path:
     sys.path.insert(0, str(PHASE1_ROOT))
 
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
+import inspect_production_logs as log_inspector  # noqa: E402
 from policy_identity import (  # noqa: E402
     CANONICAL_SUPPORTED_UPDATES,
     PolicyIdentityError,
@@ -421,9 +422,24 @@ def validate_failure_reprocess(
     return sha256_file(path), value["workerLogSha256"]
 
 
+def parse_log_arguments(values: list[str]) -> dict[str, Path]:
+    result: dict[str, Path] = {}
+    for item in values:
+        if "=" not in item:
+            raise ProductionAcceptanceError("production_log_argument_invalid")
+        role, raw = item.split("=", 1)
+        if role not in LOG_ROLES or role in result or not raw:
+            raise ProductionAcceptanceError("production_log_argument_invalid")
+        result[role] = Path(raw)
+    if set(result) != LOG_ROLES:
+        raise ProductionAcceptanceError("production_log_roles_incomplete")
+    return result
+
+
 def validate_log_inspection(
     path: Path,
     *,
+    log_paths: dict[str, Path],
     source_commit: str,
     mavi_build: str,
     formal_e2e_sha256: str,
@@ -445,9 +461,51 @@ def validate_log_inspection(
         for item in logs
         if isinstance(item, dict)
     }
+    if set(by_role) != LOG_ROLES or set(log_paths) != LOG_ROLES:
+        raise ProductionAcceptanceError("production_log_inspection_binding_failed")
+
+    allowed_hosts_raw = value.get("allowedHosts")
+    if not isinstance(allowed_hosts_raw, list):
+        raise ProductionAcceptanceError("production_log_inspection_binding_failed")
+    try:
+        allowed_hosts = {
+            log_inspector.validate_allowed_host(item)
+            for item in allowed_hosts_raw
+        }
+    except log_inspector.LogInspectionError as exc:
+        raise ProductionAcceptanceError(
+            "production_log_inspection_invalid_allowlist"
+        ) from exc
+
+    for role, raw_path in log_paths.items():
+        raw = raw_path.read_bytes()
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ProductionAcceptanceError(
+                "production_log_not_utf8:" + role
+            ) from exc
+        observed_sha = hashlib.sha256(raw).hexdigest()
+        item = by_role[role]
+        if (
+            item.get("sha256") != observed_sha
+            or item.get("sizeBytes") != len(raw)
+            or item.get("path") != raw_path.name
+        ):
+            raise ProductionAcceptanceError(
+                "production_log_file_binding_mismatch:" + role
+            )
+        external, suspicious = log_inspector.inspect_text(
+            text,
+            allowed_hosts=allowed_hosts,
+        )
+        if external or suspicious:
+            raise ProductionAcceptanceError(
+                "production_log_content_failed:" + role
+            )
+
     if (
-        set(by_role) != LOG_ROLES
-        or value.get("sourceCommit") != source_commit
+        value.get("sourceCommit") != source_commit
         or value.get("maviBuild") != mavi_build
         or value.get("formalE2eSha256") != formal_e2e_sha256
         or value.get("emptySceneDiagnosticSha256") != empty_e2e_sha256
@@ -461,7 +519,6 @@ def validate_log_inspection(
     ):
         raise ProductionAcceptanceError("production_log_inspection_binding_failed")
     return sha256_file(path)
-
 
 def validate_backup(
     path: Path,
@@ -638,8 +695,10 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
     )
 
+    production_log_paths = parse_log_arguments(args.production_log)
     log_inspection_sha = validate_log_inspection(
         args.log_inspection,
+        log_paths=production_log_paths,
         source_commit=args.source_commit,
         mavi_build=mavi_build,
         formal_e2e_sha256=formal_e2e_sha,
@@ -701,6 +760,7 @@ def main() -> int:
     parser.add_argument("--empty-scene-e2e", type=Path, required=True)
     parser.add_argument("--failure-reprocess", type=Path, required=True)
     parser.add_argument("--log-inspection", type=Path, required=True)
+    parser.add_argument("--production-log", action="append", default=[])
     parser.add_argument("--backup-restore", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
