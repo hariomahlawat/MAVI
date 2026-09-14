@@ -305,7 +305,12 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         ) from exc
     source_commit = application_manifest.get("sourceCommit")
     mavi_build = application_manifest.get("build")
-    if source_commit != args.source_commit or not isinstance(mavi_build, str) or not mavi_build:
+    if (
+        source_commit != args.source_commit
+        or not isinstance(mavi_build, str)
+        or not mavi_build
+        or mavi_build == "unknown-development"
+    ):
         raise ProductionAcceptanceError("production_application_identity_mismatch")
     application_manifest_sha = sha256_file(args.application_manifest)
 
