@@ -76,3 +76,20 @@ def test_offline_rejects_cuda_cpu_fallback():
 
 def test_offline_complete_package_passes():
     mod.verify_offline_install(offline())
+
+
+def test_windows_offline_schema_allows_frozen_null_distribution_fields(tmp_path):
+    value = offline("windows")
+    for item in value["variants"]:
+        item["expectedHostCompatibility"] = {
+            "osFamily": "windows",
+            "architecture": "x86_64",
+            "distribution": None,
+            "distributionVersion": None,
+            "nativeAbi": "win_amd64",
+            "portability": "qualified-platform",
+        }
+        item["observedHostCompatibility"] = dict(item["expectedHostCompatibility"])
+    schema_path = Path(__file__).resolve().parents[1] / "offline-install-evidence.schema.json"
+    mod._validate_schema(value, schema_path)
+    mod.verify_offline_install(value)
