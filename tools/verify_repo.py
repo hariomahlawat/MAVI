@@ -207,6 +207,21 @@ def check_phase1_acceptance_assets(errors: list[str]) -> None:
             fail("Task-17 acceptance profile schemaVersion is invalid.", errors)
         if profile.get("requiredClasses") != ["Person", "Vehicle"]:
             fail("Task-17 acceptance profile must require Person and Vehicle.", errors)
+        corpus_sha = profile.get("qualificationCorpusManifestSha256")
+        if profile.get("mode") == "qualification":
+            if (
+                not isinstance(corpus_sha, str)
+                or len(corpus_sha) != 64
+                or any(ch not in "0123456789abcdef" for ch in corpus_sha)
+            ):
+                fail("Task-17 qualification corpus identity is not approved.", errors)
+        elif corpus_sha is not None and (
+            not isinstance(corpus_sha, str)
+            or len(corpus_sha) != 64
+            or any(ch not in "0123456789abcdef" for ch in corpus_sha)
+        ):
+            fail("Task-17 qualification corpus identity is invalid.", errors)
+
         thresholds = profile.get("classThresholds")
         if not isinstance(thresholds, dict) or set(thresholds) != {"Person", "Vehicle"}:
             fail("Task-17 acceptance profile class thresholds are incomplete.", errors)
