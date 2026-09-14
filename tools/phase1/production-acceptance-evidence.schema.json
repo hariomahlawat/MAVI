@@ -4,7 +4,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion","sourceCommit","maviBuild","verifiedModelManifestSha256",
+    "schemaVersion","acceptanceExecutionId","acceptanceContextSha256","serverLogCheckpointSha256","sourceCommit","maviBuild","verifiedModelManifestSha256",
     "acceptanceProfileSha256","applicationManifestSha256",
     "prerequisiteEvidenceSha256","freshInstallEvidenceSha256","offlineUpdateEvidenceSha256",
     "backupRestoreEvidenceSha256","productionVariantEvidenceSha256",
@@ -15,6 +15,9 @@
   ],
   "properties": {
     "schemaVersion": { "const": "mavi-phase1-production-acceptance-evidence-v1" },
+    "acceptanceExecutionId": { "type": "string", "format": "uuid" },
+    "acceptanceContextSha256": { "$ref": "#/$defs/sha256" },
+    "serverLogCheckpointSha256": { "$ref": "#/$defs/sha256" },
     "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "maviBuild": { "type": "string", "minLength": 1 },
     "verifiedModelManifestSha256": { "$ref": "#/$defs/sha256" },
