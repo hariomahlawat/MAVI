@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import re
 from pathlib import Path
@@ -29,6 +30,21 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def validate_allowed_host(host: str) -> str:
+    value = host.strip().lower().rstrip(".")
+    if not value:
+        raise LogInspectionError("production_allowed_host_invalid")
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        if "." not in value or value.endswith((".local", ".lan", ".internal")):
+            return value
+        raise LogInspectionError("production_allowed_host_not_internal")
+    if not (address.is_loopback or address.is_private or address.is_link_local):
+        raise LogInspectionError("production_allowed_host_not_internal")
+    return value
 
 
 def inspect_text(
@@ -84,8 +100,9 @@ def main() -> int:
             "localhost",
             "127.0.0.1",
             "::1",
-            *(item.strip().lower() for item in args.allowed_host if item.strip()),
         }
+        for item in args.allowed_host:
+            allowed_hosts.add(validate_allowed_host(item))
 
         external_hits: list[str] = []
         suspicious_hits: list[str] = []
