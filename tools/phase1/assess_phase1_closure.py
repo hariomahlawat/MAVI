@@ -100,12 +100,24 @@ def validate_application_lifecycle(
         raise ClosureError("application_lifecycle_not_offline")
     if value.get("observedHealth", {}).get("commit") != source_commit:
         raise ClosureError("application_lifecycle_health_mismatch")
-    if expected_mode == "fresh-install" and value.get("priorRelease") is not None:
-        raise ClosureError("fresh_install_prior_release_unexpected")
+    if value.get("uiSmoke", {}).get("passed") is not True:
+        raise ClosureError("application_lifecycle_ui_smoke_missing")
+    if expected_mode == "fresh-install":
+        if value.get("priorRelease") is not None:
+            raise ClosureError("fresh_install_prior_release_unexpected")
+        if value.get("retainedState") is not None:
+            raise ClosureError("fresh_install_retained_state_unexpected")
     if expected_mode == "offline-update":
         prior = value.get("priorRelease")
-        if not isinstance(prior, dict) or prior.get("supported") is not True:
+        if (
+            not isinstance(prior, dict)
+            or prior.get("supported") is not True
+            or not isinstance(prior.get("applicationManifestSha256"), str)
+        ):
             raise ClosureError("offline_update_supported_prior_missing")
+        retained = value.get("retainedState")
+        if not isinstance(retained, dict):
+            raise ClosureError("offline_update_retained_state_missing")
     if not _passed_result(value):
         raise ClosureError("application_lifecycle_not_passed")
     return value
@@ -122,6 +134,8 @@ def validate_backup_restore(
     require_source_commit(value, source_commit, "backup_restore")
     if value.get("cleanRestoreTarget") is not True or not _passed_result(value):
         raise ClosureError("backup_restore_not_passed")
+    if value.get("sourceDatabaseIdentity") == value.get("restoreDatabaseIdentity"):
+        raise ClosureError("backup_restore_database_targets_not_distinct")
     return value
 
 
@@ -237,7 +251,11 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         evidence_hashes["backup-restore"] = sha256_file(args.backup_restore)
     if args.windows_offline is not None:
         value = load_json(args.windows_offline)
-        evidence_verifier.verify_offline_install(value, expected_source_commit=args.source_commit)
+        evidence_verifier.verify_offline_install(
+            value,
+            expected_source_commit=args.source_commit,
+            expected_acceptance_profile_sha256=acceptance_profile_sha256,
+        )
         if value.get("os") != "windows":
             raise ClosureError("windows_offline_os_mismatch")
         evidence_hashes["windows-offline-install"] = sha256_file(args.windows_offline)
