@@ -34,7 +34,7 @@ public sealed class VisionRuntimeProvenanceParser
                 runtimeProvenanceJson,
                 _jsonOptions);
         }
-        catch (JsonException exception)
+        catch (JsonException)
         {
             throw new VisionResultValidationException("provenance_json_invalid");
         }
@@ -45,7 +45,7 @@ public sealed class VisionRuntimeProvenanceParser
         return Parse(contract);
     }
 
-    public ParsedVisionRuntimeProvenance Parse(VisionRuntimeProvenanceContract value)
+    public static ParsedVisionRuntimeProvenance Parse(VisionRuntimeProvenanceContract value)
     {
         ArgumentNullException.ThrowIfNull(value);
 
@@ -141,7 +141,7 @@ public sealed class VisionRuntimeProvenanceParser
             trackerVersion);
     }
 
-    public IReadOnlyDictionary<string, string> GetAttestationDependencies(
+    public static IReadOnlyDictionary<string, string> GetAttestationDependencies(
         VisionRuntimeProvenanceContract value)
     {
         if (value.DependencyVersions is null)
