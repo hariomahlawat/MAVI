@@ -100,7 +100,7 @@ export default function VisualSearchPage() {
       minimumConfidencePercent: confidenceFractionToPercentText(filters.minimumConfidence),
     });
     setTimeDirty({ from: false, to: false });
-    setFormError(committed.isValid ? null : committed.error);
+    setFormError(null);
     // Route identity owns full draft rehydration. Config recovery is handled separately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchString]);
