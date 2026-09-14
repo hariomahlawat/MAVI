@@ -310,6 +310,7 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         "schemaVersion": "mavi-offline-variant-evidence-v1",
         "sourceCommit": args.source_commit,
         "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
+        "acceptanceProfileSha256": sha256_file(args.acceptance_profile),
         "variant": args.variant,
         "bundleMode": manifest["releaseStatus"],
         "bundleManifestSha256": manifest_sha,
