@@ -1,5 +1,5 @@
 import { isGuid } from '../../api/client';
-import type { TrackObjectClass, TrackSearchFilters } from '../../api/tracks';
+import { serializePlainDecimal, type TrackObjectClass, type TrackSearchFilters } from '../../api/tracks';
 
 export type CommittedTrackSearch = Omit<TrackSearchFilters, 'cursor' | 'limit'>;
 
@@ -130,7 +130,7 @@ export function canonicalSearchParams(filters: CommittedTrackSearch): URLSearchP
   if (filters.fromUtc) params.set('fromUtc', canonicalUtc(filters.fromUtc) ?? filters.fromUtc);
   if (filters.toUtc) params.set('toUtc', canonicalUtc(filters.toUtc) ?? filters.toUtc);
   if (filters.minimumDurationMs !== undefined) params.set('minimumDurationMs', String(filters.minimumDurationMs));
-  if (filters.minimumConfidence !== undefined) params.set('minimumConfidence', String(filters.minimumConfidence));
+  if (filters.minimumConfidence !== undefined) params.set('minimumConfidence', serializePlainDecimal(filters.minimumConfidence));
   return params;
 }
 
