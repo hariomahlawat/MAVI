@@ -41,7 +41,8 @@ Task 15 shall implement:
 7. explicit retry after failed processing;
 8. stable public processing-status DTOs in `Mavi.Contracts`;
 9. focused component/API/router tests;
-10. accessibility and offline-safe styling conventions.
+10. production SPA deep-link fallback and host-level refresh verification;
+11. accessibility and offline-safe styling conventions.
 
 Task 15 shall not implement:
 
@@ -106,7 +107,9 @@ code
 detail
 ```
 
-The client shall parse ASP.NET Problem Details and preserve the stable backend `extensions.code` value.
+The client shall parse ASP.NET Problem Details and preserve the stable backend **top-level wire property `code`**. The backend supplies this value through `Results.Problem(... extensions: { ["code"] = ... })`, but ASP.NET serializes that extension as `problem.code`, not `problem.extensions.code`.
+
+The parser must therefore read `problem.code` from the JSON response body. It must not require an `extensions` object. Tests and mocks shall reproduce the real wire shape exactly so known flows such as `camera_code_duplicate` and `processing_already_active` cannot silently fall back to generic handling.
 
 Pages may translate known codes to operator-friendly text, but must retain the code for diagnostics and tests.
 
@@ -250,8 +253,9 @@ src/web/mavi-web/src/
       Alert.tsx
       LoadingState.tsx
       PageHeader.tsx
+    time/
+      time.ts              # existing tested explicit-zone formatter; reuse/extend
     format/
-      dateTime.ts
       duration.ts
   test/
     setup.ts
@@ -262,6 +266,8 @@ src/web/mavi-web/src/
 ```
 
 Keep the component inventory deliberately small. Do not build a design-system framework in Task 15.
+
+Do **not** introduce a second date/time formatter. The repository already owns `src/web/mavi-web/src/shared/time/time.ts`; Task 15 shall reuse or narrowly extend that module. Absolute API timestamps must be formatted with the deployment `displayTimeZoneId` returned by `/api/system/config`, never implicitly with the browser/workstation timezone.
 
 ---
 
@@ -436,9 +442,12 @@ Do not discard the stable code.
 For `/processing/:videoAssetId`, load:
 
 - `GET /api/videos/{id}`;
-- `GET /api/videos/{id}/processing`.
+- `GET /api/videos/{id}/processing`;
+- after the video resolves, a dependent `GET /api/cameras/{video.cameraId}` query for authoritative camera code/name/timezone context.
 
-A direct browser refresh must reconstruct the page entirely from the route ID; it must not depend on navigation state from Import.
+The camera query shall be enabled only after a valid `cameraId` is available. Cached camera-list data may be reused by TanStack Query when present, but cold-cache correctness must not depend on it.
+
+A direct browser refresh must reconstruct the page entirely from the route ID and API responses; it must not depend on navigation state from Import or a warm query cache.
 
 ### 10.2 Polling
 
@@ -471,7 +480,7 @@ Show:
 - current/latest run status;
 - progress percentage;
 - attempt count;
-- queued/start/completion timestamps;
+- queued/start/completion timestamps rendered through the existing `shared/time/time.ts` formatter using `/api/system/config.displayTimeZoneId`;
 - pipeline/version;
 - failure code when failed.
 
@@ -552,7 +561,8 @@ Use behavior-focused tests, not implementation snapshots.
 Prove:
 
 - 2xx JSON parsing;
-- Problem Details -> `ApiError`;
+- real ASP.NET Problem Details wire shape `{ ..., "code": "..." }` -> `ApiError.code`;
+- absence of an `extensions` wrapper does not lose the stable code;
 - malformed error payload falls back safely;
 - multipart request does not force a Content-Type header;
 - abort signal is passed through.
@@ -587,21 +597,34 @@ Use a QueryClient with retries disabled.
 
 At minimum:
 
-1. direct route loads video + status;
-2. Queued/Running states poll;
-3. Completed/Processed stops polling;
-4. Failed stops polling and shows failure code;
-5. Retry queues a new run and resumes polling;
-6. `processing_already_active` on retry refetches rather than failing terminally;
-7. unknown video displays not-found state.
+1. cold-cache direct route loads video + status, then fetches `getCamera(video.cameraId)` and renders camera context;
+2. processing timestamps use `/api/system/config.displayTimeZoneId` even when the simulated browser timezone differs;
+3. timezone-less absolute API timestamps remain rejected by the shared formatter;
+4. Queued/Running states poll;
+5. Completed/Processed stops polling;
+6. Failed stops polling and shows failure code;
+7. Retry queues a new run and resumes polling;
+8. `processing_already_active` on retry refetches rather than failing terminally;
+9. unknown video displays not-found state.
 
-### 13.5 Router/shell test
+### 13.5 Router/shell and production deep-link tests
 
-Prove:
+Component/router tests shall prove:
 
 - `/` redirects to `/cameras`;
 - navigation reaches Cameras and Import;
-- deep link to `/processing/:videoAssetId` renders the processing page.
+- in-app navigation to `/processing/:videoAssetId` renders the processing page.
+
+That is **not** sufficient for production refresh semantics. Task 15 shall also add the production SPA fallback required by the actual IIS/static deployment so an HTTP request for `/processing/<id>` serves `index.html` and allows React Router to start.
+
+For the current IIS/static deployment, check in the frontend-host fallback configuration as a source-controlled deployment artifact (for example a Vite `public/web.config` copied into `dist`) with these invariants:
+
+- existing static files/directories are served normally;
+- API/health paths are not rewritten to the SPA;
+- non-file frontend routes fall back to `/index.html`;
+- fallback is loop-safe.
+
+Add a **host-level** test/qualification step that requests a built-app deep link over HTTP rather than invoking the router directly. At minimum, verify `GET /processing/<test-id>` returns the SPA entry document under the production-equivalent host/fallback configuration. If the deployment topology changes from IIS/static hosting, implement the equivalent fallback at that actual host instead of retaining a stale IIS-specific rule.
 
 ### 13.6 Backend contract test
 
@@ -628,8 +651,9 @@ Do not start React processing-page code until this is green.
 2. add test setup;
 3. implement `ApiError` + shared client;
 4. add QueryClient/provider/router/shell;
-5. migrate existing health/config fetches into query-based APIs;
-6. run frontend tests/typecheck/build.
+5. migrate existing health/config fetches into query-based APIs and make `displayTimeZoneId` the explicit timestamp-presentation source;
+6. add and verify the production SPA host fallback for BrowserRouter deep links;
+7. run frontend tests/typecheck/build.
 
 ### Checkpoint C — Cameras
 
@@ -650,10 +674,11 @@ Do not start React processing-page code until this is green.
 
 ### Checkpoint E — Processing
 
-1. RED processing polling/retry tests;
-2. implement page;
+1. RED processing polling/retry/cold-cache camera-context/timezone tests;
+2. implement page with dependent camera query and configured-zone timestamp formatting;
 3. prove polling termination and retry semantics;
-4. run frontend gate.
+4. prove host-level refresh/deep-link delivery through the production-equivalent SPA fallback;
+5. run frontend gate.
 
 ### Checkpoint F — subsystem audit
 
@@ -668,7 +693,10 @@ Before Codex review, inspect the complete Task-15 subsystem for sibling defects:
 - import/queue partial success;
 - unbounded polling/retry;
 - AbortSignal/unmount handling;
-- malformed Problem Details;
+- malformed Problem Details and incorrect `extensions.code` assumptions;
+- configured display timezone vs browser timezone drift;
+- cold-cache camera-context reconstruction;
+- production-host SPA fallback/deep-link refresh behavior;
 - backend-internal field leakage;
 - remote runtime assets;
 - accessibility regressions;
@@ -706,6 +734,7 @@ src/web/mavi-web/src/app/router.tsx
 src/web/mavi-web/src/api/client.ts
 src/web/mavi-web/src/api/cameras.ts
 src/web/mavi-web/src/api/videos.ts
+src/web/mavi-web/src/shared/time/time.ts   # reuse/extend only if required
 
 src/web/mavi-web/src/features/cameras/CamerasPage.tsx
 src/web/mavi-web/src/features/video-import/VideoImportPage.tsx
@@ -713,6 +742,8 @@ src/web/mavi-web/src/features/processing/ProcessingPage.tsx
 
 src/web/mavi-web/src/test/setup.ts
 src/web/mavi-web/src/test/renderWithApp.tsx
+source-controlled production SPA fallback configuration (current IIS/static topology)
+host-level deep-link verification test/qualification
 focused *.test.ts / *.test.tsx files
 ```
 
@@ -732,6 +763,7 @@ cd src/web/mavi-web
 npm test
 npm run typecheck
 npm run build
+# run the Task-15 production-host/deep-link verification against the built app
 cd ../../..
 
 python tools/verify_repo.py
@@ -772,9 +804,11 @@ Task 15 is complete only when all of the following are true:
 - partial import/queue success cannot cause accidental re-upload;
 - Processing page polls only while active and stops terminally;
 - failed processing can be explicitly retried;
-- direct page refresh/deep link works;
+- direct page refresh/deep link works through the production host fallback, not only inside a router unit test;
+- cold-cache processing deep links reconstruct authoritative camera context;
+- absolute timestamps use `/api/system/config.displayTimeZoneId` through the existing explicit-zone formatter and never silently use browser timezone;
 - server state is owned by TanStack Query;
-- API failures retain stable backend codes;
+- API failures retain stable backend codes from the real top-level Problem Details `code` wire property;
 - no storage/internal worker data leaks to React;
 - no runtime Internet dependency is introduced;
 - frontend tests, typecheck and build are green;
