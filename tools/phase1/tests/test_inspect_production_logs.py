@@ -43,3 +43,19 @@ def test_licence_or_telemetry_indicator_is_rejected_even_without_url():
     )
     assert external == []
     assert suspicious == ["attempting license activation"]
+
+
+def test_external_dns_name_cannot_be_allowlisted():
+    import pytest
+
+    with pytest.raises(
+        mod.LogInspectionError,
+        match="production_allowed_host_not_internal",
+    ):
+        mod.validate_allowed_host("example.com")
+
+
+def test_private_or_internal_hosts_can_be_allowlisted():
+    assert mod.validate_allowed_host("10.10.0.5") == "10.10.0.5"
+    assert mod.validate_allowed_host("mavi-api.internal") == "mavi-api.internal"
+    assert mod.validate_allowed_host("mavi-db") == "mavi-db"
