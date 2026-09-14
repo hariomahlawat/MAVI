@@ -6,7 +6,7 @@
   "required": [
     "schemaVersion", "mode", "sourceCommit", "build", "applicationManifestSha256",
     "destination", "internetUnavailable", "priorRelease", "migrationPolicy",
-    "observedHealth", "result"
+    "retainedState", "uiSmoke", "observedHealth", "result"
   ],
   "properties": {
     "schemaVersion": { "const": "mavi-application-lifecycle-evidence-v1" },
@@ -19,14 +19,35 @@
     "priorRelease": {
       "type": ["object", "null"],
       "additionalProperties": false,
-      "required": ["sourceCommit", "build", "supported"],
+      "required": ["sourceCommit", "build", "applicationManifestSha256", "supported"],
       "properties": {
         "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
         "build": { "type": "string", "minLength": 1 },
+        "applicationManifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "supported": { "const": true }
       }
     },
     "migrationPolicy": { "enum": ["none", "required"] },
+    "retainedState": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["acceptanceEvidenceSha256", "preUpdateCheckSha256", "postUpdateCheckSha256"],
+      "properties": {
+        "acceptanceEvidenceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "preUpdateCheckSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "postUpdateCheckSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "uiSmoke": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rootStatusCode", "rootBytes", "passed"],
+      "properties": {
+        "rootStatusCode": { "const": 200 },
+        "rootBytes": { "type": "integer", "minimum": 1 },
+        "passed": { "const": true }
+      }
+    },
     "migration": {
       "type": ["object", "null"],
       "additionalProperties": false,
