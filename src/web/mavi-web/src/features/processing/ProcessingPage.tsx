@@ -58,7 +58,7 @@ export default function ProcessingPage() {
     queryFn: ({ signal }) => getProcessingStatus(videoAssetId, signal),
     enabled: validId,
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
-    refetchInterval: (query) => processingPollInterval(query.state.data),
+    refetchInterval: (query) => query.state.error ? false : processingPollInterval(query.state.data),
   });
 
   const cameraId = video.data?.cameraId ?? '';
