@@ -20,7 +20,7 @@ describe('API client', () => {
       headers: { 'Content-Type': 'application/problem+json' },
     })));
 
-    await expect(apiRequest('/api/test')).rejects.toMatchObject<ApiError>({
+    await expect(apiRequest('/api/test')).rejects.toMatchObject({
       status: 409,
       code: 'video_duplicate',
       detail: 'Video has already been imported.',
