@@ -3,7 +3,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Mavi.Api</RootNamespace>
     <AssemblyName>Mavi.Api</AssemblyName>
+    <MaviBuild Condition="'$(MaviBuild)' == ''">unknown-development</MaviBuild>
+    <MaviCommit Condition="'$(MaviCommit)' == ''">unknown-development</MaviCommit>
   </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="MaviBuild" Value="$(MaviBuild)" />
+    <AssemblyMetadata Include="MaviCommit" Value="$(MaviCommit)" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">
       <PrivateAssets>all</PrivateAssets>
