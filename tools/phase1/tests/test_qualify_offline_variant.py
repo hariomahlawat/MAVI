@@ -104,3 +104,39 @@ def test_worker_flow_binding_rejects_reused_candidate_evidence_for_production():
             device="cpu",
             expected_mavi_build="build-a",
         )
+
+
+def test_bundle_file_set_rejects_nested_same_named_manifest(tmp_path: Path):
+    stage = tmp_path / "bundle"
+    stage.mkdir()
+    (stage / "bundle-manifest.json").write_text("{}\n", encoding="utf-8")
+    nested = stage / "release" / "unexpected"
+    nested.mkdir(parents=True)
+    (nested / "bundle-manifest.json").write_text("{}\n", encoding="utf-8")
+
+    manifest = mod.build_offline_bundle.BundleManifest(
+        schema_version="1.0",
+        bundle_id="bundle-a",
+        release_status="production",
+        source_commit="a" * 40,
+        platform_variant="linux-x86_64-cpu",
+        python_version="3.12.14",
+        model_id="rtmdet-m-coco-phase1-v1",
+        runtime_profile_id="mmdetection-phase1-v1",
+        lock_sha256="b" * 64,
+        host_compatibility=mod.build_offline_bundle.BundleHostCompatibility(
+            os_family="linux",
+            architecture="x86_64",
+            distribution="ubuntu",
+            distribution_version="24.04",
+            native_abi="glibc-2.39-libstdcxx-GLIBCXX_3.4.33-linux_x86_64",
+            portability="qualified-host-only",
+        ),
+        artifacts=(),
+    )
+
+    with pytest.raises(
+        mod.build_offline_bundle.OfflineBundleError,
+        match="bundle_artifact_set_mismatch",
+    ):
+        mod.build_offline_bundle._verify_staged_bundle(stage, manifest)
