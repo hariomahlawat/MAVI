@@ -22,15 +22,35 @@ function Get-Sha256([string]$Path) {
 }
 
 function Assert-InternetUnavailable {
+    $proxyNames = @("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+    foreach ($name in $proxyNames) {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if ($value) { throw "internet_proxy_configured:$name" }
+    }
+
     $probes = @(
         @{ Host = "1.1.1.1"; Port = 443 },
-        @{ Host = "8.8.8.8"; Port = 53 }
+        @{ Host = "8.8.8.8"; Port = 53 },
+        @{ Host = "pypi.org"; Port = 443 },
+        @{ Host = "github.com"; Port = 443 },
+        @{ Host = "www.microsoft.com"; Port = 443 }
     )
+    $observations = @()
     foreach ($probe in $probes) {
         $reachable = Test-NetConnection -ComputerName $probe.Host -Port $probe.Port -InformationLevel Quiet -WarningAction SilentlyContinue
+        $observations += [ordered]@{
+            host = $probe.Host
+            port = [int]$probe.Port
+            reachable = [bool]$reachable
+        }
         if ($reachable) {
             throw "internet_connectivity_detected:$($probe.Host):$($probe.Port)"
         }
+    }
+    return [ordered]@{
+        proxyEnvironmentAbsent = $true
+        probes = $observations
+        passed = $true
     }
 }
 
@@ -101,7 +121,7 @@ if ($Mode -eq "fresh-install") {
     $expectedPriorManifestSha = [string]$supported[0].applicationManifestSha256
     if (-not $expectedPriorManifestSha -or $expectedPriorManifestSha -notmatch '^[0-9a-f]{64}}
 
-Assert-InternetUnavailable
+$networkIsolation = Assert-InternetUnavailable
 if ($AppPoolName) { Invoke-AppCmd @("stop", "apppool", "/apppool.name:$AppPoolName") }
 
 try {
@@ -175,6 +195,7 @@ try {
         applicationManifestSha256 = (Get-Sha256 $ApplicationManifestPath)
         destination = (Resolve-Path -LiteralPath $Destination).Path
         internetUnavailable = $true
+        networkIsolation = $networkIsolation
         priorRelease = $priorRelease
         migrationPolicy = $migrationPolicy
         migration = $migrationEvidence
