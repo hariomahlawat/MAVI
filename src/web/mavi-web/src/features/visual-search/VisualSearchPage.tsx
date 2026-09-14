@@ -190,6 +190,8 @@ export default function VisualSearchPage() {
 
   const resetSearch = () => {
     setFormError(null);
+    setDraft(emptyDraft);
+    setTimeDirty({ from: false, to: false });
     setSearchParams(new URLSearchParams());
   };
 
