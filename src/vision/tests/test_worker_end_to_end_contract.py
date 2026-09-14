@@ -90,7 +90,7 @@ def make_lease(source_bytes: bytes) -> VisionJobLease:
     value["sourceStorageKey"] = "source/qualification.mp4"
     value["sourceSizeBytes"] = len(source_bytes)
     value["sourceSha256"] = hashlib.sha256(source_bytes).hexdigest()
-    return VisionJobLease.model_validate(value)
+    return VisionJobLease.model_validate_json(json.dumps(value))
 
 
 def test_worker_contract_executes_lease_source_heartbeat_processing_authorized_completion(tmp_path: Path) -> None:
