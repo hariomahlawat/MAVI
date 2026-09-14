@@ -85,9 +85,10 @@ def test_finalize_rejects_evidence_spliced_from_other_execution(tmp_path: Path):
         mod.finalize(execution, post)
 
 
-def test_database_identity_rejects_same_source_and_restore(monkeypatch):
-    monkeypatch.setattr(mod, "database_identity", lambda *_: "mavi|127.0.0.1|5432")
-    assert mod.database_identity("psql", "source") == mod.database_identity("psql", "restore")
+def test_database_identity_rejects_same_source_and_restore():
+    identity = "mavi|127.0.0.1|5432"
+    with pytest.raises(mod.BackupRestoreError, match="backup_restore_database_targets_not_distinct"):
+        mod.assert_database_targets_distinct(identity, identity)
 
 def test_disjoint_roots_reject_nested_paths(tmp_path: Path):
     source = tmp_path / "source"
