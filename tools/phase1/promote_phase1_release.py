@@ -129,9 +129,6 @@ def _validate_platform_variant_evidence(
     gate: str,
     value: dict[str, Any],
     acceptance_profile_sha256: str,
-    acceptance_profile: dict[str, Any],
-    quality_corpus_manifest: Path,
-    quality_ground_truth: Path,
 ) -> None:
     _validate_schema(value, "offline-variant-evidence.schema.json")
     if value.get("variant") != gate:
@@ -284,6 +281,9 @@ def validate_gate_evidence(
     source_commit: str,
     target_verified_manifest_sha256: str,
     acceptance_profile_sha256: str,
+    acceptance_profile: dict[str, Any],
+    quality_corpus_manifest: Path,
+    quality_ground_truth: Path,
 ) -> None:
     if value.get("sourceCommit") != source_commit:
         raise PromotionError("promotion_evidence_source_mismatch:" + gate)
