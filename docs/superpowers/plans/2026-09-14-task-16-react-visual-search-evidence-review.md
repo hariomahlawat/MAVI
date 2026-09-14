@@ -274,6 +274,8 @@ The authoritative relationship is:
 
 Typing in a control must not cause hidden network search.
 
+Draft rehydration is route-driven, not query-result-driven. When the committed URL changes through direct navigation or Back/Forward, the draft is reconstructed from that committed state. A later system-config recovery may hydrate only previously-unrepresentable time controls; it must not overwrite camera/class/duration/confidence edits the operator has made since the route was committed.
+
 Pressing Search or explicitly submitting the form commits the draft to the URL.
 
 Browser Back/Forward navigation must restore the prior committed search.
@@ -303,7 +305,8 @@ Rules:
 - unknown query parameters are ignored for backend semantics and are removed the next time Task-16 canonicalizes the URL;
 - canonical URLs use a fixed parameter order;
 - empty/default values are omitted;
-- GUIDs are normalized to their API string identity without attempting resource discovery;
+- GUIDs are validated then canonicalized to lowercase hyphenated text so case differences cannot create duplicate cache identities; no resource discovery is performed during canonicalization;
+- `objectClass` canonicalizes only to `Person` or `Vehicle`;
 - `fromUtc`/`toUtc` are canonical UTC `Z` strings;
 - numeric filters use invariant canonical decimal text.
 
@@ -339,6 +342,8 @@ Use the existing Cameras API and query key.
 Show code + name.
 
 Inactive cameras may remain selectable for historical search because old Tracks can legitimately belong to a camera that is now inactive.
+
+A committed `cameraId` remains a valid backend filter even if the camera-list query is unavailable. In that case the page must preserve the ID, show an explicit ID-based active camera scope/fallback, and allow the Track search to proceed. Camera metadata failure must not silently remove or broaden a committed camera filter.
 
 ### Object class
 
@@ -453,6 +458,8 @@ This helper must use `Intl.DateTimeFormat.formatToParts` with the explicit confi
 
 Cold URL load, Back/Forward navigation and Reset/recommit behavior must all use this inverse conversion when rehydrating From/To draft controls.
 
+Committed UTC bounds are preserved byte-for-semantic-value until the operator actually edits/removes a time field. A Search submission that changes only non-time filters must reuse the existing canonical committed `fromUtc`/`toUtc` rather than round-tripping them through `datetime-local`. This prevents precision loss, DST re-interpretation, and accidental scope changes. Track explicit time-field dirty state; only dirty time fields are reconverted from configured-zone wall input. After a successful time edit is committed, the new canonical UTC values become the preserved baseline.
+
 ### 9.5 Validation
 
 Reject before the Track request when:
@@ -471,6 +478,13 @@ Backend validation remains authoritative and `track_search_invalid` must still b
 ## 10. Visual Search query behaviour
 
 Use `useInfiniteQuery`.
+
+Task-16 queries shall use bounded retry semantics rather than inheriting a blind generic retry for stable client errors:
+
+- do not retry `track_search_invalid` / HTTP 400;
+- do not retry `track_not_found` / HTTP 404;
+- allow at most one retry for network/transient 5xx failures;
+- an invalid/expired continuation cursor is surfaced to the explicit Refresh-results path rather than retried automatically.
 
 First request:
 
@@ -689,6 +703,12 @@ Example:
 `197420 ms -> 196.420 seconds`
 
 Seek only after media metadata is available.
+
+The seek lifecycle must also handle Track changes where the video `src` is unchanged and `loadedmetadata` will not fire again. On each authoritative Track/start-offset change:
+
+- if the current video element already has metadata (`readyState >= HTMLMediaElement.HAVE_METADATA`), apply the new seek immediately;
+- otherwise attach the metadata handler and seek when it fires;
+- clean up stale handlers when Track identity, video URL or component lifecycle changes.
 
 If finite media duration is known:
 
@@ -971,6 +991,9 @@ Before Codex review, inspect the complete subsystem for:
 - duplicate timestamp formatter;
 - malformed URL acceptance;
 - stale draft/committed filter state;
+- system-config recovery clobbering newer non-time draft edits;
+- non-time submissions round-tripping unchanged time bounds and losing precision;
+- committed camera scope erased because camera metadata failed;
 - page-number/OFFSET assumptions;
 - cursor decoding;
 - cursor stored as durable bookmark;
@@ -987,6 +1010,7 @@ Before Codex review, inspect the complete subsystem for:
 - video Blob buffering;
 - incorrect seek units;
 - stale media event handlers;
+- same-video Track changes failing to reseek because metadata was already loaded;
 - custom review mutation without backend authority;
 - inaccessible form/card controls;
 - remote assets/CDNs;
@@ -1075,6 +1099,7 @@ At minimum:
 - <1000 ms -> 0;
 - media duration clamp;
 - repeated metadata;
+- same-video Track change reseeks immediately when metadata is already loaded;
 - route replacement;
 - media failure.
 
