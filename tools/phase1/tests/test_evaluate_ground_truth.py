@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ MODULE_PATH = Path(__file__).resolve().parents[1] / "evaluate_ground_truth.py"
 SPEC = importlib.util.spec_from_file_location("phase1_evaluator", MODULE_PATH)
 assert SPEC and SPEC.loader
 ev = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = ev
 SPEC.loader.exec_module(ev)
 
 
