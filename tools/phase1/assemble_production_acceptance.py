@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,10 @@ if str(PHASE1_ROOT) not in sys.path:
 
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
 import inspect_production_logs as log_inspector  # noqa: E402
+from production_acceptance_context import (  # noqa: E402
+    AcceptanceContextError,
+    load_context as load_acceptance_context,
+)
 from policy_identity import (  # noqa: E402
     CANONICAL_SUPPORTED_UPDATES,
     PolicyIdentityError,
@@ -286,6 +291,8 @@ def validate_scenario(
     linux_cuda_variant: dict[str, Any],
     linux_cuda_bundle_sha256: str,
     linux_cuda_lock_sha256: str,
+    acceptance_execution_id: str,
+    acceptance_context_sha256: str,
 ) -> tuple[str, str, str]:
     scenario = load_json(scenario_path, "production_scenario_invalid")
     validate_schema(
@@ -316,6 +323,8 @@ def validate_scenario(
     e2e_sha = sha256_file(e2e_path)
     if (
         scenario.get("mode") != mode
+        or scenario.get("acceptanceExecutionId") != acceptance_execution_id
+        or scenario.get("acceptanceContextSha256") != acceptance_context_sha256
         or scenario.get("sourceCommit") != source_commit
         or scenario.get("maviBuild") != mavi_build
         or scenario.get("targetVerifiedManifestSha256") != target_manifest_sha256
@@ -389,6 +398,8 @@ def validate_failure_reprocess(
     linux_cuda_variant: dict[str, Any],
     linux_cuda_bundle_sha256: str,
     linux_cuda_lock_sha256: str,
+    acceptance_execution_id: str,
+    acceptance_context_sha256: str,
 ) -> tuple[str, str]:
     value = load_json(path, "production_failure_reprocess_invalid")
     validate_schema(
@@ -406,7 +417,9 @@ def validate_failure_reprocess(
         media.get("afterReprocessEtagSha256"),
     }
     if (
-        value.get("sourceCommit") != source_commit
+        value.get("acceptanceExecutionId") != acceptance_execution_id
+        or value.get("acceptanceContextSha256") != acceptance_context_sha256
+        or value.get("sourceCommit") != source_commit
         or value.get("maviBuild") != mavi_build
         or value.get("targetVerifiedManifestSha256") != target_manifest_sha256
         or value.get("productionBundleManifestSha256")
@@ -457,18 +470,32 @@ def parse_log_arguments(values: list[str]) -> dict[str, Path]:
     return result
 
 
+def _parse_utc(value: str, code: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise ProductionAcceptanceError(code) from exc
+
+
 def validate_log_inspection(
     path: Path,
     *,
+    context_path: Path,
+    checkpoint_path: Path,
     log_paths: dict[str, Path],
     source_commit: str,
     mavi_build: str,
+    formal_scenario_sha256: str,
     formal_e2e_sha256: str,
+    empty_scenario_sha256: str,
     empty_e2e_sha256: str,
     failure_sha256: str,
     formal_worker_log_sha256: str,
     empty_worker_log_sha256: str,
     failure_worker_log_sha256: str,
+    formal_scenario: dict[str, Any],
+    empty_scenario: dict[str, Any],
+    failure_evidence: dict[str, Any],
 ) -> str:
     value = load_json(path, "production_log_inspection_invalid")
     validate_schema(
@@ -476,64 +503,110 @@ def validate_log_inspection(
         "production-log-inspection-evidence.schema.json",
         "production_log_inspection",
     )
+    context, context_sha = load_acceptance_context(
+        context_path,
+        schema_path=PHASE1_ROOT / "production-acceptance-context.schema.json",
+        expected_source_commit=source_commit,
+        expected_mavi_build=mavi_build,
+    )
+    checkpoint = load_json(checkpoint_path, "production_log_checkpoint_invalid")
+    validate_schema(
+        checkpoint,
+        "production-log-checkpoint.schema.json",
+        "production_log_checkpoint",
+    )
+    if (
+        checkpoint.get("acceptanceExecutionId") != context["acceptanceExecutionId"]
+        or checkpoint.get("acceptanceContextSha256") != context_sha
+        or value.get("acceptanceExecutionId") != context["acceptanceExecutionId"]
+        or value.get("acceptanceContextSha256") != context_sha
+        or value.get("serverLogCheckpointSha256") != sha256_file(checkpoint_path)
+    ):
+        raise ProductionAcceptanceError("production_log_context_binding_failed")
+
+    context_start = _parse_utc(context["startedAtUtc"], "production_context_time_invalid")
+    checkpoint_time = _parse_utc(checkpoint["capturedAtUtc"], "production_checkpoint_time_invalid")
+    formal_start = _parse_utc(formal_scenario["scenarioStartedAtUtc"], "production_formal_time_invalid")
+    formal_end = _parse_utc(formal_scenario["scenarioCompletedAtUtc"], "production_formal_time_invalid")
+    empty_start = _parse_utc(empty_scenario["scenarioStartedAtUtc"], "production_empty_time_invalid")
+    empty_end = _parse_utc(empty_scenario["scenarioCompletedAtUtc"], "production_empty_time_invalid")
+    failure_start = _parse_utc(failure_evidence["scenarioStartedAtUtc"], "production_failure_time_invalid")
+    failure_end = _parse_utc(failure_evidence["scenarioCompletedAtUtc"], "production_failure_time_invalid")
+    inspection_end = _parse_utc(value["inspectionCompletedAtUtc"], "production_log_time_invalid")
+    if not (
+        context_start <= checkpoint_time
+        and checkpoint_time <= formal_start <= formal_end <= inspection_end
+        and checkpoint_time <= empty_start <= empty_end <= inspection_end
+        and checkpoint_time <= failure_start <= failure_end <= inspection_end
+    ):
+        raise ProductionAcceptanceError("production_acceptance_time_order_invalid")
+
     logs = value.get("logs", [])
-    by_role = {
-        item.get("role"): item
-        for item in logs
-        if isinstance(item, dict)
-    }
+    by_role = {item.get("role"): item for item in logs if isinstance(item, dict)}
     if set(by_role) != LOG_ROLES or set(log_paths) != LOG_ROLES:
         raise ProductionAcceptanceError("production_log_inspection_binding_failed")
+    checkpoints = {
+        item.get("role"): item
+        for item in checkpoint.get("logs", [])
+        if isinstance(item, dict)
+    }
+    if set(checkpoints) != {"api", "iis", "postgres"}:
+        raise ProductionAcceptanceError("production_log_checkpoint_roles_incomplete")
 
     allowed_hosts_raw = value.get("allowedHosts")
     if not isinstance(allowed_hosts_raw, list):
         raise ProductionAcceptanceError("production_log_inspection_binding_failed")
     try:
-        allowed_hosts = {
-            log_inspector.validate_allowed_host(item)
-            for item in allowed_hosts_raw
-        }
+        allowed_hosts = {log_inspector.validate_allowed_host(item) for item in allowed_hosts_raw}
     except log_inspector.LogInspectionError as exc:
-        raise ProductionAcceptanceError(
-            "production_log_inspection_invalid_allowlist"
-        ) from exc
+        raise ProductionAcceptanceError("production_log_inspection_invalid_allowlist") from exc
 
     for role, raw_path in log_paths.items():
         raw = raw_path.read_bytes()
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ProductionAcceptanceError(
-                "production_log_not_utf8:" + role
-            ) from exc
-        observed_sha = hashlib.sha256(raw).hexdigest()
         item = by_role[role]
+        if role in {"api", "iis", "postgres"}:
+            cp = checkpoints[role]
+            if str(raw_path.resolve()) != cp.get("path"):
+                raise ProductionAcceptanceError("production_log_checkpoint_path_mismatch:" + role)
+            start_offset = int(cp["startOffset"])
+            if len(raw) < start_offset:
+                raise ProductionAcceptanceError("production_log_checkpoint_offset_invalid:" + role)
+            prefix_sha = hashlib.sha256(raw[:start_offset]).hexdigest()
+            if prefix_sha != cp.get("prefixSha256"):
+                raise ProductionAcceptanceError("production_log_checkpoint_prefix_mismatch:" + role)
+            segment = raw[start_offset:]
+        else:
+            start_offset = 0
+            segment = raw
+        if not segment:
+            raise ProductionAcceptanceError("production_log_acceptance_segment_empty:" + role)
+        try:
+            text = segment.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ProductionAcceptanceError("production_log_not_utf8:" + role) from exc
         if (
-            item.get("sha256") != observed_sha
-            or item.get("sizeBytes") != len(raw)
-            or item.get("path") != raw_path.name
+            item.get("path") != str(raw_path.resolve())
+            or item.get("startOffset") != start_offset
+            or item.get("endOffset") != len(raw)
+            or item.get("segmentSizeBytes") != len(segment)
+            or item.get("segmentSha256") != hashlib.sha256(segment).hexdigest()
         ):
-            raise ProductionAcceptanceError(
-                "production_log_file_binding_mismatch:" + role
-            )
-        external, suspicious = log_inspector.inspect_text(
-            text,
-            allowed_hosts=allowed_hosts,
-        )
+            raise ProductionAcceptanceError("production_log_file_binding_mismatch:" + role)
+        external, suspicious = log_inspector.inspect_text(text, allowed_hosts=allowed_hosts)
         if external or suspicious:
-            raise ProductionAcceptanceError(
-                "production_log_content_failed:" + role
-            )
+            raise ProductionAcceptanceError("production_log_content_failed:" + role)
 
     if (
         value.get("sourceCommit") != source_commit
         or value.get("maviBuild") != mavi_build
+        or value.get("formalScenarioSha256") != formal_scenario_sha256
         or value.get("formalE2eSha256") != formal_e2e_sha256
+        or value.get("emptySceneScenarioSha256") != empty_scenario_sha256
         or value.get("emptySceneDiagnosticSha256") != empty_e2e_sha256
         or value.get("failureReprocessSha256") != failure_sha256
-        or by_role["formal-worker"].get("sha256") != formal_worker_log_sha256
-        or by_role["empty-worker"].get("sha256") != empty_worker_log_sha256
-        or by_role["failure-worker"].get("sha256") != failure_worker_log_sha256
+        or by_role["formal-worker"].get("segmentSha256") != formal_worker_log_sha256
+        or by_role["empty-worker"].get("segmentSha256") != empty_worker_log_sha256
+        or by_role["failure-worker"].get("segmentSha256") != failure_worker_log_sha256
         or value.get("result", {}).get("externalUrlHits") != []
         or value.get("result", {}).get("telemetryOrLicenceHits") != []
         or not passed_result(value)
@@ -625,6 +698,12 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
     ):
         raise ProductionAcceptanceError("production_application_identity_mismatch")
     application_manifest_sha = sha256_file(args.application_manifest)
+    acceptance_context, acceptance_context_sha = load_acceptance_context(
+        args.acceptance_context,
+        schema_path=PHASE1_ROOT / "production-acceptance-context.schema.json",
+        expected_source_commit=args.source_commit,
+        expected_mavi_build=mavi_build,
+    )
 
     prerequisite_sha = validate_prerequisites(
         args.prerequisite_evidence,
@@ -687,6 +766,8 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         linux_cuda_variant=linux_variant,
         linux_cuda_bundle_sha256=bundle_hashes["linux-x86_64-cuda"],
         linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
+        acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
+        acceptance_context_sha256=acceptance_context_sha,
     )
     empty_scenario_sha, empty_e2e_sha, empty_log_sha = validate_scenario(
         args.empty_scene_scenario,
@@ -701,6 +782,8 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         linux_cuda_variant=linux_variant,
         linux_cuda_bundle_sha256=bundle_hashes["linux-x86_64-cuda"],
         linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
+        acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
+        acceptance_context_sha256=acceptance_context_sha,
     )
     if formal_e2e_sha == empty_e2e_sha:
         raise ProductionAcceptanceError("production_scenarios_not_distinct")
@@ -714,20 +797,32 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         linux_cuda_variant=linux_variant,
         linux_cuda_bundle_sha256=bundle_hashes["linux-x86_64-cuda"],
         linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
+        acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
+        acceptance_context_sha256=acceptance_context_sha,
     )
 
+    formal_scenario_value = load_json(args.formal_scenario, "production_formal_scenario_invalid")
+    empty_scenario_value = load_json(args.empty_scene_scenario, "production_empty_scenario_invalid")
+    failure_value = load_json(args.failure_reprocess, "production_failure_reprocess_invalid")
     production_log_paths = parse_log_arguments(args.production_log)
     log_inspection_sha = validate_log_inspection(
         args.log_inspection,
+        context_path=args.acceptance_context,
+        checkpoint_path=args.server_log_checkpoint,
         log_paths=production_log_paths,
         source_commit=args.source_commit,
         mavi_build=mavi_build,
+        formal_scenario_sha256=formal_scenario_sha,
         formal_e2e_sha256=formal_e2e_sha,
+        empty_scenario_sha256=empty_scenario_sha,
         empty_e2e_sha256=empty_e2e_sha,
         failure_sha256=failure_sha,
         formal_worker_log_sha256=formal_log_sha,
         empty_worker_log_sha256=empty_log_sha,
         failure_worker_log_sha256=failure_log_sha,
+        formal_scenario=formal_scenario_value,
+        empty_scenario=empty_scenario_value,
+        failure_evidence=failure_value,
     )
 
     backup_sha = validate_backup(
@@ -767,6 +862,9 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "schemaVersion": "mavi-phase1-production-acceptance-evidence-v1",
+        "acceptanceExecutionId": acceptance_context["acceptanceExecutionId"],
+        "acceptanceContextSha256": acceptance_context_sha,
+        "serverLogCheckpointSha256": sha256_file(args.server_log_checkpoint),
         "sourceCommit": args.source_commit,
         "maviBuild": mavi_build,
         "verifiedModelManifestSha256": target_manifest_sha,
@@ -792,6 +890,8 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--acceptance-context", type=Path, required=True)
+    parser.add_argument("--server-log-checkpoint", type=Path, required=True)
     parser.add_argument("--verified-model-manifest", type=Path, required=True)
     parser.add_argument("--acceptance-profile", type=Path, required=True)
     parser.add_argument("--application-artifact-root", type=Path, required=True)
@@ -831,6 +931,7 @@ def main() -> int:
     except (
         ProductionAcceptanceError,
         PolicyIdentityError,
+        AcceptanceContextError,
         OSError,
         json.JSONDecodeError,
     ) as exc:
