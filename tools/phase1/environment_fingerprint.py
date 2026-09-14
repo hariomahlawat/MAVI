@@ -86,6 +86,8 @@ for root in sorted(site_roots, key=lambda p: str(p)):
     for target in sorted(root.rglob("*"), key=lambda p: str(p)):
         if not target.is_file():
             continue
+        if "__pycache__" in target.parts or target.suffix in {".pyc", ".pyo"}:
+            continue
         resolved = target.resolve()
         relative = resolved.relative_to(root).as_posix()
         site_files.append({
