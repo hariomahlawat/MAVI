@@ -62,8 +62,7 @@ public sealed class ProcessingOrchestrator(
             .Where(run =>
                 run.Id == processingRunId &&
                 run.Status == ProcessingRunStatus.Completed &&
-                run.CompletedAtUtc != null &&
-                run.RuntimeProvenanceJson != null)
+                run.CompletedAtUtc != null)
             .Select(run => new ProcessingRunAttestationSource(
                 run.Id,
                 run.VideoAssetId,
@@ -73,7 +72,7 @@ public sealed class ProcessingOrchestrator(
                 run.DetectorVersion,
                 run.TrackerName,
                 run.TrackerVersion,
-                run.RuntimeProvenanceJson!))
+                run.RuntimeProvenanceJson))
             .SingleOrDefaultAsync(cancellationToken);
     }
 
