@@ -60,6 +60,19 @@ describe('API client', () => {
     });
   });
 
+  it('passes cancellation through to fetch', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiRequest('/api/test', { signal: controller.signal });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/test', { signal: controller.signal });
+  });
+
   it('lets the browser own the multipart boundary', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21411',
