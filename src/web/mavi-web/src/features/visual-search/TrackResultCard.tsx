@@ -61,7 +61,7 @@ export default function TrackResultCard({
 
         <Link
           className="button button--secondary track-card__action"
-          to={'/review/video/' + track.videoAssetId + '?trackId=' + encodeURIComponent(track.id)}
+          to={'/review/video/' + track.videoAssetId.toLowerCase() + '?trackId=' + encodeURIComponent(track.id.toLowerCase())}
         >
           Review evidence
         </Link>
