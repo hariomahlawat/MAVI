@@ -4,13 +4,17 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion","mode","sourceCommit","maviBuild",
+    "schemaVersion","acceptanceExecutionId","acceptanceContextSha256","scenarioStartedAtUtc","scenarioCompletedAtUtc","mode","sourceCommit","maviBuild",
     "targetVerifiedManifestSha256","linuxCudaVariantEvidenceSha256",
     "productionBundleManifestSha256","productionReleaseLockSha256",
     "workerPythonSha256","workerEnvironmentSha256","workerVenvRootSha256","workerResolvedPythonSha256","e2eEvidenceSha256","workerLogSha256","networkIsolation","result"
   ],
   "properties": {
     "schemaVersion": { "const": "mavi-production-scenario-evidence-v1" },
+    "acceptanceExecutionId": { "type": "string", "format": "uuid" },
+    "acceptanceContextSha256": { "$ref": "#/$defs/sha256" },
+    "scenarioStartedAtUtc": { "type": "string", "format": "date-time" },
+    "scenarioCompletedAtUtc": { "type": "string", "format": "date-time" },
     "mode": { "enum": ["formal","empty-scene-diagnostic"] },
     "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "maviBuild": { "type": "string", "minLength": 1 },
