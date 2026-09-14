@@ -16,7 +16,10 @@ class LogInspectionError(ValueError):
     pass
 
 
-URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+URL_RE = re.compile(
+    r"(?:https?|ftp|s3|hf|mim|ssh)://[^\s\"'<>]+|git\+https?://[^\s\"'<>]+",
+    re.IGNORECASE,
+)
 SUSPICIOUS_RE = re.compile(
     r"\b(?:telemetry|analytics|phone[- ]home|activation|"
     r"licen[cs](?:e|ing|ed)|license[- ]server|licence[- ]server)\b",
@@ -124,6 +127,8 @@ def main() -> int:
         logs = []
         for role, path in sorted(log_paths.items()):
             raw = path.read_bytes()
+            if not raw:
+                raise LogInspectionError("production_log_empty:" + role)
             try:
                 text = raw.decode("utf-8")
             except UnicodeDecodeError as exc:
