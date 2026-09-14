@@ -76,6 +76,7 @@ def test_candidate_lock_is_proven_by_bundle_not_persisted_provenance():
         bundle(),
         "8" * 64,
         "a" * 40,
+        "build-a",
     )
     assert result["platformLockSha256"] is None
     assert result["candidateSelectedLockSha256"] == "7" * 64
@@ -90,6 +91,7 @@ def test_candidate_rejects_persisted_lock():
             bundle(),
             "8" * 64,
             "a" * 40,
+            "build-a",
         )
 
 
@@ -104,6 +106,7 @@ def test_production_requires_persisted_lock_match():
         "a" * 40,
     )
     assert result["platformLockSha256"] == "7" * 64
+    assert result["productionBundleManifestSha256"] == "8" * 64
 
     prod_attestation["platformLockSha256"] = "9" * 64
     with pytest.raises(mod.AcceptanceError, match="qualification_production_lock_mismatch"):
@@ -174,3 +177,18 @@ def test_poll_rejects_superseding_run():
 def test_recording_identity_rejects_ambiguous_wall_time():
     with pytest.raises(mod.AcceptanceError, match="qualification_recording_time_ambiguous"):
         mod._recording_identity("2026-11-01T01:30:00", "America/New_York")
+
+
+def test_attestation_rejects_wrong_mavi_build():
+    value = attestation()
+    value["maviBuild"] = "other-build"
+    with pytest.raises(mod.AcceptanceError, match="qualification_attestation_mismatch:maviBuild"):
+        mod._compare_attestation(
+            value,
+            selection(),
+            expected(),
+            bundle(),
+            "8" * 64,
+            "a" * 40,
+            "build-a",
+        )
