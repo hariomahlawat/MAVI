@@ -9,7 +9,7 @@ public sealed record ProcessingRunAttestationSource(
     string? DetectorVersion,
     string? TrackerName,
     string? TrackerVersion,
-    string RuntimeProvenanceJson);
+    string? RuntimeProvenanceJson);
 
 public sealed record QueueProcessingResult(bool IsSuccess, Guid? ProcessingRunId, string? ErrorCode);
 public sealed record ProcessingStatusResult(bool Found, string VideoStatus, ProcessingRunStatusView? LatestRun);
