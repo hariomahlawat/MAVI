@@ -24,6 +24,10 @@ sys.modules[SPEC.name] = e2e
 SPEC.loader.exec_module(e2e)
 
 import qualify_offline_variant as offline_variant  # noqa: E402
+from environment_fingerprint import (  # noqa: E402
+    EnvironmentFingerprintError,
+    fingerprint as environment_fingerprint,
+)
 
 
 class FailureReprocessError(ValueError):
@@ -132,6 +136,7 @@ def validate_production_inputs(
         raise FailureReprocessError(
             "failure_reprocess_production_bundle_required"
         )
+    environment_identity = environment_fingerprint(args.worker_python)
     if (
         variant.get("schemaVersion")
         != "mavi-offline-variant-evidence-v1"
@@ -145,6 +150,12 @@ def validate_production_inputs(
         or variant.get("releaseLockSha256") != bundle.get("lockSha256")
         or variant.get("workerPythonSha256")
         != sha256_file(args.worker_python)
+        or variant.get("workerEnvironmentSha256")
+        != environment_identity["workerEnvironmentSha256"]
+        or variant.get("workerVenvRootSha256")
+        != environment_identity["workerVenvRootSha256"]
+        or variant.get("workerResolvedPythonSha256")
+        != environment_identity["workerResolvedPythonSha256"]
         or variant.get("result") != "passed"
     ):
         raise FailureReprocessError(
@@ -162,11 +173,11 @@ def validate_production_inputs(
         raise FailureReprocessError(
             "failure_reprocess_model_manifest_mismatch"
         )
-    return bundle, bundle_sha
+    return bundle, bundle_sha, environment_identity
 
 
 def execute(args: argparse.Namespace) -> dict[str, Any]:
-    bundle, bundle_sha = validate_production_inputs(args)
+    bundle, bundle_sha, environment_identity = validate_production_inputs(args)
     network_isolation = offline_variant.assert_outbound_internet_unavailable()
     client = e2e.ApiClient(args.base_url)
 
@@ -384,6 +395,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             args.linux_cuda_variant_evidence
         ),
         "workerPythonSha256": sha256_file(args.worker_python),
+        "workerEnvironmentSha256": environment_identity["workerEnvironmentSha256"],
+        "workerVenvRootSha256": environment_identity["workerVenvRootSha256"],
+        "workerResolvedPythonSha256": environment_identity["workerResolvedPythonSha256"],
         "videoAssetId": video["id"],
         "firstProcessingRunId": first_run_id,
         "firstVisionJobId": lease["jobId"],
@@ -468,6 +482,7 @@ def main() -> int:
         KeyError,
         TypeError,
         FailureReprocessError,
+        EnvironmentFingerprintError,
         e2e.AcceptanceError,
     ) as exc:
         code = getattr(exc, "code", str(exc))
