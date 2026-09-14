@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
@@ -58,6 +59,18 @@ function track(id: string, overrides: Partial<TrackSearchItem> = {}): TrackSearc
     videoContentUrl: '/api/videos/018f3f5a-2f70-7a2b-8a12-2d02f4c21421/content',
     ...overrides,
   };
+}
+
+function SearchHistoryHarness() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <>
+      <button type="button" onClick={() => navigate(-1)}>Back</button>
+      <output aria-label="Current search location">{location.pathname + location.search}</output>
+      <VisualSearchPage />
+    </>
+  );
 }
 
 describe('VisualSearchPage', () => {
@@ -181,6 +194,106 @@ describe('VisualSearchPage', () => {
     expect(await screen.findByText(/must occur exactly once/i)).toBeInTheDocument();
     expect(screen.queryByText(/Searching visual intelligence/i)).not.toBeInTheDocument();
     expect(searchTracks).not.toHaveBeenCalled();
+  });
+
+  it('restores committed filters through browser history navigation', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<SearchHistoryHarness />, { route: '/search?objectClass=Person' });
+
+    await screen.findByRole('link', { name: 'Review evidence' });
+    expect(screen.getByLabelText('Object class')).toHaveValue('Person');
+
+    await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(screen.getByLabelText('Current search location'))
+      .toHaveTextContent('/search?objectClass=Vehicle'));
+
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+
+    await waitFor(() => expect(screen.getByLabelText('Object class')).toHaveValue('Person'));
+    expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search?objectClass=Person');
+  });
+
+  it('hydrates preserved time scope after config recovery without clobbering newer non-time draft edits', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getSystemConfig).mockRejectedValueOnce(new Error('offline'));
+
+    renderWithApp(<VisualSearchPage />, {
+      route: '/search?fromUtc=2026-09-14T02%3A30%3A00Z',
+    });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry display config' })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+
+    vi.mocked(getSystemConfig).mockResolvedValueOnce({ displayTimeZoneId: 'Asia/Kolkata' });
+    await user.click(screen.getByRole('button', { name: 'Retry display config' }));
+
+    await waitFor(() => expect(screen.getByLabelText('From')).toHaveValue('2026-09-14T08:00:00'));
+    expect(screen.getByLabelText('Object class')).toHaveValue('Vehicle');
+  });
+
+  it('starts a fresh cursor chain when committed filters change', async () => {
+    const user = userEvent.setup();
+    vi.mocked(searchTracks)
+      .mockResolvedValueOnce({
+        items: [track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451')],
+        nextCursor: 'first-snapshot-cursor',
+      })
+      .mockResolvedValueOnce({
+        items: [track('018f3f5a-2f70-7a2b-8a12-2d02f4c21452', { objectClass: 'Vehicle' })],
+        nextCursor: null,
+      });
+
+    renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await screen.findByRole('button', { name: 'Load more' });
+
+    await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(searchTracks).mock.calls[1][0]).toEqual(expect.objectContaining({
+      objectClass: 'Vehicle',
+      cursor: undefined,
+    }));
+  });
+
+  it('refreshes from page one after an expired continuation cursor without mixing snapshots', async () => {
+    const user = userEvent.setup();
+    const { ApiError } = await import('../../api/client');
+    vi.mocked(searchTracks)
+      .mockResolvedValueOnce({
+        items: [track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451')],
+        nextCursor: 'expired-cursor',
+      })
+      .mockRejectedValueOnce(new ApiError({
+        status: 400,
+        code: 'track_search_invalid',
+        detail: 'Cursor expired.',
+      }))
+      .mockResolvedValueOnce({
+        items: [track('018f3f5a-2f70-7a2b-8a12-2d02f4c21453', { cameraName: 'Fresh Snapshot' })],
+        nextCursor: null,
+      });
+
+    renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await user.click(await screen.findByRole('button', { name: 'Load more' }));
+
+    expect(await screen.findByText(/snapshot can no longer continue/i)).toBeInTheDocument();
+    expect(screen.getByText(/North Gate/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Refresh results' }));
+
+    expect(await screen.findByText(/Fresh Snapshot/)).toBeInTheDocument();
+    expect(vi.mocked(searchTracks).mock.calls[2][0].cursor).toBeUndefined();
+  });
+
+  it('keeps inactive cameras available for historical search', async () => {
+    vi.mocked(listCameras).mockResolvedValueOnce([{ ...camera, isActive: false }]);
+
+    renderWithApp(<VisualSearchPage />, { route: '/search' });
+
+    await screen.findByRole('link', { name: 'Review evidence' });
+    expect(screen.getByRole('option', { name: /CAM-01.*North Gate.*Inactive/ })).toBeInTheDocument();
   });
 
   it('passes the opaque continuation cursor only to Load more', async () => {
