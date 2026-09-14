@@ -23,6 +23,8 @@ e2e = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = e2e
 SPEC.loader.exec_module(e2e)
 
+import qualify_offline_variant as offline_variant  # noqa: E402
+
 
 class ProductionScenarioError(ValueError):
     pass
@@ -148,6 +150,7 @@ def worker_environment(
 
 def execute(args: argparse.Namespace) -> dict[str, Any]:
     bundle, bundle_sha, variant = validate_inputs(args)
+    network_isolation = offline_variant.assert_outbound_internet_unavailable()
 
     health = e2e.ApiClient(args.base_url).json("GET", "/api/health")
     if (
@@ -340,6 +343,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "workerPythonSha256": sha256_file(args.worker_python),
         "e2eEvidenceSha256": sha256_file(args.e2e_output),
         "workerLogSha256": sha256_file(worker_log),
+        "networkIsolation": network_isolation,
         "result": {"passed": True, "failureCodes": []},
     }
 
