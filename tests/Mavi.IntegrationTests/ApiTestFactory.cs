@@ -29,10 +29,13 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     public TimeProvider Clock { get; init; } = TimeProvider.System;
     public Action<DbContextOptionsBuilder>? ConfigureDbContext { get; init; }
     public Action<IServiceCollection>? OverrideServices { get; init; }
+    public string? StaticWebRoot { get; init; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        if (!string.IsNullOrWhiteSpace(StaticWebRoot))
+            builder.UseWebRoot(StaticWebRoot);
         builder.UseSetting("ConnectionStrings:Mavi", ConnectionString);
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
