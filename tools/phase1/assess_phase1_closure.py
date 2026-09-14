@@ -281,7 +281,11 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         if application_manifest.get("sourceCommit") != args.source_commit:
             raise ClosureError("application_manifest_source_commit_mismatch")
         expected_mavi_build = application_manifest.get("build")
-        if not isinstance(expected_mavi_build, str) or not expected_mavi_build:
+        if (
+            not isinstance(expected_mavi_build, str)
+            or not expected_mavi_build
+            or expected_mavi_build == "unknown-development"
+        ):
             raise ClosureError("application_manifest_build_invalid")
         application_manifest_sha256 = sha256_file(args.application_manifest)
 
