@@ -177,3 +177,136 @@ def test_log_inspection_rejects_worker_log_from_other_execution(
                 if item["role"] == "failure-worker"
             ),
         )
+
+
+def test_final_scenario_cannot_reuse_variant_smoke_e2e(
+    tmp_path: Path,
+    monkeypatch,
+):
+    e2e = {
+        "mode": "formal",
+        "sourceCommit": "a" * 40,
+        "targetVerifiedManifestSha256": "b" * 64,
+        "releaseExpected": {"modelManifestSha256": "b" * 64},
+        "attestation": {
+            "verificationStatus": "verified",
+            "runtimeVariant": "linux-x86_64-cuda",
+            "maviBuild": "build-a",
+            "maviCommit": "a" * 40,
+            "productionBundleManifestSha256": "d" * 64,
+            "platformLockSha256": "e" * 64,
+            "candidateBundleManifestSha256": None,
+            "candidateSelectedLockSha256": None,
+            "actualDevice": "cuda:0",
+        },
+        "result": {"passed": True, "failureCodes": []},
+    }
+    e2e_path = tmp_path / "e2e.json"
+    e2e_path.write_text(json.dumps(e2e), encoding="utf-8")
+    e2e_sha = mod.sha256_file(e2e_path)
+
+    scenario = {
+        "mode": "formal",
+        "sourceCommit": "a" * 40,
+        "maviBuild": "build-a",
+        "targetVerifiedManifestSha256": "b" * 64,
+        "linuxCudaVariantEvidenceSha256": "f" * 64,
+        "productionBundleManifestSha256": "d" * 64,
+        "productionReleaseLockSha256": "e" * 64,
+        "workerPythonSha256": "2" * 64,
+        "e2eEvidenceSha256": e2e_sha,
+        "workerLogSha256": "3" * 64,
+        "result": {"passed": True, "failureCodes": []},
+    }
+    scenario_path = tmp_path / "scenario.json"
+    scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
+    variant_path = tmp_path / "variant.json"
+    variant_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(
+        mod.evidence_verifier,
+        "verify_acceptance",
+        lambda *_, **__: None,
+    )
+    variant = {
+        "workerPythonSha256": "2" * 64,
+        "workerFlowEvidenceSha256": e2e_sha,
+    }
+    scenario["linuxCudaVariantEvidenceSha256"] = mod.sha256_file(variant_path)
+    scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
+
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_scenario_reused_variant_smoke:formal",
+    ):
+        mod.validate_scenario(
+            scenario_path,
+            e2e_path,
+            mode="formal",
+            source_commit="a" * 40,
+            target_manifest_sha256="b" * 64,
+            acceptance_profile_sha256="c" * 64,
+            expected_corpus_sha256="9" * 64,
+            mavi_build="build-a",
+            linux_cuda_variant_path=variant_path,
+            linux_cuda_variant=variant,
+            linux_cuda_bundle_sha256="d" * 64,
+            linux_cuda_lock_sha256="e" * 64,
+        )
+
+
+def test_failure_reprocess_rejects_source_drift(
+    tmp_path: Path,
+    monkeypatch,
+):
+    variant_path = tmp_path / "variant.json"
+    variant_path.write_text("{}", encoding="utf-8")
+    value = {
+        "sourceCommit": "a" * 40,
+        "maviBuild": "build-a",
+        "targetVerifiedManifestSha256": "b" * 64,
+        "productionBundleManifestSha256": "d" * 64,
+        "productionReleaseLockSha256": "e" * 64,
+        "linuxCudaVariantEvidenceSha256": mod.sha256_file(variant_path),
+        "workerPythonSha256": "2" * 64,
+        "firstProcessingRunId": "11111111-1111-1111-1111-111111111111",
+        "reprocessProcessingRunId": "22222222-2222-2222-2222-222222222222",
+        "sourceMedia": {
+            "localSha256": "1" * 64,
+            "afterFailureSha256": "1" * 64,
+            "afterFailureEtagSha256": "1" * 64,
+            "afterReprocessSha256": "9" * 64,
+            "afterReprocessEtagSha256": "1" * 64,
+        },
+        "trackCount": 1,
+        "workerLogSha256": "4" * 64,
+        "reprocessAttestation": {
+            "verificationStatus": "verified",
+            "runtimeVariant": "linux-x86_64-cuda",
+            "maviBuild": "build-a",
+            "maviCommit": "a" * 40,
+            "modelManifestSha256": "b" * 64,
+            "platformLockSha256": "e" * 64,
+            "actualDevice": "cuda:0",
+        },
+        "result": {"passed": True, "failureCodes": []},
+    }
+    path = tmp_path / "failure.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_failure_reprocess_binding_failed",
+    ):
+        mod.validate_failure_reprocess(
+            path,
+            source_commit="a" * 40,
+            mavi_build="build-a",
+            target_manifest_sha256="b" * 64,
+            linux_cuda_variant_path=variant_path,
+            linux_cuda_variant={"workerPythonSha256": "2" * 64},
+            linux_cuda_bundle_sha256="d" * 64,
+            linux_cuda_lock_sha256="e" * 64,
+        )
