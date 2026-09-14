@@ -7,7 +7,7 @@
     "schemaVersion","mode","sourceCommit","maviBuild",
     "targetVerifiedManifestSha256","linuxCudaVariantEvidenceSha256",
     "productionBundleManifestSha256","productionReleaseLockSha256",
-    "workerPythonSha256","e2eEvidenceSha256","workerLogSha256","result"
+    "workerPythonSha256","e2eEvidenceSha256","workerLogSha256","networkIsolation","result"
   ],
   "properties": {
     "schemaVersion": { "const": "mavi-production-scenario-evidence-v1" },
@@ -21,6 +21,16 @@
     "workerPythonSha256": { "$ref": "#/$defs/sha256" },
     "e2eEvidenceSha256": { "$ref": "#/$defs/sha256" },
     "workerLogSha256": { "$ref": "#/$defs/sha256" },
+    "networkIsolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proxyEnvironmentAbsent","probes","passed"],
+      "properties": {
+        "proxyEnvironmentAbsent": { "const": true },
+        "probes": { "type": "array", "minItems": 5 },
+        "passed": { "const": true }
+      }
+    },
     "result": {
       "type": "object",
       "additionalProperties": false,
