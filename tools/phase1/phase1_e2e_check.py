@@ -686,6 +686,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "mode": args.mode,
         "sourceCommit": args.source_commit,
         "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
+        "acceptanceProfileSha256": sha256_file(args.acceptance_profile),
         "environmentLabel": args.environment_label,
         "releaseExpected": expected_release,
         "attestation": attestation_evidence,
