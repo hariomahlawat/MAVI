@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/offline-install-evidence-v1.json",
+  "title": "MAVI Offline Install Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sourceCommit", "os", "bundleMode", "isolationMethod", "variants", "result"],
+  "properties": {
+    "schemaVersion": { "const": "mavi-offline-install-evidence-v1" },
+    "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "os": { "enum": ["windows", "linux"] },
+    "bundleMode": { "enum": ["qualification-candidate", "production"] },
+    "isolationMethod": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "variants": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/variant" }
+    },
+    "result": { "enum": ["passed", "failed"] }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hostCompatibility": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variant", "bundleManifestSha256", "releaseLockSha256", "expectedHostCompatibility",
+        "observedHostCompatibility", "installCommand", "installExitCode", "pipCheckPassed",
+        "runtimeStarted", "realInferencePassed", "workerFlowPassed", "actualDevice",
+        "outboundNetworkUnavailable", "firstRunDownloadObserved", "result"
+      ],
+      "properties": {
+        "variant": { "enum": ["windows-x86_64-cpu", "windows-x86_64-cuda", "linux-x86_64-cpu", "linux-x86_64-cuda"] },
+        "bundleManifestSha256": { "$ref": "#/$defs/sha256" },
+        "releaseLockSha256": { "$ref": "#/$defs/sha256" },
+        "expectedHostCompatibility": { "$ref": "#/$defs/hostCompatibility" },
+        "observedHostCompatibility": { "$ref": "#/$defs/hostCompatibility" },
+        "installCommand": { "type": "string", "minLength": 1 },
+        "installExitCode": { "type": "integer" },
+        "pipCheckPassed": { "type": "boolean" },
+        "runtimeStarted": { "type": "boolean" },
+        "realInferencePassed": { "type": "boolean" },
+        "workerFlowPassed": { "type": "boolean" },
+        "actualDevice": { "type": "string", "minLength": 1 },
+        "outboundNetworkUnavailable": { "type": "boolean" },
+        "firstRunDownloadObserved": { "type": "boolean" },
+        "result": { "enum": ["passed", "failed"] }
+      }
+    }
+  }
+}
