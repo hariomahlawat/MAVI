@@ -18,6 +18,7 @@ if str(PHASE1_ROOT) not in sys.path:
     sys.path.insert(0, str(PHASE1_ROOT))
 
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
+from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
 
 
 class BackupRestoreError(ValueError):
@@ -157,7 +158,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         raise BackupRestoreError("backup_restore_acceptance_evidence_invalid") from exc
     if not isinstance(acceptance, dict):
         raise BackupRestoreError("backup_restore_acceptance_evidence_invalid")
-    acceptance_profile_sha = sha256_file(args.acceptance_profile)
+    _, acceptance_profile_sha = canonical_acceptance_profile(args.acceptance_profile)
     try:
         evidence_verifier._validate_schema(
             acceptance,
@@ -375,7 +376,7 @@ def main() -> int:
         else:
             value = finalize(args.execution, args.post_restore_check)
         args.output.write_bytes(canonical_bytes(value))
-    except (BackupRestoreError, OSError, json.JSONDecodeError) as exc:
+    except (BackupRestoreError, OSError, json.JSONDecodeError, PolicyIdentityError) as exc:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2
 
