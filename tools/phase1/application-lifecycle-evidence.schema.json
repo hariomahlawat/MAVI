@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/application-lifecycle-evidence-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "mode", "sourceCommit", "build", "applicationManifestSha256",
+    "destination", "internetUnavailable", "priorRelease", "migrationPolicy",
+    "observedHealth", "result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-application-lifecycle-evidence-v1" },
+    "mode": { "enum": ["fresh-install", "offline-update"] },
+    "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "build": { "type": "string", "minLength": 1 },
+    "applicationManifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "destination": { "type": "string", "minLength": 1 },
+    "internetUnavailable": { "const": true },
+    "priorRelease": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["sourceCommit", "build", "supported"],
+      "properties": {
+        "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "build": { "type": "string", "minLength": 1 },
+        "supported": { "const": true }
+      }
+    },
+    "migrationPolicy": { "enum": ["none", "required"] },
+    "migration": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["commandIdentity", "exitCode", "passed"],
+      "properties": {
+        "commandIdentity": { "type": "string", "minLength": 1 },
+        "exitCode": { "type": "integer" },
+        "passed": { "type": "boolean" }
+      }
+    },
+    "observedHealth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "build", "commit"],
+      "properties": {
+        "status": { "const": "ok" },
+        "build": { "type": "string", "minLength": 1 },
+        "commit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failureCodes"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "failureCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}
