@@ -41,10 +41,13 @@ def main() -> int:
         }
         commits = {item.get("sourceCommit") for item in expected.values()}
         modes = {item.get("bundleMode") for item in expected.values()}
+        targets = {item.get("targetVerifiedManifestSha256") for item in expected.values()}
         if len(commits) != 1 or None in commits:
             raise AssembleError("offline_source_commit_mismatch")
         if len(modes) != 1 or None in modes:
             raise AssembleError("offline_bundle_mode_mismatch")
+        if len(targets) != 1 or None in targets:
+            raise AssembleError("offline_target_manifest_mismatch")
         for variant, item in expected.items():
             if item.get("schemaVersion") != "mavi-offline-variant-evidence-v1":
                 raise AssembleError("offline_variant_schema_invalid")
@@ -72,6 +75,7 @@ def main() -> int:
         value = {
             "schemaVersion": "mavi-offline-install-evidence-v1",
             "sourceCommit": next(iter(commits)),
+            "targetVerifiedManifestSha256": next(iter(targets)),
             "os": args.os,
             "bundleMode": next(iter(modes)),
             "isolationMethod": args.isolation_method,
