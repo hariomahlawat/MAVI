@@ -142,9 +142,16 @@ public sealed class VideoImportApiTests(PostgresFixture database)
         {
             using var accepted = await ImportAsync(client, camera.Id, sourcePath);
             Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+            var acceptedVideo = await accepted.Content.ReadFromJsonAsync<VideoAssetResponse>();
+            Assert.NotNull(acceptedVideo);
+
             using var duplicate = await ImportAsync(client, camera.Id, sourcePath);
             Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
-            Assert.Equal("video_duplicate", await ReadCodeAsync(duplicate));
+            using (var duplicateProblem = JsonDocument.Parse(await duplicate.Content.ReadAsStringAsync()))
+            {
+                Assert.Equal("video_duplicate", duplicateProblem.RootElement.GetProperty("code").GetString());
+                Assert.Equal(acceptedVideo.Id, duplicateProblem.RootElement.GetProperty("videoAssetId").GetGuid());
+            }
             using var corrupt = await ImportAsync(client, camera.Id, corruptPath);
             Assert.Equal(HttpStatusCode.BadRequest, corrupt.StatusCode);
             Assert.Equal("video_metadata_invalid", await ReadCodeAsync(corrupt));
