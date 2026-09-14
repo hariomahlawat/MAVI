@@ -108,5 +108,50 @@ def test_backup_must_reference_exact_final_e2e(tmp_path: Path):
             path,
             source_commit="a" * 40,
             acceptance_profile_sha256="c" * 64,
-            final_e2e_sha256="9" * 64,
+            formal_e2e_sha256="9" * 64,
+        )
+
+
+def test_log_inspection_rejects_worker_log_from_other_execution(
+    tmp_path: Path,
+    monkeypatch,
+):
+    value = {
+        "sourceCommit": "a" * 40,
+        "maviBuild": "build-a",
+        "formalE2eSha256": "1" * 64,
+        "emptySceneDiagnosticSha256": "2" * 64,
+        "failureReprocessSha256": "3" * 64,
+        "logs": [
+            {"role": "api", "sha256": "a" * 64},
+            {"role": "iis", "sha256": "b" * 64},
+            {"role": "postgres", "sha256": "c" * 64},
+            {"role": "formal-worker", "sha256": "d" * 64},
+            {"role": "empty-worker", "sha256": "e" * 64},
+            {"role": "failure-worker", "sha256": "f" * 64},
+        ],
+        "result": {
+            "passed": True,
+            "externalUrlHits": [],
+            "telemetryOrLicenceHits": [],
+            "failureCodes": [],
+        },
+    }
+    path = tmp_path / "logs.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_log_inspection_binding_failed",
+    ):
+        mod.validate_log_inspection(
+            path,
+            source_commit="a" * 40,
+            mavi_build="build-a",
+            formal_e2e_sha256="1" * 64,
+            empty_e2e_sha256="2" * 64,
+            failure_sha256="3" * 64,
+            formal_worker_log_sha256="9" * 64,
+            empty_worker_log_sha256="e" * 64,
+            failure_worker_log_sha256="f" * 64,
         )
