@@ -15,7 +15,7 @@ CUDA bundle qualification remains pending hardware qualification. Task 12 does n
 
 ### Qualification candidate
 
-A qualification-candidate bundle is integrity checked and fully installable from local wheel bytes, but it may carry an `unverified` manifest and `pending` qualification record. It exists so Task 14 can execute true network-disconnected and hardware qualification.
+A qualification-candidate bundle is integrity checked and fully installable from local wheel bytes, but it may carry an `unverified` manifest and `pending` qualification record. The pending qualification record must already be rebound to the exact runtime-profile SHA-256 copied into the bundle; the bundle builder intentionally runs `verify_release_selection(..., allow_unverified=True)` and rejects stale qualification/runtime hash relationships. It exists so Task 17 can execute true network-disconnected and release-level qualification.
 
 It must not be represented as a production-qualified release.
 
@@ -23,11 +23,15 @@ It must not be represented as a production-qualified release.
 
 The bundle assembler supports production mode only after all release evidence is complete. Production mode fails closed unless the model manifest is `verified`, the runtime is `qualified`, the qualification result is `passed`, all mandatory qualification gates are passed, and the requested platform has a qualified offline lock.
 
-## Prerequisite
+Task 17 must generate a production bundle for every required qualified platform/device variant in the final runtime profile. Each exact production bundle must then pass a disconnected production-mode install/runtime smoke on the corresponding host/device class before Phase-1 release completion. Qualification-candidate evidence cannot substitute for this post-promotion check.
+
+## Prerequisite and deployment boundary
 
 The exact CPython patch version for the selected bundle must already be provisioned on the target host.
 
-Task 12 does not bundle or install the operating system, CPython itself, NVIDIA/CUDA drivers or compiler toolchains. Target-machine compilation is prohibited.
+Task 12 does not bundle or install the operating system, Windows Server/IIS, PostgreSQL/pgvector, CPython itself, NVIDIA/CUDA drivers, compiler toolchains, or the complete MAVI application deployment. Target-machine compilation is prohibited.
+
+For final Task-17 Phase-1 acceptance, those prerequisites must be pre-provisioned or installed from separately controlled offline media. The MAVI application build/deployment artifact is identified and hashed separately from this vision runtime bundle. Final acceptance evidence must bind both the application build identity and the selected vision-runtime production-bundle identity.
 
 ## Directory contract
 
@@ -123,4 +127,14 @@ Task 12 does not define organizational signing/PKI. A future signing layer must 
 
 The hosted Task-12 workflow proves reproducible wheel locking, no-index installation, compiled-runtime import and local model smoke with invalid proxy endpoints as an accidental-network tripwire.
 
-That is not the formal disconnected-install qualification. Task 14 still executes installation and real inference with network connectivity disabled and records the Windows/Linux qualification evidence.
+That is not the formal disconnected-install qualification. Task 17 owns installation and real inference with network connectivity disabled and records the Windows/Linux qualification evidence.
+
+Task 17 distinguishes three post-freeze acceptance layers:
+
+- **candidate disconnected acceptance** against the frozen, internally consistent unverified candidate release + qualification-candidate bundle identities, used to generate release-level evidence before promotion;
+- **per-variant production-bundle verification** after promotion, where every required Windows/Linux CPU/CUDA production bundle is disconnected-installed, started under production verification and smoke-tested against its exact shipped bytes;
+- **final production-topology acceptance** on the intended operator topology (Windows/IIS + Linux NVIDIA worker), after all per-variant production-bundle smokes pass.
+
+Candidate bundles are built only after the final runtime profile has been constructed and the still-pending qualification record has been rebound to that exact runtime-profile hash. For candidate runs, persisted runtime provenance may legitimately have `platformLockSha256 = null`; candidate lock authority is the validated candidate bundle manifest + selected qualified lock. For production runs, the persisted lock hash is mandatory and must match the production bundle/runtime selection.
+
+Only the final production-topology event completes Phase 1, and it is valid only if every required production bundle has already passed its per-variant disconnected production-mode smoke.

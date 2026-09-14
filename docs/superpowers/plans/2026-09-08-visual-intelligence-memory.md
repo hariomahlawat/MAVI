@@ -1881,6 +1881,8 @@ git commit -m "feat: add visual track search and evidence review"
 
 ## Task 17: End-to-End PoC Hardening, Ground Truth and Offline Readiness
 
+> **Authoritative Task-17 plan:** `docs/superpowers/plans/2026-09-14-task-17-phase1-hardening-qualification-acceptance.md`. The checklist below is retained for historical context; where it differs, the dedicated Task-17 plan controls.
+
 **Files:**
 - Create: `sample-data/ground-truth/phase1-example.json`
 - Create: `tools/phase1_e2e_check.py`

@@ -12,7 +12,7 @@ MAVI is a standalone, offline-production visual-intelligence platform. The proof
 - **Scale target:** approximately 200–500 cameras per large establishment
 - **Production constraint:** no Internet connectivity required for installation or operation
 
-The current Phase-1 implementation includes PostgreSQL persistence and migrations, managed MP4 ingestion, camera/video APIs, the lease/heartbeat/fail worker control plane, and the deterministic Task-9 track-processing pipeline with attempt-scoped secure artifact staging. Task 10 is in progress: the self-contained RTMDet-M hosted CPU runtime candidate is frozen and has passed real Linux/Windows CPU inference, and security-equivalent POSIX/native-Windows staging is implemented. Production RTMDet/ByteTrack adapters, GPU qualification, hashed offline runtime bundles, result persistence/completion, and searchable evidence UI remain later Phase-1 work.
+The current Phase-1 implementation is complete through Task 16: PostgreSQL persistence and migrations, managed MP4 ingestion, worker lease/heartbeat/fail/complete control plane, secure attempt-scoped evidence publication, RTMDet-M + class-separated ByteTrack production adapters, runtime supervision, reproducible Windows/Linux CPU offline locks, authoritative Track/evidence APIs, and the React Camera → Import → Processing → Visual Search → Evidence Review workflow are merged. Task 17 is the active final Phase-1 task and is limited to end-to-end hardening, controlled ground truth, formal offline acceptance, and closure of the remaining evidence-backed qualification gates. The model release remains intentionally unverified/partially qualified until those gates actually pass.
 
 ## Repository layout
 
