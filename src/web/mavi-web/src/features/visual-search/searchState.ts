@@ -66,10 +66,15 @@ function canonicalUtc(raw: string | undefined): string | undefined {
     return undefined;
   }
 
-  const fraction = (match[7] ?? '').replace(/0+$/, '');
+  const significantFraction = (match[7] ?? '').replace(/0+$/, '');
+  const fraction = significantFraction.length === 0
+    ? '000'
+    : significantFraction.length < 3
+      ? significantFraction.padEnd(3, '0')
+      : significantFraction;
   return match[1] + '-' + match[2] + '-' + match[3]
     + 'T' + match[4] + ':' + match[5] + ':' + match[6]
-    + (fraction ? '.' + fraction : '')
+    + '.' + fraction
     + 'Z';
 }
 
