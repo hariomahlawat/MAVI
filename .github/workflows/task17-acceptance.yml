@@ -78,3 +78,31 @@ jobs:
                   item["status"] == "pending-hardware-qualification"
                   for item in runtime["platformVariants"].values()
               )
+
+
+  windows-script-validation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse Task 17 PowerShell qualification scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $scripts = @(
+            "tools/phase1/qualify_windows_offline.ps1",
+            "tools/phase1/qualify_application_lifecycle.ps1"
+          )
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script),
+              [ref]$tokens,
+              [ref]$errors
+            )
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell parse failed: $script"
+            }
+          }
