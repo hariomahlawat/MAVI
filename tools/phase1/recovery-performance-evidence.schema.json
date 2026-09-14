@@ -4,7 +4,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion","sourceCommit","acceptanceProfileSha256","runtimeVariant","actualDevice",
+    "schemaVersion","sourceCommit","targetVerifiedManifestSha256","acceptanceProfileSha256","runtimeVariant","actualDevice",
     "noTrackStateLeakAcrossVideos","boundedCudaOomRecovery","noSemanticFallback",
     "watchdogContainmentPassed","replacementRuntimeUsedAfterRecovery","noCudaToCpuFallback",
     "memorySamplesBytes","memoryGrowthBytes","processingFps","p95EndToEndLatencyMs",
@@ -13,6 +13,7 @@
   "properties": {
     "schemaVersion": { "const": "mavi-linux-nvidia-recovery-performance-evidence-v1" },
     "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "targetVerifiedManifestSha256": { "$ref": "#/$defs/sha256" },
     "acceptanceProfileSha256": { "$ref": "#/$defs/sha256" },
     "runtimeVariant": { "const": "linux-x86_64-cuda" },
     "actualDevice": { "type": "string", "pattern": "^cuda:[0-9]+$" },
