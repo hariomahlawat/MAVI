@@ -27,6 +27,7 @@ for candidate in (PHASE1_ROOT, VISION_TOOLS, VISION_ROOT):
 
 import build_offline_bundle  # noqa: E402
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
+from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
 
 
 class VariantQualificationError(ValueError):
@@ -253,6 +254,7 @@ def assert_worker_flow_binding(
 def qualify(args: argparse.Namespace) -> dict[str, Any]:
     if not args.network_isolated:
         raise VariantQualificationError("variant_network_isolation_not_asserted")
+    canonical_profile, acceptance_profile_sha = canonical_acceptance_profile(args.acceptance_profile)
     network_isolation = assert_outbound_internet_unavailable()
     manifest, manifest_sha = verify_bundle(args.bundle_dir)
     if manifest.get("platformVariant") != args.variant:
@@ -338,7 +340,7 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         evidence_verifier.verify_acceptance(
             worker,
             expected_source_commit=args.source_commit,
-            expected_acceptance_profile_sha256=sha256_file(args.acceptance_profile),
+            expected_acceptance_profile_sha256=acceptance_profile_sha,
         )
     except evidence_verifier.EvidenceError as exc:
         raise VariantQualificationError(
@@ -359,7 +361,7 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         "schemaVersion": "mavi-offline-variant-evidence-v1",
         "sourceCommit": args.source_commit,
         "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
-        "acceptanceProfileSha256": sha256_file(args.acceptance_profile),
+        "acceptanceProfileSha256": acceptance_profile_sha,
         "variant": args.variant,
         "bundleMode": manifest["releaseStatus"],
         "bundleManifestSha256": manifest_sha,
@@ -401,7 +403,7 @@ def main() -> int:
             raise VariantQualificationError("variant_output_exists")
         value = qualify(args)
         args.output.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8", newline="\n")
-    except (VariantQualificationError, OSError, KeyError, TypeError) as exc:
+    except (VariantQualificationError, OSError, KeyError, TypeError, PolicyIdentityError) as exc:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2
     print(json.dumps({"ok": True, "sha256": sha256_file(args.output)}, sort_keys=True))
