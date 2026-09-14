@@ -506,7 +506,7 @@ This checkpoint is intentionally bounded. It does not redesign Task 1 or Task 2 
 
 Post-review hardening is part of the Task-3 acceptance boundary: every passed qualification gate now requires integrity-backed evidence; repository verification validates every tracked manifest/profile/qualification/runtime metadata record and all cross-record identities; `runtime.json` is strictly schema-validated; every qualified offline lock is resolved from the trusted runtime root and exact-byte SHA-256 checked; and every qualified platform carries an exact Python interpreter identity. Hosted CPU qualification is pinned to Linux CPython 3.12.14 and Windows CPython 3.12.10, and CI verifies those frozen interpreter identities before inference.
 
-The committed Phase-1 manifest deliberately remains `verificationStatus="unverified"`; the qualification record keeps CUDA, offline-install, CCTV-quality and Linux NVIDIA recovery/performance gates `pending`. The initial analytical thresholds/ByteTrack values are therefore candidate profile values, not production-qualified tuning. Task 14 owns final tuning/acceptance and the evidence-backed transition to `verified`.
+The committed Phase-1 manifest deliberately remains `verificationStatus="unverified"`; the qualification record keeps CUDA, offline-install, CCTV-quality and Linux NVIDIA recovery/performance gates `pending`. The initial analytical thresholds/ByteTrack values are therefore candidate profile values, not production-qualified tuning. Task 17 owns final tuning/acceptance and the evidence-backed transition to `verified` under the Phase-1 roadmap re-baseline.
 
 **Files:**
 - Create: `src/vision/mavi_vision/runtime/manifest.py`
@@ -518,7 +518,7 @@ The committed Phase-1 manifest deliberately remains `verificationStatus="unverif
 - Create: `src/vision/tests/test_runtime_artifact_hashing.py`
 - Create: `src/vision/config/pipelines/phase1-detection-tracking-v1.json`
 - Create: `models/manifests/rtmdet-m-coco-phase1-v1.json`
-- Create initially with pending/non-production gates, then finalize in Task 14: `models/qualifications/rtmdet-m-coco-phase1-v1.json`
+- Create initially with pending/non-production gates, then finalize in re-baselined Task 17: `models/qualifications/rtmdet-m-coco-phase1-v1.json`
 - Create: `.gitattributes`
 - Modify: `tools/verify_repo.py`
 
@@ -615,7 +615,7 @@ Return one frozen `VerifiedReleaseSelection` carrying the loaded manifest/profil
 
 - [x] **Step 8: Extend repository verification**
 
-`tools/verify_repo.py` validates manifest/profile/qualification JSON, lowercase SHA-256 format, path/URL rules, LF/no-BOM, identity consistency, and the existing no-weight/media/secret rule. Before Task 14, the committed manifest remains explicitly `unverified`; repository verification must not report it as production-qualified.
+`tools/verify_repo.py` validates manifest/profile/qualification JSON, lowercase SHA-256 format, path/URL rules, LF/no-BOM, identity consistency, and the existing no-weight/media/secret rule. Until re-baselined Task 17 closes the mandatory evidence gates, the committed manifest remains explicitly `unverified`; repository verification must not report it as production-qualified.
 
 - [x] **Step 9: Run and commit**
 
@@ -2114,7 +2114,7 @@ The connected build/freeze phase may use approved Internet sources. The bundle a
 9. `verify_repo.py` does not yet reject all direct package URLs/index directives/VCS requirements/model resolver hazards in release metadata.
 10. Updating `runtime.json.releaseLocks` changes `runtimeProfileSha256`; the qualification record must be updated in the same controlled sequence.
 11. Manifest remains `unverified`, runtime remains `partial`, qualification remains `pending`. Task 12 must not promote them.
-12. Task 14 needs a bundle before final verification. Task 12 therefore needs explicit `qualification-candidate` vs `production` bundle modes.
+12. Re-baselined Task 17 needs a bundle before final verification. Task 12 therefore needs explicit `qualification-candidate` vs `production` bundle modes.
 13. The previous outline did not define bundle layout, manifest self-hash policy, canonical serialization, output atomicity or archive semantics.
 14. The previous outline did not define wheelhouse completeness or how locally built MMCV becomes a hash-pinned artifact.
 15. Task 12 assumes an exact Python interpreter is already provisioned. It is a Python/runtime bundle, not a bare-metal OS/Python bootstrap installer.
