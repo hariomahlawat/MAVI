@@ -28,7 +28,7 @@ def evidence(path: Path, commit: str, passed=True) -> Path:
 def test_gate_evidence_requires_exact_source_commit(tmp_path: Path):
     path = evidence(tmp_path / "e.json", "a" * 40)
     with pytest.raises(mod.PromotionError, match="promotion_evidence_source_mismatch"):
-        mod.load_gate_evidence(path, gate="cctv-quality-baseline", expected_source_commit="b" * 40, target_verified_manifest_sha256="c" * 64)
+        mod.load_gate_evidence(path, gate="cctv-quality-baseline", expected_source_commit="b" * 40, target_verified_manifest_sha256="c" * 64, acceptance_profile_sha256="d" * 64)
 
 
 def test_generic_passing_json_cannot_promote_quality_gate(tmp_path: Path):
@@ -39,6 +39,7 @@ def test_generic_passing_json_cannot_promote_quality_gate(tmp_path: Path):
             gate="cctv-quality-baseline",
             expected_source_commit="a" * 40,
             target_verified_manifest_sha256="c" * 64,
+            acceptance_profile_sha256="d" * 64,
         )
 
 
@@ -77,3 +78,27 @@ def test_runtime_ready_requires_all_four_qualified_variants_and_locks():
             "platformVariants": variants,
             "releaseLocks": locks,
         })
+
+
+def test_quality_gate_rejects_wrong_frozen_profile_hash(monkeypatch):
+    value = {
+        "acceptanceProfileSha256": "a" * 64,
+    }
+    monkeypatch.setattr(mod, "_validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **kwargs: (
+        (_ for _ in ()).throw(mod.evidence_verifier.EvidenceError("acceptance_profile_hash_mismatch"))
+        if kwargs.get("expected_acceptance_profile_sha256") != "a" * 64
+        else None
+    ))
+    with pytest.raises(mod.evidence_verifier.EvidenceError, match="acceptance_profile_hash_mismatch"):
+        mod._validate_quality_evidence(value, "b" * 40, "c" * 64)
+
+
+def test_performance_gate_rejects_wrong_frozen_profile_hash(monkeypatch):
+    value = {
+        "acceptanceProfileSha256": "a" * 64,
+        "result": {"passed": True, "failureCodes": []},
+    }
+    monkeypatch.setattr(mod, "_validate_schema", lambda *_: None)
+    with pytest.raises(mod.PromotionError, match="promotion_performance_profile_mismatch"):
+        mod._validate_performance_evidence(value, "c" * 64)
