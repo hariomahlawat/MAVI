@@ -29,6 +29,11 @@ for candidate in (PHASE1_ROOT, VISION_TOOLS, VISION_ROOT):
 import build_offline_bundle  # noqa: E402
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
 from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
+from topology_identity import TopologyIdentityError, host_identity_sha256  # noqa: E402
+from environment_fingerprint import (  # noqa: E402
+    EnvironmentFingerprintError,
+    fingerprint as environment_fingerprint,
+)
 
 
 class VariantQualificationError(ValueError):
@@ -476,6 +481,8 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         raise VariantQualificationError("variant_cuda_device_mismatch")
 
     runtime_platform = observed_runtime_platform(python, env=environment)
+    topology_host_sha = host_identity_sha256()
+    environment_identity = environment_fingerprint(python)
     worker, worker_evidence_sha, worker_log_sha, worker_command_sha = run_installed_worker_flow(
         args,
         python=python,
@@ -535,6 +542,10 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         "workerFlowPassed": True,
         "workerFlowEvidenceSha256": worker_evidence_sha,
         "workerPythonSha256": sha256_file(python),
+        "workerEnvironmentSha256": environment_identity["workerEnvironmentSha256"],
+        "workerVenvRootSha256": environment_identity["workerVenvRootSha256"],
+        "workerResolvedPythonSha256": environment_identity["workerResolvedPythonSha256"],
+        "hostIdentitySha256": topology_host_sha,
         "workerCommandSha256": worker_command_sha,
         "workerLogSha256": worker_log_sha,
         "actualDevice": actual_device,
@@ -579,7 +590,15 @@ def main() -> int:
             raise VariantQualificationError("variant_output_exists")
         value = qualify(args)
         args.output.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8", newline="\n")
-    except (VariantQualificationError, OSError, KeyError, TypeError, PolicyIdentityError) as exc:
+    except (
+        VariantQualificationError,
+        OSError,
+        KeyError,
+        TypeError,
+        PolicyIdentityError,
+        TopologyIdentityError,
+        EnvironmentFingerprintError,
+    ) as exc:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2
     print(json.dumps({"ok": True, "sha256": sha256_file(args.output)}, sort_keys=True))
