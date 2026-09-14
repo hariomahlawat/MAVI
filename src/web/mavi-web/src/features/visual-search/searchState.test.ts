@@ -46,7 +46,10 @@ describe('Task-16 committed search state', () => {
     expect(parseCommittedSearch(new URLSearchParams('cameraId=bad')).isValid).toBe(false);
     expect(parseCommittedSearch(new URLSearchParams('fromUtc=2026-09-14T08%3A00%3A00')).isValid).toBe(false);
     expect(parseCommittedSearch(new URLSearchParams('fromUtc=2026-02-31T08%3A00%3A00Z')).isValid).toBe(false);
-    expect(parseCommittedSearch(new URLSearchParams('fromUtc=2026-09-14T08%3A00%3A00.1234Z')).isValid).toBe(false);
+    const highPrecision = parseCommittedSearch(new URLSearchParams('fromUtc=2026-09-14T08%3A00%3A00.1234000Z'));
+    expect(highPrecision.isValid).toBe(true);
+    if (highPrecision.isValid) expect(highPrecision.filters.fromUtc).toBe('2026-09-14T08:00:00.1234Z');
+    expect(parseCommittedSearch(new URLSearchParams('fromUtc=2026-09-14T08%3A00%3A00.12345678Z')).isValid).toBe(false);
     expect(parseCommittedSearch(new URLSearchParams(
       'fromUtc=2026-09-14T03%3A00%3A00Z&toUtc=2026-09-14T02%3A00%3A00Z',
     )).isValid).toBe(false);
