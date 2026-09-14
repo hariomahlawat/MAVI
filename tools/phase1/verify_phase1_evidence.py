@@ -51,6 +51,7 @@ def verify_acceptance(
     *,
     expected_source_commit: str | None = None,
     expected_acceptance_profile_sha256: str | None = None,
+    expected_qualification_corpus_sha256: str | None = None,
 ) -> None:
     if expected_source_commit is not None and value["sourceCommit"] != expected_source_commit:
         raise EvidenceError("acceptance_source_commit_mismatch")
@@ -81,6 +82,11 @@ def verify_acceptance(
             raise EvidenceError("acceptance_ground_truth_binding_failed")
         if gt["videoSha256"] != source["localSha256"] or gt["durationMs"] != value["video"]["durationMs"]:
             raise EvidenceError("acceptance_ground_truth_media_mismatch")
+        if (
+            expected_qualification_corpus_sha256 is not None
+            and gt["corpusManifestSha256"] != expected_qualification_corpus_sha256
+        ):
+            raise EvidenceError("acceptance_qualification_corpus_mismatch")
         if value["tracks"]["total"] <= 0 or value["tracks"]["detailsResolved"] <= 0:
             raise EvidenceError("acceptance_formal_no_tracks")
         reads = value["evidenceReads"]
@@ -179,6 +185,7 @@ def main() -> int:
     parser.add_argument("--package-root", type=Path)
     parser.add_argument("--expected-source-commit")
     parser.add_argument("--expected-acceptance-profile-sha256")
+    parser.add_argument("--expected-qualification-corpus-sha256")
     parser.add_argument("--acceptance-schema", type=Path, default=Path(__file__).with_name("phase1-acceptance-evidence.schema.json"))
     parser.add_argument("--offline-schema", type=Path, default=Path(__file__).with_name("offline-install-evidence.schema.json"))
     args = parser.parse_args()
@@ -196,6 +203,7 @@ def main() -> int:
                 value,
                 expected_source_commit=args.expected_source_commit,
                 expected_acceptance_profile_sha256=args.expected_acceptance_profile_sha256,
+                expected_qualification_corpus_sha256=args.expected_qualification_corpus_sha256,
             )
         if args.offline_install:
             value = _load(args.offline_install)
