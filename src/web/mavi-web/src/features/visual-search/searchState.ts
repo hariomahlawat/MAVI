@@ -42,9 +42,19 @@ function canonicalObjectClass(raw: string | undefined): TrackObjectClass | undef
 
 function canonicalUtc(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$/.test(raw)) return undefined;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:Z|\+00:00)$/.exec(raw);
+  if (!match) return undefined;
+
   const value = new Date(raw);
   if (Number.isNaN(value.getTime())) return undefined;
+  if (value.getUTCFullYear() !== Number(match[1])
+      || value.getUTCMonth() !== Number(match[2]) - 1
+      || value.getUTCDate() !== Number(match[3])
+      || value.getUTCHours() !== Number(match[4])
+      || value.getUTCMinutes() !== Number(match[5])
+      || value.getUTCSeconds() !== Number(match[6])) {
+    return undefined;
+  }
   return value.toISOString();
 }
 
