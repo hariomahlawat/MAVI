@@ -223,7 +223,14 @@ export default function VisualSearchPage() {
       {formError ? <Alert tone="error">{formError}</Alert> : null}
       {systemConfig.isError ? (
         <Alert tone="warning">
-          Display timezone is unavailable. Existing UTC time scope remains active; time editing is disabled and result timestamps are shown explicitly in UTC.
+          <div className="inline-alert-actions">
+            <span>
+              Display timezone is unavailable. Existing UTC time scope remains active; time editing is disabled and result timestamps are shown explicitly in UTC.
+            </span>
+            <button className="button button--secondary" type="button" onClick={() => void systemConfig.refetch()}>
+              Retry display config
+            </button>
+          </div>
         </Alert>
       ) : null}
       {cameras.isError ? (
@@ -361,7 +368,7 @@ export default function VisualSearchPage() {
         </div>
       </form>
 
-      {tracks.isPending ? <LoadingState label="Searching visual intelligence…" /> : null}
+      {committed.isValid && tracks.isPending ? <LoadingState label="Searching visual intelligence…" /> : null}
 
       {tracks.isError && items.length === 0 ? (
         <Alert tone="error">
