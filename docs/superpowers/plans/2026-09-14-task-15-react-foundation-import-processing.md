@@ -42,11 +42,12 @@ Task 15 shall implement:
 6. processing-status page with bounded polling;
 7. explicit retry after failed processing;
 8. stable public processing-status DTOs in `Mavi.Contracts`;
-9. focused component/API/router tests;
-10. a defined same-origin production co-hosting topology for React + `/api` behind IIS;
-11. production SPA deep-link fallback and host-level API/deep-link verification;
-12. one coherent single-request upload-size policy across IIS, Kestrel/FormOptions and UI;
-13. accessibility and offline-safe styling conventions.
+9. recoverable duplicate-import semantics that return the authoritative existing VideoAsset ID;
+10. focused component/API/router tests;
+11. a defined same-origin production co-hosting topology for React + `/api` behind IIS;
+12. production SPA deep-link fallback and host-level API/deep-link verification;
+13. one coherent single-request upload-size policy across IIS, Kestrel/FormOptions and UI;
+14. accessibility and offline-safe styling conventions.
 
 Task 15 shall not implement:
 
@@ -109,11 +110,12 @@ Create a reusable frontend `ApiError` carrying:
 status
 code
 detail
+videoAssetId?   // only for stable responses such as video_duplicate reconciliation
 ```
 
 The client shall parse ASP.NET Problem Details and preserve the stable backend **top-level wire property `code`**. The backend supplies this value through `Results.Problem(... extensions: { ["code"] = ... })`, but ASP.NET serializes that extension as `problem.code`, not `problem.extensions.code`.
 
-The parser must therefore read `problem.code` from the JSON response body. It must not require an `extensions` object. Tests and mocks shall reproduce the real wire shape exactly so known flows such as `camera_code_duplicate` and `processing_already_active` cannot silently fall back to generic handling.
+The parser must therefore read `problem.code` from the JSON response body. It must not require an `extensions` object. For `video_duplicate`, it shall also preserve the optional top-level `problem.videoAssetId` reconciliation identity after validating it as a non-empty GUID-shaped API identity. Tests and mocks shall reproduce the real wire shape exactly so known flows such as `camera_code_duplicate`, `video_duplicate`, and `processing_already_active` cannot silently fall back to generic handling.
 
 Pages may translate known codes to operator-friendly text, but must retain the code for diagnostics and tests.
 
@@ -183,6 +185,36 @@ Add an integration/contract test proving the stable response shape for:
 - unknown video -> `404 video_not_found`.
 
 The public DTO shall be complete before React types are written.
+
+### 4.4 Recoverable duplicate-import contract
+
+`video_duplicate` must not be a dead-end conflict.
+
+The current import service detects duplicate source video by SHA-256. Task 15 shall extend that existing authoritative duplicate relationship so every duplicate outcome that can be reconciled returns the durable ID of the already-imported `VideoAsset`.
+
+Required backend behavior:
+
+- pre-insert duplicate detection returns the existing `VideoAsset.Id`;
+- a database uniqueness race caught as `DuplicateSourceVideoException` must re-query by the already-computed source SHA-256 and return the winning existing `VideoAsset.Id`;
+- if the race path cannot resolve the winning row, fail closed as an internal/unavailable condition rather than fabricating an ID;
+- no physical path or storage key is exposed.
+
+HTTP duplicate response remains a conflict and uses the established Problem Details shape:
+
+```json
+{
+  "status": 409,
+  "code": "video_duplicate",
+  "videoAssetId": "<existing-guid>",
+  "detail": "Video has already been imported."
+}
+```
+
+`code` and `videoAssetId` are top-level wire properties because ASP.NET Problem Details extensions serialize at the top level.
+
+This is deliberately an API-backed reconciliation mechanism, not browser heuristics. It solves the ambiguous-completion case where the import transaction commits but the original `201 Created` response is lost.
+
+Add backend tests for both normal duplicate detection and the uniqueness-race path, asserting the existing durable ID is returned.
 
 ---
 
@@ -413,7 +445,22 @@ navigate /processing/{id}
 
 The UI may present this as one operator action, but it must preserve partial-success semantics.
 
-If import succeeds and queueing fails:
+#### Ambiguous import completion and duplicate recovery
+
+A transport failure after the server commits `POST /api/videos/import` is an **unknown outcome**, not proof that the import failed. The browser must not invent an identity and must not strand the operator.
+
+If the operator retries the same file and the backend responds `409 video_duplicate` with `videoAssetId`:
+
+- treat `videoAssetId` as the authoritative existing import identity;
+- do not upload the file again after that reconciliation response;
+- continue the workflow against that existing ID by querying its current video/processing state;
+- if processing is already Queued/Processing/Processed, navigate to `/processing/{videoAssetId}` without creating duplicate work;
+- if processing is NotQueued/Failed and queueing is permitted, the operator action may proceed to `POST /api/videos/{videoAssetId}/process` using the normal explicit retry/queue semantics;
+- retain a clear informational message that the existing import was recovered rather than claiming a fresh import.
+
+If `video_duplicate` is ever returned without a valid `videoAssetId`, treat it as an unrecoverable contract violation/generic error; do not guess from filename, camera, timestamps or client cache.
+
+Then, for the normal two-step path, if import succeeds and queueing fails:
 
 - never tell the operator that import failed;
 - never automatically upload the file again;
@@ -429,7 +476,7 @@ Known import codes shall be mapped to clear messages, including:
 
 - camera not found;
 - camera inactive;
-- duplicate import;
+- duplicate import, including authoritative existing `videoAssetId` reconciliation;
 - invalid/ambiguous recording time;
 - unsupported format/container;
 - file too large;
@@ -614,6 +661,7 @@ Prove:
 - 2xx JSON parsing;
 - real ASP.NET Problem Details wire shape `{ ..., "code": "..." }` -> `ApiError.code`;
 - absence of an `extensions` wrapper does not lose the stable code;
+- `video_duplicate` preserves a valid top-level `videoAssetId` and rejects/mistrusts malformed reconciliation IDs;
 - malformed error payload falls back safely;
 - multipart request does not force a Content-Type header;
 - abort signal is passed through.
@@ -640,7 +688,10 @@ At minimum:
 5. successful import then process navigates to processing route;
 6. import success + `processing_already_active` still navigates to processing;
 7. import success + queue failure does not retry upload or claim import failure;
-8. backend DST ambiguity/metadata errors render stable messages.
+8. backend DST ambiguity/metadata errors render stable messages;
+9. lost-success simulation followed by `409 video_duplicate` + `videoAssetId` recovers the existing asset and never strands the workflow;
+10. recovered duplicate whose processing is already active navigates without issuing another queue mutation;
+11. `video_duplicate` without a valid `videoAssetId` fails closed rather than guessing an asset.
 
 ### 14.4 Processing page tests
 
@@ -726,7 +777,9 @@ The implementation shall proceed in controlled checkpoints.
 1. RED integration/contract tests for processing-status response.
 2. Add public DTOs.
 3. Explicit endpoint mapping.
-4. Run focused .NET tests + build.
+4. RED tests for duplicate-import reconciliation (normal duplicate + uniqueness race + stable top-level `videoAssetId`).
+5. extend import result/endpoint mapping so `video_duplicate` returns the authoritative existing VideoAsset ID.
+6. Run focused .NET tests + build.
 
 Do not start React processing-page code until this is green.
 
@@ -756,8 +809,9 @@ Do not start React processing-page code until this is green.
 2. implement video API module;
 3. implement import form;
 4. implement exact two-step import → queue flow;
-5. prove partial-success handling;
-6. run frontend gate.
+5. implement authoritative `video_duplicate` reconciliation and lost-success recovery;
+6. prove partial-success and ambiguous-completion handling without duplicate upload/work;
+7. run frontend gate.
 
 ### Checkpoint E — Processing
 
@@ -778,6 +832,8 @@ Before Codex review, inspect the complete Task-15 subsystem for sibling defects:
 - multipart headers;
 - local-time/timezone corruption;
 - import/queue partial success;
+- lost `201 Created` / ambiguous import completion and duplicate reconciliation;
+- duplicate-response identity validation and uniqueness-race reconciliation;
 - unbounded polling/retry;
 - AbortSignal/unmount handling;
 - malformed Problem Details and incorrect `extensions.code` assumptions;
@@ -803,6 +859,9 @@ Backend contract:
 ```text
 src/platform/Mavi.Contracts/Api/Processing/ProcessingContracts.cs
 src/platform/Mavi.Api/Endpoints/VideoEndpoints.cs
+src/platform/Mavi.Application/Modules/Media/VideoImportService.cs
+src/platform/Mavi.Application/Modules/Media/IVideoCatalog.cs (only if needed for authoritative reconciliation result shape)
+src/platform/Mavi.Infrastructure/Persistence/...video catalog repository... (only if required for the race re-query)
 src/platform/Mavi.Api/Program.cs
 src/platform/Mavi.Api/appsettings.json
 source-controlled IIS/ANCM deployment configuration for request filtering
@@ -896,6 +955,7 @@ Task 15 is complete only when all of the following are true:
 - MP4 import preserves camera-local time semantics;
 - successful import queues processing and deep-links to status;
 - partial import/queue success cannot cause accidental re-upload;
+- an import whose committed `201` response is lost can be authoritatively recovered through `video_duplicate` + existing `videoAssetId` without client-side guessing;
 - Processing page polls only while active and stops terminally;
 - failed processing can be explicitly retried;
 - React and Mavi.Api are published as one documented same-origin ASP.NET Core application behind IIS;
