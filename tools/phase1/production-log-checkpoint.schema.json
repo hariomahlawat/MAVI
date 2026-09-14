@@ -3,11 +3,12 @@
   "$id": "https://mavi.local/schemas/production-log-checkpoint-v1.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion","acceptanceExecutionId","acceptanceContextSha256","logs"],
+  "required": ["schemaVersion","acceptanceExecutionId","acceptanceContextSha256","capturedAtUtc","logs"],
   "properties": {
     "schemaVersion": { "const": "mavi-production-log-checkpoint-v1" },
     "acceptanceExecutionId": { "type": "string", "format": "uuid" },
     "acceptanceContextSha256": { "$ref": "#/$defs/sha256" },
+    "capturedAtUtc": { "type": "string", "format": "date-time" },
     "logs": {
       "type": "array",
       "minItems": 3,
