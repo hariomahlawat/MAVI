@@ -1,7 +1,7 @@
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import type { TrackSearchItem } from '../../api/tracks';
-import { renderWithApp } from '../../test/renderWithApp';
 import TrackResultCard from './TrackResultCard';
 
 const base: TrackSearchItem = {
@@ -28,16 +28,22 @@ const base: TrackSearchItem = {
 
 describe('TrackResultCard', () => {
   it('resets thumbnail failure when a recycled card receives a new evidence URL', () => {
-    const view = renderWithApp(<TrackResultCard track={base} displayTimeZoneId="Asia/Kolkata" />);
+    const view = render(
+      <MemoryRouter>
+        <TrackResultCard track={base} displayTimeZoneId="Asia/Kolkata" />
+      </MemoryRouter>,
+    );
     const oldImage = screen.getByRole('img', { name: /representative evidence/i });
     fireEvent.error(oldImage);
     expect(screen.getByText('Evidence unavailable')).toBeInTheDocument();
 
     view.rerender(
-      <TrackResultCard
-        track={{ ...base, thumbnailContentUrl: '/api/artifacts/new/content' }}
-        displayTimeZoneId="Asia/Kolkata"
-      />,
+      <MemoryRouter>
+        <TrackResultCard
+          track={{ ...base, thumbnailContentUrl: '/api/artifacts/new/content' }}
+          displayTimeZoneId="Asia/Kolkata"
+        />
+      </MemoryRouter>,
     );
 
     expect(screen.getByRole('img', { name: /representative evidence/i }))
