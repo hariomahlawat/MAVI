@@ -86,6 +86,7 @@ def evaluate(profile: dict[str, Any], observation: dict[str, Any]) -> dict[str, 
     return {
         "schemaVersion": "mavi-linux-nvidia-recovery-performance-evidence-v1",
         "sourceCommit": observation.get("sourceCommit"),
+        "targetVerifiedManifestSha256": observation.get("targetVerifiedManifestSha256"),
         "acceptanceProfileSha256": observation.get("acceptanceProfileSha256"),
         "runtimeVariant": observation.get("runtimeVariant"),
         "actualDevice": observation.get("actualDevice"),
@@ -121,6 +122,13 @@ def main() -> int:
             raise PerformanceEvidenceError("performance_source_commit_mismatch")
         if observation.get("acceptanceProfileSha256") != sha256_file(args.acceptance_profile):
             raise PerformanceEvidenceError("performance_profile_hash_mismatch")
+        target = observation.get("targetVerifiedManifestSha256")
+        if (
+            not isinstance(target, str)
+            or len(target) != 64
+            or any(ch not in "0123456789abcdef" for ch in target)
+        ):
+            raise PerformanceEvidenceError("performance_target_manifest_invalid")
         if observation.get("runtimeVariant") != "linux-x86_64-cuda":
             raise PerformanceEvidenceError("performance_runtime_variant_invalid")
         actual_device = observation.get("actualDevice")
