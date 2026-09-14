@@ -31,7 +31,7 @@
         "properties": {
           "role": { "enum": ["api","iis","postgres","formal-worker","empty-worker","failure-worker"] },
           "path": { "type": "string", "minLength": 1 },
-          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "sizeBytes": { "type": "integer", "minimum": 1 },
           "sha256": { "$ref": "#/$defs/sha256" }
         }
       }
