@@ -92,13 +92,18 @@
     "tracks": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["total", "person", "vehicle", "detailsResolved", "orphanCount"],
+      "required": ["total", "person", "vehicle", "detailsResolved", "orphanCount", "trackIds"],
       "properties": {
         "total": { "type": "integer", "minimum": 0 },
         "person": { "type": "integer", "minimum": 0 },
         "vehicle": { "type": "integer", "minimum": 0 },
         "detailsResolved": { "type": "integer", "minimum": 0 },
-        "orphanCount": { "type": "integer", "minimum": 0 }
+        "orphanCount": { "type": "integer", "minimum": 0 },
+        "trackIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/guid" }
+        }
       }
     },
     "evidenceReads": {
