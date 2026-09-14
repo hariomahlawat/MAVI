@@ -216,6 +216,11 @@ def test_final_scenario_cannot_reuse_variant_smoke_e2e(
         "workerPythonSha256": "2" * 64,
         "e2eEvidenceSha256": e2e_sha,
         "workerLogSha256": "3" * 64,
+        "networkIsolation": {
+            "proxyEnvironmentAbsent": True,
+            "probes": [{"host": f"h{i}", "port": 443, "reachable": False} for i in range(5)],
+            "passed": True,
+        },
         "result": {"passed": True, "failureCodes": []},
     }
     scenario_path = tmp_path / "scenario.json"
@@ -281,6 +286,11 @@ def test_failure_reprocess_rejects_source_drift(
         },
         "trackCount": 1,
         "workerLogSha256": "4" * 64,
+        "networkIsolation": {
+            "proxyEnvironmentAbsent": True,
+            "probes": [{"host": f"h{i}", "port": 443, "reachable": False} for i in range(5)],
+            "passed": True,
+        },
         "reprocessAttestation": {
             "verificationStatus": "verified",
             "runtimeVariant": "linux-x86_64-cuda",
