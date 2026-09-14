@@ -1,0 +1,58 @@
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createCamera, listCameras } from '../../api/cameras';
+import { getSystemConfig } from '../../api/system';
+import { renderWithApp } from '../../test/renderWithApp';
+import CamerasPage from './CamerasPage';
+
+vi.mock('../../api/cameras', () => ({
+  listCameras: vi.fn(),
+  createCamera: vi.fn(),
+  getCamera: vi.fn(),
+}));
+
+vi.mock('../../api/system', () => ({
+  getSystemConfig: vi.fn(),
+}));
+
+const camera = {
+  id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21412',
+  code: 'CAM-01',
+  name: 'North Gate',
+  description: null,
+  locationName: null,
+  timeZoneId: 'Asia/Kolkata',
+  isActive: true,
+  createdAtUtc: '2026-09-14T02:30:00Z',
+  updatedAtUtc: '2026-09-14T02:30:00Z',
+};
+
+describe('CamerasPage', () => {
+  beforeEach(() => {
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+    vi.mocked(createCamera).mockResolvedValue({ ...camera, id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21413', code: 'CAM-02' });
+  });
+
+  it('renders inventory and creates a camera with confirmed timezone', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<CamerasPage />);
+
+    expect(await screen.findByText('North Gate')).toBeInTheDocument();
+    expect(screen.getByText('Asia/Kolkata')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Camera code'), 'CAM-02');
+    await user.type(screen.getByLabelText('Camera name'), 'East Gate');
+
+    const timezone = screen.getByLabelText('Camera timezone (IANA, e.g. Asia/Kolkata)');
+    await waitFor(() => expect(timezone).toHaveValue('Asia/Kolkata'));
+    await user.click(screen.getByRole('button', { name: 'Add camera' }));
+
+    await waitFor(() => expect(createCamera).toHaveBeenCalledWith({
+      code: 'CAM-02',
+      name: 'East Gate',
+      timeZoneId: 'Asia/Kolkata',
+    }));
+  });
+});
