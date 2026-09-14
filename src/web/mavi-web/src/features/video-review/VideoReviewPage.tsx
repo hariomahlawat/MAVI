@@ -53,6 +53,7 @@ export default function VideoReviewPage() {
   const systemConfig = useQuery({
     queryKey: queryKeys.systemConfig,
     queryFn: ({ signal }) => getSystemConfig(signal),
+    enabled: validVideoId && validTrackId,
     staleTime: 60_000,
   });
 
