@@ -50,6 +50,7 @@ app.MapHealthChecks("/health/live");
 app.MapCameraEndpoints();
 app.MapVideoEndpoints();
 app.MapProcessingEndpoints();
+app.MapStorageTopologyEndpoints();
 app.MapVisionJobEndpoints();
 app.MapTrackEndpoints();
 app.MapArtifactEndpoints();
