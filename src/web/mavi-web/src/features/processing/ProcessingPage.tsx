@@ -6,7 +6,7 @@ import { getSystemConfig } from '../../api/system';
 import {
   getProcessingStatus,
   getVideo,
-  isProcessingActive,
+  processingPollInterval,
   queueProcessing,
 } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
@@ -58,7 +58,7 @@ export default function ProcessingPage() {
     queryFn: ({ signal }) => getProcessingStatus(videoAssetId, signal),
     enabled: validId,
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
-    refetchInterval: (query) => isProcessingActive(query.state.data) ? 2_000 : false,
+    refetchInterval: (query) => processingPollInterval(query.state.data),
   });
 
   const cameraId = video.data?.cameraId ?? '';
