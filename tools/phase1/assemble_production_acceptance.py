@@ -633,6 +633,9 @@ def validate_backup(
         or value.get("acceptanceEvidenceSha256") != formal_e2e_sha256
         or value.get("cleanRestoreTarget") is not True
         or value.get("sourceDatabaseIdentity") == value.get("restoreDatabaseIdentity")
+        or value.get("liveStorageTopology", {}).get("maviCommit") != source_commit
+        or value.get("liveStorageTopology", {}).get("databaseIdentity")
+        != value.get("sourceDatabaseIdentity")
         or not passed_result(value)
     ):
         raise ProductionAcceptanceError("production_backup_restore_binding_failed")
@@ -673,6 +676,8 @@ def validate_topology_binding(
     if (
         not isinstance(database_topology, str)
         or backup_restore.get("sourceDatabaseIdentity") != database_topology
+        or backup_restore.get("liveStorageTopology", {}).get("databaseIdentity")
+        != database_topology
     ):
         raise ProductionAcceptanceError("production_database_topology_mismatch")
     if (
