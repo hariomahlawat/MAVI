@@ -122,6 +122,27 @@ describe('VideoReviewPage', () => {
     expect(screen.getByText(/08:00:00/)).toBeInTheDocument();
   });
 
+  it('rejects malformed route video and missing Track identity without API calls', async () => {
+    const invalidVideo = renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/not-a-guid?trackId=' + trackId,
+      routePath: '/review/video/:videoAssetId',
+    });
+
+    expect(await screen.findByText(/video identifier.*invalid/i)).toBeInTheDocument();
+    expect(getTrack).not.toHaveBeenCalled();
+    expect(getSystemConfig).not.toHaveBeenCalled();
+    invalidVideo.unmount();
+
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId,
+      routePath: '/review/video/:videoAssetId',
+    });
+
+    expect(await screen.findByText(/Exactly one valid Track identifier/i)).toBeInTheDocument();
+    expect(getTrack).not.toHaveBeenCalled();
+    expect(getSystemConfig).not.toHaveBeenCalled();
+  });
+
   it('rejects duplicated trackId query parameters without issuing a Track request', async () => {
     renderWithApp(<VideoReviewPage />, {
       route: '/review/video/' + videoId + '?trackId=' + trackId + '&trackId=018f3f5a-2f70-7a2b-8a12-2d02f4c21452',
@@ -169,6 +190,21 @@ describe('VideoReviewPage', () => {
 
     await waitFor(() => expect((screen.getByLabelText('Source video evidence') as HTMLVideoElement).currentTime)
       .toBeCloseTo(299, 3));
+  });
+
+  it('shows graceful evidence fallbacks when thumbnail or video content fails', async () => {
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId,
+      routePath: '/review/video/:videoAssetId',
+    });
+
+    const thumbnail = await screen.findByRole('img', { name: /representative evidence/i });
+    fireEvent.error(thumbnail);
+    expect(screen.getByText('Representative evidence unavailable')).toBeInTheDocument();
+
+    const video = screen.getByLabelText('Source video evidence');
+    fireEvent.error(video);
+    expect(screen.getByText(/Source video could not be loaded/i)).toBeInTheDocument();
   });
 
   it('surfaces Track not found without retrying the stable 404', async () => {
