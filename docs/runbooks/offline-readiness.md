@@ -25,7 +25,7 @@ ADR-003 closure additionally requires three executed proofs during Task 17 final
 
 - **fresh offline application installation:** install the exact hashed MAVI application artifact from controlled offline media onto a clean/reprovisioned Windows/IIS plane, then independently verify the running build identity matches that artifact; hashing an artifact beside a pre-existing deployment is insufficient;
 - **offline application update:** in a separate case, start from an explicitly supported prior MAVI release with representative configuration/database state, apply the accepted target artifact with Internet unavailable, execute all applicable migrations, verify retained state, and independently attest the post-update running build identity; fresh-install evidence cannot substitute for this proof;
-- **offline backup/restore:** back up PostgreSQL plus all required managed source/evidence stores to local/approved network storage, restore them to a clean/reprovisioned target, and revalidate retained IDs/relationships, source/evidence hashes, Track search/detail and completed-run provenance before the restored deployment is accepted.
+- **offline backup/restore:** first bind the proposed PostgreSQL/media/evidence backup sources to the live MAVI storage-topology attestation, then back up those exact stores to local/approved network storage, restore them to a clean/reprovisioned target, and revalidate retained IDs/relationships, source/evidence hashes, Track search/detail and completed-run provenance before the restored deployment is accepted.
 
 All three proofs must produce distinct immutable hashed evidence and fail closed on missing stores, mismatched bytes/identities, hidden external dependencies or unexercised install/restore paths.
 
