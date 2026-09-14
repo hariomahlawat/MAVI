@@ -3,6 +3,8 @@ import AppShell from './AppShell';
 import CamerasPage from '../features/cameras/CamerasPage';
 import VideoImportPage from '../features/video-import/VideoImportPage';
 import ProcessingPage from '../features/processing/ProcessingPage';
+import VisualSearchPage from '../features/visual-search/VisualSearchPage';
+import VideoReviewPage from '../features/video-review/VideoReviewPage';
 
 export const appRoutes: RouteObject[] = [
   {
@@ -13,6 +15,8 @@ export const appRoutes: RouteObject[] = [
       { path: 'cameras', element: <CamerasPage /> },
       { path: 'import', element: <VideoImportPage /> },
       { path: 'processing/:videoAssetId', element: <ProcessingPage /> },
+      { path: 'search', element: <VisualSearchPage /> },
+      { path: 'review/video/:videoAssetId', element: <VideoReviewPage /> },
       {
         path: '*',
         element: (
