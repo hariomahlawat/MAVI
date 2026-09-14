@@ -20,7 +20,7 @@
     "attestation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["processingRunId", "comparisonPassed", "verificationStatus", "runtimeVariant", "actualDevice", "maviBuild", "maviCommit", "platform", "gpu"],
+      "required": ["processingRunId", "comparisonPassed", "verificationStatus", "runtimeVariant", "actualDevice", "maviBuild", "maviCommit", "platform", "gpu", "platformLockSha256", "candidateBundleManifestSha256", "candidateSelectedLockSha256", "productionBundleManifestSha256"],
       "properties": {
         "processingRunId": { "$ref": "#/$defs/guid" },
         "comparisonPassed": { "type": "boolean" },
@@ -48,7 +48,8 @@
         "gpu": { "type": ["object", "null"] },
         "platformLockSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
         "candidateBundleManifestSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-        "candidateSelectedLockSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+        "candidateSelectedLockSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "productionBundleManifestSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
       }
     },
     "camera": {
