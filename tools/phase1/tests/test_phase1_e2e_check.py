@@ -104,6 +104,7 @@ def test_production_requires_persisted_lock_match():
         bundle("production"),
         "8" * 64,
         "a" * 40,
+        "build-a",
     )
     assert result["platformLockSha256"] == "7" * 64
     assert result["productionBundleManifestSha256"] == "8" * 64
@@ -117,6 +118,7 @@ def test_production_requires_persisted_lock_match():
             bundle("production"),
             "8" * 64,
             "a" * 40,
+            "build-a",
         )
 
 
