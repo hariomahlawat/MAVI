@@ -33,3 +33,49 @@ def test_venv_python_path_matches_host(monkeypatch, tmp_path: Path):
     assert mod._venv_python(tmp_path) == tmp_path / "Scripts" / "python.exe"
     monkeypatch.setattr(mod.platform, "system", lambda: "Linux")
     assert mod._venv_python(tmp_path) == tmp_path / "bin" / "python"
+
+
+def _worker(platform_value):
+    return {
+        "mode": "formal",
+        "targetVerifiedManifestSha256": "a" * 64,
+        "attestation": {
+            "runtimeVariant": "linux-x86_64-cpu",
+            "candidateBundleManifestSha256": "b" * 64,
+            "candidateSelectedLockSha256": "c" * 64,
+            "platform": platform_value,
+            "actualDevice": "cpu",
+        },
+        "evidenceReads": {"passed": 1},
+    }
+
+
+def test_worker_flow_binding_rejects_other_bundle():
+    platform_value = {"system": "Linux"}
+    value = _worker(platform_value)
+    value["attestation"]["candidateBundleManifestSha256"] = "d" * 64
+    with pytest.raises(mod.VariantQualificationError, match="variant_worker_flow_evidence_invalid"):
+        mod.assert_worker_flow_binding(
+            value,
+            variant="linux-x86_64-cpu",
+            target_verified_manifest_sha256="a" * 64,
+            bundle_manifest_sha256="b" * 64,
+            release_lock_sha256="c" * 64,
+            runtime_platform=platform_value,
+            device="cpu",
+        )
+
+
+def test_worker_flow_binding_rejects_other_host():
+    expected_platform = {"system": "Linux", "release": "qualified"}
+    value = _worker({"system": "Linux", "release": "different"})
+    with pytest.raises(mod.VariantQualificationError, match="variant_worker_flow_evidence_invalid"):
+        mod.assert_worker_flow_binding(
+            value,
+            variant="linux-x86_64-cpu",
+            target_verified_manifest_sha256="a" * 64,
+            bundle_manifest_sha256="b" * 64,
+            release_lock_sha256="c" * 64,
+            runtime_platform=expected_platform,
+            device="cpu",
+        )
