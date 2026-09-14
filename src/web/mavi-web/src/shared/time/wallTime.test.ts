@@ -9,6 +9,28 @@ describe('configured IANA wall-time conversion', () => {
       .toBe('2026-09-14T08:00:00');
   });
 
+  it('is invariant to the workstation timezone', () => {
+    const processLike = (globalThis as unknown as {
+      process?: { env: Record<string, string | undefined> };
+    }).process;
+    if (!processLike) return;
+
+    const original = processLike.env.TZ;
+    try {
+      processLike.env.TZ = 'Pacific/Honolulu';
+      const honoluluHost = configuredWallTimeToUtc('2026-09-14T08:00:00', 'Asia/Kolkata');
+
+      processLike.env.TZ = 'Europe/London';
+      const londonHost = configuredWallTimeToUtc('2026-09-14T08:00:00', 'Asia/Kolkata');
+
+      expect(honoluluHost).toBe('2026-09-14T02:30:00.000Z');
+      expect(londonHost).toBe(honoluluHost);
+    } finally {
+      if (original === undefined) delete processLike.env.TZ;
+      else processLike.env.TZ = original;
+    }
+  });
+
   it('converts a normal daylight-saving date deterministically', () => {
     expect(configuredWallTimeToUtc('2026-09-14T08:00:00', 'America/New_York'))
       .toBe('2026-09-14T12:00:00.000Z');
