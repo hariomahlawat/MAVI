@@ -35,16 +35,37 @@ def windows_values() -> dict[str, str]:
     if platform.system() != "Windows":
         raise PrerequisiteObservationError("prerequisite_windows_host_required")
 
-    reg = run_text([
+    iis_reg = run_text([
         "reg.exe",
         "query",
         r"HKLM\SOFTWARE\Microsoft\InetStp",
         "/v",
         "VersionString",
     ])
-    match = re.search(r"VersionString\s+REG_SZ\s+(.+)$", reg, re.MULTILINE)
-    if match is None:
+    iis_match = re.search(
+        r"VersionString\s+REG_SZ\s+(.+)$",
+        iis_reg,
+        re.MULTILINE,
+    )
+    if iis_match is None:
         raise PrerequisiteObservationError("prerequisite_iis_version_unavailable")
+
+    windows_reg = run_text([
+        "reg.exe",
+        "query",
+        r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+    ])
+    def registry_value(name: str) -> str:
+        match = re.search(
+            rf"^{re.escape(name)}\s+REG_\w+\s+(.+)$",
+            windows_reg,
+            re.MULTILINE,
+        )
+        if match is None:
+            raise PrerequisiteObservationError(
+                "prerequisite_windows_version_unavailable:" + name
+            )
+        return match.group(1).strip()
 
     runtimes = run_text(["dotnet", "--list-runtimes"]).splitlines()
     aspnet = []
@@ -55,14 +76,17 @@ def windows_values() -> dict[str, str]:
     if not aspnet:
         raise PrerequisiteObservationError("prerequisite_dotnet_runtime_unavailable")
 
-    win = platform.win32_ver()
+    def version_key(value: str) -> tuple[int, ...]:
+        numbers = re.findall(r"\d+", value)
+        return tuple(int(item) for item in numbers)
+
     return {
-        "windowsProductName": win[0] or "Windows",
-        "windowsVersion": win[1] or platform.version(),
-        "windowsBuild": win[2] or platform.release(),
+        "windowsProductName": registry_value("ProductName"),
+        "windowsVersion": registry_value("DisplayVersion"),
+        "windowsBuild": registry_value("CurrentBuildNumber"),
         "architecture": platform.machine(),
-        "iisVersion": match.group(1).strip(),
-        "dotnetRuntimeVersion": sorted(aspnet)[-1],
+        "iisVersion": iis_match.group(1).strip(),
+        "dotnetRuntimeVersion": max(aspnet, key=version_key),
     }
 
 
