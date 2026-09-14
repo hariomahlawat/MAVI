@@ -9,7 +9,7 @@
     "linuxCudaVariantEvidenceSha256","workerPythonSha256","videoAssetId",
     "firstProcessingRunId","firstVisionJobId","failureCode",
     "reprocessProcessingRunId","reprocessAttestation","sourceMedia",
-    "trackCount","workerLogSha256","result"
+    "trackCount","workerLogSha256","networkIsolation","result"
   ],
   "properties": {
     "schemaVersion": { "const": "mavi-production-failure-reprocess-evidence-v1" },
@@ -56,6 +56,16 @@
     },
     "trackCount": { "type": "integer", "minimum": 1 },
     "workerLogSha256": { "$ref": "#/$defs/sha256" },
+    "networkIsolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proxyEnvironmentAbsent","probes","passed"],
+      "properties": {
+        "proxyEnvironmentAbsent": { "const": true },
+        "probes": { "type": "array", "minItems": 5 },
+        "passed": { "const": true }
+      }
+    },
     "result": {
       "type": "object",
       "additionalProperties": false,
