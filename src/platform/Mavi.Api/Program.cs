@@ -41,6 +41,7 @@ app.MapGet("/api/health", () =>
 app.MapHealthChecks("/health/live");
 app.MapCameraEndpoints();
 app.MapVideoEndpoints();
+app.MapProcessingEndpoints();
 app.MapVisionJobEndpoints();
 app.MapTrackEndpoints();
 app.MapArtifactEndpoints();
