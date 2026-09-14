@@ -52,11 +52,11 @@ jobs:
           from pathlib import Path
           workflow = Path(".github/workflows/task17-acceptance.yml").read_text(encoding="utf-8")
           forbidden = [
-              "qualify_windows_offline.ps1 --",
-              "qualify_linux_offline.sh ",
-              "qualify_offline_variant.py --bundle-dir",
-              "qualify_application_lifecycle.ps1 -Mode",
-              "qualify_backup_restore.py execute",
+              "qualify_" + "windows_offline.ps1 --",
+              "qualify_" + "linux_offline.sh ",
+              "qualify_" + "offline_variant.py --bundle-dir",
+              "qualify_" + "application_lifecycle.ps1 -Mode",
+              "qualify_" + "backup_restore.py execute",
           ]
           hits = [item for item in forbidden if item in workflow]
           if hits:
