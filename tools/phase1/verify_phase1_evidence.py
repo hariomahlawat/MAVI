@@ -60,6 +60,8 @@ def verify_acceptance(value: dict[str, Any], *, expected_source_commit: str | No
         raise EvidenceError("acceptance_camera_video_mismatch")
     if value["tracks"]["orphanCount"] != 0:
         raise EvidenceError("acceptance_orphan_track_detected")
+    if len(value["tracks"]["trackIds"]) != value["tracks"]["total"]:
+        raise EvidenceError("acceptance_track_identity_count_mismatch")
     if not value["sourceRange"]["passed"] or value["sourceRange"]["statusCode"] != 206:
         raise EvidenceError("acceptance_source_range_failed")
 
