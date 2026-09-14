@@ -1,0 +1,78 @@
+name: Task 17 Acceptance Validation
+
+on:
+  pull_request:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'config/acceptance/**'
+      - 'sample-data/ground-truth/**'
+      - 'tools/phase1/**'
+      - 'src/platform/**'
+      - 'src/vision/**'
+      - 'models/**'
+      - 'docs/runbooks/phase1-acceptance.md'
+      - '.github/workflows/task17-acceptance.yml'
+      - 'tools/verify_repo.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install repository verification dependencies
+        run: python -m pip install -r tools/requirements.txt
+
+      - name: Verify repository and Task 17 assets
+        run: python tools/verify_repo.py
+
+      - name: Test Task 17 tooling
+        run: python -m pytest -q tools/phase1/tests
+
+      - name: Compile Task 17 Python tooling
+        run: python -m compileall -q tools/phase1
+
+      - name: Validate shell wrapper syntax
+        run: bash -n tools/phase1/qualify_linux_offline.sh
+
+      - name: Assert hosted CI is not an offline acceptance substitute
+        shell: python
+        run: |
+          from pathlib import Path
+          workflow = Path(".github/workflows/task17-acceptance.yml").read_text(encoding="utf-8")
+          forbidden = [
+              "qualify_windows_offline.ps1 --",
+              "qualify_linux_offline.sh ",
+              "qualify_offline_variant.py --bundle-dir",
+              "qualify_application_lifecycle.ps1 -Mode",
+              "qualify_backup_restore.py execute",
+          ]
+          hits = [item for item in forbidden if item in workflow]
+          if hits:
+              raise SystemExit(f"Hosted workflow attempts disconnected qualification: {hits}")
+
+      - name: Confirm pending release truth remains valid
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("models/manifests/rtmdet-m-coco-phase1-v1.json").read_text())
+          qualification = json.loads(Path("models/qualifications/rtmdet-m-coco-phase1-v1.json").read_text())
+          runtime = json.loads(Path("src/vision/runtime/mmdetection-phase1-v1/runtime.json").read_text())
+          if manifest["verificationStatus"] == "unverified":
+              assert manifest["qualificationId"] is None
+              assert qualification["overallResult"] == "pending"
+          if runtime["qualificationStatus"] == "partial":
+              assert any(
+                  item["status"] == "pending-hardware-qualification"
+                  for item in runtime["platformVariants"].values()
+              )
