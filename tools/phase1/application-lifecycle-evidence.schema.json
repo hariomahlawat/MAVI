@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": [
     "schemaVersion", "mode", "sourceCommit", "build", "applicationManifestSha256",
-    "destination", "internetUnavailable", "networkIsolation", "priorRelease", "migrationPolicy",
+    "supportedUpdatesPolicySha256", "destination", "internetUnavailable", "networkIsolation", "priorRelease", "migrationPolicy",
     "retainedState", "uiSmoke", "observedHealth", "result"
   ],
   "properties": {
@@ -14,6 +14,7 @@
     "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "build": { "type": "string", "minLength": 1 },
     "applicationManifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "supportedUpdatesPolicySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "destination": { "type": "string", "minLength": 1 },
     "internetUnavailable": { "const": true },
     "networkIsolation": {
