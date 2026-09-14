@@ -9,14 +9,18 @@ import platform
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
-from topology_identity import (
+PHASE1_ROOT = Path(__file__).resolve().parent
+if str(PHASE1_ROOT) not in sys.path:
+    sys.path.insert(0, str(PHASE1_ROOT))
+
+from topology_identity import (  # noqa: E402
     TopologyIdentityError,
     database_identity,
     host_identity_sha256,
 )
-from datetime import datetime, timezone
-from pathlib import Path
 
 
 class PrerequisiteObservationError(ValueError):
