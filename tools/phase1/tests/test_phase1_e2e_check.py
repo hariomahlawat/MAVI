@@ -43,6 +43,18 @@ def attestation(status="unverified", lock=None):
         "actualDevice": "cpu",
         "maviBuild": "build-a",
         "maviCommit": "a" * 40,
+        "platform": {
+            "system": "Linux",
+            "release": "6.8",
+            "version": "qualified",
+            "machine": "x86_64",
+            "processor": "x86_64",
+            "pythonVersion": "3.12.14",
+            "pythonImplementation": "CPython",
+            "pythonBuild": ["main", "Sep 2026"],
+            "pythonCompiler": "GCC",
+        },
+        "gpu": None,
         "platformLockSha256": lock,
     })
     return value
