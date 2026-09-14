@@ -42,7 +42,7 @@ function canonicalObjectClass(raw: string | undefined): TrackObjectClass | undef
 
 function canonicalUtc(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:Z|\+00:00)$/.exec(raw);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(?:Z|\+00:00)$/.exec(raw);
   if (!match) return undefined;
 
   const value = new Date(raw);
