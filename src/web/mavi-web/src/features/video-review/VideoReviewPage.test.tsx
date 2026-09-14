@@ -94,6 +94,10 @@ describe('VideoReviewPage', () => {
     fireEvent.loadedMetadata(video);
 
     expect((video as HTMLVideoElement).currentTime).toBeCloseTo(196.420, 3);
+    (video as HTMLVideoElement).currentTime = 200;
+    fireEvent.loadedMetadata(video);
+    expect((video as HTMLVideoElement).currentTime).toBe(200);
+
     expect(video).toHaveAttribute('src', '/api/videos/' + videoId + '/content');
     expect(screen.getByText('North Gate')).toBeInTheDocument();
     expect(screen.getByText(/08:00:00/)).toBeInTheDocument();
