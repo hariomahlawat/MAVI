@@ -429,7 +429,17 @@ For zones with daylight-saving transitions:
 
 Task 16 shall not guess an offset.
 
-Time input controls remain disabled until `displayTimeZoneId` has loaded successfully. Camera/class/duration/confidence search can still operate without time filters, but real-world timestamps must never be rendered using browser local time as a fallback. If system configuration is unavailable, show an explicit display-timezone error for timestamp presentation.
+Time input controls remain disabled until `displayTimeZoneId` has loaded successfully. Camera/class/duration/confidence search can still operate without creating or editing time filters, but real-world timestamps must never be rendered using browser local time as a fallback. If system configuration is unavailable, show an explicit display-timezone error for timestamp presentation.
+
+If the committed URL already contains valid `fromUtc` and/or `toUtc` while system configuration is unavailable, those UTC bounds remain authoritative even though the wall-time controls cannot be rehydrated. The page must:
+
+- preserve the committed UTC values unchanged in every non-time Search submission;
+- show a visible **Active time scope** summary using the canonical UTC values while configured-zone presentation is unavailable;
+- never serialize disabled/unhydrated wall-time controls as blank over an existing committed UTC bound;
+- clear a committed UTC bound only through an explicit operator action such as **Remove time scope** / **Clear time filters**;
+- rehydrate the wall-time controls from the preserved UTC values when `displayTimeZoneId` becomes available again.
+
+This preservation rule also applies to cold direct loads and browser Back/Forward navigation. The draft form is never allowed to erase committed time semantics merely because presentation configuration is temporarily unavailable.
 
 ### 9.4 URL representation
 
@@ -452,7 +462,7 @@ Reject before the Track request when:
 - a time filter is being created/edited from wall-clock input and the configured display zone is unavailable/invalid;
 - wall-time conversion is ambiguous/nonexistent.
 
-Display-zone availability is **not** a prerequisite for an unfiltered or non-time-filter Track search. If `/api/system/config` fails, camera/class/duration/confidence searches continue to work; only time-input conversion and configured-zone timestamp presentation are unavailable.
+Display-zone availability is **not** a prerequisite for an unfiltered or non-time-filter Track search. If `/api/system/config` fails, camera/class/duration/confidence searches continue to work. When committed UTC time bounds already exist, those bounds must be preserved and visibly active during such submissions; only creating/editing wall-time values and configured-zone timestamp presentation are unavailable.
 
 Backend validation remains authoritative and `track_search_invalid` must still be handled.
 
@@ -956,6 +966,8 @@ Gate before proceeding.
 Before Codex review, inspect the complete subsystem for:
 
 - implicit browser timezone use;
+- committed UTC time scope accidentally erased while display-zone config is unavailable;
+- disabled/unhydrated time controls serialized as blank over committed bounds;
 - duplicate timestamp formatter;
 - malformed URL acceptance;
 - stale draft/committed filter state;
