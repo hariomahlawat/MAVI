@@ -653,6 +653,35 @@ def parse_variant_arguments(values: list[str]) -> dict[str, Path]:
     return result
 
 
+def validate_topology_binding(
+    prerequisite: dict[str, Any],
+    fresh_install: dict[str, Any],
+    offline_update: dict[str, Any],
+    backup_restore: dict[str, Any],
+    linux_cuda_variant: dict[str, Any],
+) -> None:
+    topology = prerequisite.get("topologyIdentities", {})
+    windows_topology = topology.get("windowsOperationalPlane")
+    database_topology = topology.get("database")
+    linux_topology = topology.get("linuxVisionWorker")
+    if (
+        not isinstance(windows_topology, str)
+        or fresh_install.get("hosting", {}).get("hostIdentitySha256") != windows_topology
+        or offline_update.get("hosting", {}).get("hostIdentitySha256") != windows_topology
+    ):
+        raise ProductionAcceptanceError("production_windows_topology_mismatch")
+    if (
+        not isinstance(database_topology, str)
+        or backup_restore.get("sourceDatabaseIdentity") != database_topology
+    ):
+        raise ProductionAcceptanceError("production_database_topology_mismatch")
+    if (
+        not isinstance(linux_topology, str)
+        or linux_cuda_variant.get("hostIdentitySha256") != linux_topology
+    ):
+        raise ProductionAcceptanceError("production_linux_topology_mismatch")
+
+
 def assemble(args: argparse.Namespace) -> dict[str, Any]:
     canonical_profile, profile_sha = canonical_acceptance_profile(args.acceptance_profile)
     profile = load_json(canonical_profile, "production_acceptance_profile_invalid")
@@ -836,29 +865,16 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         args.prerequisite_evidence,
         "production_prerequisite_evidence_invalid",
     )
-    topology = prerequisite_value.get("topologyIdentities", {})
     fresh_value = load_json(args.fresh_install, "production_fresh_install_invalid")
     update_value = load_json(args.offline_update, "production_offline_update_invalid")
     backup_value = load_json(args.backup_restore, "production_backup_restore_invalid")
-    windows_topology = topology.get("windowsOperationalPlane")
-    database_topology = topology.get("database")
-    linux_topology = topology.get("linuxVisionWorker")
-    if (
-        not isinstance(windows_topology, str)
-        or fresh_value.get("hosting", {}).get("hostIdentitySha256") != windows_topology
-        or update_value.get("hosting", {}).get("hostIdentitySha256") != windows_topology
-    ):
-        raise ProductionAcceptanceError("production_windows_topology_mismatch")
-    if (
-        not isinstance(database_topology, str)
-        or backup_value.get("sourceDatabaseIdentity") != database_topology
-    ):
-        raise ProductionAcceptanceError("production_database_topology_mismatch")
-    if (
-        not isinstance(linux_topology, str)
-        or linux_variant.get("hostIdentitySha256") != linux_topology
-    ):
-        raise ProductionAcceptanceError("production_linux_topology_mismatch")
+    validate_topology_binding(
+        prerequisite_value,
+        fresh_value,
+        update_value,
+        backup_value,
+        linux_variant,
+    )
 
     return {
         "schemaVersion": "mavi-phase1-production-acceptance-evidence-v1",
