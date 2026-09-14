@@ -165,6 +165,7 @@ def test_backup_must_reference_exact_final_e2e(tmp_path: Path):
         mod.validate_backup(
             path,
             source_commit="a" * 40,
+            mavi_build="build-a",
             acceptance_profile_sha256="c" * 64,
             formal_e2e_sha256="9" * 64,
         )
