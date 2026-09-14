@@ -130,6 +130,17 @@ This is stronger. It requires:
 
 Task 17 is fully closed only when the required acceptance state defined by the current release architecture has actually been achieved. No status label may be promoted merely to make the roadmap appear complete.
 
+### 4.4 Final Phase-1 deployment topology
+
+The final disconnected acceptance shall use the product topology already stated by the repository unless a later accepted ADR changes it:
+
+- the operational web/API plane published behind Windows Server/IIS;
+- PostgreSQL/pgvector on an approved local/LAN deployment;
+- the production vision worker on a qualified Linux NVIDIA/CUDA host;
+- all model/runtime/package assets supplied locally from controlled release artifacts.
+
+CPU qualification-candidate runs remain valuable for deterministic CI, packaging and fallback development evidence, but they are not a substitute for the final Linux-CUDA production-worker acceptance event.
+
 ---
 
 ## 5. Branch, PR and evidence discipline
@@ -255,6 +266,8 @@ The evaluator shall report, per class and overall:
 - temporal-IoU distribution;
 - duplicate-match count.
 
+Only Track time intersecting an `evaluationWindow` is scored. A Track crossing a window boundary is clipped to that annotated window before temporal IoU is calculated; Tracks wholly outside all evaluation windows are ignored. Ground-truth events are required to lie wholly inside one evaluation window.
+
 Matching shall be globally deterministic: generate all same-class candidate pairs at or above the configured temporal-IoU threshold, sort by temporal IoU descending, then ground-truth event ID and Track start/Track ID as stable tie-breakers, and greedily accept a pair only if neither side has already been matched.
 
 Zero-denominator metrics must not be silently converted to misleading perfect scores. Per-class precision/recall/F1 may be `null` where mathematically undefined; raw matched/missed/unmatched counts are always emitted. Corpus-level aggregate metrics are computed from aggregate counts, and the acceptance profile defines any explicit empty-scene false-positive rule.
@@ -311,7 +324,7 @@ Prefer Python standard-library HTTP/file primitives for this qualification tool 
 The harness shall:
 
 1. verify `/api/health` and `/api/system/config`;
-2. create or resolve the qualification Camera deterministically;
+2. create or resolve the qualification Camera deterministically; when create returns a duplicate-code conflict, resolve the existing camera through the public Camera list and require exactly one exact code match rather than guessing an ID;
 3. import the controlled MP4;
 4. handle authoritative `video_duplicate` reconciliation rather than re-upload guessing;
 5. queue processing;
@@ -718,7 +731,7 @@ The bundle directory/archive itself remains a release artifact, not a Git-tracke
 
 ## 21. Final disconnected acceptance
 
-On a clean designated acceptance deployment:
+On a clean designated production-representative acceptance deployment (Windows/IIS operational plane + qualified Linux NVIDIA worker):
 
 1. validate final bundle bytes;
 2. install with Internet unavailable;
