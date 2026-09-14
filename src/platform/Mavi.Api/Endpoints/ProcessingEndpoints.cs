@@ -33,7 +33,7 @@ public static class ProcessingEndpoints
         try
         {
             parsed = provenanceParser.ParsePersisted(source.RuntimeProvenanceJson ?? string.Empty);
-            dependencies = provenanceParser.GetAttestationDependencies(parsed.Contract);
+            dependencies = VisionRuntimeProvenanceParser.GetAttestationDependencies(parsed.Contract);
         }
         catch (VisionResultValidationException)
         {
