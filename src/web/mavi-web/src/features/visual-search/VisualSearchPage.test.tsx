@@ -296,6 +296,48 @@ describe('VisualSearchPage', () => {
     expect(screen.getByRole('option', { name: /CAM-01.*North Gate.*Inactive/ })).toBeInTheDocument();
   });
 
+  it('renders empty and first-page API error states distinctly', async () => {
+    vi.mocked(searchTracks).mockResolvedValueOnce({ items: [], nextCursor: null });
+    const empty = renderWithApp(<VisualSearchPage />, { route: '/search' });
+    expect(await screen.findByText(/No Tracks matched/i)).toBeInTheDocument();
+    empty.unmount();
+
+    const { ApiError } = await import('../../api/client');
+    vi.clearAllMocks();
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+    vi.mocked(searchTracks).mockRejectedValueOnce(new ApiError({
+      status: 400,
+      code: 'track_search_invalid',
+      detail: 'Invalid search.',
+    }));
+
+    renderWithApp(<VisualSearchPage />, { route: '/search' });
+    expect(await screen.findByText(/Invalid search.*track_search_invalid/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No Tracks matched/i)).not.toBeInTheDocument();
+  });
+
+  it('shows and removes URL-provided advanced scopes without hiding their effect', async () => {
+    const user = userEvent.setup();
+    const videoScope = '018f3f5a-2f70-7a2b-8a12-2d02f4c21421';
+    const runScope = '018f3f5a-2f70-7a2b-8a12-2d02f4c21431';
+
+    renderWithApp(<VisualSearchPage />, {
+      route: '/search?videoAssetId=' + videoScope + '&processingRunId=' + runScope,
+    });
+
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText('Active advanced scopes')).toHaveTextContent(videoScope);
+    expect(screen.getByLabelText('Active advanced scopes')).toHaveTextContent(runScope);
+
+    await user.click(screen.getByRole('button', { name: 'Remove video scope' }));
+
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(searchTracks).mock.calls[1][0].videoAssetId).toBeUndefined();
+    expect(vi.mocked(searchTracks).mock.calls[1][0].processingRunId).toBe(runScope);
+    expect(screen.getByLabelText('Active advanced scopes')).not.toHaveTextContent(videoScope);
+  });
+
   it('passes the opaque continuation cursor only to Load more', async () => {
     const user = userEvent.setup();
     vi.mocked(searchTracks)
