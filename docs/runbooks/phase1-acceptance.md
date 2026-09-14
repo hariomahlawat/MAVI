@@ -159,17 +159,41 @@ Build **production** bundles for Windows/Linux CPU/CUDA. Run the disconnected va
 
 Retain all four `mavi-offline-variant-evidence-v1` files. They must bind the same source commit, MAVI build, promoted model-manifest hash and canonical acceptance-profile hash.
 
-### 3. Run independent final formal and empty-scene scenarios
+### 3. Create one immutable final-acceptance execution and checkpoint server logs
 
-The final formal product E2E must be a new execution, separate from the Linux-CUDA per-variant smoke. Use `tools/phase1/run_production_scenario.py --mode formal` with the exact qualified Linux-CUDA production venv/bundle, controlled target-containing media, canonical corpus and ground truth. The scenario record binds the exact worker Python, production bundle/lock, generated E2E file and worker log.
+Before any final production scenario, create exactly one acceptance context:
 
-Run a second independent `--mode empty-scene-diagnostic` scenario using reviewed empty-scene media. This diagnostic passes only with **zero Tracks, zero resolved Track details and zero representative evidence reads**. Any detection is a false-positive acceptance failure.
+~~~text
+python tools/phase1/create_production_acceptance_context.py \
+  --source-commit <exact-commit> \
+  --mavi-build <build-id> \
+  --output <acceptance-context.json>
+~~~
+
+Immediately checkpoint the current API, IIS and PostgreSQL log files:
+
+~~~text
+python tools/phase1/capture_production_log_checkpoints.py \
+  --acceptance-context <acceptance-context.json> \
+  --log api=<api.log> \
+  --log iis=<iis.log> \
+  --log postgres=<postgres.log> \
+  --output <server-log-checkpoint.json>
+~~~
+
+The checkpoint records the exact file path, pre-run byte offset and prefix SHA-256. Final inspection accepts only bytes appended after this checkpoint and requires the checkpoint timestamp to precede every final scenario.
+
+### 4. Run independent final formal and empty-scene scenarios
+
+The final formal product E2E must be a new execution, separate from the Linux-CUDA per-variant smoke. Use `tools/phase1/run_production_scenario.py --mode formal --acceptance-context <acceptance-context.json>` with the exact qualified Linux-CUDA production venv/bundle, controlled target-containing media, canonical corpus and ground truth. The scenario record binds the exact worker Python, production bundle/lock, generated E2E file and worker log.
+
+Run a second independent `--mode empty-scene-diagnostic` scenario with the same `--acceptance-context` using reviewed empty-scene media. This diagnostic passes only with **zero Tracks, zero resolved Track details and zero representative evidence reads**. Any detection is a false-positive acceptance failure.
 
 The final assembler and closure explicitly reject reuse of the Linux-CUDA variant's earlier worker-flow E2E as the final formal scenario.
 
-### 4. Execute the production failure/reprocess scenario
+### 5. Execute the production failure/reprocess scenario
 
-With the normal production worker stopped initially, run `tools/phase1/qualify_failure_reprocess.py`. The qualifier:
+With the normal production worker stopped initially, run `tools/phase1/qualify_failure_reprocess.py --acceptance-context <acceptance-context.json>`. The qualifier:
 
 1. imports/resolves controlled target-containing media through the public API;
 2. queues the first ProcessingRun;
@@ -182,7 +206,7 @@ With the normal production worker stopped initially, run `tools/phase1/qualify_f
 
 A connected integration test is not a substitute for this final production-topology execution.
 
-### 5. Inspect the complete acceptance logs
+### 6. Inspect the complete acceptance logs
 
 Retain UTF-8 logs for these six mandatory roles:
 
@@ -193,20 +217,21 @@ Retain UTF-8 logs for these six mandatory roles:
 - `empty-worker`
 - `failure-worker`
 
-Run `tools/phase1/inspect_production_logs.py` with one `--log role=path` argument for every role, plus any internal MAVI hostnames via `--allowed-host`. Loopback hosts are always allowed.
+Run `tools/phase1/inspect_production_logs.py` with `--acceptance-context <acceptance-context.json>`, `--server-log-checkpoint <server-log-checkpoint.json>`, the formal/empty scenario records, and one `--log role=path` argument for every role, plus any internal MAVI hostnames via `--allowed-host`. Loopback hosts are always allowed.
 
-The inspection fails on any non-allowlisted HTTP(S) endpoint or telemetry/licensing/activation indicator. Its evidence is bound to the exact formal E2E, empty-scene E2E and failure/reprocess evidence. Final acceptance independently verifies that the three worker-log hashes are the logs produced by those exact executions.
+For API/IIS/PostgreSQL it verifies the checkpoint prefix and scans only the bytes appended during the acceptance event. Worker logs are scanned in full and remain hash-bound to their exact scenario. The inspection fails on any non-allowlisted HTTP(S) endpoint or telemetry/licensing/activation indicator. Its evidence is bound to the exact formal E2E, empty-scene E2E and failure/reprocess evidence. Final acceptance independently verifies that the three worker-log hashes are the logs produced by those exact executions.
 
-### 6. Fresh install, supported update, and backup/restore
+### 7. Fresh install, supported update, and backup/restore
 
 Execute the separate fresh-install and offline-update application lifecycle proofs for the exact compiled application artifact.
 
 After the successful **formal production scenario**, execute backup/restore using that exact formal E2E evidence as `--acceptance-evidence`. Therefore the final backup evidence's `acceptanceEvidenceSha256` must equal the final formal E2E file SHA-256.
 
-### 7. Assemble final production acceptance
+### 8. Assemble final production acceptance
 
 Use `tools/phase1/assemble_production_acceptance.py` with:
 
+- the immutable acceptance context and server-log checkpoint;
 - promoted verified model manifest and canonical acceptance profile;
 - exact compiled application artifact and manifest;
 - validated prerequisite evidence plus all three raw prerequisite observations;
@@ -222,7 +247,7 @@ Supply the same six raw topology logs again as `--production-log role=path` argu
 
 The resulting `mavi-phase1-production-acceptance-evidence-v1` is an immutable aggregate of hashes, not a self-asserted pass.
 
-### 8. Final closure
+### 9. Final closure
 
 Pass the aggregate record **and every underlying evidence file**, including the same six raw `--production-log role=path` files, to `tools/phase1/assess_phase1_closure.py`. Closure reopens, re-hashes and re-scans them before allowing `release-verified`.
 
@@ -241,3 +266,10 @@ After final independent review, only materially reachable violations of accepted
 ### Evidence-integrity rule
 
 Formal Task-17 evidence is not interchangeable merely because it names the same source commit. Quality, performance, worker-flow, offline-install, update and restore evidence must retain and match the exact frozen acceptance-policy hash and all applicable target-manifest, bundle/lock, prior-artifact, execution and store-manifest identities. Evidence assembled from different qualification events must be rejected.
+
+
+### Topology and exact-environment continuity
+
+Final acceptance binds approved prerequisite **versions** to the concrete systems actually exercised. Windows prerequisite evidence must match the lifecycle host identity, the database prerequisite identity must equal the backup source database identity, and the Linux prerequisite host identity must equal the Linux-CUDA production variant host identity.
+
+Each qualified variant records an exact virtual-environment fingerprint derived from the venv root, `pyvenv.cfg`, resolved interpreter and installed-distribution metadata. Final formal, empty-scene and failure/reprocess scenarios recompute this fingerprint and must match the Linux-CUDA production qualification; sharing the same base Python executable is insufficient.
