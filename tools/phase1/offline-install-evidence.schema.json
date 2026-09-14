@@ -33,7 +33,7 @@
       "required": [
         "variant", "bundleManifestSha256", "releaseLockSha256", "expectedHostCompatibility",
         "observedHostCompatibility", "installCommand", "installExitCode", "pipCheckPassed",
-        "runtimeStarted", "realInferencePassed", "workerFlowPassed", "actualDevice",
+        "runtimeStarted", "realInferencePassed", "workerFlowPassed", "workerFlowEvidenceSha256", "workerPythonSha256", "workerCommandSha256", "workerLogSha256", "actualDevice",
         "outboundNetworkUnavailable", "networkIsolation", "firstRunDownloadObserved", "result"
       ],
       "properties": {
@@ -48,6 +48,10 @@
         "runtimeStarted": { "type": "boolean" },
         "realInferencePassed": { "type": "boolean" },
         "workerFlowPassed": { "type": "boolean" },
+        "workerFlowEvidenceSha256": { "$ref": "#/$defs/sha256" },
+        "workerPythonSha256": { "$ref": "#/$defs/sha256" },
+        "workerCommandSha256": { "$ref": "#/$defs/sha256" },
+        "workerLogSha256": { "$ref": "#/$defs/sha256" },
         "actualDevice": { "type": "string", "minLength": 1 },
         "outboundNetworkUnavailable": { "const": true },
         "networkIsolation": {
