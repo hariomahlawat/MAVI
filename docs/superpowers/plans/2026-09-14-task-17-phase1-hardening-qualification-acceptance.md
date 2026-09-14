@@ -65,10 +65,12 @@ The implementation shall maintain the following proof matrix in the Task-17 runb
 | --- | --- | --- | --- |
 | Qualification Camera is the intended camera | Camera row | `GET /api/cameras/{id}` or exact-code list result | code, IANA timezone and active state must match requested qualification inputs; name must match when supplied as a controlled identity |
 | Imported/reconciled VideoAsset is the intended recording | VideoAsset + authoritative duplicate-by-SHA import result | import response / `video_duplicate` ID, then `GET /api/videos/{id}` | camera ID, recording UTC instant, timezone snapshot and UTC offset must match the requested import provenance |
+| Managed source bytes are the imported qualification media | authoritative SourceVideo Artifact/content API | full streamed `GET /api/videos/{id}/content` + strong ETag | streamed SHA-256 and ETag must both equal the locally computed qualification-media SHA-256 |
 | ProcessingRun actually completed | ProcessingRun | `GET /api/videos/{id}/processing` | exact run ID + `Completed`; a different completed run is not accepted |
 | Completed run used the claimed model/profile/runtime | persisted `ProcessingRun.RuntimeProvenanceJson` | new allowlisted read-only run-attestation API | every required model/config/profile/runtime/lock/build identity must equal the expected frozen release identity |
 | Track belongs to the accepted run | authoritative Track persistence | Task-14 search/detail APIs | VideoAsset ID and ProcessingRun ID must both match |
-| Formal E2E actually exercises intelligence review | accepted Track + representative Artifact | Track detail + artifact content API | formal mode requires at least one expected target, at least one matched Track, one resolved Track detail and one readable representative artifact |
+| Representative evidence bytes are authoritative | accepted Artifact row/content API | full streamed artifact GET + strong ETag | streamed SHA-256 must equal the ETag digest; Track detail must reference that exact artifact ID |
+| Formal E2E actually exercises intelligence review | accepted Track + representative Artifact | Track detail + artifact content API | formal mode requires at least one expected target, at least one matched Track, one resolved Track detail and one integrity-verified representative artifact |
 | Ground-truth score used exact reviewed annotations | private qualification manifest bytes | SHA-256 recorded in evidence | corpus-manifest SHA and every ground-truth-manifest SHA must match before scoring/promotion |
 | Offline-install gate proves the OS release closure | exact runtime locks/wheelhouses | hashed OS evidence package | every required device variant/lock for that OS must be installed/tested offline; CPU evidence cannot stand in for CUDA or vice versa |
 | Quality/performance evidence belongs to frozen candidate | source/release identities + media | hashed evidence package | source commit and all behavior-bearing release hashes must match |
@@ -414,10 +416,10 @@ Inputs shall include at minimum:
 - controlled MP4 path;
 - expected processing timeout;
 - corpus manifest + exact ground-truth manifest for `formal` mode;
-- expected frozen release/attestation identities for `formal` mode;
+- exact frozen release-metadata paths/bytes (manifest, pipeline profile, runtime profile and applicable qualification record) from which expected attestation identities are deterministically derived;
 - output evidence path.
 
-`formal` mode requires ground truth with at least one expected Person/Vehicle event and cannot run without the corpus/ground-truth hashes. `empty-scene-diagnostic` is explicitly non-accepting and exists only to measure false positives on annotated empty intervals.
+`formal` mode requires ground truth with at least one expected Person/Vehicle event and cannot run without the corpus/ground-truth hashes. Expected model/profile/runtime/qualification identities must be computed from exact frozen metadata bytes using the repository's canonical release loaders/hash functions; they are not accepted as free-form CLI hash strings. `empty-scene-diagnostic` is explicitly non-accepting and exists only to measure false positives on annotated empty intervals.
 
 The qualification environment should use a dedicated database/storage root so repeated runs do not contaminate operational data.
 
@@ -443,14 +445,15 @@ The harness shall:
 12. page through opaque cursors without decoding them;
 13. require every returned Track to belong to both the imported VideoAsset and expected ProcessingRun;
 14. resolve each Track detail;
-15. in **formal E2E mode**, require a controlled target-containing case with at least one expected ground-truth event, at least one accepted/matched Track, at least one resolved Track detail, and at least one readable representative thumbnail artifact; a zero-Track formal run is a failure, not a vacuous pass;
-16. verify source-video Range streaming;
-17. verify Person/Vehicle Search against the expected class set for the formal case;
-18. separately support an **empty-scene diagnostic case** for false-positive measurement; it may legitimately return zero Tracks but cannot by itself satisfy formal E2E acceptance;
-19. validate corpus-manifest and every ground-truth-manifest SHA-256 before calculating metrics;
-20. calculate structural and required ground-truth metrics;
-21. emit one machine-readable evidence document;
-22. exit nonzero on any acceptance failure.
+15. in **formal E2E mode**, require a controlled target-containing case with at least one expected ground-truth event, at least one accepted/matched Track, at least one resolved Track detail, and at least one representative thumbnail artifact;
+16. stream the full managed source through `GET /api/videos/{id}/content`, compute SHA-256 incrementally, require it to equal the local qualification-media SHA-256, and require the strong ETag digest to equal the same value; then separately verify HTTP Range semantics;
+17. stream at least one representative thumbnail, compute its SHA-256 incrementally and require it to equal the strong ETag digest returned by the accepted-evidence content endpoint; record the artifact ID + digest;
+18. verify Person/Vehicle Search against the expected class set for the formal case;
+19. separately support an **empty-scene diagnostic case** for false-positive measurement; it may legitimately return zero Tracks but cannot by itself satisfy formal E2E acceptance;
+20. validate corpus-manifest and every ground-truth-manifest SHA-256 before calculating metrics;
+21. calculate structural and required ground-truth metrics;
+22. emit one machine-readable evidence document;
+23. exit nonzero on any acceptance failure.
 
 ### 8.2 Evidence invariants
 
@@ -464,6 +467,8 @@ The harness shall fail if:
 - Track/video/run identity is inconsistent;
 - a required Track detail cannot be resolved;
 - an accepted representative artifact URL cannot be read;
+- the full managed source SHA-256 or ETag differs from the locally hashed qualification media;
+- representative artifact bytes do not hash to their strong ETag digest;
 - source-video Range access fails;
 - public responses expose a physical storage path or worker staging path;
 - cursor continuation changes committed search semantics;
@@ -524,10 +529,11 @@ The generated record should contain:
 - MAVI build identity;
 - operator-supplied qualification environment label (not an automatically leaked private hostname);
 - selected expected model/profile/runtime IDs and SHA-256 values;
-- authoritative ProcessingRun-attested model/config/profile/qualification/runtime/platform-lock/build identities and a pass/fail comparison against the expected frozen selection;
+- SHA-256 of each exact frozen release-metadata file used to derive expected identities;
+- authoritative ProcessingRun-attested model/config/profile/qualification/runtime/platform-lock/build identities and a pass/fail comparison against the canonically derived frozen selection;
 - qualification Camera ID/code/timezone snapshot;
 - VideoAsset ID and reconciled camera/recording provenance;
-- source-media SHA-256;
+- source-media SHA-256 plus managed-source streamed SHA-256/ETag verification result;
 - corpus-manifest SHA-256 and every exact ground-truth-manifest SHA-256 in formal mode;
 - the media SHA-256 mapped to each ground-truth manifest;
 - ProcessingRun ID;
@@ -539,7 +545,7 @@ The generated record should contain:
 - Track counts by class;
 - search latency measurements;
 - number of Track details resolved;
-- representative-evidence reads attempted/passed;
+- representative-evidence reads attempted/passed plus at least one formal artifact ID, streamed SHA-256 and strong-ETag digest;
 - source-video Range result;
 - orphan count;
 - ground-truth metrics and selected event↔Track match pairs in formal mode;
@@ -940,13 +946,14 @@ On a clean designated production-representative acceptance deployment (Windows/I
 13. fetch the completed-run attestation and require its final verified model/config/profile/qualification/runtime/platform-lock/MAVI-build identities to match the promoted release and production-bundle manifest;
 14. search Person/Vehicle Tracks for the exact run;
 15. open Evidence Review;
-16. require at least one expected/matched Track, one resolved detail and one readable representative artifact for the formal target-containing acceptance case;
-17. verify native source-video playback/range;
-18. verify the exact corpus-manifest and ground-truth-manifest hashes, then execute formal ground-truth evaluation;
-19. run the separate empty-scene false-positive diagnostic;
-20. run failure/reprocess scenario;
-21. inspect logs for attempted Internet calls/telemetry/licence checks;
-22. retain machine-readable acceptance evidence bound to the application-build hash, production-bundle hash and completed-run attestation.
+16. require at least one expected/matched Track and one resolved detail for the formal target-containing acceptance case;
+17. stream/hash the managed source and require both its SHA-256 and strong ETag to equal the original qualification-media hash; separately verify native source-video Range semantics;
+18. stream/hash at least one representative artifact and require its SHA-256 to equal its strong ETag digest;
+19. verify the exact corpus-manifest and ground-truth-manifest hashes, then execute formal ground-truth evaluation;
+20. run the separate empty-scene false-positive diagnostic;
+21. run failure/reprocess scenario;
+22. inspect logs for attempted Internet calls/telemetry/licence checks;
+23. retain machine-readable acceptance evidence bound to the application-build hash, production-bundle hash and completed-run attestation.
 
 This is the **final Phase-1 disconnected acceptance event**. A candidate acceptance, a green unit-test suite, or an invalid-proxy CI run is not a substitute.
 
@@ -1043,7 +1050,8 @@ Required automated tests shall cover:
 - empty-scene diagnostic mode may return zero Tracks but cannot emit a formal acceptance result;
 - Track search pagination;
 - Track/video/run identity;
-- evidence URL access;
+- evidence URL access plus ETag/body SHA-256 equality;
+- full source-content streamed SHA-256/ETag equality with imported bytes;
 - source Range request;
 - corpus-manifest and individual ground-truth-manifest hash mismatch rejection;
 - OS offline-evidence completeness for CPU+CUDA subentries;
@@ -1199,6 +1207,9 @@ Search explicitly for:
 
 - every acceptance claim lacking an explicit authority/identity/integrity/observation/failure/evidence path from Section 1.1;
 - evidence fields populated from expected local configuration without independent attestation of the completed run;
+- expected release hashes accepted as free-form input instead of being derived from exact frozen metadata bytes;
+- managed source accepted as “retrievable” without full streamed SHA-256 + ETag equality to imported qualification bytes;
+- representative evidence accepted as “readable” without hashing returned bytes and checking the strong ETag;
 - formal E2E success when Track/detail/representative-evidence loops execute zero times;
 - duplicate Camera reconciliation that checks code but not timezone/active-state identity;
 - duplicate VideoAsset reconciliation that trusts the returned ID without revalidating camera/recording provenance;
