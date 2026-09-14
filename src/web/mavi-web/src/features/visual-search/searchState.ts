@@ -261,7 +261,34 @@ export function millisecondsToSecondsText(value: number | undefined): string {
   return String(value / 1000);
 }
 
+function decimalScaleByPowerOfTen(value: number, power: number): string {
+  if (!Number.isFinite(value)) throw new RangeError('Numeric filter must be finite.');
+
+  const raw = String(value).toLowerCase();
+  const [mantissa, exponentText] = raw.split('e');
+  const exponent = exponentText === undefined ? 0 : Number(exponentText);
+  const [integerPart, fractionalPart = ''] = mantissa.split('.');
+  const sign = integerPart.startsWith('-') ? '-' : '';
+  const unsignedInteger = sign ? integerPart.slice(1) : integerPart;
+  const digits = (unsignedInteger + fractionalPart).replace(/^0+(?=\d)/, '');
+  const decimalPosition = unsignedInteger.length + exponent + power;
+
+  let scaled: string;
+  if (decimalPosition <= 0) {
+    scaled = '0.' + '0'.repeat(-decimalPosition) + digits;
+  } else if (decimalPosition >= digits.length) {
+    scaled = digits + '0'.repeat(decimalPosition - digits.length);
+  } else {
+    scaled = digits.slice(0, decimalPosition) + '.' + digits.slice(decimalPosition);
+  }
+
+  const [scaledInteger, scaledFraction = ''] = scaled.split('.');
+  const normalizedInteger = scaledInteger.replace(/^0+(?=\d)/, '') || '0';
+  const normalizedFraction = scaledFraction.replace(/0+$/, '');
+  return sign + normalizedInteger + (normalizedFraction ? '.' + normalizedFraction : '');
+}
+
 export function confidenceFractionToPercentText(value: number | undefined): string {
   if (value === undefined) return '';
-  return String(value * 100);
+  return decimalScaleByPowerOfTen(value, 2);
 }
