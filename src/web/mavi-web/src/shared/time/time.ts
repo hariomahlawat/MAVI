@@ -26,3 +26,15 @@ export function formatDate(utcValue: InstantInput, displayTimeZoneId: string): s
 export function formatTime(utcValue: InstantInput, displayTimeZoneId: string): string {
   return formatInstant(utcValue, displayTimeZoneId, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 }
+
+export function formatDateTime(utcValue: InstantInput, displayTimeZoneId: string): string {
+  return formatInstant(utcValue, displayTimeZoneId, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+}
