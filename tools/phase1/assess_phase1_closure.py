@@ -125,10 +125,18 @@ def validate_backup_restore(
     return value
 
 
-def validate_quality(path: Path, source_commit: str) -> dict[str, Any]:
+def validate_quality(
+    path: Path,
+    source_commit: str,
+    acceptance_profile_sha256: str,
+) -> dict[str, Any]:
     value = load_json(path)
     require_source_commit(value, source_commit, "quality")
-    evidence_verifier.verify_acceptance(value, expected_source_commit=source_commit)
+    evidence_verifier.verify_acceptance(
+        value,
+        expected_source_commit=source_commit,
+        expected_acceptance_profile_sha256=acceptance_profile_sha256,
+    )
     if value.get("mode") != "formal":
         raise ClosureError("quality_formal_mode_required")
     metrics = value.get("metrics")
@@ -148,9 +156,15 @@ def validate_quality(path: Path, source_commit: str) -> dict[str, Any]:
     return value
 
 
-def validate_performance(path: Path, source_commit: str) -> dict[str, Any]:
+def validate_performance(
+    path: Path,
+    source_commit: str,
+    acceptance_profile_sha256: str,
+) -> dict[str, Any]:
     value = load_json(path)
     require_source_commit(value, source_commit, "performance")
+    if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
+        raise ClosureError("performance_profile_hash_mismatch")
     if value.get("schemaVersion") != "mavi-linux-nvidia-recovery-performance-evidence-v1":
         raise ClosureError("performance_schema_invalid")
     if value.get("runtimeVariant") != "linux-x86_64-cuda":
@@ -163,6 +177,7 @@ def validate_performance(path: Path, source_commit: str) -> dict[str, Any]:
 def assess(args: argparse.Namespace) -> dict[str, Any]:
     runtime = load_runtime_profile(args.runtime_profile)
     qualification = load_qualification_record(args.qualification)
+    acceptance_profile_sha256 = sha256_file(args.acceptance_profile)
 
     pending: list[str] = []
     evidence_hashes: dict[str, str] = {}
@@ -233,10 +248,10 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             raise ClosureError("linux_offline_os_mismatch")
         evidence_hashes["linux-offline-install"] = sha256_file(args.linux_offline)
     if args.quality is not None:
-        validate_quality(args.quality, args.source_commit)
+        validate_quality(args.quality, args.source_commit, acceptance_profile_sha256)
         evidence_hashes["cctv-quality-baseline"] = sha256_file(args.quality)
     if args.performance is not None:
-        validate_performance(args.performance, args.source_commit)
+        validate_performance(args.performance, args.source_commit, acceptance_profile_sha256)
         evidence_hashes["linux-nvidia-recovery-performance"] = sha256_file(args.performance)
 
     # Only a fully promoted release may be called verified.
@@ -273,6 +288,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             "qualificationSha256": sha256_file(args.qualification),
             "runtimeProfileSha256": sha256_file(args.runtime_profile),
             "pipelineProfileSha256": sha256_file(args.pipeline_profile),
+            "acceptanceProfileSha256": acceptance_profile_sha256,
         },
     }
 
@@ -285,6 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--qualification", type=Path, required=True)
     parser.add_argument("--pipeline-profile", type=Path, required=True)
     parser.add_argument("--runtime-profile", type=Path, required=True)
+    parser.add_argument("--acceptance-profile", type=Path, required=True)
     parser.add_argument("--fresh-install", type=Path)
     parser.add_argument("--offline-update", type=Path)
     parser.add_argument("--backup-restore", type=Path)
