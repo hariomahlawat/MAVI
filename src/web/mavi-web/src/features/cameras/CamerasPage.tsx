@@ -35,7 +35,7 @@ export default function CamerasPage() {
   const resolvedTimeZone = timeZoneId || systemConfig.data?.displayTimeZoneId || '';
 
   const createMutation = useMutation({
-    mutationFn: createCamera,
+    mutationFn: (input) => createCamera(input),
     onSuccess: async () => {
       setCode('');
       setName('');
