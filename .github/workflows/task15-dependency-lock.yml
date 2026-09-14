@@ -1,0 +1,44 @@
+name: Task 15 Dependency Lock
+
+on:
+  push:
+    branches:
+      - feature/task-15-react-foundation
+    paths:
+      - .github/workflows/task15-dependency-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/task-15-react-foundation
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/web/mavi-web/package-lock.json
+
+      - name: Install Task 15 dependencies and refresh lockfile
+        working-directory: src/web/mavi-web
+        run: |
+          npm install react-router-dom @tanstack/react-query
+          npm install --save-dev @testing-library/react @testing-library/jest-dom @testing-library/user-event jsdom
+
+      - name: Commit reproducible dependency metadata
+        run: |
+          if git diff --quiet -- src/web/mavi-web/package.json src/web/mavi-web/package-lock.json; then
+            echo "Dependency metadata already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/web/mavi-web/package.json src/web/mavi-web/package-lock.json
+          git commit -m "build(task15): freeze frontend dependencies"
+          git push origin HEAD:feature/task-15-react-foundation
