@@ -60,6 +60,20 @@ def host_identity_sha256() -> str:
     raise TopologyIdentityError("topology_unsupported_host:" + system)
 
 
+def storage_root_identity_sha256(path: Path) -> str:
+    try:
+        canonical = str(path.resolve(strict=True))
+    except OSError as exc:
+        raise TopologyIdentityError("topology_storage_root_missing") from exc
+    system = platform.system()
+    if system == "Windows":
+        canonical = canonical.lower()
+        family = "windows"
+    else:
+        family = "posix"
+    return _sha256_text(f"mavi-storage-root-v1|{family}|{canonical.rstrip('/\\')}")
+
+
 def database_identity(psql: str, service: str) -> str:
     sql = (
         "select current_database() || '|' || "
