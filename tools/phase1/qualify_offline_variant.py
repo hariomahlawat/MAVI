@@ -259,6 +259,7 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         worker.get("schemaVersion") != "mavi-phase1-acceptance-evidence-v1"
         or worker.get("mode") != "formal"
         or worker.get("sourceCommit") != args.source_commit
+        or worker.get("targetVerifiedManifestSha256") != args.target_verified_manifest_sha256
         or worker.get("result", {}).get("passed") is not True
         or worker.get("attestation", {}).get("runtimeVariant") != args.variant
         or worker.get("evidenceReads", {}).get("passed", 0) <= 0
@@ -268,6 +269,7 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "schemaVersion": "mavi-offline-variant-evidence-v1",
         "sourceCommit": args.source_commit,
+        "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
         "variant": args.variant,
         "bundleMode": manifest["releaseStatus"],
         "bundleManifestSha256": manifest_sha,
@@ -296,6 +298,7 @@ def main() -> int:
         "linux-x86_64-cpu", "linux-x86_64-cuda",
     ))
     parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--target-verified-manifest-sha256", required=True)
     parser.add_argument("--worker-flow-evidence", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     parser.add_argument("--network-isolated", action="store_true")
