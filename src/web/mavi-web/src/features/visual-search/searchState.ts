@@ -40,14 +40,24 @@ function canonicalObjectClass(raw: string | undefined): TrackObjectClass | undef
   return undefined;
 }
 
+const utcPattern = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,7}))?(?:Z|\+00:00)$/;
+
 function canonicalUtc(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(?:Z|\+00:00)$/.exec(raw);
+  const match = utcPattern.exec(raw);
   if (!match) return undefined;
 
-  const value = new Date(raw);
-  if (Number.isNaN(value.getTime())) return undefined;
-  if (value.getUTCFullYear() !== Number(match[1])
+  const wholeSecondMs = Date.UTC(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+    Number(match[6]),
+  );
+  const value = new Date(wholeSecondMs);
+  if (Number.isNaN(value.getTime())
+      || value.getUTCFullYear() !== Number(match[1])
       || value.getUTCMonth() !== Number(match[2]) - 1
       || value.getUTCDate() !== Number(match[3])
       || value.getUTCHours() !== Number(match[4])
@@ -55,7 +65,32 @@ function canonicalUtc(raw: string | undefined): string | undefined {
       || value.getUTCSeconds() !== Number(match[6])) {
     return undefined;
   }
-  return value.toISOString();
+
+  const fraction = (match[7] ?? '').replace(/0+$/, '');
+  return match[1] + '-' + match[2] + '-' + match[3]
+    + 'T' + match[4] + ':' + match[5] + ':' + match[6]
+    + (fraction ? '.' + fraction : '')
+    + 'Z';
+}
+
+function compareCanonicalUtc(left: string, right: string): number {
+  const leftMatch = utcPattern.exec(left);
+  const rightMatch = utcPattern.exec(right);
+  if (!leftMatch || !rightMatch) throw new RangeError('UTC comparison requires canonical instants.');
+
+  const leftSeconds = Date.UTC(
+    Number(leftMatch[1]), Number(leftMatch[2]) - 1, Number(leftMatch[3]),
+    Number(leftMatch[4]), Number(leftMatch[5]), Number(leftMatch[6]),
+  );
+  const rightSeconds = Date.UTC(
+    Number(rightMatch[1]), Number(rightMatch[2]) - 1, Number(rightMatch[3]),
+    Number(rightMatch[4]), Number(rightMatch[5]), Number(rightMatch[6]),
+  );
+  if (leftSeconds !== rightSeconds) return leftSeconds < rightSeconds ? -1 : 1;
+
+  const leftFraction = Number((leftMatch[7] ?? '').padEnd(7, '0'));
+  const rightFraction = Number((rightMatch[7] ?? '').padEnd(7, '0'));
+  return leftFraction === rightFraction ? 0 : leftFraction < rightFraction ? -1 : 1;
 }
 
 function canonicalDuration(raw: string | undefined): number | undefined {
@@ -138,7 +173,7 @@ export function parseCommittedSearch(params: URLSearchParams): SearchParseResult
     filters.toUtc = value;
   }
 
-  if (filters.fromUtc && filters.toUtc && Date.parse(filters.fromUtc) >= Date.parse(filters.toUtc)) {
+  if (filters.fromUtc && filters.toUtc && compareCanonicalUtc(filters.fromUtc, filters.toUtc) >= 0) {
     return {
       isValid: false,
       filters,
