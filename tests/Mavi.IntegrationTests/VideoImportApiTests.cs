@@ -173,6 +173,39 @@ public sealed class VideoImportApiTests(PostgresFixture database)
     }
 
     [Fact]
+    public async Task MultipartRequestAboveIisDefaultReachesApplication()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        using var client = factory.CreateClient();
+        var camera = await CreateCameraAsync(client);
+        var sourcePath = await GenerateVideoAsync();
+
+        try
+        {
+            const long representativeSize = 32L * 1024 * 1024;
+            await using (var file = new FileStream(sourcePath, FileMode.Open, FileAccess.Write, FileShare.None))
+            {
+                file.SetLength(representativeSize);
+            }
+
+            Assert.True(new FileInfo(sourcePath).Length > 30_000_000);
+
+            using var response = await ImportAsync(client, camera.Id, sourcePath, "large-supported.mp4");
+            Assert.NotEqual(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+            var imported = await response.Content.ReadFromJsonAsync<VideoAssetResponse>();
+            Assert.NotNull(imported);
+            Assert.Equal(camera.Id, imported.CameraId);
+        }
+        finally
+        {
+            if (File.Exists(sourcePath)) File.Delete(sourcePath);
+        }
+    }
+
+    [Fact]
     public async Task MissingVideoReturnsStableProblem()
     {
         using var factory = new ApiTestFactory();
