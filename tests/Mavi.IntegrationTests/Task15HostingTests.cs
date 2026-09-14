@@ -1,11 +1,28 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Server.IIS;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Mavi.IntegrationTests;
 
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class Task15HostingTests
 {
+    [Fact]
+    public void InProcessIisAndMultipartLimitsMatchTask15RequestCeiling()
+    {
+        using var factory = new ApiTestFactory();
+        const long expected = 3L * 1024 * 1024 * 1024 + 1024 * 1024;
+
+        var iis = factory.Services.GetRequiredService<IOptions<IISServerOptions>>().Value;
+        var form = factory.Services.GetRequiredService<IOptions<FormOptions>>().Value;
+
+        Assert.Equal(expected, iis.MaxRequestBodySize);
+        Assert.Equal(expected, form.MultipartBodyLengthLimit);
+    }
+
     [Fact]
     public async Task PublishedHostKeepsApiAndSpaRoutingSeparated()
     {
