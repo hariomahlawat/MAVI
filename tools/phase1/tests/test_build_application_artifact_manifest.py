@@ -34,3 +34,30 @@ def test_manifest_rejects_untracked_extra_file(tmp_path: Path):
     (root / "b.txt").write_text("b", encoding="utf-8")
     with pytest.raises(mod.ApplicationArtifactError, match="application_manifest_file_set_mismatch"):
         mod.verify_manifest(root, manifest)
+
+
+def test_nested_manifest_named_file_cannot_escape_artifact_set(tmp_path: Path):
+    root = tmp_path / "published"
+    root.mkdir()
+    (root / "Mavi.Api.dll").write_bytes(b"api")
+    manifest_path = root / "mavi-application-manifest.json"
+    manifest = mod.build_manifest(
+        root,
+        source_commit="a" * 40,
+        build="build-a",
+        excluded=manifest_path,
+    )
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    nested = root / "assets"
+    nested.mkdir()
+    (nested / "mavi-application-manifest.json").write_text(
+        '{"unexpected":true}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        mod.ApplicationArtifactError,
+        match="application_manifest_file_set_mismatch",
+    ):
+        mod.verify_manifest(root, manifest)
