@@ -278,7 +278,36 @@ Pressing Search or explicitly submitting the form commits the draft to the URL.
 
 Browser Back/Forward navigation must restore the prior committed search.
 
-Reset shall remove Task-16 search parameters and return to a deterministic default state.
+Reset shall remove Task-16 search parameters and navigate to canonical `/search`, which loads the default unfiltered first page.
+
+### 7.1 URL parsing/canonicalization policy
+
+Supported search parameters are exactly:
+
+- `cameraId`;
+- `videoAssetId`;
+- `processingRunId`;
+- `objectClass`;
+- `fromUtc`;
+- `toUtc`;
+- `minimumDurationMs`;
+- `minimumConfidence`.
+
+`cursor` is never accepted from durable page URL state and `limit` is owned by the UI constant.
+
+Rules:
+
+- every supported parameter may occur at most once;
+- malformed supported parameters make the committed search invalid and no Track request is sent;
+- duplicate supported parameters are invalid rather than “first wins”/“last wins”;
+- unknown query parameters are ignored for backend semantics and are removed the next time Task-16 canonicalizes the URL;
+- canonical URLs use a fixed parameter order;
+- empty/default values are omitted;
+- GUIDs are normalized to their API string identity without attempting resource discovery;
+- `fromUtc`/`toUtc` are canonical UTC `Z` strings;
+- numeric filters use invariant canonical decimal text.
+
+The canonical search-key fingerprint shall be the deterministic canonical semantic query string (excluding cursor and page size), so logically identical URLs share one TanStack Query cache identity.
 
 ---
 
@@ -293,9 +322,13 @@ Phase-1 Search shall expose:
 - Minimum duration;
 - Minimum confidence.
 
-The backend also supports `videoAssetId` and `processingRunId`. They shall remain supported by URL/API parsing for direct/debug use, but the primary operator form need not expose advanced GUID entry controls unless there is a clear operational requirement.
+The backend also supports `videoAssetId` and `processingRunId`. They shall remain supported by URL/API parsing for direct/debug/deep-link use, but the primary operator form need not expose raw GUID text-entry controls.
 
-This avoids clutter while preserving the exact backend capability.
+When either advanced scope is active from the URL, the Search page must show it visibly as an **Active scope** chip/summary with an explicit remove action. Hidden filters must never constrain results without operator-visible indication.
+
+Visible-form Search submissions preserve valid active advanced scopes unless the operator removes them. Reset clears all scopes.
+
+This avoids clutter while preserving the exact backend capability without creating invisible filtering.
 
 ### Camera
 
@@ -369,6 +402,20 @@ Task 16 therefore requires a dedicated conversion helper:
 
 The helper must not call `new Date(localValue)` as authority because that would apply browser timezone.
 
+The implementation must use an `Intl.DateTimeFormat(..., { timeZone: displayTimeZoneId })` round-trip algorithm rather than the workstation timezone:
+
+1. parse the wall-clock string manually into numeric calendar fields;
+2. build a timezone-neutral naive millisecond value with `Date.UTC` only as arithmetic scaffolding;
+3. derive plausible UTC offsets for the configured IANA zone around that wall date using `Intl.DateTimeFormat.formatToParts`;
+4. construct candidate UTC instants from those offsets;
+5. format each candidate back into the configured zone;
+6. retain only candidates whose year/month/day/hour/minute/second exactly equal the requested wall fields;
+7. zero matching candidates = nonexistent wall time;
+8. more than one matching candidate = ambiguous wall time;
+9. exactly one candidate = authoritative UTC instant.
+
+The helper must be browser-timezone-independent and unit tested under at least two simulated workstation timezones. Do not use a heuristic that silently chooses the earlier/later DST offset.
+
 ### 9.3 DST ambiguity/nonexistence
 
 For zones with daylight-saving transitions:
@@ -377,6 +424,8 @@ For zones with daylight-saving transitions:
 - ambiguous wall time must be rejected unless a future explicit offset-selection UX is introduced.
 
 Task 16 shall not guess an offset.
+
+Time input controls remain disabled until `displayTimeZoneId` has loaded successfully. Camera/class/duration/confidence search can still operate without time filters, but real-world timestamps must never be rendered using browser local time as a fallback. If system configuration is unavailable, show an explicit display-timezone error for timestamp presentation.
 
 ### 9.4 URL representation
 
@@ -468,6 +517,7 @@ Use:
 - native lazy loading;
 - meaningful alt text;
 - deterministic placeholder on 404/load failure;
+- component-local image failure state keyed/reset by the thumbnail URL so a recycled card cannot retain a stale failure;
 - no retry storm for permanently missing historical evidence.
 
 ### 11.2 Review navigation
@@ -486,9 +536,11 @@ Navigation state may be used only as a non-authoritative UX optimization if intr
 
 The page must distinguish:
 
-### Initial state
+### Default unfiltered state
 
-No search has yet been committed, if defaults are intentionally empty.
+`/search` with no search parameters is a valid committed search and automatically loads the newest 24 Tracks under Task-14 default latest-completed semantics.
+
+There is no separate browser-only “not searched yet” state. An all-blank submitted form canonicalizes back to `/search`.
 
 ### Loading
 
@@ -534,6 +586,8 @@ Inputs:
 - query `trackId`.
 
 Validate both as non-empty GUID-shaped identities before querying.
+
+The `trackId` query parameter must occur exactly once. Missing, blank, malformed or duplicated `trackId` is an invalid review target and must not issue a Track request. Unknown Review-page query parameters do not affect authority.
 
 Fetch:
 
@@ -805,6 +859,7 @@ Do not start UI pages until Checkpoint A is green.
 Write RED tests for:
 
 - Search route;
+- canonical `/search` automatically loads the unfiltered first page;
 - camera loading;
 - inactive historical camera availability;
 - Person/Vehicle filters;
@@ -920,7 +975,8 @@ At minimum:
 - URL -> committed filters;
 - committed filters -> canonical URL;
 - round-trip canonicalization;
-- unknown params ignored or rejected according to one documented policy;
+- unknown params cannot influence API semantics and are removed by canonicalization;
+- duplicate supported params rejected;
 - malformed GUID rejected;
 - malformed UTC rejected;
 - From >= To rejected;
@@ -934,7 +990,9 @@ At minimum:
 - normal DST date;
 - nonexistent DST wall time rejected;
 - ambiguous DST wall time rejected;
-- browser timezone does not affect result.
+- browser timezone does not affect result;
+- round-trip candidate matching returns exactly one valid instant;
+- time controls do not use browser-timezone fallback when system config is unavailable.
 
 ### Visual Search
 
