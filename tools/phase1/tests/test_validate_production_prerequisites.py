@@ -48,10 +48,16 @@ def approved_policy() -> dict:
 
 
 def observation(role: str, values: dict) -> dict:
+    topology = {
+        "windows-operational-plane": "1" * 64,
+        "database": "mavi|10.0.0.20|5432",
+        "linux-vision-worker": "2" * 64,
+    }[role]
     return {
         "schemaVersion": "mavi-production-prerequisite-observation-v1",
         "role": role,
         "capturedAtUtc": "2026-09-14T18:00:00Z",
+        "topologyIdentity": topology,
         "values": dict(values),
     }
 
@@ -96,3 +102,14 @@ def test_exact_approved_observations_pass():
     policy = approved_policy()
     windows, database, linux = observations(policy)
     mod.validate_observations(policy, windows, database, linux)
+
+
+def test_missing_topology_identity_cannot_pass():
+    policy = approved_policy()
+    windows, database, linux = observations(policy)
+    del linux["topologyIdentity"]
+    with pytest.raises(
+        mod.PrerequisiteEvidenceError,
+        match="production_prerequisite_policy_not_frozen:linux-vision-worker",
+    ):
+        mod.validate_observations(policy, windows, database, linux)
