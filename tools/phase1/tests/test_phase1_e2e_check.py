@@ -194,3 +194,23 @@ def test_attestation_rejects_wrong_mavi_build():
             "a" * 40,
             "build-a",
         )
+
+
+def test_empty_scene_diagnostic_rejects_any_false_positive_track():
+    with pytest.raises(
+        mod.AcceptanceError,
+        match="qualification_empty_scene_false_positive",
+    ):
+        mod.assert_empty_scene_diagnostic(
+            track_count=1,
+            detail_count=1,
+            evidence_count=1,
+        )
+
+
+def test_empty_scene_diagnostic_accepts_zero_detections():
+    mod.assert_empty_scene_diagnostic(
+        track_count=0,
+        detail_count=0,
+        evidence_count=0,
+    )
