@@ -243,6 +243,11 @@ def check_phase1_acceptance_assets(errors: list[str]) -> None:
             for release in releases:
                 commit = release.get("sourceCommit") if isinstance(release, dict) else None
                 policy = release.get("migrationPolicy") if isinstance(release, dict) else None
+                application_manifest_sha = (
+                    release.get("applicationManifestSha256")
+                    if isinstance(release, dict)
+                    else None
+                )
                 if (
                     not isinstance(commit, str)
                     or len(commit) not in {40, 64}
@@ -255,6 +260,15 @@ def check_phase1_acceptance_assets(errors: list[str]) -> None:
                 if policy not in {"none", "required"}:
                     fail(
                         f"Task-17 migration policy is invalid for prior release {commit}.",
+                        errors,
+                    )
+                if application_manifest_sha is not None and (
+                    not isinstance(application_manifest_sha, str)
+                    or len(application_manifest_sha) != 64
+                    or any(ch not in "0123456789abcdef" for ch in application_manifest_sha)
+                ):
+                    fail(
+                        f"Task-17 prior application manifest hash is invalid for {commit}.",
                         errors,
                     )
     except (OSError, json.JSONDecodeError) as exc:
