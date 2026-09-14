@@ -38,6 +38,7 @@ REQUIRED_PATHS = [
     "contracts/schemas/worker-health-v2.schema.json",
     "config/acceptance/phase1-acceptance-v1.json",
     "config/acceptance/phase1-supported-updates-v1.json",
+    "config/acceptance/phase1-production-prerequisites-v1.json",
     "sample-data/ground-truth/phase1-ground-truth.schema.json",
     "sample-data/ground-truth/phase1-corpus.schema.json",
     "sample-data/ground-truth/phase1-example.json",
@@ -48,6 +49,17 @@ REQUIRED_PATHS = [
     "tools/phase1/offline-variant-evidence.schema.json",
     "tools/phase1/recovery-performance-evidence.schema.json",
     "tools/phase1/production-acceptance-evidence.schema.json",
+    "tools/phase1/production-prerequisite-policy.schema.json",
+    "tools/phase1/production-prerequisite-observation.schema.json",
+    "tools/phase1/production-prerequisite-evidence.schema.json",
+    "tools/phase1/production-scenario-evidence.schema.json",
+    "tools/phase1/production-failure-reprocess-evidence.schema.json",
+    "tools/phase1/production-log-inspection-evidence.schema.json",
+    "tools/phase1/collect_production_prerequisites.py",
+    "tools/phase1/validate_production_prerequisites.py",
+    "tools/phase1/run_production_scenario.py",
+    "tools/phase1/qualify_failure_reprocess.py",
+    "tools/phase1/inspect_production_logs.py",
     "tools/phase1/assemble_production_acceptance.py",
 ]
 
@@ -173,6 +185,12 @@ def check_phase1_acceptance_assets(errors: list[str]) -> None:
         ROOT / "tools/phase1/offline-variant-evidence.schema.json",
         ROOT / "tools/phase1/recovery-performance-evidence.schema.json",
         ROOT / "tools/phase1/production-acceptance-evidence.schema.json",
+        ROOT / "tools/phase1/production-prerequisite-policy.schema.json",
+        ROOT / "tools/phase1/production-prerequisite-observation.schema.json",
+        ROOT / "tools/phase1/production-prerequisite-evidence.schema.json",
+        ROOT / "tools/phase1/production-scenario-evidence.schema.json",
+        ROOT / "tools/phase1/production-failure-reprocess-evidence.schema.json",
+        ROOT / "tools/phase1/production-log-inspection-evidence.schema.json",
     ]
     schemas = {}
     for path in schema_paths:
@@ -301,6 +319,38 @@ def check_phase1_acceptance_assets(errors: list[str]) -> None:
     except (OSError, json.JSONDecodeError) as exc:
         fail(f"Task-17 supported update policy is invalid JSON: {exc}", errors)
 
+
+    try:
+        prerequisites = json.loads(
+            (ROOT / "config/acceptance/phase1-production-prerequisites-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        schema = schemas.get("production-prerequisite-policy.schema.json")
+        if schema is not None:
+            jsonschema.validate(
+                instance=prerequisites,
+                schema=schema,
+                format_checker=jsonschema.FormatChecker(),
+            )
+        if prerequisites.get("approvalStatus") == "approved":
+            for section in (
+                "windowsOperationalPlane",
+                "database",
+                "linuxVisionWorker",
+            ):
+                values = prerequisites.get(section)
+                if (
+                    not isinstance(values, dict)
+                    or any(not isinstance(value, str) or not value for value in values.values())
+                ):
+                    fail(
+                        "Task-17 approved production prerequisite baseline is not fully frozen.",
+                        errors,
+                    )
+    except (OSError, json.JSONDecodeError, jsonschema.ValidationError) as exc:
+        message = getattr(exc, "message", str(exc))
+        fail(f"Task-17 production prerequisite policy is invalid: {message}", errors)
 
 def check_production_urls(errors: list[str]) -> None:
     files = [
