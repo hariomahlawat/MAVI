@@ -170,16 +170,44 @@ def observed_runtime_platform() -> dict[str, Any]:
     }
 
 
-def assert_outbound_internet_unavailable() -> None:
-    probes = (("1.1.1.1", 443), ("8.8.8.8", 53))
+def assert_outbound_internet_unavailable() -> dict[str, Any]:
+    proxy_names = (
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+        "http_proxy", "https_proxy", "all_proxy",
+    )
+    configured_proxies = {
+        name: value
+        for name in proxy_names
+        if (value := os.environ.get(name))
+    }
+    if configured_proxies:
+        raise VariantQualificationError("variant_outbound_proxy_configured")
+
+    probes = (
+        ("1.1.1.1", 443),
+        ("8.8.8.8", 53),
+        ("pypi.org", 443),
+        ("github.com", 443),
+        ("www.microsoft.com", 443),
+    )
+    observations = []
     for host, port in probes:
+        reachable = False
         try:
             with socket.create_connection((host, port), timeout=2.0):
-                raise VariantQualificationError(
-                    f"variant_outbound_internet_reachable:{host}:{port}"
-                )
+                reachable = True
         except (TimeoutError, OSError):
-            continue
+            pass
+        observations.append({"host": host, "port": port, "reachable": reachable})
+        if reachable:
+            raise VariantQualificationError(
+                f"variant_outbound_internet_reachable:{host}:{port}"
+            )
+    return {
+        "proxyEnvironmentAbsent": True,
+        "probes": observations,
+        "passed": True,
+    }
 
 
 def _venv_python(root: Path) -> Path:
@@ -195,7 +223,7 @@ def run_command(args: list[str], *, env: dict[str, str] | None = None) -> subpro
 def qualify(args: argparse.Namespace) -> dict[str, Any]:
     if not args.network_isolated:
         raise VariantQualificationError("variant_network_isolation_not_asserted")
-    assert_outbound_internet_unavailable()
+    network_isolation = assert_outbound_internet_unavailable()
     manifest, manifest_sha = verify_bundle(args.bundle_dir)
     if manifest.get("platformVariant") != args.variant:
         raise VariantQualificationError("variant_bundle_variant_mismatch")
@@ -326,6 +354,7 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         "workerFlowEvidenceSha256": sha256_file(args.worker_flow_evidence),
         "actualDevice": actual_device,
         "outboundNetworkUnavailable": True,
+        "networkIsolation": network_isolation,
         "firstRunDownloadObserved": False,
         "result": "passed",
     }
