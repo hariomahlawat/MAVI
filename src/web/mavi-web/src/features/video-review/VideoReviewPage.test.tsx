@@ -218,6 +218,23 @@ describe('VideoReviewPage', () => {
       .toBeCloseTo(299, 3));
   });
 
+  it('recovers configured-zone timestamp presentation after a display-config outage', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getSystemConfig).mockRejectedValueOnce(new Error('offline'));
+
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId,
+      routePath: '/review/video/:videoAssetId',
+    });
+
+    expect(await screen.findByRole('button', { name: 'Retry display config' })).toBeInTheDocument();
+    expect(screen.getAllByText(/2026-09-14T02:30:00Z UTC/).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole('button', { name: 'Retry display config' }));
+
+    expect(await screen.findByText(/08:00:00/)).toBeInTheDocument();
+  });
+
   it('shows graceful evidence fallbacks when thumbnail or video content fails', async () => {
     renderWithApp(<VideoReviewPage />, {
       route: '/review/video/' + videoId + '?trackId=' + trackId,
