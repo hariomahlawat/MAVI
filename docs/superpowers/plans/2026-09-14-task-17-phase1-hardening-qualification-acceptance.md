@@ -506,14 +506,17 @@ The response shall be projected from the persisted ProcessingRun and its validat
 - runtime variant;
 - platform-lock SHA-256;
 - MAVI build/commit identity;
-- actual device;
+- configured device policy/index and actual device;
+- normalized platform identity required to validate the runtime variant: OS/system, release, machine/architecture, Python version/implementation/build/compiler;
+- for CUDA runs, allowlisted GPU identity: device name/index/VRAM, driver version and CUDA runtime version;
+- the fixed canonical dependency-version set already required by runtime provenance (Python, PyTorch/TorchVision, MMDetection/MMCV/MMEngine, Trackers, Supervision, SciPy, NumPy, OpenCV, PyAV and Pillow);
 - detector/tracker names and versions.
 
-Do not expose lease tokens, physical paths, storage keys, arbitrary dependency dictionaries, private hostnames, or the raw provenance JSON.
+Do not expose lease tokens, physical paths, storage keys, private hostnames, unbounded/arbitrary JSON, or the raw provenance JSON. The dependency-version object is restricted to the canonical provenance allowlist and maximum cardinality already enforced by the worker contract.
 
 The application layer shall parse/validate the persisted provenance through one canonical typed parser rather than ad-hoc JSON property access in an endpoint. Malformed persisted provenance is a server-side integrity failure and cannot be converted into a successful attestation.
 
-The E2E harness must compare this authoritative attestation against the expected frozen release selection before writing those identities into acceptance evidence.
+The E2E harness must compare this authoritative attestation against the expected frozen release selection before writing those identities into acceptance evidence. Release hashes/lock identities must match exactly; runtime variant/platform/Python/binary versions must satisfy the selected runtime profile; CUDA runs must also agree with the retained qualified hardware/device evidence and must prove the actual device is CUDA with the expected device index.
 
 ---
 
@@ -531,7 +534,7 @@ The generated record should contain:
 - operator-supplied qualification environment label (not an automatically leaked private hostname);
 - selected expected model/profile/runtime IDs and SHA-256 values;
 - SHA-256 of each exact frozen release-metadata file used to derive expected identities;
-- authoritative ProcessingRun-attested model/config/profile/qualification/runtime/platform-lock/build identities and a pass/fail comparison against the canonically derived frozen selection;
+- authoritative ProcessingRun-attested model/config/profile/qualification/runtime/platform-lock/build/platform/Python/dependency/device/GPU identities and a pass/fail comparison against the canonically derived frozen selection and applicable hardware evidence;
 - qualification Camera ID/code/timezone snapshot;
 - VideoAsset ID and reconciled camera/recording provenance;
 - source-media SHA-256 plus managed-source streamed SHA-256/ETag verification result;
@@ -1016,7 +1019,7 @@ Before hardware or release metadata work:
    - equal-cardinality/equal-quality assignments requiring canonical deterministic tie-breaking;
    - missing start/end spatial coverage or over-wide interpolation gaps that must invalidate formal ground truth before scoring;
    - Tracks crossing evaluation-window boundaries;
-4. add RED tests for the completed-run attestation contract/parser, including malformed provenance, non-completed run, exact identity projection and absence of forbidden raw/private fields;
+4. add RED tests for the completed-run attestation contract/parser, including malformed provenance, non-completed run, exact release identity projection, fixed dependency allowlist, platform/Python/GPU projection, CUDA driver/runtime identity, and absence of forbidden raw/private fields;
 5. add RED tests that formal E2E mode cannot pass with zero Tracks/zero representative evidence;
 6. add RED reconciliation tests for camera timezone/active-state mismatch and duplicate VideoAsset camera/recording-provenance mismatch;
 7. add RED evidence tests proving corpus + individual ground-truth manifest hashes are mandatory and mismatch fails closed;
@@ -1054,7 +1057,7 @@ Required automated tests shall cover:
 - failed processing result;
 - successful completed result;
 - queued-run/latest-run supersession mismatch rejection;
-- completed-run attestation success, identity mismatch, malformed persisted provenance and non-completed-run rejection;
+- completed-run attestation success, release/platform/Python/dependency/GPU mismatch, malformed persisted provenance and non-completed-run rejection;
 - formal mode rejects missing ground truth, zero expected events, zero Tracks, zero resolved details and zero representative evidence;
 - empty-scene diagnostic mode may return zero Tracks but cannot emit a formal acceptance result;
 - Track search pagination;
