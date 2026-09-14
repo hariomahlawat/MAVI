@@ -17,6 +17,9 @@ CANONICAL_ACCEPTANCE_PROFILE = (
 CANONICAL_SUPPORTED_UPDATES = (
     ROOT / "config" / "acceptance" / "phase1-supported-updates-v1.json"
 )
+CANONICAL_PRODUCTION_PREREQUISITES = (
+    ROOT / "config" / "acceptance" / "phase1-production-prerequisites-v1.json"
+)
 
 
 class PolicyIdentityError(ValueError):
@@ -56,5 +59,14 @@ def canonical_supported_updates(path: Path) -> tuple[Path, str]:
         path,
         CANONICAL_SUPPORTED_UPDATES,
         "supported_updates_policy_not_canonical",
+    )
+    return resolved, sha256_file(resolved)
+
+
+def canonical_production_prerequisites(path: Path) -> tuple[Path, str]:
+    resolved = require_canonical(
+        path,
+        CANONICAL_PRODUCTION_PREREQUISITES,
+        "production_prerequisite_policy_not_canonical",
     )
     return resolved, sha256_file(resolved)
