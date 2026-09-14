@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canonicalSearchKey,
   confidencePercentTextToFraction,
+  compareUtcInstants,
   parseCommittedSearch,
   secondsTextToMilliseconds,
 } from './searchState';
@@ -101,6 +102,17 @@ describe('Task-16 committed search state', () => {
       expect(parsed.canonicalQuery).not.toContain('utm_');
       expect(parsed.canonicalQuery).not.toContain('debug');
     }
+  });
+
+  it('orders UTC instants at backend precision instead of truncating to JavaScript milliseconds', () => {
+    expect(compareUtcInstants(
+      '2026-09-14T08:00:00.1234566Z',
+      '2026-09-14T08:00:00.1234567Z',
+    )).toBeLessThan(0);
+    expect(compareUtcInstants(
+      '2026-09-14T08:00:00.1234000Z',
+      '2026-09-14T08:00:00.1234Z',
+    )).toBe(0);
   });
 
   it('converts operator duration and confidence input without silent clamping', () => {
