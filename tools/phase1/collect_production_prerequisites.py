@@ -9,6 +9,12 @@ import platform
 import re
 import subprocess
 import sys
+
+from topology_identity import (
+    TopologyIdentityError,
+    database_identity,
+    host_identity_sha256,
+)
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,37 +41,32 @@ def windows_values() -> dict[str, str]:
     if platform.system() != "Windows":
         raise PrerequisiteObservationError("prerequisite_windows_host_required")
 
-    iis_reg = run_text([
-        "reg.exe",
-        "query",
-        r"HKLM\SOFTWARE\Microsoft\InetStp",
-        "/v",
-        "VersionString",
-    ])
-    iis_match = re.search(
-        r"VersionString\s+REG_SZ\s+(.+)$",
-        iis_reg,
-        re.MULTILINE,
-    )
-    if iis_match is None:
-        raise PrerequisiteObservationError("prerequisite_iis_version_unavailable")
-
-    windows_reg = run_text([
-        "reg.exe",
-        "query",
-        r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
-    ])
-    def registry_value(name: str) -> str:
-        match = re.search(
-            rf"^{re.escape(name)}\s+REG_\w+\s+(.+)$",
-            windows_reg,
-            re.MULTILINE,
-        )
-        if match is None:
-            raise PrerequisiteObservationError(
-                "prerequisite_windows_version_unavailable:" + name
-            )
-        return match.group(1).strip()
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\InetStp",
+        ) as key:
+            iis_version = str(
+                winreg.QueryValueEx(key, "VersionString")[0]
+            ).strip()
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+        ) as key:
+            product_name = str(
+                winreg.QueryValueEx(key, "ProductName")[0]
+            ).strip()
+            display_version = str(
+                winreg.QueryValueEx(key, "DisplayVersion")[0]
+            ).strip()
+            build_number = str(
+                winreg.QueryValueEx(key, "CurrentBuildNumber")[0]
+            ).strip()
+    except (OSError, ImportError) as exc:
+        raise PrerequisiteObservationError(
+            "prerequisite_windows_registry_unavailable"
+        ) from exc
 
     runtimes = run_text(["dotnet", "--list-runtimes"]).splitlines()
     aspnet = []
@@ -85,14 +86,13 @@ def windows_values() -> dict[str, str]:
         return tuple(int(item) for item in numbers)
 
     return {
-        "windowsProductName": registry_value("ProductName"),
-        "windowsVersion": registry_value("DisplayVersion"),
-        "windowsBuild": registry_value("CurrentBuildNumber"),
+        "windowsProductName": product_name,
+        "windowsVersion": display_version,
+        "windowsBuild": build_number,
         "architecture": platform.machine(),
-        "iisVersion": iis_match.group(1).strip(),
+        "iisVersion": iis_version,
         "dotnetRuntimeVersion": max(aspnet, key=version_key),
     }
-
 
 def database_values(psql: str, pg_service: str) -> dict[str, str]:
     def scalar(sql: str) -> str:
@@ -197,14 +197,17 @@ def main() -> int:
             )
         if args.role == "windows-operational-plane":
             values = windows_values()
+            topology_identity = host_identity_sha256()
         elif args.role == "database":
             if not args.pg_service:
                 raise PrerequisiteObservationError(
                     "prerequisite_pg_service_required"
                 )
             values = database_values(args.psql, args.pg_service)
+            topology_identity = database_identity(args.psql, args.pg_service)
         else:
             values = linux_values()
+            topology_identity = host_identity_sha256()
 
         if any(not isinstance(value, str) or not value for value in values.values()):
             raise PrerequisiteObservationError(
@@ -216,6 +219,7 @@ def main() -> int:
             "capturedAtUtc": datetime.now(timezone.utc)
             .isoformat()
             .replace("+00:00", "Z"),
+            "topologyIdentity": topology_identity,
             "values": values,
         }
         args.output.write_text(
@@ -223,7 +227,7 @@ def main() -> int:
             encoding="utf-8",
             newline="\n",
         )
-    except (OSError, PrerequisiteObservationError) as exc:
+    except (OSError, PrerequisiteObservationError, TopologyIdentityError) as exc:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2
 
