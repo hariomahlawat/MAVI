@@ -685,6 +685,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "schemaVersion": "mavi-phase1-acceptance-evidence-v1",
         "mode": args.mode,
         "sourceCommit": args.source_commit,
+        "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
         "environmentLabel": args.environment_label,
         "releaseExpected": expected_release,
         "attestation": attestation_evidence,
@@ -753,6 +754,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--processing-timeout-seconds", type=float, default=900)
     parser.add_argument("--environment-label", required=True)
     parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--target-verified-manifest-sha256", required=True)
     parser.add_argument("--model-root", type=Path, required=True)
     parser.add_argument("--model-manifest", type=Path, required=True)
     parser.add_argument("--pipeline-profile", type=Path, required=True)
@@ -771,6 +773,11 @@ def main() -> int:
     try:
         if not args.video.is_file():
             raise AcceptanceError("qualification_video_missing")
+        if (
+            len(args.target_verified_manifest_sha256) != 64
+            or any(ch not in "0123456789abcdef" for ch in args.target_verified_manifest_sha256)
+        ):
+            raise AcceptanceError("qualification_target_manifest_sha_invalid")
         if args.processing_timeout_seconds <= 0:
             raise AcceptanceError("qualification_timeout_invalid")
         evidence = run(args)
