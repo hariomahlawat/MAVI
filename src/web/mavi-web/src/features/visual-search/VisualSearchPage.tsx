@@ -14,6 +14,7 @@ import { configuredUtcToWallTime, configuredWallTimeToUtc } from '../../shared/t
 import TrackResultCard from './TrackResultCard';
 import {
   canonicalSearchParams,
+  compareUtcInstants,
   confidenceFractionToPercentText,
   confidencePercentTextToFraction,
   millisecondsToSecondsText,
@@ -178,7 +179,7 @@ export default function VisualSearchPage() {
         }
       }
 
-      if (next.fromUtc && next.toUtc && Date.parse(next.fromUtc) >= Date.parse(next.toUtc)) {
+      if (next.fromUtc && next.toUtc && compareUtcInstants(next.fromUtc, next.toUtc) >= 0) {
         throw new RangeError('From time must be earlier than To time.');
       }
 
