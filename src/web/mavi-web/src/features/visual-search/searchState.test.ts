@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canonicalSearchKey,
+  confidenceFractionToPercentText,
   confidencePercentTextToFraction,
   compareUtcInstants,
   parseCommittedSearch,
@@ -113,6 +114,15 @@ describe('Task-16 committed search state', () => {
       '2026-09-14T08:00:00.1234000Z',
       '2026-09-14T08:00:00.1234Z',
     )).toBe(0);
+  });
+
+  it('formats committed confidence percentages without floating-point artifacts', () => {
+    expect(confidenceFractionToPercentText(0.0007)).toBe('0.07');
+    expect(confidenceFractionToPercentText(0.00075)).toBe('0.075');
+    expect(confidenceFractionToPercentText(0.91)).toBe('91');
+    expect(confidenceFractionToPercentText(0)).toBe('0');
+    expect(confidenceFractionToPercentText(1)).toBe('100');
+    expect(confidenceFractionToPercentText(1e-7)).toBe('0.00001');
   });
 
   it('converts operator duration and confidence input without silent clamping', () => {
