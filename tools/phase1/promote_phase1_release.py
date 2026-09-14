@@ -85,10 +85,13 @@ def _validate_schema(value: dict[str, Any], schema_name: str) -> None:
 def _validate_platform_variant_evidence(
     gate: str,
     value: dict[str, Any],
+    acceptance_profile_sha256: str,
 ) -> None:
     _validate_schema(value, "offline-variant-evidence.schema.json")
     if value.get("variant") != gate:
         raise PromotionError("promotion_variant_evidence_gate_mismatch:" + gate)
+    if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
+        raise PromotionError("promotion_variant_profile_mismatch:" + gate)
     if value.get("bundleMode") != "qualification-candidate":
         raise PromotionError("promotion_variant_evidence_not_candidate:" + gate)
     if value.get("expectedHostCompatibility") != value.get("observedHostCompatibility"):
@@ -117,11 +120,13 @@ def _validate_offline_os_evidence(
     gate: str,
     value: dict[str, Any],
     source_commit: str,
+    acceptance_profile_sha256: str,
 ) -> None:
     _validate_schema(value, "offline-install-evidence.schema.json")
     evidence_verifier.verify_offline_install(
         value,
         expected_source_commit=source_commit,
+        expected_acceptance_profile_sha256=acceptance_profile_sha256,
     )
     expected_os = "windows" if gate == "windows-offline-install" else "linux"
     if value.get("os") != expected_os:
@@ -187,10 +192,10 @@ def validate_gate_evidence(
         "linux-x86_64-cpu",
         "linux-x86_64-cuda",
     }:
-        _validate_platform_variant_evidence(gate, value)
+        _validate_platform_variant_evidence(gate, value, acceptance_profile_sha256)
         return
     if gate in {"windows-offline-install", "linux-offline-install"}:
-        _validate_offline_os_evidence(gate, value, source_commit)
+        _validate_offline_os_evidence(gate, value, source_commit, acceptance_profile_sha256)
         return
     if gate == "cctv-quality-baseline":
         _validate_quality_evidence(value, source_commit, acceptance_profile_sha256)
