@@ -18,6 +18,7 @@ SPEC.loader.exec_module(mod)
 def evidence(path: Path, commit: str, passed=True) -> Path:
     value = {
         "sourceCommit": commit,
+        "targetVerifiedManifestSha256": "c" * 64,
         "result": {"passed": passed, "failureCodes": [] if passed else ["failed"]},
     }
     path.write_text(json.dumps(value), encoding="utf-8")
@@ -27,13 +28,18 @@ def evidence(path: Path, commit: str, passed=True) -> Path:
 def test_gate_evidence_requires_exact_source_commit(tmp_path: Path):
     path = evidence(tmp_path / "e.json", "a" * 40)
     with pytest.raises(mod.PromotionError, match="promotion_evidence_source_mismatch"):
-        mod.load_gate_evidence(path, gate="cctv-quality-baseline", expected_source_commit="b" * 40)
+        mod.load_gate_evidence(path, gate="cctv-quality-baseline", expected_source_commit="b" * 40, target_verified_manifest_sha256="c" * 64)
 
 
-def test_gate_evidence_must_be_passed(tmp_path: Path):
-    path = evidence(tmp_path / "e.json", "a" * 40, passed=False)
-    with pytest.raises(mod.PromotionError, match="promotion_evidence_not_passed"):
-        mod.load_gate_evidence(path, gate="cctv-quality-baseline", expected_source_commit="a" * 40)
+def test_generic_passing_json_cannot_promote_quality_gate(tmp_path: Path):
+    path = evidence(tmp_path / "e.json", "a" * 40, passed=True)
+    with pytest.raises(mod.PromotionError, match="promotion_evidence_schema_invalid"):
+        mod.load_gate_evidence(
+            path,
+            gate="cctv-quality-baseline",
+            expected_source_commit="a" * 40,
+            target_verified_manifest_sha256="c" * 64,
+        )
 
 
 def test_gate_argument_rejects_unknown_or_duplicate(tmp_path: Path):
