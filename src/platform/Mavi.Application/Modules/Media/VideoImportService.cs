@@ -15,10 +15,11 @@ public sealed record ImportVideoCommand(
     string OriginalFileName,
     Stream Content);
 
-public sealed record VideoImportResult(bool IsSuccess, VideoAsset? Video, string? ErrorCode)
+public sealed record VideoImportResult(bool IsSuccess, VideoAsset? Video, string? ErrorCode, Guid? ExistingVideoAssetId)
 {
-    public static VideoImportResult Success(VideoAsset video) => new(true, video, null);
-    public static VideoImportResult Failure(string errorCode) => new(false, null, errorCode);
+    public static VideoImportResult Success(VideoAsset video) => new(true, video, null, null);
+    public static VideoImportResult Failure(string errorCode, Guid? existingVideoAssetId = null) =>
+        new(false, null, errorCode, existingVideoAssetId);
 }
 
 public static class VideoImportErrorCodes
@@ -110,8 +111,9 @@ public sealed class VideoImportService(
             if (!PhaseOneMp4ContainerPolicy.IsSupported(metadata))
                 return VideoImportResult.Failure(VideoImportErrorCodes.ContainerUnsupported);
 
-            if (await catalog.FindSourceVideoBySha256Async(write.Sha256, cancellationToken) is not null)
-                return VideoImportResult.Failure(VideoImportErrorCodes.Duplicate);
+            var existing = await catalog.FindSourceVideoBySha256Async(write.Sha256, cancellationToken);
+            if (existing is not null)
+                return VideoImportResult.Failure(VideoImportErrorCodes.Duplicate, existing.Id);
 
             var nowUtc = timeProvider.GetUtcNow();
             var artifact = Artifact.Create(ArtifactType.SourceVideo, storageKey, "video/mp4", write.SizeBytes, write.Sha256,
@@ -127,7 +129,12 @@ public sealed class VideoImportService(
             }
             catch (DuplicateSourceVideoException)
             {
-                return VideoImportResult.Failure(VideoImportErrorCodes.Duplicate);
+                var existingAfterRace = await catalog.FindSourceVideoBySha256Async(write.Sha256, cancellationToken);
+                if (existingAfterRace is null)
+                    throw new InvalidOperationException(
+                        "Duplicate source-video persistence was reported but the authoritative existing video could not be resolved.");
+
+                return VideoImportResult.Failure(VideoImportErrorCodes.Duplicate, existingAfterRace.Id);
             }
 
             mediaWritten = false;
