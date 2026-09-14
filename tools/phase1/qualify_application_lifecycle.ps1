@@ -98,6 +98,8 @@ $sourceCommit = [string]$manifest.sourceCommit
 $build = [string]$manifest.build
 if (-not $sourceCommit -or -not $build) { throw "application_manifest_identity_missing" }
 
+$networkIsolation = Assert-InternetUnavailable
+
 $priorRelease = $null
 $migrationPolicy = "none"
 if ($Mode -eq "fresh-install") {
@@ -121,7 +123,6 @@ if ($Mode -eq "fresh-install") {
     $expectedPriorManifestSha = [string]$supported[0].applicationManifestSha256
     if (-not $expectedPriorManifestSha -or $expectedPriorManifestSha -notmatch '^[0-9a-f]{64}}
 
-$networkIsolation = Assert-InternetUnavailable
 if ($AppPoolName) { Invoke-AppCmd @("stop", "apppool", "/apppool.name:$AppPoolName") }
 
 try {
@@ -171,9 +172,22 @@ try {
     }
 
     $rootResponse = Invoke-WebRequest -Uri ($BaseUrl.TrimEnd('/') + "/") -Method Get -UseBasicParsing
-    $rootBytes = [Text.Encoding]::UTF8.GetByteCount([string]$rootResponse.Content)
+    $rootContent = [string]$rootResponse.Content
+    $rootBytes = [Text.Encoding]::UTF8.GetByteCount($rootContent)
     if ([int]$rootResponse.StatusCode -ne 200 -or $rootBytes -le 0) {
         throw "post_deploy_ui_smoke_failed"
+    }
+    if ($rootContent -match '(?i)(?:src|href)=[\"'']https?://') {
+        throw "post_deploy_remote_asset_dependency_detected"
+    }
+    $assetMatches = [regex]::Matches($rootContent, '(?i)(?:src|href)=[\"''](?<path>/[^\"'']+\.(?:js|css))[\"'']')
+    $assetPaths = @($assetMatches | ForEach-Object { $_.Groups["path"].Value } | Select-Object -Unique)
+    if ($assetPaths.Count -lt 1) { throw "post_deploy_static_asset_missing" }
+    foreach ($assetPath in $assetPaths) {
+        $assetResponse = Invoke-WebRequest -Uri ($BaseUrl.TrimEnd('/') + $assetPath) -Method Get -UseBasicParsing
+        if ([int]$assetResponse.StatusCode -ne 200 -or [Text.Encoding]::UTF8.GetByteCount([string]$assetResponse.Content) -le 0) {
+            throw "post_deploy_static_asset_failed:$assetPath"
+        }
     }
 
     $retainedState = $null
@@ -203,6 +217,7 @@ try {
         uiSmoke = [ordered]@{
             rootStatusCode = [int]$rootResponse.StatusCode
             rootBytes = $rootBytes
+            assetCount = $assetPaths.Count
             passed = $true
         }
         observedHealth = [ordered]@{
