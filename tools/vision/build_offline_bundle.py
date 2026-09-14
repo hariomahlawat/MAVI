@@ -743,10 +743,11 @@ def _serialize_manifest(manifest: BundleManifest) -> bytes:
 
 def _verify_staged_bundle(stage: Path, manifest: BundleManifest) -> None:
     expected = {item.relative_path: item for item in manifest.artifacts}
+    root_manifest = (stage / "bundle-manifest.json").resolve()
     actual = {
         path.relative_to(stage).as_posix()
         for path in stage.rglob("*")
-        if path.is_file() and path.name != "bundle-manifest.json"
+        if path.is_file() and path.resolve() != root_manifest
     }
     if actual != set(expected):
         raise OfflineBundleError("bundle_artifact_set_mismatch")
