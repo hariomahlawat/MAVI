@@ -100,6 +100,11 @@ def database_identity(psql: str, service: str) -> str:
     return value
 
 
+def assert_database_targets_distinct(source_identity: str, restore_identity: str) -> None:
+    if source_identity == restore_identity:
+        raise BackupRestoreError("backup_restore_database_targets_not_distinct")
+
+
 def assert_restore_database_clean(psql: str, service: str) -> None:
     value = pg_scalar(
         psql,
@@ -154,8 +159,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
 
     source_database_identity = database_identity(args.psql, args.source_pg_service)
     restore_database_identity = database_identity(args.psql, args.restore_pg_service)
-    if source_database_identity == restore_database_identity:
-        raise BackupRestoreError("backup_restore_database_targets_not_distinct")
+    assert_database_targets_distinct(source_database_identity, restore_database_identity)
     assert_restore_database_clean(args.psql, args.restore_pg_service)
 
     _assert_disjoint_roots([
