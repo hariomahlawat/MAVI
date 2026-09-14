@@ -400,6 +400,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         validate_backup_restore(
             args.backup_restore,
             source_commit=args.source_commit,
+            mavi_build=expected_mavi_build,
             acceptance_profile_sha256=acceptance_profile_sha256,
             schema_path=args.backup_restore_schema,
         )
