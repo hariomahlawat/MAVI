@@ -618,6 +618,7 @@ def validate_backup(
     path: Path,
     *,
     source_commit: str,
+    mavi_build: str,
     acceptance_profile_sha256: str,
     formal_e2e_sha256: str,
 ) -> str:
@@ -634,6 +635,7 @@ def validate_backup(
         or value.get("cleanRestoreTarget") is not True
         or value.get("sourceDatabaseIdentity") == value.get("restoreDatabaseIdentity")
         or value.get("liveStorageTopology", {}).get("maviCommit") != source_commit
+        or value.get("liveStorageTopology", {}).get("maviBuild") != mavi_build
         or value.get("liveStorageTopology", {}).get("databaseIdentity")
         != value.get("sourceDatabaseIdentity")
         or not passed_result(value)
@@ -862,6 +864,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
     backup_sha = validate_backup(
         args.backup_restore,
         source_commit=args.source_commit,
+        mavi_build=mavi_build,
         acceptance_profile_sha256=profile_sha,
         formal_e2e_sha256=formal_e2e_sha,
     )
