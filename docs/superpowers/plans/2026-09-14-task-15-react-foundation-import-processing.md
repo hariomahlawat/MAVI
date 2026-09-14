@@ -1,8 +1,10 @@
 # Task 15 — React Application Foundation, Cameras, Import and Processing UI
 
-**Status:** Authoritative implementation plan. Task 15 is the active Phase-1 task after Task 14 merged as PR #31.
+**Status:** Complete. Task 15 was implemented in PR #33 and squash-merged into the Phase-1 integration branch.
 
 **Planning baseline:** Phase-1 integration head `3e0382185d6a3a1907870226af3561ff97f2ba8f`.
+
+**Accepted implementation baseline:** PR #33 implementation head `96e72a6cd87d20cbc1f2cd4eab186f65232a620a`; exact-head MAVI Quality Gate #709 succeeded; final Codex review reported no major issues; squash merge `abe0b16f11fad0227efe742ce01211b9ddf689c2` completed on 14 September 2026.
 
 **Primary objective:** replace the bootstrap-only React screen with a production-quality offline-capable application shell and the first complete operator workflow: Camera setup → MP4 import → processing queue/status → explicit retry after failure.
 
@@ -977,3 +979,28 @@ Task 15 is complete only when all of the following are true:
 - broad exact-head review has no material Critical/P1/P2 blocker.
 
 Only then should the roadmap advance to Task 16.
+
+
+---
+
+## 20. Completion record
+
+Task 15 is complete.
+
+Accepted evidence:
+
+- implementation PR: **#33 — Task 15: React foundation, import and processing UI**;
+- final reviewed implementation head: `96e72a6cd87d20cbc1f2cd4eab186f65232a620a`;
+- exact-head MAVI Quality Gate: **#709 — SUCCESS**;
+- final Codex exact-head review: **no major issues**;
+- unresolved review threads at merge: **0**;
+- squash merge commit: `abe0b16f11fad0227efe742ce01211b9ddf689c2`;
+- merge parent: prior accepted integration head `ab578449bfd9ad66c77cfbe6db9b5e69e25e95d7`;
+- GitHub merge-commit verification: **valid**.
+
+Material review findings closed before merge:
+
+1. **P1 — IIS in-process request-body limit:** `IISServerOptions.MaxRequestBodySize` is configured to the same Task-15 request ceiling as Kestrel/FormOptions; Windows production-host qualification remains the deployment proof for representative >30 MiB multipart upload.
+2. **P2 — recovered duplicate identity during status outage:** the browser preserves the authoritative `videoAssetId`, avoids re-upload/blind queueing, and navigates to Processing with a warning when the follow-up status lookup is transiently unavailable.
+
+The Phase-1 roadmap may now advance to Task 16. Task 16 must reuse the Task-15 router, TanStack Query, API-error, explicit-timezone, offline-asset and same-origin hosting conventions rather than redesigning them.
