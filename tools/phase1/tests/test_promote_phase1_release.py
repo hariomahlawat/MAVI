@@ -162,12 +162,13 @@ def test_quality_gate_rejects_wrong_frozen_profile_hash(monkeypatch, tmp_path: P
         )
 
 
-def test_performance_gate_rejects_wrong_frozen_profile_hash():
+def test_performance_gate_rejects_wrong_frozen_profile_hash(monkeypatch):
     value = {
         "acceptanceProfileSha256": "a" * 64,
         "maviBuild": "build-a",
         "result": {"passed": True, "failureCodes": []},
     }
+    monkeypatch.setattr(mod, "_validate_schema", lambda *_: None)
     with pytest.raises(mod.PromotionError, match="promotion_performance_profile_mismatch"):
         mod._validate_performance_evidence(value, "c" * 64, policy(), "build-a")
 
