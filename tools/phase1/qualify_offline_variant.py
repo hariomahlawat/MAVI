@@ -520,6 +520,7 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         "sourceCommit": args.source_commit,
         "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
         "acceptanceProfileSha256": acceptance_profile_sha,
+        "maviBuild": args.expected_mavi_build,
         "variant": args.variant,
         "bundleMode": manifest["releaseStatus"],
         "bundleManifestSha256": manifest_sha,
