@@ -12,6 +12,8 @@ namespace Mavi.IntegrationTests;
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class ProcessingRunAttestationApiTests
 {
+    private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
+
     [Fact]
     public async Task CompletedRunReturnsAllowlistedValidatedAttestation()
     {
@@ -159,6 +161,6 @@ public sealed class ProcessingRunAttestationApiTests
             new VisionTrackerParametersContract(30, .25, .1, .2, 2, 1),
             "RGB");
 
-        return JsonSerializer.Serialize(contract, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        return JsonSerializer.Serialize(contract, WebJsonOptions);
     }
 }
