@@ -6,8 +6,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+PHASE1_ROOT = Path(__file__).resolve().parent
+if str(PHASE1_ROOT) not in sys.path:
+    sys.path.insert(0, str(PHASE1_ROOT))
+
+from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
 
 
 class PerformanceEvidenceError(ValueError):
@@ -116,11 +123,12 @@ def main() -> int:
     try:
         if args.output.exists():
             raise PerformanceEvidenceError("performance_output_exists")
-        profile = load(args.acceptance_profile)
+        canonical_profile, acceptance_profile_sha = canonical_acceptance_profile(args.acceptance_profile)
+        profile = load(canonical_profile)
         observation = load(args.observation)
         if observation.get("sourceCommit") != args.source_commit:
             raise PerformanceEvidenceError("performance_source_commit_mismatch")
-        if observation.get("acceptanceProfileSha256") != sha256_file(args.acceptance_profile):
+        if observation.get("acceptanceProfileSha256") != acceptance_profile_sha:
             raise PerformanceEvidenceError("performance_profile_hash_mismatch")
         target = observation.get("targetVerifiedManifestSha256")
         if (
@@ -136,7 +144,7 @@ def main() -> int:
             raise PerformanceEvidenceError("performance_cuda_device_required")
         result = evaluate(profile, observation)
         args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8", newline="\n")
-    except (OSError, json.JSONDecodeError, PerformanceEvidenceError) as exc:
+    except (OSError, json.JSONDecodeError, PerformanceEvidenceError, PolicyIdentityError) as exc:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2
 
