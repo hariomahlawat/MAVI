@@ -32,3 +32,17 @@ All three proofs must produce distinct immutable hashed evidence and fail closed
 After release promotion, all four exact **production** bundles must be executed disconnected. The final Linux-CUDA production E2E must attest the exact production bundle-manifest SHA-256 and promoted platform lock. Backup/restore must then use that final production E2E as its accepted case. `tools/phase1/assemble_production_acceptance.py` reconciles the compiled application artifact, fresh install, supported update, four production variant executions, final production E2E and final backup/restore into one immutable production-acceptance record. `assess_phase1_closure.py` independently reopens those underlying files; promotion or candidate evidence alone can never yield `release-verified`.
 
 Operational commands and evidence handling are documented in `docs/runbooks/phase1-acceptance.md`. The authoritative requirements remain `docs/superpowers/plans/2026-09-14-task-17-phase1-hardening-qualification-acceptance.md` plus its qualification-closure addendum.
+
+
+## Final production-topology acceptance
+
+A promoted release is not yet Phase-1 accepted. Final disconnected acceptance additionally requires:
+
+- a repository-owned approved prerequisite baseline and observed matching identities for Windows/IIS, PostgreSQL/pgvector and Linux/NVIDIA/CPython/CUDA;
+- an independent target-containing formal production E2E using the exact Linux-CUDA production venv/bundle;
+- a distinct empty-scene production diagnostic with zero false-positive Tracks;
+- a controlled public-API failure/reprocess scenario followed by successful processing from the exact production worker environment;
+- inspected API, IIS, PostgreSQL and scenario-worker logs with no external network, telemetry, licensing or activation dependency;
+- backup/restore bound to the exact final formal production E2E.
+
+These proofs are assembled by `tools/phase1/assemble_production_acceptance.py` and independently reopened by `tools/phase1/assess_phase1_closure.py`. Missing or cross-spliced evidence remains pending/fails closed.
