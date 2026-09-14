@@ -6,10 +6,12 @@
   "required": [
     "schemaVersion","sourceCommit","maviBuild","verifiedModelManifestSha256",
     "acceptanceProfileSha256","applicationManifestSha256",
-    "freshInstallEvidenceSha256","offlineUpdateEvidenceSha256",
+    "prerequisiteEvidenceSha256","freshInstallEvidenceSha256","offlineUpdateEvidenceSha256",
     "backupRestoreEvidenceSha256","productionVariantEvidenceSha256",
     "productionBundleManifestSha256","productionReleaseLockSha256",
-    "finalE2eEvidenceSha256","result"
+    "formalScenarioEvidenceSha256","finalE2eEvidenceSha256",
+    "emptySceneScenarioEvidenceSha256","emptySceneE2eEvidenceSha256",
+    "failureReprocessEvidenceSha256","logInspectionEvidenceSha256","result"
   ],
   "properties": {
     "schemaVersion": { "const": "mavi-phase1-production-acceptance-evidence-v1" },
@@ -18,10 +20,16 @@
     "verifiedModelManifestSha256": { "$ref": "#/$defs/sha256" },
     "acceptanceProfileSha256": { "$ref": "#/$defs/sha256" },
     "applicationManifestSha256": { "$ref": "#/$defs/sha256" },
+    "prerequisiteEvidenceSha256": { "$ref": "#/$defs/sha256" },
     "freshInstallEvidenceSha256": { "$ref": "#/$defs/sha256" },
     "offlineUpdateEvidenceSha256": { "$ref": "#/$defs/sha256" },
     "backupRestoreEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "formalScenarioEvidenceSha256": { "$ref": "#/$defs/sha256" },
     "finalE2eEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "emptySceneScenarioEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "emptySceneE2eEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "failureReprocessEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "logInspectionEvidenceSha256": { "$ref": "#/$defs/sha256" },
     "productionVariantEvidenceSha256": { "$ref": "#/$defs/variants" },
     "productionBundleManifestSha256": { "$ref": "#/$defs/variants" },
     "productionReleaseLockSha256": { "$ref": "#/$defs/variants" },
