@@ -12,7 +12,7 @@ MAVI is a standalone, offline-production visual-intelligence platform. The proof
 - **Scale target:** approximately 200–500 cameras per large establishment
 - **Production constraint:** no Internet connectivity required for installation or operation
 
-The current Phase-1 implementation is complete through Task 16: PostgreSQL persistence and migrations, managed MP4 ingestion, worker lease/heartbeat/fail/complete control plane, secure attempt-scoped evidence publication, RTMDet-M + class-separated ByteTrack production adapters, runtime supervision, reproducible Windows/Linux CPU offline locks, authoritative Track/evidence APIs, and the React Camera → Import → Processing → Visual Search → Evidence Review workflow are merged. Task 17 is the active final Phase-1 task and is limited to end-to-end hardening, controlled ground truth, formal offline acceptance, and closure of the remaining evidence-backed qualification gates. The model release remains intentionally unverified/partially qualified until those gates actually pass.
+The current Phase-1 product implementation is complete through Task 16. Task 17 supplies the final acceptance/qualification layer: deterministic ground-truth evaluation, completed-run attestation, public-API end-to-end acceptance, exact application install/update proof, disconnected CPU/CUDA runtime qualification, backup/restore verification, recovery/performance evaluation, evidence verification and fail-closed release promotion. Implementation completion is distinct from release verification: unavailable CUDA/offline/quality/performance evidence remains explicitly pending, and the model release remains intentionally unverified/partially qualified until every mandatory gate actually passes.
 
 ## Repository layout
 
@@ -49,6 +49,7 @@ CUDA, PyTorch and computer-vision model packages are introduced only when the co
 
 ```bash
 python tools/verify_repo.py
+python -m pytest -q tools/phase1/tests
 ```
 
 For Python:
@@ -86,3 +87,5 @@ Start with:
 - `AGENTS.md`
 
 Do not add production dependencies on cloud APIs, CDNs, remote fonts, online authentication, first-run model downloads, online licence checks or Internet telemetry.
+
+For formal Phase-1 acceptance sequencing and evidence handling, see `docs/runbooks/phase1-acceptance.md`.
