@@ -97,9 +97,19 @@ def verify_acceptance(
         raise EvidenceError("acceptance_result_failed")
 
 
-def verify_offline_install(value: dict[str, Any], *, expected_source_commit: str | None = None) -> None:
+def verify_offline_install(
+    value: dict[str, Any],
+    *,
+    expected_source_commit: str | None = None,
+    expected_acceptance_profile_sha256: str | None = None,
+) -> None:
     if expected_source_commit is not None and value["sourceCommit"] != expected_source_commit:
         raise EvidenceError("offline_source_commit_mismatch")
+    if (
+        expected_acceptance_profile_sha256 is not None
+        and value["acceptanceProfileSha256"] != expected_acceptance_profile_sha256
+    ):
+        raise EvidenceError("offline_acceptance_profile_mismatch")
 
     os_name = value["os"]
     required = {
@@ -190,7 +200,11 @@ def main() -> int:
         if args.offline_install:
             value = _load(args.offline_install)
             _validate_schema(value, args.offline_schema)
-            verify_offline_install(value, expected_source_commit=args.expected_source_commit)
+            verify_offline_install(
+                value,
+                expected_source_commit=args.expected_source_commit,
+                expected_acceptance_profile_sha256=args.expected_acceptance_profile_sha256,
+            )
         if args.manifest:
             verify_manifest(args.manifest, args.package_root)
     except EvidenceError as exc:
