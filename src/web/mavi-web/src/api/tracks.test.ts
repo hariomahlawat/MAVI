@@ -32,6 +32,50 @@ describe('Track API client', () => {
     );
   });
 
+  it('serializes an empty search without a query string and omits undefined values', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      JSON.stringify({ items: [], nextCursor: null }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ));
+
+    expect(serializeTrackSearchFilters({
+      cameraId: undefined,
+      objectClass: undefined,
+    })).toBe('');
+
+    await searchTracks({});
+    expect(fetch).toHaveBeenCalledWith('/api/tracks', expect.objectContaining({ signal: undefined }));
+  });
+
+  it('serializes every supported Track filter using the backend contract names', () => {
+    const query = serializeTrackSearchFilters({
+      cameraId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21412',
+      videoAssetId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21421',
+      processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431',
+      objectClass: 'Person',
+      fromUtc: '2026-09-14T02:30:00.000Z',
+      toUtc: '2026-09-14T03:30:00.000Z',
+      minimumDurationMs: 1250,
+      minimumConfidence: 0.9125,
+      cursor: 'cursor-token',
+      limit: 24,
+    });
+
+    expect(new URLSearchParams(query)).toEqual(new URLSearchParams({
+      cameraId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21412',
+      videoAssetId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21421',
+      processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431',
+      objectClass: 'Person',
+      fromUtc: '2026-09-14T02:30:00.000Z',
+      toUtc: '2026-09-14T03:30:00.000Z',
+      minimumDurationMs: '1250',
+      minimumConfidence: '0.9125',
+      cursor: 'cursor-token',
+      limit: '24',
+    }));
+    expect(serializeTrackSearchFilters({ objectClass: 'Vehicle' })).toBe('objectClass=Vehicle');
+  });
+
   it('propagates AbortSignal and preserves stable API errors', async () => {
     const controller = new AbortController();
     vi.mocked(fetch).mockResolvedValueOnce(new Response(
@@ -46,6 +90,20 @@ describe('Track API client', () => {
       '/api/tracks?objectClass=Person',
       expect.objectContaining({ signal: controller.signal }),
     );
+  });
+
+  it('preserves track_not_found from Track detail', async () => {
+    const id = '018f3f5a-2f70-7a2b-8a12-2d02f4c21421';
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(
+      JSON.stringify({ status: 404, code: 'track_not_found', detail: 'Track was not found.' }),
+      { status: 404, headers: { 'content-type': 'application/problem+json' } },
+    ));
+
+    await expect(getTrack(id)).rejects.toMatchObject({
+      status: 404,
+      code: 'track_not_found',
+      detail: 'Track was not found.',
+    });
   });
 
   it('loads Track detail by durable identity', async () => {
