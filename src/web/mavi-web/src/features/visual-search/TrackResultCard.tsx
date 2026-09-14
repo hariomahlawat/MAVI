@@ -2,20 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { TrackSearchItem } from '../../api/tracks';
 import { formatDuration } from '../../shared/format/duration';
-import { formatInstant } from '../../shared/time/time';
+import { formatDateTime } from '../../shared/time/time';
 
 function displayTimestamp(value: string, displayTimeZoneId?: string): string {
   if (!displayTimeZoneId) return value + ' UTC';
   try {
-    return formatInstant(value, displayTimeZoneId, {
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hourCycle: 'h23',
-    });
+    return formatDateTime(value, displayTimeZoneId);
   } catch {
     return 'Invalid timestamp';
   }
