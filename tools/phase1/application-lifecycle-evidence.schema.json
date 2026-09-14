@@ -19,11 +19,12 @@
     "hosting": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["siteName", "applicationPool", "physicalPath", "passed"],
+      "required": ["siteName", "applicationPool", "physicalPath", "hostIdentitySha256", "passed"],
       "properties": {
         "siteName": { "type": "string", "minLength": 1 },
         "applicationPool": { "type": "string", "minLength": 1 },
         "physicalPath": { "type": "string", "minLength": 1 },
+        "hostIdentitySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "passed": { "const": true }
       }
     },
