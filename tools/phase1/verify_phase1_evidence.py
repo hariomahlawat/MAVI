@@ -46,9 +46,19 @@ def _sha(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_acceptance(value: dict[str, Any], *, expected_source_commit: str | None = None) -> None:
+def verify_acceptance(
+    value: dict[str, Any],
+    *,
+    expected_source_commit: str | None = None,
+    expected_acceptance_profile_sha256: str | None = None,
+) -> None:
     if expected_source_commit is not None and value["sourceCommit"] != expected_source_commit:
         raise EvidenceError("acceptance_source_commit_mismatch")
+    if (
+        expected_acceptance_profile_sha256 is not None
+        and value["acceptanceProfileSha256"] != expected_acceptance_profile_sha256
+    ):
+        raise EvidenceError("acceptance_profile_hash_mismatch")
     if value["attestation"]["processingRunId"] != value["processing"]["processingRunId"]:
         raise EvidenceError("acceptance_processing_run_identity_mismatch")
     if not value["attestation"]["comparisonPassed"]:
@@ -158,6 +168,7 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--package-root", type=Path)
     parser.add_argument("--expected-source-commit")
+    parser.add_argument("--expected-acceptance-profile-sha256")
     parser.add_argument("--acceptance-schema", type=Path, default=Path(__file__).with_name("phase1-acceptance-evidence.schema.json"))
     parser.add_argument("--offline-schema", type=Path, default=Path(__file__).with_name("offline-install-evidence.schema.json"))
     args = parser.parse_args()
@@ -171,7 +182,11 @@ def main() -> int:
         if args.acceptance:
             value = _load(args.acceptance)
             _validate_schema(value, args.acceptance_schema)
-            verify_acceptance(value, expected_source_commit=args.expected_source_commit)
+            verify_acceptance(
+                value,
+                expected_source_commit=args.expected_source_commit,
+                expected_acceptance_profile_sha256=args.expected_acceptance_profile_sha256,
+            )
         if args.offline_install:
             value = _load(args.offline_install)
             _validate_schema(value, args.offline_schema)
