@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/backup-restore-evidence-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "sourceCommit", "database", "managedSource", "acceptedEvidence",
+    "backupManifestSha256", "cleanRestoreTarget", "postRestoreCheckSha256", "result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-backup-restore-evidence-v1" },
+    "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "database": { "$ref": "#/$defs/store" },
+    "managedSource": { "$ref": "#/$defs/store" },
+    "acceptedEvidence": { "$ref": "#/$defs/store" },
+    "backupManifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "cleanRestoreTarget": { "const": true },
+    "postRestoreCheckSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failureCodes"],
+      "properties": {
+        "passed": { "const": true },
+        "failureCodes": { "type": "array", "maxItems": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "store": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["included", "manifestSha256"],
+      "properties": {
+        "included": { "const": true },
+        "manifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}
