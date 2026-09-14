@@ -271,42 +271,169 @@ def _candidate_edges(events: list[dict[str, Any]], tracks: list[dict[str, Any]],
 
 
 def _best_matching(events: list[dict[str, Any]], tracks: list[dict[str, Any]], edges: list[Edge]) -> list[Edge]:
-    by_event: dict[int, list[Edge]] = {i: [] for i in range(len(events))}
-    for edge in edges:
-        by_event[edge.event_index].append(edge)
-    for value in by_event.values():
-        value.sort(key=lambda edge: (tracks[edge.track_index]["id"], -edge.spatial_fixed, -edge.temporal_fixed))
+    """Polynomial min-cost maximum-flow with deterministic lexicographic objectives.
 
-    def canonical(pairs: tuple[Edge, ...]) -> tuple[tuple[str, str], ...]:
-        return tuple(sorted((events[e.event_index]["eventId"], tracks[e.track_index]["id"]) for e in pairs))
+    Flow cardinality is maximized first by augmenting until no source→sink path
+    remains. For that fixed cardinality, edge reward encodes the remaining
+    objectives strictly in this order:
+      1. total fixed-precision spatial IoU;
+      2. total fixed-precision temporal IoU;
+      3. canonical lexical eventId/trackId pair set.
 
-    def better(a: tuple[int, int, int, tuple[Edge, ...]], b: tuple[int, int, int, tuple[Edge, ...]]) -> tuple[int, int, int, tuple[Edge, ...]]:
-        ka, kb = a[:3], b[:3]
-        if ka != kb:
-            return a if ka > kb else b
-        return a if canonical(a[3]) <= canonical(b[3]) else b
+    The lexical component uses a bit significance per sorted candidate pair.
+    Python integers are unbounded, so this remains exact without floating-point
+    tie behavior.
+    """
+    if not events or not tracks or not edges:
+        return []
 
-    @lru_cache(maxsize=None)
-    def solve(event_index: int, used_mask: int) -> tuple[int, int, int, tuple[Edge, ...]]:
-        if event_index >= len(events):
-            return (0, 0, 0, ())
-        best = solve(event_index + 1, used_mask)
-        for edge in by_event[event_index]:
-            bit = 1 << edge.track_index
-            if used_mask & bit:
-                continue
-            tail = solve(event_index + 1, used_mask | bit)
-            candidate = (
-                tail[0] + 1,
-                tail[1] + edge.spatial_fixed,
-                tail[2] + edge.temporal_fixed,
-                (edge,) + tail[3],
-            )
-            best = better(best, candidate)
-        return best
+    pair_keys = sorted(
+        {
+            (events[edge.event_index]["eventId"], tracks[edge.track_index]["id"])
+            for edge in edges
+        }
+    )
+    pair_rank = {key: index for index, key in enumerate(pair_keys)}
+    pair_count = len(pair_keys)
+    tie_base = 1 << (pair_count + 1)
+    scale = max(
+        1,
+        max(
+            max(edge.spatial_fixed, edge.temporal_fixed)
+            for edge in edges
+        ),
+    )
+    maximum_flow = min(len(events), len(tracks))
+    temporal_span = maximum_flow * scale + 1
+    spatial_multiplier = temporal_span * tie_base
 
-    return list(solve(0, 0)[3])
+    node_source = 0
+    event_base = 1
+    track_base = event_base + len(events)
+    node_sink = track_base + len(tracks)
+    node_count = node_sink + 1
 
+    graph: list[list[list[int | Edge | None]]] = [[] for _ in range(node_count)]
+
+    def add_arc(
+        source: int,
+        target: int,
+        capacity: int,
+        cost: int,
+        edge_ref: Edge | None = None,
+    ) -> None:
+        forward: list[int | Edge | None] = [target, len(graph[target]), capacity, cost, edge_ref]
+        reverse: list[int | Edge | None] = [source, len(graph[source]), 0, -cost, None]
+        graph[source].append(forward)
+        graph[target].append(reverse)
+
+    for event_index in range(len(events)):
+        add_arc(node_source, event_base + event_index, 1, 0)
+    for track_index in range(len(tracks)):
+        add_arc(track_base + track_index, node_sink, 1, 0)
+
+    for edge in sorted(
+        edges,
+        key=lambda item: (
+            events[item.event_index]["eventId"],
+            tracks[item.track_index]["id"],
+        ),
+    ):
+        key = (
+            events[edge.event_index]["eventId"],
+            tracks[edge.track_index]["id"],
+        )
+        lexical_reward = 1 << (pair_count - pair_rank[key])
+        reward = (
+            edge.spatial_fixed * spatial_multiplier
+            + edge.temporal_fixed * tie_base
+            + lexical_reward
+        )
+        add_arc(
+            event_base + edge.event_index,
+            track_base + edge.track_index,
+            1,
+            -reward,
+            edge,
+        )
+
+    # Bellman-Ford is deliberate here. Residual reverse arcs can carry negative
+    # costs, and the qualification corpus is small enough that O(FVE) is both
+    # predictable and materially safer than exponential assignment search.
+    while True:
+        infinity = None
+        distance: list[int | None] = [infinity] * node_count
+        previous: list[tuple[int, int] | None] = [None] * node_count
+        distance[node_source] = 0
+
+        for _ in range(node_count - 1):
+            changed = False
+            for source_node in range(node_count):
+                source_distance = distance[source_node]
+                if source_distance is None:
+                    continue
+                for arc_index, arc in enumerate(graph[source_node]):
+                    target = int(arc[0])
+                    capacity = int(arc[2])
+                    cost = int(arc[3])
+                    if capacity <= 0:
+                        continue
+                    candidate = source_distance + cost
+                    current = distance[target]
+                    predecessor_key = (source_node, arc_index)
+                    if (
+                        current is None
+                        or candidate < current
+                        or (
+                            candidate == current
+                            and (
+                                previous[target] is None
+                                or predecessor_key < previous[target]
+                            )
+                        )
+                    ):
+                        distance[target] = candidate
+                        previous[target] = predecessor_key
+                        changed = True
+            if not changed:
+                break
+
+        if distance[node_sink] is None:
+            break
+
+        node = node_sink
+        path: list[tuple[int, int]] = []
+        while node != node_source:
+            predecessor = previous[node]
+            if predecessor is None:
+                raise EvaluationError("matching_residual_path_invalid")
+            path.append(predecessor)
+            source_node, arc_index = predecessor
+            node = source_node
+
+        for source_node, arc_index in reversed(path):
+            arc = graph[source_node][arc_index]
+            target = int(arc[0])
+            reverse_index = int(arc[1])
+            arc[2] = int(arc[2]) - 1
+            reverse_arc = graph[target][reverse_index]
+            reverse_arc[2] = int(reverse_arc[2]) + 1
+
+    selected: list[Edge] = []
+    for event_index in range(len(events)):
+        node = event_base + event_index
+        for arc in graph[node]:
+            edge_ref = arc[4]
+            if isinstance(edge_ref, Edge) and int(arc[2]) == 0:
+                selected.append(edge_ref)
+
+    return sorted(
+        selected,
+        key=lambda edge: (
+            events[edge.event_index]["eventId"],
+            tracks[edge.track_index]["id"],
+        ),
+    )
 
 def _metric(numerator: int, denominator: int) -> float | None:
     return numerator / denominator if denominator else None
