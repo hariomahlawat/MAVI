@@ -50,10 +50,10 @@ For every acceptance claim, implementation and review must answer all of the fol
 4. **Observation** — through which supported API or signed/hashed evidence package does the acceptance harness independently obtain the fact?
 5. **Failure condition** — what exact mismatch makes the acceptance run fail closed?
 6. **Empty/no-op case** — can the claimed capability accidentally pass without actually being exercised?
-7. **Reconciliation** — if an existing object is reused, which semantic fields must match the requested qualification inputs?
-8. **Evidence binding** — which immutable evidence bytes retain the proof?
-9. **Gate semantics** — does a `passed` gate prove exactly what its name and ADR require?
-10. **Cross-gate consistency** — can individually valid gates still leave a release-level proof gap?
+11. **Reconciliation** — if an existing object is reused, which semantic fields must match the requested qualification inputs?
+12. **Evidence binding** — which immutable evidence bytes retain the proof?
+13. **Gate semantics** — does a `passed` gate prove exactly what its name and ADR require?
+14. **Cross-gate consistency** — can individually valid gates still leave a release-level proof gap?
 
 No evidence field may be populated only from an expected/local configuration when the claim is that the completed operational run actually used that identity. The evidence generator must obtain that fact from an authoritative platform response or from a separately hashed qualification artifact whose relationship to the run is independently verified.
 
@@ -94,8 +94,8 @@ At `e877dcac9efaefe4f935fa50b2913e806b197d27`, MAVI already has:
 8. Reproducible Windows/Linux CPU offline runtime locks and qualification-candidate bundles.
 9. Track search/detail and source/evidence content APIs.
 10. React Cameras, Import, Processing, Visual Search and Evidence Review.
-11. Same-origin ASP.NET Core/IIS hosting with API-safe SPA fallback.
-12. Exact-head Task-16 Quality Gate #783 and final Codex review with no major issues.
+15. Same-origin ASP.NET Core/IIS hosting with API-safe SPA fallback.
+16. Exact-head Task-16 Quality Gate #783 and final Codex review with no major issues.
 
 Task 17 must preserve these contracts rather than redesign them.
 
@@ -443,17 +443,17 @@ The harness shall:
 10. query `GET /api/tracks?videoAssetId=...&processingRunId=...` for the exact accepted run;
 11. separately verify the default `videoAssetId` search resolves the latest completed run semantics;
 12. page through opaque cursors without decoding them;
-13. require every returned Track to belong to both the imported VideoAsset and expected ProcessingRun;
-14. resolve each Track detail;
-15. in **formal E2E mode**, require a controlled target-containing case with at least one expected ground-truth event, at least one accepted/matched Track, at least one resolved Track detail, and at least one representative thumbnail artifact;
-16. stream the full managed source through `GET /api/videos/{id}/content`, compute SHA-256 incrementally, require it to equal the local qualification-media SHA-256, and require the strong ETag digest to equal the same value; then separately verify HTTP Range semantics;
-17. stream at least one representative thumbnail, compute its SHA-256 incrementally and require it to equal the strong ETag digest returned by the accepted-evidence content endpoint; record the artifact ID + digest;
-18. verify Person/Vehicle Search against the expected class set for the formal case;
-19. separately support an **empty-scene diagnostic case** for false-positive measurement; it may legitimately return zero Tracks but cannot by itself satisfy formal E2E acceptance;
-20. validate corpus-manifest and every ground-truth-manifest SHA-256 before calculating metrics;
-21. calculate structural and required ground-truth metrics;
-22. emit one machine-readable evidence document;
-23. exit nonzero on any acceptance failure.
+17. require every returned Track to belong to both the imported VideoAsset and expected ProcessingRun;
+18. resolve each Track detail;
+19. in **formal E2E mode**, require a controlled target-containing case with at least one expected ground-truth event, at least one accepted/matched Track, at least one resolved Track detail, and at least one representative thumbnail artifact;
+20. stream the full managed source through `GET /api/videos/{id}/content`, compute SHA-256 incrementally, require it to equal the local qualification-media SHA-256, and require the strong ETag digest to equal the same value; then separately verify HTTP Range semantics;
+21. stream at least one representative thumbnail, compute its SHA-256 incrementally and require it to equal the strong ETag digest returned by the accepted-evidence content endpoint; record the artifact ID + digest;
+22. verify Person/Vehicle Search against the expected class set for the formal case;
+23. separately support an **empty-scene diagnostic case** for false-positive measurement; it may legitimately return zero Tracks but cannot by itself satisfy formal E2E acceptance;
+24. validate corpus-manifest and every ground-truth-manifest SHA-256 before calculating metrics;
+25. calculate structural and required ground-truth metrics;
+26. emit one machine-readable evidence document;
+27. exit nonzero on any acceptance failure.
 
 ### 8.2 Evidence invariants
 
@@ -998,9 +998,13 @@ On a clean designated production-representative acceptance deployment (Windows/I
 1. verify Section-20.1 smoke evidence is complete and passing for every required Windows/Linux CPU/CUDA production bundle;
 2. verify the approved prerequisite baseline and record its versioned identities;
 3. validate the exact MAVI application deployment artifact bytes and SHA-256 from controlled offline media;
-4. on the clean/reprovisioned Windows/IIS operational plane, deploy or update **that exact hashed application artifact** using only controlled offline media and retain the deployment mechanism/tool version, command/configuration identity, exit status, destination identity and post-deploy application-build identity; a pre-existing deployment does not satisfy this proof;
-5. fail closed if deployment requires Internet access, substitutes different application bytes, silently reuses the prior deployment, leaves the prior application build active, or cannot prove the running Mavi.Api build matches the hashed acceptance artifact;
-6. validate the exact Linux CUDA production-bundle bytes and bundle-manifest hash used by the full E2E;
+4. execute a **fresh offline installation** of that exact hashed application artifact onto a clean/reprovisioned Windows/IIS operational plane using only controlled offline media; retain the deployment mechanism/tool version, command/configuration identity, exit status, destination identity and post-install application-build identity;
+5. independently attest that the running Mavi.Api build/commit identity after the fresh install matches the accepted application artifact, and prove the API plus deployed React/static assets operate without remote dependencies;
+6. execute a **separate offline update qualification** starting from an explicitly supported prior MAVI application release on a clean/reprovisioned production-representative Windows/IIS plane with representative retained configuration and database state; record the prior release identity/hash before update;
+7. apply the accepted release artifact as an offline update using only controlled offline media, execute every applicable application/configuration/database migration through the supported update path, and retain update mechanism/tool version, commands/configuration, migration results, exit status and destination identity;
+8. independently attest that the running Mavi.Api build/commit identity after update matches the accepted release, and verify representative pre-update authoritative data/configuration remains valid and the API/UI/health/search/evidence paths operate correctly after migration;
+9. fail closed if either the fresh-install proof or update proof is missing; if installation/update requires Internet access; if different application bytes are substituted; if a prior deployment is silently reused for the fresh-install case; if the prior release is not explicitly supported; if any required migration is skipped/fails; if retained state is corrupted/incompatible; or if the observed running build identity differs from the accepted artifact;
+10. validate the exact Linux CUDA production-bundle bytes and bundle-manifest hash used by the full E2E;
 7. install the Linux CUDA vision runtime from that production bundle with Internet unavailable;
 8. start PostgreSQL/pgvector from the approved local deployment;
 9. start Mavi.Api behind the production-equivalent Windows/IIS host and independently attest that the running application build/commit identity matches the just-deployed artifact;
@@ -1018,12 +1022,12 @@ On a clean designated production-representative acceptance deployment (Windows/I
 21. stream/hash at least one representative artifact and require its SHA-256 to equal its strong ETag digest;
 22. verify the exact corpus-manifest and ground-truth-manifest hashes, then execute formal ground-truth evaluation;
 23. run the separate empty-scene false-positive diagnostic;
-24. run failure/reprocess scenario;
-25. inspect logs for attempted Internet calls/telemetry/licence checks;
-26. retain machine-readable acceptance evidence bound to the application-artifact SHA-256, offline deployment/update result, running application-build identity, Linux CUDA production-bundle hash, completed-run attestation, and all per-variant production-smoke evidence identities;
-27. after the successful product workflow, perform an **offline backup and restore qualification** using only local/approved network storage: back up PostgreSQL authoritative state plus every platform-owned managed-media/evidence storage root required to reconstruct the accepted case, record backup-set manifests/hashes and tool/version identities, restore into a clean/reprovisioned acceptance target, and prove that no Internet access is required;
-28. after restore, revalidate the retained Camera/VideoAsset/ProcessingRun/Track/Artifact identities, database relationships, managed-source SHA-256/ETag, representative-evidence SHA-256/ETag, Track search/detail results and completed-run attestation; then execute a bounded post-restore smoke proving API/UI/search/evidence retrieval operate from the restored state;
-29. fail the acceptance if backup omits an authoritative store, restore changes required identities/bytes, evidence/media bindings break, restored search/detail results are inconsistent, the restored application cannot operate offline, or the restore depends on unrecorded external state.
+28. run failure/reprocess scenario;
+29. inspect logs for attempted Internet calls/telemetry/licence checks;
+30. retain machine-readable acceptance evidence bound to the application-artifact SHA-256, offline deployment/update result, running application-build identity, Linux CUDA production-bundle hash, completed-run attestation, and all per-variant production-smoke evidence identities;
+31. after the successful product workflow, perform an **offline backup and restore qualification** using only local/approved network storage: back up PostgreSQL authoritative state plus every platform-owned managed-media/evidence storage root required to reconstruct the accepted case, record backup-set manifests/hashes and tool/version identities, restore into a clean/reprovisioned acceptance target, and prove that no Internet access is required;
+32. after restore, revalidate the retained Camera/VideoAsset/ProcessingRun/Track/Artifact identities, database relationships, managed-source SHA-256/ETag, representative-evidence SHA-256/ETag, Track search/detail results and completed-run attestation; then execute a bounded post-restore smoke proving API/UI/search/evidence retrieval operate from the restored state;
+33. fail the acceptance if backup omits an authoritative store, restore changes required identities/bytes, evidence/media bindings break, restored search/detail results are inconsistent, the restored application cannot operate offline, or the restore depends on unrecorded external state.
 
 The application-install/update proof and backup/restore proof are mandatory ADR-003 acceptance claims. Their evidence packages must be immutable, hashed and referenced by the final Phase-1 acceptance record.
 
@@ -1328,7 +1332,8 @@ Search explicitly for:
 - only Linux CUDA production bytes being disconnected-tested while Windows CPU/CUDA or Linux CPU production bundles remain unverified;
 - candidate-bundle evidence being reused as a substitute for post-promotion production-bundle install/runtime smoke;
 - manual evidence that cannot be tied to an exact source head;
-- application acceptance that hashes an artifact but never deploys/updates those exact bytes on the disconnected Windows/IIS plane;
+- application acceptance that hashes an artifact but never performs both a fresh offline installation and a separate offline update of those exact accepted bytes;
+- an update proof that starts from no explicitly supported prior release, skips applicable migrations, or does not validate retained configuration/database state after migration;
 - a running Mavi.Api build whose independently observed build/commit identity does not match the accepted application artifact;
 - backup/restore claimed by documentation only, without an executed offline backup set and clean-target restore;
 - backup sets that omit PostgreSQL, managed source media or platform-owned accepted evidence required by the accepted case;
@@ -1364,7 +1369,8 @@ For full completion, at minimum:
 - final release metadata passes repository/release-selection verification;
 - production bundles are generated only after legitimate release promotion;
 - every required Windows/Linux CPU/CUDA production bundle passes disconnected production-mode install/runtime smoke against its exact shipped bytes;
-- the exact hashed MAVI application deployment artifact is installed/updated from controlled offline media on the clean/reprovisioned Windows/IIS acceptance plane, and the running application identity is independently proven to match those bytes;
+- a fresh offline installation of the exact hashed MAVI application artifact succeeds on a clean/reprovisioned Windows/IIS plane and the running application identity is independently proven to match those bytes;
+- a separate offline update from an explicitly supported prior MAVI release succeeds using only controlled offline media, including all applicable application/configuration/database migrations, retained-state validation and post-update build/function attestation;
 - an offline backup and clean-target restore of PostgreSQL plus all required managed media/evidence stores succeeds using only local/approved network storage, followed by identity/hash/search/evidence revalidation;
 - final full production-topology disconnected acceptance succeeds;
 - exact-head automated gates are green;
