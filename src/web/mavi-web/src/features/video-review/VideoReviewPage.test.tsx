@@ -159,6 +159,16 @@ describe('VideoReviewPage', () => {
     expect(getSystemConfig).not.toHaveBeenCalled();
   });
 
+  it('canonicalizes uppercase Review identities before querying and cache ownership', async () => {
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId.toUpperCase() + '?trackId=' + trackId.toUpperCase(),
+      routePath: '/review/video/:videoAssetId',
+    });
+
+    await screen.findByLabelText('Source video evidence');
+    expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal));
+  });
+
   it('rejects duplicated trackId query parameters without issuing a Track request', async () => {
     renderWithApp(<VideoReviewPage />, {
       route: '/review/video/' + videoId + '?trackId=' + trackId + '&trackId=018f3f5a-2f70-7a2b-8a12-2d02f4c21452',
