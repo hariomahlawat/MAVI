@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -24,6 +25,10 @@ sys.modules[SPEC.name] = e2e
 SPEC.loader.exec_module(e2e)
 
 import qualify_offline_variant as offline_variant  # noqa: E402
+from production_acceptance_context import (  # noqa: E402
+    AcceptanceContextError,
+    load_context as load_acceptance_context,
+)
 from environment_fingerprint import (  # noqa: E402
     EnvironmentFingerprintError,
     fingerprint as environment_fingerprint,
@@ -177,6 +182,13 @@ def validate_production_inputs(
 
 
 def execute(args: argparse.Namespace) -> dict[str, Any]:
+    context, context_sha = load_acceptance_context(
+        args.acceptance_context,
+        schema_path=PHASE1_ROOT / "production-acceptance-context.schema.json",
+        expected_source_commit=args.source_commit,
+        expected_mavi_build=args.mavi_build,
+    )
+    scenario_started = datetime.now(timezone.utc)
     bundle, bundle_sha, environment_identity = validate_production_inputs(args)
     network_isolation = offline_variant.assert_outbound_internet_unavailable()
     client = e2e.ApiClient(args.base_url)
@@ -384,8 +396,13 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "failure_reprocess_source_changed_after_reprocess"
         )
 
+    scenario_completed = datetime.now(timezone.utc)
     return {
         "schemaVersion": "mavi-production-failure-reprocess-evidence-v1",
+        "acceptanceExecutionId": context["acceptanceExecutionId"],
+        "acceptanceContextSha256": context_sha,
+        "scenarioStartedAtUtc": scenario_started.isoformat().replace("+00:00", "Z"),
+        "scenarioCompletedAtUtc": scenario_completed.isoformat().replace("+00:00", "Z"),
         "sourceCommit": args.source_commit,
         "maviBuild": args.mavi_build,
         "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
@@ -428,6 +445,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--acceptance-context", type=Path, required=True)
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--media-root", type=Path, required=True)
     parser.add_argument("--camera-code", required=True)
@@ -483,6 +501,7 @@ def main() -> int:
         TypeError,
         FailureReprocessError,
         EnvironmentFingerprintError,
+        AcceptanceContextError,
         e2e.AcceptanceError,
     ) as exc:
         code = getattr(exc, "code", str(exc))
