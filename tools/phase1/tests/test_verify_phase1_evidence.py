@@ -93,3 +93,16 @@ def test_windows_offline_schema_allows_frozen_null_distribution_fields(tmp_path)
     schema_path = Path(__file__).resolve().parents[1] / "offline-install-evidence.schema.json"
     mod._validate_schema(value, schema_path)
     mod.verify_offline_install(value)
+
+
+def test_acceptance_rejects_wrong_frozen_profile_hash():
+    value = {
+        "sourceCommit": "a" * 40,
+        "acceptanceProfileSha256": "b" * 64,
+    }
+    with pytest.raises(mod.EvidenceError, match="acceptance_profile_hash_mismatch"):
+        mod.verify_acceptance(
+            value,
+            expected_source_commit="a" * 40,
+            expected_acceptance_profile_sha256="c" * 64,
+        )
