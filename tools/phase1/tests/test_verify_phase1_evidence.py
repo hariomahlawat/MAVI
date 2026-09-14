@@ -29,6 +29,10 @@ def offline(os_name="linux"):
             "runtimeStarted": True,
             "realInferencePassed": True,
             "workerFlowPassed": True,
+            "workerFlowEvidenceSha256": "1" * 64,
+            "workerPythonSha256": "2" * 64,
+            "workerCommandSha256": "3" * 64,
+            "workerLogSha256": "4" * 64,
             "actualDevice": "cpu" if device == "cpu" else "cuda:0",
             "outboundNetworkUnavailable": True,
             "networkIsolation": {
@@ -47,6 +51,7 @@ def offline(os_name="linux"):
         "sourceCommit": "d" * 40,
         "targetVerifiedManifestSha256": "e" * 64,
         "acceptanceProfileSha256": "f" * 64,
+        "maviBuild": "build-a",
         "os": os_name,
         "bundleMode": "qualification-candidate",
         "isolationMethod": "physically isolated qualification VLAN",
