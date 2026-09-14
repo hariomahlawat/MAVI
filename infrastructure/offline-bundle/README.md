@@ -23,6 +23,8 @@ It must not be represented as a production-qualified release.
 
 The bundle assembler supports production mode only after all release evidence is complete. Production mode fails closed unless the model manifest is `verified`, the runtime is `qualified`, the qualification result is `passed`, all mandatory qualification gates are passed, and the requested platform has a qualified offline lock.
 
+Task 17 must generate a production bundle for every required qualified platform/device variant in the final runtime profile. Each exact production bundle must then pass a disconnected production-mode install/runtime smoke on the corresponding host/device class before Phase-1 release completion. Qualification-candidate evidence cannot substitute for this post-promotion check.
+
 ## Prerequisite and deployment boundary
 
 The exact CPython patch version for the selected bundle must already be provisioned on the target host.
@@ -127,11 +129,12 @@ The hosted Task-12 workflow proves reproducible wheel locking, no-index installa
 
 That is not the formal disconnected-install qualification. Task 17 owns installation and real inference with network connectivity disabled and records the Windows/Linux qualification evidence.
 
-Task 17 also distinguishes two later acceptance events:
+Task 17 distinguishes three post-freeze acceptance layers:
 
-- **candidate disconnected acceptance** against the frozen, internally consistent unverified candidate release + qualification-candidate bundle identities, used to generate release-level evidence before promotion; and
-- **final production-bundle verification acceptance** after legitimate metadata promotion and production-bundle generation.
+- **candidate disconnected acceptance** against the frozen, internally consistent unverified candidate release + qualification-candidate bundle identities, used to generate release-level evidence before promotion;
+- **per-variant production-bundle verification** after promotion, where every required Windows/Linux CPU/CUDA production bundle is disconnected-installed, started under production verification and smoke-tested against its exact shipped bytes;
+- **final production-topology acceptance** on the intended operator topology (Windows/IIS + Linux NVIDIA worker), after all per-variant production-bundle smokes pass.
 
 Candidate bundles are built only after the final runtime profile has been constructed and the still-pending qualification record has been rebound to that exact runtime-profile hash. For candidate runs, persisted runtime provenance may legitimately have `platformLockSha256 = null`; candidate lock authority is the validated candidate bundle manifest + selected qualified lock. For production runs, the persisted lock hash is mandatory and must match the production bundle/runtime selection.
 
-Only the latter is the final Phase-1 disconnected acceptance.
+Only the final production-topology event completes Phase 1, and it is valid only if every required production bundle has already passed its per-variant disconnected production-mode smoke.
