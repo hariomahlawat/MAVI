@@ -38,6 +38,44 @@ Task 17 shall not introduce:
 
 Any functional defect found during acceptance may be fixed, but every such fix reopens the relevant exact-head evidence.
 
+### 1.1 Acceptance proof discipline
+
+Task 17 shall be reviewed and implemented as a chain of **claims and proofs**, not merely as a collection of scripts.
+
+For every acceptance claim, implementation and review must answer all of the following:
+
+1. **Authority** — which platform-owned source is authoritative?
+2. **Identity** — which stable ID identifies the exact object/run/artifact?
+3. **Integrity** — which SHA-256 or immutable identity binds the exact bytes/configuration?
+4. **Observation** — through which supported API or signed/hashed evidence package does the acceptance harness independently obtain the fact?
+5. **Failure condition** — what exact mismatch makes the acceptance run fail closed?
+6. **Empty/no-op case** — can the claimed capability accidentally pass without actually being exercised?
+7. **Reconciliation** — if an existing object is reused, which semantic fields must match the requested qualification inputs?
+8. **Evidence binding** — which immutable evidence bytes retain the proof?
+9. **Gate semantics** — does a `passed` gate prove exactly what its name and ADR require?
+10. **Cross-gate consistency** — can individually valid gates still leave a release-level proof gap?
+
+No evidence field may be populated only from an expected/local configuration when the claim is that the completed operational run actually used that identity. The evidence generator must obtain that fact from an authoritative platform response or from a separately hashed qualification artifact whose relationship to the run is independently verified.
+
+### 1.2 Phase-1 proof matrix
+
+The implementation shall maintain the following proof matrix in the Task-17 runbook and tests.
+
+| Claim | Authority | Observation / attestation | Mandatory fail-closed check |
+| --- | --- | --- | --- |
+| Qualification Camera is the intended camera | Camera row | `GET /api/cameras/{id}` or exact-code list result | code, IANA timezone and active state must match requested qualification inputs; name must match when supplied as a controlled identity |
+| Imported/reconciled VideoAsset is the intended recording | VideoAsset + authoritative duplicate-by-SHA import result | import response / `video_duplicate` ID, then `GET /api/videos/{id}` | camera ID, recording UTC instant, timezone snapshot and UTC offset must match the requested import provenance |
+| ProcessingRun actually completed | ProcessingRun | `GET /api/videos/{id}/processing` | exact run ID + `Completed`; a different completed run is not accepted |
+| Completed run used the claimed model/profile/runtime | persisted `ProcessingRun.RuntimeProvenanceJson` | new allowlisted read-only run-attestation API | every required model/config/profile/runtime/lock/build identity must equal the expected frozen release identity |
+| Track belongs to the accepted run | authoritative Track persistence | Task-14 search/detail APIs | VideoAsset ID and ProcessingRun ID must both match |
+| Formal E2E actually exercises intelligence review | accepted Track + representative Artifact | Track detail + artifact content API | formal mode requires at least one expected target, at least one matched Track, one resolved Track detail and one readable representative artifact |
+| Ground-truth score used exact reviewed annotations | private qualification manifest bytes | SHA-256 recorded in evidence | corpus-manifest SHA and every ground-truth-manifest SHA must match before scoring/promotion |
+| Offline-install gate proves the OS release closure | exact runtime locks/wheelhouses | hashed OS evidence package | every required device variant/lock for that OS must be installed/tested offline; CPU evidence cannot stand in for CUDA or vice versa |
+| Quality/performance evidence belongs to frozen candidate | source/release identities + media | hashed evidence package | source commit and all behavior-bearing release hashes must match |
+| Production-bundle acceptance tests shipped bytes | production bundle manifest | disconnected verification evidence | application-build hash + production-bundle hash + release hashes must match exactly |
+
+This matrix is a minimum. Any additional Task-17 acceptance claim must be added to it before implementation is considered frozen.
+
 ---
 
 ## 2. Current accepted baseline
@@ -248,7 +286,7 @@ Rules:
 - no person identity, face label, licence plate or other biometric/PII annotation;
 - the manifest identifies source bytes by SHA-256, never by private absolute path.
 
-Actual controlled qualification media may remain outside Git. Its retained evidence manifest must record the exact media SHA-256 used.
+Actual controlled qualification media and private ground-truth annotation manifests may remain outside Git. Evidence must bind the exact bytes used: record the SHA-256 of the corpus manifest, the SHA-256 of every individual ground-truth manifest, and the corresponding media SHA-256 values. A corpus/version label or schema version alone is not sufficient because annotation intervals/boxes could otherwise change without invalidating the qualification result.
 
 ---
 
@@ -388,41 +426,84 @@ Prefer Python standard-library HTTP/file primitives for this qualification tool 
 The harness shall:
 
 1. verify `/api/health` and `/api/system/config`;
-2. create or resolve the qualification Camera deterministically; when create returns a duplicate-code conflict, resolve the existing camera through the public Camera list and require exactly one exact code match rather than guessing an ID;
-3. import the controlled MP4;
-4. handle authoritative `video_duplicate` reconciliation rather than re-upload guessing;
-5. queue processing;
-6. poll processing until a terminal state with a bounded timeout;
-7. require successful ProcessingRun completion;
-8. capture the authoritative completed ProcessingRun ID from processing status;
-9. query `GET /api/tracks?videoAssetId=...&processingRunId=...` for the exact accepted run;
-10. separately verify the default `videoAssetId` search resolves the latest completed run semantics;
-11. page through opaque cursors without decoding them;
-12. require every returned Track to belong to both the imported VideoAsset and expected ProcessingRun;
-13. resolve each Track detail;
-14. verify representative-evidence content where present;
-15. verify source-video Range streaming;
-16. verify the Search contract can locate Person/Vehicle results as applicable;
-17. calculate structural and optional ground-truth metrics;
-18. emit one machine-readable evidence document;
-19. exit nonzero on any acceptance failure.
+2. create or resolve the qualification Camera deterministically;
+3. when camera creation returns `camera_code_duplicate`, resolve exactly one existing Camera and require its code, IANA `TimeZoneId`, active state, and any controlled name field to match the requested qualification identity; mismatch is `qualification_camera_provenance_mismatch`;
+4. import the controlled MP4;
+5. when import returns authoritative `video_duplicate` with `videoAssetId`, fetch `GET /api/videos/{id}` and require its `CameraId`, calculated `RecordingStartUtc`, `RecordingTimeZoneId`, and `RecordingUtcOffsetMinutes` to match the requested qualification import; mismatch is `qualification_video_provenance_mismatch`;
+6. queue processing;
+7. poll processing until a terminal state with a bounded timeout;
+8. require successful ProcessingRun completion and capture the exact completed ProcessingRun ID;
+9. fetch the exact ProcessingRun attestation described in Section 8.3 and require every expected model/config/profile/runtime/lock/build identity to match before any release claim is emitted;
+10. query `GET /api/tracks?videoAssetId=...&processingRunId=...` for the exact accepted run;
+11. separately verify the default `videoAssetId` search resolves the latest completed run semantics;
+12. page through opaque cursors without decoding them;
+13. require every returned Track to belong to both the imported VideoAsset and expected ProcessingRun;
+14. resolve each Track detail;
+15. in **formal E2E mode**, require a controlled target-containing case with at least one expected ground-truth event, at least one accepted/matched Track, at least one resolved Track detail, and at least one readable representative thumbnail artifact; a zero-Track formal run is a failure, not a vacuous pass;
+16. verify source-video Range streaming;
+17. verify Person/Vehicle Search against the expected class set for the formal case;
+18. separately support an **empty-scene diagnostic case** for false-positive measurement; it may legitimately return zero Tracks but cannot by itself satisfy formal E2E acceptance;
+19. validate corpus-manifest and every ground-truth-manifest SHA-256 before calculating metrics;
+20. calculate structural and required ground-truth metrics;
+21. emit one machine-readable evidence document;
+22. exit nonzero on any acceptance failure.
 
 ### 8.2 Evidence invariants
 
 The harness shall fail if:
 
 - processing reports success but no authoritative completed run exists;
-- Track/video identity is inconsistent;
-- a Track detail cannot be resolved;
+- the completed run attestation is absent or any model/config/profile/runtime/lock/build identity mismatches the frozen candidate;
+- reconciled Camera provenance does not match the requested qualification camera;
+- reconciled VideoAsset provenance does not match the requested camera/recording inputs;
+- formal E2E mode has no expected target event, produces zero accepted Tracks, resolves zero Track details, or reads zero representative artifacts;
+- Track/video/run identity is inconsistent;
+- a required Track detail cannot be resolved;
 - an accepted representative artifact URL cannot be read;
 - source-video Range access fails;
 - public responses expose a physical storage path or worker staging path;
 - cursor continuation changes committed search semantics;
 - an orphan Track is detected;
+- corpus/ground-truth manifest hashes do not match the declared evidence identities;
 - required ground-truth acceptance fails;
 - timeout is exceeded.
 
 The harness must never decode or reinterpret the Task-14 opaque cursor.
+
+### 8.3 Authoritative ProcessingRun attestation API
+
+Task 17 requires one narrow additive read contract because the existing processing-status and Track-detail DTOs deliberately do not expose the exact persisted release hashes needed to prove which qualified runtime produced a completed run.
+
+Add an allowlisted endpoint, for example:
+
+`GET /api/processing/runs/{processingRunId}/attestation`
+
+The endpoint is read-only and returns data only for an authoritative `Completed` ProcessingRun. Unknown/non-completed runs return a non-disclosing 404.
+
+The response shall be projected from the persisted ProcessingRun and its validated `RuntimeProvenanceJson`; it must **not** return that JSON wholesale. Expose only the stable qualification identities required for attestation, including at minimum:
+
+- ProcessingRun ID;
+- VideoAsset ID;
+- completion timestamp;
+- pipeline version;
+- model ID/version;
+- model-manifest SHA-256;
+- checkpoint SHA-256;
+- resolved-config SHA-256;
+- pipeline-profile ID/version/SHA-256;
+- qualification ID/SHA-256 and verification status as persisted for the run;
+- runtime-profile ID/SHA-256;
+- runtime variant;
+- platform-lock SHA-256;
+- MAVI build/commit identity;
+- actual device;
+- detector/tracker names and versions.
+
+Do not expose lease tokens, physical paths, storage keys, arbitrary dependency dictionaries, private hostnames, or the raw provenance JSON.
+
+The application layer shall parse/validate the persisted provenance through one canonical typed parser rather than ad-hoc JSON property access in an endpoint. Malformed persisted provenance is a server-side integrity failure and cannot be converted into a successful attestation.
+
+The E2E harness must compare this authoritative attestation against the expected frozen release selection before writing those identities into acceptance evidence.
 
 ---
 
@@ -438,9 +519,13 @@ The generated record should contain:
 - source Git commit;
 - MAVI build identity;
 - operator-supplied qualification environment label (not an automatically leaked private hostname);
-- selected model/profile/runtime IDs and SHA-256 values;
-- VideoAsset ID;
+- selected expected model/profile/runtime IDs and SHA-256 values;
+- authoritative ProcessingRun-attested model/config/profile/qualification/runtime/platform-lock/build identities and a pass/fail comparison against the expected frozen selection;
+- qualification Camera ID/code/timezone snapshot;
+- VideoAsset ID and reconciled camera/recording provenance;
 - source-media SHA-256;
+- corpus-manifest SHA-256 when ground truth is used;
+- every exact ground-truth-manifest SHA-256 used for scoring;
 - ProcessingRun ID;
 - processing terminal state;
 - processing duration;
@@ -559,7 +644,13 @@ Task 17 owns the formal disconnected install gates:
 - `windows-offline-install`;
 - `linux-offline-install`.
 
-A passing offline-install gate requires a clean target environment using the exact required CPython patch version. The evidence must state which platform variant/lock was installed; a CPU installation must never be cited as proof that a CUDA bundle installs, and vice versa. The current OS-level gate names do not remove that evidence requirement.
+A passing offline-install gate requires clean target environments using the exact required CPython patch version and must prove **every required runtime device variant/lock for that operating system**.
+
+The current gate names remain OS-level because they are part of the accepted qualification schema, but each gate's referenced evidence object is a hashed **composite OS evidence package**. That package must enumerate every required variant for the OS (currently CPU and CUDA), the exact release-lock SHA-256 for each, wheelhouse/bundle identity, install command/result, `pip check`, runtime startup and real local inference result.
+
+The verifier must reject promotion of `windows-offline-install` or `linux-offline-install` unless the evidence package contains a passing entry for every required qualified lock on that OS. CPU evidence must never satisfy the CUDA entry and CUDA evidence must never satisfy the CPU entry.
+
+If one required variant cannot be installed/tested offline, the OS-level gate remains `pending`. Do not weaken the gate merely because a separate CUDA inference gate passed.
 
 Installation uses:
 
@@ -568,17 +659,18 @@ pip install --no-index --only-binary=:all: --require-hashes --find-links <wheelh
 pip check
 ```
 
-Then, with outbound connectivity disabled:
+For each required device variant on the OS, with outbound connectivity disabled:
 
-1. validate bundle manifest hashes;
-2. install only from bundle bytes;
-3. start the runtime;
-4. perform real local RTMDet inference;
-5. start MAVI worker;
-6. execute at least one controlled processing flow against the operational API;
-7. search accepted Tracks;
-8. retrieve evidence/source video;
-9. confirm no first-run model/package download, telemetry or online licence check occurs.
+1. validate bundle manifest hashes and the exact selected release-lock hash;
+2. install only from that variant's bundle/wheelhouse bytes;
+3. run `pip check`;
+4. start the runtime under that exact device policy;
+5. perform real local RTMDet inference on that device class;
+6. where the platform is part of operational E2E qualification, start the MAVI worker and execute the controlled processing flow against the operational API;
+7. record the exact variant/lock result in the composite OS evidence package;
+8. confirm no first-run model/package download, telemetry or online licence check occurs.
+
+A later composite verifier validates completeness across all required variants before the OS gate can be promoted.
 
 Use qualification-candidate bundle mode until the release metadata is legitimately promotable. Pre-promotion qualification may run only through the repository's explicit unverified/development allowance; evidence must say so. The final production-bundle acceptance later in this plan must run with production verification enabled and must not use `allow_unverified` or development `auto` device semantics.
 
@@ -856,7 +948,11 @@ Create:
 - `tools/phase1/phase1_e2e_check.py`
 - `tools/phase1/evaluate_ground_truth.py`
 - `tools/phase1/phase1-acceptance-evidence.schema.json`
+- `tools/phase1/offline-install-evidence.schema.json`
 - `tools/phase1/verify_phase1_evidence.py`
+- `src/platform/Mavi.Contracts/Api/Processing/ProcessingRunAttestationResponse.cs`
+- a narrow Application query/parser for completed-run attestation
+- a read-only API endpoint for `GET /api/processing/runs/{processingRunId}/attestation`
 - `tools/phase1/qualify_phase1_windows_host.ps1`
 - `tools/phase1/qualify_phase1_linux_host.sh`
 - `tools/phase1/tests/test_evaluate_ground_truth.py`
@@ -893,11 +989,16 @@ Before hardware or release metadata work:
    - equal-cardinality/equal-quality assignments requiring canonical deterministic tie-breaking;
    - missing start/end spatial coverage or over-wide interpolation gaps that must invalidate formal ground truth before scoring;
    - Tracks crossing evaluation-window boundaries;
-4. add RED `ProcessingFailureRecoveryTests`;
-5. add worker end-to-end contract RED tests;
-6. implement only enough production changes to satisfy demonstrated defects;
-7. add acceptance evidence schema;
-8. add repository verification for all new tracked schemas/configs.
+4. add RED tests for the completed-run attestation contract/parser, including malformed provenance, non-completed run, exact identity projection and absence of forbidden raw/private fields;
+5. add RED tests that formal E2E mode cannot pass with zero Tracks/zero representative evidence;
+6. add RED reconciliation tests for camera timezone/active-state mismatch and duplicate VideoAsset camera/recording-provenance mismatch;
+7. add RED evidence tests proving corpus + individual ground-truth manifest hashes are mandatory and mismatch fails closed;
+8. add RED offline-evidence completeness tests proving an OS gate remains pending when either its CPU or CUDA lock evidence is absent/failing;
+9. add RED `ProcessingFailureRecoveryTests`;
+10. add worker end-to-end contract RED tests;
+11. implement only enough production changes to satisfy demonstrated defects;
+12. add acceptance/offline evidence schemas;
+13. add repository verification for all new tracked schemas/configs.
 
 Gate:
 
@@ -1073,6 +1174,14 @@ Do not merge merely because ordinary CI is green while a required hardware/offli
 
 Search explicitly for:
 
+- every acceptance claim lacking an explicit authority/identity/integrity/observation/failure/evidence path from Section 1.1;
+- evidence fields populated from expected local configuration without independent attestation of the completed run;
+- formal E2E success when Track/detail/representative-evidence loops execute zero times;
+- duplicate Camera reconciliation that checks code but not timezone/active-state identity;
+- duplicate VideoAsset reconciliation that trusts the returned ID without revalidating camera/recording provenance;
+- private corpus/ground-truth manifests identified only by mutable version labels rather than exact SHA-256 bytes;
+- OS-level offline-install evidence that covers only CPU or only CUDA while claiming the whole gate passed;
+- a passed gate whose evidence object cannot prove all subrequirements implied by the accepted ADR;
 - DB/filesystem access in acceptance code where a public API should be used;
 - hard-coded credentials or private paths;
 - checked-in video/model/bundle bytes;
@@ -1117,12 +1226,13 @@ For full completion, at minimum:
 - worker end-to-end contract coverage is green;
 - ground-truth schema/evaluator is deterministic and reviewed;
 - Phase-1 E2E harness is deterministic and fail-closed;
-- one controlled end-to-end product run succeeds;
-- Search and Evidence Review resolve accepted intelligence correctly;
+- one formal controlled target-containing end-to-end product run succeeds and cannot pass vacuously with zero Tracks;
+- the completed ProcessingRun's persisted release provenance is independently attested through the allowlisted public API and matches the frozen release selection;
+- Search and Evidence Review resolve at least one accepted Track and representative artifact correctly in formal mode;
 - no orphan accepted Track/evidence inconsistency exists;
 - production-host deep links/API behavior are qualified;
-- formal offline-install evidence exists for required platforms;
-- every current mandatory hardware/quality/performance gate is passed with evidence;
+- formal offline-install evidence exists for required platforms and each OS evidence package proves every required CPU/CUDA device lock for that OS;
+- every current mandatory hardware/quality/performance gate is passed with evidence, and private corpus/ground-truth inputs are bound by exact SHA-256 values;
 - no mandatory gate is silently removed;
 - final release metadata passes repository/release-selection verification;
 - production bundles are generated only after legitimate release promotion;
