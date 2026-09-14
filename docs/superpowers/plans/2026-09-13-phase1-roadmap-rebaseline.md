@@ -112,5 +112,5 @@ For remaining Phase-1 sequencing:
 2. `2026-09-13-task-13-vision-result-persistence.md` records the completed Task-13 implementation baseline;
 3. `2026-09-13-task-14-track-search-evidence-apis.md` records the completed Task-14 implementation baseline;
 4. `2026-09-14-task-15-react-foundation-import-processing.md` records the completed Task-15 implementation baseline and closure evidence;
-5. Task 16 planning/implementation shall branch from Task-15 integration head `abe0b16f11fad0227efe742ce01211b9ddf689c2`;
+5. Task 16 planning shall branch from the current accepted integration head `60d33163bd7d8f7956826e9d554ac47a41a1ad44`; Task-16 implementation shall branch from the integration head produced by the accepted Task-16 planning PR;
 6. older task plans remain historical design/evidence records unless explicitly updated to reference this re-baseline.
