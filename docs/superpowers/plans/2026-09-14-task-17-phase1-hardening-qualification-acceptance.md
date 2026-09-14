@@ -291,6 +291,10 @@ Inputs shall include at minimum:
 
 The qualification environment should use a dedicated database/storage root so repeated runs do not contaminate operational data.
 
+The harness must never delete or rename the operator's source file. For the managed-copy proof it shall first create a disposable qualification working copy, hash that copy, upload it, and delete only the disposable copy after import. The original controlled corpus asset remains untouched.
+
+Prefer Python standard-library HTTP/file primitives for this qualification tool unless a new tooling-only dependency is explicitly justified and pinned; Task 17 must not add an operational runtime dependency merely to implement acceptance automation.
+
 ### 8.1 Workflow
 
 The harness shall:
@@ -343,7 +347,7 @@ The generated record should contain:
 - schema version;
 - source Git commit;
 - MAVI build identity;
-- test/qualification environment identity;
+- operator-supplied qualification environment label (not an automatically leaked private hostname);
 - selected model/profile/runtime IDs and SHA-256 values;
 - VideoAsset ID;
 - source-media SHA-256;
@@ -489,6 +493,24 @@ Then, with outbound connectivity disabled:
 Use qualification-candidate bundle mode until the release metadata is legitimately promotable.
 
 A proxy pointed to an invalid endpoint is useful as an additional tripwire but is **not** by itself proof of a formally disconnected host.
+
+### 13.1 Disconnected evidence transport
+
+A genuinely disconnected host cannot simultaneously be a live GitHub Actions runner. Therefore the formal offline gate shall run locally from the transferred qualification bundle and Task-17 scripts.
+
+The disconnected host shall emit a self-contained evidence package containing:
+
+- canonical acceptance JSON;
+- exact source/model/profile/runtime/bundle identities;
+- platform/Python identity;
+- isolation method/operator record;
+- command exit statuses;
+- required logs with secrets/tokens redacted;
+- SHA-256 manifest covering every evidence file.
+
+After the run, transfer the evidence package back through the controlled offline-transfer process. A connected verification step may validate its schema/hashes and bind its immutable reference into the qualification record, but it must never rewrite the disconnected result.
+
+Create `tools/phase1/verify_phase1_evidence.py` to perform this connected-side validation. Qualification metadata records only the immutable evidence reference and SHA-256 required by the existing qualification schema; large/raw evidence artifacts remain outside Git.
 
 ---
 
@@ -692,10 +714,12 @@ Create:
 - `tools/phase1/phase1_e2e_check.py`
 - `tools/phase1/evaluate_ground_truth.py`
 - `tools/phase1/phase1-acceptance-evidence.schema.json`
+- `tools/phase1/verify_phase1_evidence.py`
 - `tools/phase1/qualify_phase1_windows_host.ps1`
 - `tools/phase1/qualify_phase1_linux_host.sh`
 - `tools/phase1/tests/test_evaluate_ground_truth.py`
 - `tools/phase1/tests/test_phase1_e2e_check.py`
+- `tools/phase1/tests/test_verify_phase1_evidence.py`
 - `tests/Mavi.IntegrationTests/ProcessingFailureRecoveryTests.cs`
 - `src/vision/tests/test_worker_end_to_end_contract.py`
 - `docs/runbooks/phase1-acceptance.md`
@@ -769,7 +793,13 @@ Do not require live RTMDet in the normal Quality Gate.
 
 Create the Phase-1 acceptance runbook and `.github/workflows/task17-acceptance.yml`.
 
-The workflow shall keep ordinary hosted validation separate from evidence-producing hardware jobs. Hardware/offline jobs must be `workflow_dispatch` and target explicit approved self-hosted runner labels; they must not silently fall back to generic GitHub-hosted runners when the required environment is unavailable.
+The workflow shall keep ordinary hosted validation separate from evidence-producing qualification work:
+
+- connected hardware qualification may use `workflow_dispatch` with explicit approved self-hosted GPU runner labels;
+- formal disconnected-install/final-offline acceptance must **not** run as a live GitHub Actions job, because that would contradict network isolation;
+- GitHub Actions may validate a transferred offline evidence package after the isolated run, but may not manufacture or mutate the result.
+
+Hardware jobs must never silently fall back to generic GitHub-hosted runners when the required environment is unavailable.
 
 Prove the scripts:
 
@@ -853,16 +883,16 @@ On the exact rebound head run every applicable gate:
 
 ### Evidence/hardware
 
-- Windows disconnected-install qualification;
-- Linux disconnected-install qualification;
+- Windows disconnected-install qualification from transferred locally generated evidence;
+- Linux disconnected-install qualification from transferred locally generated evidence;
 - Windows CUDA hardware qualification;
 - Linux CUDA hardware qualification;
 - Linux NVIDIA recovery/performance;
 - CCTV-quality baseline;
 - deployed Windows/IIS host acceptance;
-- final disconnected end-to-end acceptance.
+- final disconnected end-to-end acceptance from transferred locally generated evidence.
 
-All evidence must name the exact source/release identities it exercised.
+All evidence must name the exact source/release identities it exercised. Connected CI validates evidence; it does not substitute for a disconnected execution environment.
 
 ---
 
