@@ -334,7 +334,7 @@ The page shall:
 - disable submit while mutation is pending;
 - prevent duplicate local submits;
 - on success clear/reset the form and invalidate the camera-list query;
-- on `camera_code_conflict` surface a specific conflict message;
+- on `camera_code_duplicate` surface a specific conflict message;
 - surface domain validation without hiding the backend error code.
 
 No edit/delete controls are shown because the backend does not support them.
