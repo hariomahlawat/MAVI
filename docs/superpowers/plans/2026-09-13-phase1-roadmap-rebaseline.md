@@ -117,5 +117,5 @@ For remaining Phase-1 sequencing:
 3. `2026-09-13-task-14-track-search-evidence-apis.md` records the completed Task-14 implementation baseline;
 4. `2026-09-14-task-15-react-foundation-import-processing.md` records the completed Task-15 implementation baseline and closure evidence;
 5. `2026-09-14-task-16-react-visual-search-evidence-review.md` records the completed Task-16 implementation and acceptance evidence;
-6. `2026-09-14-task-17-phase1-hardening-qualification-acceptance.md` is the authoritative Task-17 plan and branches from accepted integration head `e877dcac9efaefe4f935fa50b2913e806b197d27`;
+6. `2026-09-14-task-17-phase1-hardening-qualification-acceptance.md` is the authoritative Task-17 plan, prepared from accepted integration head `e877dcac9efaefe4f935fa50b2913e806b197d27`; Task-17 implementation shall branch only from the integration head produced after the accepted planning PR is merged;
 7. older task plans remain historical design/evidence records unless explicitly updated to reference this re-baseline.
