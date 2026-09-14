@@ -138,7 +138,12 @@ export default function VideoReviewPage() {
 
       {systemConfig.isError ? (
         <Alert tone="warning">
-          Display timezone is unavailable. Absolute timestamps are shown explicitly in UTC.
+          <div className="inline-alert-actions">
+            <span>Display timezone is unavailable. Absolute timestamps are shown explicitly in UTC.</span>
+            <button className="button button--secondary" type="button" onClick={() => void systemConfig.refetch()}>
+              Retry display config
+            </button>
+          </div>
         </Alert>
       ) : null}
 
