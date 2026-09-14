@@ -275,9 +275,19 @@ def import_or_resolve_video(
     else:
         raise AcceptanceError(value.get("code") or f"qualification_video_http_{status}")
 
+    observed_recording = video.get("recordingStartUtc")
+    if not isinstance(observed_recording, str):
+        raise AcceptanceError("qualification_video_provenance_mismatch")
+    try:
+        observed_utc = datetime.fromisoformat(observed_recording.replace("Z", "+00:00"))
+        expected_utc_value = datetime.fromisoformat(expected_utc.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise AcceptanceError("qualification_video_provenance_mismatch") from exc
+    if observed_utc.tzinfo is None or expected_utc_value.tzinfo is None:
+        raise AcceptanceError("qualification_video_provenance_mismatch")
     if (
         video.get("cameraId") != camera["id"]
-        or video.get("recordingStartUtc") != expected_utc
+        or observed_utc.astimezone(timezone.utc) != expected_utc_value.astimezone(timezone.utc)
         or video.get("recordingTimeZoneId") != camera["timeZoneId"]
         or video.get("recordingUtcOffsetMinutes") != expected_offset
     ):
