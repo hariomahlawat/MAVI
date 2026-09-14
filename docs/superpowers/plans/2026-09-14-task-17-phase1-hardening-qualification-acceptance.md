@@ -67,7 +67,7 @@ The implementation shall maintain the following proof matrix in the Task-17 runb
 | Imported/reconciled VideoAsset is the intended recording | VideoAsset + authoritative duplicate-by-SHA import result | import response / `video_duplicate` ID, then `GET /api/videos/{id}` | camera ID, recording UTC instant, timezone snapshot and UTC offset must match the requested import provenance |
 | Managed source bytes are the imported qualification media | authoritative SourceVideo Artifact/content API | full streamed `GET /api/videos/{id}/content` + strong ETag | streamed SHA-256 and ETag must both equal the locally computed qualification-media SHA-256 |
 | ProcessingRun actually completed | ProcessingRun | queue response + `GET /api/videos/{id}/processing` | the queued ProcessingRun ID must remain the observed latest run through terminal completion; any superseding/different run fails qualification |
-| Completed run used the claimed model/profile/runtime | persisted `ProcessingRun.RuntimeProvenanceJson` | new allowlisted read-only run-attestation API | every required model/config/profile/runtime/lock/build identity must equal the expected frozen release identity |
+| Completed run used the claimed model/profile/runtime | persisted `ProcessingRun.RuntimeProvenanceJson` + candidate bundle/runtime selection | new allowlisted read-only run-attestation API plus validated bundle manifest/runtime metadata | model/config/profile/runtime/build identities must equal the expected frozen release; lock proof is mode-aware as defined in Section 8.3 |
 | Track belongs to the accepted run | authoritative Track persistence | Task-14 search/detail APIs | VideoAsset ID and ProcessingRun ID must both match |
 | Representative evidence bytes are authoritative | accepted Artifact row/content API | full streamed artifact GET + strong ETag | streamed SHA-256 must equal the ETag digest; Track detail must reference that exact artifact ID |
 | Formal E2E actually exercises intelligence review | accepted Track + representative Artifact | Track detail + artifact content API | formal mode requires at least one expected target, at least one matched Track, one resolved Track detail and one integrity-verified representative artifact |
@@ -205,7 +205,7 @@ Within that PR keep these commit classes separate:
 
 Use the established release sequence whenever runtime/release metadata is affected:
 
-**implementation frozen -> hardware/runtime qualification -> immutable CUDA/platform artifacts and locks frozen -> final qualified runtime metadata constructed -> release-level evidence attested -> model/qualification metadata promoted -> production bundle built -> production-bundle verification acceptance**
+**implementation frozen -> hardware/runtime qualification -> immutable CUDA/platform artifacts and locks frozen -> final qualified runtime metadata constructed -> pending qualification record rebound to that final runtime hash -> qualification-candidate bundles built from the internally consistent unverified selection -> candidate/release-level evidence attested -> model/qualification metadata promoted -> production bundle built -> production-bundle verification acceptance**
 
 Hardware qualification that establishes a runtime platform as `qualified-hardware` is deliberately earlier than release-level evidence attestation. It must not be confused with the later model/release qualification evidence that binds to the resulting immutable runtime-profile hash.
 
@@ -516,7 +516,30 @@ Do not expose lease tokens, physical paths, storage keys, private hostnames, unb
 
 The application layer shall parse/validate the persisted provenance through one canonical typed parser rather than ad-hoc JSON property access in an endpoint. Malformed persisted provenance is a server-side integrity failure and cannot be converted into a successful attestation.
 
-The E2E harness must compare this authoritative attestation against the expected frozen release selection before writing those identities into acceptance evidence. Release hashes/lock identities must match exactly; runtime variant/platform/Python/binary versions must satisfy the selected runtime profile; CUDA runs must also agree with the retained qualified hardware/device evidence and must prove the actual device is CUDA with the expected device index.
+The E2E harness must compare this authoritative attestation against the expected frozen release selection before writing those identities into acceptance evidence. Release hashes/runtime identities must match exactly; runtime variant/platform/Python/binary versions must satisfy the selected runtime profile; CUDA runs must also agree with the retained qualified hardware/device evidence and must prove the actual device is CUDA with the expected device index.
+
+#### Candidate-versus-production lock attestation
+
+Lock verification is intentionally different before and after release promotion because the current runtime provenance contract only carries `platformLockSha256` when the effective runtime verification status is `verified`.
+
+For an **unverified qualification candidate**:
+
+- do not require persisted `platformLockSha256`; it is expected to be `null`;
+- require attested `verificationStatus = "unverified"`;
+- require the attested `runtimeVariant`, runtime-profile ID/SHA, actual device and platform/Python/binary identities to match the final candidate runtime profile;
+- obtain the selected lock identity independently from the exact qualification-candidate bundle manifest + selected runtime lock copied into that bundle;
+- verify that bundle through the existing bundle/release-selection validator;
+- require the selected bundle lock SHA-256 to equal the qualified lock referenced by the candidate `runtime.json`;
+- record both the bundle-manifest SHA-256 and selected lock SHA-256 in candidate acceptance evidence.
+
+For the **promoted production release**:
+
+- require attested `verificationStatus = "verified"`;
+- require non-null persisted `platformLockSha256`;
+- require that persisted value to equal the selected qualified lock in the promoted runtime profile and the production bundle;
+- any null/mismatch is a production-acceptance failure.
+
+Task 17 must not alter `_effective_verification_status()` merely to force an unverified candidate to persist a lock hash. Candidate lock authority comes from the validated candidate bundle/runtime selection; production lock authority is additionally proven by persisted completed-run provenance.
 
 ---
 
@@ -534,7 +557,8 @@ The generated record should contain:
 - operator-supplied qualification environment label (not an automatically leaked private hostname);
 - selected expected model/profile/runtime IDs and SHA-256 values;
 - SHA-256 of each exact frozen release-metadata file used to derive expected identities;
-- authoritative ProcessingRun-attested model/config/profile/qualification/runtime/platform-lock/build/platform/Python/dependency/device/GPU identities and a pass/fail comparison against the canonically derived frozen selection and applicable hardware evidence;
+- authoritative ProcessingRun-attested model/config/profile/qualification/runtime/build/platform/Python/dependency/device/GPU identities and a pass/fail comparison against the canonically derived frozen selection and applicable hardware evidence;
+- release-mode-specific lock proof: candidate bundle-manifest + selected-lock SHA-256 for unverified candidate runs, and persisted `platformLockSha256` + production-bundle lock identity for verified production runs;
 - qualification Camera ID/code/timezone snapshot;
 - VideoAsset ID and reconciled camera/recording provenance;
 - source-media SHA-256 plus managed-source streamed SHA-256/ETag verification result;
@@ -1019,7 +1043,7 @@ Before hardware or release metadata work:
    - equal-cardinality/equal-quality assignments requiring canonical deterministic tie-breaking;
    - missing start/end spatial coverage or over-wide interpolation gaps that must invalidate formal ground truth before scoring;
    - Tracks crossing evaluation-window boundaries;
-4. add RED tests for the completed-run attestation contract/parser, including malformed provenance, non-completed run, exact release identity projection, fixed dependency allowlist, platform/Python/GPU projection, CUDA driver/runtime identity, and absence of forbidden raw/private fields;
+4. add RED tests for the completed-run attestation contract/parser, including malformed provenance, non-completed run, exact release identity projection, fixed dependency allowlist, platform/Python/GPU projection, CUDA driver/runtime identity, candidate `platformLockSha256 = null` handling, production non-null lock enforcement, and absence of forbidden raw/private fields;
 5. add RED tests that formal E2E mode cannot pass with zero Tracks/zero representative evidence;
 6. add RED reconciliation tests for camera timezone/active-state mismatch and duplicate VideoAsset camera/recording-provenance mismatch;
 7. add RED evidence tests proving corpus + individual ground-truth manifest hashes are mandatory and mismatch fails closed;
@@ -1057,7 +1081,7 @@ Required automated tests shall cover:
 - failed processing result;
 - successful completed result;
 - queued-run/latest-run supersession mismatch rejection;
-- completed-run attestation success, release/platform/Python/dependency/GPU mismatch, malformed persisted provenance and non-completed-run rejection;
+- completed-run attestation success, release/platform/Python/dependency/GPU mismatch, candidate-null-lock acceptance only with independently validated candidate-bundle lock proof, production-null-lock rejection, malformed persisted provenance and non-completed-run rejection;
 - formal mode rejects missing ground truth, zero expected events, zero Tracks, zero resolved details and zero representative evidence;
 - empty-scene diagnostic mode may return zero Tracks but cannot emit a formal acceptance result;
 - Track search pagination;
@@ -1139,24 +1163,29 @@ From the frozen implementation:
 - generate any new CUDA locks only from those actually qualified runtime graphs;
 - validate the generated locks against the qualified platform identities;
 - record immutable platform evidence and exact hashes;
-- generate qualification-candidate bundles after the runtime artifacts are frozen;
+- **do not build qualification-candidate bundles yet** because changing the final runtime profile changes its SHA-256 and the pending qualification record must first be rebound to that exact runtime hash;
 - do not mix source-behavior fixes into artifact commits.
 
 If required hardware is unavailable, stop with those runtime/platform gates pending rather than inventing artifacts or constructing a falsely final runtime hash.
 
 ---
 
-## 28. Checkpoint F — final runtime construction and candidate metadata rebind
+## 28. Checkpoint F — final runtime construction, pending qualification rebind and candidate bundles
 
 After final immutable runtime/platform/lock identities exist:
 
-- construct the final runtime profile from the already qualified platform identities and frozen release locks;
-- set runtime `qualificationStatus` to `qualified` only if the schema and all runtime prerequisites are satisfied;
-- compute the final candidate runtime hash only after that construction;
-- keep model manifest unverified and model qualification gates pending;
-- rebind only identities that are legitimately knowable before release-level evidence;
-- precompute (do not prematurely publish) the intended final verified-manifest bytes/hash;
-- run release-selection and repository verification immediately.
+1. construct the final runtime profile from the already qualified platform identities and frozen release locks;
+2. set runtime `qualificationStatus` to `qualified` only if the schema and all runtime prerequisites are satisfied;
+3. compute the final candidate runtime-profile SHA-256 only after that construction;
+4. keep the model manifest `unverified` and all not-yet-evidenced model qualification gates `pending`;
+5. rebind the **pending qualification record** to the exact final manifest/profile/runtime identities, including the new runtime-profile SHA-256, while leaving unevidenced gates pending and `overallResult = "pending"`;
+6. run `verify_release_selection(..., allow_unverified=True)`, repository verification and release-selection tests against this internally consistent unverified candidate state;
+7. only after that verification succeeds, build deterministic `qualification-candidate` bundles for each required qualified platform/device lock;
+8. verify each staged candidate bundle through the existing bundle validator, which again calls `verify_release_selection(..., allow_unverified=True)`;
+9. retain the candidate bundle ID, bundle-manifest SHA-256, selected platform variant and selected-lock SHA-256 as immutable candidate evidence inputs;
+10. precompute (do not prematurely publish) the intended final verified-manifest bytes/hash.
+
+The candidate bundle build is therefore downstream of the pending qualification rebind. There must be no intermediate committed state in which `runtime.json` has the final hash while the qualification record still points to an older runtime-profile hash and is nevertheless used to build a candidate bundle.
 
 No gate is promoted merely because the candidate metadata is internally consistent.
 
@@ -1164,7 +1193,7 @@ No gate is promoted merely because the candidate metadata is internally consiste
 
 ## 29. Checkpoint G — evidence attestation and final promotion
 
-On the exact candidate-rebind head run every applicable evidence gate:
+On the exact **candidate-bundle head** produced by Checkpoint F—where runtime profile, pending qualification record and candidate bundle identities are internally consistent—run every applicable evidence gate:
 
 ### Always automated
 
@@ -1182,8 +1211,8 @@ On the exact candidate-rebind head run every applicable evidence gate:
 
 The CUDA platform qualification that establishes the final runtime identities occurred in Checkpoint E and must not be repeated here merely to manufacture the runtime hash. Checkpoint G validates evidence bound to that now-immutable runtime identity and executes the remaining release-level gates:
 
-- Windows disconnected-install qualification from a transferred composite evidence package proving every required Windows CPU/CUDA release lock;
-- Linux disconnected-install qualification from a transferred composite evidence package proving every required Linux CPU/CUDA release lock;
+- Windows disconnected-install qualification from the exact Checkpoint-F candidate bundles, with a transferred composite evidence package proving every required Windows CPU/CUDA release lock;
+- Linux disconnected-install qualification from the exact Checkpoint-F candidate bundles, with a transferred composite evidence package proving every required Linux CPU/CUDA release lock;
 - validation of retained Windows/Linux CUDA platform evidence against the final runtime identity;
 - Linux NVIDIA recovery/performance;
 - CCTV-quality baseline;
@@ -1219,6 +1248,9 @@ Search explicitly for:
 
 - every acceptance claim lacking an explicit authority/identity/integrity/observation/failure/evidence path from Section 1.1;
 - evidence fields populated from expected local configuration without independent attestation of the completed run;
+- unverified candidate acceptance incorrectly requiring persisted `platformLockSha256` even though current provenance intentionally leaves it null;
+- candidate lock identity accepted without validating the exact candidate bundle manifest + selected lock against the candidate runtime profile;
+- qualification-candidate bundle generation attempted after a runtime-profile hash change but before the pending qualification record is rebound to that hash;
 - expected release hashes accepted as free-form input instead of being derived from exact frozen metadata bytes;
 - managed source accepted as “retrievable” without full streamed SHA-256 + ETag equality to imported qualification bytes;
 - representative evidence accepted as “readable” without hashing returned bytes and checking the strong ETag;
