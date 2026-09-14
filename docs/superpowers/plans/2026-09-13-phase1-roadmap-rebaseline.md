@@ -23,7 +23,7 @@ This document removes the numbering ambiguity and defines one authoritative rema
 
 ## Current merged capability
 
-At the current Task-15 planning baseline MAVI has:
+At the current Task-17 planning baseline MAVI has:
 
 1. Managed MP4 import and video metadata/catalog persistence.
 2. Worker lease, heartbeat and failure control-plane APIs.
