@@ -18,13 +18,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
+PHASE1_ROOT = ROOT / "tools" / "phase1"
 VISION_TOOLS = ROOT / "tools" / "vision"
 VISION_ROOT = ROOT / "src" / "vision"
-for candidate in (VISION_TOOLS, VISION_ROOT):
+for candidate in (PHASE1_ROOT, VISION_TOOLS, VISION_ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
 import build_offline_bundle  # noqa: E402
+import verify_phase1_evidence as evidence_verifier  # noqa: E402
 
 
 class VariantQualificationError(ValueError):
@@ -153,6 +155,21 @@ def observed_host(expected: dict[str, Any]) -> dict[str, Any]:
     raise VariantQualificationError("variant_host_os_unsupported")
 
 
+def observed_runtime_platform() -> dict[str, Any]:
+    python_build = list(platform.python_build())
+    return {
+        "system": platform.system(),
+        "release": platform.release(),
+        "version": platform.version(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "pythonVersion": platform.python_version(),
+        "pythonImplementation": platform.python_implementation(),
+        "pythonBuild": python_build,
+        "pythonCompiler": platform.python_compiler(),
+    }
+
+
 def assert_outbound_internet_unavailable() -> None:
     probes = (("1.1.1.1", 443), ("8.8.8.8", 53))
     for host, port in probes:
@@ -255,16 +272,39 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         raise VariantQualificationError("variant_cuda_device_mismatch")
 
     worker = read_json(args.worker_flow_evidence)
+    try:
+        evidence_verifier._validate_schema(
+            worker,
+            PHASE1_ROOT / "phase1-acceptance-evidence.schema.json",
+        )
+        evidence_verifier.verify_acceptance(
+            worker,
+            expected_source_commit=args.source_commit,
+            expected_acceptance_profile_sha256=sha256_file(args.acceptance_profile),
+        )
+    except evidence_verifier.EvidenceError as exc:
+        raise VariantQualificationError(
+            "variant_worker_flow_evidence_invalid:" + exc.code
+        ) from exc
+
+    attestation = worker.get("attestation", {})
     if (
-        worker.get("schemaVersion") != "mavi-phase1-acceptance-evidence-v1"
-        or worker.get("mode") != "formal"
-        or worker.get("sourceCommit") != args.source_commit
+        worker.get("mode") != "formal"
         or worker.get("targetVerifiedManifestSha256") != args.target_verified_manifest_sha256
-        or worker.get("result", {}).get("passed") is not True
-        or worker.get("attestation", {}).get("runtimeVariant") != args.variant
+        or attestation.get("runtimeVariant") != args.variant
+        or attestation.get("candidateBundleManifestSha256") != manifest_sha
+        or attestation.get("candidateSelectedLockSha256") != manifest.get("lockSha256")
+        or attestation.get("platform") != observed_runtime_platform()
         or worker.get("evidenceReads", {}).get("passed", 0) <= 0
     ):
         raise VariantQualificationError("variant_worker_flow_evidence_invalid")
+    if device == "cpu" and attestation.get("actualDevice") != "cpu":
+        raise VariantQualificationError("variant_worker_flow_device_mismatch")
+    if device == "cuda" and not (
+        isinstance(attestation.get("actualDevice"), str)
+        and attestation["actualDevice"].startswith("cuda:")
+    ):
+        raise VariantQualificationError("variant_worker_flow_device_mismatch")
 
     return {
         "schemaVersion": "mavi-offline-variant-evidence-v1",
@@ -300,6 +340,7 @@ def main() -> int:
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--target-verified-manifest-sha256", required=True)
     parser.add_argument("--worker-flow-evidence", type=Path, required=True)
+    parser.add_argument("--acceptance-profile", type=Path, required=True)
     parser.add_argument("--venv", type=Path, required=True)
     parser.add_argument("--network-isolated", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
