@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
@@ -87,6 +87,7 @@ async function runImportWorkflow(input: ImportWorkflowInput): Promise<ImportWork
 
 export default function VideoImportPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const cameras = useQuery({
     queryKey: queryKeys.cameras,
     queryFn: ({ signal }) => listCameras(signal),
@@ -102,7 +103,12 @@ export default function VideoImportPage() {
 
   const workflow = useMutation({
     mutationFn: runImportWorkflow,
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.videos }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.video(result.videoAssetId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.videoProcessing(result.videoAssetId) }),
+      ]);
       navigate(`/processing/${result.videoAssetId}`, {
         state: {
           notice: result.queueWarning
