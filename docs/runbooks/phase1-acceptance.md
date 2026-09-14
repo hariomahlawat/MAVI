@@ -60,7 +60,7 @@ The deployed host must set MAVI_BUILD and MAVI_COMMIT. GET /api/health must inde
 
 For fresh install use tools/phase1/qualify_application_lifecycle.ps1 with Mode=fresh-install against a clean/reprovisioned Windows/IIS destination. A pre-existing deployment is not acceptable.
 
-For update use the same tool with Mode=offline-update against an explicitly supported prior release listed in config/acceptance/phase1-supported-updates-v1.json. If migrationPolicy is required, the reviewed migration script is mandatory. Task 17 currently introduces no database migration, so the accepted post-Task-16 baseline uses migrationPolicy=none.
+For update use the same tool with Mode=offline-update against an explicitly supported prior release listed in config/acceptance/phase1-supported-updates-v1.json. The policy must contain the reviewed SHA-256 of that prior release's `mavi-application-manifest.json`; a null/unfrozen manifest hash keeps the update gate pending. Supply `-PreUpdateAcceptanceEvidence <prior-release-passed-acceptance.json>`. The qualifier verifies the complete prior deployment against its manifest, proves the representative authoritative state before update, performs the update/migration, and proves the same state again after the target build starts. If migrationPolicy is required, the reviewed migration script is mandatory.
 
 Fresh-install and update evidence are distinct mandatory proofs.
 
@@ -81,7 +81,7 @@ Required variants:
 
 Each variant qualification verifies all bundle hashes, source commit, full frozen hostCompatibility, exact CPython patch version, unavailable outbound Internet, clean venv, strict no-index/hash-only installation, pip check, real local RTMDet inference, required actual device and full worker-flow evidence for the same variant.
 
-Use tools/phase1/qualify_windows_offline.ps1 for Windows CPU+CUDA and tools/phase1/qualify_linux_offline.sh for Linux CPU+CUDA.
+Use tools/phase1/qualify_windows_offline.ps1 for Windows CPU+CUDA and tools/phase1/qualify_linux_offline.sh for Linux CPU+CUDA. Both wrappers require the frozen `config/acceptance/phase1-acceptance-v1.json` so worker-flow, variant and OS-level evidence retain the exact acceptance-policy SHA-256. Worker-flow evidence must come from the same exact candidate bundle/lock and attested runtime platform as the qualification host.
 
 A CPU run never substitutes for CUDA. A CUDA run that falls back to CPU fails.
 
@@ -95,9 +95,9 @@ The evaluator refuses to pass until reviewed performance thresholds exist in the
 
 Use PostgreSQL service definitions so credentials are not placed on command lines. Source and clean restore services must be distinct.
 
-Execute tools/phase1/qualify_backup_restore.py execute to back up PostgreSQL plus managed source and accepted evidence to approved local storage. Restore into clean target roots and database.
+Execute tools/phase1/qualify_backup_restore.py execute with `--acceptance-evidence <passed-acceptance.json>` to back up PostgreSQL plus managed source and accepted evidence to approved local storage. The tool independently queries source and restore PostgreSQL endpoint/database identities, rejects an identical target, and requires the restore database to contain no pre-existing public base tables before `pg_restore`.
 
-Start MAVI against the restored target, then run tools/phase1/post_restore_check.py using the original passed acceptance evidence. It revalidates the original Camera ID, VideoAsset ID, ProcessingRun ID, every Track ID, representative Artifact, managed source bytes/ETag, completed-run attestation and search/detail retrieval.
+Start MAVI against the restored target, then run tools/phase1/post_restore_check.py using both the original passed acceptance evidence and the exact `backup-restore-execution` evidence via `--execution-evidence`. It revalidates the original Camera ID, VideoAsset ID, ProcessingRun ID, every Track ID, representative Artifact, managed source bytes/ETag, completed-run attestation and search/detail retrieval, while cryptographically binding the result to the exact backup-set/store manifests.
 
 Finalize with tools/phase1/qualify_backup_restore.py finalize. Restore evidence is not valid until the public-API post-restore check passes.
 
@@ -128,3 +128,8 @@ Candidate-bundle evidence does not replace post-promotion production-bundle smok
 Implementation is ready for final independent review when deterministic implementation/tests and repository verification are green on one exact head, no known Critical/P1/P2-equivalent implementation defect remains, unavailable real-world evidence is explicitly pending rather than bypassed, and documentation/tooling agree.
 
 After final independent review, only materially reachable violations of accepted requirements block closure. Optional hardening or new scope goes to backlog. Do not repeatedly review an unchanged accepted head merely to generate more comments.
+
+
+### Evidence-integrity rule
+
+Formal Task-17 evidence is not interchangeable merely because it names the same source commit. Quality, performance, worker-flow, offline-install, update and restore evidence must retain and match the exact frozen acceptance-policy hash and all applicable target-manifest, bundle/lock, prior-artifact, execution and store-manifest identities. Evidence assembled from different qualification events must be rejected.
