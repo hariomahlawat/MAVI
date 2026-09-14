@@ -31,6 +31,14 @@ def offline(os_name="linux"):
             "workerFlowPassed": True,
             "actualDevice": "cpu" if device == "cpu" else "cuda:0",
             "outboundNetworkUnavailable": True,
+            "networkIsolation": {
+                "proxyEnvironmentAbsent": True,
+                "probes": [
+                    {"host": f"h{i}", "port": 443, "reachable": False}
+                    for i in range(5)
+                ],
+                "passed": True,
+            },
             "firstRunDownloadObserved": False,
             "result": "passed",
         })
