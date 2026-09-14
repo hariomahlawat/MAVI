@@ -99,6 +99,23 @@ describe('VisualSearchPage', () => {
     }));
   });
 
+  it('resets uncommitted draft even when the committed route is already /search', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await screen.findByRole('link', { name: 'Review evidence' });
+
+    await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+    await user.type(screen.getByLabelText('Minimum confidence (%)'), '80');
+    expect(screen.getByLabelText('Object class')).toHaveValue('Vehicle');
+    expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('80');
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+
+    expect(screen.getByLabelText('Object class')).toHaveValue('');
+    expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('');
+    expect(searchTracks).toHaveBeenCalledTimes(1);
+  });
+
   it('preserves committed UTC time bounds during system-config outage', async () => {
     const user = userEvent.setup();
     vi.mocked(getSystemConfig).mockRejectedValue(new Error('offline'));
