@@ -129,12 +129,15 @@ def _validate_platform_variant_evidence(
     gate: str,
     value: dict[str, Any],
     acceptance_profile_sha256: str,
+    expected_mavi_build: str,
 ) -> None:
     _validate_schema(value, "offline-variant-evidence.schema.json")
     if value.get("variant") != gate:
         raise PromotionError("promotion_variant_evidence_gate_mismatch:" + gate)
     if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
         raise PromotionError("promotion_variant_profile_mismatch:" + gate)
+    if value.get("maviBuild") != expected_mavi_build:
+        raise PromotionError("promotion_variant_build_mismatch:" + gate)
     if value.get("bundleMode") != "qualification-candidate":
         raise PromotionError("promotion_variant_evidence_not_candidate:" + gate)
     if value.get("expectedHostCompatibility") != value.get("observedHostCompatibility"):
@@ -164,6 +167,7 @@ def _validate_offline_os_evidence(
     value: dict[str, Any],
     source_commit: str,
     acceptance_profile_sha256: str,
+    expected_mavi_build: str,
 ) -> None:
     _validate_schema(value, "offline-install-evidence.schema.json")
     evidence_verifier.verify_offline_install(
@@ -171,6 +175,8 @@ def _validate_offline_os_evidence(
         expected_source_commit=source_commit,
         expected_acceptance_profile_sha256=acceptance_profile_sha256,
     )
+    if value.get("maviBuild") != expected_mavi_build:
+        raise PromotionError("promotion_offline_build_mismatch:" + gate)
     expected_os = "windows" if gate == "windows-offline-install" else "linux"
     if value.get("os") != expected_os:
         raise PromotionError("promotion_offline_os_mismatch:" + gate)
@@ -185,6 +191,7 @@ def _validate_quality_evidence(
     expected_corpus_sha256: str,
     corpus_manifest_path: Path,
     ground_truth_path: Path,
+    expected_mavi_build: str,
 ) -> None:
     _validate_schema(value, "phase1-acceptance-evidence.schema.json")
     evidence_verifier.verify_acceptance(
@@ -238,6 +245,8 @@ def _validate_quality_evidence(
     if len(matching_cases) != 1:
         raise PromotionError("promotion_quality_corpus_mapping_mismatch")
 
+    if value.get("attestation", {}).get("maviBuild") != expected_mavi_build:
+        raise PromotionError("promotion_quality_build_mismatch")
     metrics = value.get("metrics")
     if (
         value.get("mode") != "formal"
@@ -258,10 +267,13 @@ def _validate_performance_evidence(
     value: dict[str, Any],
     acceptance_profile_sha256: str,
     acceptance_profile: dict[str, Any],
+    expected_mavi_build: str,
 ) -> None:
     _validate_schema(value, "recovery-performance-evidence.schema.json")
     if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
         raise PromotionError("promotion_performance_profile_mismatch")
+    if value.get("maviBuild") != expected_mavi_build:
+        raise PromotionError("promotion_performance_build_mismatch")
     expected = acceptance_profile.get("performanceThresholds")
     if not isinstance(expected, dict) or value.get("thresholds") != expected:
         raise PromotionError("promotion_performance_thresholds_mismatch")
@@ -284,6 +296,7 @@ def validate_gate_evidence(
     acceptance_profile: dict[str, Any],
     quality_corpus_manifest: Path,
     quality_ground_truth: Path,
+    expected_mavi_build: str,
 ) -> None:
     if value.get("sourceCommit") != source_commit:
         raise PromotionError("promotion_evidence_source_mismatch:" + gate)
@@ -295,10 +308,14 @@ def validate_gate_evidence(
         "linux-x86_64-cpu",
         "linux-x86_64-cuda",
     }:
-        _validate_platform_variant_evidence(gate, value, acceptance_profile_sha256)
+        _validate_platform_variant_evidence(
+            gate, value, acceptance_profile_sha256, expected_mavi_build
+        )
         return
     if gate in {"windows-offline-install", "linux-offline-install"}:
-        _validate_offline_os_evidence(gate, value, source_commit, acceptance_profile_sha256)
+        _validate_offline_os_evidence(
+            gate, value, source_commit, acceptance_profile_sha256, expected_mavi_build
+        )
         return
     if gate == "cctv-quality-baseline":
         _validate_quality_evidence(
@@ -308,10 +325,13 @@ def validate_gate_evidence(
             acceptance_profile["qualificationCorpusManifestSha256"],
             quality_corpus_manifest,
             quality_ground_truth,
+            expected_mavi_build,
         )
         return
     if gate == "linux-nvidia-recovery-performance":
-        _validate_performance_evidence(value, acceptance_profile_sha256, acceptance_profile)
+        _validate_performance_evidence(
+            value, acceptance_profile_sha256, acceptance_profile, expected_mavi_build
+        )
         return
     raise PromotionError("promotion_gate_unknown:" + gate)
 
@@ -326,6 +346,7 @@ def load_gate_evidence(
     acceptance_profile: dict[str, Any],
     quality_corpus_manifest: Path,
     quality_ground_truth: Path,
+    expected_mavi_build: str,
 ) -> dict[str, str]:
     try:
         payload = path.read_bytes()
@@ -344,6 +365,7 @@ def load_gate_evidence(
         acceptance_profile=acceptance_profile,
         quality_corpus_manifest=quality_corpus_manifest,
         quality_ground_truth=quality_ground_truth,
+        expected_mavi_build=expected_mavi_build,
     )
 
     return {
@@ -399,6 +421,7 @@ def build_promoted_metadata(
     acceptance_profile: dict[str, Any],
     quality_corpus_manifest: Path,
     quality_ground_truth: Path,
+    expected_mavi_build: str,
 ) -> tuple[bytes, bytes]:
     if manifest_raw.get("verificationStatus") != "unverified" or manifest_raw.get("qualificationId") is not None:
         raise PromotionError("promotion_manifest_not_pending")
@@ -440,6 +463,7 @@ def build_promoted_metadata(
             acceptance_profile=acceptance_profile,
             quality_corpus_manifest=quality_corpus_manifest,
             quality_ground_truth=quality_ground_truth,
+            expected_mavi_build=expected_mavi_build,
         )
         gates[gate] = "passed"
 
@@ -496,6 +520,7 @@ def main() -> int:
     parser.add_argument("--runtime-profile", type=Path, required=True)
     parser.add_argument("--acceptance-profile", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--expected-mavi-build", required=True)
     parser.add_argument("--quality-corpus-manifest", type=Path, required=True)
     parser.add_argument("--quality-ground-truth", type=Path, required=True)
     parser.add_argument("--gate-evidence", action="append", default=[])
@@ -531,6 +556,7 @@ def main() -> int:
             acceptance_profile=acceptance_profile,
             quality_corpus_manifest=args.quality_corpus_manifest,
             quality_ground_truth=args.quality_ground_truth,
+            expected_mavi_build=args.expected_mavi_build,
         )
         validate_promoted_outputs(
             model_root=args.model_root,
