@@ -61,6 +61,45 @@ describe('Task-16 committed search state', () => {
     }
   });
 
+  it('round-trips canonical committed state including advanced scopes', () => {
+    const source = new URLSearchParams(
+      'processingRunId=018F3F5A-2F70-7A2B-8A12-2D02F4C21431'
+      + '&videoAssetId=018F3F5A-2F70-7A2B-8A12-2D02F4C21421'
+      + '&cameraId=018F3F5A-2F70-7A2B-8A12-2D02F4C21412'
+      + '&objectClass=vehicle'
+      + '&minimumDurationMs=001250'
+      + '&minimumConfidence=0.800'
+    );
+
+    const first = parseCommittedSearch(source);
+    expect(first.isValid).toBe(true);
+    if (!first.isValid) return;
+
+    expect(first.filters).toEqual({
+      cameraId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21412',
+      videoAssetId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21421',
+      processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431',
+      objectClass: 'Vehicle',
+      minimumDurationMs: 1250,
+      minimumConfidence: 0.8,
+    });
+
+    const second = parseCommittedSearch(new URLSearchParams(first.canonicalQuery));
+    expect(second).toEqual(first);
+  });
+
+  it('canonicalization removes unknown parameters from the semantic URL', () => {
+    const parsed = parseCommittedSearch(new URLSearchParams(
+      'utm_source=x&objectClass=Person&debug=true',
+    ));
+    expect(parsed.isValid).toBe(true);
+    if (parsed.isValid) {
+      expect(parsed.canonicalQuery).toBe('objectClass=Person');
+      expect(parsed.canonicalQuery).not.toContain('utm_');
+      expect(parsed.canonicalQuery).not.toContain('debug');
+    }
+  });
+
   it('converts operator duration and confidence input without silent clamping', () => {
     expect(secondsTextToMilliseconds('1.250')).toBe(1250);
     expect(confidencePercentTextToFraction('91.25')).toBe(0.9125);
