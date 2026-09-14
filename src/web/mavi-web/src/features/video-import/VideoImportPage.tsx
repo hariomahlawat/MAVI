@@ -147,7 +147,7 @@ export default function VideoImportPage() {
         {validationError ? <Alert tone="warning">{validationError}</Alert> : null}
         {workflow.isError ? <Alert tone="error">{importError(workflow.error)}</Alert> : null}
 
-        <form className="form-stack" onSubmit={submit}>
+        <form className="form-stack" onSubmit={submit} noValidate>
           <label>
             Camera
             <select value={cameraId} onChange={(event) => setCameraId(event.target.value)} required>
