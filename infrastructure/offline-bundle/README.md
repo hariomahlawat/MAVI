@@ -23,11 +23,13 @@ It must not be represented as a production-qualified release.
 
 The bundle assembler supports production mode only after all release evidence is complete. Production mode fails closed unless the model manifest is `verified`, the runtime is `qualified`, the qualification result is `passed`, all mandatory qualification gates are passed, and the requested platform has a qualified offline lock.
 
-## Prerequisite
+## Prerequisite and deployment boundary
 
 The exact CPython patch version for the selected bundle must already be provisioned on the target host.
 
-Task 12 does not bundle or install the operating system, CPython itself, NVIDIA/CUDA drivers or compiler toolchains. Target-machine compilation is prohibited.
+Task 12 does not bundle or install the operating system, Windows Server/IIS, PostgreSQL/pgvector, CPython itself, NVIDIA/CUDA drivers, compiler toolchains, or the complete MAVI application deployment. Target-machine compilation is prohibited.
+
+For final Task-17 Phase-1 acceptance, those prerequisites must be pre-provisioned or installed from separately controlled offline media. The MAVI application build/deployment artifact is identified and hashed separately from this vision runtime bundle. Final acceptance evidence must bind both the application build identity and the selected vision-runtime production-bundle identity.
 
 ## Directory contract
 
@@ -124,3 +126,10 @@ Task 12 does not define organizational signing/PKI. A future signing layer must 
 The hosted Task-12 workflow proves reproducible wheel locking, no-index installation, compiled-runtime import and local model smoke with invalid proxy endpoints as an accidental-network tripwire.
 
 That is not the formal disconnected-install qualification. Task 17 owns installation and real inference with network connectivity disabled and records the Windows/Linux qualification evidence.
+
+Task 17 also distinguishes two later acceptance events:
+
+- **candidate disconnected acceptance** against the frozen candidate release identities, used to generate release-level evidence before promotion; and
+- **final production-bundle verification acceptance** after legitimate metadata promotion and production-bundle generation.
+
+Only the latter is the final Phase-1 disconnected acceptance.
