@@ -8,7 +8,8 @@ param(
     [Parameter(Mandatory = $true)][string]$BaseUrl,
     [Parameter(Mandatory = $true)][string]$SupportedUpdatesPath,
     [Parameter(Mandatory = $true)][string]$EvidenceOutput,
-    [string]$AppPoolName,
+    [Parameter(Mandatory = $true)][string]$IisSiteName,
+    [Parameter(Mandatory = $true)][string]$AppPoolName,
     [string]$MigrationScriptPath,
     [string]$PreUpdateAcceptanceEvidence,
     [string]$Python = "python"
@@ -59,6 +60,38 @@ function Invoke-AppCmd([string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "iis_appcmd_failed:$($Arguments -join ' ')" }
 }
 
+function Invoke-AppCmdText([string[]]$Arguments) {
+    $appcmd = Join-Path $env:windir "System32\inetsrv\appcmd.exe"
+    if (-not (Test-Path -LiteralPath $appcmd -PathType Leaf)) { throw "iis_appcmd_missing" }
+    $output = & $appcmd @Arguments
+    if ($LASTEXITCODE -ne 0) { throw "iis_appcmd_failed:$($Arguments -join ' ')" }
+    return ([string]($output | Select-Object -First 1)).Trim()
+}
+
+function Assert-IisHostingBinding([string]$SiteName, [string]$ExpectedPool, [string]$ExpectedDestination) {
+    $applicationName = "$SiteName/"
+    $physicalRaw = Invoke-AppCmdText @("list", "vdir", $applicationName, "/text:physicalPath")
+    if (-not $physicalRaw) { throw "iis_physical_path_missing" }
+    $physicalExpanded = [Environment]::ExpandEnvironmentVariables($physicalRaw)
+    $physicalFull = [IO.Path]::GetFullPath($physicalExpanded).TrimEnd('\')
+    $destinationFull = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ExpectedDestination).Path).TrimEnd('\')
+    if (-not [string]::Equals($physicalFull, $destinationFull, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "iis_destination_binding_mismatch"
+    }
+
+    $observedPool = Invoke-AppCmdText @("list", "app", $applicationName, "/text:applicationPool")
+    if (-not [string]::Equals($observedPool, $ExpectedPool, [StringComparison]::Ordinal)) {
+        throw "iis_application_pool_binding_mismatch"
+    }
+
+    return [ordered]@{
+        siteName = $SiteName
+        applicationPool = $observedPool
+        physicalPath = $destinationFull
+        passed = $true
+    }
+}
+
 function Invoke-StateCheck([string]$AcceptanceEvidence, [string]$ExpectedCommit, [string]$Output) {
     & $Python "$PSScriptRoot\verify_authoritative_state.py" --base-url $BaseUrl --acceptance-evidence $AcceptanceEvidence --expected-application-commit $ExpectedCommit --output $Output
     if ($LASTEXITCODE -ne 0) { throw "authoritative_state_check_failed" }
@@ -93,6 +126,8 @@ function Invoke-UiSmoke {
     }
 }
 
+if ([string]::IsNullOrWhiteSpace($IisSiteName)) { throw "iis_site_name_missing" }
+if ([string]::IsNullOrWhiteSpace($AppPoolName)) { throw "iis_app_pool_name_missing" }
 if (-not (Test-Path -LiteralPath $ArtifactDirectory -PathType Container)) { throw "application_artifact_directory_missing" }
 if (-not (Test-Path -LiteralPath $ApplicationManifestPath -PathType Leaf)) { throw "application_manifest_missing" }
 if (-not (Test-Path -LiteralPath $SupportedUpdatesPath -PathType Leaf)) { throw "supported_updates_policy_missing" }
@@ -162,7 +197,7 @@ if ($Mode -eq "fresh-install") {
     }
 }
 
-if ($AppPoolName) { Invoke-AppCmd @("stop", "apppool", "/apppool.name:$AppPoolName") }
+Invoke-AppCmd @("stop", "apppool", "/apppool.name:$AppPoolName")
 
 try {
     $robocopyArgs = @($ArtifactDirectory, $Destination, "/MIR", "/COPY:DAT", "/DCOPY:DAT", "/R:2", "/W:1", "/NFL", "/NDL", "/NP")
@@ -185,6 +220,8 @@ try {
     & $Python @deployedVerifyArgs
     if ($LASTEXITCODE -ne 0) { throw "deployed_application_integrity_failed" }
 
+    $hosting = Assert-IisHostingBinding -SiteName $IisSiteName -ExpectedPool $AppPoolName -ExpectedDestination $Destination
+
     $migrationEvidence = $null
     if ($migrationPolicy -eq "required") {
         if (-not $MigrationScriptPath -or -not (Test-Path -LiteralPath $MigrationScriptPath -PathType Leaf)) { throw "required_migration_script_missing" }
@@ -198,9 +235,7 @@ try {
         }
     }
 
-    if ($AppPoolName) {
-        Invoke-AppCmd @("start", "apppool", "/apppool.name:$AppPoolName")
-    }
+    Invoke-AppCmd @("start", "apppool", "/apppool.name:$AppPoolName")
 
     Start-Sleep -Seconds 2
     $health = Invoke-RestMethod -Uri ($BaseUrl.TrimEnd('/') + "/api/health") -Method Get
@@ -226,6 +261,7 @@ try {
         applicationManifestSha256 = Get-Sha256 $ApplicationManifestPath
         supportedUpdatesPolicySha256 = $supportedUpdatesPolicySha256
         destination = (Resolve-Path -LiteralPath $Destination).Path
+        hosting = $hosting
         internetUnavailable = $true
         networkIsolation = $networkIsolation
         priorRelease = $priorRelease
@@ -249,8 +285,6 @@ try {
     Write-Host "Task-17 application $Mode qualification PASSED."
 }
 catch {
-    if ($AppPoolName) {
-        try { Invoke-AppCmd @("start", "apppool", "/apppool.name:$AppPoolName") } catch { }
-    }
+    try { Invoke-AppCmd @("start", "apppool", "/apppool.name:$AppPoolName") } catch { }
     throw
 }
