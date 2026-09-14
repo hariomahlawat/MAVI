@@ -34,7 +34,7 @@
         "variant", "bundleManifestSha256", "releaseLockSha256", "expectedHostCompatibility",
         "observedHostCompatibility", "installCommand", "installExitCode", "pipCheckPassed",
         "runtimeStarted", "realInferencePassed", "workerFlowPassed", "actualDevice",
-        "outboundNetworkUnavailable", "firstRunDownloadObserved", "result"
+        "outboundNetworkUnavailable", "networkIsolation", "firstRunDownloadObserved", "result"
       ],
       "properties": {
         "variant": { "enum": ["windows-x86_64-cpu", "windows-x86_64-cuda", "linux-x86_64-cpu", "linux-x86_64-cuda"] },
@@ -49,7 +49,17 @@
         "realInferencePassed": { "type": "boolean" },
         "workerFlowPassed": { "type": "boolean" },
         "actualDevice": { "type": "string", "minLength": 1 },
-        "outboundNetworkUnavailable": { "type": "boolean" },
+        "outboundNetworkUnavailable": { "const": true },
+        "networkIsolation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["proxyEnvironmentAbsent", "probes", "passed"],
+          "properties": {
+            "proxyEnvironmentAbsent": { "const": true },
+            "probes": { "type": "array", "minItems": 5 },
+            "passed": { "const": true }
+          }
+        },
         "firstRunDownloadObserved": { "type": "boolean" },
         "result": { "enum": ["passed", "failed"] }
       }
