@@ -20,6 +20,12 @@ vi.mock('../features/video-import/VideoImportPage', () => ({
 vi.mock('../features/processing/ProcessingPage', () => ({
   default: () => <h1>Processing route</h1>,
 }));
+vi.mock('../features/visual-search/VisualSearchPage', () => ({
+  default: () => <h1>Search route</h1>,
+}));
+vi.mock('../features/video-review/VideoReviewPage', () => ({
+  default: () => <h1>Review route</h1>,
+}));
 
 function renderRoute(initialEntry: string) {
   const queryClient = createMaviQueryClient();
@@ -35,7 +41,7 @@ function renderRoute(initialEntry: string) {
   );
 }
 
-describe('Task-15 application routes', () => {
+describe('MAVI application routes', () => {
   beforeEach(() => {
     vi.mocked(getPlatformHealth).mockResolvedValue({
       status: 'Healthy',
@@ -53,8 +59,25 @@ describe('Task-15 application routes', () => {
     expect(await screen.findByRole('heading', { name: 'Import route' })).toBeInTheDocument();
   });
 
-  it('resolves a direct processing deep link in the client router', async () => {
-    renderRoute('/processing/018f3f5a-2f70-7a2b-8a12-2d02f4c21421');
+  it('resolves direct processing, Search and Review deep links in the client router', async () => {
+    const processing = renderRoute('/processing/018f3f5a-2f70-7a2b-8a12-2d02f4c21421');
     expect(await screen.findByRole('heading', { name: 'Processing route' })).toBeInTheDocument();
+    processing.unmount();
+
+    const search = renderRoute('/search?objectClass=Person');
+    expect(await screen.findByRole('heading', { name: 'Search route' })).toBeInTheDocument();
+    search.unmount();
+
+    renderRoute('/review/video/018f3f5a-2f70-7a2b-8a12-2d02f4c21421?trackId=018f3f5a-2f70-7a2b-8a12-2d02f4c21451');
+    expect(await screen.findByRole('heading', { name: 'Review route' })).toBeInTheDocument();
+  });
+
+  it('navigates to Search from the primary navigation', async () => {
+    const user = userEvent.setup();
+    renderRoute('/cameras');
+
+    await user.click(screen.getByRole('link', { name: 'Search' }));
+
+    expect(await screen.findByRole('heading', { name: 'Search route' })).toBeInTheDocument();
   });
 });

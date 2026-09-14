@@ -21,6 +21,8 @@ export const queryKeys = {
   videos: ['videos'] as const,
   video: (id: string) => ['video', id] as const,
   videoProcessing: (id: string) => ['video-processing', id] as const,
+  trackSearch: (fingerprint: string) => ['tracks', 'search', fingerprint] as const,
+  track: (id: string) => ['track', id] as const,
   systemConfig: ['system-config'] as const,
   platformHealth: ['platform-health'] as const,
 };

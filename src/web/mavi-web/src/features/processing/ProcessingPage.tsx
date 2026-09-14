@@ -14,20 +14,12 @@ import Alert from '../../shared/components/Alert';
 import LoadingState from '../../shared/components/LoadingState';
 import PageHeader from '../../shared/components/PageHeader';
 import { formatDuration } from '../../shared/format/duration';
-import { formatInstant } from '../../shared/time/time';
+import { formatDateTime } from '../../shared/time/time';
 
 function safeFormatTimestamp(value: string | null | undefined, timeZoneId: string | undefined): string {
   if (!value || !timeZoneId) return '—';
   try {
-    return formatInstant(value, timeZoneId, {
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hourCycle: 'h23',
-    });
+    return formatDateTime(value, timeZoneId);
   } catch {
     return 'Invalid timestamp';
   }

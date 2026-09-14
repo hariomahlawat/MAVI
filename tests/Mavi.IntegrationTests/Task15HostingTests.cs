@@ -24,6 +24,16 @@ public sealed class Task15HostingTests
             Assert.Equal(HttpStatusCode.OK, deepLink.StatusCode);
             Assert.Contains("MAVI Task15 Host", await deepLink.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
+            using var searchLink = await client.GetAsync("/search?objectClass=Person");
+            Assert.Equal(HttpStatusCode.OK, searchLink.StatusCode);
+            Assert.Contains("MAVI Task15 Host", await searchLink.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+            var reviewVideoId = Guid.CreateVersion7();
+            var reviewTrackId = Guid.CreateVersion7();
+            using var reviewLink = await client.GetAsync($"/review/video/{reviewVideoId}?trackId={reviewTrackId}");
+            Assert.Equal(HttpStatusCode.OK, reviewLink.StatusCode);
+            Assert.Contains("MAVI Task15 Host", await reviewLink.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
             using var health = await client.GetAsync("/api/health");
             Assert.Equal(HttpStatusCode.OK, health.StatusCode);
             Assert.Equal("application/json", health.Content.Headers.ContentType?.MediaType);
