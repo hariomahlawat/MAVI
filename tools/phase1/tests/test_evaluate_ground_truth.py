@@ -19,6 +19,7 @@ def profile(mode="baseline"):
     value = {
         "schemaVersion": "mavi-phase1-acceptance-profile-v1",
         "mode": mode,
+        "qualificationCorpusManifestSha256": "c" * 64 if mode == "qualification" else None,
         "matching": {
             "minimumTemporalIou": 0.5,
             "minimumSpatialIou": 0.5,
@@ -164,3 +165,10 @@ def test_matching_scales_beyond_bitmask_sized_track_sets():
     assert [(item["eventId"], item["trackId"]) for item in result["matching"]] == [
         (f"e{index:02d}", f"t{index:02d}") for index in range(30)
     ]
+
+
+def test_qualification_profile_requires_approved_corpus_identity():
+    value = profile("qualification")
+    value["qualificationCorpusManifestSha256"] = None
+    with pytest.raises(ev.EvaluationError, match="qualification_corpus_identity_not_approved"):
+        ev.validate_profile(value)
