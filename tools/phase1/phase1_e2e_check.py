@@ -522,6 +522,16 @@ def _corpus_binding(
     }
 
 
+def assert_empty_scene_diagnostic(
+    *,
+    track_count: int,
+    detail_count: int,
+    evidence_count: int,
+) -> None:
+    if track_count != 0 or detail_count != 0 or evidence_count != 0:
+        raise AcceptanceError("qualification_empty_scene_false_positive")
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.mode == "formal" and (args.corpus_manifest is None or args.ground_truth is None):
         raise AcceptanceError("qualification_formal_ground_truth_required")
@@ -676,6 +686,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     gt_evidence = None
     metrics = None
+    if args.mode == "empty-scene-diagnostic":
+        assert_empty_scene_diagnostic(
+            track_count=len(exact_tracks),
+            detail_count=len(details),
+            evidence_count=evidence_passed,
+        )
     if args.mode == "formal":
         gt, gt_evidence = _corpus_binding(
             args.corpus_manifest,
