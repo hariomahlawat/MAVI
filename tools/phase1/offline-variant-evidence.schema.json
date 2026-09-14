@@ -8,7 +8,7 @@
     "releaseLockSha256","expectedHostCompatibility","observedHostCompatibility",
     "installCommand","installExitCode","pipCheckPassed","runtimeStarted",
     "realInferencePassed","workerFlowPassed","workerFlowEvidenceSha256",
-    "actualDevice","outboundNetworkUnavailable","firstRunDownloadObserved","result"
+    "actualDevice","outboundNetworkUnavailable","networkIsolation","firstRunDownloadObserved","result"
   ],
   "properties": {
     "schemaVersion": { "const": "mavi-offline-variant-evidence-v1" },
@@ -29,7 +29,30 @@
     "workerFlowPassed": { "type": "boolean" },
     "workerFlowEvidenceSha256": { "$ref": "#/$defs/sha256" },
     "actualDevice": { "type": "string", "minLength": 1 },
-    "outboundNetworkUnavailable": { "type": "boolean" },
+    "outboundNetworkUnavailable": { "const": true },
+    "networkIsolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proxyEnvironmentAbsent", "probes", "passed"],
+      "properties": {
+        "proxyEnvironmentAbsent": { "const": true },
+        "probes": {
+          "type": "array",
+          "minItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["host", "port", "reachable"],
+            "properties": {
+              "host": { "type": "string", "minLength": 1 },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "reachable": { "const": false }
+            }
+          }
+        },
+        "passed": { "const": true }
+      }
+    },
     "firstRunDownloadObserved": { "type": "boolean" },
     "result": { "enum": ["passed","failed"] }
   },
