@@ -20,7 +20,7 @@
     "attestation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["processingRunId", "comparisonPassed", "verificationStatus", "runtimeVariant", "actualDevice", "maviBuild", "maviCommit"],
+      "required": ["processingRunId", "comparisonPassed", "verificationStatus", "runtimeVariant", "actualDevice", "maviBuild", "maviCommit", "platform", "gpu"],
       "properties": {
         "processingRunId": { "$ref": "#/$defs/guid" },
         "comparisonPassed": { "type": "boolean" },
@@ -29,6 +29,23 @@
         "actualDevice": { "type": "string", "minLength": 1 },
         "maviBuild": { "type": "string", "minLength": 1 },
         "maviCommit": { "type": "string", "minLength": 1 },
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["system", "release", "version", "machine", "processor", "pythonVersion", "pythonImplementation", "pythonBuild", "pythonCompiler"],
+          "properties": {
+            "system": { "type": "string", "minLength": 1 },
+            "release": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "machine": { "type": "string", "minLength": 1 },
+            "processor": { "type": "string" },
+            "pythonVersion": { "type": "string", "minLength": 1 },
+            "pythonImplementation": { "type": "string", "minLength": 1 },
+            "pythonBuild": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "string" } },
+            "pythonCompiler": { "type": "string", "minLength": 1 }
+          }
+        },
+        "gpu": { "type": ["object", "null"] },
         "platformLockSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
         "candidateBundleManifestSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
         "candidateSelectedLockSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
