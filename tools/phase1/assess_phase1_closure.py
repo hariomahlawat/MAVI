@@ -104,6 +104,13 @@ def validate_application_lifecycle(
     require_source_commit(value, source_commit, "application_lifecycle")
     if value.get("mode") != expected_mode:
         raise ClosureError("application_lifecycle_mode_mismatch")
+    hosting = value.get("hosting")
+    if (
+        not isinstance(hosting, dict)
+        or hosting.get("passed") is not True
+        or hosting.get("physicalPath") != value.get("destination")
+    ):
+        raise ClosureError("application_lifecycle_iis_binding_mismatch")
     if value.get("internetUnavailable") is not True:
         raise ClosureError("application_lifecycle_not_offline")
     if value.get("observedHealth", {}).get("commit") != source_commit:
