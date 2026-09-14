@@ -15,7 +15,7 @@ CUDA bundle qualification remains pending hardware qualification. Task 12 does n
 
 ### Qualification candidate
 
-A qualification-candidate bundle is integrity checked and fully installable from local wheel bytes, but it may carry an `unverified` manifest and `pending` qualification record. It exists so Task 17 can execute true network-disconnected and hardware qualification.
+A qualification-candidate bundle is integrity checked and fully installable from local wheel bytes, but it may carry an `unverified` manifest and `pending` qualification record. The pending qualification record must already be rebound to the exact runtime-profile SHA-256 copied into the bundle; the bundle builder intentionally runs `verify_release_selection(..., allow_unverified=True)` and rejects stale qualification/runtime hash relationships. It exists so Task 17 can execute true network-disconnected and release-level qualification.
 
 It must not be represented as a production-qualified release.
 
@@ -129,7 +129,9 @@ That is not the formal disconnected-install qualification. Task 17 owns installa
 
 Task 17 also distinguishes two later acceptance events:
 
-- **candidate disconnected acceptance** against the frozen candidate release identities, used to generate release-level evidence before promotion; and
+- **candidate disconnected acceptance** against the frozen, internally consistent unverified candidate release + qualification-candidate bundle identities, used to generate release-level evidence before promotion; and
 - **final production-bundle verification acceptance** after legitimate metadata promotion and production-bundle generation.
+
+Candidate bundles are built only after the final runtime profile has been constructed and the still-pending qualification record has been rebound to that exact runtime-profile hash. For candidate runs, persisted runtime provenance may legitimately have `platformLockSha256 = null`; candidate lock authority is the validated candidate bundle manifest + selected qualified lock. For production runs, the persisted lock hash is mandatory and must match the production bundle/runtime selection.
 
 Only the latter is the final Phase-1 disconnected acceptance.
