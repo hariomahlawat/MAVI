@@ -134,13 +134,15 @@ Task 17 is fully closed only when the required acceptance state defined by the c
 
 ## 5. Branch, PR and evidence discipline
 
-Use one Task-17 topic branch from exact baseline:
+After this planning PR is accepted and merged, create one Task-17 implementation branch from the **new resulting integration head**, not from the pre-planning baseline `e877dcac9efaefe4f935fa50b2913e806b197d27`:
 
 `feature/task-17-phase1-acceptance`
 
-Open one PR into:
+Open one implementation PR into:
 
 `feature/task-10-rtmdet-bytetrack`
+
+Record that exact post-planning integration SHA in the implementation PR description before code changes begin.
 
 Within that PR keep these commit classes separate:
 
@@ -948,10 +950,12 @@ Fix sibling defects discovered by this audit before external review.
 
 ## 32. Definition of done
 
-Task 17 has two truthful stopping points:
+Task 17 has two truthful states during execution:
 
-- the implementation PR may be **implementation-complete / evidence-pending** when all deterministic tooling and code are accepted but unavailable external hardware prevents final qualification; in that state Task 17 remains active and the release stays unverified;
+- the implementation may become **code-complete / evidence-pending** when all deterministic tooling and code are green but external hardware/evidence is not yet available; in that state the single Task-17 implementation PR remains open (or draft), Task 17 remains active, and the release stays unverified;
 - Task 17 is **fully complete** only when the current mandatory qualification set and final disconnected Phase-1 acceptance have actually passed.
+
+Do not merge an evidence-pending Task-17 PR merely to shorten the branch lifetime. If program scheduling genuinely requires splitting implementation from later qualification, first re-baseline the roadmap explicitly into separate numbered/sub-numbered tasks so the repository never records an incomplete Task 17 as complete.
 
 For full completion, at minimum:
 
