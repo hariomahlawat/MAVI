@@ -105,6 +105,13 @@ def validate_lifecycle(
         "application-lifecycle-evidence.schema.json",
         "production_lifecycle",
     )
+    hosting = value.get("hosting")
+    if (
+        not isinstance(hosting, dict)
+        or hosting.get("passed") is not True
+        or hosting.get("physicalPath") != value.get("destination")
+    ):
+        raise ProductionAcceptanceError("production_lifecycle_iis_binding_failed")
     if (
         value.get("mode") != mode
         or value.get("sourceCommit") != source_commit
