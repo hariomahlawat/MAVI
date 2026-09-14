@@ -23,6 +23,8 @@ At the Task-15 baseline:
 - Task 13 provides authoritative completion and retry semantics.
 - Task 14 provides Track/evidence read APIs, but Task 15 deliberately does not implement Visual Search or Evidence Review.
 - `GET /api/videos/{id}/processing` currently serializes an anonymous response containing an application-layer view type. Before frontend consumption, Task 15 must convert that endpoint to explicit public `Mavi.Contracts` response records. React must not couple itself to anonymous/internal serialization.
+- Production topology is documented only as ASP.NET Core behind IIS; there is no current production route from same-origin `/api/...` frontend requests to the API and no SPA fallback. Task 15 must close that deployment gap rather than relying on Vite's development proxy.
+- The current application advertises a 10 GiB single-request import limit, which cannot be represented by IIS `maxAllowedContentLength` (32-bit ceiling). Task 15 must reconcile the public single-request import policy across IIS, ASP.NET Core and UI before browser upload is considered production-ready.
 
 This last point is a required pre-implementation contract hardening step, not scope expansion.
 
@@ -41,8 +43,10 @@ Task 15 shall implement:
 7. explicit retry after failed processing;
 8. stable public processing-status DTOs in `Mavi.Contracts`;
 9. focused component/API/router tests;
-10. production SPA deep-link fallback and host-level refresh verification;
-11. accessibility and offline-safe styling conventions.
+10. a defined same-origin production co-hosting topology for React + `/api` behind IIS;
+11. production SPA deep-link fallback and host-level API/deep-link verification;
+12. one coherent single-request upload-size policy across IIS, Kestrel/FormOptions and UI;
+13. accessibility and offline-safe styling conventions.
 
 Task 15 shall not implement:
 
@@ -382,7 +386,8 @@ Perform fast UX validation for:
 - camera selected;
 - date/time present;
 - file present;
-- file extension is `.mp4` case-insensitively.
+- file extension is `.mp4` case-insensitively;
+- file size does not exceed the authoritative 3 GiB Task-15 import policy (fast UX check only).
 
 Backend validation remains authoritative. Do not duplicate codec, container, DST ambiguity, file-size, hash, or metadata rules in JavaScript.
 
@@ -507,7 +512,53 @@ No automatic infinite retry.
 
 ---
 
-## 11. Application shell and navigation
+## 11. Production upload-size contract
+
+Task 15 shall resolve the current mismatch between a 10 GiB application setting and IIS's single-request request-filtering ceiling.
+
+### 11.1 Phase-1 supported single-request limit
+
+For Task 15, set the authoritative maximum imported MP4 file size to **3 GiB**:
+
+```text
+MaximumFileSizeBytes = 3,221,225,472
+MultipartOverheadBytes = 1,048,576
+Maximum HTTP request size = 3,222,274,048 bytes
+```
+
+The combined request ceiling remains below IIS `maxAllowedContentLength`'s unsigned-32-bit maximum.
+
+Do not retain a 10 GiB application promise that IIS cannot honor. Support for larger files requires a separately designed resumable/chunked upload protocol and is outside Task 15.
+
+### 11.2 All layers must agree
+
+The same source-controlled policy shall be enforced at:
+
+- `VideoImportOptions.MaximumFileSizeBytes`;
+- Kestrel `MaxRequestBodySize`;
+- ASP.NET Core `FormOptions.MultipartBodyLengthLimit`;
+- IIS request filtering `requestLimits.maxAllowedContentLength` in the production deployment configuration;
+- frontend preflight/help text where file-size guidance is shown.
+
+IIS must be configured for at least `MaximumFileSizeBytes + MultipartOverheadBytes`; configuration verification shall fail closed if the values drift.
+
+The application still remains authoritative for the stable `video_file_too_large` response whenever the request reaches ASP.NET Core.
+
+### 11.3 Production-host upload verification
+
+Do not make CI transfer a 3 GiB fixture.
+
+Instead:
+
+1. add an invariant/configuration test that proves the IIS request-filtering value is numeric, below the IIS ceiling, and **>=** the application's configured maximum request size;
+2. on the Windows production-host qualification path, send a valid synthetic/test MP4 multipart request larger than IIS's default ~30 MB (for example 32–64 MiB) and prove the request reaches MAVI rather than being rejected by IIS before ASP.NET Core;
+3. verify a deliberately over-policy upload is rejected consistently by the configured boundary and is not accepted merely because one layer has a larger limit.
+
+This gives practical proof that the IIS default no longer truncates the supported workflow while keeping CI resource use bounded.
+
+---
+
+## 12. Application shell and navigation
 
 Replace the bootstrap hero with a compact operational shell.
 
@@ -526,7 +577,7 @@ Use semantic elements (`nav`, `main`, headings, labels, buttons) and accessible 
 
 ---
 
-## 12. Query keys and mutation discipline
+## 13. Query keys and mutation discipline
 
 Use centralized query-key factories, for example:
 
@@ -552,11 +603,11 @@ Query retries should be bounded and conservative; do not turn an offline API out
 
 ---
 
-## 13. Testing strategy
+## 14. Testing strategy
 
 Use behavior-focused tests, not implementation snapshots.
 
-### 13.1 API client tests
+### 14.1 API client tests
 
 Prove:
 
@@ -567,7 +618,7 @@ Prove:
 - multipart request does not force a Content-Type header;
 - abort signal is passed through.
 
-### 13.2 Cameras page tests
+### 14.2 Cameras page tests
 
 At minimum:
 
@@ -578,7 +629,7 @@ At minimum:
 5. duplicate code shows conflict message;
 6. submit is protected while pending.
 
-### 13.3 Import page tests
+### 14.3 Import page tests
 
 At minimum:
 
@@ -591,7 +642,7 @@ At minimum:
 7. import success + queue failure does not retry upload or claim import failure;
 8. backend DST ambiguity/metadata errors render stable messages.
 
-### 13.4 Processing page tests
+### 14.4 Processing page tests
 
 Use a QueryClient with retries disabled.
 
@@ -607,7 +658,7 @@ At minimum:
 8. `processing_already_active` on retry refetches rather than failing terminally;
 9. unknown video displays not-found state.
 
-### 13.5 Router/shell and production deep-link tests
+### 14.5 Router/shell and production-host tests
 
 Component/router tests shall prove:
 
@@ -615,24 +666,58 @@ Component/router tests shall prove:
 - navigation reaches Cameras and Import;
 - in-app navigation to `/processing/:videoAssetId` renders the processing page.
 
-That is **not** sufficient for production refresh semantics. Task 15 shall also add the production SPA fallback required by the actual IIS/static deployment so an HTTP request for `/processing/<id>` serves `index.html` and allows React Router to start.
+That is **not** sufficient for production.
 
-For the current IIS/static deployment, check in the frontend-host fallback configuration as a source-controlled deployment artifact (for example a Vite `public/web.config` copied into `dist`) with these invariants:
+#### Authoritative Task-15 production topology
 
-- existing static files/directories are served normally;
-- API/health paths are not rewritten to the SPA;
-- non-file frontend routes fall back to `/index.html`;
+Task 15 shall standardize Phase-1 web hosting as a **single-origin ASP.NET Core application behind IIS/ANCM**:
+
+```text
+Browser
+  |
+  v
+IIS (Windows Server)
+  |
+  v
+Mavi.Api / ASP.NET Core
+  |-- /api/... and /health/... -> API endpoints
+  |-- real frontend static files -> built React assets
+  '-- other non-file frontend routes -> React index.html
+```
+
+The Vite development proxy remains development-only and is not a production architecture.
+
+The frontend production build shall be copied into the ASP.NET Core publish output (for example under `wwwroot`) by a deterministic build/publish step. `Mavi.Api` shall serve those local static assets itself. No second IIS static site, reverse-proxy hop, CDN, or runtime Internet dependency is required.
+
+Routing order/invariants:
+
+- defined `/api/...` routes execute in ASP.NET Core;
+- `/health/...` remains API/health traffic;
+- real static files are served normally;
+- an unknown `/api/...` or `/health/...` path must remain an HTTP API 404 and must **never** return `index.html`;
+- only non-file frontend routes fall back to the React entry document;
 - fallback is loop-safe.
 
-Add a **host-level** test/qualification step that requests a built-app deep link over HTTP rather than invoking the router directly. At minimum, verify `GET /processing/<test-id>` returns the SPA entry document under the production-equivalent host/fallback configuration. If the deployment topology changes from IIS/static hosting, implement the equivalent fallback at that actual host instead of retaining a stale IIS-specific rule.
+This topology removes the ambiguity identified during review: same-origin `/api/...` does not need a separate proxy rule because IIS forwards the site to the ASP.NET Core application and ASP.NET Core owns both API and frontend delivery.
 
-### 13.6 Backend contract test
+#### Production-host verification
 
+Add host-level/integration qualification against the production-equivalent published host, not only React Router:
+
+1. `GET /processing/<test-id>` returns the SPA entry document;
+2. `GET /api/health` through the same origin returns API JSON, not the SPA;
+3. an unknown `/api/...` path returns API 404 and is not rewritten to `index.html`;
+4. a built static asset is served directly;
+5. no response requires external/CDN assets.
+
+The host-level tests must exercise the built/published composition used by Windows/IIS deployment. If the production topology is deliberately changed later, amend the architecture/runbook first and replace these tests with equivalent coverage.
+
+### 14.6 Backend contract test
 Add focused integration coverage for the explicit `ProcessingStatusResponse` contract before writing frontend consumers.
 
 ---
 
-## 14. Implementation sequence
+## 15. Implementation sequence
 
 The implementation shall proceed in controlled checkpoints.
 
@@ -652,8 +737,10 @@ Do not start React processing-page code until this is green.
 3. implement `ApiError` + shared client;
 4. add QueryClient/provider/router/shell;
 5. migrate existing health/config fetches into query-based APIs and make `displayTimeZoneId` the explicit timestamp-presentation source;
-6. add and verify the production SPA host fallback for BrowserRouter deep links;
-7. run frontend tests/typecheck/build.
+6. compose the built React app into the ASP.NET Core publish output and add API-safe SPA fallback routing;
+7. add source-controlled IIS/ANCM request-filter configuration aligned with the 3 GiB file policy;
+8. verify same-origin API routing, static assets and deep-link refresh through the production-equivalent host;
+9. run frontend tests/typecheck/build.
 
 ### Checkpoint C — Cameras
 
@@ -697,6 +784,8 @@ Before Codex review, inspect the complete Task-15 subsystem for sibling defects:
 - configured display timezone vs browser timezone drift;
 - cold-cache camera-context reconstruction;
 - production-host SPA fallback/deep-link refresh behavior;
+- same-origin `/api` reachability through IIS/ASP.NET Core co-hosting;
+- IIS/Kestrel/FormOptions/UI upload-limit drift and the legacy 10 GiB mismatch;
 - backend-internal field leakage;
 - remote runtime assets;
 - accessibility regressions;
@@ -707,14 +796,18 @@ Fix material defects before asking Codex to find them.
 
 ---
 
-## 15. Files expected to change
+## 16. Files expected to change
 
 Backend contract:
 
 ```text
 src/platform/Mavi.Contracts/Api/Processing/ProcessingContracts.cs
 src/platform/Mavi.Api/Endpoints/VideoEndpoints.cs
-tests/Mavi.IntegrationTests/...processing-status contract tests...
+src/platform/Mavi.Api/Program.cs
+src/platform/Mavi.Api/appsettings.json
+source-controlled IIS/ANCM deployment configuration for request filtering
+publish/build composition for React dist -> ASP.NET Core static web root
+tests/Mavi.IntegrationTests/...processing-status/hosting contract tests...
 ```
 
 Frontend:
@@ -751,7 +844,7 @@ Exact filenames may be adjusted to fit existing conventions, but responsibilitie
 
 ---
 
-## 16. Verification gates
+## 17. Verification gates
 
 Focused development gates:
 
@@ -763,7 +856,8 @@ cd src/web/mavi-web
 npm test
 npm run typecheck
 npm run build
-# run the Task-15 production-host/deep-link verification against the built app
+# run Task-15 production-host verification against the published app:
+# SPA deep link + same-origin /api + unknown-api 404 + static asset + IIS upload-limit checks
 cd ../../..
 
 python tools/verify_repo.py
@@ -775,7 +869,7 @@ Task 15 changes no vision runtime/model code. No Task-12 runtime lock, offline b
 
 ---
 
-## 17. Review and merge discipline
+## 18. Review and merge discipline
 
 1. Branch from exact accepted integration head.
 2. Keep backend contract hardening and frontend feature commits cohesive.
@@ -793,7 +887,7 @@ Task 15 changes no vision runtime/model code. No Task-12 runtime lock, offline b
 
 ---
 
-## 18. Definition of done
+## 19. Definition of done
 
 Task 15 is complete only when all of the following are true:
 
@@ -804,12 +898,17 @@ Task 15 is complete only when all of the following are true:
 - partial import/queue success cannot cause accidental re-upload;
 - Processing page polls only while active and stops terminally;
 - failed processing can be explicitly retried;
-- direct page refresh/deep link works through the production host fallback, not only inside a router unit test;
+- React and Mavi.Api are published as one documented same-origin ASP.NET Core application behind IIS;
+- same-origin `/api` requests demonstrably reach ASP.NET Core through the production-equivalent host;
+- direct page refresh/deep link works through the ASP.NET Core SPA fallback, not only inside a router unit test;
+- unknown API paths remain API 404s and cannot fall through to the SPA;
 - cold-cache processing deep links reconstruct authoritative camera context;
 - absolute timestamps use `/api/system/config.displayTimeZoneId` through the existing explicit-zone formatter and never silently use browser timezone;
 - server state is owned by TanStack Query;
 - API failures retain stable backend codes from the real top-level Problem Details `code` wire property;
 - no storage/internal worker data leaks to React;
+- the 3 GiB single-request upload policy is consistent across application options, Kestrel, FormOptions, IIS request filtering and UI guidance;
+- a >30 MB production-host multipart qualification proves IIS's default request limit is not silently blocking supported imports;
 - no runtime Internet dependency is introduced;
 - frontend tests, typecheck and build are green;
 - .NET contract/integration tests are green;
