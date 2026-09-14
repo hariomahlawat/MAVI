@@ -61,7 +61,7 @@ describe('Track API client', () => {
       limit: 24,
     });
 
-    expect(new URLSearchParams(query)).toEqual(new URLSearchParams({
+    expect(Object.fromEntries(new URLSearchParams(query))).toEqual({
       cameraId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21412',
       videoAssetId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21421',
       processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431',
@@ -72,7 +72,7 @@ describe('Track API client', () => {
       minimumConfidence: '0.9125',
       cursor: 'cursor-token',
       limit: '24',
-    }));
+    });
     expect(serializeTrackSearchFilters({ objectClass: 'Vehicle' })).toBe('objectClass=Vehicle');
   });
 
