@@ -13,3 +13,12 @@ Verify that:
 7. logs contain no failed Internet telemetry or licence-check calls;
 8. backup and restore use only local/approved network storage;
 9. an update can be applied from a controlled offline bundle.
+
+
+## Phase-1 formal acceptance
+
+Task 17 owns the formal Phase-1 disconnected-install and end-to-end offline acceptance event. Hosted CI, an invalid proxy, or the existence of a qualification-candidate bundle is not by itself proof of a disconnected deployment.
+
+Formal evidence must bind the exact source/model/profile/runtime/bundle identities that were exercised and must keep unavailable hardware or offline gates explicitly pending rather than inferring success.
+
+See `docs/superpowers/plans/2026-09-14-task-17-phase1-hardening-qualification-acceptance.md` for the authoritative sequence and evidence requirements.
