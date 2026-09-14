@@ -1,10 +1,12 @@
 # Phase-1 Roadmap Re-baseline — 13 September 2026
 
-**Status:** Authoritative Phase-1 roadmap. Tasks 13–14 are complete and Task 15 is the active Phase-1 task.
+**Status:** Authoritative Phase-1 roadmap. Tasks 13–15 are complete and Task 16 is the active Phase-1 task.
 
 **Original re-baseline commit:** `f7f13183fd0119be58a63bac2c9fbac580ff719d`
 
 **Task-15 planning baseline:** Task 14 merged as PR #31 at `3e0382185d6a3a1907870226af3561ff97f2ba8f`.
+
+**Task-15 completion:** PR #33 squash-merged at `abe0b16f11fad0227efe742ce01211b9ddf689c2` after exact-head Quality Gate #709 and final Codex review reported no major issues on implementation head `96e72a6cd87d20cbc1f2cd4eab186f65232a620a`.
 
 ## Purpose
 
@@ -30,7 +32,7 @@ At the current Task-15 planning baseline MAVI has:
 7. Authoritative Task-13 successful result completion, evidence sealing, atomic intelligence persistence and runtime provenance.
 8. Task-14 structured Track search with stable monotonic cursor snapshots, Track detail, source-video streaming and secure accepted-evidence content APIs.
 
-The critical backend Phase-1 path required by the first operator workflow is now present. The active gap is the browser application foundation and operator workflow for Cameras, Import and Processing. Task 15 must consume those backend contracts without recreating backend semantics in React.
+The critical backend Phase-1 path and first operator workflow are now present. Task 15 delivered the React application foundation, Cameras, Import and Processing workflow, explicit processing contracts, recoverable duplicate-import semantics, same-origin ASP.NET Core/IIS hosting, bounded polling, configured-timezone rendering and production-host qualification. The active Phase-1 gap is now Task 16 Visual Search and Evidence Review over the already-complete Task-14 Track/evidence APIs.
 
 ## Authoritative remaining sequence
 
@@ -38,8 +40,8 @@ The critical backend Phase-1 path required by the first operator workflow is now
 |---|---|---|
 | **Task 13** | Validated, atomic vision-result completion and persistence — **Complete** | Actual Tasks 11–12 complete |
 | **Task 14** | Track search and evidence-content APIs — **Complete** | Task 13 durable intelligence |
-| **Task 15** | React application foundation, Cameras, Import and Processing UI — **Active** | Stable existing APIs + Task 13 processing completion |
-| **Task 16** | React Visual Search and Evidence Review | Task 14 Track/evidence APIs |
+| **Task 15** | React application foundation, Cameras, Import and Processing UI — **Complete** | Stable existing APIs + Task 13 processing completion |
+| **Task 16** | React Visual Search and Evidence Review — **Active** | Task 14 Track/evidence APIs + Task 15 frontend foundation |
 | **Task 17** | Phase-1 end-to-end hardening, qualification closure, ground truth and offline acceptance | Tasks 13–16 |
 
 This sequence supersedes older future-task numbering in earlier planning documents. Historical records of what completed Tasks 9–12 did remain valid.
@@ -100,7 +102,7 @@ For each remaining task:
 
 React feature work must not invent or own operational semantics that belong to the backend.
 
-Task 14 has now established the Track/evidence read boundary and Task 13 established authoritative processing completion. Task 15 therefore consumes Cameras, Import and Processing semantics exactly as exposed by the backend and must not pull Task-16 Visual Search/Evidence Review into scope. Browser state is never a substitute for PostgreSQL-authoritative processing or intelligence state.
+Task 14 established the Track/evidence read boundary, Task 13 established authoritative processing completion, and Task 15 now provides the shared frontend shell/API/query/error/time/hosting foundation. Task 16 shall extend that foundation for Visual Search and Evidence Review without bypassing backend APIs or moving PostgreSQL-authoritative semantics into browser state.
 
 ## Source of truth
 
@@ -109,5 +111,6 @@ For remaining Phase-1 sequencing:
 1. this re-baseline document controls task numbering;
 2. `2026-09-13-task-13-vision-result-persistence.md` records the completed Task-13 implementation baseline;
 3. `2026-09-13-task-14-track-search-evidence-apis.md` records the completed Task-14 implementation baseline;
-4. `2026-09-14-task-15-react-foundation-import-processing.md` controls Task-15 implementation;
-5. older task plans remain historical design/evidence records unless explicitly updated to reference this re-baseline.
+4. `2026-09-14-task-15-react-foundation-import-processing.md` records the completed Task-15 implementation baseline and closure evidence;
+5. Task 16 planning/implementation shall branch from Task-15 integration head `abe0b16f11fad0227efe742ce01211b9ddf689c2`;
+6. older task plans remain historical design/evidence records unless explicitly updated to reference this re-baseline.
