@@ -95,6 +95,11 @@ public sealed class Task15ApiContractTests
         public Task<ProcessingStatusResult> GetStatusAsync(Guid videoId, CancellationToken cancellationToken) =>
             Task.FromResult(status);
 
+        public Task<ProcessingRunAttestationSource?> GetCompletedRunAttestationAsync(
+            Guid processingRunId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<ProcessingRunAttestationSource?>(null);
+
         public Task<QueueProcessingResult> QueueAsync(Guid videoId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
