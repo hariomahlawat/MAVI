@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "mavi-phase1-acceptance-profile-v1",
+  "mode": "baseline",
+  "matching": {
+    "minimumTemporalIou": 0.5,
+    "minimumSpatialIou": 0.5,
+    "maximumInterpolationSpanMs": 2000,
+    "iouFixedPrecisionScale": 1000000,
+    "iouRounding": "half-up"
+  },
+  "requiredClasses": ["Person", "Vehicle"],
+  "classThresholds": {
+    "Person": null,
+    "Vehicle": null
+  },
+  "emptyScene": {
+    "maximumUnmatchedTracks": null
+  }
+}
