@@ -1,8 +1,10 @@
 # Task 16 — React Visual Search and Evidence Review
 
-**Status:** Authoritative implementation plan.
+**Status:** Complete. Task 16 was implemented in PR #36 and squash-merged into the Phase-1 integration branch.
 
 **Planning baseline:** Phase-1 integration head `60d33163bd7d8f7956826e9d554ac47a41a1ad44`.
+
+**Accepted implementation baseline:** PR #36 implementation head `2301d0cad5ead5c634abf4438bb7b3a617887bac`; exact-head MAVI Quality Gate #783 succeeded; final Codex review reported no major issues; squash merge `e877dcac9efaefe4f935fa50b2913e806b197d27` completed on 14 September 2026.
 
 **Primary objective:** extend the Task-15 React application foundation with a production-quality Visual Search workflow over Task-14 Track APIs and a direct, evidence-linked Video Review workflow that reconstructs entirely from durable route/API state.
 
@@ -1159,3 +1161,36 @@ Task 16 is complete only when all of the following are true:
 - broad exact-head Codex review has no unresolved Critical/P1/P2 finding.
 
 Only after these conditions are met should Task 16 be marked complete and the roadmap advance to Task 17.
+
+
+---
+
+## 26. Completion record
+
+Task 16 is complete.
+
+Accepted evidence:
+
+- implementation PR: **#36 — Task 16: React Visual Search and Evidence Review**;
+- final reviewed implementation head: `2301d0cad5ead5c634abf4438bb7b3a617887bac`;
+- exact-head MAVI Quality Gate: **#783 — SUCCESS**;
+- final Codex exact-head review: **no major issues**;
+- unresolved review threads at merge: **0**;
+- squash merge commit: `e877dcac9efaefe4f935fa50b2913e806b197d27`;
+- accepted integration branch after merge: `feature/task-10-rtmdet-bytetrack` at `e877dcac9efaefe4f935fa50b2913e806b197d27`.
+
+The final review cycle materially improved the implementation rather than merely closing comments. The externally identified P2 showed that a valid committed `minimumConfidence` could be reinterpreted through binary floating-point draft conversion during an unrelated Search submission. The remediation established the broader invariant that transformed numeric filters remain authoritative in committed state until explicitly edited. The internal sibling audit then also corrected exact duration conversion and tiny-confidence plain-decimal serialization so valid values never depend on binary floating artefacts or exponent notation rejected by the Task-14 backend contract.
+
+Additional Task-16 acceptance properties include:
+
+- URL-driven committed Visual Search with draft/committed/server-state separation;
+- preservation of valid committed time, camera, advanced and numeric scopes during unrelated edits or dependency outages;
+- configured-IANA-zone wall-time conversion with explicit ambiguous/nonexistent DST rejection;
+- opaque cursor pagination with no snapshot mixing after filter changes or expired cursors;
+- direct Evidence Review reconstruction from route/API state with Track/video identity fail-closed checks;
+- native range-backed video playback and deterministic pre-roll seek;
+- evidence/media failure fallbacks and same-video reseek correctness;
+- Search and Review production SPA deep-link coverage;
+- no browser ownership of PostgreSQL, storage paths, evidence authority, review mutation or runtime Internet dependencies.
+
+Task 17 now owns Phase-1 end-to-end hardening, remaining release qualification evidence, controlled ground truth, true offline acceptance and final Phase-1 acceptance closure. Task 17 must not reinterpret Task-16 browser state as backend authority or reopen the established Search/Review contracts without a separately justified defect.
