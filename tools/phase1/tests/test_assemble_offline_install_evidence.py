@@ -18,6 +18,7 @@ def variant(name: str, commit: str) -> dict:
         "schemaVersion": "mavi-offline-variant-evidence-v1",
         "sourceCommit": commit,
         "targetVerifiedManifestSha256": "e" * 64,
+        "acceptanceProfileSha256": "d" * 64,
         "variant": name,
         "bundleMode": "qualification-candidate",
         "bundleManifestSha256": "a" * 64,
