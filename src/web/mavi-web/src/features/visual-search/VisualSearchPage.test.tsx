@@ -129,6 +129,73 @@ describe('VisualSearchPage', () => {
     expect(searchTracks).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves a bookmarked low confidence exactly when an unrelated filter is submitted', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VisualSearchPage />, {
+      route: '/search?minimumConfidence=0.0007',
+    });
+
+    await screen.findByRole('link', { name: 'Review evidence' });
+    expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('0.07');
+
+    await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(searchTracks).mock.calls[1][0]).toEqual(expect.objectContaining({
+      objectClass: 'Vehicle',
+      minimumConfidence: 0.0007,
+    }));
+  });
+
+  it('preserves committed confidence beyond operator edit precision until the field is edited', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VisualSearchPage />, {
+      route: '/search?minimumConfidence=0.00075',
+    });
+
+    await screen.findByRole('link', { name: 'Review evidence' });
+    expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('0.075');
+
+    await user.selectOptions(screen.getByLabelText('Object class'), 'Person');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(searchTracks).mock.calls[1][0].minimumConfidence).toBe(0.00075);
+  });
+
+  it('recomputes confidence only after the operator explicitly edits it', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VisualSearchPage />, {
+      route: '/search?minimumConfidence=0.00075',
+    });
+
+    await screen.findByRole('link', { name: 'Review evidence' });
+    const confidence = screen.getByLabelText('Minimum confidence (%)');
+    await user.clear(confidence);
+    await user.type(confidence, '0.08');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(searchTracks).mock.calls[1][0].minimumConfidence).toBe(0.0008);
+  });
+
+  it('preserves committed duration exactly on unrelated submissions until duration is edited', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VisualSearchPage />, {
+      route: '/search?minimumDurationMs=1251',
+    });
+
+    await screen.findByRole('link', { name: 'Review evidence' });
+    expect(screen.getByLabelText('Minimum duration (seconds)')).toHaveValue('1.251');
+
+    await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(searchTracks).mock.calls[1][0].minimumDurationMs).toBe(1251);
+  });
+
   it('preserves committed UTC time bounds during system-config outage', async () => {
     const user = userEvent.setup();
     vi.mocked(getSystemConfig).mockRejectedValue(new Error('offline'));
