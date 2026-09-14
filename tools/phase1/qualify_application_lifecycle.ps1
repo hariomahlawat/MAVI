@@ -59,16 +59,6 @@ function Invoke-AppCmd([string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "iis_appcmd_failed:$($Arguments -join ' ')" }
 }
 
-function Set-AppPoolEnvironment([string]$Pool, [string]$Name, [string]$Value) {
-    if (-not $Pool) { return }
-    $appcmd = Join-Path $env:windir "System32\inetsrv\appcmd.exe"
-    $remove = "/-[name='$Pool'].environmentVariables.[name='$Name']"
-    $add = "/+[name='$Pool'].environmentVariables.[name='$Name',value='$Value']"
-    & $appcmd set config -section:system.applicationHost/applicationPools $remove /commit:apphost 2>$null
-    & $appcmd set config -section:system.applicationHost/applicationPools $add /commit:apphost
-    if ($LASTEXITCODE -ne 0) { throw "iis_environment_identity_failed:$Name" }
-}
-
 function Invoke-StateCheck([string]$AcceptanceEvidence, [string]$ExpectedCommit, [string]$Output) {
     & $Python "$PSScriptRoot\verify_authoritative_state.py" --base-url $BaseUrl --acceptance-evidence $AcceptanceEvidence --expected-application-commit $ExpectedCommit --output $Output
     if ($LASTEXITCODE -ne 0) { throw "authoritative_state_check_failed" }
@@ -209,8 +199,6 @@ try {
     }
 
     if ($AppPoolName) {
-        Set-AppPoolEnvironment -Pool $AppPoolName -Name "MAVI_BUILD" -Value $build
-        Set-AppPoolEnvironment -Pool $AppPoolName -Name "MAVI_COMMIT" -Value $sourceCommit
         Invoke-AppCmd @("start", "apppool", "/apppool.name:$AppPoolName")
     }
 
