@@ -13,6 +13,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 import venv
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -156,20 +157,36 @@ def observed_host(expected: dict[str, Any]) -> dict[str, Any]:
     raise VariantQualificationError("variant_host_os_unsupported")
 
 
-def observed_runtime_platform() -> dict[str, Any]:
-    python_build = list(platform.python_build())
-    return {
-        "system": platform.system(),
-        "release": platform.release(),
-        "version": platform.version(),
-        "machine": platform.machine(),
-        "processor": platform.processor(),
-        "pythonVersion": platform.python_version(),
-        "pythonImplementation": platform.python_implementation(),
-        "pythonBuild": python_build,
-        "pythonCompiler": platform.python_compiler(),
-    }
-
+def observed_runtime_platform(
+    python: Path,
+    *,
+    env: dict[str, str],
+) -> dict[str, Any]:
+    script = (
+        "import json,platform;"
+        "b=platform.python_build();"
+        "print(json.dumps({"
+        "'system':platform.system(),"
+        "'release':platform.release(),"
+        "'version':platform.version(),"
+        "'machine':platform.machine(),"
+        "'processor':platform.processor() or 'unknown',"
+        "'pythonVersion':platform.python_version(),"
+        "'pythonImplementation':platform.python_implementation(),"
+        "'pythonBuild':[b[0],b[1]],"
+        "'pythonCompiler':platform.python_compiler()"
+        "},sort_keys=True))"
+    )
+    completed = run_command([str(python), "-c", script], env=env)
+    if completed.returncode != 0:
+        raise VariantQualificationError("variant_runtime_platform_unavailable")
+    try:
+        value = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise VariantQualificationError("variant_runtime_platform_invalid") from exc
+    if not isinstance(value, dict):
+        raise VariantQualificationError("variant_runtime_platform_invalid")
+    return value
 
 def assert_outbound_internet_unavailable() -> dict[str, Any]:
     proxy_names = (
@@ -225,23 +242,46 @@ def assert_worker_flow_binding(
     worker: dict[str, Any],
     *,
     variant: str,
+    bundle_mode: str,
     target_verified_manifest_sha256: str,
     bundle_manifest_sha256: str,
     release_lock_sha256: str,
     runtime_platform: dict[str, Any],
     device: str,
+    expected_mavi_build: str,
 ) -> None:
     attestation = worker.get("attestation", {})
-    if (
+    common_invalid = (
         worker.get("mode") != "formal"
         or worker.get("targetVerifiedManifestSha256") != target_verified_manifest_sha256
         or attestation.get("runtimeVariant") != variant
-        or attestation.get("candidateBundleManifestSha256") != bundle_manifest_sha256
-        or attestation.get("candidateSelectedLockSha256") != release_lock_sha256
         or attestation.get("platform") != runtime_platform
+        or attestation.get("maviBuild") != expected_mavi_build
         or worker.get("evidenceReads", {}).get("passed", 0) <= 0
-    ):
+    )
+    if common_invalid:
         raise VariantQualificationError("variant_worker_flow_evidence_invalid")
+
+    if bundle_mode == "qualification-candidate":
+        if (
+            attestation.get("verificationStatus") != "unverified"
+            or attestation.get("candidateBundleManifestSha256") != bundle_manifest_sha256
+            or attestation.get("candidateSelectedLockSha256") != release_lock_sha256
+            or attestation.get("productionBundleManifestSha256") is not None
+        ):
+            raise VariantQualificationError("variant_worker_flow_evidence_invalid")
+    elif bundle_mode == "production":
+        if (
+            attestation.get("verificationStatus") != "verified"
+            or attestation.get("productionBundleManifestSha256") != bundle_manifest_sha256
+            or attestation.get("platformLockSha256") != release_lock_sha256
+            or attestation.get("candidateBundleManifestSha256") is not None
+            or attestation.get("candidateSelectedLockSha256") is not None
+        ):
+            raise VariantQualificationError("variant_worker_flow_evidence_invalid")
+    else:
+        raise VariantQualificationError("variant_bundle_mode_invalid")
+
     actual = attestation.get("actualDevice")
     if device == "cpu" and actual != "cpu":
         raise VariantQualificationError("variant_worker_flow_device_mismatch")
@@ -250,6 +290,110 @@ def assert_worker_flow_binding(
     ):
         raise VariantQualificationError("variant_worker_flow_device_mismatch")
 
+
+def _command_sha256(arguments: list[str]) -> str:
+    return hashlib.sha256("\0".join(arguments).encode("utf-8")).hexdigest()
+
+
+def run_installed_worker_flow(
+    args: argparse.Namespace,
+    *,
+    python: Path,
+    environment: dict[str, str],
+    manifest: dict[str, Any],
+    manifest_sha: str,
+) -> tuple[dict[str, Any], str, str, str]:
+    if args.worker_flow_output.exists():
+        raise VariantQualificationError("variant_worker_flow_output_exists")
+    worker_log = args.worker_flow_output.with_suffix(args.worker_flow_output.suffix + ".worker.log")
+    if worker_log.exists():
+        raise VariantQualificationError("variant_worker_log_exists")
+
+    release_models = args.bundle_dir / "release" / "models"
+    release_runtime = args.bundle_dir / "release" / "runtime" / "mmdetection-phase1-v1"
+    model_manifest = release_models / "manifests" / "rtmdet-m-coco-phase1-v1.json"
+    qualification = release_models / "qualifications" / "rtmdet-m-coco-phase1-v1.json"
+    pipeline_profile = args.bundle_dir / "release" / "config" / "pipelines" / "phase1-detection-tracking-v1.json"
+    runtime_profile = release_runtime / "runtime.json"
+
+    worker_env = dict(environment)
+    worker_env.update({
+        "MAVI_API_BASE_URL": args.base_url,
+        "MAVI_WORKER_ID": f"task17-{args.variant}",
+        "MAVI_MEDIA_ROOT": str(args.media_root.resolve()),
+        "MAVI_MODEL_ROOT": str(release_models.resolve()),
+        "MAVI_MODEL_MANIFEST_PATH": str(model_manifest.resolve()),
+        "MAVI_PIPELINE_PROFILE_PATH": str(pipeline_profile.resolve()),
+        "MAVI_RUNTIME_PROFILE_PATH": str(runtime_profile.resolve()),
+        "MAVI_QUALIFICATION_RECORD_PATH": str(qualification.resolve()),
+        "MAVI_BUILD_ID": args.expected_mavi_build,
+        "MAVI_COMMIT_SHA": args.source_commit,
+        "MAVI_DEVICE_POLICY": "cuda" if args.variant.endswith("-cuda") else "cpu",
+        "MAVI_DEVICE_INDEX": str(args.device_index),
+        "MAVI_PRODUCTION_MODE": "true" if manifest["releaseStatus"] == "production" else "false",
+        "MAVI_POLL_INTERVAL_SECONDS": "0.25",
+    })
+    worker_command = [str(python), "-m", "mavi_vision.worker.main"]
+
+    e2e_command = [
+        str(python),
+        str(PHASE1_ROOT / "phase1_e2e_check.py"),
+        "--mode", "formal",
+        "--base-url", args.base_url,
+        "--camera-code", args.camera_code,
+        "--camera-name", args.camera_name,
+        "--camera-timezone", args.camera_timezone,
+        "--recording-local", args.recording_local,
+        "--video", str(args.video),
+        "--processing-timeout-seconds", str(args.processing_timeout_seconds),
+        "--environment-label", args.environment_label,
+        "--source-commit", args.source_commit,
+        "--expected-mavi-build", args.expected_mavi_build,
+        "--target-verified-manifest-sha256", args.target_verified_manifest_sha256,
+        "--model-root", str(release_models),
+        "--model-manifest", str(model_manifest),
+        "--pipeline-profile", str(pipeline_profile),
+        "--runtime-profile", str(runtime_profile),
+        "--qualification-record", str(qualification),
+        "--bundle-dir", str(args.bundle_dir),
+        "--acceptance-profile", str(args.acceptance_profile),
+        "--corpus-manifest", str(args.corpus_manifest),
+        "--ground-truth", str(args.ground_truth),
+        "--output", str(args.worker_flow_output),
+    ]
+
+    args.worker_flow_output.parent.mkdir(parents=True, exist_ok=True)
+    with worker_log.open("w", encoding="utf-8", newline="\n") as log_stream:
+        process = subprocess.Popen(
+            worker_command,
+            env=worker_env,
+            stdout=log_stream,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        try:
+            time.sleep(args.worker_startup_seconds)
+            if process.poll() is not None:
+                raise VariantQualificationError("variant_worker_startup_failed")
+            completed = run_command(e2e_command, env=environment)
+            if completed.returncode != 0:
+                raise VariantQualificationError("variant_worker_flow_execution_failed")
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=10)
+
+    worker = read_json(args.worker_flow_output)
+    return (
+        worker,
+        sha256_file(args.worker_flow_output),
+        sha256_file(worker_log),
+        _command_sha256(worker_command),
+    )
 
 def qualify(args: argparse.Namespace) -> dict[str, Any]:
     if not args.network_isolated:
@@ -331,16 +475,28 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
     ):
         raise VariantQualificationError("variant_cuda_device_mismatch")
 
-    worker = read_json(args.worker_flow_evidence)
+    runtime_platform = observed_runtime_platform(python, env=environment)
+    worker, worker_evidence_sha, worker_log_sha, worker_command_sha = run_installed_worker_flow(
+        args,
+        python=python,
+        environment=environment,
+        manifest=manifest,
+        manifest_sha=manifest_sha,
+    )
     try:
         evidence_verifier._validate_schema(
             worker,
             PHASE1_ROOT / "phase1-acceptance-evidence.schema.json",
         )
+        profile_value = read_json(canonical_profile)
+        approved_corpus_sha = profile_value.get("qualificationCorpusManifestSha256")
+        if not isinstance(approved_corpus_sha, str):
+            approved_corpus_sha = None
         evidence_verifier.verify_acceptance(
             worker,
             expected_source_commit=args.source_commit,
             expected_acceptance_profile_sha256=acceptance_profile_sha,
+            expected_qualification_corpus_sha256=approved_corpus_sha,
         )
     except evidence_verifier.EvidenceError as exc:
         raise VariantQualificationError(
@@ -350,11 +506,13 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
     assert_worker_flow_binding(
         worker,
         variant=args.variant,
+        bundle_mode=manifest["releaseStatus"],
         target_verified_manifest_sha256=args.target_verified_manifest_sha256,
         bundle_manifest_sha256=manifest_sha,
         release_lock_sha256=manifest["lockSha256"],
-        runtime_platform=observed_runtime_platform(),
+        runtime_platform=runtime_platform,
         device=device,
+        expected_mavi_build=args.expected_mavi_build,
     )
 
     return {
@@ -374,7 +532,10 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         "runtimeStarted": True,
         "realInferencePassed": True,
         "workerFlowPassed": True,
-        "workerFlowEvidenceSha256": sha256_file(args.worker_flow_evidence),
+        "workerFlowEvidenceSha256": worker_evidence_sha,
+        "workerPythonSha256": sha256_file(python),
+        "workerCommandSha256": worker_command_sha,
+        "workerLogSha256": worker_log_sha,
         "actualDevice": actual_device,
         "outboundNetworkUnavailable": True,
         "networkIsolation": network_isolation,
@@ -392,8 +553,22 @@ def main() -> int:
     ))
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--target-verified-manifest-sha256", required=True)
-    parser.add_argument("--worker-flow-evidence", type=Path, required=True)
     parser.add_argument("--acceptance-profile", type=Path, required=True)
+    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--media-root", type=Path, required=True)
+    parser.add_argument("--camera-code", required=True)
+    parser.add_argument("--camera-name", required=True)
+    parser.add_argument("--camera-timezone", required=True)
+    parser.add_argument("--recording-local", required=True)
+    parser.add_argument("--video", type=Path, required=True)
+    parser.add_argument("--environment-label", required=True)
+    parser.add_argument("--expected-mavi-build", required=True)
+    parser.add_argument("--corpus-manifest", type=Path, required=True)
+    parser.add_argument("--ground-truth", type=Path, required=True)
+    parser.add_argument("--worker-flow-output", type=Path, required=True)
+    parser.add_argument("--processing-timeout-seconds", type=float, default=900.0)
+    parser.add_argument("--worker-startup-seconds", type=float, default=3.0)
+    parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--venv", type=Path, required=True)
     parser.add_argument("--network-isolated", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
