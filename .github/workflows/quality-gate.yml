@@ -97,6 +97,9 @@ jobs:
         working-directory: src/vision
         run: python -m pytest -q
 
+      - name: Test Task 17 acceptance tooling
+        run: python -m pytest -q tools/phase1/tests
+
       - name: Install frontend dependencies
         working-directory: src/web/mavi-web
         run: npm ci
