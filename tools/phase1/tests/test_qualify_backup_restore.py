@@ -49,3 +49,24 @@ def test_finalize_requires_matching_source_commit(tmp_path: Path):
     }), encoding="utf-8")
     with pytest.raises(mod.BackupRestoreError, match="post_restore_source_commit_mismatch"):
         mod.finalize(execution, post)
+
+
+def test_disjoint_roots_reject_nested_paths(tmp_path: Path):
+    source = tmp_path / "source"
+    nested = source / "backup"
+    with pytest.raises(mod.BackupRestoreError, match="backup_restore_roots_nested"):
+        mod._assert_disjoint_roots([source, nested])
+
+
+def test_source_tree_manifest_rejects_symlink_before_copy(tmp_path: Path):
+    root = tmp_path / "source"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_text("secret", encoding="utf-8")
+    link = root / "escape"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink unavailable")
+    with pytest.raises(mod.BackupRestoreError, match="backup_store_link_forbidden"):
+        mod.safe_tree_manifest(root)
