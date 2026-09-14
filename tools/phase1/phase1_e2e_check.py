@@ -581,7 +581,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if not isinstance(attestation, dict) or attestation.get("processingRunId") != run_id:
         raise AcceptanceError("qualification_attestation_invalid")
     attestation_evidence = _compare_attestation(
-        attestation, selection, expected_release, bundle, bundle_manifest_sha, args.source_commit
+        attestation,
+        selection,
+        expected_release,
+        bundle,
+        bundle_manifest_sha,
+        args.source_commit,
+        args.expected_mavi_build,
     )
 
     exact_tracks = _all_tracks(client, video["id"], run_id)
