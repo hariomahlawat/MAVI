@@ -28,6 +28,12 @@ from mavi_vision.runtime.qualification import (  # noqa: E402
 )
 
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
+from policy_identity import (  # noqa: E402
+    PolicyIdentityError,
+    canonical_acceptance_profile,
+    CANONICAL_SUPPORTED_UPDATES,
+    sha256_file as policy_sha256_file,
+)
 
 
 class ClosureError(ValueError):
@@ -89,6 +95,7 @@ def validate_application_lifecycle(
     *,
     expected_mode: str,
     source_commit: str,
+    supported_updates_policy_sha256: str,
     schema_path: Path,
 ) -> dict[str, Any]:
     value = load_json(path)
@@ -100,6 +107,8 @@ def validate_application_lifecycle(
         raise ClosureError("application_lifecycle_not_offline")
     if value.get("observedHealth", {}).get("commit") != source_commit:
         raise ClosureError("application_lifecycle_health_mismatch")
+    if value.get("supportedUpdatesPolicySha256") != supported_updates_policy_sha256:
+        raise ClosureError("application_lifecycle_supported_updates_policy_mismatch")
     if value.get("uiSmoke", {}).get("passed") is not True:
         raise ClosureError("application_lifecycle_ui_smoke_missing")
     if expected_mode == "fresh-install":
@@ -196,7 +205,8 @@ def validate_performance(
 def assess(args: argparse.Namespace) -> dict[str, Any]:
     runtime = load_runtime_profile(args.runtime_profile)
     qualification = load_qualification_record(args.qualification)
-    acceptance_profile_sha256 = sha256_file(args.acceptance_profile)
+    _, acceptance_profile_sha256 = canonical_acceptance_profile(args.acceptance_profile)
+    supported_updates_policy_sha256 = policy_sha256_file(CANONICAL_SUPPORTED_UPDATES)
 
     pending: list[str] = []
     evidence_hashes: dict[str, str] = {}
@@ -236,6 +246,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             args.fresh_install,
             expected_mode="fresh-install",
             source_commit=args.source_commit,
+            supported_updates_policy_sha256=supported_updates_policy_sha256,
             schema_path=args.application_lifecycle_schema,
         )
         evidence_hashes["fresh-install"] = sha256_file(args.fresh_install)
@@ -357,7 +368,7 @@ def main() -> int:
             encoding="utf-8",
             newline="\n",
         )
-    except (ClosureError, OSError, json.JSONDecodeError, ReleaseMetadataError, evidence_verifier.EvidenceError) as exc:
+    except (ClosureError, OSError, json.JSONDecodeError, ReleaseMetadataError, evidence_verifier.EvidenceError, PolicyIdentityError) as exc:
         code = getattr(exc, "code", str(exc))
         print(json.dumps({"ok": False, "code": code}, sort_keys=True))
         return 2
