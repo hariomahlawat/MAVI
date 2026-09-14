@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory = $true)][string]$CpuWorkerEvidence,
     [Parameter(Mandatory = $true)][string]$CudaWorkerEvidence,
     [Parameter(Mandatory = $true)][string]$SourceCommit,
+    [Parameter(Mandatory = $true)][string]$TargetVerifiedManifestSha256,
     [Parameter(Mandatory = $true)][string]$WorkRoot,
     [Parameter(Mandatory = $true)][string]$Output,
     [string]$Python = "python"
@@ -19,10 +20,10 @@ $cudaOut = Join-Path $WorkRoot "windows-x86_64-cuda.json"
 $cpuVenv = Join-Path $WorkRoot "venv-cpu"
 $cudaVenv = Join-Path $WorkRoot "venv-cuda"
 
-& $Python "$PSScriptRoot\qualify_offline_variant.py" --bundle-dir $CpuBundle --variant "windows-x86_64-cpu" --source-commit $SourceCommit --worker-flow-evidence $CpuWorkerEvidence --venv $cpuVenv --network-isolated --output $cpuOut
+& $Python "$PSScriptRoot\qualify_offline_variant.py" --bundle-dir $CpuBundle --variant "windows-x86_64-cpu" --source-commit $SourceCommit --target-verified-manifest-sha256 $TargetVerifiedManifestSha256 --worker-flow-evidence $CpuWorkerEvidence --venv $cpuVenv --network-isolated --output $cpuOut
 if ($LASTEXITCODE -ne 0) { throw "windows_cpu_offline_qualification_failed" }
 
-& $Python "$PSScriptRoot\qualify_offline_variant.py" --bundle-dir $CudaBundle --variant "windows-x86_64-cuda" --source-commit $SourceCommit --worker-flow-evidence $CudaWorkerEvidence --venv $cudaVenv --network-isolated --output $cudaOut
+& $Python "$PSScriptRoot\qualify_offline_variant.py" --bundle-dir $CudaBundle --variant "windows-x86_64-cuda" --source-commit $SourceCommit --target-verified-manifest-sha256 $TargetVerifiedManifestSha256 --worker-flow-evidence $CudaWorkerEvidence --venv $cudaVenv --network-isolated --output $cudaOut
 if ($LASTEXITCODE -ne 0) { throw "windows_cuda_offline_qualification_failed" }
 
 & $Python "$PSScriptRoot\assemble_offline_install_evidence.py" --os windows --cpu $cpuOut --cuda $cudaOut --isolation-method "disconnected-windows-qualification-host" --output $Output
