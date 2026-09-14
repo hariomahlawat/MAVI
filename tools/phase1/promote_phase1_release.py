@@ -133,11 +133,13 @@ def _validate_offline_os_evidence(
 def _validate_quality_evidence(
     value: dict[str, Any],
     source_commit: str,
+    acceptance_profile_sha256: str,
 ) -> None:
     _validate_schema(value, "phase1-acceptance-evidence.schema.json")
     evidence_verifier.verify_acceptance(
         value,
         expected_source_commit=source_commit,
+        expected_acceptance_profile_sha256=acceptance_profile_sha256,
     )
     metrics = value.get("metrics")
     if (
@@ -158,8 +160,11 @@ def _validate_quality_evidence(
 
 def _validate_performance_evidence(
     value: dict[str, Any],
+    acceptance_profile_sha256: str,
 ) -> None:
     _validate_schema(value, "recovery-performance-evidence.schema.json")
+    if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
+        raise PromotionError("promotion_performance_profile_mismatch")
     if not evidence_passed(value):
         raise PromotionError("promotion_performance_not_passed")
 
@@ -170,6 +175,7 @@ def validate_gate_evidence(
     *,
     source_commit: str,
     target_verified_manifest_sha256: str,
+    acceptance_profile_sha256: str,
 ) -> None:
     if value.get("sourceCommit") != source_commit:
         raise PromotionError("promotion_evidence_source_mismatch:" + gate)
@@ -187,10 +193,10 @@ def validate_gate_evidence(
         _validate_offline_os_evidence(gate, value, source_commit)
         return
     if gate == "cctv-quality-baseline":
-        _validate_quality_evidence(value, source_commit)
+        _validate_quality_evidence(value, source_commit, acceptance_profile_sha256)
         return
     if gate == "linux-nvidia-recovery-performance":
-        _validate_performance_evidence(value)
+        _validate_performance_evidence(value, acceptance_profile_sha256)
         return
     raise PromotionError("promotion_gate_unknown:" + gate)
 
@@ -201,6 +207,7 @@ def load_gate_evidence(
     gate: str,
     expected_source_commit: str,
     target_verified_manifest_sha256: str,
+    acceptance_profile_sha256: str,
 ) -> dict[str, str]:
     try:
         payload = path.read_bytes()
@@ -215,6 +222,7 @@ def load_gate_evidence(
         value,
         source_commit=expected_source_commit,
         target_verified_manifest_sha256=target_verified_manifest_sha256,
+        acceptance_profile_sha256=acceptance_profile_sha256,
     )
 
     return {
@@ -266,6 +274,7 @@ def build_promoted_metadata(
     runtime_raw: dict[str, Any],
     gate_evidence: dict[str, Path],
     expected_source_commit: str,
+    acceptance_profile_sha256: str,
 ) -> tuple[bytes, bytes]:
     if manifest_raw.get("verificationStatus") != "unverified" or manifest_raw.get("qualificationId") is not None:
         raise PromotionError("promotion_manifest_not_pending")
@@ -303,6 +312,7 @@ def build_promoted_metadata(
             gate=gate,
             expected_source_commit=expected_source_commit,
             target_verified_manifest_sha256=target_manifest_sha,
+            acceptance_profile_sha256=acceptance_profile_sha256,
         )
         gates[gate] = "passed"
 
@@ -357,6 +367,7 @@ def main() -> int:
     parser.add_argument("--qualification", type=Path, required=True)
     parser.add_argument("--pipeline-profile", type=Path, required=True)
     parser.add_argument("--runtime-profile", type=Path, required=True)
+    parser.add_argument("--acceptance-profile", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--gate-evidence", action="append", default=[])
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -367,6 +378,7 @@ def main() -> int:
         manifest_raw = read_release_json(args.manifest, code="model_manifest_invalid")
         qualification_raw = read_release_json(args.qualification, code="qualification_record_invalid")
         runtime_raw = read_release_json(args.runtime_profile, code="runtime_profile_invalid")
+        acceptance_profile_sha256 = sha256_file(args.acceptance_profile)
 
         # Validate the current pending relationship before constructing promotion.
         verify_release_selection(
@@ -386,6 +398,7 @@ def main() -> int:
             runtime_raw=runtime_raw,
             gate_evidence=gate_evidence,
             expected_source_commit=args.source_commit,
+            acceptance_profile_sha256=acceptance_profile_sha256,
         )
         validate_promoted_outputs(
             model_root=args.model_root,
