@@ -720,6 +720,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "vehicle": counts["Vehicle"],
             "detailsResolved": len(details),
             "orphanCount": orphan_count,
+            "trackIds": sorted(item["id"] for item in exact_tracks),
         },
         "evidenceReads": {
             "attempted": evidence_attempted,
