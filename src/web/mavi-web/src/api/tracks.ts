@@ -110,6 +110,35 @@ export type TrackDetail = {
   trajectoryContentUrl: string | null;
 };
 
+export function serializePlainDecimal(value: number): string {
+  if (!Number.isFinite(value)) return String(value);
+
+  const raw = String(value).toLowerCase();
+  if (!raw.includes('e')) return raw;
+
+  const [mantissa, exponentText] = raw.split('e');
+  const exponent = Number(exponentText);
+  const sign = mantissa.startsWith('-') ? '-' : '';
+  const unsignedMantissa = sign ? mantissa.slice(1) : mantissa;
+  const [integerPart, fractionalPart = ''] = unsignedMantissa.split('.');
+  const digits = integerPart + fractionalPart;
+  const decimalPosition = integerPart.length + exponent;
+
+  let expanded: string;
+  if (decimalPosition <= 0) {
+    expanded = '0.' + '0'.repeat(-decimalPosition) + digits;
+  } else if (decimalPosition >= digits.length) {
+    expanded = digits + '0'.repeat(decimalPosition - digits.length);
+  } else {
+    expanded = digits.slice(0, decimalPosition) + '.' + digits.slice(decimalPosition);
+  }
+
+  const [expandedInteger, expandedFraction = ''] = expanded.split('.');
+  const normalizedInteger = expandedInteger.replace(/^0+(?=\d)/, '') || '0';
+  const normalizedFraction = expandedFraction.replace(/0+$/, '');
+  return sign + normalizedInteger + (normalizedFraction ? '.' + normalizedFraction : '');
+}
+
 const orderedFilterKeys: ReadonlyArray<keyof TrackSearchFilters> = [
   'cameraId',
   'videoAssetId',
@@ -128,7 +157,7 @@ export function serializeTrackSearchFilters(filters: TrackSearchFilters): string
   for (const key of orderedFilterKeys) {
     const value = filters[key];
     if (value === undefined || value === null || value === '') continue;
-    params.set(key, String(value));
+    params.set(key, key === 'minimumConfidence' ? serializePlainDecimal(value as number) : String(value));
   }
   return params.toString();
 }
