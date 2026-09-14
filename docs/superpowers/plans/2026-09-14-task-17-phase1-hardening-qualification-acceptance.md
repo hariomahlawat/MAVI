@@ -214,7 +214,17 @@ Recommended v1 shape:
       "eventId": "person-001",
       "objectClass": "Person",
       "startOffsetMs": 4200,
-      "endOffsetMs": 9100
+      "endOffsetMs": 9100,
+      "spatialSamples": [
+        {
+          "offsetMs": 4200,
+          "boundingBox": { "x": 0.11, "y": 0.18, "width": 0.09, "height": 0.31 }
+        },
+        {
+          "offsetMs": 9100,
+          "boundingBox": { "x": 0.27, "y": 0.17, "width": 0.09, "height": 0.30 }
+        }
+      ]
     }
   ]
 }
@@ -226,10 +236,15 @@ Rules:
 - offsets are non-negative integer milliseconds;
 - `startOffsetMs < endOffsetMs <= durationMs`;
 - event IDs unique inside one manifest;
+- every scored event has `spatialSamples` sufficient to identify the annotated physical object during its lifetime;
+- spatial boxes are normalized to source-video dimensions in `[0,1]` as `x, y, width, height`, with positive width/height and no edge outside the frame;
+- spatial-sample offsets are sorted, unique, lie inside the event interval, and use the same media-offset timebase as Track representative observations;
+- an event with duration greater than one instant must have enough samples to interpolate a reference box at any candidate Track representative offset used for matching; the qualification profile defines a maximum allowed interpolation span, and a candidate with no valid spatial reference is ineligible rather than guessed;
 - `evaluationWindows` are sorted, non-overlapping annotated intervals inside the video;
 - every scored event lies fully inside an evaluation window;
 - Tracks outside evaluation windows are excluded rather than mislabeled false positives;
 - a fully annotated clip uses one window covering the entire duration, which allows empty/no-target clips to measure false positives correctly;
+- simultaneous same-class objects are permitted only when each has independent spatial annotation; temporal coincidence alone is never enough to establish identity;
 - no person identity, face label, licence plate or other biometric/PII annotation;
 - the manifest identifies source bytes by SHA-256, never by private absolute path.
 
@@ -249,11 +264,34 @@ It shall consume:
 - one normalized list of accepted MAVI Tracks returned from public APIs;
 - one versioned acceptance-profile file.
 
-Matching is class-exact and one-to-one.
+Matching is class-exact, spatially validated and one-to-one. Temporal overlap alone must never identify a physical object.
 
 For interval matching use deterministic temporal IoU:
 
 `intersection duration / union duration`
+
+For spatial validation, use the representative observation already exposed by the Task-14 public Track-detail contract:
+
+- Track representative `videoOffsetMs`;
+- Track representative `boundingBox { x, y, width, height }`;
+- source-video dimensions from Track detail, used only to validate/normalize API values if required.
+
+For each candidate ground-truth event, derive the reference ground-truth box at the Track representative offset:
+
+1. if a spatial sample exists at that exact offset, use it;
+2. otherwise require bracketing spatial samples whose separation does not exceed the acceptance profile's maximum interpolation span;
+3. linearly interpolate `x, y, width, height` by media offset;
+4. if no valid reference can be derived, that event/Track pair is **ineligible** rather than matched by time alone.
+
+Compute spatial IoU between the Track representative box and the derived ground-truth reference box. A candidate edge exists only when all are true:
+
+- object class is equal;
+- temporal IoU meets the configured minimum;
+- the Track representative offset lies within the ground-truth event interval;
+- a valid ground-truth spatial reference exists at that offset;
+- spatial IoU meets the configured minimum.
+
+This intentionally uses the stable public API and does **not** query PostgreSQL, read internal Observation rows, or decode the trajectory artifact.
 
 The evaluator shall report, per class and overall:
 
@@ -266,11 +304,27 @@ The evaluator shall report, per class and overall:
 - recall;
 - F1;
 - temporal-IoU distribution;
-- duplicate-match count.
+- spatial-IoU distribution;
+- duplicate/competing-candidate count;
+- events/candidates rejected for insufficient spatial annotation.
 
 Only Track time intersecting an `evaluationWindow` is scored. A Track crossing a window boundary is clipped to that annotated window before temporal IoU is calculated; Tracks wholly outside all evaluation windows are ignored. Ground-truth events are required to lie wholly inside one evaluation window.
 
-Matching shall be globally deterministic: generate all same-class candidate pairs at or above the configured temporal-IoU threshold, sort by temporal IoU descending, then ground-truth event ID and Track start/Track ID as stable tie-breakers, and greedily accept a pair only if neither side has already been matched.
+### Deterministic global assignment
+
+Do **not** greedily consume the highest-IoU edge.
+
+For each object class independently:
+
+1. construct the eligible bipartite graph between ground-truth events and produced Tracks;
+2. find a **maximum-cardinality matching** first, so the evaluator never sacrifices a valid second match for a locally better first edge;
+3. among maximum-cardinality matchings, maximize total deterministic match quality;
+4. define match quality from reviewed integer/fixed-precision components derived from temporal IoU and spatial IoU rather than binary-floating comparison noise;
+5. if multiple assignments still have the same cardinality and total quality, select the lexicographically smallest canonical assignment ordered by ground-truth `eventId`, then Track `startOffsetMs`, then Track ID.
+
+The implementation may use a deterministic min-cost maximum-flow/assignment algorithm or another reviewed exact equivalent. It must not depend on dictionary/set iteration order, unstable library tie-breaking or random seeds.
+
+The acceptance evidence shall include the selected event↔Track pairs and both IoUs so a qualification result is auditable.
 
 Zero-denominator metrics must not be silently converted to misleading perfect scores. Per-class precision/recall/F1 may be `null` where mathematically undefined; raw matched/missed/unmatched counts are always emitted. Corpus-level aggregate metrics are computed from aggregate counts, and the acceptance profile defines any explicit empty-scene false-positive rule.
 
@@ -284,7 +338,10 @@ Create a reviewed, versioned acceptance profile, for example:
 
 It shall contain:
 
-- minimum temporal IoU used for matching;
+- minimum temporal IoU used for candidate eligibility;
+- minimum spatial IoU used for candidate eligibility;
+- maximum ground-truth spatial interpolation span;
+- the fixed-precision/integer weighting rule used to optimize match quality after maximum cardinality is established;
 - any minimum Person/Vehicle precision/recall/F1 required for formal acceptance;
 - allowed unmatched/duplicate policy;
 - performance thresholds tied to an identified hardware class, if approved.
@@ -822,13 +879,20 @@ Do not change backend/API/runtime behavior unless a demonstrated acceptance defe
 
 Before hardware or release metadata work:
 
-1. add RED tests for ground-truth schema validation;
+1. add RED tests for ground-truth schema validation, including normalized spatial boxes, ordering and interpolation-coverage rules;
 2. add RED tests for deterministic evaluation/matching;
-3. add RED `ProcessingFailureRecoveryTests`;
-4. add worker end-to-end contract RED tests;
-5. implement only enough production changes to satisfy demonstrated defects;
-6. add acceptance evidence schema;
-7. add repository verification for all new tracked schemas/configs.
+3. add explicit evaluator adversarial vectors for:
+   - two simultaneous same-class objects with distinct spatial locations;
+   - one real object plus a temporally overlapping false Track elsewhere in the frame;
+   - the maximum-cardinality counterexample where greedy matching returns one pair but two valid pairs exist;
+   - equal-cardinality/equal-quality assignments requiring canonical deterministic tie-breaking;
+   - missing/over-wide spatial interpolation gaps that must make a candidate ineligible;
+   - Tracks crossing evaluation-window boundaries;
+4. add RED `ProcessingFailureRecoveryTests`;
+5. add worker end-to-end contract RED tests;
+6. implement only enough production changes to satisfy demonstrated defects;
+7. add acceptance evidence schema;
+8. add repository verification for all new tracked schemas/configs.
 
 Gate:
 
@@ -1073,7 +1137,7 @@ The following are deliberate:
 
 - Task 17 is hardening/qualification, not feature expansion.
 - Public APIs are the acceptance boundary for product E2E checks.
-- Ground truth contains Person/Vehicle temporal events, not identity labels.
+- Ground truth contains Person/Vehicle event intervals plus non-biometric spatial bounding-box samples needed to identify the physical object; it contains no person identity labels.
 - Qualification media remains outside Git.
 - Existing mandatory qualification gates remain authoritative until an ADR changes them.
 - No evidence is reused across a behavior/hash change without explicit validity.
