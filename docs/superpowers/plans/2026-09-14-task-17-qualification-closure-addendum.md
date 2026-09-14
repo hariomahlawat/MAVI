@@ -2,7 +2,7 @@
 
 **Status:** Normative addendum to `2026-09-14-task-17-phase1-hardening-qualification-acceptance.md`.
 
-This addendum closes six qualification-proof gaps identified during the PR #37 internal/final-review cycle. Where this addendum is stricter or more explicit than the earlier Task-17 planning text, this addendum controls. It does not expand Phase-1 product functionality; it makes existing qualification claims provable.
+This addendum closes seven qualification-proof gaps identified during the PR #37 internal/final-review cycle. Where this addendum is stricter or more explicit than the earlier Task-17 planning text, this addendum controls. It does not expand Phase-1 product functionality; it makes existing qualification claims provable.
 
 ---
 
@@ -122,23 +122,51 @@ Required regression coverage includes:
 
 ---
 
-## E. Offline application installation/update must exercise the exact accepted artifact
+## E. Fresh offline installation and offline update are separate mandatory proofs
 
-ADR-003 requires offline installation and update procedures to be testable. Final Phase-1 acceptance shall therefore prove deployment of the exact accepted MAVI application artifact, not merely hash an artifact while using a pre-existing IIS deployment.
+ADR-003 requires **both** offline installation and offline update procedures to be testable. They are separate acceptance claims: evidence for a clean installation shall never substitute for evidence that an existing supported deployment can be updated offline, and update evidence shall never substitute for a clean-install proof.
+
+### E.1 Fresh offline installation
 
 The final disconnected acceptance shall:
 
-1. receive the versioned MAVI application deployment artifact through controlled offline media;
-2. compute and retain its SHA-256 before deployment;
-3. deploy or update those exact bytes onto a clean/reprovisioned production-representative Windows/IIS application plane with outbound Internet unavailable;
-4. retain the deployment mechanism/tool version, command/configuration identity, exit result and destination identity;
-5. start Mavi.Api only after that deployment/update step;
+1. receive the versioned accepted MAVI application artifact through controlled offline media and retain its SHA-256;
+2. begin from a clean/reprovisioned production-representative Windows/IIS application plane with outbound Internet unavailable and no accepted MAVI application already installed;
+3. install those exact artifact bytes using only controlled offline media;
+4. retain installation mechanism/tool version, commands/configuration, exit result and destination identity;
+5. start Mavi.Api only after installation;
 6. independently observe the running application build/commit identity and require it to match the accepted artifact/release identity;
-7. prove the deployed React/static assets and API operate without remote dependencies.
+7. prove the API and deployed React/static assets operate without remote dependencies.
 
-The proof fails closed if the deployment requires Internet connectivity, silently reuses a prior application deployment, substitutes different bytes, cannot reproduce the intended update path, or the running build identity differs from the accepted artifact.
+A pre-existing deployment, copied working directory or already-running accepted build cannot satisfy this proof.
 
-Required negative coverage includes: valid artifact hash + old pre-existing IIS deployment -> **cannot pass**.
+### E.2 Offline update from a supported prior release
+
+A separate acceptance case shall:
+
+1. provision an **explicitly supported prior MAVI release** using its retained immutable release/application identity;
+2. establish representative pre-update configuration and authoritative database state sufficient to exercise the supported migration/update path;
+3. record the prior release identity/hash and pre-update state/evidence needed for post-update comparison;
+4. transfer the accepted target application artifact through controlled offline media and verify its SHA-256;
+5. execute the supported offline update procedure with outbound Internet unavailable;
+6. execute and retain the result of every applicable application, configuration and database migration;
+7. independently observe the running target build/commit identity and require it to match the accepted target artifact;
+8. verify representative pre-update authoritative data/configuration survives or is deterministically migrated as specified;
+9. prove post-update API/UI/health/search/evidence operation without Internet connectivity.
+
+The update proof fails if the starting release is outside the declared supported-update range, any required migration is skipped or fails, retained authoritative state is lost/corrupted/incompatible, different target bytes are used, hidden online dependencies are required, or the running target build cannot be bound to the accepted artifact.
+
+### E.3 Evidence and negative coverage
+
+Fresh-install and update evidence shall be retained as **distinct immutable hashed evidence objects** and both must be referenced by the final Phase-1 acceptance record.
+
+Required negative coverage includes:
+
+- valid target artifact hash + old pre-existing IIS deployment presented as a fresh install -> **cannot pass**;
+- fresh install succeeds but no update case exists -> **cannot pass**;
+- update from an unsupported/unknown prior release -> **cannot pass**;
+- update skips or fails an applicable migration -> **cannot pass**;
+- post-update running build or retained authoritative state does not match the expected target/migration result -> **cannot pass**.
 
 ---
 
@@ -180,7 +208,8 @@ Task 17 cannot be declared fully complete unless, in addition to the main plan's
 - Windows CPU and CUDA functional qualification exercise the real worker -> detector -> ByteTrack -> secure native-Windows staging/publication path required by the accepted Task-10 contract;
 - every candidate and production qualification host satisfies the complete frozen host-compatibility/native-ABI contract for its selected bundle;
 - formal CCTV-quality evidence contains nonzero reviewed coverage and approved passing policy for both Person and Vehicle;
-- the exact hashed MAVI application artifact is actually deployed/updated on the disconnected Windows/IIS plane and the running build identity matches it;
+- a fresh offline installation of the exact hashed MAVI application artifact is executed on a clean/reprovisioned Windows/IIS plane and the running build identity matches it;
+- a separate offline update from an explicitly supported prior MAVI release is executed with all applicable migrations and retained-state/post-update validation;
 - offline backup and clean-target restore of PostgreSQL plus all required managed media/evidence stores is executed and post-restore integrity/functionality is revalidated.
 
 These are acceptance-proof requirements. They must not be weakened to make unavailable evidence appear complete.
@@ -193,4 +222,4 @@ The engineering acceptance and stopping rule is recorded in:
 
 `docs/superpowers/plans/2026-09-14-pr37-engineering-acceptance-review.md`
 
-After these six proof gaps are implemented in the authoritative Task-17 contracts, PR #37 shall undergo one final broad exact-head review. New comments are triaged against accepted requirements; only genuine material blockers keep the PR open. Optional hardening or scope expansion is recorded separately rather than extending the review indefinitely.
+After these seven proof gaps are implemented in the authoritative Task-17 contracts, PR #37 shall undergo one final broad exact-head review. New comments are triaged against accepted requirements; only genuine material blockers keep the PR open. Optional hardening or scope expansion is recorded separately rather than extending the review indefinitely.
