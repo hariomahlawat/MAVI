@@ -143,6 +143,14 @@ def test_backup_must_reference_exact_final_e2e(tmp_path: Path):
         "executionEvidenceSha256": "2" * 64,
         "sourceDatabaseIdentity": "source|127.0.0.1|5432",
         "restoreDatabaseIdentity": "restore|127.0.0.1|5433",
+        "liveStorageTopology": {
+            "schemaVersion": "mavi-storage-topology-attestation-v1",
+            "maviBuild": "build-a",
+            "maviCommit": "a" * 40,
+            "databaseIdentity": "source|127.0.0.1|5432",
+            "managedMediaRootIdentitySha256": "8" * 64,
+            "acceptedEvidenceRootIdentitySha256": "9" * 64,
+        },
         "database": {"included": True, "manifestSha256": "3" * 64},
         "managedSource": {"included": True, "manifestSha256": "4" * 64},
         "acceptedEvidence": {"included": True, "manifestSha256": "5" * 64},
@@ -172,7 +180,10 @@ def test_topology_binding_rejects_other_linux_host():
     }
     fresh = {"hosting": {"hostIdentitySha256": "1" * 64}}
     update = {"hosting": {"hostIdentitySha256": "1" * 64}}
-    backup = {"sourceDatabaseIdentity": "mavi|10.0.0.20|5432"}
+    backup = {
+        "sourceDatabaseIdentity": "mavi|10.0.0.20|5432",
+        "liveStorageTopology": {"databaseIdentity": "mavi|10.0.0.20|5432"},
+    }
     linux = {"hostIdentitySha256": "9" * 64}
     with pytest.raises(mod.ProductionAcceptanceError, match="production_linux_topology_mismatch"):
         mod.validate_topology_binding(prereq, fresh, update, backup, linux)
