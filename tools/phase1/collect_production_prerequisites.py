@@ -71,10 +71,14 @@ def windows_values() -> dict[str, str]:
     aspnet = []
     for line in runtimes:
         parts = line.split()
-        if len(parts) >= 2 and parts[0] == "Microsoft.AspNetCore.App":
+        if (
+            len(parts) >= 2
+            and parts[0] == "Microsoft.AspNetCore.App"
+            and parts[1].startswith("8.")
+        ):
             aspnet.append(parts[1])
     if not aspnet:
-        raise PrerequisiteObservationError("prerequisite_dotnet_runtime_unavailable")
+        raise PrerequisiteObservationError("prerequisite_dotnet8_runtime_unavailable")
 
     def version_key(value: str) -> tuple[int, ...]:
         numbers = re.findall(r"\d+", value)
