@@ -21,10 +21,10 @@ type ImportWorkflowInput = {
   file: File;
 };
 
-type ImportWorkflowOutcome = {
+export type ImportWorkflowOutcome = {
   videoAssetId: string;
   recovered: boolean;
-  queueWarning?: string;
+  workflowWarning?: string;
 };
 
 function importError(error: unknown): string {
@@ -43,7 +43,7 @@ function importError(error: unknown): string {
   return `${known[error.code] ?? error.detail} (${error.code})`;
 }
 
-async function runImportWorkflow(input: ImportWorkflowInput): Promise<ImportWorkflowOutcome> {
+export async function runImportWorkflow(input: ImportWorkflowInput): Promise<ImportWorkflowOutcome> {
   let videoAssetId: string;
   let recovered = false;
 
@@ -57,9 +57,21 @@ async function runImportWorkflow(input: ImportWorkflowInput): Promise<ImportWork
   }
 
   if (recovered) {
-    const existingStatus = await getProcessingStatus(videoAssetId);
-    if (isProcessingActive(existingStatus) || existingStatus.videoStatus === 'Processed') {
-      return { videoAssetId, recovered };
+    try {
+      const existingStatus = await getProcessingStatus(videoAssetId);
+      if (isProcessingActive(existingStatus) || existingStatus.videoStatus === 'Processed') {
+        return { videoAssetId, recovered };
+      }
+    } catch (error) {
+      const statusWarning = error instanceof ApiError
+        ? `Existing import recovered, but processing status could not be loaded: ${error.detail} (${error.code})`
+        : 'Existing import recovered, but processing status could not be loaded.';
+
+      return {
+        videoAssetId,
+        recovered,
+        workflowWarning: statusWarning,
+      };
     }
   }
 
@@ -74,13 +86,13 @@ async function runImportWorkflow(input: ImportWorkflowInput): Promise<ImportWork
       return {
         videoAssetId,
         recovered,
-        queueWarning: `${error.detail} (${error.code})`,
+        workflowWarning: `${error.detail} (${error.code})`,
       };
     }
     return {
       videoAssetId,
       recovered,
-      queueWarning: 'The video was imported, but processing could not be queued.',
+      workflowWarning: 'The video was imported, but processing could not be queued.',
     };
   }
 }
@@ -111,8 +123,8 @@ export default function VideoImportPage() {
       ]);
       navigate(`/processing/${result.videoAssetId}`, {
         state: {
-          notice: result.queueWarning
-            ? `Import is safe, but processing was not queued: ${result.queueWarning}`
+          notice: result.workflowWarning
+            ? `Import identity is safe: ${result.workflowWarning}`
             : result.recovered
               ? 'Existing import recovered. Authoritative processing state was resumed.'
               : 'Video imported and processing queued.',
