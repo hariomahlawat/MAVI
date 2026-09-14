@@ -1,6 +1,7 @@
 {
   "schemaVersion": "mavi-phase1-acceptance-profile-v1",
   "mode": "baseline",
+  "qualificationCorpusManifestSha256": null,
   "matching": {
     "minimumTemporalIou": 0.5,
     "minimumSpatialIou": 0.5,
