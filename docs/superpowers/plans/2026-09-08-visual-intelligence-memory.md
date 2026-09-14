@@ -1735,6 +1735,8 @@ git commit -m "feat: add track search and evidence streaming"
 
 ## Task 15: Add React Application Foundation, Cameras, Import and Processing UI
 
+> **Authoritative Task-15 plan:** `docs/superpowers/plans/2026-09-14-task-15-react-foundation-import-processing.md`. The checklist below is retained for historical context; where it differs, the dedicated Task-15 plan controls.
+
 **Files:**
 - Modify: `src/web/mavi-web/package.json`
 - Modify: `src/web/mavi-web/src/App.tsx`

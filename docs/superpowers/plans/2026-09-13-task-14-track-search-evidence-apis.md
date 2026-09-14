@@ -1,10 +1,12 @@
 # Task 14 — Track Search and Evidence Content APIs
 
-**Status:** Approved implementation plan, amended 14 Sep 2026 for monotonic processing visibility. Implementation must follow this baseline unless the plan is deliberately amended first.
+**Status:** Complete. Task 14 merged as PR #31 at `3e0382185d6a3a1907870226af3561ff97f2ba8f` after exact-head Quality Gate and cross-platform read-security success plus a clean broad Codex review.
 
 **Amendment rationale:** exact-head review exposed two sibling defects in the original wall-clock/advisory-lock pagination barrier: host-clock rollback/skew could move a later completion inside an earlier cursor snapshot, and exclusive first-page locks serialized readers. The authoritative design now uses a PostgreSQL-owned monotonic visibility sequence plus shared-reader/exclusive-completion advisory locking. `CompletedAtUtc` remains audit/display metadata and is no longer the pagination publication boundary or authoritative latest-completed ordering.
 
 **Planning baseline:** Task 13 merged as PR #30 at `928b31b8b947c2da5ab7869f09213c88bc063dc4`.
+
+**Completion baseline:** Task 14 merged as PR #31 at `3e0382185d6a3a1907870226af3561ff97f2ba8f`; subsequent Phase-1 work must branch from the accepted integration head rather than the Task-14 topic branch.
 
 **Primary objective:** expose durable Task-13 visual intelligence through stable, bounded, read-only APIs for structured Track search, Track detail, source-video playback and accepted-evidence content without exposing storage keys, physical paths, worker staging, mutable artifacts, or ambiguous reprocessing semantics.
 
