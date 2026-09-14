@@ -120,6 +120,52 @@ describe('VisualSearchPage', () => {
     }));
   });
 
+  it('converts an edited configured-zone wall time to UTC', async () => {
+    renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await screen.findByRole('link', { name: 'Review evidence' });
+
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-14T08:00:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(searchTracks).mock.calls[1][0]).toEqual(expect.objectContaining({
+      fromUtc: '2026-09-14T02:30:00.000Z',
+    }));
+  });
+
+  it('preserves a committed camera scope when camera metadata is unavailable', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listCameras).mockRejectedValue(new Error('offline'));
+    renderWithApp(<VisualSearchPage />, {
+      route: '/search?cameraId=' + camera.id,
+    });
+
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(searchTracks).mock.calls[0][0]).toEqual(expect.objectContaining({
+      cameraId: camera.id,
+    }));
+    expect(screen.getByRole('option', { name: /Camera ID/ })).toHaveValue(camera.id);
+
+    await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(searchTracks).mock.calls[1][0]).toEqual(expect.objectContaining({
+      cameraId: camera.id,
+      objectClass: 'Vehicle',
+    }));
+  });
+
+  it('rejects malformed committed URL state without issuing a Track request', async () => {
+    renderWithApp(<VisualSearchPage />, {
+      route: '/search?objectClass=Person&objectClass=Vehicle',
+    });
+
+    expect(await screen.findByText(/must occur exactly once/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Searching visual intelligence/i)).not.toBeInTheDocument();
+    expect(searchTracks).not.toHaveBeenCalled();
+  });
+
   it('passes the opaque continuation cursor only to Load more', async () => {
     const user = userEvent.setup();
     vi.mocked(searchTracks)
