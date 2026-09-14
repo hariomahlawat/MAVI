@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/production-log-checkpoint-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","acceptanceExecutionId","acceptanceContextSha256","logs"],
+  "properties": {
+    "schemaVersion": { "const": "mavi-production-log-checkpoint-v1" },
+    "acceptanceExecutionId": { "type": "string", "format": "uuid" },
+    "acceptanceContextSha256": { "$ref": "#/$defs/sha256" },
+    "logs": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role","path","startOffset","prefixSha256"],
+        "properties": {
+          "role": { "enum": ["api","iis","postgres"] },
+          "path": { "type": "string", "minLength": 1 },
+          "startOffset": { "type": "integer", "minimum": 0 },
+          "prefixSha256": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
