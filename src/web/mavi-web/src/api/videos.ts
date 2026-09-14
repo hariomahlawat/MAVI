@@ -88,3 +88,7 @@ export function isProcessingActive(status: ProcessingStatus | undefined): boolea
     || status.latestRun?.status === 'Queued'
     || status.latestRun?.status === 'Running';
 }
+
+export function processingPollInterval(status: ProcessingStatus | undefined): 2000 | false {
+  return isProcessingActive(status) ? 2_000 : false;
+}
