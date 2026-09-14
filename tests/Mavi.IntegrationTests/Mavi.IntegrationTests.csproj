@@ -15,7 +15,6 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\..\src\platform\Mavi.Api\Mavi.Api.csproj" />
   </ItemGroup>
 </Project>
