@@ -76,6 +76,13 @@ describe('Track API client', () => {
     expect(serializeTrackSearchFilters({ objectClass: 'Vehicle' })).toBe('objectClass=Vehicle');
   });
 
+  it('never serializes confidence in exponent notation unsupported by the backend', () => {
+    expect(serializeTrackSearchFilters({ minimumConfidence: 1e-7 }))
+      .toBe('minimumConfidence=0.0000001');
+    expect(serializeTrackSearchFilters({ minimumConfidence: 1.25e-7 }))
+      .toBe('minimumConfidence=0.000000125');
+  });
+
   it('propagates AbortSignal and preserves stable API errors', async () => {
     const controller = new AbortController();
     vi.mocked(fetch).mockResolvedValueOnce(new Response(
