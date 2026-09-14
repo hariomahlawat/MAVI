@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
@@ -72,9 +72,8 @@ describe('VideoImportPage', () => {
 
     await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
     await user.type(screen.getByLabelText('Recording local date/time'), '2026-09-14T08:30');
-    await user.upload(screen.getByLabelText('MP4 file'), new File(['text'], 'source.txt', { type: 'text/plain' }), {
-      applyAccept: false,
-    });
+    const nonMp4 = new File(['text'], 'source.txt', { type: 'text/plain' });
+    fireEvent.change(screen.getByLabelText('MP4 file'), { target: { files: [nonMp4] } });
     await user.click(screen.getByRole('button', { name: 'Import and process' }));
 
     expect(await screen.findByText('Select an MP4 file.')).toBeInTheDocument();
