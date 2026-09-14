@@ -59,6 +59,87 @@ describe('VideoImportPage', () => {
     vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'NotQueued', latestRun: null });
   });
 
+  it('filters inactive cameras and rejects non-MP4 files before upload', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listCameras).mockResolvedValueOnce([
+      camera,
+      { ...camera, id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21499', code: 'CAM-OFF', name: 'Inactive', isActive: false },
+    ]);
+    renderWithApp(<VideoImportPage />);
+
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+    expect(screen.queryByRole('option', { name: /CAM-OFF/ })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+    await user.type(screen.getByLabelText('Recording local date/time'), '2026-09-14T08:30');
+    await user.upload(screen.getByLabelText('MP4 file'), new File(['text'], 'source.txt', { type: 'text/plain' }), {
+      applyAccept: false,
+    });
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+
+    expect(await screen.findByText('Select an MP4 file.')).toBeInTheDocument();
+    expect(importVideo).not.toHaveBeenCalled();
+  });
+
+  it('preserves imported identity when queueing fails and never re-uploads', async () => {
+    const user = userEvent.setup();
+    vi.mocked(queueProcessing).mockRejectedValueOnce(new ApiError({
+      status: 500,
+      code: 'processing_queue_failed',
+      detail: 'Queue temporarily unavailable.',
+    }));
+    renderWithApp(<VideoImportPage />);
+
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+    await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+    await user.type(screen.getByLabelText('Recording local date/time'), '2026-09-14T08:30');
+    await user.upload(screen.getByLabelText('MP4 file'), new File(['video'], 'source.mp4', { type: 'video/mp4' }));
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+
+    await waitFor(() => expect(importVideo).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(queueProcessing).toHaveBeenCalledTimes(1));
+    expect(importVideo).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats processing_already_active as authoritative active work', async () => {
+    const user = userEvent.setup();
+    vi.mocked(queueProcessing).mockRejectedValueOnce(new ApiError({
+      status: 409,
+      code: 'processing_already_active',
+      detail: 'Processing is already active.',
+    }));
+    renderWithApp(<VideoImportPage />);
+
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+    await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+    await user.type(screen.getByLabelText('Recording local date/time'), '2026-09-14T08:30');
+    await user.upload(screen.getByLabelText('MP4 file'), new File(['video'], 'source.mp4', { type: 'video/mp4' }));
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+
+    await waitFor(() => expect(queueProcessing).toHaveBeenCalledWith(video.id));
+    expect(importVideo).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when duplicate reconciliation has no valid video identity', async () => {
+    const user = userEvent.setup();
+    vi.mocked(importVideo).mockRejectedValueOnce(new ApiError({
+      status: 409,
+      code: 'video_duplicate',
+      detail: 'Video has already been imported.',
+    }));
+    renderWithApp(<VideoImportPage />);
+
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+    await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+    await user.type(screen.getByLabelText('Recording local date/time'), '2026-09-14T08:30');
+    await user.upload(screen.getByLabelText('MP4 file'), new File(['same'], 'source.mp4', { type: 'video/mp4' }));
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+
+    expect(await screen.findByText(/Video has already been imported.*video_duplicate/)).toBeInTheDocument();
+    expect(getProcessingStatus).not.toHaveBeenCalled();
+    expect(queueProcessing).not.toHaveBeenCalled();
+  });
+
   it('preserves camera-local datetime and queues the imported video once', async () => {
     const user = userEvent.setup();
     renderWithApp(<VideoImportPage />);
