@@ -38,6 +38,7 @@ def offline(os_name="linux"):
         "schemaVersion": "mavi-offline-install-evidence-v1",
         "sourceCommit": "d" * 40,
         "targetVerifiedManifestSha256": "e" * 64,
+        "acceptanceProfileSha256": "f" * 64,
         "os": os_name,
         "bundleMode": "qualification-candidate",
         "isolationMethod": "physically isolated qualification VLAN",
