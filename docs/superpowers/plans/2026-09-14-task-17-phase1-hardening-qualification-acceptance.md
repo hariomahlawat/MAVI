@@ -193,6 +193,9 @@ Recommended v1 shape:
   "videoSha256": "<64 lowercase hex>",
   "durationMs": 60000,
   "cameraCode": "QUAL-CAM-01",
+  "evaluationWindows": [
+    { "startOffsetMs": 0, "endOffsetMs": 60000 }
+  ],
   "events": [
     {
       "eventId": "person-001",
@@ -210,6 +213,10 @@ Rules:
 - offsets are non-negative integer milliseconds;
 - `startOffsetMs < endOffsetMs <= durationMs`;
 - event IDs unique inside one manifest;
+- `evaluationWindows` are sorted, non-overlapping annotated intervals inside the video;
+- every scored event lies fully inside an evaluation window;
+- Tracks outside evaluation windows are excluded rather than mislabeled false positives;
+- a fully annotated clip uses one window covering the entire duration, which allows empty/no-target clips to measure false positives correctly;
 - no person identity, face label, licence plate or other biometric/PII annotation;
 - the manifest identifies source bytes by SHA-256, never by private absolute path.
 
@@ -248,7 +255,9 @@ The evaluator shall report, per class and overall:
 - temporal-IoU distribution;
 - duplicate-match count.
 
-Tie-breaking for multiple candidate matches shall be deterministic: highest temporal IoU, then earlier Track start, then Track ID lexical order.
+Matching shall be globally deterministic: generate all same-class candidate pairs at or above the configured temporal-IoU threshold, sort by temporal IoU descending, then ground-truth event ID and Track start/Track ID as stable tie-breakers, and greedily accept a pair only if neither side has already been matched.
+
+Zero-denominator metrics must not be silently converted to misleading perfect scores. Per-class precision/recall/F1 may be `null` where mathematically undefined; raw matched/missed/unmatched counts are always emitted. Corpus-level aggregate metrics are computed from aggregate counts, and the acceptance profile defines any explicit empty-scene false-positive rule.
 
 ### Acceptance thresholds
 
@@ -308,16 +317,18 @@ The harness shall:
 5. queue processing;
 6. poll processing until a terminal state with a bounded timeout;
 7. require successful ProcessingRun completion;
-8. query `GET /api/tracks?videoAssetId=...`;
-9. page through opaque cursors without decoding them;
-10. require every returned Track to belong to the imported VideoAsset;
-11. resolve each Track detail;
-12. verify representative-evidence content where present;
-13. verify source-video Range streaming;
-14. verify the Search contract can locate Person/Vehicle results as applicable;
-15. calculate structural and optional ground-truth metrics;
-16. emit one machine-readable evidence document;
-17. exit nonzero on any acceptance failure.
+8. capture the authoritative completed ProcessingRun ID from processing status;
+9. query `GET /api/tracks?videoAssetId=...&processingRunId=...` for the exact accepted run;
+10. separately verify the default `videoAssetId` search resolves the latest completed run semantics;
+11. page through opaque cursors without decoding them;
+12. require every returned Track to belong to both the imported VideoAsset and expected ProcessingRun;
+13. resolve each Track detail;
+14. verify representative-evidence content where present;
+15. verify source-video Range streaming;
+16. verify the Search contract can locate Person/Vehicle results as applicable;
+17. calculate structural and optional ground-truth metrics;
+18. emit one machine-readable evidence document;
+19. exit nonzero on any acceptance failure.
 
 ### 8.2 Evidence invariants
 
@@ -492,7 +503,7 @@ Then, with outbound connectivity disabled:
 8. retrieve evidence/source video;
 9. confirm no first-run model/package download, telemetry or online licence check occurs.
 
-Use qualification-candidate bundle mode until the release metadata is legitimately promotable.
+Use qualification-candidate bundle mode until the release metadata is legitimately promotable. Pre-promotion qualification may run only through the repository's explicit unverified/development allowance; evidence must say so. The final production-bundle acceptance later in this plan must run with production verification enabled and must not use `allow_unverified` or development `auto` device semantics.
 
 A proxy pointed to an invalid endpoint is useful as an additional tripwire but is **not** by itself proof of a formally disconnected host.
 
@@ -628,26 +639,52 @@ Never change a threshold and preserve old qualification evidence as though it ex
 
 ---
 
-## 19. Release metadata promotion
+## 19. Candidate metadata rebind, evidence attestation and final promotion
 
-Only after all mandatory gates genuinely pass may Task 17 promote the release.
+Task 17 must avoid the circular mistake of marking qualification gates passed before their final evidence exists.
 
-The controlled metadata update shall avoid hash-order ambiguity:
+### 19.1 Candidate metadata rebind
 
-1. construct the intended final `runtime.json` bytes, including final platform variants, release-lock hashes and `qualificationStatus = "qualified"` only when schema rules allow it;
-2. compute the final runtime-profile SHA-256 from those exact bytes;
-3. construct the intended final model-manifest bytes with `verificationStatus = "verified"` and the matching `qualificationId`;
-4. compute the final model-manifest SHA-256 from those exact bytes;
-5. construct the qualification record against the **final** model-manifest/profile/runtime hashes;
-6. set only genuinely evidenced mandatory gates to `passed`;
-7. add evidence for every passed gate;
-8. set `overallResult = "passed"` only when all required gates are passed;
-9. write the mutually consistent runtime profile, model manifest and qualification record together as one metadata-rebind change;
-10. rerun `tools/verify_repo.py` and all release-selection tests.
+After implementation is frozen and immutable hardware/runtime artifacts exist:
 
-Intermediate bytes used to calculate hashes need not be committed in an inconsistent state. The committed rebind must be internally consistent as a unit.
+1. construct the final intended `runtime.json` platform identities and release-lock hashes;
+2. set `qualificationStatus = "qualified"` only if the runtime schema permits it (all runtime platform/lock requirements actually satisfied);
+3. compute the resulting runtime-profile SHA-256;
+4. keep the model manifest `unverified` and qualification gates `pending`;
+5. rebind the pending qualification record to the candidate runtime/profile identities as required;
+6. run repository/release-selection validation.
 
-Do not hand-edit hashes from memory. Generate/verify them from exact bytes.
+This candidate-rebind head is the head on which the mandatory external/hardware/offline/quality evidence is generated.
+
+### 19.2 Evidence attestation
+
+Every evidence package must bind the exact behavior-bearing identities it exercised:
+
+- frozen implementation/source identity;
+- checkpoint/config/profile hashes;
+- candidate runtime-profile hash;
+- platform/device/lock identity;
+- controlled media/corpus hashes where relevant.
+
+For the later status-only manifest promotion, Task 17 may precompute the exact intended verified-manifest bytes and target SHA-256 (same model/config/runtime identity, only the reviewed qualification/status linkage changes) and include that target hash in evidence. Do not commit an inconsistent verified manifest before evidence exists.
+
+### 19.3 Final evidence-binding/promotion commit
+
+Only after every mandatory gate has real validated evidence:
+
+1. construct the intended final model-manifest bytes with `verificationStatus = "verified"` and the matching `qualificationId`;
+2. verify its SHA-256 equals the target verified-manifest hash attested by the evidence set;
+3. construct the qualification record against the **final** verified-manifest/profile/runtime hashes;
+4. set only genuinely evidenced mandatory gates to `passed`;
+5. add immutable evidence references/SHA-256 values for every passed gate;
+6. set `overallResult = "passed"` only when all required gates are passed;
+7. commit the final manifest + qualification evidence binding together;
+8. make **no behavior/profile/runtime-artifact change** in this promotion commit;
+9. rerun `tools/verify_repo.py`, release-selection tests and normal exact-head CI.
+
+If the promotion commit would change model/config/profile/runtime behavior or an artifact hash, the previous evidence is invalid and the sequence returns to candidate rebind/attestation.
+
+Do not hand-edit hashes from memory. Generate and verify them from exact bytes.
 
 ---
 
@@ -852,24 +889,24 @@ If hardware is unavailable, stop with those gates pending rather than inventing 
 
 ---
 
-## 28. Checkpoint F — metadata rebind
+## 28. Checkpoint F — candidate metadata rebind
 
-After final immutable artifact hashes exist:
+After final immutable runtime/artifact hashes exist:
 
-- update runtime profile;
-- re-compute runtime hash;
-- rebind qualification identities;
-- update evidence references;
-- promote only gates that have actual evidence;
-- promote manifest/runtime/overall status only if all mandatory rules are satisfied.
+- update final runtime platform/lock identities;
+- re-compute the candidate runtime hash;
+- keep model manifest unverified and mandatory evidence gates pending;
+- rebind only identities that are legitimately knowable before evidence;
+- precompute (do not prematurely publish) the intended final verified-manifest bytes/hash;
+- run release-selection and repository verification immediately.
 
-Run release-selection and repository verification immediately.
+No gate is promoted merely because the candidate metadata is internally consistent.
 
 ---
 
-## 29. Checkpoint G — exact-head attestation
+## 29. Checkpoint G — evidence attestation and final promotion
 
-On the exact rebound head run every applicable gate:
+On the exact candidate-rebind head run every applicable evidence gate:
 
 ### Always automated
 
@@ -894,7 +931,9 @@ On the exact rebound head run every applicable gate:
 - deployed Windows/IIS host acceptance;
 - final disconnected end-to-end acceptance from transferred locally generated evidence.
 
-All evidence must name the exact source/release identities it exercised. Connected CI validates evidence; it does not substitute for a disconnected execution environment.
+All evidence must name the exact behavior-bearing source/release identities it exercised. Connected CI validates evidence; it does not substitute for a disconnected execution environment.
+
+When every mandatory gate has validated evidence, perform the status/evidence-only final promotion in section 19.3. Then rerun all deterministic exact-head gates and build the production bundle. Execute the final disconnected production-bundle acceptance in production verification mode. A failure at this stage reopens the release; it is not waived because earlier candidate evidence passed.
 
 ---
 
