@@ -37,6 +37,14 @@ def _execution_payload():
         "acceptanceProfileSha256": "6" * 64,
         "sourceDatabaseIdentity": "source|127.0.0.1|5432",
         "restoreDatabaseIdentity": "restore|127.0.0.1|5433",
+        "liveStorageTopology": {
+            "schemaVersion": "mavi-storage-topology-attestation-v1",
+            "maviBuild": "build-a",
+            "maviCommit": "a" * 40,
+            "databaseIdentity": "source|127.0.0.1|5432",
+            "managedMediaRootIdentitySha256": "7" * 64,
+            "acceptedEvidenceRootIdentitySha256": "8" * 64,
+        },
         "database": {"included": True, "manifestSha256": "1" * 64},
         "managedSource": {"included": True, "manifestSha256": "2" * 64},
         "acceptedEvidence": {"included": True, "manifestSha256": "3" * 64},
@@ -110,3 +118,54 @@ def test_source_tree_manifest_rejects_symlink_before_copy(tmp_path: Path):
         pytest.skip("symlink unavailable")
     with pytest.raises(mod.BackupRestoreError, match="backup_store_link_forbidden"):
         mod.safe_tree_manifest(root)
+
+
+def test_live_storage_topology_rejects_other_database_or_roots(tmp_path: Path):
+    media = tmp_path / "media"
+    evidence = tmp_path / "evidence"
+    media.mkdir()
+    evidence.mkdir()
+    live = {
+        "schemaVersion": "mavi-storage-topology-attestation-v1",
+        "maviBuild": "build-a",
+        "maviCommit": "a" * 40,
+        "databaseIdentity": "other|127.0.0.1|5432",
+        "managedMediaRootIdentitySha256": mod.storage_root_identity_sha256(media),
+        "acceptedEvidenceRootIdentitySha256": mod.storage_root_identity_sha256(evidence),
+    }
+    with pytest.raises(
+        mod.BackupRestoreError,
+        match="backup_restore_live_storage_topology_mismatch",
+    ):
+        mod.validate_live_storage_topology(
+            live,
+            source_commit="a" * 40,
+            expected_mavi_build="build-a",
+            source_database_identity="source|127.0.0.1|5432",
+            source_media_root=media,
+            source_evidence_root=evidence,
+        )
+
+
+def test_live_storage_topology_accepts_exact_sources(tmp_path: Path):
+    media = tmp_path / "media"
+    evidence = tmp_path / "evidence"
+    media.mkdir()
+    evidence.mkdir()
+    live = {
+        "schemaVersion": "mavi-storage-topology-attestation-v1",
+        "maviBuild": "build-a",
+        "maviCommit": "a" * 40,
+        "databaseIdentity": "source|127.0.0.1|5432",
+        "managedMediaRootIdentitySha256": mod.storage_root_identity_sha256(media),
+        "acceptedEvidenceRootIdentitySha256": mod.storage_root_identity_sha256(evidence),
+    }
+    result = mod.validate_live_storage_topology(
+        live,
+        source_commit="a" * 40,
+        expected_mavi_build="build-a",
+        source_database_identity="source|127.0.0.1|5432",
+        source_media_root=media,
+        source_evidence_root=evidence,
+    )
+    assert result == live
