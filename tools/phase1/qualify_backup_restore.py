@@ -9,8 +9,15 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+PHASE1_ROOT = Path(__file__).resolve().parent
+if str(PHASE1_ROOT) not in sys.path:
+    sys.path.insert(0, str(PHASE1_ROOT))
+
+import verify_phase1_evidence as evidence_verifier  # noqa: E402
 
 
 class BackupRestoreError(ValueError):
@@ -148,13 +155,23 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         acceptance = json.loads(acceptance_bytes)
     except json.JSONDecodeError as exc:
         raise BackupRestoreError("backup_restore_acceptance_evidence_invalid") from exc
-    if (
-        not isinstance(acceptance, dict)
-        or acceptance.get("schemaVersion") != "mavi-phase1-acceptance-evidence-v1"
-        or acceptance.get("sourceCommit") != args.source_commit
-        or acceptance.get("result", {}).get("passed") is not True
-    ):
+    if not isinstance(acceptance, dict):
         raise BackupRestoreError("backup_restore_acceptance_evidence_invalid")
+    acceptance_profile_sha = sha256_file(args.acceptance_profile)
+    try:
+        evidence_verifier._validate_schema(
+            acceptance,
+            PHASE1_ROOT / "phase1-acceptance-evidence.schema.json",
+        )
+        evidence_verifier.verify_acceptance(
+            acceptance,
+            expected_source_commit=args.source_commit,
+            expected_acceptance_profile_sha256=acceptance_profile_sha,
+        )
+    except evidence_verifier.EvidenceError as exc:
+        raise BackupRestoreError(
+            "backup_restore_acceptance_evidence_invalid:" + exc.code
+        ) from exc
     acceptance_sha = hashlib.sha256(acceptance_bytes).hexdigest()
 
     source_database_identity = database_identity(args.psql, args.source_pg_service)
@@ -227,6 +244,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "schemaVersion": "mavi-backup-set-v1",
         "sourceCommit": args.source_commit,
         "acceptanceEvidenceSha256": acceptance_sha,
+        "acceptanceProfileSha256": acceptance_profile_sha,
         "sourceDatabaseIdentity": source_database_identity,
         "restoreDatabaseIdentity": restore_database_identity,
         "databaseManifestSha256": database_manifest_sha,
@@ -266,6 +284,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "schemaVersion": "mavi-backup-restore-execution-v1",
         "sourceCommit": args.source_commit,
         "acceptanceEvidenceSha256": acceptance_sha,
+        "acceptanceProfileSha256": acceptance_profile_sha,
         "sourceDatabaseIdentity": source_database_identity,
         "restoreDatabaseIdentity": restore_database_identity,
         "database": {"included": True, "manifestSha256": database_manifest_sha},
@@ -309,6 +328,7 @@ def finalize(execution_path: Path, post_restore_path: Path) -> dict[str, Any]:
         "schemaVersion": "mavi-backup-restore-evidence-v1",
         "sourceCommit": execution["sourceCommit"],
         "acceptanceEvidenceSha256": execution["acceptanceEvidenceSha256"],
+        "acceptanceProfileSha256": execution["acceptanceProfileSha256"],
         "executionEvidenceSha256": hashlib.sha256(execution_bytes).hexdigest(),
         "sourceDatabaseIdentity": execution["sourceDatabaseIdentity"],
         "restoreDatabaseIdentity": execution["restoreDatabaseIdentity"],
@@ -328,6 +348,7 @@ def main() -> int:
     execute_parser = sub.add_parser("execute")
     execute_parser.add_argument("--source-commit", required=True)
     execute_parser.add_argument("--acceptance-evidence", type=Path, required=True)
+    execute_parser.add_argument("--acceptance-profile", type=Path, required=True)
     execute_parser.add_argument("--source-pg-service", required=True)
     execute_parser.add_argument("--restore-pg-service", required=True)
     execute_parser.add_argument("--source-media-root", type=Path, required=True)
