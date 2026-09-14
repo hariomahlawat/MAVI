@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import platform
 import subprocess
 from pathlib import Path
@@ -41,21 +40,19 @@ def host_identity_sha256() -> str:
         return _sha256_text(f"linux|{hostname}|{machine_id}")
 
     if system == "Windows":
-        output = _run_text([
-            "reg.exe",
-            "query",
-            r"HKLM\SOFTWARE\Microsoft\Cryptography",
-            "/v",
-            "MachineGuid",
-        ])
-        machine_guid = ""
-        for line in output.splitlines():
-            stripped = line.strip()
-            if stripped.lower().startswith("machineguid"):
-                parts = stripped.split(None, 2)
-                if len(parts) == 3:
-                    machine_guid = parts[2].strip().lower()
-                    break
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SOFTWARE\Microsoft\Cryptography",
+            ) as key:
+                machine_guid = str(
+                    winreg.QueryValueEx(key, "MachineGuid")[0]
+                ).strip().lower()
+        except (OSError, ImportError) as exc:
+            raise TopologyIdentityError(
+                "topology_windows_machine_guid_missing"
+            ) from exc
         if not machine_guid:
             raise TopologyIdentityError("topology_windows_machine_guid_missing")
         return _sha256_text(f"windows|{hostname}|{machine_guid}")
