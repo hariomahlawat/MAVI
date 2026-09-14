@@ -24,6 +24,7 @@ export default function AppShell() {
         <nav className="primary-nav" aria-label="Primary navigation">
           <NavLink to="/cameras">Cameras</NavLink>
           <NavLink to="/import">Import</NavLink>
+          <NavLink to="/search">Search</NavLink>
         </nav>
         <div className="api-health" role="status" aria-live="polite">
           <span
