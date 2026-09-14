@@ -99,3 +99,22 @@ def test_environment_fingerprint_rejects_recorded_file_tamper(tmp_path: Path):
         assert str(exc) == "worker_distribution_record_hash_mismatch"
     else:
         raise AssertionError("tampered recorded package file was accepted")
+
+
+def test_environment_fingerprint_ignores_generated_bytecode_cache(tmp_path: Path):
+    root = tmp_path / "venv"
+    venv.EnvBuilder(with_pip=False).create(root)
+    python = _python(root)
+    site = _site_packages(python)
+    module = site / "cache_probe.py"
+    module.write_text("VALUE = 1\n", encoding="utf-8")
+
+    before = mod.fingerprint(python)
+    subprocess.run(
+        [str(python), "-c", "import cache_probe; assert cache_probe.VALUE == 1"],
+        check=True,
+    )
+    assert any((site / "__pycache__").glob("cache_probe*.pyc"))
+    after = mod.fingerprint(python)
+
+    assert after == before
