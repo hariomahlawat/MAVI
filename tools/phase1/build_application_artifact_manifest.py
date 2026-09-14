@@ -93,10 +93,11 @@ def verify_manifest(root: Path, manifest: dict[str, Any]) -> None:
         if path.stat().st_size != item["sizeBytes"] or sha256_file(path) != item["sha256"]:
             raise ApplicationArtifactError("application_manifest_integrity_failed")
 
+    root_manifest = (root / "mavi-application-manifest.json").resolve()
     actual = {
         path.relative_to(root).as_posix()
         for path in safe_files(root)
-        if path.name != "mavi-application-manifest.json"
+        if path.resolve() != root_manifest
     }
     if actual != expected:
         raise ApplicationArtifactError("application_manifest_file_set_mismatch")
