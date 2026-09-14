@@ -220,6 +220,36 @@ def run_command(args: list[str], *, env: dict[str, str] | None = None) -> subpro
     return subprocess.run(args, check=False, capture_output=True, text=True, env=env)
 
 
+def assert_worker_flow_binding(
+    worker: dict[str, Any],
+    *,
+    variant: str,
+    target_verified_manifest_sha256: str,
+    bundle_manifest_sha256: str,
+    release_lock_sha256: str,
+    runtime_platform: dict[str, Any],
+    device: str,
+) -> None:
+    attestation = worker.get("attestation", {})
+    if (
+        worker.get("mode") != "formal"
+        or worker.get("targetVerifiedManifestSha256") != target_verified_manifest_sha256
+        or attestation.get("runtimeVariant") != variant
+        or attestation.get("candidateBundleManifestSha256") != bundle_manifest_sha256
+        or attestation.get("candidateSelectedLockSha256") != release_lock_sha256
+        or attestation.get("platform") != runtime_platform
+        or worker.get("evidenceReads", {}).get("passed", 0) <= 0
+    ):
+        raise VariantQualificationError("variant_worker_flow_evidence_invalid")
+    actual = attestation.get("actualDevice")
+    if device == "cpu" and actual != "cpu":
+        raise VariantQualificationError("variant_worker_flow_device_mismatch")
+    if device == "cuda" and not (
+        isinstance(actual, str) and actual.startswith("cuda:")
+    ):
+        raise VariantQualificationError("variant_worker_flow_device_mismatch")
+
+
 def qualify(args: argparse.Namespace) -> dict[str, Any]:
     if not args.network_isolated:
         raise VariantQualificationError("variant_network_isolation_not_asserted")
@@ -315,24 +345,15 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
             "variant_worker_flow_evidence_invalid:" + exc.code
         ) from exc
 
-    attestation = worker.get("attestation", {})
-    if (
-        worker.get("mode") != "formal"
-        or worker.get("targetVerifiedManifestSha256") != args.target_verified_manifest_sha256
-        or attestation.get("runtimeVariant") != args.variant
-        or attestation.get("candidateBundleManifestSha256") != manifest_sha
-        or attestation.get("candidateSelectedLockSha256") != manifest.get("lockSha256")
-        or attestation.get("platform") != observed_runtime_platform()
-        or worker.get("evidenceReads", {}).get("passed", 0) <= 0
-    ):
-        raise VariantQualificationError("variant_worker_flow_evidence_invalid")
-    if device == "cpu" and attestation.get("actualDevice") != "cpu":
-        raise VariantQualificationError("variant_worker_flow_device_mismatch")
-    if device == "cuda" and not (
-        isinstance(attestation.get("actualDevice"), str)
-        and attestation["actualDevice"].startswith("cuda:")
-    ):
-        raise VariantQualificationError("variant_worker_flow_device_mismatch")
+    assert_worker_flow_binding(
+        worker,
+        variant=args.variant,
+        target_verified_manifest_sha256=args.target_verified_manifest_sha256,
+        bundle_manifest_sha256=manifest_sha,
+        release_lock_sha256=manifest["lockSha256"],
+        runtime_platform=observed_runtime_platform(),
+        device=device,
+    )
 
     return {
         "schemaVersion": "mavi-offline-variant-evidence-v1",
