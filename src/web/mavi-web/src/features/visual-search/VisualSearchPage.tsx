@@ -39,6 +39,11 @@ type TimeDirtyState = {
   to: boolean;
 };
 
+type NumericDirtyState = {
+  duration: boolean;
+  confidence: boolean;
+};
+
 const emptyDraft: SearchDraft = {
   cameraId: '',
   objectClass: '',
@@ -88,6 +93,7 @@ export default function VisualSearchPage() {
 
   const [draft, setDraft] = useState<SearchDraft>(emptyDraft);
   const [timeDirty, setTimeDirty] = useState<TimeDirtyState>({ from: false, to: false });
+  const [numericDirty, setNumericDirty] = useState<NumericDirtyState>({ duration: false, confidence: false });
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -101,6 +107,7 @@ export default function VisualSearchPage() {
       minimumConfidencePercent: confidenceFractionToPercentText(filters.minimumConfidence),
     });
     setTimeDirty({ from: false, to: false });
+    setNumericDirty({ duration: false, confidence: false });
     setFormError(null);
     // Route identity owns full draft rehydration. Config recovery is handled separately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,13 +160,17 @@ export default function VisualSearchPage() {
     else delete next.objectClass;
 
     try {
-      const duration = secondsTextToMilliseconds(draft.minimumDurationSeconds);
-      if (duration === undefined) delete next.minimumDurationMs;
-      else next.minimumDurationMs = duration;
+      if (numericDirty.duration) {
+        const duration = secondsTextToMilliseconds(draft.minimumDurationSeconds);
+        if (duration === undefined) delete next.minimumDurationMs;
+        else next.minimumDurationMs = duration;
+      }
 
-      const confidence = confidencePercentTextToFraction(draft.minimumConfidencePercent);
-      if (confidence === undefined) delete next.minimumConfidence;
-      else next.minimumConfidence = confidence;
+      if (numericDirty.confidence) {
+        const confidence = confidencePercentTextToFraction(draft.minimumConfidencePercent);
+        if (confidence === undefined) delete next.minimumConfidence;
+        else next.minimumConfidence = confidence;
+      }
 
       if (timeDirty.from) {
         if (!draft.fromLocal) {
@@ -193,6 +204,7 @@ export default function VisualSearchPage() {
     setFormError(null);
     setDraft(emptyDraft);
     setTimeDirty({ from: false, to: false });
+    setNumericDirty({ duration: false, confidence: false });
     setSearchParams(new URLSearchParams());
   };
 
@@ -310,10 +322,13 @@ export default function VisualSearchPage() {
             <input
               inputMode="decimal"
               value={draft.minimumDurationSeconds}
-              onChange={(event) => setDraft((current) => ({
-                ...current,
-                minimumDurationSeconds: event.target.value,
-              }))}
+              onChange={(event) => {
+                setNumericDirty((current) => ({ ...current, duration: true }));
+                setDraft((current) => ({
+                  ...current,
+                  minimumDurationSeconds: event.target.value,
+                }));
+              }}
               placeholder="e.g. 2.5"
             />
           </label>
@@ -323,10 +338,13 @@ export default function VisualSearchPage() {
             <input
               inputMode="decimal"
               value={draft.minimumConfidencePercent}
-              onChange={(event) => setDraft((current) => ({
-                ...current,
-                minimumConfidencePercent: event.target.value,
-              }))}
+              onChange={(event) => {
+                setNumericDirty((current) => ({ ...current, confidence: true }));
+                setDraft((current) => ({
+                  ...current,
+                  minimumConfidencePercent: event.target.value,
+                }));
+              }}
               placeholder="e.g. 80"
             />
           </label>
