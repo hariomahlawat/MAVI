@@ -62,6 +62,7 @@ function track(id: string, overrides: Partial<TrackSearchItem> = {}): TrackSearc
 
 describe('VisualSearchPage', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(listCameras).mockResolvedValue([camera]);
     vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
     vi.mocked(searchTracks).mockResolvedValue({
@@ -73,7 +74,7 @@ describe('VisualSearchPage', () => {
   it('loads the default unfiltered first page', async () => {
     renderWithApp(<VisualSearchPage />, { route: '/search' });
 
-    expect(await screen.findByText('North Gate')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Review evidence' })).toBeInTheDocument();
     await waitFor(() => expect(searchTracks).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 24, cursor: undefined }),
       expect.any(AbortSignal),
@@ -83,7 +84,7 @@ describe('VisualSearchPage', () => {
   it('keeps draft edits local until Search commits them', async () => {
     const user = userEvent.setup();
     renderWithApp(<VisualSearchPage />, { route: '/search' });
-    await screen.findByText('North Gate');
+    await screen.findByRole('link', { name: 'Review evidence' });
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
 
     await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
@@ -135,7 +136,7 @@ describe('VisualSearchPage', () => {
     await screen.findByRole('button', { name: 'Load more' });
     await user.click(screen.getByRole('button', { name: 'Load more' }));
 
-    expect(await screen.findByText('East Gate')).toBeInTheDocument();
+    expect(await screen.findByText(/East Gate/)).toBeInTheDocument();
     expect(vi.mocked(searchTracks).mock.calls[1][0]).toEqual(expect.objectContaining({
       cursor: 'opaque-cursor',
       limit: 24,
@@ -147,7 +148,7 @@ describe('VisualSearchPage', () => {
     renderWithApp(<VisualSearchPage />, {
       route: '/search?fromUtc=2026-09-14T02%3A30%3A00Z',
     });
-    await screen.findByText('North Gate');
+    await screen.findByRole('link', { name: 'Review evidence' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove time scope' }));
 
