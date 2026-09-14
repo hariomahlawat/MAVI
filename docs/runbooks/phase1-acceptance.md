@@ -218,11 +218,13 @@ Use `tools/phase1/assemble_production_acceptance.py` with:
 - production log-inspection evidence;
 - backup/restore evidence.
 
+Supply the same six raw topology logs again as `--production-log role=path` arguments. The assembler re-hashes and re-scans them independently rather than trusting the log-inspection JSON.
+
 The resulting `mavi-phase1-production-acceptance-evidence-v1` is an immutable aggregate of hashes, not a self-asserted pass.
 
 ### 8. Final closure
 
-Pass the aggregate record **and every underlying evidence file** to `tools/phase1/assess_phase1_closure.py`. Closure reopens and independently reconciles all of them before allowing `release-verified`.
+Pass the aggregate record **and every underlying evidence file**, including the same six raw `--production-log role=path` files, to `tools/phase1/assess_phase1_closure.py`. Closure reopens, re-hashes and re-scans them before allowing `release-verified`.
 
 `release-verified` is impossible if the prerequisite policy is pending, any production variant is missing, the formal/empty scenarios are reused or mismatched, failure/reprocess is absent, required topology logs are absent/dirty, backup/restore references another case, or the aggregate record contains hashes from another acceptance execution.
 
