@@ -78,6 +78,20 @@ def validate_profile(profile: dict[str, Any]) -> dict[str, Any]:
         raise EvaluationError("iou_rounding_invalid")
     if profile.get("requiredClasses") != list(SUPPORTED_CLASSES):
         raise EvaluationError("required_classes_invalid")
+    corpus_sha = profile.get("qualificationCorpusManifestSha256")
+    if mode == "qualification" and (
+        not isinstance(corpus_sha, str)
+        or len(corpus_sha) != 64
+        or any(ch not in "0123456789abcdef" for ch in corpus_sha)
+    ):
+        raise EvaluationError("qualification_corpus_identity_not_approved")
+    if mode == "baseline" and corpus_sha is not None and (
+        not isinstance(corpus_sha, str)
+        or len(corpus_sha) != 64
+        or any(ch not in "0123456789abcdef" for ch in corpus_sha)
+    ):
+        raise EvaluationError("qualification_corpus_identity_invalid")
+
     thresholds = profile.get("classThresholds")
     if not isinstance(thresholds, dict) or set(thresholds) != set(SUPPORTED_CLASSES):
         raise EvaluationError("class_thresholds_invalid")
