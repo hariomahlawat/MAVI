@@ -26,7 +26,7 @@ At the Task-15 baseline:
 - Production topology is documented only as ASP.NET Core behind IIS; there is no current production route from same-origin `/api/...` frontend requests to the API and no SPA fallback. Task 15 must close that deployment gap rather than relying on Vite's development proxy.
 - The current application advertises a 10 GiB single-request import limit, which cannot be represented by IIS `maxAllowedContentLength` (32-bit ceiling). Task 15 must reconcile the public single-request import policy across IIS, ASP.NET Core and UI before browser upload is considered production-ready.
 
-This last point is a required pre-implementation contract hardening step, not scope expansion.
+These are required pre-implementation contract/hosting hardening steps, not scope expansion.
 
 ---
 
@@ -835,8 +835,8 @@ src/web/mavi-web/src/features/processing/ProcessingPage.tsx
 
 src/web/mavi-web/src/test/setup.ts
 src/web/mavi-web/src/test/renderWithApp.tsx
-source-controlled production SPA fallback configuration (current IIS/static topology)
-host-level deep-link verification test/qualification
+source-controlled ASP.NET Core + IIS/ANCM co-hosting/request-filter configuration
+host-level API/deep-link/upload verification test/qualification
 focused *.test.ts / *.test.tsx files
 ```
 
