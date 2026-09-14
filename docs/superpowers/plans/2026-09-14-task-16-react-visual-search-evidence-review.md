@@ -326,7 +326,9 @@ The backend also supports `videoAssetId` and `processingRunId`. They shall remai
 
 When either advanced scope is active from the URL, the Search page must show it visibly as an **Active scope** chip/summary with an explicit remove action. Hidden filters must never constrain results without operator-visible indication.
 
-Visible-form Search submissions preserve valid active advanced scopes unless the operator removes them. Reset clears all scopes.
+Removing an Active scope is a **committed-state action**: it must immediately canonicalize/navigate the URL with that `videoAssetId` or `processingRunId` removed while preserving all other committed filters. The chip remains visible until that URL transition has committed. It must never disappear only from local draft state while the hidden committed filter remains active.
+
+Visible-form Search submissions preserve valid active advanced scopes unless the operator removes them. Reset clears all scopes and navigates to canonical `/search`.
 
 This avoids clutter while preserving the exact backend capability without creating invisible filtering.
 
@@ -443,12 +445,14 @@ Cold URL load, Back/Forward navigation and Reset/recommit behavior must all use 
 
 ### 9.5 Validation
 
-Reject before request when:
+Reject before the Track request when:
 
 - From >= To;
 - either committed UTC value is invalid;
-- configured display zone is unavailable/invalid;
+- a time filter is being created/edited from wall-clock input and the configured display zone is unavailable/invalid;
 - wall-time conversion is ambiguous/nonexistent.
+
+Display-zone availability is **not** a prerequisite for an unfiltered or non-time-filter Track search. If `/api/system/config` fails, camera/class/duration/confidence searches continue to work; only time-input conversion and configured-zone timestamp presentation are unavailable.
 
 Backend validation remains authoritative and `track_search_invalid` must still be handled.
 
@@ -897,6 +901,7 @@ Write RED tests for:
 - error state;
 - result-card fields;
 - thumbnail fallback;
+- recycled/rerendered card whose old thumbnail URL fails and whose replacement URL succeeds, proving failure state resets by URL;
 - Review URL;
 - Load More;
 - exact nextCursor reuse;
@@ -915,6 +920,7 @@ Write RED tests for:
 - valid direct deep link;
 - malformed route VideoAsset ID;
 - missing/malformed `trackId`;
+- duplicated `trackId` query parameter (including two individually valid GUIDs) is rejected and issues no Track request;
 - Track 404;
 - Track/video route mismatch;
 - representative thumbnail;
@@ -1035,6 +1041,7 @@ At minimum:
 - empty state;
 - API error;
 - thumbnail unavailable;
+- thumbnail error-state recovery after `thumbnailContentUrl` changes;
 - Load More;
 - cursor handoff;
 - filter reset;
@@ -1045,6 +1052,7 @@ At minimum:
 
 - cold direct route;
 - route validation;
+- duplicate `trackId` rejection with no Track API call;
 - Track 404;
 - Track/video mismatch;
 - video source;
