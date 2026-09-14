@@ -17,6 +17,7 @@ SPEC.loader.exec_module(mod)
 def observation():
     return {
         "sourceCommit": "a" * 40,
+        "targetVerifiedManifestSha256": "c" * 64,
         "acceptanceProfileSha256": "b" * 64,
         "runtimeVariant": "linux-x86_64-cuda",
         "actualDevice": "cuda:0",
