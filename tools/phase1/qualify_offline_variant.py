@@ -84,10 +84,11 @@ def verify_bundle(bundle: Path) -> tuple[dict[str, Any], str]:
         if not path.is_file() or path.stat().st_size != item.get("sizeBytes") or sha256_file(path) != item.get("sha256"):
             raise VariantQualificationError("variant_bundle_integrity_failed")
         expected.add(relative)
+    root_manifest = (bundle / "bundle-manifest.json").resolve()
     actual = {
         path.relative_to(bundle).as_posix()
         for path in bundle.rglob("*")
-        if path.is_file() and path.name != "bundle-manifest.json"
+        if path.is_file() and path.resolve() != root_manifest
     }
     if actual != expected:
         raise VariantQualificationError("variant_bundle_file_set_mismatch")
