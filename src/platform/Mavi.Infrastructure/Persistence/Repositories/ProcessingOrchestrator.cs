@@ -72,6 +72,9 @@ public sealed class ProcessingOrchestrator(
                 run.DetectorVersion,
                 run.TrackerName,
                 run.TrackerVersion,
+                run.FramesProcessed,
+                run.TracksCreated,
+                run.ProcessingDurationMs ?? 0,
                 run.RuntimeProvenanceJson))
             .SingleOrDefaultAsync(cancellationToken);
     }
