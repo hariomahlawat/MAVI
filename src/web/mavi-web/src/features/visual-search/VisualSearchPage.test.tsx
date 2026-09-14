@@ -228,7 +228,7 @@ describe('VisualSearchPage', () => {
     vi.mocked(getSystemConfig).mockResolvedValueOnce({ displayTimeZoneId: 'Asia/Kolkata' });
     await user.click(screen.getByRole('button', { name: 'Retry display config' }));
 
-    await waitFor(() => expect(screen.getByLabelText('From')).toHaveValue('2026-09-14T08:00:00'));
+    await waitFor(() => expect(screen.getByLabelText('From')).toHaveValue('2026-09-14T08:00'));
     expect(screen.getByLabelText('Object class')).toHaveValue('Vehicle');
   });
 
