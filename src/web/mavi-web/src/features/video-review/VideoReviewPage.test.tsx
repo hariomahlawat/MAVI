@@ -1,7 +1,10 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSystemConfig } from '../../api/system';
 import { getTrack, type TrackDetail } from '../../api/tracks';
+import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import VideoReviewPage from './VideoReviewPage';
 
@@ -19,6 +22,7 @@ vi.mock('../../api/tracks', async () => {
 
 const videoId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21421';
 const trackId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21451';
+const secondTrackId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21452';
 
 function detail(overrides: Partial<TrackDetail> = {}): TrackDetail {
   return {
@@ -76,6 +80,21 @@ function detail(overrides: Partial<TrackDetail> = {}): TrackDetail {
   };
 }
 
+function ReviewNavigationHarness() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => navigate('/review/video/' + videoId + '?trackId=' + secondTrackId)}
+      >
+        Next Track
+      </button>
+      <VideoReviewPage />
+    </>
+  );
+}
+
 describe('VideoReviewPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -125,6 +144,31 @@ describe('VideoReviewPage', () => {
 
     expect(await screen.findByText(/does not belong to the video/i)).toBeInTheDocument();
     expect(screen.queryByLabelText('Source video evidence')).not.toBeInTheDocument();
+  });
+
+  it('reseeks immediately when another Track on the same video is already cached', async () => {
+    const user = userEvent.setup();
+    const second = detail({
+      id: secondTrackId,
+      startOffsetMs: 300_000,
+    });
+    vi.mocked(getTrack).mockImplementation(async (id) => id === secondTrackId ? second : detail());
+
+    const view = renderWithApp(<ReviewNavigationHarness />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId,
+      routePath: '/review/video/:videoAssetId',
+    });
+
+    const video = await screen.findByLabelText('Source video evidence');
+    Object.defineProperty(video, 'duration', { configurable: true, value: 600 });
+    Object.defineProperty(video, 'readyState', { configurable: true, value: HTMLMediaElement.HAVE_METADATA });
+    (video as HTMLVideoElement).currentTime = 196.420;
+
+    view.queryClient.setQueryData(queryKeys.track(secondTrackId), second);
+    await user.click(screen.getByRole('button', { name: 'Next Track' }));
+
+    await waitFor(() => expect((screen.getByLabelText('Source video evidence') as HTMLVideoElement).currentTime)
+      .toBeCloseTo(299, 3));
   });
 
   it('surfaces Track not found without retrying the stable 404', async () => {
