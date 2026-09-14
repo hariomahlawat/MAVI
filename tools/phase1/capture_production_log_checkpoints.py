@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -74,6 +75,7 @@ def main() -> int:
             "schemaVersion": "mavi-production-log-checkpoint-v1",
             "acceptanceExecutionId": context["acceptanceExecutionId"],
             "acceptanceContextSha256": context_sha,
+            "capturedAtUtc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "logs": entries,
         }
         args.output.write_text(
