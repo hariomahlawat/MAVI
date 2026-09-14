@@ -321,6 +321,7 @@ def validate_scenario(
         or scenario.get("workerPythonSha256")
         != linux_cuda_variant.get("workerPythonSha256")
         or scenario.get("e2eEvidenceSha256") != e2e_sha
+        or scenario.get("networkIsolation", {}).get("passed") is not True
         or not passed_result(scenario)
         or e2e.get("mode") != mode
         or e2e.get("targetVerifiedManifestSha256") != target_manifest_sha256
@@ -408,6 +409,7 @@ def validate_failure_reprocess(
         or len(media_hashes) != 1
         or None in media_hashes
         or value.get("trackCount", 0) <= 0
+        or value.get("networkIsolation", {}).get("passed") is not True
         or attestation.get("verificationStatus") != "verified"
         or attestation.get("runtimeVariant") != "linux-x86_64-cuda"
         or attestation.get("maviBuild") != mavi_build
