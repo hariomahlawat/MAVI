@@ -125,6 +125,15 @@ describe('Task-16 committed search state', () => {
     expect(confidenceFractionToPercentText(1e-7)).toBe('0.00001');
   });
 
+  it('keeps tiny bookmarked confidence in backend-supported plain decimal form', () => {
+    const parsed = parseCommittedSearch(new URLSearchParams('minimumConfidence=0.0000001'));
+    expect(parsed.isValid).toBe(true);
+    if (parsed.isValid) {
+      expect(parsed.filters.minimumConfidence).toBe(1e-7);
+      expect(parsed.canonicalQuery).toBe('minimumConfidence=0.0000001');
+    }
+  });
+
   it('converts operator duration and confidence input without silent clamping', () => {
     expect(secondsTextToMilliseconds('1.250')).toBe(1250);
     expect(secondsTextToMilliseconds('1.001')).toBe(1001);
