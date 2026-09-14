@@ -5,6 +5,7 @@ using Mavi.Application;
 using Mavi.Application.Modules.Media;
 using Mavi.Infrastructure;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Server.IIS;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +21,7 @@ var maximumFileSize = builder.Configuration.GetValue<long>($"{VideoImportOptions
 var multipartOverhead = builder.Configuration.GetValue<long>($"{VideoImportOptions.SectionName}:MultipartOverheadBytes");
 var maximumRequestSize = checked(maximumFileSize + multipartOverhead);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maximumRequestSize);
+builder.Services.Configure<IISServerOptions>(options => options.MaxRequestBodySize = maximumRequestSize);
 builder.Services.Configure<FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = maximumRequestSize;
