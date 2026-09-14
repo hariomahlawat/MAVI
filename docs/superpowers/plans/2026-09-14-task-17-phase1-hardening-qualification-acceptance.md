@@ -205,7 +205,7 @@ Within that PR keep these commit classes separate:
 
 Use the established release sequence whenever runtime/release metadata is affected:
 
-**implementation frozen -> hardware/runtime qualification -> immutable CUDA/platform artifacts and locks frozen -> final qualified runtime metadata constructed -> pending qualification record rebound to that final runtime hash -> qualification-candidate bundles built from the internally consistent unverified selection -> candidate/release-level evidence attested -> model/qualification metadata promoted -> production bundle built -> production-bundle verification acceptance**
+**implementation frozen -> hardware/runtime qualification -> immutable CUDA/platform artifacts and locks frozen -> final qualified runtime metadata constructed -> pending qualification record rebound to that final runtime hash -> qualification-candidate bundles built from the internally consistent unverified selection -> candidate/release-level evidence attested -> model/qualification metadata promoted -> production bundles built for every required platform/device variant -> disconnected production-mode install/runtime smoke for every exact production bundle -> full production-topology end-to-end acceptance -> final Phase-1 acceptance**
 
 Hardware qualification that establishes a runtime platform as `qualified-hardware` is deliberately earlier than release-level evidence attestation. It must not be confused with the later model/release qualification evidence that binds to the resulting immutable runtime-profile hash.
 
@@ -925,11 +925,18 @@ Do not hand-edit hashes from memory. Generate and verify them from exact bytes.
 
 ---
 
-## 20. Production bundle generation
+## 20. Production bundle generation and per-variant verification
 
 After metadata promotion is frozen, build final production bundles using:
 
 `tools/vision/build_offline_bundle.py --release-status production ...`
+
+Build one production bundle for every required qualified platform/device variant referenced by the final runtime profile, currently:
+
+- `windows-x86_64-cpu`;
+- `windows-x86_64-cuda`;
+- `linux-x86_64-cpu`;
+- `linux-x86_64-cuda`.
 
 The production bundle build must fail closed unless:
 
@@ -940,7 +947,7 @@ The production bundle build must fail closed unless:
 - requested platform has an allowed qualified lock;
 - every included file matches its recorded SHA-256.
 
-Record:
+Record for every production bundle:
 
 - source commit;
 - platform variant;
@@ -951,11 +958,31 @@ Record:
 
 The bundle directory/archive itself remains a release artifact, not a Git-tracked file.
 
+### 20.1 Mandatory post-promotion disconnected smoke
+
+Every exact production bundle must pass a disconnected **production-mode install/runtime smoke** on the corresponding host/device class before Phase 1 can be declared complete.
+
+For each required platform/device variant:
+
+1. transfer the exact production bundle bytes to the intended disconnected host class;
+2. re-hash `bundle-manifest.json` and every listed artifact;
+3. install with `--no-index --only-binary=:all: --require-hashes` from the bundled wheelhouse;
+4. run `pip check`;
+5. start the runtime under production verification semantics, never `allow_unverified`;
+6. require actual platform/device identity to match the bundle variant;
+7. run real local RTMDet inference on that device class;
+8. record bundle ID, bundle-manifest SHA-256, selected-lock SHA-256, runtime/profile/model identities and smoke result;
+9. fail closed on any network dependency, first-run download, source build, device fallback or identity mismatch.
+
+Candidate-bundle evidence from Checkpoint G does not satisfy this requirement because qualification-candidate and production bundle verification paths are intentionally different.
+
+These per-variant production smokes prove the exact shipped runtime closure. The full operator/product E2E in Section 21 remains a separate system-level acceptance event.
+
 ---
 
-## 21. Final production-bundle verification acceptance
+## 21. Final production-topology disconnected acceptance
 
-The final Phase-1 disconnected acceptance is executed only after legitimate release promotion and production-bundle generation. It verifies the exact production artifacts rather than reusing candidate evidence as a substitute.
+The final Phase-1 disconnected acceptance is executed only after legitimate release promotion, generation of every required production bundle, and successful Section-20.1 disconnected production-mode smoke for every required Windows/Linux CPU/CUDA variant. It verifies the complete production topology rather than reusing candidate evidence or a single Linux CUDA bundle as a substitute.
 
 The deployment prerequisites must be explicit. The Task-12 vision bundle does **not** provision Windows Server/IIS, PostgreSQL/pgvector, CPython, NVIDIA/CUDA drivers or the complete MAVI application deployment. For the final acceptance:
 
@@ -964,35 +991,36 @@ The deployment prerequisites must be explicit. The Task-12 vision bundle does **
 - the exact required CPython patch version and NVIDIA/CUDA driver prerequisites are pre-provisioned on the Linux worker;
 - the MAVI application build/deployment artifact is separately identified, hashed and retained;
 - the Task-12 production bundle supplies the qualified vision Python/runtime/model closure;
-- acceptance evidence binds both the MAVI application build identity and the vision-runtime production-bundle identity.
+- acceptance evidence binds the MAVI application build identity, the exact Linux CUDA production bundle used by the full E2E, and references the passed Section-20.1 smoke evidence for every required production bundle.
 
 On a clean designated production-representative acceptance deployment (Windows/IIS operational plane + qualified Linux NVIDIA worker):
 
-1. verify the approved prerequisite baseline and record its versioned identities;
-2. validate the MAVI application deployment artifact hash;
-3. validate final vision production-bundle bytes and bundle-manifest hash;
-4. install the vision runtime from the production bundle with Internet unavailable;
-5. start PostgreSQL/pgvector from the approved local deployment;
-6. start Mavi.Api behind the production-equivalent Windows/IIS host;
-7. start the qualified Linux NVIDIA worker;
-8. create/resolve qualification Camera;
-9. import controlled MP4;
-10. remove the client-side import working copy;
-11. prove managed source remains retrievable;
-12. process successfully and capture the exact completed ProcessingRun ID;
-13. fetch the completed-run attestation and require its final verified model/config/profile/qualification/runtime/platform-lock/MAVI-build identities to match the promoted release and production-bundle manifest;
-14. search Person/Vehicle Tracks for the exact run;
-15. open Evidence Review;
-16. require at least one expected/matched Track and one resolved detail for the formal target-containing acceptance case;
-17. stream/hash the managed source and require both its SHA-256 and strong ETag to equal the original qualification-media hash; separately verify native source-video Range semantics;
-18. stream/hash at least one representative artifact and require its SHA-256 to equal its strong ETag digest;
-19. verify the exact corpus-manifest and ground-truth-manifest hashes, then execute formal ground-truth evaluation;
-20. run the separate empty-scene false-positive diagnostic;
-21. run failure/reprocess scenario;
-22. inspect logs for attempted Internet calls/telemetry/licence checks;
-23. retain machine-readable acceptance evidence bound to the application-build hash, production-bundle hash and completed-run attestation.
+1. verify Section-20.1 smoke evidence is complete and passing for every required Windows/Linux CPU/CUDA production bundle;
+2. verify the approved prerequisite baseline and record its versioned identities;
+3. validate the MAVI application deployment artifact hash;
+4. validate the exact Linux CUDA production-bundle bytes and bundle-manifest hash used by the full E2E;
+5. install the Linux CUDA vision runtime from that production bundle with Internet unavailable;
+6. start PostgreSQL/pgvector from the approved local deployment;
+7. start Mavi.Api behind the production-equivalent Windows/IIS host;
+8. start the qualified Linux NVIDIA worker;
+9. create/resolve qualification Camera;
+10. import controlled MP4;
+11. remove the client-side import working copy;
+12. prove managed source remains retrievable;
+13. process successfully and capture the exact completed ProcessingRun ID;
+14. fetch the completed-run attestation and require its final verified model/config/profile/qualification/runtime/platform-lock/MAVI-build identities to match the promoted release and exact Linux CUDA production-bundle manifest;
+15. search Person/Vehicle Tracks for the exact run;
+16. open Evidence Review;
+17. require at least one expected/matched Track and one resolved detail for the formal target-containing acceptance case;
+18. stream/hash the managed source and require both its SHA-256 and strong ETag to equal the original qualification-media hash; separately verify native source-video Range semantics;
+19. stream/hash at least one representative artifact and require its SHA-256 to equal its strong ETag digest;
+20. verify the exact corpus-manifest and ground-truth-manifest hashes, then execute formal ground-truth evaluation;
+21. run the separate empty-scene false-positive diagnostic;
+22. run failure/reprocess scenario;
+23. inspect logs for attempted Internet calls/telemetry/licence checks;
+24. retain machine-readable acceptance evidence bound to the application-build hash, Linux CUDA production-bundle hash, completed-run attestation, and all per-variant production-smoke evidence identities.
 
-This is the **final Phase-1 disconnected acceptance event**. A candidate acceptance, a green unit-test suite, or an invalid-proxy CI run is not a substitute.
+This is the **final Phase-1 disconnected acceptance event**. A candidate acceptance, a green unit-test suite, an invalid-proxy CI run, or a single-platform production smoke is not a substitute.
 
 ---
 
@@ -1226,7 +1254,7 @@ The CUDA platform qualification that establishes the final runtime identities oc
 
 All evidence must name the exact behavior-bearing source/release identities it exercised. Connected CI validates evidence; it does not substitute for a disconnected execution environment.
 
-When every mandatory gate has validated evidence, perform the status/evidence-only final promotion in section 19.4. Then rerun all deterministic exact-head gates and build the production bundle. Execute the **final production-bundle verification acceptance** in Section 21. A failure at this stage reopens the release; it is not waived because the earlier candidate disconnected acceptance passed.
+When every mandatory gate has validated evidence, perform the status/evidence-only final promotion in section 19.4. Then rerun all deterministic exact-head gates and build every required production bundle. Execute the Section-20.1 disconnected production-mode install/runtime smoke for each exact Windows/Linux CPU/CUDA production bundle. Only after all per-variant production smokes pass, execute the Section-21 full production-topology disconnected acceptance. Any failure after promotion reopens the release; it is not waived because the earlier candidate disconnected acceptance passed.
 
 ---
 
@@ -1290,6 +1318,8 @@ Search explicitly for:
 - first-run downloads;
 - remote fonts/CDNs/telemetry;
 - production bundle built while release is still pending;
+- only Linux CUDA production bytes being disconnected-tested while Windows CPU/CUDA or Linux CPU production bundles remain unverified;
+- candidate-bundle evidence being reused as a substitute for post-promotion production-bundle install/runtime smoke;
 - manual evidence that cannot be tied to an exact source head.
 
 Fix sibling defects discovered by this audit before external review.
@@ -1321,7 +1351,8 @@ For full completion, at minimum:
 - no mandatory gate is silently removed;
 - final release metadata passes repository/release-selection verification;
 - production bundles are generated only after legitimate release promotion;
-- final disconnected acceptance succeeds;
+- every required Windows/Linux CPU/CUDA production bundle passes disconnected production-mode install/runtime smoke against its exact shipped bytes;
+- final full production-topology disconnected acceptance succeeds;
 - exact-head automated gates are green;
 - final broad Codex review has no material Critical/P1/P2 blocker;
 - merge uses expected-head protection;
