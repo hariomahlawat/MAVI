@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Mavi.Application.Health;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Contracts.Api.Processing;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,6 +11,31 @@ namespace Mavi.IntegrationTests;
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class Task15ApiContractTests
 {
+    [Fact]
+    public async Task HealthIdentityComesFromCompiledAssemblyNotEnvironment()
+    {
+        var previousBuild = Environment.GetEnvironmentVariable("MAVI_BUILD");
+        var previousCommit = Environment.GetEnvironmentVariable("MAVI_COMMIT");
+        try
+        {
+            Environment.SetEnvironmentVariable("MAVI_BUILD", "spoofed-build");
+            Environment.SetEnvironmentVariable("MAVI_COMMIT", new string('f', 40));
+
+            using var factory = new ApiTestFactory();
+            using var client = factory.CreateClient();
+            var health = await client.GetFromJsonAsync<PlatformHealth>("/api/health");
+
+            Assert.NotNull(health);
+            Assert.Equal("unknown-development", health.Build);
+            Assert.Equal("unknown-development", health.Commit);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("MAVI_BUILD", previousBuild);
+            Environment.SetEnvironmentVariable("MAVI_COMMIT", previousCommit);
+        }
+    }
+
     [Fact]
     public async Task ProcessingStatusMapsOnlyThePublicContract()
     {
