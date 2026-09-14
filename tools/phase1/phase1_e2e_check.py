@@ -527,6 +527,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     config = client.json("GET", "/api/system/config")
     if not isinstance(health, dict) or not isinstance(config, dict):
         raise AcceptanceError("qualification_health_invalid")
+    if (
+        health.get("status") != "ok"
+        or health.get("commit") != args.source_commit
+        or not isinstance(health.get("build"), str)
+        or not health["build"]
+        or health["build"] == "unknown-development"
+    ):
+        raise AcceptanceError("qualification_application_identity_mismatch")
 
     camera = resolve_camera(
         client,
