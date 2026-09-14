@@ -106,6 +106,10 @@ function Invoke-UiSmoke {
 if (-not (Test-Path -LiteralPath $ArtifactDirectory -PathType Container)) { throw "application_artifact_directory_missing" }
 if (-not (Test-Path -LiteralPath $ApplicationManifestPath -PathType Leaf)) { throw "application_manifest_missing" }
 if (-not (Test-Path -LiteralPath $SupportedUpdatesPath -PathType Leaf)) { throw "supported_updates_policy_missing" }
+$canonicalSupportedUpdatesPath = (Resolve-Path (Join-Path $PSScriptRoot "..\..\config\acceptance\phase1-supported-updates-v1.json")).Path
+$observedSupportedUpdatesPath = (Resolve-Path -LiteralPath $SupportedUpdatesPath).Path
+if ($observedSupportedUpdatesPath -ne $canonicalSupportedUpdatesPath) { throw "supported_updates_policy_not_canonical" }
+$supportedUpdatesPolicySha256 = Get-Sha256 $canonicalSupportedUpdatesPath
 if (Test-Path -LiteralPath $EvidenceOutput) { throw "application_lifecycle_evidence_exists" }
 
 $verifyArgs = @(
@@ -146,6 +150,7 @@ if ($Mode -eq "fresh-install") {
     $priorValidation = $priorValidationJson | ConvertFrom-Json
     if (-not $priorValidation.ok) { throw "update_prior_release_validation_failed" }
 
+    if ([string]$priorValidation.supportedUpdatesPolicySha256 -ne $supportedUpdatesPolicySha256) { throw "supported_updates_policy_hash_mismatch" }
     $migrationPolicy = [string]$priorValidation.migrationPolicy
     $priorManifestSha = [string]$priorValidation.applicationManifestSha256
     $priorCommit = [string]$priorValidation.sourceCommit
@@ -231,6 +236,7 @@ try {
         sourceCommit = $sourceCommit
         build = $build
         applicationManifestSha256 = Get-Sha256 $ApplicationManifestPath
+        supportedUpdatesPolicySha256 = $supportedUpdatesPolicySha256
         destination = (Resolve-Path -LiteralPath $Destination).Path
         internetUnavailable = $true
         networkIsolation = $networkIsolation
