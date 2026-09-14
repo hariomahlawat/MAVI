@@ -27,7 +27,15 @@ def build_prior(tmp_path: Path):
     return root, manifest_path
 
 
-def test_rejects_unfrozen_prior_manifest_identity(tmp_path: Path):
+def _use_test_policy(monkeypatch, policy: Path):
+    monkeypatch.setattr(
+        mod,
+        "canonical_supported_updates",
+        lambda observed: (policy, mod.sha256_file(policy)),
+    )
+
+
+def test_rejects_unfrozen_prior_manifest_identity(tmp_path: Path, monkeypatch):
     root, manifest_path = build_prior(tmp_path)
     policy = tmp_path / "policy.json"
     policy.write_text(json.dumps({
@@ -38,11 +46,12 @@ def test_rejects_unfrozen_prior_manifest_identity(tmp_path: Path):
             "migrationPolicy": "none",
         }],
     }), encoding="utf-8")
+    _use_test_policy(monkeypatch, policy)
     with pytest.raises(mod.SupportedUpdateError, match="update_prior_release_identity_not_frozen"):
         mod.validate(policy, manifest_path, root)
 
 
-def test_rejects_mislabeled_or_modified_prior_artifact(tmp_path: Path):
+def test_rejects_mislabeled_or_modified_prior_artifact(tmp_path: Path, monkeypatch):
     root, manifest_path = build_prior(tmp_path)
     manifest_sha = mod.sha256_file(manifest_path)
     policy = tmp_path / "policy.json"
@@ -54,6 +63,18 @@ def test_rejects_mislabeled_or_modified_prior_artifact(tmp_path: Path):
             "migrationPolicy": "none",
         }],
     }), encoding="utf-8")
+    _use_test_policy(monkeypatch, policy)
     (root / "Mavi.Api.dll").write_bytes(b"modified")
     with pytest.raises(mod.SupportedUpdateError, match="update_prior_release_integrity_failed"):
+        mod.validate(policy, manifest_path, root)
+
+
+def test_rejects_noncanonical_supported_update_policy(tmp_path: Path):
+    root, manifest_path = build_prior(tmp_path)
+    policy = tmp_path / "policy.json"
+    policy.write_text(json.dumps({
+        "schemaVersion": "mavi-phase1-supported-updates-v1",
+        "priorReleases": [],
+    }), encoding="utf-8")
+    with pytest.raises(mod.PolicyIdentityError, match="supported_updates_policy_not_canonical"):
         mod.validate(policy, manifest_path, root)
