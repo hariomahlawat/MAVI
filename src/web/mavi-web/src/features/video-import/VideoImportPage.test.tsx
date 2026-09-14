@@ -5,7 +5,7 @@ import { listCameras } from '../../api/cameras';
 import { ApiError } from '../../api/client';
 import { getProcessingStatus, importVideo, queueProcessing } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
-import VideoImportPage from './VideoImportPage';
+import VideoImportPage, { runImportWorkflow } from './VideoImportPage';
 
 vi.mock('../../api/cameras', () => ({
   listCameras: vi.fn(),
@@ -157,6 +157,33 @@ describe('VideoImportPage', () => {
     }));
     await waitFor(() => expect(queueProcessing).toHaveBeenCalledTimes(1));
     expect(queueProcessing).toHaveBeenCalledWith(video.id);
+  });
+
+  it('preserves the reconciled video ID when duplicate status lookup fails', async () => {
+    vi.mocked(importVideo).mockRejectedValueOnce(new ApiError({
+      status: 409,
+      code: 'video_duplicate',
+      detail: 'Video has already been imported.',
+      videoAssetId: video.id,
+    }));
+    vi.mocked(getProcessingStatus).mockRejectedValueOnce(new ApiError({
+      status: 503,
+      code: 'processing_status_unavailable',
+      detail: 'Processing status is temporarily unavailable.',
+    }));
+
+    const outcome = await runImportWorkflow({
+      cameraId: camera.id,
+      recordingStartLocal: '2026-09-14T08:30',
+      file: new File(['same'], 'source.mp4', { type: 'video/mp4' }),
+    });
+
+    expect(outcome.videoAssetId).toBe(video.id);
+    expect(outcome.recovered).toBe(true);
+    expect(outcome.workflowWarning).toMatch(/Existing import recovered.*processing status.*temporarily unavailable/i);
+    expect(importVideo).toHaveBeenCalledTimes(1);
+    expect(getProcessingStatus).toHaveBeenCalledWith(video.id);
+    expect(queueProcessing).not.toHaveBeenCalled();
   });
 
   it('recovers a committed import whose 201 response was lost without queueing duplicate active work', async () => {
