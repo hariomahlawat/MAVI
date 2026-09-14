@@ -79,6 +79,7 @@ def test_worker_flow_binding_rejects_other_host():
         mod.assert_worker_flow_binding(
             value,
             variant="linux-x86_64-cpu",
+            bundle_mode="qualification-candidate",
             target_verified_manifest_sha256="a" * 64,
             bundle_manifest_sha256="b" * 64,
             release_lock_sha256="c" * 64,
