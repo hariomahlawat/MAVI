@@ -306,7 +306,7 @@ The evaluator shall report, per class and overall:
 - temporal-IoU distribution;
 - spatial-IoU distribution;
 - duplicate/competing-candidate count;
-- events/candidates rejected for insufficient spatial annotation.
+- spatial-reference failures as baseline diagnostics only; formal qualification ground truth with missing/over-wide spatial coverage fails semantic validation before scoring.
 
 Only Track time intersecting an `evaluationWindow` is scored. A Track crossing a window boundary is clipped to that annotated window before temporal IoU is calculated; Tracks wholly outside all evaluation windows are ignored. Ground-truth events are required to lie wholly inside one evaluation window.
 
