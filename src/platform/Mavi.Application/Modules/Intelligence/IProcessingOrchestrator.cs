@@ -1,5 +1,16 @@
 namespace Mavi.Application.Modules.Intelligence;
 
+public sealed record ProcessingRunAttestationSource(
+    Guid ProcessingRunId,
+    Guid VideoAssetId,
+    DateTimeOffset CompletedAtUtc,
+    string PipelineVersion,
+    string? DetectorName,
+    string? DetectorVersion,
+    string? TrackerName,
+    string? TrackerVersion,
+    string RuntimeProvenanceJson);
+
 public sealed record QueueProcessingResult(bool IsSuccess, Guid? ProcessingRunId, string? ErrorCode);
 public sealed record ProcessingStatusResult(bool Found, string VideoStatus, ProcessingRunStatusView? LatestRun);
 public sealed record ProcessingRunStatusView(Guid ProcessingRunId, string Status, string Pipeline, string PipelineVersion,
@@ -28,6 +39,7 @@ public interface IProcessingOrchestrator
 {
     Task<QueueProcessingResult> QueueAsync(Guid videoId, CancellationToken cancellationToken);
     Task<ProcessingStatusResult> GetStatusAsync(Guid videoId, CancellationToken cancellationToken);
+    Task<ProcessingRunAttestationSource?> GetCompletedRunAttestationAsync(Guid processingRunId, CancellationToken cancellationToken);
     Task<VisionLeaseView?> LeaseAsync(string workerId, CancellationToken cancellationToken);
     Task<HeartbeatResult> HeartbeatAsync(Guid jobId, string workerId, string leaseToken, double progressPercent, CancellationToken cancellationToken);
     Task<OrchestrationResult> FailAsync(Guid jobId, string workerId, string leaseToken, string failureCode, string? failureMessage, CancellationToken cancellationToken);
