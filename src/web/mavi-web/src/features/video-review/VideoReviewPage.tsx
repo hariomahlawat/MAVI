@@ -83,7 +83,7 @@ export default function VideoReviewPage() {
     if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
       applySeek();
     } else {
-      video.addEventListener('loadedmetadata', applySeek);
+      video.addEventListener('loadedmetadata', applySeek, { once: true });
     }
 
     return () => {
