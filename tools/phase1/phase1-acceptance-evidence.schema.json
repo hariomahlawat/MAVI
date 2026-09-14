@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion", "mode", "sourceCommit", "targetVerifiedManifestSha256", "environmentLabel", "releaseExpected",
+    "schemaVersion", "mode", "sourceCommit", "targetVerifiedManifestSha256", "acceptanceProfileSha256", "environmentLabel", "releaseExpected",
     "attestation", "camera", "video", "sourceMedia", "processing", "tracks",
     "evidenceReads", "sourceRange", "metrics", "result"
   ],
@@ -14,6 +14,7 @@
     "mode": { "enum": ["formal", "empty-scene-diagnostic"] },
     "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "targetVerifiedManifestSha256": { "$ref": "#/$defs/sha256" },
+    "acceptanceProfileSha256": { "$ref": "#/$defs/sha256" },
     "environmentLabel": { "type": "string", "minLength": 1, "maxLength": 128 },
     "releaseExpected": { "$ref": "#/$defs/release" },
     "attestation": {
