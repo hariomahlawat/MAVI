@@ -165,9 +165,11 @@ Within that PR keep these commit classes separate:
 
 Use the established release sequence whenever runtime/release metadata is affected:
 
-**implementation frozen -> deterministic artifacts generated -> metadata rebound -> evidence attested**
+**implementation frozen -> hardware/runtime qualification -> immutable CUDA/platform artifacts and locks frozen -> final qualified runtime metadata constructed -> release-level evidence attested -> model/qualification metadata promoted -> production bundle built -> production-bundle verification acceptance**
 
-If implementation changes after freeze, all downstream evidence tied to the prior frozen head is stale and must be regenerated.
+Hardware qualification that establishes a runtime platform as `qualified-hardware` is deliberately earlier than release-level evidence attestation. It must not be confused with the later model/release qualification evidence that binds to the resulting immutable runtime-profile hash.
+
+If implementation changes after freeze, all downstream evidence tied to the prior frozen head is stale and must be regenerated. If a runtime artifact, lock, platform identity, profile or other behavior-bearing release input changes, every downstream evidence package bound to the previous identity is likewise stale.
 
 Never edit a qualification JSON to say `passed` before the referenced evidence actually exists and is verified.
 
@@ -652,24 +654,37 @@ Never change a threshold and preserve old qualification evidence as though it ex
 
 ---
 
-## 19. Candidate metadata rebind, evidence attestation and final promotion
+## 19. Runtime qualification, candidate rebind, evidence attestation and final promotion
 
-Task 17 must avoid the circular mistake of marking qualification gates passed before their final evidence exists.
+Task 17 must avoid two circular mistakes: marking qualification gates passed before their evidence exists, and requiring a final runtime hash before the hardware qualification needed to construct that runtime has occurred.
 
-### 19.1 Candidate metadata rebind
+### 19.1 Hardware/runtime qualification before final runtime hash
 
-After implementation is frozen and immutable hardware/runtime artifacts exist:
+After implementation is frozen:
 
-1. construct the final intended `runtime.json` platform identities and release-lock hashes;
-2. set `qualificationStatus = "qualified"` only if the runtime schema permits it (all runtime platform/lock requirements actually satisfied);
-3. compute the resulting runtime-profile SHA-256;
-4. keep the model manifest `unverified` and qualification gates `pending`;
-5. rebind the pending qualification record to the candidate runtime/profile identities as required;
+1. execute the Windows/Linux CUDA hardware qualification needed to establish exact platform/device/runtime identities;
+2. generate and validate any CUDA release locks only from the actually qualified runtime graphs;
+3. record immutable evidence for the platform qualification itself;
+4. update CUDA platform entries to `qualified-hardware` only when that platform evidence exists;
+5. update CUDA release-lock entries to `qualified-offline-lock` only when the exact lock bytes exist and validate;
+6. do not yet promote model qualification gates merely because the runtime platform is now qualified.
+
+The purpose of this stage is to establish the immutable runtime inputs. Hardware evidence used to justify a `qualified-hardware` runtime entry is not, by itself, the later model/release-level attestation.
+
+### 19.2 Candidate metadata rebind
+
+Only after every required runtime platform identity and release lock is immutable:
+
+1. construct the final intended `runtime.json`;
+2. set `qualificationStatus = "qualified"` only when the runtime schema permits it and every required platform/lock condition is actually satisfied;
+3. compute the resulting final runtime-profile SHA-256;
+4. keep the model manifest `unverified` and model qualification gates `pending`;
+5. rebind the pending qualification record to the final runtime/profile identities as required;
 6. run repository/release-selection validation.
 
-This candidate-rebind head is the head on which the mandatory external/hardware/offline/quality evidence is generated.
+This candidate-rebind head is the head on which release-level offline, CCTV-quality, recovery/performance and end-to-end candidate evidence is generated.
 
-### 19.2 Evidence attestation
+### 19.3 Evidence attestation
 
 Every evidence package must bind the exact behavior-bearing identities it exercised:
 
@@ -681,7 +696,7 @@ Every evidence package must bind the exact behavior-bearing identities it exerci
 
 For the later status-only manifest promotion, Task 17 may precompute the exact intended verified-manifest bytes and target SHA-256 (same model/config/runtime identity, only the reviewed qualification/status linkage changes) and include that target hash in evidence. Do not commit an inconsistent verified manifest before evidence exists.
 
-### 19.3 Final evidence-binding/promotion commit
+### 19.4 Final evidence-binding/promotion commit
 
 Only after every mandatory gate has real validated evidence:
 
@@ -729,30 +744,43 @@ The bundle directory/archive itself remains a release artifact, not a Git-tracke
 
 ---
 
-## 21. Final disconnected acceptance
+## 21. Final production-bundle verification acceptance
+
+The final Phase-1 disconnected acceptance is executed only after legitimate release promotion and production-bundle generation. It verifies the exact production artifacts rather than reusing candidate evidence as a substitute.
+
+The deployment prerequisites must be explicit. The Task-12 vision bundle does **not** provision Windows Server/IIS, PostgreSQL/pgvector, CPython, NVIDIA/CUDA drivers or the complete MAVI application deployment. For the final acceptance:
+
+- Windows Server/IIS prerequisites are pre-provisioned or installed from separately controlled offline media;
+- PostgreSQL/pgvector is pre-provisioned or installed from approved local/offline media;
+- the exact required CPython patch version and NVIDIA/CUDA driver prerequisites are pre-provisioned on the Linux worker;
+- the MAVI application build/deployment artifact is separately identified, hashed and retained;
+- the Task-12 production bundle supplies the qualified vision Python/runtime/model closure;
+- acceptance evidence binds both the MAVI application build identity and the vision-runtime production-bundle identity.
 
 On a clean designated production-representative acceptance deployment (Windows/IIS operational plane + qualified Linux NVIDIA worker):
 
-1. validate final bundle bytes;
-2. install with Internet unavailable;
-3. start PostgreSQL/pgvector;
-4. start Mavi.Api behind the production-equivalent host;
-5. start the qualified worker;
-6. create/resolve qualification Camera;
-7. import controlled MP4;
-8. remove the client-side import working copy;
-9. prove managed source remains retrievable;
-10. process successfully;
-11. search Person/Vehicle Tracks;
-12. open Evidence Review;
-13. verify representative evidence;
-14. verify native source-video playback/range;
-15. execute ground-truth evaluation if applicable;
-16. run failure/reprocess scenario;
-17. inspect logs for attempted Internet calls/telemetry/licence checks;
-18. retain machine-readable acceptance evidence.
+1. verify the approved prerequisite baseline and record its versioned identities;
+2. validate the MAVI application deployment artifact hash;
+3. validate final vision production-bundle bytes and bundle-manifest hash;
+4. install the vision runtime from the production bundle with Internet unavailable;
+5. start PostgreSQL/pgvector from the approved local deployment;
+6. start Mavi.Api behind the production-equivalent Windows/IIS host;
+7. start the qualified Linux NVIDIA worker;
+8. create/resolve qualification Camera;
+9. import controlled MP4;
+10. remove the client-side import working copy;
+11. prove managed source remains retrievable;
+12. process successfully;
+13. search Person/Vehicle Tracks;
+14. open Evidence Review;
+15. verify representative evidence;
+16. verify native source-video playback/range;
+17. execute ground-truth evaluation if applicable;
+18. run failure/reprocess scenario;
+19. inspect logs for attempted Internet calls/telemetry/licence checks;
+20. retain machine-readable acceptance evidence.
 
-This is the Phase-1 acceptance event. A green unit-test suite alone is not an offline acceptance event.
+This is the **final Phase-1 disconnected acceptance event**. A candidate acceptance, a green unit-test suite, or an invalid-proxy CI run is not a substitute.
 
 ---
 
@@ -889,27 +917,31 @@ Any implementation change after this point invalidates downstream release eviden
 
 ---
 
-## 27. Checkpoint E — deterministic release artifacts
+## 27. Checkpoint E — hardware/runtime qualification and deterministic artifacts
 
 From the frozen implementation:
 
-- generate any new CUDA locks only from actually qualified hardware/runtime graphs;
-- generate qualification-candidate bundles;
-- record hashes;
+- execute required CUDA hardware qualification first;
+- establish exact Windows/Linux CUDA platform identities from real qualified hosts;
+- generate any new CUDA locks only from those actually qualified runtime graphs;
+- validate the generated locks against the qualified platform identities;
+- record immutable platform evidence and exact hashes;
+- generate qualification-candidate bundles after the runtime artifacts are frozen;
 - do not mix source-behavior fixes into artifact commits.
 
-If hardware is unavailable, stop with those gates pending rather than inventing artifacts.
+If required hardware is unavailable, stop with those runtime/platform gates pending rather than inventing artifacts or constructing a falsely final runtime hash.
 
 ---
 
-## 28. Checkpoint F — candidate metadata rebind
+## 28. Checkpoint F — final runtime construction and candidate metadata rebind
 
-After final immutable runtime/artifact hashes exist:
+After final immutable runtime/platform/lock identities exist:
 
-- update final runtime platform/lock identities;
-- re-compute the candidate runtime hash;
-- keep model manifest unverified and mandatory evidence gates pending;
-- rebind only identities that are legitimately knowable before evidence;
+- construct the final runtime profile from the already qualified platform identities and frozen release locks;
+- set runtime `qualificationStatus` to `qualified` only if the schema and all runtime prerequisites are satisfied;
+- compute the final candidate runtime hash only after that construction;
+- keep model manifest unverified and model qualification gates pending;
+- rebind only identities that are legitimately knowable before release-level evidence;
 - precompute (do not prematurely publish) the intended final verified-manifest bytes/hash;
 - run release-selection and repository verification immediately.
 
@@ -933,20 +965,21 @@ On the exact candidate-rebind head run every applicable evidence gate:
 - hosted CPU runtime qualification;
 - Task-12 bundle reproduction/comparison.
 
-### Evidence/hardware
+### Release-level evidence / acceptance
+
+The CUDA platform qualification that establishes the final runtime identities occurred in Checkpoint E and must not be repeated here merely to manufacture the runtime hash. Checkpoint G validates evidence bound to that now-immutable runtime identity and executes the remaining release-level gates:
 
 - Windows disconnected-install qualification from transferred locally generated evidence;
 - Linux disconnected-install qualification from transferred locally generated evidence;
-- Windows CUDA hardware qualification;
-- Linux CUDA hardware qualification;
+- validation of retained Windows/Linux CUDA platform evidence against the final runtime identity;
 - Linux NVIDIA recovery/performance;
 - CCTV-quality baseline;
 - deployed Windows/IIS host acceptance;
-- final disconnected end-to-end acceptance from transferred locally generated evidence.
+- **candidate disconnected end-to-end acceptance** from transferred locally generated evidence.
 
 All evidence must name the exact behavior-bearing source/release identities it exercised. Connected CI validates evidence; it does not substitute for a disconnected execution environment.
 
-When every mandatory gate has validated evidence, perform the status/evidence-only final promotion in section 19.3. Then rerun all deterministic exact-head gates and build the production bundle. Execute the final disconnected production-bundle acceptance in production verification mode. A failure at this stage reopens the release; it is not waived because earlier candidate evidence passed.
+When every mandatory gate has validated evidence, perform the status/evidence-only final promotion in section 19.4. Then rerun all deterministic exact-head gates and build the production bundle. Execute the **final production-bundle verification acceptance** in Section 21. A failure at this stage reopens the release; it is not waived because the earlier candidate disconnected acceptance passed.
 
 ---
 
