@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/phase1-production-acceptance-evidence-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion","sourceCommit","maviBuild","verifiedModelManifestSha256",
+    "acceptanceProfileSha256","applicationManifestSha256",
+    "freshInstallEvidenceSha256","offlineUpdateEvidenceSha256",
+    "backupRestoreEvidenceSha256","productionVariantEvidenceSha256",
+    "productionBundleManifestSha256","productionReleaseLockSha256",
+    "finalE2eEvidenceSha256","result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-phase1-production-acceptance-evidence-v1" },
+    "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "maviBuild": { "type": "string", "minLength": 1 },
+    "verifiedModelManifestSha256": { "$ref": "#/$defs/sha256" },
+    "acceptanceProfileSha256": { "$ref": "#/$defs/sha256" },
+    "applicationManifestSha256": { "$ref": "#/$defs/sha256" },
+    "freshInstallEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "offlineUpdateEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "backupRestoreEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "finalE2eEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "productionVariantEvidenceSha256": { "$ref": "#/$defs/variants" },
+    "productionBundleManifestSha256": { "$ref": "#/$defs/variants" },
+    "productionReleaseLockSha256": { "$ref": "#/$defs/variants" },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed","failureCodes"],
+      "properties": {
+        "passed": { "const": true },
+        "failureCodes": { "type": "array", "maxItems": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "variants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "windows-x86_64-cpu","windows-x86_64-cuda",
+        "linux-x86_64-cpu","linux-x86_64-cuda"
+      ],
+      "properties": {
+        "windows-x86_64-cpu": { "$ref": "#/$defs/sha256" },
+        "windows-x86_64-cuda": { "$ref": "#/$defs/sha256" },
+        "linux-x86_64-cpu": { "$ref": "#/$defs/sha256" },
+        "linux-x86_64-cuda": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
