@@ -36,12 +36,14 @@ function displayTimestamp(value: string | null | undefined, displayTimeZoneId?: 
 }
 
 export default function VideoReviewPage() {
-  const { videoAssetId = '' } = useParams();
+  const { videoAssetId: rawVideoAssetId = '' } = useParams();
   const [searchParams] = useSearchParams();
   const trackIds = searchParams.getAll('trackId');
-  const trackId = trackIds.length === 1 ? trackIds[0] : '';
-  const validVideoId = isGuid(videoAssetId);
-  const validTrackId = trackIds.length === 1 && isGuid(trackId);
+  const rawTrackId = trackIds.length === 1 ? trackIds[0] : '';
+  const validVideoId = isGuid(rawVideoAssetId);
+  const validTrackId = trackIds.length === 1 && isGuid(rawTrackId);
+  const videoAssetId = validVideoId ? rawVideoAssetId.toLowerCase() : '';
+  const trackId = validTrackId ? rawTrackId.toLowerCase() : '';
 
   const track = useQuery({
     queryKey: queryKeys.track(trackId),
