@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/production-scenario-evidence-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion","mode","sourceCommit","maviBuild",
+    "targetVerifiedManifestSha256","linuxCudaVariantEvidenceSha256",
+    "productionBundleManifestSha256","productionReleaseLockSha256",
+    "workerPythonSha256","e2eEvidenceSha256","workerLogSha256","result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-production-scenario-evidence-v1" },
+    "mode": { "enum": ["formal","empty-scene-diagnostic"] },
+    "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "maviBuild": { "type": "string", "minLength": 1 },
+    "targetVerifiedManifestSha256": { "$ref": "#/$defs/sha256" },
+    "linuxCudaVariantEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "productionBundleManifestSha256": { "$ref": "#/$defs/sha256" },
+    "productionReleaseLockSha256": { "$ref": "#/$defs/sha256" },
+    "workerPythonSha256": { "$ref": "#/$defs/sha256" },
+    "e2eEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "workerLogSha256": { "$ref": "#/$defs/sha256" },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed","failureCodes"],
+      "properties": {
+        "passed": { "const": true },
+        "failureCodes": { "type": "array", "maxItems": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
