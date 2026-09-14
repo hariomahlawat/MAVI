@@ -23,6 +23,7 @@ vi.mock('../../api/tracks', async () => {
 const videoId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21421';
 const trackId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21451';
 const secondTrackId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21452';
+const secondVideoId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21422';
 
 function detail(overrides: Partial<TrackDetail> = {}): TrackDetail {
   return {
@@ -89,6 +90,21 @@ function ReviewNavigationHarness() {
         onClick={() => navigate('/review/video/' + videoId + '?trackId=' + secondTrackId)}
       >
         Next Track
+      </button>
+      <VideoReviewPage />
+    </>
+  );
+}
+
+function DifferentVideoNavigationHarness() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => navigate('/review/video/' + secondVideoId + '?trackId=' + secondTrackId)}
+      >
+        Different Video
       </button>
       <VideoReviewPage />
     </>
@@ -205,6 +221,34 @@ describe('VideoReviewPage', () => {
     const video = screen.getByLabelText('Source video evidence');
     fireEvent.error(video);
     expect(screen.getByText(/Source video could not be loaded/i)).toBeInTheDocument();
+  });
+
+  it('reconstructs a replacement route when navigation changes to another video', async () => {
+    const user = userEvent.setup();
+    const second = detail({
+      id: secondTrackId,
+      videoAssetId: secondVideoId,
+      startOffsetMs: 42_000,
+      video: {
+        ...detail().video,
+        videoContentUrl: '/api/videos/' + secondVideoId + '/content',
+      },
+    });
+    vi.mocked(getTrack).mockImplementation(async (id) => id === secondTrackId ? second : detail());
+
+    renderWithApp(<DifferentVideoNavigationHarness />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId,
+      routePath: '/review/video/:videoAssetId',
+    });
+
+    expect(await screen.findByLabelText('Source video evidence'))
+      .toHaveAttribute('src', '/api/videos/' + videoId + '/content');
+
+    await user.click(screen.getByRole('button', { name: 'Different Video' }));
+
+    await waitFor(() => expect(screen.getByLabelText('Source video evidence'))
+      .toHaveAttribute('src', '/api/videos/' + secondVideoId + '/content'));
+    expect(getTrack).toHaveBeenCalledWith(secondTrackId, expect.any(AbortSignal));
   });
 
   it('surfaces Track not found without retrying the stable 404', async () => {
