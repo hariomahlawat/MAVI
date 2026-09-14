@@ -31,7 +31,10 @@ public sealed record ProcessingRunAttestationResponse(
     string? DetectorName,
     string? DetectorVersion,
     string? TrackerName,
-    string? TrackerVersion);
+    string? TrackerVersion,
+    long FramesProcessed,
+    int TracksCreated,
+    long ProcessingDurationMs);
 
 public sealed record ProcessingRunPlatformAttestationResponse(
     string System,
