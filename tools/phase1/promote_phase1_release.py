@@ -38,6 +38,7 @@ from mavi_vision.runtime.qualification import (  # noqa: E402
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
 from compute_target_verified_manifest import build_target_manifest, sha256_bytes as target_sha256_bytes  # noqa: E402
 from jsonschema import Draft202012Validator  # noqa: E402
+from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
 
 
 class PromotionError(ValueError):
@@ -383,7 +384,7 @@ def main() -> int:
         manifest_raw = read_release_json(args.manifest, code="model_manifest_invalid")
         qualification_raw = read_release_json(args.qualification, code="qualification_record_invalid")
         runtime_raw = read_release_json(args.runtime_profile, code="runtime_profile_invalid")
-        acceptance_profile_sha256 = sha256_file(args.acceptance_profile)
+        _, acceptance_profile_sha256 = canonical_acceptance_profile(args.acceptance_profile)
 
         # Validate the current pending relationship before constructing promotion.
         verify_release_selection(
@@ -412,7 +413,7 @@ def main() -> int:
             profile_path=args.pipeline_profile,
             runtime_profile_path=args.runtime_profile,
         )
-    except (PromotionError, ReleaseMetadataError) as exc:
+    except (PromotionError, ReleaseMetadataError, PolicyIdentityError) as exc:
         code = getattr(exc, "code", str(exc))
         print(json.dumps({"ok": False, "code": code}, sort_keys=True))
         return 2
