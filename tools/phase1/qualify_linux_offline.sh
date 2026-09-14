@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 7 ]]; then
-  echo "usage: qualify_linux_offline.sh <cpu-bundle> <cuda-bundle> <cpu-worker-evidence> <cuda-worker-evidence> <source-commit> <work-root> <output>" >&2
+if [[ $# -ne 8 ]]; then
+  echo "usage: qualify_linux_offline.sh <cpu-bundle> <cuda-bundle> <cpu-worker-evidence> <cuda-worker-evidence> <source-commit> <target-verified-manifest-sha256> <work-root> <output>" >&2
   exit 2
 fi
 
@@ -11,8 +11,9 @@ CUDA_BUNDLE="$2"
 CPU_WORKER="$3"
 CUDA_WORKER="$4"
 SOURCE_COMMIT="$5"
-WORK_ROOT="$6"
-OUTPUT="$7"
+TARGET_MANIFEST_SHA="$6"
+WORK_ROOT="$7"
+OUTPUT="$8"
 
 if [[ -e "$OUTPUT" ]]; then
   echo "linux_offline_evidence_exists" >&2
