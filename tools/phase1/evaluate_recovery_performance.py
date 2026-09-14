@@ -95,6 +95,7 @@ def evaluate(profile: dict[str, Any], observation: dict[str, Any]) -> dict[str, 
         "sourceCommit": observation.get("sourceCommit"),
         "targetVerifiedManifestSha256": observation.get("targetVerifiedManifestSha256"),
         "acceptanceProfileSha256": observation.get("acceptanceProfileSha256"),
+        "maviBuild": observation.get("maviBuild"),
         "runtimeVariant": observation.get("runtimeVariant"),
         "actualDevice": observation.get("actualDevice"),
         "noTrackStateLeakAcrossVideos": True,
@@ -130,6 +131,9 @@ def main() -> int:
             raise PerformanceEvidenceError("performance_source_commit_mismatch")
         if observation.get("acceptanceProfileSha256") != acceptance_profile_sha:
             raise PerformanceEvidenceError("performance_profile_hash_mismatch")
+        build = observation.get("maviBuild")
+        if not isinstance(build, str) or not build:
+            raise PerformanceEvidenceError("performance_mavi_build_invalid")
         target = observation.get("targetVerifiedManifestSha256")
         if (
             not isinstance(target, str)
