@@ -23,6 +23,8 @@ e2e = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = e2e
 SPEC.loader.exec_module(e2e)
 
+import qualify_offline_variant as offline_variant  # noqa: E402
+
 
 class FailureReprocessError(ValueError):
     pass
@@ -165,6 +167,7 @@ def validate_production_inputs(
 
 def execute(args: argparse.Namespace) -> dict[str, Any]:
     bundle, bundle_sha = validate_production_inputs(args)
+    network_isolation = offline_variant.assert_outbound_internet_unavailable()
     client = e2e.ApiClient(args.base_url)
 
     health = client.json("GET", "/api/health")
@@ -404,6 +407,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         },
         "trackCount": len(tracks),
         "workerLogSha256": sha256_file(worker_log),
+        "networkIsolation": network_isolation,
         "result": {"passed": True, "failureCodes": []},
     }
 
