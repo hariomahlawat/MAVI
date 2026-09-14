@@ -279,7 +279,7 @@ describe('VisualSearchPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Load more' }));
 
     expect(await screen.findByText(/snapshot can no longer continue/i)).toBeInTheDocument();
-    expect(screen.getByText(/North Gate/)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Review evidence' })).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: 'Refresh results' }));
 
