@@ -47,6 +47,8 @@ REQUIRED_PATHS = [
     "tools/phase1/backup-restore-evidence.schema.json",
     "tools/phase1/offline-variant-evidence.schema.json",
     "tools/phase1/recovery-performance-evidence.schema.json",
+    "tools/phase1/production-acceptance-evidence.schema.json",
+    "tools/phase1/assemble_production_acceptance.py",
 ]
 
 ALLOWED_REFERENCES = {
@@ -170,6 +172,7 @@ def check_phase1_acceptance_assets(errors: list[str]) -> None:
         ROOT / "tools/phase1/backup-restore-evidence.schema.json",
         ROOT / "tools/phase1/offline-variant-evidence.schema.json",
         ROOT / "tools/phase1/recovery-performance-evidence.schema.json",
+        ROOT / "tools/phase1/production-acceptance-evidence.schema.json",
     ]
     schemas = {}
     for path in schema_paths:
