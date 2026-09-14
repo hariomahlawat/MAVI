@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/phase1-acceptance-evidence-v1.json",
+  "title": "MAVI Phase-1 Acceptance Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "mode", "sourceCommit", "environmentLabel", "releaseExpected",
+    "attestation", "camera", "video", "sourceMedia", "processing", "tracks",
+    "evidenceReads", "sourceRange", "metrics", "result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-phase1-acceptance-evidence-v1" },
+    "mode": { "enum": ["formal", "empty-scene-diagnostic"] },
+    "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "environmentLabel": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "releaseExpected": { "$ref": "#/$defs/release" },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["processingRunId", "comparisonPassed", "verificationStatus", "runtimeVariant", "actualDevice", "maviBuild", "maviCommit"],
+      "properties": {
+        "processingRunId": { "$ref": "#/$defs/guid" },
+        "comparisonPassed": { "type": "boolean" },
+        "verificationStatus": { "enum": ["verified", "unverified"] },
+        "runtimeVariant": { "type": "string", "minLength": 1 },
+        "actualDevice": { "type": "string", "minLength": 1 },
+        "maviBuild": { "type": "string", "minLength": 1 },
+        "maviCommit": { "type": "string", "minLength": 1 },
+        "platformLockSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "candidateBundleManifestSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "candidateSelectedLockSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "camera": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "code", "timeZoneId", "isActive"],
+      "properties": {
+        "id": { "$ref": "#/$defs/guid" },
+        "code": { "type": "string", "minLength": 1 },
+        "timeZoneId": { "type": "string", "minLength": 1 },
+        "isActive": { "const": true }
+      }
+    },
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "cameraId", "recordingStartUtc", "recordingTimeZoneId", "recordingUtcOffsetMinutes", "durationMs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/guid" },
+        "cameraId": { "$ref": "#/$defs/guid" },
+        "recordingStartUtc": { "type": "string", "format": "date-time" },
+        "recordingTimeZoneId": { "type": "string", "minLength": 1 },
+        "recordingUtcOffsetMinutes": { "type": "integer", "minimum": -840, "maximum": 840 },
+        "durationMs": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "sourceMedia": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["localSha256", "streamedSha256", "etagSha256", "matched"],
+      "properties": {
+        "localSha256": { "$ref": "#/$defs/sha256" },
+        "streamedSha256": { "$ref": "#/$defs/sha256" },
+        "etagSha256": { "$ref": "#/$defs/sha256" },
+        "matched": { "type": "boolean" }
+      }
+    },
+    "groundTruth": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["corpusManifestSha256", "groundTruthManifestSha256", "videoSha256", "durationMs", "bindingPassed"],
+      "properties": {
+        "corpusManifestSha256": { "$ref": "#/$defs/sha256" },
+        "groundTruthManifestSha256": { "$ref": "#/$defs/sha256" },
+        "videoSha256": { "$ref": "#/$defs/sha256" },
+        "durationMs": { "type": "integer", "minimum": 1 },
+        "bindingPassed": { "type": "boolean" }
+      }
+    },
+    "processing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["processingRunId", "terminalState", "processingDurationMs"],
+      "properties": {
+        "processingRunId": { "$ref": "#/$defs/guid" },
+        "terminalState": { "const": "Completed" },
+        "processingDurationMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "tracks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "person", "vehicle", "detailsResolved", "orphanCount"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "person": { "type": "integer", "minimum": 0 },
+        "vehicle": { "type": "integer", "minimum": 0 },
+        "detailsResolved": { "type": "integer", "minimum": 0 },
+        "orphanCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "evidenceReads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempted", "passed", "representativeArtifactId", "streamedSha256", "etagSha256"],
+      "properties": {
+        "attempted": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "representativeArtifactId": { "type": ["string", "null"], "pattern": "^[0-9a-fA-F-]{36}$" },
+        "streamedSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "etagSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "sourceRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "statusCode"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "statusCode": { "type": "integer" }
+      }
+    },
+    "metrics": { "type": ["object", "null"] },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failureCodes"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "failureCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "guid": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelId", "modelManifestSha256", "checkpointSha256", "resolvedConfigSha256", "pipelineProfileId", "pipelineProfileSha256", "runtimeProfileId", "runtimeProfileSha256", "qualificationSha256"],
+      "properties": {
+        "modelId": { "type": "string", "minLength": 1 },
+        "modelManifestSha256": { "$ref": "#/$defs/sha256" },
+        "checkpointSha256": { "$ref": "#/$defs/sha256" },
+        "resolvedConfigSha256": { "$ref": "#/$defs/sha256" },
+        "pipelineProfileId": { "type": "string", "minLength": 1 },
+        "pipelineProfileSha256": { "$ref": "#/$defs/sha256" },
+        "runtimeProfileId": { "type": "string", "minLength": 1 },
+        "runtimeProfileSha256": { "$ref": "#/$defs/sha256" },
+        "qualificationSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}
