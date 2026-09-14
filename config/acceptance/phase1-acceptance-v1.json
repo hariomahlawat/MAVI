@@ -8,12 +8,16 @@
     "iouFixedPrecisionScale": 1000000,
     "iouRounding": "half-up"
   },
-  "requiredClasses": ["Person", "Vehicle"],
+  "requiredClasses": [
+    "Person",
+    "Vehicle"
+  ],
   "classThresholds": {
     "Person": null,
     "Vehicle": null
   },
   "emptyScene": {
     "maximumUnmatchedTracks": null
-  }
+  },
+  "performanceThresholds": null
 }
