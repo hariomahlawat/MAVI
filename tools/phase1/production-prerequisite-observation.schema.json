@@ -3,11 +3,12 @@
   "$id": "https://mavi.local/schemas/production-prerequisite-observation-v1.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion","role","capturedAtUtc","values"],
+  "required": ["schemaVersion","role","capturedAtUtc","topologyIdentity","values"],
   "properties": {
     "schemaVersion": { "const": "mavi-production-prerequisite-observation-v1" },
     "role": { "enum": ["windows-operational-plane","database","linux-vision-worker"] },
     "capturedAtUtc": { "type": "string", "format": "date-time" },
+    "topologyIdentity": { "type": "string", "minLength": 1 },
     "values": {
       "type": "object",
       "additionalProperties": { "type": "string", "minLength": 1 },
