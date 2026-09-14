@@ -29,4 +29,4 @@ ADR-003 closure additionally requires three executed proofs during Task 17 final
 
 All three proofs must produce distinct immutable hashed evidence and fail closed on missing stores, mismatched bytes/identities, hidden external dependencies or unexercised install/restore paths.
 
-See `docs/superpowers/plans/2026-09-14-task-17-phase1-hardening-qualification-acceptance.md` for the authoritative sequence and evidence requirements.
+Operational commands and evidence handling are documented in `docs/runbooks/phase1-acceptance.md`. The authoritative requirements remain `docs/superpowers/plans/2026-09-14-task-17-phase1-hardening-qualification-acceptance.md` plus its qualification-closure addendum.
