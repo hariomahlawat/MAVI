@@ -25,6 +25,7 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[2]
+CANONICAL_ACCEPTANCE_PROFILE = ROOT / "config" / "acceptance" / "phase1-acceptance-v1.json"
 VISION_ROOT = ROOT / "src" / "vision"
 VISION_TOOLS = ROOT / "tools" / "vision"
 for candidate in (VISION_ROOT, VISION_TOOLS):
@@ -678,6 +679,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise AcceptanceError("qualification_formal_no_reviewable_tracks")
         acceptance_profile = read_json(args.acceptance_profile)
         metrics = evaluator.evaluate(gt, normalized_tracks, acceptance_profile)
+        if (
+            acceptance_profile.get("mode") == "qualification"
+            and gt_evidence["corpusManifestSha256"]
+            != acceptance_profile.get("qualificationCorpusManifestSha256")
+        ):
+            raise AcceptanceError("qualification_corpus_not_approved")
 
     counts = {"Person": 0, "Vehicle": 0}
     for item in exact_tracks:
@@ -778,6 +785,8 @@ def main() -> int:
     try:
         if not args.video.is_file():
             raise AcceptanceError("qualification_video_missing")
+        if args.acceptance_profile.resolve() != CANONICAL_ACCEPTANCE_PROFILE.resolve():
+            raise AcceptanceError("qualification_acceptance_profile_not_canonical")
         if (
             len(args.target_verified_manifest_sha256) != 64
             or any(ch not in "0123456789abcdef" for ch in args.target_verified_manifest_sha256)
