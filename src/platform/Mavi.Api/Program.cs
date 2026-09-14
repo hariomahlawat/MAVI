@@ -27,6 +27,8 @@ builder.Services.Configure<FormOptions>(options =>
 
 var app = builder.Build();
 app.UseVisionCompletionRequestLimits();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.MapGet("/api/health", () =>
 {
@@ -42,6 +44,13 @@ app.MapTrackEndpoints();
 app.MapArtifactEndpoints();
 app.MapGet("/api/system/config", (Microsoft.Extensions.Options.IOptions<LocalizationOptions> options) =>
     Results.Ok(new { displayTimeZoneId = options.Value.DefaultDisplayTimeZoneId }));
+
+// API/health fallthrough must never be rewritten to the SPA.
+app.MapGet("/api/{**path}", () => Results.NotFound());
+app.MapGet("/health/{**path}", () => Results.NotFound());
+
+// Frontend deep links are resolved only after API and static-file routing.
+app.MapFallbackToFile("{*path:nonfile}", "index.html");
 
 app.Run();
 
