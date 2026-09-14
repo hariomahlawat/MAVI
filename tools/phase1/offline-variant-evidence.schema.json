@@ -4,7 +4,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion","sourceCommit","targetVerifiedManifestSha256","acceptanceProfileSha256","variant","bundleMode","bundleManifestSha256",
+    "schemaVersion","sourceCommit","targetVerifiedManifestSha256","acceptanceProfileSha256","maviBuild","variant","bundleMode","bundleManifestSha256",
     "releaseLockSha256","expectedHostCompatibility","observedHostCompatibility",
     "installCommand","installExitCode","pipCheckPassed","runtimeStarted",
     "realInferencePassed","workerFlowPassed","workerFlowEvidenceSha256","workerPythonSha256","workerCommandSha256","workerLogSha256",
@@ -15,6 +15,7 @@
     "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "targetVerifiedManifestSha256": { "$ref": "#/$defs/sha256" },
     "acceptanceProfileSha256": { "$ref": "#/$defs/sha256" },
+    "maviBuild": { "type": "string", "minLength": 1 },
     "variant": { "enum": ["windows-x86_64-cpu","windows-x86_64-cuda","linux-x86_64-cpu","linux-x86_64-cuda"] },
     "bundleMode": { "enum": ["qualification-candidate","production"] },
     "bundleManifestSha256": { "$ref": "#/$defs/sha256" },
