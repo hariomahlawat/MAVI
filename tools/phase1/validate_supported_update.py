@@ -18,6 +18,8 @@ app_manifest = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = app_manifest
 SPEC.loader.exec_module(app_manifest)
 
+from policy_identity import PolicyIdentityError, canonical_supported_updates  # noqa: E402
+
 
 class SupportedUpdateError(ValueError):
     pass
@@ -32,8 +34,9 @@ def sha256_file(path: Path) -> str:
 
 
 def validate(policy_path: Path, prior_manifest_path: Path, prior_root: Path) -> dict:
+    canonical_policy, policy_sha = canonical_supported_updates(policy_path)
     try:
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        policy = json.loads(canonical_policy.read_text(encoding="utf-8"))
         prior = json.loads(prior_manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise SupportedUpdateError("supported_update_json_invalid") from exc
@@ -77,6 +80,7 @@ def validate(policy_path: Path, prior_manifest_path: Path, prior_root: Path) -> 
         "build": prior["build"],
         "applicationManifestSha256": actual_sha,
         "migrationPolicy": migration_policy,
+        "supportedUpdatesPolicySha256": policy_sha,
     }
 
 
@@ -88,7 +92,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         value = validate(args.policy, args.prior_manifest, args.prior_root)
-    except (SupportedUpdateError, OSError, KeyError) as exc:
+    except (SupportedUpdateError, OSError, KeyError, PolicyIdentityError) as exc:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2
     print(json.dumps({"ok": True, **value}, sort_keys=True))
