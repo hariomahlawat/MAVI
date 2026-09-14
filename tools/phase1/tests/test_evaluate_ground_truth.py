@@ -39,15 +39,23 @@ def profile(mode="baseline"):
 
 
 def event(event_id, cls, start, end, x):
+    midpoint = start + (end - start) // 2
+    samples = [
+        {"offsetMs": start, "boundingBox": {"x": x, "y": 0.1, "width": 0.2, "height": 0.2}},
+    ]
+    if midpoint not in {start, end}:
+        samples.append(
+            {"offsetMs": midpoint, "boundingBox": {"x": x, "y": 0.1, "width": 0.2, "height": 0.2}}
+        )
+    samples.append(
+        {"offsetMs": end, "boundingBox": {"x": x, "y": 0.1, "width": 0.2, "height": 0.2}}
+    )
     return {
         "eventId": event_id,
         "objectClass": cls,
         "startOffsetMs": start,
         "endOffsetMs": end,
-        "spatialSamples": [
-            {"offsetMs": start, "boundingBox": {"x": x, "y": 0.1, "width": 0.2, "height": 0.2}},
-            {"offsetMs": end, "boundingBox": {"x": x, "y": 0.1, "width": 0.2, "height": 0.2}},
-        ],
+        "spatialSamples": samples,
     }
 
 
@@ -121,7 +129,9 @@ def test_qualification_profile_rejects_missing_thresholds():
 
 
 def test_ground_truth_rejects_excessive_spatial_gap():
-    gt = ground_truth([event("p1", "Person", 1000, 4000, 0.1)])
+    invalid = event("p1", "Person", 1000, 4000, 0.1)
+    invalid["spatialSamples"] = [invalid["spatialSamples"][0], invalid["spatialSamples"][-1]]
+    gt = ground_truth([invalid])
     with pytest.raises(ev.EvaluationError, match="spatial_sample_gap_invalid"):
         ev.validate_ground_truth(gt, profile())
 
@@ -145,7 +155,7 @@ def test_matching_scales_beyond_bitmask_sized_track_sets():
     events = []
     tracks = []
     for index in range(30):
-        x = 0.01 + index * 0.03
+        x = 0.01 + index * 0.02
         events.append(event(f"e{index:02d}", "Person", 1000, 3000, x))
         tracks.append(track(f"t{index:02d}", "Person", 1000, 3000, 2000, x))
     gt = ground_truth(events)
