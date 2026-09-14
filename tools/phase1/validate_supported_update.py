@@ -10,6 +10,10 @@ import json
 import sys
 from pathlib import Path
 
+PHASE1_ROOT = Path(__file__).resolve().parent
+if str(PHASE1_ROOT) not in sys.path:
+    sys.path.insert(0, str(PHASE1_ROOT))
+
 MANIFEST_TOOL = Path(__file__).with_name("build_application_artifact_manifest.py")
 SPEC = importlib.util.spec_from_file_location("mavi_app_manifest", MANIFEST_TOOL)
 if SPEC is None or SPEC.loader is None:
