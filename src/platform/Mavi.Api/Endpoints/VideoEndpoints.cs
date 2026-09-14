@@ -42,7 +42,7 @@ public static class VideoEndpoints
             await using var content = file.OpenReadStream();
             var result = await service.ImportAsync(
                 new ImportVideoCommand(cameraId, recordingStartLocal, file.FileName, content), cancellationToken);
-            if (!result.IsSuccess) return Error(result.ErrorCode!);
+            if (!result.IsSuccess) return Error(result);
             var response = ToResponse(result.Video!);
             return Results.Created($"/api/videos/{response.Id}", response);
         }
@@ -66,8 +66,25 @@ public static class VideoEndpoints
     private static async Task<IResult> ProcessingAsync(Guid id, IProcessingOrchestrator orchestrator, CancellationToken cancellationToken)
     {
         var result = await orchestrator.GetStatusAsync(id, cancellationToken);
-        return result.Found ? Results.Ok(new { videoStatus = result.VideoStatus, latestRun = result.LatestRun })
-            : Problem(404, "video_not_found", "Video was not found.");
+        if (!result.Found)
+            return Problem(404, "video_not_found", "Video was not found.");
+
+        var latestRun = result.LatestRun is null
+            ? null
+            : new ProcessingRunStatusResponse(
+                result.LatestRun.ProcessingRunId,
+                result.LatestRun.Status,
+                result.LatestRun.Pipeline,
+                result.LatestRun.PipelineVersion,
+                result.LatestRun.WorkerId,
+                result.LatestRun.QueuedAtUtc,
+                result.LatestRun.StartedAtUtc,
+                result.LatestRun.CompletedAtUtc,
+                result.LatestRun.ProgressPercent,
+                result.LatestRun.AttemptCount,
+                result.LatestRun.FailureCode);
+
+        return Results.Ok(new ProcessingStatusResponse(result.VideoStatus, latestRun));
     }
 
     private static async Task<IResult> ContentAsync(
@@ -105,16 +122,20 @@ public static class VideoEndpoints
         Results.Ok((await catalog.ListAsync(cancellationToken)).Select(ToResponse));
 
     // Safe API mapping
-    private static IResult Error(string code) => code switch
+    private static IResult Error(VideoImportResult result) => result.ErrorCode switch
     {
-        VideoImportErrorCodes.CameraNotFound => Problem(404, code, "Camera was not found."),
-        VideoImportErrorCodes.CameraInactive => Problem(409, code, "Camera is inactive."),
-        VideoImportErrorCodes.Duplicate => Problem(409, code, "Video has already been imported."),
-        VideoImportErrorCodes.InvalidRecordingTime => Problem(400, code, "Recording time is invalid or ambiguous."),
-        VideoImportErrorCodes.FormatUnsupported => Problem(400, code, "Video format is unsupported."),
-        VideoImportErrorCodes.ContainerUnsupported => Problem(400, code, "Video container is unsupported."),
-        VideoImportErrorCodes.FileTooLarge => Problem(400, code, "The uploaded video exceeds the configured limit."),
-        VideoImportErrorCodes.InvalidFileName => Problem(400, code, "Video filename is invalid."),
+        VideoImportErrorCodes.CameraNotFound => Problem(404, result.ErrorCode, "Camera was not found."),
+        VideoImportErrorCodes.CameraInactive => Problem(409, result.ErrorCode, "Camera is inactive."),
+        VideoImportErrorCodes.Duplicate when result.ExistingVideoAssetId is Guid existingId =>
+            Problem(409, result.ErrorCode, "Video has already been imported.",
+                new Dictionary<string, object?> { ["videoAssetId"] = existingId }),
+        VideoImportErrorCodes.Duplicate =>
+            Problem(500, "video_duplicate_unresolved", "The existing imported video could not be resolved."),
+        VideoImportErrorCodes.InvalidRecordingTime => Problem(400, result.ErrorCode, "Recording time is invalid or ambiguous."),
+        VideoImportErrorCodes.FormatUnsupported => Problem(400, result.ErrorCode, "Video format is unsupported."),
+        VideoImportErrorCodes.ContainerUnsupported => Problem(400, result.ErrorCode, "Video container is unsupported."),
+        VideoImportErrorCodes.FileTooLarge => Problem(400, result.ErrorCode, "The uploaded video exceeds the configured limit."),
+        VideoImportErrorCodes.InvalidFileName => Problem(400, result.ErrorCode, "Video filename is invalid."),
         _ => Problem(400, VideoImportErrorCodes.MetadataInvalid, "Video metadata is invalid."),
     };
 
@@ -124,7 +145,19 @@ public static class VideoEndpoints
         video.DurationMs, video.Width, video.Height, video.FrameRateNumerator, video.FrameRateDenominator,
         video.Codec, video.ProcessingStatus.ToString(), video.ImportedAtUtc);
 
-    private static IResult Problem(int statusCode, string code, string detail) =>
-        Results.Problem(statusCode: statusCode, detail: detail,
-            extensions: new Dictionary<string, object?> { ["code"] = code });
+    private static IResult Problem(
+        int statusCode,
+        string code,
+        string detail,
+        IReadOnlyDictionary<string, object?>? additionalExtensions = null)
+    {
+        var extensions = new Dictionary<string, object?> { ["code"] = code };
+        if (additionalExtensions is not null)
+        {
+            foreach (var (key, value) in additionalExtensions)
+                extensions[key] = value;
+        }
+
+        return Results.Problem(statusCode: statusCode, detail: detail, extensions: extensions);
+    }
 }

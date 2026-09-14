@@ -5,6 +5,7 @@ using Mavi.Application;
 using Mavi.Application.Modules.Media;
 using Mavi.Infrastructure;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Server.IIS;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +21,7 @@ var maximumFileSize = builder.Configuration.GetValue<long>($"{VideoImportOptions
 var multipartOverhead = builder.Configuration.GetValue<long>($"{VideoImportOptions.SectionName}:MultipartOverheadBytes");
 var maximumRequestSize = checked(maximumFileSize + multipartOverhead);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maximumRequestSize);
+builder.Services.Configure<IISServerOptions>(options => options.MaxRequestBodySize = maximumRequestSize);
 builder.Services.Configure<FormOptions>(options =>
 {
     options.MultipartBodyLengthLimit = maximumRequestSize;
@@ -27,6 +29,8 @@ builder.Services.Configure<FormOptions>(options =>
 
 var app = builder.Build();
 app.UseVisionCompletionRequestLimits();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.MapGet("/api/health", () =>
 {
@@ -42,6 +46,13 @@ app.MapTrackEndpoints();
 app.MapArtifactEndpoints();
 app.MapGet("/api/system/config", (Microsoft.Extensions.Options.IOptions<LocalizationOptions> options) =>
     Results.Ok(new { displayTimeZoneId = options.Value.DefaultDisplayTimeZoneId }));
+
+// API/health fallthrough must never be rewritten to the SPA.
+app.MapGet("/api/{**path}", () => Results.NotFound());
+app.MapGet("/health/{**path}", () => Results.NotFound());
+
+// Frontend deep links are resolved only after API and static-file routing.
+app.MapFallbackToFile("{*path:nonfile}", "index.html");
 
 app.Run();
 

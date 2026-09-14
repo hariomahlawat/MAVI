@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Xml.Linq;
 using Mavi.Application.Modules.Media;
 using Mavi.Application;
 using Mavi.Infrastructure;
@@ -119,12 +121,54 @@ public sealed class ConfigurationValidationTests
     }
 
     [Fact]
+    public void Task15UploadLimitsAreAlignedAcrossApplicationAndIis()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var appsettingsPath = Path.Combine(repositoryRoot, "src", "platform", "Mavi.Api", "appsettings.json");
+        var webConfigPath = Path.Combine(repositoryRoot, "src", "platform", "Mavi.Api", "web.config");
+
+        using var appsettings = JsonDocument.Parse(File.ReadAllText(appsettingsPath));
+        var videoImport = appsettings.RootElement.GetProperty("VideoImport");
+        var maximumFileSizeBytes = videoImport.GetProperty("MaximumFileSizeBytes").GetInt64();
+        var multipartOverheadBytes = videoImport.GetProperty("MultipartOverheadBytes").GetInt64();
+        var maximumRequestBytes = checked(maximumFileSizeBytes + multipartOverheadBytes);
+
+        var document = XDocument.Load(webConfigPath);
+        var requestLimits = document.Descendants("requestLimits").Single();
+        var maxAllowedContentLength = long.Parse(
+            requestLimits.Attribute("maxAllowedContentLength")?.Value
+                ?? throw new InvalidOperationException("IIS maxAllowedContentLength is required."),
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        Assert.Equal(3L * 1024 * 1024 * 1024, maximumFileSizeBytes);
+        Assert.Equal(1024L * 1024, multipartOverheadBytes);
+        Assert.True(maxAllowedContentLength >= maximumRequestBytes,
+            $"IIS limit {maxAllowedContentLength} is smaller than application request limit {maximumRequestBytes}.");
+        Assert.True(maxAllowedContentLength <= uint.MaxValue,
+            "IIS maxAllowedContentLength cannot exceed its unsigned 32-bit ceiling.");
+    }
+
+    [Fact]
     public void MissingDatabaseConnectionFailsClearly()
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
         var exception = Assert.Throws<InvalidOperationException>(() =>
             new ServiceCollection().AddMaviInfrastructure(configuration));
         Assert.Contains("Connection string 'Mavi' is required", exception.Message, StringComparison.Ordinal);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "MAVI.sln")))
+                return directory.FullName;
+
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException("MAVI repository root could not be located.");
     }
 
     // Test host
@@ -138,7 +182,7 @@ public sealed class ConfigurationValidationTests
             ["MediaProcessing:FfprobePath"] = "ffprobe",
             ["MediaProcessing:FfmpegPath"] = "ffmpeg",
             ["MediaProcessing:ProbeTimeoutSeconds"] = "30",
-            ["VideoImport:MaximumFileSizeBytes"] = "10737418240",
+            ["VideoImport:MaximumFileSizeBytes"] = "3221225472",
             ["VideoImport:MultipartOverheadBytes"] = "1048576",
             ["VideoImport:AllowedExtensions:0"] = ".mp4",
             ["Localization:DefaultDisplayTimeZoneId"] = "Asia/Kolkata",

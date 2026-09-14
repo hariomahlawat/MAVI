@@ -112,3 +112,24 @@ jobs:
       - name: Build frontend
         working-directory: src/web/mavi-web
         run: npm run build
+
+      - name: Publish production web host
+        run: >-
+          dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj
+          --configuration Release
+          --no-restore
+          --output .artifacts/task15-host
+
+      - name: Verify production web host composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .artifacts/task15-host/Mavi.Api.dll
+          test -f .artifacts/task15-host/web.config
+          test -f .artifacts/task15-host/wwwroot/index.html
+          test -d .artifacts/task15-host/wwwroot/assets
+          grep -q 'maxAllowedContentLength="3222274048"' .artifacts/task15-host/web.config
+          if grep -Eiq 'https?://(fonts|cdn|unpkg|jsdelivr|cdnjs)\.' .artifacts/task15-host/wwwroot/index.html; then
+            echo "Runtime Internet dependency found in published index.html."
+            exit 1
+          fi

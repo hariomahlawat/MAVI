@@ -16,4 +16,20 @@
     <ProjectReference Include="..\Mavi.Infrastructure\Mavi.Infrastructure.csproj" />
     <ProjectReference Include="..\Mavi.Contracts\Mavi.Contracts.csproj" />
   </ItemGroup>
+  <PropertyGroup>
+    <MaviFrontendDirectory>$(MSBuildProjectDirectory)/../../web/mavi-web</MaviFrontendDirectory>
+  </PropertyGroup>
+
+  <Target Name="BuildTask15Frontend" BeforeTargets="ComputeFilesToPublish">
+    <Exec WorkingDirectory="$(MaviFrontendDirectory)" Command="npm ci" />
+    <Exec WorkingDirectory="$(MaviFrontendDirectory)" Command="npm run build" />
+    <ItemGroup>
+      <_MaviFrontendFiles Include="$(MaviFrontendDirectory)/dist/**/*" />
+      <ResolvedFileToPublish Include="@(_MaviFrontendFiles)">
+        <RelativePath>wwwroot/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>
