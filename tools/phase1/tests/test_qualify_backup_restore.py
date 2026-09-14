@@ -34,6 +34,7 @@ def _execution_payload():
         "schemaVersion": "mavi-backup-restore-execution-v1",
         "sourceCommit": "a" * 40,
         "acceptanceEvidenceSha256": "5" * 64,
+        "acceptanceProfileSha256": "6" * 64,
         "sourceDatabaseIdentity": "source|127.0.0.1|5432",
         "restoreDatabaseIdentity": "restore|127.0.0.1|5433",
         "database": {"included": True, "manifestSha256": "1" * 64},
