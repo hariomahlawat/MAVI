@@ -24,7 +24,7 @@
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "hostCompatibility": {
       "type": "object",
-      "additionalProperties": { "type": ["string", "number", "boolean"] }
+      "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
     },
     "variant": {
       "type": "object",
