@@ -355,6 +355,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
     for name, path in optional_inputs.items():
         if path is None:
             pending.append("acceptance:" + name)
+    if not args.production_log:
+        pending.append("acceptance:production-log-set")
 
     if args.fresh_install is not None:
         validate_application_lifecycle(
@@ -436,6 +438,12 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
     production_bundle_hashes: dict[str, str] = {}
     production_lock_hashes: dict[str, str] = {}
     production_variant_values: dict[str, dict[str, Any]] = {}
+
+    production_log_paths: dict[str, Path] = {}
+    if args.production_log:
+        production_log_paths = production_acceptance.parse_log_arguments(
+            args.production_log
+        )
 
     prerequisite_sha = None
     if (
@@ -569,6 +577,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
 
     if (
         args.log_inspection is not None
+        and production_log_paths
         and expected_mavi_build is not None
         and final_e2e_sha is not None
         and empty_e2e_sha is not None
@@ -579,6 +588,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
     ):
         log_sha = production_acceptance.validate_log_inspection(
             args.log_inspection,
+            log_paths=production_log_paths,
             source_commit=args.source_commit,
             mavi_build=expected_mavi_build,
             formal_e2e_sha256=final_e2e_sha,
@@ -612,6 +622,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and args.empty_scene_e2e is not None
         and args.failure_reprocess is not None
         and args.log_inspection is not None
+        and production_log_paths
         and len(production_bundle_hashes) == 4
         and final_e2e_sha is not None
         and empty_e2e_sha is not None
@@ -717,6 +728,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--empty-scene-e2e", type=Path)
     parser.add_argument("--failure-reprocess", type=Path)
     parser.add_argument("--log-inspection", type=Path)
+    parser.add_argument("--production-log", action="append", default=[])
     parser.add_argument("--production-acceptance", type=Path)
     parser.add_argument("--application-lifecycle-schema", type=Path, default=Path(__file__).with_name("application-lifecycle-evidence.schema.json"))
     parser.add_argument("--backup-restore-schema", type=Path, default=Path(__file__).with_name("backup-restore-evidence.schema.json"))
