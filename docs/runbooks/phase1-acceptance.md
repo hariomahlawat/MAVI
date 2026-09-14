@@ -124,18 +124,110 @@ Promotion must be status/evidence-only. Any model/config/profile/runtime/applica
 
 ## Production bundles and final acceptance
 
-After promotion:
+After promotion, final acceptance is a separate production-topology event. Per-variant production smoke evidence cannot be reused as the final system E2E.
 
-1. build **production** bundles for all four Windows/Linux CPU/CUDA variants;
-2. run `qualify_offline_variant.py`/the OS wrappers against each exact production bundle so the worker-flow proof is generated from the exact installed production venv;
-3. execute the final production-topology target-containing E2E on Windows/IIS plus the exact Linux NVIDIA/CUDA production bundle, with `--expected-mavi-build <build-id>`;
-4. require that production E2E attestation carries the promoted platform lock and exact Linux-CUDA `productionBundleManifestSha256`;
-5. execute fresh-install and supported offline-update proofs for the exact compiled application artifact;
-6. execute backup/restore **using the final production E2E evidence as the accepted case**, so the final backup evidence's `acceptanceEvidenceSha256` equals the exact final-E2E file hash;
-7. assemble `mavi-phase1-production-acceptance-evidence-v1` with `tools/phase1/assemble_production_acceptance.py`, supplying the exact application artifact+manifest, fresh/update evidence, all four production variant evidence files, final E2E evidence and final backup/restore evidence;
-8. pass those underlying files plus the resulting production-acceptance record to `assess_phase1_closure.py`.
+### 1. Freeze and prove the production prerequisite baseline
 
-`release-verified` is impossible unless closure independently reopens and reconciles those production artifacts. Candidate-bundle evidence never substitutes for post-promotion production-bundle execution.
+The canonical policy is `config/acceptance/phase1-production-prerequisites-v1.json`. It remains `approvalStatus=pending` until the real approved deployment versions are reviewed and frozen. Do not invent versions to remove the pending state.
+
+Capture observations on the actual acceptance topology:
+
+~~~text
+python tools/phase1/collect_production_prerequisites.py --role windows-operational-plane --output <windows-prereq.json>
+python tools/phase1/collect_production_prerequisites.py --role database --pg-service <service> --output <database-prereq.json>
+<exact Linux CUDA venv python> tools/phase1/collect_production_prerequisites.py --role linux-vision-worker --output <linux-prereq.json>
+~~~
+
+Once the canonical policy is formally approved, validate the three observed records:
+
+~~~text
+python tools/phase1/validate_production_prerequisites.py \
+  --policy config/acceptance/phase1-production-prerequisites-v1.json \
+  --source-commit <exact-commit> \
+  --mavi-build <build-id> \
+  --windows-observation <windows-prereq.json> \
+  --database-observation <database-prereq.json> \
+  --linux-observation <linux-prereq.json> \
+  --output <production-prerequisites.json>
+~~~
+
+The validator fails if the policy is still pending, any approved field is unfrozen, or an observed Windows/IIS, PostgreSQL/pgvector, CPython, NVIDIA-driver or CUDA-runtime identity differs from the approved baseline.
+
+### 2. Build and execute all four exact production bundles
+
+Build **production** bundles for Windows/Linux CPU/CUDA. Run the disconnected variant qualifiers on every exact bundle. Each qualifier installs into a clean venv and launches the real worker from that venv; detached prior worker evidence is not accepted.
+
+Retain all four `mavi-offline-variant-evidence-v1` files. They must bind the same source commit, MAVI build, promoted model-manifest hash and canonical acceptance-profile hash.
+
+### 3. Run independent final formal and empty-scene scenarios
+
+The final formal product E2E must be a new execution, separate from the Linux-CUDA per-variant smoke. Use `tools/phase1/run_production_scenario.py --mode formal` with the exact qualified Linux-CUDA production venv/bundle, controlled target-containing media, canonical corpus and ground truth. The scenario record binds the exact worker Python, production bundle/lock, generated E2E file and worker log.
+
+Run a second independent `--mode empty-scene-diagnostic` scenario using reviewed empty-scene media. This diagnostic passes only with **zero Tracks, zero resolved Track details and zero representative evidence reads**. Any detection is a false-positive acceptance failure.
+
+The final assembler and closure explicitly reject reuse of the Linux-CUDA variant's earlier worker-flow E2E as the final formal scenario.
+
+### 4. Execute the production failure/reprocess scenario
+
+With the normal production worker stopped initially, run `tools/phase1/qualify_failure_reprocess.py`. The qualifier:
+
+1. imports/resolves controlled target-containing media through the public API;
+2. queues the first ProcessingRun;
+3. leases that exact run as a controlled fault-injection worker;
+4. fails it through the public worker control-plane API with `task17_controlled_failure`;
+5. proves the managed source bytes/ETag remain unchanged;
+6. queues a new ProcessingRun;
+7. launches `mavi_vision.worker.main` from the exact qualified Linux-CUDA production venv/bundle;
+8. requires verified CUDA completion, a new ProcessingRun ID, retained source integrity and at least one Track.
+
+A connected integration test is not a substitute for this final production-topology execution.
+
+### 5. Inspect the complete acceptance logs
+
+Retain UTF-8 logs for these six mandatory roles:
+
+- `api`
+- `iis`
+- `postgres`
+- `formal-worker`
+- `empty-worker`
+- `failure-worker`
+
+Run `tools/phase1/inspect_production_logs.py` with one `--log role=path` argument for every role, plus any internal MAVI hostnames via `--allowed-host`. Loopback hosts are always allowed.
+
+The inspection fails on any non-allowlisted HTTP(S) endpoint or telemetry/licensing/activation indicator. Its evidence is bound to the exact formal E2E, empty-scene E2E and failure/reprocess evidence. Final acceptance independently verifies that the three worker-log hashes are the logs produced by those exact executions.
+
+### 6. Fresh install, supported update, and backup/restore
+
+Execute the separate fresh-install and offline-update application lifecycle proofs for the exact compiled application artifact.
+
+After the successful **formal production scenario**, execute backup/restore using that exact formal E2E evidence as `--acceptance-evidence`. Therefore the final backup evidence's `acceptanceEvidenceSha256` must equal the final formal E2E file SHA-256.
+
+### 7. Assemble final production acceptance
+
+Use `tools/phase1/assemble_production_acceptance.py` with:
+
+- promoted verified model manifest and canonical acceptance profile;
+- exact compiled application artifact and manifest;
+- validated prerequisite evidence plus all three raw prerequisite observations;
+- fresh-install and supported-update evidence;
+- all four production variant evidence files;
+- formal scenario record + formal E2E;
+- empty-scene scenario record + empty-scene E2E;
+- failure/reprocess evidence;
+- production log-inspection evidence;
+- backup/restore evidence.
+
+The resulting `mavi-phase1-production-acceptance-evidence-v1` is an immutable aggregate of hashes, not a self-asserted pass.
+
+### 8. Final closure
+
+Pass the aggregate record **and every underlying evidence file** to `tools/phase1/assess_phase1_closure.py`. Closure reopens and independently reconciles all of them before allowing `release-verified`.
+
+`release-verified` is impossible if the prerequisite policy is pending, any production variant is missing, the formal/empty scenarios are reused or mismatched, failure/reprocess is absent, required topology logs are absent/dirty, backup/restore references another case, or the aggregate record contains hashes from another acceptance execution.
+
+Candidate-bundle evidence, promotion alone, connected CI, or a deterministic failure-recovery test never substitute for this final production-topology evidence.
+
 
 ## Engineering stopping rule
 
