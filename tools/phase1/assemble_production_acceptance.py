@@ -327,6 +327,12 @@ def validate_scenario(
         != linux_cuda_lock_sha256
         or scenario.get("workerPythonSha256")
         != linux_cuda_variant.get("workerPythonSha256")
+        or scenario.get("workerEnvironmentSha256")
+        != linux_cuda_variant.get("workerEnvironmentSha256")
+        or scenario.get("workerVenvRootSha256")
+        != linux_cuda_variant.get("workerVenvRootSha256")
+        or scenario.get("workerResolvedPythonSha256")
+        != linux_cuda_variant.get("workerResolvedPythonSha256")
         or scenario.get("e2eEvidenceSha256") != e2e_sha
         or scenario.get("networkIsolation", {}).get("passed") is not True
         or not passed_result(scenario)
@@ -411,6 +417,12 @@ def validate_failure_reprocess(
         != sha256_file(linux_cuda_variant_path)
         or value.get("workerPythonSha256")
         != linux_cuda_variant.get("workerPythonSha256")
+        or value.get("workerEnvironmentSha256")
+        != linux_cuda_variant.get("workerEnvironmentSha256")
+        or value.get("workerVenvRootSha256")
+        != linux_cuda_variant.get("workerVenvRootSha256")
+        or value.get("workerResolvedPythonSha256")
+        != linux_cuda_variant.get("workerResolvedPythonSha256")
         or value.get("firstProcessingRunId")
         == value.get("reprocessProcessingRunId")
         or len(media_hashes) != 1
@@ -724,6 +736,34 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         acceptance_profile_sha256=profile_sha,
         formal_e2e_sha256=formal_e2e_sha,
     )
+
+    prerequisite_value = load_json(
+        args.prerequisite_evidence,
+        "production_prerequisite_evidence_invalid",
+    )
+    topology = prerequisite_value.get("topologyIdentities", {})
+    fresh_value = load_json(args.fresh_install, "production_fresh_install_invalid")
+    update_value = load_json(args.offline_update, "production_offline_update_invalid")
+    backup_value = load_json(args.backup_restore, "production_backup_restore_invalid")
+    windows_topology = topology.get("windowsOperationalPlane")
+    database_topology = topology.get("database")
+    linux_topology = topology.get("linuxVisionWorker")
+    if (
+        not isinstance(windows_topology, str)
+        or fresh_value.get("hosting", {}).get("hostIdentitySha256") != windows_topology
+        or update_value.get("hosting", {}).get("hostIdentitySha256") != windows_topology
+    ):
+        raise ProductionAcceptanceError("production_windows_topology_mismatch")
+    if (
+        not isinstance(database_topology, str)
+        or backup_value.get("sourceDatabaseIdentity") != database_topology
+    ):
+        raise ProductionAcceptanceError("production_database_topology_mismatch")
+    if (
+        not isinstance(linux_topology, str)
+        or linux_variant.get("hostIdentitySha256") != linux_topology
+    ):
+        raise ProductionAcceptanceError("production_linux_topology_mismatch")
 
     return {
         "schemaVersion": "mavi-phase1-production-acceptance-evidence-v1",
