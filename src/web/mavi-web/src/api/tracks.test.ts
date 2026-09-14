@@ -57,6 +57,6 @@ describe('Track API client', () => {
 
     await getTrack(id);
 
-    expect(fetch).toHaveBeenCalledWith('/api/tracks/' + id, {});
+    expect(fetch).toHaveBeenCalledWith('/api/tracks/' + id, expect.objectContaining({ signal: undefined }));
   });
 });
