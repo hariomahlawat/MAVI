@@ -139,3 +139,18 @@ def test_matching_tie_break_is_deterministic():
     second = ev.evaluate(copy.deepcopy(gt), list(reversed(copy.deepcopy(tracks))), profile())["matching"]
     assert [(x["eventId"], x["trackId"]) for x in first] == [("a", "t1"), ("b", "t2")]
     assert [(x["eventId"], x["trackId"]) for x in first] == [(x["eventId"], x["trackId"]) for x in second]
+
+
+def test_matching_scales_beyond_bitmask_sized_track_sets():
+    events = []
+    tracks = []
+    for index in range(30):
+        x = 0.01 + index * 0.03
+        events.append(event(f"e{index:02d}", "Person", 1000, 3000, x))
+        tracks.append(track(f"t{index:02d}", "Person", 1000, 3000, 2000, x))
+    gt = ground_truth(events)
+    result = ev.evaluate(gt, tracks, profile())
+    assert result["overall"]["matchedCount"] == 30
+    assert [(item["eventId"], item["trackId"]) for item in result["matching"]] == [
+        (f"e{index:02d}", f"t{index:02d}") for index in range(30)
+    ]
