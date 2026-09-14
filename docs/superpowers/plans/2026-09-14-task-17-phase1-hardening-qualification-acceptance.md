@@ -263,7 +263,9 @@ It shall contain:
 - allowed unmatched/duplicate policy;
 - performance thresholds tied to an identified hardware class, if approved.
 
-The first implementation may support a `baseline` mode that only measures and reports. The formal `cctv-quality-baseline` gate is passed only after the corpus, acceptance profile and measured result have been reviewed and the resulting evidence explicitly records an accepted decision.
+The first implementation shall support a `baseline` mode that only measures and reports. Before the qualification freeze, the acceptance profile must be reviewed and switched to a formal `qualification` policy containing approved values; placeholder/null thresholds are not acceptable on a final evidence head. The formal `cctv-quality-baseline` gate is passed only after the corpus, acceptance profile and measured result have been reviewed and the resulting evidence explicitly records an accepted decision.
+
+The Task-17 implementation must not guess those operational thresholds. If approved thresholds are not yet available, the quality gate remains pending while the measurement tooling may still be completed.
 
 Do not tune the pipeline against the final held-out qualification set and then report that same set as independent validation.
 
@@ -438,7 +440,7 @@ Task 15 supplied:
 
 `tools/task15/qualify_windows_host.ps1`
 
-Task 17 shall retain that qualification rather than assuming the existence of the script proves deployment.
+Task 17 shall retain that qualification rather than assuming the existence of the script proves deployment. Preserve the historical Task-15 script and create a Task-17 wrapper/extension at `tools/phase1/qualify_phase1_windows_host.ps1` rather than quietly changing the meaning of past Task-15 evidence.
 
 On the designated Windows/IIS host, evidence shall demonstrate:
 
@@ -463,7 +465,9 @@ Task 17 owns the formal disconnected install gates:
 - `windows-offline-install`;
 - `linux-offline-install`.
 
-A passing offline-install gate requires a clean target environment using the exact required CPython patch version and:
+A passing offline-install gate requires a clean target environment using the exact required CPython patch version. The evidence must state which platform variant/lock was installed; a CPU installation must never be cited as proof that a CUDA bundle installs, and vice versa. The current OS-level gate names do not remove that evidence requirement.
+
+Installation uses:
 
 ```text
 pip install --no-index --only-binary=:all: --require-hashes --find-links <wheelhouse> -r <lock>
@@ -604,17 +608,20 @@ Never change a threshold and preserve old qualification evidence as though it ex
 
 Only after all mandatory gates genuinely pass may Task 17 promote the release.
 
-The controlled metadata update shall:
+The controlled metadata update shall avoid hash-order ambiguity:
 
-1. update final platform variants and release-lock hashes in `runtime.json`;
-2. set `qualificationStatus = "qualified"` only when runtime schema rules allow it;
-3. re-compute the runtime-profile SHA-256;
-4. update qualification record identities to the final manifest/profile/runtime hashes;
-5. set every genuinely passed mandatory gate to `passed`;
-6. add evidence for every passed gate;
-7. set `overallResult = "passed"` only when all required gates are passed;
-8. update model manifest to `verificationStatus = "verified"` and set the matching `qualificationId`;
-9. rerun `tools/verify_repo.py` and all release-selection tests.
+1. construct the intended final `runtime.json` bytes, including final platform variants, release-lock hashes and `qualificationStatus = "qualified"` only when schema rules allow it;
+2. compute the final runtime-profile SHA-256 from those exact bytes;
+3. construct the intended final model-manifest bytes with `verificationStatus = "verified"` and the matching `qualificationId`;
+4. compute the final model-manifest SHA-256 from those exact bytes;
+5. construct the qualification record against the **final** model-manifest/profile/runtime hashes;
+6. set only genuinely evidenced mandatory gates to `passed`;
+7. add evidence for every passed gate;
+8. set `overallResult = "passed"` only when all required gates are passed;
+9. write the mutually consistent runtime profile, model manifest and qualification record together as one metadata-rebind change;
+10. rerun `tools/verify_repo.py` and all release-selection tests.
+
+Intermediate bytes used to calculate hashes need not be committed in an inconsistent state. The committed rebind must be internally consistent as a unit.
 
 Do not hand-edit hashes from memory. Generate/verify them from exact bytes.
 
@@ -685,18 +692,21 @@ Create:
 - `tools/phase1/phase1_e2e_check.py`
 - `tools/phase1/evaluate_ground_truth.py`
 - `tools/phase1/phase1-acceptance-evidence.schema.json`
-- focused Python tests under `tools/tests` or the repository's established tooling-test location;
+- `tools/phase1/qualify_phase1_windows_host.ps1`
+- `tools/phase1/qualify_phase1_linux_host.sh`
+- `tools/phase1/tests/test_evaluate_ground_truth.py`
+- `tools/phase1/tests/test_phase1_e2e_check.py`
 - `tests/Mavi.IntegrationTests/ProcessingFailureRecoveryTests.cs`
 - `src/vision/tests/test_worker_end_to_end_contract.py`
-- `docs/runbooks/phase1-acceptance.md`.
+- `docs/runbooks/phase1-acceptance.md`
+- `.github/workflows/task17-acceptance.yml`.
 
 Modify as required:
 
 - `docs/runbooks/offline-readiness.md`;
 - `docs/runbooks/local-development.md`;
 - `README.md`;
-- `.github/workflows/quality-gate.yml` for deterministic non-hardware Task-17 checks;
-- a dedicated Task-17 qualification workflow for evidence-producing/manual gates;
+- `.github/workflows/quality-gate.yml` to execute deterministic `tools/phase1/tests` in addition to the existing suites;
 - `tools/verify_repo.py` for new schema/release invariants;
 - `runtime.json`, qualification record and model manifest only during controlled evidence/rebind stages.
 
@@ -757,7 +767,9 @@ Do not require live RTMDet in the normal Quality Gate.
 
 ## 25. Checkpoint C — operator/host/offline qualification tooling
 
-Create the Phase-1 acceptance runbook and qualification workflow/scripts.
+Create the Phase-1 acceptance runbook and `.github/workflows/task17-acceptance.yml`.
+
+The workflow shall keep ordinary hosted validation separate from evidence-producing hardware jobs. Hardware/offline jobs must be `workflow_dispatch` and target explicit approved self-hosted runner labels; they must not silently fall back to generic GitHub-hosted runners when the required environment is unavailable.
 
 Prove the scripts:
 
@@ -906,9 +918,12 @@ Fix sibling defects discovered by this audit before external review.
 
 ## 32. Definition of done
 
-Task 17 is complete only when the applicable Phase-1 acceptance boundary is proven and truthfully recorded.
+Task 17 has two truthful stopping points:
 
-At minimum:
+- the implementation PR may be **implementation-complete / evidence-pending** when all deterministic tooling and code are accepted but unavailable external hardware prevents final qualification; in that state Task 17 remains active and the release stays unverified;
+- Task 17 is **fully complete** only when the current mandatory qualification set and final disconnected Phase-1 acceptance have actually passed.
+
+For full completion, at minimum:
 
 - failure/reprocess integration coverage is green;
 - worker end-to-end contract coverage is green;
@@ -919,7 +934,7 @@ At minimum:
 - no orphan accepted Track/evidence inconsistency exists;
 - production-host deep links/API behavior are qualified;
 - formal offline-install evidence exists for required platforms;
-- required hardware/quality/performance gates are passed or the release remains explicitly pending;
+- every current mandatory hardware/quality/performance gate is passed with evidence;
 - no mandatory gate is silently removed;
 - final release metadata passes repository/release-selection verification;
 - production bundles are generated only after legitimate release promotion;
