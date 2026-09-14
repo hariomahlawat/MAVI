@@ -127,6 +127,7 @@ def validate_backup_restore(
     path: Path,
     *,
     source_commit: str,
+    acceptance_profile_sha256: str,
     schema_path: Path,
 ) -> dict[str, Any]:
     value = load_json(path)
@@ -134,6 +135,8 @@ def validate_backup_restore(
     require_source_commit(value, source_commit, "backup_restore")
     if value.get("cleanRestoreTarget") is not True or not _passed_result(value):
         raise ClosureError("backup_restore_not_passed")
+    if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
+        raise ClosureError("backup_restore_acceptance_profile_mismatch")
     if value.get("sourceDatabaseIdentity") == value.get("restoreDatabaseIdentity"):
         raise ClosureError("backup_restore_database_targets_not_distinct")
     return value
@@ -248,6 +251,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         validate_backup_restore(
             args.backup_restore,
             source_commit=args.source_commit,
+            acceptance_profile_sha256=acceptance_profile_sha256,
             schema_path=args.backup_restore_schema,
         )
         evidence_hashes["backup-restore"] = sha256_file(args.backup_restore)
