@@ -59,3 +59,12 @@ def test_private_or_internal_hosts_can_be_allowlisted():
     assert mod.validate_allowed_host("10.10.0.5") == "10.10.0.5"
     assert mod.validate_allowed_host("mavi-api.internal") == "mavi-api.internal"
     assert mod.validate_allowed_host("mavi-db") == "mavi-db"
+
+
+def test_non_http_external_locator_is_rejected():
+    external, suspicious = mod.inspect_text(
+        "loading s3://bucket/model",
+        allowed_hosts={"localhost", "127.0.0.1", "::1"},
+    )
+    assert external == ["s3://bucket/model"]
+    assert suspicious == []
