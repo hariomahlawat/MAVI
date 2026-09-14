@@ -45,7 +45,7 @@ public sealed class AddProcessingVisibilitySequence : Migration
             WHERE run.id = ranked.id;
 
             SELECT setval(
-                '{{ProcessingVisibilityBarrier.SequenceName}}',
+                '{ProcessingVisibilityBarrier.SequenceName}',
                 COALESCE(
                     (SELECT MAX(visibility_sequence) FROM processing_runs),
                     1
