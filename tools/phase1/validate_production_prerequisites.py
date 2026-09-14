@@ -84,9 +84,12 @@ def validate_observations(
             )
         expected = policy.get(policy_key)
         observed = observation.get("values")
+        topology_identity = observation.get("topologyIdentity")
         if (
             not isinstance(expected, dict)
             or not isinstance(observed, dict)
+            or not isinstance(topology_identity, str)
+            or not topology_identity
             or any(
                 not isinstance(value, str) or not value
                 for value in expected.values()
@@ -139,6 +142,11 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         "windowsObservationSha256": sha256_file(args.windows_observation),
         "databaseObservationSha256": sha256_file(args.database_observation),
         "linuxObservationSha256": sha256_file(args.linux_observation),
+        "topologyIdentities": {
+            "windowsOperationalPlane": windows["topologyIdentity"],
+            "database": database["topologyIdentity"],
+            "linuxVisionWorker": linux["topologyIdentity"],
+        },
         "windowsOperationalPlane": windows["values"],
         "database": database["values"],
         "linuxVisionWorker": linux["values"],
