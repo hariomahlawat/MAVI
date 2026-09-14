@@ -75,6 +75,46 @@ def run_checked(args: list[str]) -> str:
     return completed.stdout.strip() or completed.stderr.strip()
 
 
+def pg_scalar(psql: str, service: str, sql: str) -> str:
+    completed = subprocess.run(
+        [psql, f"service={service}", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise BackupRestoreError("backup_restore_psql_failed")
+    return completed.stdout.strip()
+
+
+def database_identity(psql: str, service: str) -> str:
+    value = pg_scalar(
+        psql,
+        service,
+        "select current_database() || '|' || "
+        "coalesce(inet_server_addr()::text, 'local-socket') || '|' || "
+        "coalesce(inet_server_port()::text, 'local');",
+    )
+    if not value or value.count("|") != 2:
+        raise BackupRestoreError("backup_restore_database_identity_invalid")
+    return value
+
+
+def assert_restore_database_clean(psql: str, service: str) -> None:
+    value = pg_scalar(
+        psql,
+        service,
+        "select count(*)::text from information_schema.tables "
+        "where table_schema = 'public' and table_type = 'BASE TABLE';",
+    )
+    try:
+        count = int(value)
+    except ValueError as exc:
+        raise BackupRestoreError("backup_restore_database_cleanliness_invalid") from exc
+    if count != 0:
+        raise BackupRestoreError("restore_database_not_clean")
+
+
 def _resolved(path: Path) -> Path:
     return path.resolve(strict=False)
 
@@ -98,6 +138,26 @@ def _assert_disjoint_roots(paths: list[Path]) -> None:
 
 
 def execute(args: argparse.Namespace) -> dict[str, Any]:
+    acceptance_bytes = args.acceptance_evidence.read_bytes()
+    try:
+        acceptance = json.loads(acceptance_bytes)
+    except json.JSONDecodeError as exc:
+        raise BackupRestoreError("backup_restore_acceptance_evidence_invalid") from exc
+    if (
+        not isinstance(acceptance, dict)
+        or acceptance.get("schemaVersion") != "mavi-phase1-acceptance-evidence-v1"
+        or acceptance.get("sourceCommit") != args.source_commit
+        or acceptance.get("result", {}).get("passed") is not True
+    ):
+        raise BackupRestoreError("backup_restore_acceptance_evidence_invalid")
+    acceptance_sha = hashlib.sha256(acceptance_bytes).hexdigest()
+
+    source_database_identity = database_identity(args.psql, args.source_pg_service)
+    restore_database_identity = database_identity(args.psql, args.restore_pg_service)
+    if source_database_identity == restore_database_identity:
+        raise BackupRestoreError("backup_restore_database_targets_not_distinct")
+    assert_restore_database_clean(args.psql, args.restore_pg_service)
+
     _assert_disjoint_roots([
         args.source_media_root,
         args.source_evidence_root,
@@ -162,6 +222,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     backup_manifest = {
         "schemaVersion": "mavi-backup-set-v1",
         "sourceCommit": args.source_commit,
+        "acceptanceEvidenceSha256": acceptance_sha,
+        "sourceDatabaseIdentity": source_database_identity,
+        "restoreDatabaseIdentity": restore_database_identity,
         "databaseManifestSha256": database_manifest_sha,
         "managedSourceManifestSha256": media_manifest_sha,
         "acceptedEvidenceManifestSha256": evidence_manifest_sha,
@@ -198,6 +261,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "schemaVersion": "mavi-backup-restore-execution-v1",
         "sourceCommit": args.source_commit,
+        "acceptanceEvidenceSha256": acceptance_sha,
+        "sourceDatabaseIdentity": source_database_identity,
+        "restoreDatabaseIdentity": restore_database_identity,
         "database": {"included": True, "manifestSha256": database_manifest_sha},
         "managedSource": {"included": True, "manifestSha256": media_manifest_sha},
         "acceptedEvidence": {"included": True, "manifestSha256": evidence_manifest_sha},
@@ -222,10 +288,26 @@ def finalize(execution_path: Path, post_restore_path: Path) -> dict[str, Any]:
         raise BackupRestoreError("post_restore_check_not_passed")
     if post.get("sourceCommit") != execution.get("sourceCommit"):
         raise BackupRestoreError("post_restore_source_commit_mismatch")
+    if post.get("executionEvidenceSha256") != hashlib.sha256(execution_bytes).hexdigest():
+        raise BackupRestoreError("post_restore_execution_binding_mismatch")
+    if post.get("acceptanceEvidenceSha256") != execution.get("acceptanceEvidenceSha256"):
+        raise BackupRestoreError("post_restore_acceptance_binding_mismatch")
+    if post.get("backupManifestSha256") != execution.get("backupManifestSha256"):
+        raise BackupRestoreError("post_restore_backup_binding_mismatch")
+    if post.get("databaseManifestSha256") != execution.get("database", {}).get("manifestSha256"):
+        raise BackupRestoreError("post_restore_database_binding_mismatch")
+    if post.get("managedSourceManifestSha256") != execution.get("managedSource", {}).get("manifestSha256"):
+        raise BackupRestoreError("post_restore_source_store_binding_mismatch")
+    if post.get("acceptedEvidenceManifestSha256") != execution.get("acceptedEvidence", {}).get("manifestSha256"):
+        raise BackupRestoreError("post_restore_evidence_store_binding_mismatch")
 
     return {
         "schemaVersion": "mavi-backup-restore-evidence-v1",
         "sourceCommit": execution["sourceCommit"],
+        "acceptanceEvidenceSha256": execution["acceptanceEvidenceSha256"],
+        "executionEvidenceSha256": hashlib.sha256(execution_bytes).hexdigest(),
+        "sourceDatabaseIdentity": execution["sourceDatabaseIdentity"],
+        "restoreDatabaseIdentity": execution["restoreDatabaseIdentity"],
         "database": execution["database"],
         "managedSource": execution["managedSource"],
         "acceptedEvidence": execution["acceptedEvidence"],
@@ -241,6 +323,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     execute_parser = sub.add_parser("execute")
     execute_parser.add_argument("--source-commit", required=True)
+    execute_parser.add_argument("--acceptance-evidence", type=Path, required=True)
     execute_parser.add_argument("--source-pg-service", required=True)
     execute_parser.add_argument("--restore-pg-service", required=True)
     execute_parser.add_argument("--source-media-root", type=Path, required=True)
@@ -248,6 +331,7 @@ def main() -> int:
     execute_parser.add_argument("--restore-media-root", type=Path, required=True)
     execute_parser.add_argument("--restore-evidence-root", type=Path, required=True)
     execute_parser.add_argument("--backup-dir", type=Path, required=True)
+    execute_parser.add_argument("--psql", default="psql")
     execute_parser.add_argument("--pg-dump", default="pg_dump")
     execute_parser.add_argument("--pg-restore", default="pg_restore")
     execute_parser.add_argument("--output", type=Path, required=True)
