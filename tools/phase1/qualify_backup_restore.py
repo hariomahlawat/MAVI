@@ -11,6 +11,9 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin
+from urllib.request import Request, urlopen
 from typing import Any
 
 PHASE1_ROOT = Path(__file__).resolve().parent
@@ -19,6 +22,10 @@ if str(PHASE1_ROOT) not in sys.path:
 
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
 from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
+from topology_identity import (  # noqa: E402
+    TopologyIdentityError,
+    storage_root_identity_sha256,
+)
 
 
 class BackupRestoreError(ValueError):
@@ -93,6 +100,61 @@ def pg_scalar(psql: str, service: str, sql: str) -> str:
     if completed.returncode != 0:
         raise BackupRestoreError("backup_restore_psql_failed")
     return completed.stdout.strip()
+
+
+def fetch_live_storage_topology(base_url: str) -> dict[str, Any]:
+    request = Request(
+        urljoin(base_url.rstrip("/") + "/", "api/system/storage-topology"),
+        headers={"Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            if response.status != 200:
+                raise BackupRestoreError("backup_restore_storage_topology_http_failed")
+            value = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise BackupRestoreError("backup_restore_storage_topology_unavailable") from exc
+    if (
+        not isinstance(value, dict)
+        or value.get("schemaVersion") != "mavi-storage-topology-attestation-v1"
+        or not isinstance(value.get("databaseIdentity"), str)
+        or not isinstance(value.get("managedMediaRootIdentitySha256"), str)
+        or not isinstance(value.get("acceptedEvidenceRootIdentitySha256"), str)
+        or not isinstance(value.get("maviBuild"), str)
+        or not isinstance(value.get("maviCommit"), str)
+    ):
+        raise BackupRestoreError("backup_restore_storage_topology_invalid")
+    return value
+
+
+def validate_live_storage_topology(
+    live: dict[str, Any],
+    *,
+    source_commit: str,
+    expected_mavi_build: str,
+    source_database_identity: str,
+    source_media_root: Path,
+    source_evidence_root: Path,
+) -> dict[str, Any]:
+    media_identity = storage_root_identity_sha256(source_media_root)
+    evidence_identity = storage_root_identity_sha256(source_evidence_root)
+    if (
+        live.get("maviCommit") != source_commit
+        or live.get("maviBuild") != expected_mavi_build
+        or live.get("databaseIdentity") != source_database_identity
+        or live.get("managedMediaRootIdentitySha256") != media_identity
+        or live.get("acceptedEvidenceRootIdentitySha256") != evidence_identity
+    ):
+        raise BackupRestoreError("backup_restore_live_storage_topology_mismatch")
+    return {
+        "schemaVersion": "mavi-storage-topology-attestation-v1",
+        "maviBuild": expected_mavi_build,
+        "maviCommit": source_commit,
+        "databaseIdentity": source_database_identity,
+        "managedMediaRootIdentitySha256": media_identity,
+        "acceptedEvidenceRootIdentitySha256": evidence_identity,
+    }
 
 
 def database_identity(psql: str, service: str) -> str:
@@ -178,6 +240,14 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     source_database_identity = database_identity(args.psql, args.source_pg_service)
     restore_database_identity = database_identity(args.psql, args.restore_pg_service)
     assert_database_targets_distinct(source_database_identity, restore_database_identity)
+    live_storage_topology = validate_live_storage_topology(
+        fetch_live_storage_topology(args.base_url),
+        source_commit=args.source_commit,
+        expected_mavi_build=args.expected_mavi_build,
+        source_database_identity=source_database_identity,
+        source_media_root=args.source_media_root,
+        source_evidence_root=args.source_evidence_root,
+    )
     assert_restore_database_clean(args.psql, args.restore_pg_service)
 
     _assert_disjoint_roots([
@@ -248,6 +318,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "acceptanceProfileSha256": acceptance_profile_sha,
         "sourceDatabaseIdentity": source_database_identity,
         "restoreDatabaseIdentity": restore_database_identity,
+        "liveStorageTopology": live_storage_topology,
         "databaseManifestSha256": database_manifest_sha,
         "managedSourceManifestSha256": media_manifest_sha,
         "acceptedEvidenceManifestSha256": evidence_manifest_sha,
@@ -288,6 +359,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "acceptanceProfileSha256": acceptance_profile_sha,
         "sourceDatabaseIdentity": source_database_identity,
         "restoreDatabaseIdentity": restore_database_identity,
+        "liveStorageTopology": live_storage_topology,
         "database": {"included": True, "manifestSha256": database_manifest_sha},
         "managedSource": {"included": True, "manifestSha256": media_manifest_sha},
         "acceptedEvidence": {"included": True, "manifestSha256": evidence_manifest_sha},
@@ -333,6 +405,7 @@ def finalize(execution_path: Path, post_restore_path: Path) -> dict[str, Any]:
         "executionEvidenceSha256": hashlib.sha256(execution_bytes).hexdigest(),
         "sourceDatabaseIdentity": execution["sourceDatabaseIdentity"],
         "restoreDatabaseIdentity": execution["restoreDatabaseIdentity"],
+        "liveStorageTopology": execution["liveStorageTopology"],
         "database": execution["database"],
         "managedSource": execution["managedSource"],
         "acceptedEvidence": execution["acceptedEvidence"],
@@ -348,6 +421,8 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     execute_parser = sub.add_parser("execute")
     execute_parser.add_argument("--source-commit", required=True)
+    execute_parser.add_argument("--expected-mavi-build", required=True)
+    execute_parser.add_argument("--base-url", required=True)
     execute_parser.add_argument("--acceptance-evidence", type=Path, required=True)
     execute_parser.add_argument("--acceptance-profile", type=Path, required=True)
     execute_parser.add_argument("--source-pg-service", required=True)
@@ -376,7 +451,13 @@ def main() -> int:
         else:
             value = finalize(args.execution, args.post_restore_check)
         args.output.write_bytes(canonical_bytes(value))
-    except (BackupRestoreError, OSError, json.JSONDecodeError, PolicyIdentityError) as exc:
+    except (
+        BackupRestoreError,
+        OSError,
+        json.JSONDecodeError,
+        PolicyIdentityError,
+        TopologyIdentityError,
+    ) as exc:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2
 
