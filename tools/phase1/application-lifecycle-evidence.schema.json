@@ -51,10 +51,11 @@
     "uiSmoke": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["rootStatusCode", "rootBytes", "passed"],
+      "required": ["rootStatusCode", "rootBytes", "assetCount", "passed"],
       "properties": {
         "rootStatusCode": { "const": 200 },
         "rootBytes": { "type": "integer", "minimum": 1 },
+        "assetCount": { "type": "integer", "minimum": 1 },
         "passed": { "const": true }
       }
     },
