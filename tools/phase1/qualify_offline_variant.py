@@ -10,6 +10,7 @@ import os
 import platform
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import venv
@@ -152,6 +153,18 @@ def observed_host(expected: dict[str, Any]) -> dict[str, Any]:
     raise VariantQualificationError("variant_host_os_unsupported")
 
 
+def assert_outbound_internet_unavailable() -> None:
+    probes = (("1.1.1.1", 443), ("8.8.8.8", 53))
+    for host, port in probes:
+        try:
+            with socket.create_connection((host, port), timeout=2.0):
+                raise VariantQualificationError(
+                    f"variant_outbound_internet_reachable:{host}:{port}"
+                )
+        except (TimeoutError, OSError):
+            continue
+
+
 def _venv_python(root: Path) -> Path:
     if platform.system().lower() == "windows":
         return root / "Scripts" / "python.exe"
@@ -165,6 +178,7 @@ def run_command(args: list[str], *, env: dict[str, str] | None = None) -> subpro
 def qualify(args: argparse.Namespace) -> dict[str, Any]:
     if not args.network_isolated:
         raise VariantQualificationError("variant_network_isolation_not_asserted")
+    assert_outbound_internet_unavailable()
     manifest, manifest_sha = verify_bundle(args.bundle_dir)
     if manifest.get("platformVariant") != args.variant:
         raise VariantQualificationError("variant_bundle_variant_mismatch")
