@@ -40,9 +40,13 @@ def _worker(platform_value):
         "mode": "formal",
         "targetVerifiedManifestSha256": "a" * 64,
         "attestation": {
+            "verificationStatus": "unverified",
             "runtimeVariant": "linux-x86_64-cpu",
             "candidateBundleManifestSha256": "b" * 64,
             "candidateSelectedLockSha256": "c" * 64,
+            "productionBundleManifestSha256": None,
+            "platformLockSha256": None,
+            "maviBuild": "build-a",
             "platform": platform_value,
             "actualDevice": "cpu",
         },
@@ -58,11 +62,13 @@ def test_worker_flow_binding_rejects_other_bundle():
         mod.assert_worker_flow_binding(
             value,
             variant="linux-x86_64-cpu",
+            bundle_mode="qualification-candidate",
             target_verified_manifest_sha256="a" * 64,
             bundle_manifest_sha256="b" * 64,
             release_lock_sha256="c" * 64,
             runtime_platform=platform_value,
             device="cpu",
+            expected_mavi_build="build-a",
         )
 
 
@@ -78,4 +84,22 @@ def test_worker_flow_binding_rejects_other_host():
             release_lock_sha256="c" * 64,
             runtime_platform=expected_platform,
             device="cpu",
+            expected_mavi_build="build-a",
+        )
+
+
+def test_worker_flow_binding_rejects_reused_candidate_evidence_for_production():
+    platform_value = {"system": "Linux"}
+    value = _worker(platform_value)
+    with pytest.raises(mod.VariantQualificationError, match="variant_worker_flow_evidence_invalid"):
+        mod.assert_worker_flow_binding(
+            value,
+            variant="linux-x86_64-cpu",
+            bundle_mode="production",
+            target_verified_manifest_sha256="a" * 64,
+            bundle_manifest_sha256="b" * 64,
+            release_lock_sha256="c" * 64,
+            runtime_platform=platform_value,
+            device="cpu",
+            expected_mavi_build="build-a",
         )
