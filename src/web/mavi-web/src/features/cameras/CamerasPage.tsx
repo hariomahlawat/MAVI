@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { ApiError } from '../../api/client';
-import { createCamera, listCameras } from '../../api/cameras';
+import { createCamera, listCameras, type CreateCameraInput } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
@@ -35,7 +35,7 @@ export default function CamerasPage() {
   const resolvedTimeZone = timeZoneId || systemConfig.data?.displayTimeZoneId || '';
 
   const createMutation = useMutation({
-    mutationFn: (input) => createCamera(input),
+    mutationFn: (input: CreateCameraInput) => createCamera(input),
     onSuccess: async () => {
       setCode('');
       setName('');
