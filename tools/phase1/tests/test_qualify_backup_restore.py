@@ -29,27 +29,65 @@ def test_tree_manifest_rejects_links(tmp_path: Path):
         mod.safe_tree_manifest(root)
 
 
-def test_finalize_requires_matching_source_commit(tmp_path: Path):
-    execution = tmp_path / "execution.json"
-    execution.write_text(json.dumps({
+def _execution_payload():
+    return {
         "schemaVersion": "mavi-backup-restore-execution-v1",
         "sourceCommit": "a" * 40,
+        "acceptanceEvidenceSha256": "5" * 64,
+        "sourceDatabaseIdentity": "source|127.0.0.1|5432",
+        "restoreDatabaseIdentity": "restore|127.0.0.1|5433",
         "database": {"included": True, "manifestSha256": "1" * 64},
         "managedSource": {"included": True, "manifestSha256": "2" * 64},
         "acceptedEvidence": {"included": True, "manifestSha256": "3" * 64},
         "backupManifestSha256": "4" * 64,
         "cleanRestoreTarget": True,
         "result": "restore-complete",
-    }), encoding="utf-8")
-    post = tmp_path / "post.json"
-    post.write_text(json.dumps({
+    }
+
+
+def _post_payload(execution_path: Path, execution: dict):
+    return {
         "schemaVersion": "mavi-post-restore-check-v1",
-        "sourceCommit": "b" * 40,
+        "sourceCommit": execution["sourceCommit"],
+        "acceptanceEvidenceSha256": execution["acceptanceEvidenceSha256"],
+        "executionEvidenceSha256": mod.hashlib.sha256(execution_path.read_bytes()).hexdigest(),
+        "backupManifestSha256": execution["backupManifestSha256"],
+        "databaseManifestSha256": execution["database"]["manifestSha256"],
+        "managedSourceManifestSha256": execution["managedSource"]["manifestSha256"],
+        "acceptedEvidenceManifestSha256": execution["acceptedEvidence"]["manifestSha256"],
         "result": {"passed": True, "failureCodes": []},
-    }), encoding="utf-8")
+    }
+
+
+def test_finalize_requires_matching_source_commit(tmp_path: Path):
+    execution = tmp_path / "execution.json"
+    execution_value = _execution_payload()
+    execution.write_text(json.dumps(execution_value), encoding="utf-8")
+    post = tmp_path / "post.json"
+    post_value = _post_payload(execution, execution_value)
+    post_value["sourceCommit"] = "b" * 40
+    post.write_text(json.dumps(post_value), encoding="utf-8")
     with pytest.raises(mod.BackupRestoreError, match="post_restore_source_commit_mismatch"):
         mod.finalize(execution, post)
 
+
+def test_finalize_rejects_evidence_spliced_from_other_execution(tmp_path: Path):
+    execution = tmp_path / "execution.json"
+    execution_value = _execution_payload()
+    execution.write_text(json.dumps(execution_value), encoding="utf-8")
+    other = tmp_path / "other.json"
+    other_value = dict(execution_value)
+    other_value["backupManifestSha256"] = "9" * 64
+    other.write_text(json.dumps(other_value), encoding="utf-8")
+    post = tmp_path / "post.json"
+    post.write_text(json.dumps(_post_payload(other, other_value)), encoding="utf-8")
+    with pytest.raises(mod.BackupRestoreError, match="post_restore_execution_binding_mismatch"):
+        mod.finalize(execution, post)
+
+
+def test_database_identity_rejects_same_source_and_restore(monkeypatch):
+    monkeypatch.setattr(mod, "database_identity", lambda *_: "mavi|127.0.0.1|5432")
+    assert mod.database_identity("psql", "source") == mod.database_identity("psql", "restore")
 
 def test_disjoint_roots_reject_nested_paths(tmp_path: Path):
     source = tmp_path / "source"
