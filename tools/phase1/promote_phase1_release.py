@@ -55,6 +55,48 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def sha256_file_bytes(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _load_dict(path: Path, code: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PromotionError(code) from exc
+    if not isinstance(value, dict):
+        raise PromotionError(code)
+    return value
+
+
+def _validate_external_schema(value: dict[str, Any], schema_path: Path, code: str) -> None:
+    schema = _load_dict(schema_path, code + "_schema_unavailable")
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(value),
+        key=lambda item: list(item.absolute_path),
+    )
+    if errors:
+        raise PromotionError(code + "_schema_invalid")
+
+
+def _canonical_policy(path: Path) -> tuple[dict[str, Any], str]:
+    canonical, profile_sha = canonical_acceptance_profile(path)
+    profile = _load_dict(canonical, "promotion_acceptance_profile_invalid")
+    if profile.get("mode") != "qualification":
+        raise PromotionError("promotion_acceptance_profile_not_qualification")
+    corpus_sha = profile.get("qualificationCorpusManifestSha256")
+    if (
+        not isinstance(corpus_sha, str)
+        or len(corpus_sha) != 64
+        or any(ch not in "0123456789abcdef" for ch in corpus_sha)
+    ):
+        raise PromotionError("promotion_qualification_corpus_not_approved")
+    thresholds = profile.get("performanceThresholds")
+    if not isinstance(thresholds, dict):
+        raise PromotionError("promotion_performance_thresholds_not_approved")
+    return profile, profile_sha
+
+
 def evidence_passed(value: dict[str, Any]) -> bool:
     result = value.get("result")
     if result == "passed":
@@ -87,6 +129,9 @@ def _validate_platform_variant_evidence(
     gate: str,
     value: dict[str, Any],
     acceptance_profile_sha256: str,
+    acceptance_profile: dict[str, Any],
+    quality_corpus_manifest: Path,
+    quality_ground_truth: Path,
 ) -> None:
     _validate_schema(value, "offline-variant-evidence.schema.json")
     if value.get("variant") != gate:
@@ -140,13 +185,62 @@ def _validate_quality_evidence(
     value: dict[str, Any],
     source_commit: str,
     acceptance_profile_sha256: str,
+    expected_corpus_sha256: str,
+    corpus_manifest_path: Path,
+    ground_truth_path: Path,
 ) -> None:
     _validate_schema(value, "phase1-acceptance-evidence.schema.json")
     evidence_verifier.verify_acceptance(
         value,
         expected_source_commit=source_commit,
         expected_acceptance_profile_sha256=acceptance_profile_sha256,
+        expected_qualification_corpus_sha256=expected_corpus_sha256,
     )
+    ground_truth_evidence = value.get("groundTruth")
+    source_media = value.get("sourceMedia")
+    video = value.get("video")
+    if not isinstance(ground_truth_evidence, dict) or not isinstance(source_media, dict) or not isinstance(video, dict):
+        raise PromotionError("promotion_quality_binding_missing")
+
+    corpus_bytes_sha = sha256_file_bytes(corpus_manifest_path)
+    gt_bytes_sha = sha256_file_bytes(ground_truth_path)
+    if corpus_bytes_sha != expected_corpus_sha256:
+        raise PromotionError("promotion_quality_corpus_hash_mismatch")
+    if ground_truth_evidence.get("corpusManifestSha256") != corpus_bytes_sha:
+        raise PromotionError("promotion_quality_corpus_evidence_mismatch")
+    if ground_truth_evidence.get("groundTruthManifestSha256") != gt_bytes_sha:
+        raise PromotionError("promotion_quality_ground_truth_hash_mismatch")
+
+    corpus = _load_dict(corpus_manifest_path, "promotion_quality_corpus_invalid")
+    gt = _load_dict(ground_truth_path, "promotion_quality_ground_truth_invalid")
+    _validate_external_schema(
+        corpus,
+        ROOT / "sample-data" / "ground-truth" / "phase1-corpus.schema.json",
+        "promotion_quality_corpus",
+    )
+    _validate_external_schema(
+        gt,
+        ROOT / "sample-data" / "ground-truth" / "phase1-ground-truth.schema.json",
+        "promotion_quality_ground_truth",
+    )
+    media_sha = source_media.get("localSha256")
+    if (
+        gt.get("videoSha256") != media_sha
+        or gt.get("durationMs") != video.get("durationMs")
+        or ground_truth_evidence.get("videoSha256") != media_sha
+        or ground_truth_evidence.get("durationMs") != video.get("durationMs")
+    ):
+        raise PromotionError("promotion_quality_media_binding_mismatch")
+    matching_cases = [
+        item
+        for item in corpus.get("cases", [])
+        if isinstance(item, dict)
+        and item.get("mediaSha256") == media_sha
+        and item.get("groundTruthManifestSha256") == gt_bytes_sha
+    ]
+    if len(matching_cases) != 1:
+        raise PromotionError("promotion_quality_corpus_mapping_mismatch")
+
     metrics = value.get("metrics")
     if (
         value.get("mode") != "formal"
@@ -163,17 +257,25 @@ def _validate_quality_evidence(
         if not isinstance(row, dict) or row.get("groundTruthEventCount", 0) <= 0:
             raise PromotionError("promotion_quality_class_coverage_missing:" + object_class)
 
-
 def _validate_performance_evidence(
     value: dict[str, Any],
     acceptance_profile_sha256: str,
+    acceptance_profile: dict[str, Any],
 ) -> None:
     _validate_schema(value, "recovery-performance-evidence.schema.json")
     if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
         raise PromotionError("promotion_performance_profile_mismatch")
+    expected = acceptance_profile.get("performanceThresholds")
+    if not isinstance(expected, dict) or value.get("thresholds") != expected:
+        raise PromotionError("promotion_performance_thresholds_mismatch")
     if not evidence_passed(value):
         raise PromotionError("promotion_performance_not_passed")
-
+    if (
+        value.get("processingFps", 0) < expected["minimumProcessingFps"]
+        or value.get("p95EndToEndLatencyMs", float("inf")) > expected["maximumP95LatencyMs"]
+        or value.get("memoryGrowthBytes", float("inf")) > expected["maximumSoakGrowthBytes"]
+    ):
+        raise PromotionError("promotion_performance_recalculation_failed")
 
 def validate_gate_evidence(
     gate: str,
@@ -199,10 +301,17 @@ def validate_gate_evidence(
         _validate_offline_os_evidence(gate, value, source_commit, acceptance_profile_sha256)
         return
     if gate == "cctv-quality-baseline":
-        _validate_quality_evidence(value, source_commit, acceptance_profile_sha256)
+        _validate_quality_evidence(
+            value,
+            source_commit,
+            acceptance_profile_sha256,
+            acceptance_profile["qualificationCorpusManifestSha256"],
+            quality_corpus_manifest,
+            quality_ground_truth,
+        )
         return
     if gate == "linux-nvidia-recovery-performance":
-        _validate_performance_evidence(value, acceptance_profile_sha256)
+        _validate_performance_evidence(value, acceptance_profile_sha256, acceptance_profile)
         return
     raise PromotionError("promotion_gate_unknown:" + gate)
 
@@ -214,6 +323,9 @@ def load_gate_evidence(
     expected_source_commit: str,
     target_verified_manifest_sha256: str,
     acceptance_profile_sha256: str,
+    acceptance_profile: dict[str, Any],
+    quality_corpus_manifest: Path,
+    quality_ground_truth: Path,
 ) -> dict[str, str]:
     try:
         payload = path.read_bytes()
@@ -229,6 +341,9 @@ def load_gate_evidence(
         source_commit=expected_source_commit,
         target_verified_manifest_sha256=target_verified_manifest_sha256,
         acceptance_profile_sha256=acceptance_profile_sha256,
+        acceptance_profile=acceptance_profile,
+        quality_corpus_manifest=quality_corpus_manifest,
+        quality_ground_truth=quality_ground_truth,
     )
 
     return {
@@ -281,6 +396,9 @@ def build_promoted_metadata(
     gate_evidence: dict[str, Path],
     expected_source_commit: str,
     acceptance_profile_sha256: str,
+    acceptance_profile: dict[str, Any],
+    quality_corpus_manifest: Path,
+    quality_ground_truth: Path,
 ) -> tuple[bytes, bytes]:
     if manifest_raw.get("verificationStatus") != "unverified" or manifest_raw.get("qualificationId") is not None:
         raise PromotionError("promotion_manifest_not_pending")
@@ -302,16 +420,16 @@ def build_promoted_metadata(
     target_manifest_bytes = build_target_manifest(manifest_raw, qualification_id)
     target_manifest_sha = target_sha256_bytes(target_manifest_bytes)
 
-    missing = [
-        gate
-        for gate in sorted(MANDATORY_QUALIFICATION_GATES)
-        if current_gates[gate] != "passed" and gate not in gate_evidence
-    ]
+    missing = sorted(MANDATORY_QUALIFICATION_GATES - set(gate_evidence))
     if missing:
         raise PromotionError("promotion_evidence_missing:" + ",".join(missing))
+    if set(gate_evidence) != MANDATORY_QUALIFICATION_GATES:
+        raise PromotionError("promotion_evidence_set_invalid")
 
-    evidence = dict(current_evidence)
-    gates = dict(current_gates)
+    # Never grandfather prior status/evidence references. Promotion rebuilds the
+    # complete evidence map from exact local/transferred bytes on this candidate.
+    evidence: dict[str, dict[str, str]] = {}
+    gates = {gate: "pending" for gate in MANDATORY_QUALIFICATION_GATES}
     for gate, path in sorted(gate_evidence.items()):
         evidence[gate] = load_gate_evidence(
             path,
@@ -319,6 +437,9 @@ def build_promoted_metadata(
             expected_source_commit=expected_source_commit,
             target_verified_manifest_sha256=target_manifest_sha,
             acceptance_profile_sha256=acceptance_profile_sha256,
+            acceptance_profile=acceptance_profile,
+            quality_corpus_manifest=quality_corpus_manifest,
+            quality_ground_truth=quality_ground_truth,
         )
         gates[gate] = "passed"
 
@@ -375,6 +496,8 @@ def main() -> int:
     parser.add_argument("--runtime-profile", type=Path, required=True)
     parser.add_argument("--acceptance-profile", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--quality-corpus-manifest", type=Path, required=True)
+    parser.add_argument("--quality-ground-truth", type=Path, required=True)
     parser.add_argument("--gate-evidence", action="append", default=[])
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
@@ -384,7 +507,7 @@ def main() -> int:
         manifest_raw = read_release_json(args.manifest, code="model_manifest_invalid")
         qualification_raw = read_release_json(args.qualification, code="qualification_record_invalid")
         runtime_raw = read_release_json(args.runtime_profile, code="runtime_profile_invalid")
-        _, acceptance_profile_sha256 = canonical_acceptance_profile(args.acceptance_profile)
+        acceptance_profile, acceptance_profile_sha256 = _canonical_policy(args.acceptance_profile)
 
         # Validate the current pending relationship before constructing promotion.
         verify_release_selection(
@@ -405,6 +528,9 @@ def main() -> int:
             gate_evidence=gate_evidence,
             expected_source_commit=args.source_commit,
             acceptance_profile_sha256=acceptance_profile_sha256,
+            acceptance_profile=acceptance_profile,
+            quality_corpus_manifest=args.quality_corpus_manifest,
+            quality_ground_truth=args.quality_ground_truth,
         )
         validate_promoted_outputs(
             model_root=args.model_root,
