@@ -72,6 +72,7 @@ def main() -> int:
                 "workerFlowPassed": item["workerFlowPassed"],
                 "actualDevice": item["actualDevice"],
                 "outboundNetworkUnavailable": item["outboundNetworkUnavailable"],
+                "networkIsolation": item["networkIsolation"],
                 "firstRunDownloadObserved": item["firstRunDownloadObserved"],
                 "result": item["result"],
             })
