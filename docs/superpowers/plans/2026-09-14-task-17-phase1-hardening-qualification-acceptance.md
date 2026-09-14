@@ -66,7 +66,7 @@ The implementation shall maintain the following proof matrix in the Task-17 runb
 | Qualification Camera is the intended camera | Camera row | `GET /api/cameras/{id}` or exact-code list result | code, IANA timezone and active state must match requested qualification inputs; name must match when supplied as a controlled identity |
 | Imported/reconciled VideoAsset is the intended recording | VideoAsset + authoritative duplicate-by-SHA import result | import response / `video_duplicate` ID, then `GET /api/videos/{id}` | camera ID, recording UTC instant, timezone snapshot and UTC offset must match the requested import provenance |
 | Managed source bytes are the imported qualification media | authoritative SourceVideo Artifact/content API | full streamed `GET /api/videos/{id}/content` + strong ETag | streamed SHA-256 and ETag must both equal the locally computed qualification-media SHA-256 |
-| ProcessingRun actually completed | ProcessingRun | `GET /api/videos/{id}/processing` | exact run ID + `Completed`; a different completed run is not accepted |
+| ProcessingRun actually completed | ProcessingRun | queue response + `GET /api/videos/{id}/processing` | the queued ProcessingRun ID must remain the observed latest run through terminal completion; any superseding/different run fails qualification |
 | Completed run used the claimed model/profile/runtime | persisted `ProcessingRun.RuntimeProvenanceJson` | new allowlisted read-only run-attestation API | every required model/config/profile/runtime/lock/build identity must equal the expected frozen release identity |
 | Track belongs to the accepted run | authoritative Track persistence | Task-14 search/detail APIs | VideoAsset ID and ProcessingRun ID must both match |
 | Representative evidence bytes are authoritative | accepted Artifact row/content API | full streamed artifact GET + strong ETag | streamed SHA-256 must equal the ETag digest; Track detail must reference that exact artifact ID |
@@ -436,9 +436,9 @@ The harness shall:
 3. when camera creation returns `camera_code_duplicate`, resolve exactly one existing Camera and require its code, IANA `TimeZoneId`, active state, and any controlled name field to match the requested qualification identity; mismatch is `qualification_camera_provenance_mismatch`;
 4. import the controlled MP4;
 5. when import returns authoritative `video_duplicate` with `videoAssetId`, fetch `GET /api/videos/{id}` and require its `CameraId`, calculated `RecordingStartUtc`, `RecordingTimeZoneId`, and `RecordingUtcOffsetMinutes` to match the requested qualification import; mismatch is `qualification_video_provenance_mismatch`;
-6. queue processing;
-7. poll processing until a terminal state with a bounded timeout;
-8. require successful ProcessingRun completion and capture the exact completed ProcessingRun ID;
+6. queue processing and retain the exact `QueueProcessingResponse.ProcessingRunId`;
+7. poll processing until a terminal state with a bounded timeout, requiring every observed non-null `LatestRun.ProcessingRunId` to equal the queued run ID; if another run supersedes it, fail with `qualification_processing_run_superseded` rather than following the new run;
+8. require that exact queued ProcessingRun to reach `Completed`;
 9. fetch the exact ProcessingRun attestation described in Section 8.3 and require every expected model/config/profile/runtime/lock/build identity to match before any release claim is emitted;
 10. query `GET /api/tracks?videoAssetId=...&processingRunId=...` for the exact accepted run;
 11. separately verify the default `videoAssetId` search resolves the latest completed run semantics;
@@ -460,6 +460,7 @@ The harness shall:
 The harness shall fail if:
 
 - processing reports success but no authoritative completed run exists;
+- the processing status ever points to a different/superseding ProcessingRun than the ID returned by this qualification run's queue request;
 - the completed run attestation is absent or any model/config/profile/runtime/lock/build identity mismatches the frozen candidate;
 - reconciled Camera provenance does not match the requested qualification camera;
 - reconciled VideoAsset provenance does not match the requested camera/recording inputs;
@@ -872,15 +873,19 @@ For the later status-only manifest promotion, Task 17 may precompute the exact i
 
 Only after every mandatory gate has real validated evidence:
 
-1. construct the intended final model-manifest bytes with `verificationStatus = "verified"` and the matching `qualificationId`;
-2. verify its SHA-256 equals the target verified-manifest hash attested by the evidence set;
-3. construct the qualification record against the **final** verified-manifest/profile/runtime hashes;
-4. set only genuinely evidenced mandatory gates to `passed`;
-5. add immutable evidence references/SHA-256 values for every passed gate;
-6. set `overallResult = "passed"` only when all required gates are passed;
-7. commit the final manifest + qualification evidence binding together;
-8. make **no behavior/profile/runtime-artifact change** in this promotion commit;
-9. rerun `tools/verify_repo.py`, release-selection tests and normal exact-head CI.
+1. run the dedicated `tools/phase1/promote_phase1_release.py` against the exact candidate metadata plus all referenced local/transferred evidence packages;
+2. have that tool re-hash and schema-validate every evidence object, including composite OS offline-install packages and corpus/ground-truth manifests, and verify every Section 1.2 proof required for gate promotion;
+3. construct the intended final model-manifest bytes with `verificationStatus = "verified"` and the matching `qualificationId`;
+4. verify its SHA-256 equals the target verified-manifest hash attested by the evidence set;
+5. construct the qualification record against the **final** verified-manifest/profile/runtime hashes;
+6. set only genuinely evidenced mandatory gates to `passed`;
+7. add immutable evidence references/SHA-256 values for every passed gate;
+8. set `overallResult = "passed"` only when all required gates are passed;
+9. write the final manifest + qualification files deterministically from the verified evidence set rather than relying on hand-edited status JSON;
+10. make **no behavior/profile/runtime-artifact change** in this promotion commit;
+11. rerun `tools/verify_repo.py`, release-selection tests and normal exact-head CI.
+
+The promotion tool must fail closed if a passed OS offline-install gate lacks either required CPU/CUDA subentry, if a corpus/ground-truth hash cannot be reproduced, if candidate/target manifest relationships are inconsistent, or if any evidence package belongs to a different source/release identity.
 
 If the promotion commit would change model/config/profile/runtime behavior or an artifact hash, the previous evidence is invalid and the sequence returns to candidate rebind/attestation.
 
@@ -971,6 +976,7 @@ Create:
 - `tools/phase1/phase1-acceptance-evidence.schema.json`
 - `tools/phase1/offline-install-evidence.schema.json`
 - `tools/phase1/verify_phase1_evidence.py`
+- `tools/phase1/promote_phase1_release.py`
 - `src/platform/Mavi.Contracts/Api/Processing/ProcessingRunAttestationResponse.cs`
 - a narrow Application query/parser for completed-run attestation
 - a read-only API endpoint for `GET /api/processing/runs/{processingRunId}/attestation`
@@ -1015,11 +1021,13 @@ Before hardware or release metadata work:
 6. add RED reconciliation tests for camera timezone/active-state mismatch and duplicate VideoAsset camera/recording-provenance mismatch;
 7. add RED evidence tests proving corpus + individual ground-truth manifest hashes are mandatory and mismatch fails closed;
 8. add RED offline-evidence completeness tests proving an OS gate remains pending when either its CPU or CUDA lock evidence is absent/failing;
-9. add RED `ProcessingFailureRecoveryTests`;
-10. add worker end-to-end contract RED tests;
-11. implement only enough production changes to satisfy demonstrated defects;
-12. add acceptance/offline evidence schemas;
-13. add repository verification for all new tracked schemas/configs.
+9. add RED promotion-tool tests proving manual/incomplete evidence cannot generate passed release metadata;
+10. add RED processing-run supersession tests proving the harness never silently follows a different latest run;
+11. add RED `ProcessingFailureRecoveryTests`;
+12. add worker end-to-end contract RED tests;
+13. implement only enough production changes to satisfy demonstrated defects;
+14. add acceptance/offline evidence schemas;
+15. add repository verification for all new tracked schemas/configs.
 
 Gate:
 
@@ -1045,6 +1053,7 @@ Required automated tests shall cover:
 - bounded status polling;
 - failed processing result;
 - successful completed result;
+- queued-run/latest-run supersession mismatch rejection;
 - completed-run attestation success, identity mismatch, malformed persisted provenance and non-completed-run rejection;
 - formal mode rejects missing ground truth, zero expected events, zero Tracks, zero resolved details and zero representative evidence;
 - empty-scene diagnostic mode may return zero Tracks but cannot emit a formal acceptance result;
@@ -1216,6 +1225,8 @@ Search explicitly for:
 - private corpus/ground-truth manifests identified only by mutable version labels rather than exact SHA-256 bytes;
 - OS-level offline-install evidence that covers only CPU or only CUDA while claiming the whole gate passed;
 - a passed gate whose evidence object cannot prove all subrequirements implied by the accepted ADR;
+- release-status JSON hand-edited to passed without going through deterministic evidence validation/promotion tooling;
+- processing qualification that silently follows a newer/superseding run instead of the exact queued ProcessingRun ID;
 - DB/filesystem access in acceptance code where a public API should be used;
 - hard-coded credentials or private paths;
 - checked-in video/model/bundle bytes;
