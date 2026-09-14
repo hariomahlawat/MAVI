@@ -62,7 +62,7 @@ def main() -> int:
     parser.add_argument("--formal-e2e", type=Path, required=True)
     parser.add_argument("--empty-scene", type=Path, required=True)
     parser.add_argument("--failure-reprocess", type=Path, required=True)
-    parser.add_argument("--log", type=Path, action="append", default=[])
+    parser.add_argument("--log", action="append", default=[])
     parser.add_argument("--allowed-host", action="append", default=[])
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -89,8 +89,23 @@ def main() -> int:
 
         external_hits: list[str] = []
         suspicious_hits: list[str] = []
+        required_roles = {
+            "api", "iis", "postgres",
+            "formal-worker", "empty-worker", "failure-worker",
+        }
+        log_paths: dict[str, Path] = {}
+        for item in args.log:
+            if "=" not in item:
+                raise LogInspectionError("production_log_argument_invalid")
+            role, raw_path = item.split("=", 1)
+            if role not in required_roles or role in log_paths or not raw_path:
+                raise LogInspectionError("production_log_argument_invalid")
+            log_paths[role] = Path(raw_path)
+        if set(log_paths) != required_roles:
+            raise LogInspectionError("production_log_roles_incomplete")
+
         logs = []
-        for path in args.log:
+        for role, path in sorted(log_paths.items()):
             raw = path.read_bytes()
             try:
                 text = raw.decode("utf-8")
@@ -103,6 +118,7 @@ def main() -> int:
             external_hits.extend(external)
             suspicious_hits.extend(suspicious)
             logs.append({
+                "role": role,
                 "path": path.name,
                 "sizeBytes": len(raw),
                 "sha256": hashlib.sha256(raw).hexdigest(),
@@ -127,7 +143,7 @@ def main() -> int:
             "emptySceneDiagnosticSha256": sha256_file(args.empty_scene),
             "failureReprocessSha256": sha256_file(args.failure_reprocess),
             "allowedHosts": sorted(allowed_hosts),
-            "logs": sorted(logs, key=lambda item: item["path"]),
+            "logs": sorted(logs, key=lambda item: item["role"]),
             "result": {
                 "passed": True,
                 "externalUrlHits": [],
