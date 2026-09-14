@@ -409,6 +409,7 @@ def _compare_attestation(
     bundle: dict[str, Any],
     bundle_manifest_sha: str,
     source_commit: str,
+    expected_mavi_build: str,
 ) -> dict[str, Any]:
     checks = {
         "modelId": expected["modelId"],
@@ -422,6 +423,7 @@ def _compare_attestation(
         "qualificationSha256": expected["qualificationSha256"],
         "verificationStatus": selection.verification_status,
         "runtimeVariant": bundle.get("platformVariant"),
+        "maviBuild": expected_mavi_build,
         "maviCommit": source_commit,
     }
     for key, expected_value in checks.items():
@@ -460,6 +462,7 @@ def _compare_attestation(
             "platformLockSha256": None,
             "candidateBundleManifestSha256": bundle_manifest_sha,
             "candidateSelectedLockSha256": lock_sha,
+            "productionBundleManifestSha256": None,
         }
 
     if bundle.get("releaseStatus") != "production":
@@ -479,6 +482,7 @@ def _compare_attestation(
         "platformLockSha256": lock_sha,
         "candidateBundleManifestSha256": None,
         "candidateSelectedLockSha256": None,
+        "productionBundleManifestSha256": bundle_manifest_sha,
     }
 
 
@@ -766,6 +770,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--processing-timeout-seconds", type=float, default=900)
     parser.add_argument("--environment-label", required=True)
     parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--expected-mavi-build", required=True)
     parser.add_argument("--target-verified-manifest-sha256", required=True)
     parser.add_argument("--model-root", type=Path, required=True)
     parser.add_argument("--model-manifest", type=Path, required=True)
