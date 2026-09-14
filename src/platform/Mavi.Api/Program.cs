@@ -35,7 +35,10 @@ app.UseStaticFiles();
 app.MapGet("/api/health", () =>
 {
     var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.1.0";
-    return Results.Ok(GetPlatformHealth.Execute(version));
+    return Results.Ok(GetPlatformHealth.Execute(
+        version,
+        Environment.GetEnvironmentVariable("MAVI_BUILD"),
+        Environment.GetEnvironmentVariable("MAVI_COMMIT")));
 });
 
 app.MapHealthChecks("/health/live");
