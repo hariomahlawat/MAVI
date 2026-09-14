@@ -769,14 +769,19 @@ A CUDA offline lock may become `qualified-offline-lock` only after its correspon
 
 The required sequence is:
 
-1. qualify exact CUDA hardware/runtime graph;
+1. qualify the exact CUDA hardware/runtime graph;
 2. freeze the exact reviewed wheelhouse;
-3. generate deterministic CUDA lock;
+3. generate the deterministic CUDA lock;
 4. verify lock grammar/completeness/hashes;
-5. bind the lock SHA-256 into `runtime.json`;
-6. rebuild qualification-candidate bundle;
-7. execute disconnected installation on the intended platform where required;
-8. rerun final qualification on the rebound metadata.
+5. bind the qualified platform identity and lock SHA-256 into the final intended `runtime.json`;
+6. compute that final runtime-profile SHA-256;
+7. rebind the still-pending qualification record to the exact final manifest/profile/runtime identities;
+8. verify the internally consistent unverified release selection with `allow_unverified=True`;
+9. only then build and validate the qualification-candidate bundle for that platform variant;
+10. execute disconnected installation/qualification from those exact candidate bundle bytes;
+11. retain candidate bundle/lock/evidence identities for the later evidence-validation and promotion stage.
+
+Changing `runtime.json` after step 7 invalidates the pending qualification rebind and any candidate bundles/evidence derived from it; return to step 6 rather than patching hashes forward.
 
 No target-machine compilation is permitted in the final offline path.
 
@@ -878,7 +883,7 @@ Only after every required runtime platform identity and release lock is immutabl
 5. rebind the pending qualification record to the final runtime/profile identities as required;
 6. run repository/release-selection validation.
 
-This candidate-rebind head is the head on which release-level offline, CCTV-quality, recovery/performance and end-to-end candidate evidence is generated.
+This internally consistent candidate state is the source head from which Checkpoint F builds the qualification-candidate bundles; release-level offline, CCTV-quality, recovery/performance and end-to-end candidate evidence is generated only after those exact bundles have been built and validated.
 
 ### 19.3 Evidence attestation
 
