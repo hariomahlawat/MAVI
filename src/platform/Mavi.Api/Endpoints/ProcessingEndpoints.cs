@@ -92,7 +92,10 @@ public static class ProcessingEndpoints
             source.DetectorName,
             source.DetectorVersion,
             source.TrackerName,
-            source.TrackerVersion);
+            source.TrackerVersion,
+            source.FramesProcessed,
+            source.TracksCreated,
+            source.ProcessingDurationMs);
 
         return Results.Ok(response);
     }
