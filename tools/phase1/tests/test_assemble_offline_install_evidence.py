@@ -19,6 +19,7 @@ def variant(name: str, commit: str) -> dict:
         "sourceCommit": commit,
         "targetVerifiedManifestSha256": "e" * 64,
         "acceptanceProfileSha256": "d" * 64,
+        "maviBuild": "build-a",
         "variant": name,
         "bundleMode": "qualification-candidate",
         "bundleManifestSha256": "a" * 64,
@@ -32,6 +33,9 @@ def variant(name: str, commit: str) -> dict:
         "realInferencePassed": True,
         "workerFlowPassed": True,
         "workerFlowEvidenceSha256": "f" * 64,
+        "workerPythonSha256": "1" * 64,
+        "workerCommandSha256": "2" * 64,
+        "workerLogSha256": "3" * 64,
         "actualDevice": "cuda:0" if name.endswith("cuda") else "cpu",
         "outboundNetworkUnavailable": True,
         "networkIsolation": {
