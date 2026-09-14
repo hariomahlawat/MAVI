@@ -145,6 +145,7 @@ def validate_quality(
     acceptance_profile_sha256: str,
 ) -> dict[str, Any]:
     value = load_json(path)
+    validate_schema(value, Path(__file__).with_name("phase1-acceptance-evidence.schema.json"))
     require_source_commit(value, source_commit, "quality")
     evidence_verifier.verify_acceptance(
         value,
@@ -176,6 +177,7 @@ def validate_performance(
     acceptance_profile_sha256: str,
 ) -> dict[str, Any]:
     value = load_json(path)
+    validate_schema(value, Path(__file__).with_name("recovery-performance-evidence.schema.json"))
     require_source_commit(value, source_commit, "performance")
     if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
         raise ClosureError("performance_profile_hash_mismatch")
@@ -251,6 +253,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         evidence_hashes["backup-restore"] = sha256_file(args.backup_restore)
     if args.windows_offline is not None:
         value = load_json(args.windows_offline)
+        validate_schema(value, Path(__file__).with_name("offline-install-evidence.schema.json"))
         evidence_verifier.verify_offline_install(
             value,
             expected_source_commit=args.source_commit,
@@ -261,7 +264,12 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         evidence_hashes["windows-offline-install"] = sha256_file(args.windows_offline)
     if args.linux_offline is not None:
         value = load_json(args.linux_offline)
-        evidence_verifier.verify_offline_install(value, expected_source_commit=args.source_commit)
+        validate_schema(value, Path(__file__).with_name("offline-install-evidence.schema.json"))
+        evidence_verifier.verify_offline_install(
+            value,
+            expected_source_commit=args.source_commit,
+            expected_acceptance_profile_sha256=acceptance_profile_sha256,
+        )
         if value.get("os") != "linux":
             raise ClosureError("linux_offline_os_mismatch")
         evidence_hashes["linux-offline-install"] = sha256_file(args.linux_offline)
