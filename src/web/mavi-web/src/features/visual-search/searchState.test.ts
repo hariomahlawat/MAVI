@@ -127,7 +127,11 @@ describe('Task-16 committed search state', () => {
 
   it('converts operator duration and confidence input without silent clamping', () => {
     expect(secondsTextToMilliseconds('1.250')).toBe(1250);
+    expect(secondsTextToMilliseconds('1.001')).toBe(1001);
+    expect(secondsTextToMilliseconds('0.029')).toBe(29);
     expect(confidencePercentTextToFraction('91.25')).toBe(0.9125);
+    expect(confidencePercentTextToFraction('0.07')).toBe(0.0007);
+    expect(String(confidencePercentTextToFraction('0.07'))).toBe('0.0007');
     expect(() => secondsTextToMilliseconds('-1')).toThrow();
     expect(() => secondsTextToMilliseconds('1.2345')).toThrow();
     expect(() => confidencePercentTextToFraction('100.1')).toThrow();
