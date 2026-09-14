@@ -79,22 +79,22 @@ def _resolved(path: Path) -> Path:
     return path.resolve(strict=False)
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 def _assert_disjoint_roots(paths: list[Path]) -> None:
     resolved = [_resolved(path) for path in paths]
     for index, first in enumerate(resolved):
         for second in resolved[index + 1:]:
             if first == second:
                 raise BackupRestoreError("backup_restore_roots_not_distinct")
-            try:
-                first.relative_to(second)
+            if _is_relative_to(first, second) or _is_relative_to(second, first):
                 raise BackupRestoreError("backup_restore_roots_nested")
-            except ValueError:
-                pass
-            try:
-                second.relative_to(first)
-                raise BackupRestoreError("backup_restore_roots_nested")
-            except ValueError:
-                pass
 
 
 def execute(args: argparse.Namespace) -> dict[str, Any]:
