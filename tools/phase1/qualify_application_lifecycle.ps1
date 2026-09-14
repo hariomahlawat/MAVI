@@ -177,11 +177,25 @@ try {
     if ([int]$rootResponse.StatusCode -ne 200 -or $rootBytes -le 0) {
         throw "post_deploy_ui_smoke_failed"
     }
-    if ($rootContent -match '(?i)(?:src|href)=[\"'']https?://') {
+    if (
+        $rootContent -match '(?i)(?:src|href)="https?://' -or
+        $rootContent -match "(?i)(?:src|href)='https?://"
+    ) {
         throw "post_deploy_remote_asset_dependency_detected"
     }
-    $assetMatches = [regex]::Matches($rootContent, '(?i)(?:src|href)=[\"''](?<path>/[^\"'']+\.(?:js|css))[\"'']')
-    $assetPaths = @($assetMatches | ForEach-Object { $_.Groups["path"].Value } | Select-Object -Unique)
+    $doubleQuotedAssets = [regex]::Matches(
+        $rootContent,
+        '(?i)(?:src|href)="(?<path>/[^"]+\.(?:js|css))"'
+    )
+    $singleQuotedAssets = [regex]::Matches(
+        $rootContent,
+        "(?i)(?:src|href)='(?<path>/[^']+\.(?:js|css))'"
+    )
+    $assetPaths = @(
+        @($doubleQuotedAssets) + @($singleQuotedAssets) |
+            ForEach-Object { $_.Groups["path"].Value } |
+            Select-Object -Unique
+    )
     if ($assetPaths.Count -lt 1) { throw "post_deploy_static_asset_missing" }
     foreach ($assetPath in $assetPaths) {
         $assetResponse = Invoke-WebRequest -Uri ($BaseUrl.TrimEnd('/') + $assetPath) -Method Get -UseBasicParsing
