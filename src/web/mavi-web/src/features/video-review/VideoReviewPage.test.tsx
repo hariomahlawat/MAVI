@@ -78,6 +78,7 @@ function detail(overrides: Partial<TrackDetail> = {}): TrackDetail {
 
 describe('VideoReviewPage', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
     vi.mocked(getTrack).mockResolvedValue(detail());
   });
