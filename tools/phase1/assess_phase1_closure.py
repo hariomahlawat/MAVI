@@ -29,6 +29,10 @@ from mavi_vision.runtime.qualification import (  # noqa: E402
 
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
 import assemble_production_acceptance as production_acceptance  # noqa: E402
+from production_acceptance_context import (  # noqa: E402
+    AcceptanceContextError,
+    load_context as load_acceptance_context,
+)
 from policy_identity import (  # noqa: E402
     PolicyIdentityError,
     canonical_acceptance_profile,
@@ -236,6 +240,8 @@ def validate_production_acceptance_record(
     manifest_sha256: str,
     acceptance_profile_sha256: str,
     application_manifest_sha256: str,
+    acceptance_context: Path,
+    server_log_checkpoint: Path,
     prerequisite_evidence: Path,
     fresh_install: Path,
     offline_update: Path,
@@ -260,7 +266,9 @@ def validate_production_acceptance_record(
         for variant in production_acceptance.VARIANTS
     }
     if (
-        value.get("sourceCommit") != source_commit
+        value.get("acceptanceContextSha256") != sha256_file(acceptance_context)
+        or value.get("serverLogCheckpointSha256") != sha256_file(server_log_checkpoint)
+        or value.get("sourceCommit") != source_commit
         or value.get("maviBuild") != mavi_build
         or value.get("verifiedModelManifestSha256") != manifest_sha256
         or value.get("acceptanceProfileSha256") != acceptance_profile_sha256
@@ -307,6 +315,16 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             raise ClosureError("application_manifest_build_invalid")
         application_manifest_sha256 = sha256_file(args.application_manifest)
 
+    acceptance_context = None
+    acceptance_context_sha = None
+    if args.acceptance_context is not None and expected_mavi_build is not None:
+        acceptance_context, acceptance_context_sha = load_acceptance_context(
+            args.acceptance_context,
+            schema_path=PHASE1_ROOT / "production-acceptance-context.schema.json",
+            expected_source_commit=args.source_commit,
+            expected_mavi_build=expected_mavi_build,
+        )
+
     pending: list[str] = []
     evidence_hashes: dict[str, str] = {}
 
@@ -336,6 +354,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         "cctv-quality-baseline": args.quality,
         "linux-nvidia-recovery-performance": args.performance,
         "application-manifest": args.application_manifest,
+        "acceptance-context": args.acceptance_context,
+        "server-log-checkpoint": args.server_log_checkpoint,
         "production-prerequisite-evidence": args.prerequisite_evidence,
         "production-prerequisite-windows": args.windows_prerequisite_observation,
         "production-prerequisite-database": args.database_prerequisite_observation,
@@ -499,6 +519,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and args.production_e2e is not None
         and expected_mavi_build is not None
         and isinstance(expected_corpus_sha, str)
+        and acceptance_context is not None
+        and acceptance_context_sha is not None
         and "linux-x86_64-cuda" in production_variant_values
     ):
         (
@@ -518,6 +540,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             linux_cuda_variant=production_variant_values["linux-x86_64-cuda"],
             linux_cuda_bundle_sha256=production_bundle_hashes["linux-x86_64-cuda"],
             linux_cuda_lock_sha256=production_lock_hashes["linux-x86_64-cuda"],
+            acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
+            acceptance_context_sha256=acceptance_context_sha,
         )
         evidence_hashes["formal-production-scenario"] = formal_scenario_sha
         evidence_hashes["production-e2e"] = final_e2e_sha
@@ -526,6 +550,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         args.empty_scene_scenario is not None
         and args.empty_scene_e2e is not None
         and expected_mavi_build is not None
+        and acceptance_context is not None
+        and acceptance_context_sha is not None
         and "linux-x86_64-cuda" in production_variant_values
     ):
         (
@@ -545,6 +571,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             linux_cuda_variant=production_variant_values["linux-x86_64-cuda"],
             linux_cuda_bundle_sha256=production_bundle_hashes["linux-x86_64-cuda"],
             linux_cuda_lock_sha256=production_lock_hashes["linux-x86_64-cuda"],
+            acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
+            acceptance_context_sha256=acceptance_context_sha,
         )
         evidence_hashes["empty-scene-scenario"] = empty_scenario_sha
         evidence_hashes["empty-scene-e2e"] = empty_e2e_sha
@@ -559,6 +587,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
     if (
         args.failure_reprocess is not None
         and expected_mavi_build is not None
+        and acceptance_context is not None
+        and acceptance_context_sha is not None
         and "linux-x86_64-cuda" in production_variant_values
     ):
         failure_sha, failure_log_sha = (
@@ -571,6 +601,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
                 linux_cuda_variant=production_variant_values["linux-x86_64-cuda"],
                 linux_cuda_bundle_sha256=production_bundle_hashes["linux-x86_64-cuda"],
                 linux_cuda_lock_sha256=production_lock_hashes["linux-x86_64-cuda"],
+                acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
+                acceptance_context_sha256=acceptance_context_sha,
             )
         )
         evidence_hashes["failure-reprocess"] = failure_sha
@@ -585,18 +617,30 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and formal_log_sha is not None
         and empty_log_sha is not None
         and failure_log_sha is not None
+        and formal_scenario_sha is not None
+        and empty_scenario_sha is not None
     ):
+        formal_scenario_value = load_json(args.formal_scenario)
+        empty_scenario_value = load_json(args.empty_scene_scenario)
+        failure_value = load_json(args.failure_reprocess)
         log_sha = production_acceptance.validate_log_inspection(
             args.log_inspection,
+            context_path=args.acceptance_context,
+            checkpoint_path=args.server_log_checkpoint,
             log_paths=production_log_paths,
             source_commit=args.source_commit,
             mavi_build=expected_mavi_build,
+            formal_scenario_sha256=formal_scenario_sha,
             formal_e2e_sha256=final_e2e_sha,
+            empty_scenario_sha256=empty_scenario_sha,
             empty_e2e_sha256=empty_e2e_sha,
             failure_sha256=failure_sha,
             formal_worker_log_sha256=formal_log_sha,
             empty_worker_log_sha256=empty_log_sha,
             failure_worker_log_sha256=failure_log_sha,
+            formal_scenario=formal_scenario_value,
+            empty_scenario=empty_scenario_value,
+            failure_evidence=failure_value,
         )
         evidence_hashes["production-log-inspection"] = log_sha
 
@@ -607,6 +651,34 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             acceptance_profile_sha256=acceptance_profile_sha256,
             formal_e2e_sha256=final_e2e_sha,
         )
+
+    if (
+        prerequisite_sha is not None
+        and args.prerequisite_evidence is not None
+        and args.fresh_install is not None
+        and args.offline_update is not None
+        and args.backup_restore is not None
+        and "linux-x86_64-cuda" in production_variant_values
+    ):
+        prerequisite_value = load_json(args.prerequisite_evidence)
+        topology = prerequisite_value.get("topologyIdentities", {})
+        fresh_value = load_json(args.fresh_install)
+        update_value = load_json(args.offline_update)
+        backup_value = load_json(args.backup_restore)
+        if (
+            fresh_value.get("hosting", {}).get("hostIdentitySha256")
+            != topology.get("windowsOperationalPlane")
+            or update_value.get("hosting", {}).get("hostIdentitySha256")
+            != topology.get("windowsOperationalPlane")
+        ):
+            raise ClosureError("production_windows_topology_mismatch")
+        if backup_value.get("sourceDatabaseIdentity") != topology.get("database"):
+            raise ClosureError("production_database_topology_mismatch")
+        if (
+            production_variant_values["linux-x86_64-cuda"].get("hostIdentitySha256")
+            != topology.get("linuxVisionWorker")
+        ):
+            raise ClosureError("production_linux_topology_mismatch")
 
     if (
         args.production_acceptance is not None
@@ -622,6 +694,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and args.empty_scene_e2e is not None
         and args.failure_reprocess is not None
         and args.log_inspection is not None
+        and args.acceptance_context is not None
+        and args.server_log_checkpoint is not None
         and production_log_paths
         and len(production_bundle_hashes) == 4
         and final_e2e_sha is not None
@@ -640,6 +714,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             manifest_sha256=sha256_file(args.manifest),
             acceptance_profile_sha256=acceptance_profile_sha256,
             application_manifest_sha256=application_manifest_sha256,
+            acceptance_context=args.acceptance_context,
+            server_log_checkpoint=args.server_log_checkpoint,
             prerequisite_evidence=args.prerequisite_evidence,
             fresh_install=args.fresh_install,
             offline_update=args.offline_update,
@@ -707,6 +783,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-profile", type=Path, required=True)
     parser.add_argument("--acceptance-profile", type=Path, required=True)
     parser.add_argument("--application-manifest", type=Path)
+    parser.add_argument("--acceptance-context", type=Path)
+    parser.add_argument("--server-log-checkpoint", type=Path)
     parser.add_argument("--prerequisite-evidence", type=Path)
     parser.add_argument("--windows-prerequisite-observation", type=Path)
     parser.add_argument("--database-prerequisite-observation", type=Path)
@@ -748,7 +826,7 @@ def main() -> int:
             encoding="utf-8",
             newline="\n",
         )
-    except (ClosureError, OSError, json.JSONDecodeError, ReleaseMetadataError, evidence_verifier.EvidenceError, PolicyIdentityError) as exc:
+    except (ClosureError, OSError, json.JSONDecodeError, ReleaseMetadataError, evidence_verifier.EvidenceError, PolicyIdentityError, AcceptanceContextError) as exc:
         code = getattr(exc, "code", str(exc))
         print(json.dumps({"ok": False, "code": code}, sort_keys=True))
         return 2
