@@ -37,6 +37,7 @@ def check_state(
     base_url: str,
     acceptance_evidence: Path,
     expected_application_commit: str,
+    expected_application_build: str,
 ) -> dict:
     evidence = json.loads(acceptance_evidence.read_text(encoding="utf-8"))
     if evidence.get("schemaVersion") != "mavi-phase1-acceptance-evidence-v1":
@@ -50,6 +51,7 @@ def check_state(
         not isinstance(health, dict)
         or health.get("status") != "ok"
         or health.get("commit") != expected_application_commit
+        or health.get("build") != expected_application_build
     ):
         raise StateCheckError("state_application_identity_mismatch")
 
@@ -150,6 +152,8 @@ def check_state(
         "acceptanceSourceCommit": evidence["sourceCommit"],
         "expectedApplicationCommit": expected_application_commit,
         "observedApplicationCommit": health["commit"],
+        "expectedApplicationBuild": expected_application_build,
+        "observedApplicationBuild": health["build"],
         "cameraId": camera_expected["id"],
         "videoAssetId": video_expected["id"],
         "processingRunId": run_id,
@@ -168,6 +172,7 @@ def main() -> int:
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--acceptance-evidence", type=Path, required=True)
     parser.add_argument("--expected-application-commit", required=True)
+    parser.add_argument("--expected-application-build", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -178,6 +183,7 @@ def main() -> int:
             base_url=args.base_url,
             acceptance_evidence=args.acceptance_evidence,
             expected_application_commit=args.expected_application_commit,
+            expected_application_build=args.expected_application_build,
         )
         args.output.write_text(
             json.dumps(value, indent=2, sort_keys=True) + "\n",
