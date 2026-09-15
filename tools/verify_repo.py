@@ -313,6 +313,26 @@ def check_phase1_acceptance_assets(errors: list[str]) -> None:
                         f"Task-17 migration policy is invalid for prior release {commit}.",
                         errors,
                     )
+                migration_script_sha = (
+                    release.get("migrationScriptSha256")
+                    if isinstance(release, dict)
+                    else None
+                )
+                if policy == "required":
+                    if (
+                        not isinstance(migration_script_sha, str)
+                        or len(migration_script_sha) != 64
+                        or any(ch not in "0123456789abcdef" for ch in migration_script_sha)
+                    ):
+                        fail(
+                            f"Task-17 migration script hash is not frozen for prior release {commit}.",
+                            errors,
+                        )
+                elif migration_script_sha is not None:
+                    fail(
+                        f"Task-17 migration script hash must be null when migration is not required for {commit}.",
+                        errors,
+                    )
                 if not has_application_manifest_sha:
                     fail(
                         f"Task-17 prior application manifest hash field is missing for {commit}.",
