@@ -192,7 +192,13 @@ function Test-MaviNode22 {
         return $false
     }
     $result = Invoke-MaviCommand -FilePath $node.Source -Arguments @("--version") -CaptureOutput
-    return $result.StandardOutput.Trim() -match "^v22\."
+    $match = [regex]::Match($result.StandardOutput.Trim(), "^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)")
+    if (-not $match.Success) { return $false }
+    $version = New-Object Version(
+        [int]$match.Groups["major"].Value,
+        [int]$match.Groups["minor"].Value,
+        [int]$match.Groups["patch"].Value)
+    return $version.Major -eq 22 -and $version -ge (New-Object Version(22, 13, 0))
 }
 
 function Test-MaviPython313 {
@@ -207,7 +213,7 @@ function Test-MaviPython313 {
     }
     $major = [int]$match.Groups["major"].Value
     $minor = [int]$match.Groups["minor"].Value
-    return $major -gt 3 -or ($major -eq 3 -and $minor -ge 13)
+    return $major -eq 3 -and $minor -eq 13
 }
 
 function Ensure-MaviDeveloperToolchain {
@@ -272,7 +278,7 @@ function Initialize-MaviDeveloperWorkspace {
     }
 
     $bundleCacheRoot = Join-Path $BundleRoot "prerequisites\developer\win-x64"
-    $localCacheRoot = Join-Path $env:LOCALAPPDATA "MAVI\developer-cache"
+    $localCacheRoot = Join-Path $env:ProgramData "MAVI\Development\developer-cache"
     $nugetSource = Join-Path $bundleCacheRoot "nuget-packages"
     $npmSource = Join-Path $bundleCacheRoot "npm-cache"
     $pythonSource = Join-Path $bundleCacheRoot "python-wheelhouse"
@@ -306,7 +312,7 @@ function Initialize-MaviDeveloperWorkspace {
         ) -AllowedExitCodes @(0,1,2,3,4,5,6,7)
     }
 
-    [Environment]::SetEnvironmentVariable("NUGET_PACKAGES", $nugetLocal, [System.EnvironmentVariableTarget]::User)
+    [Environment]::SetEnvironmentVariable("NUGET_PACKAGES", $nugetLocal, [System.EnvironmentVariableTarget]::Machine)
     $env:NUGET_PACKAGES = $nugetLocal
 
     Invoke-MaviCommand -FilePath "dotnet.exe" -Arguments @(
