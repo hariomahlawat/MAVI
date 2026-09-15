@@ -161,3 +161,62 @@ def test_application_lifecycle_build_mismatch_is_rejected(tmp_path: Path):
             supported_updates_policy_sha256="c" * 64,
             schema_path=schema_path,
         )
+
+
+def test_production_acceptance_call_contracts_match_live_signatures():
+    ast = __import__("ast")
+    inspect = __import__("inspect")
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    checked = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "production_acceptance"
+        ):
+            continue
+        target = getattr(mod.production_acceptance, func.attr)
+        signature = inspect.signature(target)
+        parameters = signature.parameters
+        keyword_names = {item.arg for item in node.keywords if item.arg is not None}
+        accepts_kwargs = any(
+            item.kind == inspect.Parameter.VAR_KEYWORD
+            for item in parameters.values()
+        )
+        if not accepts_kwargs:
+            unexpected = keyword_names - set(parameters)
+            assert not unexpected, (
+                f"{func.attr} called with unsupported keywords: {sorted(unexpected)}"
+            )
+        required_keyword_only = {
+            name
+            for name, item in parameters.items()
+            if item.kind == inspect.Parameter.KEYWORD_ONLY
+            and item.default is inspect.Parameter.empty
+        }
+        missing = required_keyword_only - keyword_names
+        assert not missing, (
+            f"{func.attr} missing required keyword-only arguments: {sorted(missing)}"
+        )
+        positional_capacity = sum(
+            1
+            for item in parameters.values()
+            if item.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        )
+        has_varargs = any(
+            item.kind == inspect.Parameter.VAR_POSITIONAL
+            for item in parameters.values()
+        )
+        if not has_varargs:
+            assert len(node.args) <= positional_capacity, (
+                f"{func.attr} has too many positional arguments"
+            )
+        checked += 1
+    assert checked >= 8
