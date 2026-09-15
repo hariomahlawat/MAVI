@@ -15,7 +15,7 @@ $destinationRoot = [System.IO.Path]::GetFullPath($DestinationRoot)
 $postgresExe = Join-Path $pgRoot "bin\postgres.exe"
 if (-not (Test-Path -LiteralPath $postgresExe -PathType Leaf)) { throw "PostgreSQL executable not found at $postgresExe" }
 $versionOutput = & $postgresExe --version
-if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch "PostgreSQL 18\.") { throw "MAVI requires a PostgreSQL 18 pgvector source installation." }
+if ($LASTEXITCODE -ne 0 -or -not (Test-MaviPostgreSqlMajorVersionOutput -VersionOutput ($versionOutput | Out-String) -Major 18)) { throw "MAVI requires a PostgreSQL 18 pgvector source installation." }
 
 $sources = @(
     [ordered]@{ source = (Join-Path $pgRoot "lib\vector.dll"); relative = "lib/vector.dll" },
