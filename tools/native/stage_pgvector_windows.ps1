@@ -25,7 +25,8 @@ $sources = @(
 $controlPath = Join-Path $pgRoot "share\extension\vector.control"
 $control = Get-Content -LiteralPath $controlPath -Raw
 $escapedVersion = [System.Text.RegularExpressions.Regex]::Escape($PgVectorVersion)
-if ($control -notmatch "default_version\s*=\s*['\"]$escapedVersion['\"]") {
+$versionPattern = 'default_version\s*=\s*[''"]{0}[''"]' -f $escapedVersion
+if ($control -notmatch $versionPattern) {
     throw "vector.control does not declare pgvector version '$PgVectorVersion'."
 }
 $sqlFiles = Get-ChildItem -LiteralPath (Join-Path $pgRoot "share\extension") -Filter "vector--*.sql" -File
