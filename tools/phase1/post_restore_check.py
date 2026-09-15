@@ -9,6 +9,9 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin
+from urllib.request import Request, urlopen
 
 STATE_PATH = Path(__file__).with_name("verify_authoritative_state.py")
 SPEC = importlib.util.spec_from_file_location("mavi_phase1_state_restore", STATE_PATH)
@@ -29,6 +32,45 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+
+def fetch_storage_topology(base_url: str) -> dict[str, object]:
+    request = Request(
+        urljoin(base_url.rstrip("/") + "/", "api/system/storage-topology"),
+        headers={"Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            if response.status != 200:
+                raise RestoreCheckError("restore_storage_topology_http_failed")
+            value = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise RestoreCheckError("restore_storage_topology_unavailable") from exc
+    if not isinstance(value, dict):
+        raise RestoreCheckError("restore_storage_topology_invalid")
+    return value
+
+
+def validate_restored_storage_topology(
+    live: dict[str, object],
+    execution: dict[str, object],
+) -> dict[str, object]:
+    expected = execution.get("restoreStorageTopology")
+    if not isinstance(expected, dict):
+        raise RestoreCheckError("restore_expected_topology_missing")
+    required = (
+        "schemaVersion",
+        "maviBuild",
+        "maviCommit",
+        "databaseIdentity",
+        "managedMediaRootIdentitySha256",
+        "acceptedEvidenceRootIdentitySha256",
+    )
+    if any(live.get(key) != expected.get(key) for key in required):
+        raise RestoreCheckError("restore_storage_topology_mismatch")
+    return {key: live[key] for key in required}
 
 
 def main() -> int:
@@ -58,6 +100,10 @@ def main() -> int:
         if accepted.get("sourceCommit") != execution.get("sourceCommit"):
             raise RestoreCheckError("restore_source_commit_mismatch")
 
+        restore_storage_topology = validate_restored_storage_topology(
+            fetch_storage_topology(args.base_url),
+            execution,
+        )
         checked = state.check_state(
             base_url=args.base_url,
             acceptance_evidence=args.acceptance_evidence,
@@ -72,6 +118,7 @@ def main() -> int:
             "databaseManifestSha256": execution["database"]["manifestSha256"],
             "managedSourceManifestSha256": execution["managedSource"]["manifestSha256"],
             "acceptedEvidenceManifestSha256": execution["acceptedEvidence"]["manifestSha256"],
+            "restoreStorageTopology": restore_storage_topology,
             "stateCheck": checked,
             "result": {"passed": True, "failureCodes": []},
         }
