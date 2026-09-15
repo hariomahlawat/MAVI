@@ -31,6 +31,7 @@ builder.Services.Configure<FormOptions>(options =>
 });
 
 var app = builder.Build();
+await app.VerifyNativeMediaToolsAsync();
 await app.ApplyDatabaseMigrationsAsync();
 app.UseVisionCompletionRequestLimits();
 app.UseDefaultFiles();
