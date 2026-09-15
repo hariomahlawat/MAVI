@@ -150,8 +150,14 @@ function Test-Node22 {
     $cmd = Get-Command node.exe -ErrorAction SilentlyContinue
     if (-not $cmd) { return $false }
     $v = (& $cmd.Source --version 2>$null | Out-String).Trim()
-    $m = [regex]::Match($v, "^v(?<major>\d+)\.(?<minor>\d+)\.")
-    return $m.Success -and [int]$m.Groups["major"].Value -eq 22 -and [int]$m.Groups["minor"].Value -ge 13
+    $m = [regex]::Match($v, "^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)")
+    if (-not $m.Success -or [int]$m.Groups["major"].Value -ne 22) { return $false }
+
+    $observed = [Version]::new(
+        [int]$m.Groups["major"].Value,
+        [int]$m.Groups["minor"].Value,
+        [int]$m.Groups["patch"].Value)
+    return $observed -ge [Version]::new(22, 22, 2) -and $observed -lt [Version]::new(23, 0, 0)
 }
 
 function Resolve-Python313 {
@@ -477,7 +483,7 @@ try {
     Assert-Authenticode $dotnetHosting "Microsoft"
 
     # Node baseline is intentionally exact and verified against upstream SHASUMS256.txt.
-    $nodeVersion = "22.13.0"
+    $nodeVersion = "22.23.0"
     $nodeName = "node-v$nodeVersion-x64.msi"
     $nodeMsi = Join-Path $downloads $nodeName
     $nodeSums = Join-Path $downloads "node-SHASUMS256.txt"
@@ -552,7 +558,7 @@ try {
 
     Write-Step "Ensure preparation toolchain"
     Install-IfNeeded ".NET 10 SDK" ${function:Test-DotNet10} $dotnetSdk @("/install","/quiet","/norestart")
-    Install-IfNeeded "Node.js 22.13+" ${function:Test-Node22} $nodeMsi @("/qn","/norestart")
+    Install-IfNeeded "Node.js 22.22.2+" ${function:Test-Node22} $nodeMsi @("/qn","/norestart")
 
     $python313 = Resolve-Python313
     if (-not $python313) {
