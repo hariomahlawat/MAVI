@@ -117,16 +117,9 @@ function Install-MaviPostgreSqlInstance {
     # Keep PostgreSQL configuration explicitly BOM-less and deterministic.
     [IO.File]::WriteAllLines($managedConf, $managedLines, (New-Object Text.UTF8Encoding($false)))
 
-    # Validate the effective PostgreSQL configuration before service registration/start.
-    # This produces an actionable parser error instead of a generic SCM start failure.
-    $configCheck = Invoke-MaviCommand -FilePath $postgresExe -Arguments @(
-        "-D", $DataRoot,
-        "-C", "port"
-    ) -CaptureOutput
-    if ([string]::IsNullOrWhiteSpace($configCheck.StandardOutput)) {
-        throw "PostgreSQL configuration validation returned no port value."
-    }
-
+    # Do not invoke postgres.exe directly from this elevated setup process.
+    # PostgreSQL intentionally rejects direct execution under an administrative
+    # token on Windows. Service startup below is the authoritative validation path.
     $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if (-not $service) {
         Invoke-MaviCommand -FilePath $pgCtlExe -Arguments @("register", "-N", $ServiceName, "-D", $DataRoot, "-S", "auto")
