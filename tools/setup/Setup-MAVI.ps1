@@ -18,7 +18,9 @@ Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Windows.psm1") -Force
 
 Assert-MaviWindows
-Assert-MaviAdministrator
+if (-not $PlanOnly) {
+    Assert-MaviAdministrator
+}
 
 if ([string]::IsNullOrWhiteSpace($BundleRoot)) {
     $bundleCandidate = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
@@ -89,21 +91,27 @@ else {
 
     $adminSecretPath = Join-Path $setupRoot "postgres-admin.dpapi"
     $appSecretPath = Join-Path $setupRoot "mavi-app.dpapi"
-    $adminPassword = if (Test-Path -LiteralPath $adminSecretPath -PathType Leaf) {
-        Unprotect-MaviSecret -Path $adminSecretPath
+    if ($PlanOnly) {
+        $adminPassword = $null
+        $databasePassword = $null
     }
     else {
-        $value = New-MaviPassword
-        Protect-MaviSecret -PlainText $value -Path $adminSecretPath
-        $value
-    }
-    $databasePassword = if (Test-Path -LiteralPath $appSecretPath -PathType Leaf) {
-        Unprotect-MaviSecret -Path $appSecretPath
-    }
-    else {
-        $value = New-MaviPassword
-        Protect-MaviSecret -PlainText $value -Path $appSecretPath
-        $value
+        $adminPassword = if (Test-Path -LiteralPath $adminSecretPath -PathType Leaf) {
+            Unprotect-MaviSecret -Path $adminSecretPath
+        }
+        else {
+            $value = New-MaviPassword
+            Protect-MaviSecret -PlainText $value -Path $adminSecretPath
+            $value
+        }
+        $databasePassword = if (Test-Path -LiteralPath $appSecretPath -PathType Leaf) {
+            Unprotect-MaviSecret -Path $appSecretPath
+        }
+        else {
+            $value = New-MaviPassword
+            Protect-MaviSecret -PlainText $value -Path $appSecretPath
+            $value
+        }
     }
 }
 
@@ -197,6 +205,13 @@ try {
     }
     Write-MaviJson -Value $machineConfig -Path $machineConfigPath -Depth 8
 
+    if ($Profile -eq "Production") {
+        & icacls.exe $machineConfigPath /inheritance:r /grant:r "SYSTEM:F" "Administrators:F" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to secure Production machine configuration."
+        }
+    }
+
     if ($Profile -eq "Development") {
         $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
         & icacls.exe $machineConfigPath /inheritance:r /grant:r ("{0}:F" -f $currentIdentity) "Administrators:F" | Out-Null
@@ -207,7 +222,7 @@ try {
         [Environment]::SetEnvironmentVariable(
             "MAVI_TEST_DB_CONNECTION",
             "Host=127.0.0.1;Port=$port;Database=$testDatabaseName;Username=$databaseUser;Password=$databasePassword",
-            [EnvironmentVariableTarget]::User)
+            [System.EnvironmentVariableTarget]::User)
         $env:MAVI_TEST_DB_CONNECTION = "Host=127.0.0.1;Port=$port;Database=$testDatabaseName;Username=$databaseUser;Password=$databasePassword"
 
         if ($RepositoryRoot) {
@@ -238,6 +253,7 @@ try {
 
         Enable-MaviIis
         Install-MaviHostingBundle -HostingBundlePath $hostingBundle
+        Ensure-MaviIisAppPool -AppPoolName $appPoolName
 
         $appCmd = Join-Path $env:windir "System32\inetsrv\appcmd.exe"
         $existingPool = Invoke-MaviCommand -FilePath $appCmd -Arguments @("list", "apppool", "/name:$appPoolName") -CaptureOutput
@@ -246,6 +262,11 @@ try {
         }
 
         Copy-MaviApplication -Source $applicationSource -Destination $applicationRoot
+
+        & icacls.exe $machineConfigPath /grant:r ("IIS AppPool\{0}:R" -f $appPoolName) | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to grant the MAVI application pool read access to machine configuration."
+        }
 
         Set-MaviDirectoryAcl -Path $applicationRoot -Identity "IIS AppPool\$appPoolName" -Rights "R"
         Set-MaviDirectoryAcl -Path $mediaRoot -Identity "IIS AppPool\$appPoolName" -Rights "M"
