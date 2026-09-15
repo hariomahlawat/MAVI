@@ -30,6 +30,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     public Action<DbContextOptionsBuilder>? ConfigureDbContext { get; init; }
     public Action<IServiceCollection>? OverrideServices { get; init; }
     public string? StaticWebRoot { get; init; }
+    public bool EnableStartupMigrations { get; init; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -50,6 +51,9 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["VideoImport:MaximumFileSizeBytes"] = "3221225472",
                 ["VideoImport:MultipartOverheadBytes"] = "1048576",
                 ["VideoImport:AllowedExtensions:0"] = ".mp4",
+                ["DatabaseMigrations:Enabled"] = EnableStartupMigrations ? "true" : "false",
+                ["DatabaseMigrations:LockTimeoutSeconds"] = "30",
+                ["DatabaseMigrations:CommandTimeoutSeconds"] = "120",
             });
         });
         builder.ConfigureServices(services =>
