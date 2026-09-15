@@ -164,6 +164,22 @@ foreach ($entry in $sourceInputPaths.GetEnumerator()) {
     $sourceInputs[$entry.Key] = Get-MaviSha256 -Path $entry.Value
 }
 
+$cacheInputMap = [ordered]@{
+    offlineDependencyPolicySha256 = "offlineDependencyPolicy"
+    globalJsonSha256 = "globalJson"
+    packageLockSha256 = "webPackageLock"
+    visionPyprojectSha256 = "visionPyproject"
+    toolsRequirementsSha256 = "toolsRequirements"
+}
+foreach ($entry in $cacheInputMap.GetEnumerator()) {
+    $cacheProperty = $developerCacheManifest.sourceInputs.PSObject.Properties[$entry.Key]
+    $cacheHash = if ($cacheProperty) { [string]$cacheProperty.Value } else { "" }
+    $sourceHash = [string]$sourceInputs[$entry.Value]
+    if ($cacheHash -ne $sourceHash) {
+        throw "Developer offline cache is stale for the current repository: $($entry.Key) does not match. Rebuild it with Prepare-MaviDeveloperOfflineCache.ps1 before creating the binary kit."
+    }
+}
+
 $manifest = [ordered]@{
     schemaVersion = "mavi-offline-binary-kit-v1"
     sourceCatalogSha256 = (Get-MaviSha256 -Path $catalogPath)
