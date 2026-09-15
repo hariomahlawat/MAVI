@@ -18,9 +18,38 @@ Then double-click:
 Setup-MAVI-Development.cmd
 ```
 
-The launcher auto-detects and verifies the sibling kit. Approve the Administrator prompt. Setup automatically prepares the supported .NET 10, Node.js 22.13+, Python 3.13, MAVI-owned PostgreSQL 18 + pgvector environment, `mavi_dev`/`mavi_test` databases, FFmpeg/ffprobe, machine configuration, offline dependency caches and test connection. It also validates the attached workspace when the offline caches are available.
+The launcher auto-detects and verifies the sibling kit. Approve the Administrator prompt. Setup automatically prepares the supported .NET 10, Node.js 22.22.2+, Python 3.13, MAVI-owned PostgreSQL 18 + pgvector environment, `mavi_dev`/`mavi_test` databases, FFmpeg/ffprobe, machine configuration, offline dependency caches and test connection. It also validates the attached workspace when the offline caches are available.
 
 After the first setup, restart Visual Studio once and press **F5**.
+
+### Vision runtime bundle
+
+The ordinary Development binary kit prepares the UI/API/database and the lightweight Python Development environment. Actual RTMDet inference uses a separate, source-bound **MAVI Vision Runtime Bundle** because the qualified Windows CPU graph is CPython 3.12.10 with the frozen Torch/MMDetection wheel closure and model checkpoint.
+
+For the supported Windows CPU Development path, extract the exact Task-12 artifact beside the repository as:
+
+```text
+<workspace>/
+  MAVI/
+  MAVI-Offline-Binary-Kit/
+  MAVI-Vision-Runtime-Bundle/
+    bundle-manifest.json
+    wheels/
+    release/
+    prerequisites/
+```
+
+A nested `windows-x86_64-cpu/` directory is also accepted.
+
+Rerun `Setup-MAVI-Development.cmd`. Setup verifies every runtime-bundle artifact SHA-256, requires the bundle source commit to match the repository HEAD, installs the bundled signed CPython 3.12.10 runtime into ProgramData, creates an isolated runtime venv, installs the exact reviewed lock with `--no-index --require-hashes`, and records the installed bundle identity.
+
+With Mavi.Api running from Visual Studio, start the worker by double-clicking:
+
+```text
+Start-MAVI-Vision-Worker.cmd
+```
+
+The launcher refuses a source/runtime commit mismatch and supplies the installed model/profile/runtime paths to the worker. A queued Development video should then move to Processing once the runtime reports READY.
 
 The canonical MAVI services are deliberately fixed: Development PostgreSQL runs as `MAVI-Dev-PostgreSQL-18` on `127.0.0.1:55433`. Developers should not edit ports, PATH, connection strings or pgvector installation manually.
 
@@ -30,7 +59,7 @@ Use `tools/setup/Test-MaviEnvironment.ps1 -Profile Development` when you only wa
 
 - .NET 10 SDK
 - Python 3.13.x
-- Node.js 22.13+
+- Node.js 22.22.2+
 - MAVI-owned PostgreSQL 18 on port 55433
 - pgvector embedded in the approved PostgreSQL runtime pack
 - app-local FFmpeg/ffprobe
