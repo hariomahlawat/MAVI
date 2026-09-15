@@ -108,8 +108,8 @@ function Assert-IisHostingBinding([string]$SiteName, [string]$ExpectedPool, [str
     }
 }
 
-function Invoke-StateCheck([string]$AcceptanceEvidence, [string]$ExpectedCommit, [string]$Output) {
-    & $Python "$PSScriptRoot\verify_authoritative_state.py" --base-url $BaseUrl --acceptance-evidence $AcceptanceEvidence --expected-application-commit $ExpectedCommit --output $Output
+function Invoke-StateCheck([string]$AcceptanceEvidence, [string]$ExpectedCommit, [string]$ExpectedBuild, [string]$Output) {
+    & $Python "$PSScriptRoot\verify_authoritative_state.py" --base-url $BaseUrl --acceptance-evidence $AcceptanceEvidence --expected-application-commit $ExpectedCommit --expected-application-build $ExpectedBuild --output $Output
     if ($LASTEXITCODE -ne 0) { throw "authoritative_state_check_failed" }
 }
 
@@ -203,7 +203,7 @@ if ($Mode -eq "fresh-install") {
     $postStateOutput = "$EvidenceOutput.post-update-state.json"
     if ((Test-Path -LiteralPath $preStateOutput) -or (Test-Path -LiteralPath $postStateOutput)) { throw "update_state_check_output_exists" }
 
-    Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $priorCommit -Output $preStateOutput
+    Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $priorCommit -ExpectedBuild $priorBuild -Output $preStateOutput
 
     $priorRelease = [ordered]@{
         sourceCommit = $priorCommit
@@ -261,7 +261,7 @@ try {
 
     $retainedState = $null
     if ($Mode -eq "offline-update") {
-        Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $sourceCommit -Output $postStateOutput
+        Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $sourceCommit -ExpectedBuild $build -Output $postStateOutput
         $retainedState = [ordered]@{
             acceptanceEvidenceSha256 = Get-Sha256 $PreUpdateAcceptanceEvidence
             preUpdateCheckSha256 = Get-Sha256 $preStateOutput
