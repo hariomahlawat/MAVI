@@ -6,11 +6,17 @@ Every MAVI feature must remain easy to develop, install and operate on disconnec
 
 Any new library, SDK, native executable, runtime, model, database extension, operating-system prerequisite or build tool must be treated as part of the product's deployment contract.
 
-The machine-readable baseline is:
+The machine-readable dependency baseline is:
 
 `config/dependencies/offline-dependency-policy-v1.json`
 
-`python tools/verify_repo.py` validates the direct .NET, npm and Python dependency surfaces against that baseline. If a developer adds or changes a direct dependency without updating the policy, repository verification fails.
+External binary/toolchain version and placement policy is recorded separately in:
+
+`config/dependencies/offline-binary-catalog-v1.json`
+
+A human-readable inventory is maintained at `docs/architecture/offline-binary-inventory.md`.
+
+`python tools/verify_repo.py` validates both policy layers and the direct .NET, npm and Python dependency surfaces. If a developer adds or changes a direct dependency without updating the policy, repository verification fails.
 
 ## Default rule
 
@@ -102,11 +108,15 @@ The PR template and `AGENTS.md` repeat this requirement so both human developers
 
 ## Binary storage
 
-Large third-party binaries should not normally be committed into ordinary Git history.
+Use one rule for third-party/generated distributables regardless of individual file size: do not commit EXE/DLL/MSI/ZIP/7z/WHL/SO/PYD payloads to ordinary Git.
 
-Use the canonical `vendor/...` staging locations and assemble one SHA-256-manifested MAVI offline release bundle. Git LFS or an approved internal binary repository may later be used for controlled binary retention without changing the target-machine setup contract.
+Ordinary Git contains source, scripts, policies, configuration and small deterministic manifests. External Windows runtimes/installers and generated Development dependency caches are assembled into the separately retained **MAVI Offline Binary Kit** using `tools/setup/New-MaviOfflineBinaryKit.ps1`. That kit carries its own complete SHA-256 manifest and version catalog.
 
-Small deterministic source/configuration/manifests belong in Git. Model weights, CCTV media, credentials and large generated dependency caches remain outside ordinary Git history.
+The final Production setup bundle is assembled from the verified binary kit plus the qualified MAVI application artifact. Production media is Production-only by default; Development SDK/cache payload is included only when explicitly requested.
+
+Repository verification also rejects unapproved tracked files larger than 10 MiB. Git LFS or an approved internal binary repository may later be used to centrally retain the companion binary kit without changing target-machine Setup.
+
+Model weights, CCTV media and credentials remain outside ordinary Git and follow their own qualified/controlled storage rules.
 
 ## Definition of done for a dependency-bearing feature
 
