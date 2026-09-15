@@ -9,6 +9,7 @@ When reviewing or implementing:
 - treat AI output as candidate evidence rather than authoritative operational truth;
 - prefer explicit typed contracts over shared implementation details;
 - ensure production runtime behavior remains Internet-independent;
+- treat every new/changed library, SDK, native binary, runtime or model prerequisite as part of the feature: update `config/dependencies/offline-dependency-policy-v1.json`, offline packaging/setup, verification, licences and runbooks in the same change;
 - do not add model weights, video datasets or credentials to Git;
 - run repository verification and relevant subsystem tests before declaring completion.
 
