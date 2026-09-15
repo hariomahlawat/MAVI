@@ -91,9 +91,17 @@ public static class NativeMediaToolStartup
         await using var stream = File.OpenRead(manifestPath);
         var manifest = await JsonSerializer.DeserializeAsync<MediaToolManifest>(
             stream,
-            cancellationToken: cancellationToken)
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true },
+            cancellationToken)
             ?? throw new InvalidOperationException(
                 "Bundled media-tool manifest is invalid.");
+
+        if (!string.Equals(manifest.SchemaVersion, "1.0", StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(manifest.Version))
+        {
+            throw new InvalidOperationException(
+                "Bundled media-tool manifest has an unsupported schema or missing version.");
+        }
 
         if (!string.Equals(
                 manifest.RuntimeId,
