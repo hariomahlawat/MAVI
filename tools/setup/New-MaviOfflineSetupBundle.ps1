@@ -149,14 +149,20 @@ if ($IncludeDevelopmentPayload) {
     }
 }
 
+$developmentReadme = if ($IncludeDevelopmentPayload) {
+    "Development:`r`n  Double-click Setup-MAVI-Development.cmd and approve the Administrator prompt."
+}
+else {
+    "Development:`r`n  Keep MAVI-Offline-Binary-Kit beside the source repository and run the repository Setup-MAVI-Development.cmd."
+}
+
 $readme = @"
 MAVI OFFLINE SETUP
 
 Production:
   Double-click Setup-MAVI-Production.cmd and approve the Administrator prompt.
 
-Development:
-  Double-click Setup-MAVI-Development.cmd and approve the Administrator prompt.
+$developmentReadme
 
 The installer verifies every file in this bundle before changing the machine.
 MAVI owns its PostgreSQL 18 service, pgvector, database configuration and native
@@ -168,36 +174,38 @@ connection strings, extensions or migrations manually.
     $readme,
     [Text.UTF8Encoding]::new($false))
 
-$developmentLauncher = @'
-@echo off
-setlocal
-echo MAVI Development Setup
-echo ======================
-
-net session >nul 2>&1
-if not %errorlevel%==0 (
-  echo Requesting Administrator permission...
-  powershell.exe -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-  exit /b
-)
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup\Setup-MAVI.ps1" -Profile Development -BundleRoot "%~dp0"
-set "MAVI_SETUP_EXIT=%errorlevel%"
-if not "%MAVI_SETUP_EXIT%"=="0" (
-  echo.
-  echo MAVI Development Setup FAILED. Review C:\ProgramData\MAVI\Development\setup\logs.
-  pause
-  exit /b %MAVI_SETUP_EXIT%
-)
-echo.
-echo MAVI Development Setup completed successfully.
-pause
-endlocal
-'@
-[IO.File]::WriteAllText(
-    (Join-Path $destination "Setup-MAVI-Development.cmd"),
-    $developmentLauncher,
-    [Text.Encoding]::ASCII)
+if ($IncludeDevelopmentPayload) {
+    $developmentLauncher = @'
+    @echo off
+    setlocal
+    echo MAVI Development Setup
+    echo ======================
+    
+    net session >nul 2>&1
+    if not %errorlevel%==0 (
+      echo Requesting Administrator permission...
+      powershell.exe -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+      exit /b
+    )
+    
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup\Setup-MAVI.ps1" -Profile Development -BundleRoot "%~dp0"
+    set "MAVI_SETUP_EXIT=%errorlevel%"
+    if not "%MAVI_SETUP_EXIT%"=="0" (
+      echo.
+      echo MAVI Development Setup FAILED. Review C:\ProgramData\MAVI\Development\setup\logs.
+      pause
+      exit /b %MAVI_SETUP_EXIT%
+    )
+    echo.
+    echo MAVI Development Setup completed successfully.
+    pause
+    endlocal
+    '@
+    [IO.File]::WriteAllText(
+        (Join-Path $destination "Setup-MAVI-Development.cmd"),
+        $developmentLauncher,
+        [Text.Encoding]::ASCII)
+}
 
 $productionLauncher = @'
 @echo off
@@ -251,18 +259,18 @@ $artifacts = foreach ($file in $artifactFiles) {
 $manifest = [ordered]@{
     schemaVersion = "mavi-offline-setup-bundle-v1"
     createdAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
-    profiles = @("Development", "Production")
+    profiles = if ($IncludeDevelopmentPayload) { @("Development", "Production") } else { @("Production") }
     containsProductionApplication = $true
     containsHostingBundle = $true
     sourceBinaryKitManifestSha256 = $binaryKitManifestHash
     sourceBinaryCatalogSha256 = $binaryCatalogHash
     containsDeveloperToolchain = [ordered]@{
-        dotnetSdk = $true
-        node = $true
-        python = $true
-        nugetCache = $true
-        npmCache = $true
-        pythonWheelhouse = $true
+        dotnetSdk = [bool]$IncludeDevelopmentPayload
+        node = [bool]$IncludeDevelopmentPayload
+        python = [bool]$IncludeDevelopmentPayload
+        nugetCache = [bool]$IncludeDevelopmentPayload
+        npmCache = [bool]$IncludeDevelopmentPayload
+        pythonWheelhouse = [bool]$IncludeDevelopmentPayload
     }
     artifacts = @($artifacts)
 }
