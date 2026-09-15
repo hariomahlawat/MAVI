@@ -1,7 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$Destination,
+    [string]$Destination = (Join-Path $PSScriptRoot "..\..\vendor\developer-cache\win-x64"),
 
     [string]$Python = "python"
 )
