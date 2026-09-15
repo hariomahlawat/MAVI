@@ -44,7 +44,7 @@ $psqlPath = Join-Path $programRoot "PostgreSQL\18\bin\psql.exe"
 Add-Check -Name "PostgreSQL runtime" -Passed (Test-Path -LiteralPath $psqlPath -PathType Leaf) -Detail $psqlPath
 
 $machineConfigPath = if ($Profile -eq "Development") {
-    Join-Path $env:LOCALAPPDATA "MAVI\config\appsettings.development.machine.json"
+    Join-Path $env:ProgramData "MAVI\Development\config\appsettings.development.machine.json"
 }
 else {
     Join-Path ([string]$profileDefaults.programDataRoot) "config\appsettings.machine.json"
@@ -92,7 +92,7 @@ if ($Profile -eq "Development") {
     Add-Check -Name "Node.js 22" -Passed (Test-MaviNode22) -Detail "developer prerequisite"
     Add-Check -Name "Python 3.13+" -Passed (Test-MaviPython313) -Detail "developer prerequisite"
 
-    $testConnection = [Environment]::GetEnvironmentVariable("MAVI_TEST_DB_CONNECTION", [System.EnvironmentVariableTarget]::User)
+    $testConnection = [Environment]::GetEnvironmentVariable("MAVI_TEST_DB_CONNECTION", [System.EnvironmentVariableTarget]::Machine)
     Add-Check -Name "Integration test connection" -Passed (-not [string]::IsNullOrWhiteSpace($testConnection)) -Detail "MAVI_TEST_DB_CONNECTION"
 }
 else {
