@@ -11,12 +11,16 @@ param(
 
     [Parameter(Mandatory = $true)]
     [string]$ApplicationArtifact,
+
     [Parameter(Mandatory = $true)]
     [string]$HostingBundle,
+
     [Parameter(Mandatory = $true)]
     [string]$DotNetSdkInstaller,
+
     [Parameter(Mandatory = $true)]
     [string]$NodeInstaller,
+
     [Parameter(Mandatory = $true)]
     [string]$PythonInstaller
 )
@@ -25,14 +29,32 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
+
 $destination = [IO.Path]::GetFullPath($Destination)
+$postgreSqlRuntimePack = (Resolve-Path -LiteralPath $PostgreSqlRuntimePack).Path
+$ffmpegPack = (Resolve-Path -LiteralPath $FfmpegPack).Path
+$applicationArtifact = (Resolve-Path -LiteralPath $ApplicationArtifact).Path
+
+[void](Test-MaviManifest -Root $postgreSqlRuntimePack -ManifestPath (Join-Path $postgreSqlRuntimePack "manifest.json") -ExpectedSchemaVersion "mavi-postgresql-runtime-pack-v1")
+[void](Test-MaviManifest -Root $ffmpegPack -ManifestPath (Join-Path $ffmpegPack "manifest.json") -ExpectedSchemaVersion "1.0")
+
+foreach ($requiredFile in @($HostingBundle, $DotNetSdkInstaller, $NodeInstaller, $PythonInstaller)) {
+    if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+        throw "Required offline installer was not found: $requiredFile"
+    }
+}
 
 if (Test-Path -LiteralPath $destination) {
     Remove-Item -LiteralPath $destination -Recurse -Force
 }
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
 
-function Copy-Tree([string]$Source, [string]$Target) {
+function Copy-Tree {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Target
+    )
     $resolved = (Resolve-Path -LiteralPath $Source).Path
     New-Item -ItemType Directory -Path $Target -Force | Out-Null
     & robocopy.exe $resolved $Target /MIR /COPY:DAT /DCOPY:DAT /R:2 /W:1 /NFL /NDL /NP | Out-Null
@@ -41,40 +63,28 @@ function Copy-Tree([string]$Source, [string]$Target) {
     }
 }
 
-$setupSource = Join-Path $repoRoot "tools\setup"
-$setupDestination = Join-Path $destination "setup"
-Copy-Tree $setupSource $setupDestination
+Copy-Tree -Source (Join-Path $repoRoot "tools\setup") -Target (Join-Path $destination "setup")
 
-$configSource = Join-Path $repoRoot "config\setup\mavi-setup-defaults.json"
 $configDestination = Join-Path $destination "config"
 New-Item -ItemType Directory -Path $configDestination -Force | Out-Null
-Copy-Item -LiteralPath $configSource -Destination (Join-Path $configDestination "mavi-setup-defaults.json")
+Copy-Item -LiteralPath (Join-Path $repoRoot "config\setup\mavi-setup-defaults.json") -Destination (Join-Path $configDestination "mavi-setup-defaults.json")
 
-$postgresDestination = Join-Path $destination "prerequisites\postgresql\pg18\win-x64"
-Copy-Tree $PostgreSqlRuntimePack $postgresDestination
-if (-not (Test-Path -LiteralPath (Join-Path $postgresDestination "manifest.json") -PathType Leaf)) {
-    throw "PostgreSQL runtime pack has no manifest.json."
-}
-
-$ffmpegDestination = Join-Path $destination "prerequisites\ffmpeg"
-Copy-Tree $FfmpegPack $ffmpegDestination
-if (-not (Test-Path -LiteralPath (Join-Path $ffmpegDestination "manifest.json") -PathType Leaf)) {
-    throw "FFmpeg pack has no manifest.json."
-}
+Copy-Tree -Source $postgreSqlRuntimePack -Target (Join-Path $destination "prerequisites\postgresql\pg18\win-x64")
+Copy-Tree -Source $ffmpegPack -Target (Join-Path $destination "prerequisites\ffmpeg")
+Copy-Tree -Source $applicationArtifact -Target (Join-Path $destination "application")
 
 $applicationDestination = Join-Path $destination "application"
-Copy-Tree $ApplicationArtifact $applicationDestination
-    foreach ($required in @(
-        "Mavi.Api.dll",
-        "web.config",
-        "mavi-application-manifest.json",
-        "tools\ffmpeg\manifest.json",
-        "tools\ffmpeg\win-x64\ffmpeg.exe",
-        "tools\ffmpeg\win-x64\ffprobe.exe"
-    )) {
-        if (-not (Test-Path -LiteralPath (Join-Path $applicationDestination $required) -PathType Leaf)) {
-            throw "Production application artifact is incomplete: $required"
-        }
+foreach ($required in @(
+    "Mavi.Api.dll",
+    "web.config",
+    "mavi-application-manifest.json",
+    "tools\ffmpeg\manifest.json",
+    "tools\ffmpeg\win-x64\ffmpeg.exe",
+    "tools\ffmpeg\win-x64\ffprobe.exe",
+    "tools\ffmpeg\win-x64\LICENSE.txt"
+)) {
+    if (-not (Test-Path -LiteralPath (Join-Path $applicationDestination $required) -PathType Leaf)) {
+        throw "Production application artifact is incomplete: $required"
     }
 }
 
@@ -83,17 +93,10 @@ New-Item -ItemType Directory -Path $hostingDestination -Force | Out-Null
 Copy-Item -LiteralPath $HostingBundle -Destination (Join-Path $hostingDestination "dotnet-hosting.exe")
 
 $developerDestination = Join-Path $destination "prerequisites\developer\win-x64"
-$developerInstallers = [ordered]@{
-    "dotnet-sdk.exe" = $DotNetSdkInstaller
-    "node.msi" = $NodeInstaller
-    "python.exe" = $PythonInstaller
-}
-foreach ($entry in $developerInstallers.GetEnumerator()) {
-    if (-not [string]::IsNullOrWhiteSpace([string]$entry.Value)) {
-        New-Item -ItemType Directory -Path $developerDestination -Force | Out-Null
-        Copy-Item -LiteralPath ([string]$entry.Value) -Destination (Join-Path $developerDestination ([string]$entry.Key))
-    }
-}
+New-Item -ItemType Directory -Path $developerDestination -Force | Out-Null
+Copy-Item -LiteralPath $DotNetSdkInstaller -Destination (Join-Path $developerDestination "dotnet-sdk.exe")
+Copy-Item -LiteralPath $NodeInstaller -Destination (Join-Path $developerDestination "node.msi")
+Copy-Item -LiteralPath $PythonInstaller -Destination (Join-Path $developerDestination "python.exe")
 
 $readme = @"
 MAVI OFFLINE SETUP
@@ -104,9 +107,10 @@ Production:
 Development:
   Double-click Setup-MAVI-Development.cmd and approve the Administrator prompt.
 
-The installer verifies this bundle before changing the machine. Default deployment
-parameters are intentionally opinionated to minimize operator configuration.
-See docs/runbooks/mavi-offline-setup.md in the source repository for details.
+The installer verifies every file in this bundle before changing the machine.
+MAVI owns its PostgreSQL 18 service, pgvector, database configuration and native
+media dependencies so the operator does not need to configure ports, PATH,
+connection strings, extensions or migrations manually.
 "@
 [IO.File]::WriteAllText(
     (Join-Path $destination "README-FIRST.txt"),
@@ -142,8 +146,8 @@ $artifactFiles = @(
         Where-Object { $_.Name -ne "mavi-offline-bundle.json" } |
         Sort-Object FullName
 )
+$prefix = $destination.TrimEnd("\") + "\"
 $artifacts = foreach ($file in $artifactFiles) {
-    $prefix = $destination.TrimEnd("\") + "\"
     if (-not $file.FullName.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Bundle artifact escaped destination root: $($file.FullName)"
     }
