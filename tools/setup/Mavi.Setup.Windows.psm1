@@ -199,19 +199,64 @@ function Test-MaviNode22 {
     return $major -eq 22 -and $minor -ge 13
 }
 
-function Test-MaviPython313 {
+function Resolve-MaviPython313 {
+    $candidates = New-Object System.Collections.Generic.List[string]
+
+    function Add-PythonCandidate {
+        param([string]$Path)
+        if ([string]::IsNullOrWhiteSpace($Path)) { return }
+        try {
+            $full = [IO.Path]::GetFullPath($Path)
+            if (-not $candidates.Contains($full)) {
+                [void]$candidates.Add($full)
+            }
+        }
+        catch {
+            # Ignore malformed candidates.
+        }
+    }
+
+    # Prefer real interpreter installations over the WindowsApps execution alias.
+    Add-PythonCandidate (Join-Path $env:ProgramFiles "Python313\python.exe")
+    Add-PythonCandidate (Join-Path $env:LOCALAPPDATA "Programs\Python\Python313\python.exe")
+
+    $py = Get-Command py.exe -ErrorAction SilentlyContinue
+    if ($py -and $py.Source) {
+        try {
+            $resolved = (& $py.Source -3.13 -c "import sys; print(sys.executable)" 2>$null | Out-String).Trim()
+            if ($resolved) { Add-PythonCandidate $resolved }
+        }
+        catch {
+            # Continue with other discovery paths.
+        }
+    }
+
     $python = Get-Command python.exe -ErrorAction SilentlyContinue
-    if (-not $python) {
-        return $false
+    if ($python -and $python.Source) {
+        Add-PythonCandidate $python.Source
     }
-    $result = Invoke-MaviCommand -FilePath $python.Source -Arguments @("--version") -CaptureOutput
-    $match = [regex]::Match($result.StandardOutput, "Python\s+(?<major>\d+)\.(?<minor>\d+)")
-    if (-not $match.Success) {
-        return $false
+
+    foreach ($candidate in $candidates) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        try {
+            $result = Invoke-MaviCommand -FilePath $candidate -Arguments @("--version") -CaptureOutput
+            $match = [regex]::Match($result.StandardOutput, "Python\s+(?<major>\d+)\.(?<minor>\d+)")
+            if ($match.Success -and
+                [int]$match.Groups["major"].Value -eq 3 -and
+                [int]$match.Groups["minor"].Value -eq 13) {
+                return $candidate
+            }
+        }
+        catch {
+            # WindowsApps aliases and stale PATH entries can fail to execute.
+        }
     }
-    $major = [int]$match.Groups["major"].Value
-    $minor = [int]$match.Groups["minor"].Value
-    return $major -eq 3 -and $minor -eq 13
+
+    return $null
+}
+
+function Test-MaviPython313 {
+    return -not [string]::IsNullOrWhiteSpace((Resolve-MaviPython313))
 }
 
 function Ensure-MaviDeveloperToolchain {
@@ -258,10 +303,10 @@ function Ensure-MaviDeveloperToolchain {
         if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
             throw "Python 3.13+ is missing and the offline developer installer was not found: $installer"
         }
-        Invoke-MaviCommand -FilePath $installer -Arguments @("/quiet", "InstallAllUsers=1", "PrependPath=1", "Include_test=0") -AllowedExitCodes @(0,3010)
+        Invoke-MaviCommand -FilePath $installer -Arguments @("/quiet", "InstallAllUsers=1", "PrependPath=1", "Include_pip=1", "Include_test=0") -AllowedExitCodes @(0,3010)
         Refresh-MaviProcessPath
         if (-not (Test-MaviPython313)) {
-            throw "Python 3.13+ installation did not become available."
+            throw "Python 3.13 installation completed but no usable Python 3.13 interpreter could be resolved. Check the installer log and Windows App Execution Aliases."
         }
     }
 
@@ -352,7 +397,10 @@ function Initialize-MaviDeveloperWorkspace {
         Pop-Location
     }
 
-    $systemPython = (Get-Command python.exe -ErrorAction Stop).Source
+    $systemPython = Resolve-MaviPython313
+    if ([string]::IsNullOrWhiteSpace($systemPython)) {
+        throw "Python 3.13 interpreter could not be resolved for Development workspace initialization."
+    }
     $venvRoot = Join-Path $RepositoryRoot ".venv"
     $venvPython = Join-Path $venvRoot "Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
