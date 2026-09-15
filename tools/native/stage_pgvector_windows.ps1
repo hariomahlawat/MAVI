@@ -21,6 +21,13 @@ $sources = @(
     [ordered]@{ source = (Join-Path $pgRoot "lib\vector.dll"); relative = "lib/vector.dll" },
     [ordered]@{ source = (Join-Path $pgRoot "share\extension\vector.control"); relative = "share/extension/vector.control" }
 )
+
+$controlPath = Join-Path $pgRoot "share\extension\vector.control"
+$control = Get-Content -LiteralPath $controlPath -Raw
+$escapedVersion = [System.Text.RegularExpressions.Regex]::Escape($PgVectorVersion)
+if ($control -notmatch "default_version\s*=\s*['\"]$escapedVersion['\"]") {
+    throw "vector.control does not declare pgvector version '$PgVectorVersion'."
+}
 $sqlFiles = Get-ChildItem -LiteralPath (Join-Path $pgRoot "share\extension") -Filter "vector--*.sql" -File
 if (-not $sqlFiles) { throw "No pgvector extension SQL files were found." }
 foreach ($sql in $sqlFiles) {
