@@ -18,3 +18,5 @@ Use `tools/native/stage_ffmpeg_windows.ps1` to create the pack from an approved,
 Production publish must pass `-p:RequireMaviBundledMediaTools=true`. The publish target copies this pack into `tools/ffmpeg/` beside the application. MAVI verifies the manifest, SHA-256 values and executable viability before serving requests.
 
 The dependency pack used for a qualified release must be retained with its source, version, licence/notices and hashes in the release evidence.
+
+Any replacement or additional native media tool must follow `docs/architecture/dependency-and-offline-packaging-policy.md`; do not add an undeclared PATH dependency or unverified binary.
