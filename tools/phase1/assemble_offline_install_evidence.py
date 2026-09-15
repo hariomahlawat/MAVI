@@ -96,6 +96,10 @@ def main() -> int:
             "os": args.os,
             "bundleMode": next(iter(modes)),
             "isolationMethod": args.isolation_method,
+            "variantEvidenceSha256": {
+                f"{args.os}-x86_64-cpu": cpu_sha,
+                f"{args.os}-x86_64-cuda": cuda_sha,
+            },
             "variants": variants,
             "result": "passed",
         }
