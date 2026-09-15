@@ -482,7 +482,7 @@ function Set-MaviIisSite {
 
     $site = Invoke-MaviCommand -FilePath $appCmd -Arguments @("list", "site", "/name:$SiteName") -CaptureOutput
     if ([string]::IsNullOrWhiteSpace($site.StandardOutput)) {
-        Invoke-MaviCommand -FilePath $appCmd -Arguments @("add", "site", "/name:$SiteName", "/bindings:http/*:$HttpPort:", "/physicalPath:$PhysicalPath")
+        Invoke-MaviCommand -FilePath $appCmd -Arguments @("add", "site", "/name:$SiteName", "/bindings:http/*:${HttpPort}:", "/physicalPath:$PhysicalPath")
     }
     else {
         $existingPath = Invoke-MaviCommand -FilePath $appCmd -Arguments @("list", "vdir", "$SiteName/", "/text:physicalPath") -CaptureOutput
@@ -497,7 +497,7 @@ function Set-MaviIisSite {
         }
 
         $bindings = Invoke-MaviCommand -FilePath $appCmd -Arguments @("list", "site", "/name:$SiteName", "/text:bindings") -CaptureOutput
-        if ($bindings.StandardOutput -notmatch [regex]::Escape("http/*:$HttpPort:")) {
+        if ($bindings.StandardOutput -notmatch [regex]::Escape("http/*:${HttpPort}:")) {
             throw "IIS site '$SiteName' exists with a different binding. Refusing to rewrite an existing site implicitly."
         }
     }
