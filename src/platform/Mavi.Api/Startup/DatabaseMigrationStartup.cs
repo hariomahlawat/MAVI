@@ -125,8 +125,18 @@ public static class DatabaseMigrationStartup
             }
             finally
             {
-                await ReleaseMigrationLockAsync(connection, cancellationToken);
+                await ReleaseMigrationLockAsync(connection, CancellationToken.None);
             }
+        }
+        catch (TimeoutException exception)
+        {
+            logger.LogCritical(
+                exception,
+                "Timed out after {TimeoutSeconds}s waiting for the MAVI database migration lock.",
+                options.LockTimeoutSeconds);
+            throw new InvalidOperationException(
+                "Timed out waiting for the MAVI database migration lock.",
+                exception);
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
@@ -172,7 +182,8 @@ public static class DatabaseMigrationStartup
             await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
         }
 
-        throw new OperationCanceledException(cancellationToken);
+        throw new TimeoutException(
+            "Timed out waiting for the MAVI database migration lock.");
     }
 
     private static async Task ReleaseMigrationLockAsync(
