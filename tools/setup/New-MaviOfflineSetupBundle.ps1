@@ -131,7 +131,13 @@ foreach ($required in @(
 }
 
 $applicationFfmpegRoot = Join-Path $applicationDestination "tools\ffmpeg"
-[void](Test-MaviManifest -Root $applicationFfmpegRoot -ManifestPath (Join-Path $applicationFfmpegRoot "manifest.json") -ExpectedSchemaVersion "1.0")
+$applicationFfmpegManifestPath = Join-Path $applicationFfmpegRoot "manifest.json"
+[void](Test-MaviManifest -Root $applicationFfmpegRoot -ManifestPath $applicationFfmpegManifestPath -ExpectedSchemaVersion "1.0")
+
+$kitFfmpegManifestPath = Join-Path $BinaryKitRoot "vendor\ffmpeg\manifest.json"
+if ((Get-MaviSha256 -Path $applicationFfmpegManifestPath) -ne (Get-MaviSha256 -Path $kitFfmpegManifestPath)) {
+    throw "Production application FFmpeg pack does not match the verified MAVI Offline Binary Kit. Republish the application from the matching kit."
+}
 
 $hostingDestination = Join-Path $destination "prerequisites\hosting\win-x64"
 New-Item -ItemType Directory -Path $hostingDestination -Force | Out-Null
