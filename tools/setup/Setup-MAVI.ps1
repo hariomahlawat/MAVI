@@ -99,15 +99,7 @@ else {
     $postgresDataRoot = Join-Path $programDataRoot "PostgreSQL\18\data"
     $databaseName = [string]$profileDefaults.databaseName
     $databaseUser = [string]$profileDefaults.databaseUser
-    if ($DataRoot) {
-        $productionDataRoot = $DataRoot
-    }
-    elseif (Test-Path -LiteralPath "D:\" -PathType Container) {
-        $productionDataRoot = "D:\MAVI"
-    }
-    else {
-        $productionDataRoot = $programDataRoot
-    }
+    $productionDataRoot = if ($DataRoot) { $DataRoot } else { $programDataRoot }
     $mediaRoot = Join-Path $productionDataRoot "Data"
     $evidenceRoot = Join-Path $productionDataRoot "Evidence"
     $machineConfigPath = Join-Path $programDataRoot "config\appsettings.machine.json"
