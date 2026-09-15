@@ -185,7 +185,7 @@ function Get-MaviMsiVersionRecord {
             "OpenDatabase", "InvokeMethod", $null, $installer, @($item.FullName, 0))
         $view = $database.GetType().InvokeMember(
             "OpenView", "InvokeMethod", $null, $database,
-            @("SELECT `Value` FROM `Property` WHERE `Property`='ProductVersion'"))
+            @('SELECT `Value` FROM `Property` WHERE `Property`=''ProductVersion'''))
         [void]$view.GetType().InvokeMember("Execute", "InvokeMethod", $null, $view, $null)
         $record = $view.GetType().InvokeMember("Fetch", "InvokeMethod", $null, $view, $null)
         if (-not $record) {
