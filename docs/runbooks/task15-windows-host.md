@@ -2,6 +2,8 @@
 
 Task 15 standardizes the Phase-1 operator UI and API as one ASP.NET Core application behind IIS/ANCM. The published React assets are served by `Mavi.Api`; `/api` and `/health` remain API routes and only non-file frontend routes fall back to the React entry document.
 
+Normal Windows deployment is now performed through the canonical offline `Setup-MAVI-Production.cmd` workflow described in `docs/runbooks/mavi-offline-setup.md`. This Task-15 script is a **host qualification check after deployment**, not an alternative installation procedure.
+
 The supported single-request MP4 import ceiling is **3 GiB**, with 1 MiB reserved for multipart overhead. IIS `maxAllowedContentLength`, Kestrel, ASP.NET Core form limits and the application option must remain aligned.
 
 After publishing/deploying to a Windows qualification host, use a valid MP4 larger than 30 MiB and run:
