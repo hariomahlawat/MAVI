@@ -75,6 +75,14 @@ def storage_root_identity_sha256(path: Path) -> str:
     return _sha256_text(f"mavi-storage-root-v1|{family}|{canonical}")
 
 
+def database_identity_sha256(raw_database_topology: str) -> str:
+    if not raw_database_topology or raw_database_topology.count("|") != 2:
+        raise TopologyIdentityError("topology_database_identity_invalid")
+    return _sha256_text(
+        f"mavi-database-topology-v1|{raw_database_topology}"
+    )
+
+
 def database_identity(psql: str, service: str) -> str:
     sql = (
         "select current_database() || '|' || "
@@ -90,6 +98,4 @@ def database_identity(psql: str, service: str) -> str:
     if completed.returncode != 0:
         raise TopologyIdentityError("topology_database_identity_failed")
     value = completed.stdout.strip()
-    if not value or value.count("|") != 2:
-        raise TopologyIdentityError("topology_database_identity_invalid")
-    return value
+    return database_identity_sha256(value)
