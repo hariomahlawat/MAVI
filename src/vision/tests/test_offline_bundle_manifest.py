@@ -184,6 +184,21 @@ def _relative_file_bytes(root: Path) -> dict[str, bytes]:
     }
 
 
+def test_bundle_rejects_python_installer_for_non_windows_variant(
+    tmp_path: Path,
+) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+    installer = tmp_path / "python-installer.bin"
+    installer.write_bytes(b"fixture")
+    inputs = replace(inputs, python_installer_path=installer)
+
+    with pytest.raises(
+        tool.OfflineBundleError,
+        match="python_installer_platform_mismatch",
+    ):
+        tool.build_bundle_from_verified_inputs(inputs, tmp_path / "bundle")
+
+
 def test_bundle_rejects_mavi_wheel_from_different_source_tree(
     tmp_path: Path,
 ) -> None:
