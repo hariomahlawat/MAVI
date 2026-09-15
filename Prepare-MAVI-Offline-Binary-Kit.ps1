@@ -36,21 +36,80 @@ function Write-Step {
 function Invoke-Download {
     param(
         [Parameter(Mandatory = $true)][string]$Uri,
-        [Parameter(Mandatory = $true)][string]$OutFile
+        [Parameter(Mandatory = $true)][string]$OutFile,
+        [ValidateRange(1, 10)][int]$MaxAttempts = 5
     )
 
     $parent = Split-Path $OutFile -Parent
     if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
 
-    Write-Host "Downloading: $Uri"
-    Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -MaximumRedirection 10
+    $partialFile = "$OutFile.partial"
+    Remove-Item -LiteralPath $partialFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
 
-    if (-not (Test-Path -LiteralPath $OutFile -PathType Leaf) -or
-        (Get-Item -LiteralPath $OutFile).Length -le 0) {
-        throw "Download produced no usable file: $Uri"
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        Remove-Item -LiteralPath $partialFile -Force -ErrorAction SilentlyContinue
+        Write-Host "Downloading [$attempt/$MaxAttempts]: $Uri"
+
+        try {
+            if ($curl -and $curl.Source) {
+                & $curl.Source `
+                    --fail `
+                    --location `
+                    --silent `
+                    --show-error `
+                    --retry 3 `
+                    --retry-delay 3 `
+                    --retry-all-errors `
+                    --connect-timeout 30 `
+                    --output $partialFile `
+                    $Uri
+
+                if ($LASTEXITCODE -ne 0) {
+                    throw "curl.exe failed with exit code $LASTEXITCODE."
+                }
+            }
+            else {
+                Invoke-WebRequest `
+                    -Uri $Uri `
+                    -OutFile $partialFile `
+                    -UseBasicParsing `
+                    -MaximumRedirection 10 `
+                    -TimeoutSec 300 `
+                    -ErrorAction Stop
+            }
+
+            if (-not (Test-Path -LiteralPath $partialFile -PathType Leaf)) {
+                throw "Download completed without creating the expected file."
+            }
+
+            $downloadedLength = (Get-Item -LiteralPath $partialFile).Length
+            if ($downloadedLength -le 0) {
+                throw "Downloaded file is empty."
+            }
+
+            Move-Item -LiteralPath $partialFile -Destination $OutFile -Force
+            Write-Host "Downloaded: $(Split-Path $OutFile -Leaf) ($downloadedLength bytes)" -ForegroundColor Green
+            return
+        }
+        catch {
+            $message = $_.Exception.Message
+            Remove-Item -LiteralPath $partialFile -Force -ErrorAction SilentlyContinue
+
+            if ($attempt -ge $MaxAttempts) {
+                Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+                throw "Unable to download '$Uri' after $MaxAttempts attempts. Last error: $message"
+            }
+
+            $delaySeconds = [Math]::Min(5 * $attempt, 20)
+            Write-Warning "Download attempt $attempt failed: $message"
+            Write-Host "Retrying in $delaySeconds second(s)..."
+            Start-Sleep -Seconds $delaySeconds
+        }
     }
 }
-
 function Get-Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
