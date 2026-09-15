@@ -29,6 +29,7 @@
     <SpaProxyServerUrl>http://127.0.0.1:5173</SpaProxyServerUrl>
     <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
     <MaviNativeMediaToolsDirectory>$(MSBuildProjectDirectory)/../../../vendor/ffmpeg</MaviNativeMediaToolsDirectory>
+    <RequireMaviBundledMediaTools Condition="'$(RequireMaviBundledMediaTools)' == '' and '$(Configuration)' == 'Release'">true</RequireMaviBundledMediaTools>
     <RequireMaviBundledMediaTools Condition="'$(RequireMaviBundledMediaTools)' == ''">false</RequireMaviBundledMediaTools>
   </PropertyGroup>
 
