@@ -105,6 +105,71 @@ def passed_result(value: dict[str, Any]) -> bool:
     )
 
 
+def validate_state_check(
+    path: Path,
+    *,
+    acceptance_evidence_sha256: str,
+    expected_application_commit: str,
+    expected_application_build: str,
+    code: str,
+) -> tuple[str, dict[str, Any]]:
+    value = load_json(path, code + "_invalid")
+    validate_schema(
+        value,
+        "authoritative-state-check.schema.json",
+        code,
+    )
+    if (
+        value.get("acceptanceEvidenceSha256") != acceptance_evidence_sha256
+        or value.get("expectedApplicationCommit") != expected_application_commit
+        or value.get("observedApplicationCommit") != expected_application_commit
+        or value.get("expectedApplicationBuild") != expected_application_build
+        or value.get("observedApplicationBuild") != expected_application_build
+        or not passed_result(value)
+    ):
+        raise ProductionAcceptanceError(code + "_binding_failed")
+    return sha256_file(path), value
+
+
+def _validate_supported_prior(prior: dict[str, Any], migration_policy: str) -> None:
+    policy = load_json(
+        CANONICAL_SUPPORTED_UPDATES,
+        "production_supported_updates_policy_invalid",
+    )
+    releases = policy.get("priorReleases")
+    if not isinstance(releases, list):
+        raise ProductionAcceptanceError("production_supported_updates_policy_invalid")
+    matches = [
+        item for item in releases
+        if isinstance(item, dict)
+        and item.get("sourceCommit") == prior.get("sourceCommit")
+        and item.get("applicationManifestSha256") == prior.get("applicationManifestSha256")
+    ]
+    if len(matches) != 1 or matches[0].get("migrationPolicy") != migration_policy:
+        raise ProductionAcceptanceError("production_offline_update_prior_policy_mismatch")
+
+
+def _assert_retained_state_equivalent(
+    pre: dict[str, Any],
+    post: dict[str, Any],
+) -> None:
+    retained_fields = (
+        "acceptanceEvidenceSha256",
+        "acceptanceSourceCommit",
+        "cameraId",
+        "videoAssetId",
+        "processingRunId",
+        "trackIds",
+        "representativeArtifactId",
+        "sourceSha256",
+        "sourceEtagSha256",
+        "artifactSha256",
+        "artifactEtagSha256",
+    )
+    if any(pre.get(field) != post.get(field) for field in retained_fields):
+        raise ProductionAcceptanceError("production_offline_update_retained_state_mismatch")
+
+
 def validate_lifecycle(
     path: Path,
     *,
@@ -113,6 +178,8 @@ def validate_lifecycle(
     mavi_build: str,
     application_manifest_sha256: str,
     supported_updates_policy_sha256: str,
+    pre_update_state_check: Path | None = None,
+    post_update_state_check: Path | None = None,
 ) -> str:
     value = load_json(path, "production_lifecycle_invalid")
     validate_schema(
@@ -141,17 +208,73 @@ def validate_lifecycle(
     ):
         raise ProductionAcceptanceError("production_lifecycle_binding_failed")
     if mode == "fresh-install":
-        if value.get("priorRelease") is not None or value.get("retainedState") is not None:
-            raise ProductionAcceptanceError("production_fresh_install_invalid")
-    else:
-        prior = value.get("priorRelease")
-        retained = value.get("retainedState")
         if (
-            not isinstance(prior, dict)
-            or prior.get("supported") is not True
-            or not isinstance(retained, dict)
+            value.get("priorRelease") is not None
+            or value.get("retainedState") is not None
+            or value.get("migration") is not None
+            or pre_update_state_check is not None
+            or post_update_state_check is not None
         ):
-            raise ProductionAcceptanceError("production_offline_update_invalid")
+            raise ProductionAcceptanceError("production_fresh_install_invalid")
+        return sha256_file(path)
+
+    prior = value.get("priorRelease")
+    retained = value.get("retainedState")
+    migration_policy = value.get("migrationPolicy")
+    if (
+        not isinstance(prior, dict)
+        or prior.get("supported") is not True
+        or not isinstance(prior.get("applicationManifestSha256"), str)
+        or not isinstance(prior.get("build"), str)
+        or not isinstance(retained, dict)
+        or pre_update_state_check is None
+        or post_update_state_check is None
+    ):
+        raise ProductionAcceptanceError("production_offline_update_invalid")
+
+    _validate_supported_prior(prior, migration_policy)
+
+    migration = value.get("migration")
+    if migration_policy == "required":
+        if (
+            not isinstance(migration, dict)
+            or migration.get("exitCode") != 0
+            or migration.get("passed") is not True
+            or not isinstance(migration.get("commandIdentity"), str)
+            or not migration.get("commandIdentity")
+        ):
+            raise ProductionAcceptanceError("production_offline_update_migration_invalid")
+    elif migration_policy == "none":
+        if migration is not None:
+            raise ProductionAcceptanceError("production_offline_update_migration_unexpected")
+    else:
+        raise ProductionAcceptanceError("production_offline_update_migration_policy_invalid")
+
+    acceptance_sha = retained.get("acceptanceEvidenceSha256")
+    if not isinstance(acceptance_sha, str):
+        raise ProductionAcceptanceError("production_offline_update_retained_state_invalid")
+    pre_sha, pre = validate_state_check(
+        pre_update_state_check,
+        acceptance_evidence_sha256=acceptance_sha,
+        expected_application_commit=prior["sourceCommit"],
+        expected_application_build=prior["build"],
+        code="production_pre_update_state",
+    )
+    post_sha, post = validate_state_check(
+        post_update_state_check,
+        acceptance_evidence_sha256=acceptance_sha,
+        expected_application_commit=source_commit,
+        expected_application_build=mavi_build,
+        code="production_post_update_state",
+    )
+    if (
+        retained.get("preUpdateCheckSha256") != pre_sha
+        or retained.get("postUpdateCheckSha256") != post_sha
+        or pre.get("acceptanceSourceCommit") != prior["sourceCommit"]
+        or post.get("acceptanceSourceCommit") != prior["sourceCommit"]
+    ):
+        raise ProductionAcceptanceError("production_offline_update_retained_state_binding_failed")
+    _assert_retained_state_equivalent(pre, post)
     return sha256_file(path)
 
 
@@ -770,6 +893,8 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         mavi_build=mavi_build,
         application_manifest_sha256=application_manifest_sha,
         supported_updates_policy_sha256=supported_policy_sha,
+        pre_update_state_check=args.pre_update_state_check,
+        post_update_state_check=args.post_update_state_check,
     )
 
     variant_paths = parse_variant_arguments(args.production_variant)
@@ -901,6 +1026,8 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         "prerequisiteEvidenceSha256": prerequisite_sha,
         "freshInstallEvidenceSha256": fresh_sha,
         "offlineUpdateEvidenceSha256": update_sha,
+        "preUpdateStateCheckSha256": sha256_file(args.pre_update_state_check),
+        "postUpdateStateCheckSha256": sha256_file(args.post_update_state_check),
         "backupRestoreEvidenceSha256": backup_sha,
         "productionVariantEvidenceSha256": variant_evidence,
         "productionBundleManifestSha256": bundle_hashes,
@@ -930,6 +1057,8 @@ def main() -> int:
     parser.add_argument("--linux-prerequisite-observation", type=Path, required=True)
     parser.add_argument("--fresh-install", type=Path, required=True)
     parser.add_argument("--offline-update", type=Path, required=True)
+    parser.add_argument("--pre-update-state-check", type=Path, required=True)
+    parser.add_argument("--post-update-state-check", type=Path, required=True)
     parser.add_argument("--production-variant", action="append", default=[])
     parser.add_argument("--formal-scenario", type=Path, required=True)
     parser.add_argument("--final-e2e", type=Path, required=True)
