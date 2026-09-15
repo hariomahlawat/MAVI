@@ -10,12 +10,12 @@ namespace Mavi.IntegrationTests;
 public sealed class StorageTopologyApiTests
 {
     [Fact]
-    public async Task ReportsLiveDatabaseAndHashedStorageRootsWithoutRawPaths()
+    public async Task ReportsOnlyHashedTopologyWithoutRawConnectionDetails()
     {
         using var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
 
-        string expectedDatabaseIdentity;
+        string rawDatabaseTopology;
         await using (var connection = new NpgsqlConnection(factory.ConnectionString))
         {
             await connection.OpenAsync();
@@ -24,7 +24,7 @@ public sealed class StorageTopologyApiTests
                 "coalesce(inet_server_addr()::text, 'local-socket') || '|' || " +
                 "coalesce(inet_server_port()::text, 'local')",
                 connection);
-            expectedDatabaseIdentity = (string)(await command.ExecuteScalarAsync())!;
+            rawDatabaseTopology = (string)(await command.ExecuteScalarAsync())!;
         }
 
         using var client = factory.CreateClient();
@@ -41,9 +41,11 @@ public sealed class StorageTopologyApiTests
         Assert.NotNull(hostIdentity);
         Assert.Matches("^[0-9a-f]{64}$", hostIdentity!);
 
-        Assert.Equal(
-            expectedDatabaseIdentity,
-            root.GetProperty("databaseIdentity").GetString());
+        var databaseIdentitySha256 =
+            root.GetProperty("databaseIdentitySha256").GetString();
+        Assert.NotNull(databaseIdentitySha256);
+        Assert.Matches("^[0-9a-f]{64}$", databaseIdentitySha256!);
+        Assert.Equal(DatabaseIdentity(rawDatabaseTopology), databaseIdentitySha256);
         Assert.Equal(
             RootIdentity(factory.MediaRoot),
             root.GetProperty("managedMediaRootIdentitySha256").GetString());
@@ -55,6 +57,22 @@ public sealed class StorageTopologyApiTests
         Assert.DoesNotContain(factory.MediaRoot, json, StringComparison.Ordinal);
         Assert.DoesNotContain(factory.EvidenceRoot, json, StringComparison.Ordinal);
         Assert.DoesNotContain(factory.ConnectionString, json, StringComparison.Ordinal);
+        Assert.DoesNotContain(rawDatabaseTopology, json, StringComparison.Ordinal);
+        foreach (var component in rawDatabaseTopology.Split('|'))
+        {
+            if (!string.IsNullOrWhiteSpace(component) &&
+                component is not "local-socket" and not "local")
+            {
+                Assert.DoesNotContain(component, json, StringComparison.Ordinal);
+            }
+        }
+    }
+
+    private static string DatabaseIdentity(string rawDatabaseTopology)
+    {
+        var payload = Encoding.UTF8.GetBytes(
+            $"mavi-database-topology-v1|{rawDatabaseTopology}");
+        return Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
     }
 
     private static string RootIdentity(string path)
