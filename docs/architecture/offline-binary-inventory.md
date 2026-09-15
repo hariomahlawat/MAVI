@@ -10,7 +10,7 @@ The JSON catalog is authoritative for automation. The generated `mavi-offline-bi
 | --- | --- | --- |
 | PostgreSQL | 18.x | exact patch + every file SHA-256 recorded by the staged PostgreSQL runtime-pack manifest |
 | pgvector | PostgreSQL-18-compatible approved build | exact version + every file SHA-256 recorded inside the PostgreSQL runtime-pack manifest |
-| FFmpeg / ffprobe | approved Windows x64 build | exact FFmpeg version + executable SHA-256 recorded by the FFmpeg pack manifest |
+| FFmpeg / ffprobe | 9.0.1 Windows x64 essentials build | pinned source archive SHA-256 + exact FFmpeg version + executable SHA-256 recorded by the staged FFmpeg pack manifest |
 | ASP.NET Core Hosting Bundle | 10.0.11 baseline; compatible 10.0 servicing line | observed installer file/product version + installer SHA-256 in the binary-kit manifest; installed ASP.NET Core 10/ANCM rechecked by Setup |
 | .NET SDK | 10.0.100 repository baseline | `global.json` baseline + observed installer file/product version + installer SHA-256 + post-install `dotnet --list-sdks` check |
 | Node.js | 22.13.0 minimum on major 22 | exact MSI ProductVersion + MSI SHA-256 + post-install `node --version` check |
@@ -20,6 +20,17 @@ The JSON catalog is authoritative for automation. The generated `mavi-offline-bi
 | Python Development wheelhouse | current `pyproject.toml` Development closure | every retained wheel SHA-256 in binary-kit manifest + `pip --no-index` install/tests |
 
 A friendly version label is useful for humans, but **the SHA-256 identity of the retained bytes is the decisive release identity**.
+
+
+### Connected FFmpeg preparation
+
+On a connected Windows preparation/development PC, MAVI can stage the approved FFmpeg pack reproducibly with:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File tools/setup/Prepare-MaviFfmpegWindows.ps1
+~~~
+
+The helper reads the pinned version, HTTPS source URL and archive SHA-256 from `config/dependencies/offline-binary-catalog-v1.json`, downloads only on the connected preparation machine, verifies the archive **before extraction**, stages only `ffmpeg.exe`, `ffprobe.exe` and the licence into `vendor/ffmpeg`, and verifies the resulting manifest. It is not invoked on disconnected target machines.
 
 ## Vision runtime baseline
 

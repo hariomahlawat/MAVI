@@ -13,7 +13,9 @@ vendor/ffmpeg/
     LICENSE.txt
 ```
 
-Use `tools/native/stage_ffmpeg_windows.ps1` to create the pack from an approved, vetted FFmpeg distribution. The script records SHA-256 hashes in `manifest.json`.
+On a connected Windows preparation machine, use `tools/setup/Prepare-MaviFfmpegWindows.ps1`. It reads the pinned version/source/archive SHA-256 from `config/dependencies/offline-binary-catalog-v1.json`, verifies the archive before extraction, and then uses `tools/native/stage_ffmpeg_windows.ps1` to create this pack. The staged manifest records SHA-256 identities for the retained runtime files.
+
+The lower-level staging script remains available for a separately obtained approved distribution, but target Development/Production machines must consume the verified offline binary kit rather than downloading or relying on PATH.
 
 Production publish must pass `-p:RequireMaviBundledMediaTools=true`. The publish target copies this pack into `tools/ffmpeg/` beside the application. MAVI verifies the manifest, SHA-256 values and executable viability before serving requests.
 

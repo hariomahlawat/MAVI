@@ -188,9 +188,17 @@ If failures complete in milliseconds and report that `MAVI_TEST_DB_CONNECTION` i
 
 If the message says tests may reset only `mavi_test`, do not weaken the safeguard or manually repoint tests. Verify the MAVI-owned Development environment; Setup should configure the canonical test database automatically.
 
-### FFmpeg/ffprobe tests fail
+### FFmpeg/ffprobe is missing on a connected preparation/development PC
 
-Rerun Setup or `Test-MaviEnvironment.ps1 -Profile Development`. The supported Development path uses the approved staged/app-local FFmpeg pack; Production never relies on PATH fallback.
+Do not install FFmpeg globally and do not add an arbitrary FFmpeg folder to PATH. On a connected Windows machine, stage the repository-approved pack with:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File tools/setup/Prepare-MaviFfmpegWindows.ps1
+~~~
+
+The helper verifies the pinned source archive SHA-256 before staging `vendor/ffmpeg`. Rebuild `Mavi.Api` afterward so MSBuild copies the app-local tools into the output. This helper is a **connected preparation action**; the supported disconnected target workflow remains the verified `MAVI-Offline-Binary-Kit` and `Setup-MAVI-Development.cmd`.
+
+If the staged pack already exists, rerun Setup or `Test-MaviEnvironment.ps1 -Profile Development`. Production never relies on PATH fallback.
 
 ### Tests pass in CI but fail on Windows
 

@@ -94,13 +94,15 @@ A combined Development+Production bundle can still be generated with `-IncludeDe
 
 ### 1. Stage approved FFmpeg
 
-From the approved FFmpeg Windows x64 distribution:
+On a **connected Windows preparation machine**, use the pinned acquisition helper:
 
 ~~~powershell
-powershell -ExecutionPolicy Bypass -File tools/native/stage_ffmpeg_windows.ps1 ^
-  -SourceDirectory "C:\Approved\ffmpeg\bin" ^
-  -Version "<APPROVED_VERSION>"
+powershell -ExecutionPolicy Bypass -File tools/setup/Prepare-MaviFfmpegWindows.ps1
 ~~~
+
+The helper reads the approved FFmpeg version, HTTPS source URL and archive SHA-256 from `config/dependencies/offline-binary-catalog-v1.json`, verifies the downloaded archive before extraction, and stages the app-local pack under `vendor/ffmpeg`.
+
+`tools/native/stage_ffmpeg_windows.ps1` remains the lower-level staging primitive for a separately obtained approved distribution; it is not the preferred routine preparation path. Disconnected Development/Production machines never run the acquisition helper and never download FFmpeg.
 
 ### 2. Stage the isolated PostgreSQL runtime
 
