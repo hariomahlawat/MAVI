@@ -51,7 +51,9 @@ try {
         throw "Python build dependency download failed."
     }
 
-    Push-Location (Join-Path $repoRoot "src\vision")
+    $visionRoot = Join-Path $repoRoot "src\vision"
+    $visionEggInfo = Join-Path $visionRoot "mavi_vision.egg-info"
+    Push-Location $visionRoot
     try {
         & $Python -m pip download --dest $pythonRoot ".[dev]"
         if ($LASTEXITCODE -ne 0) {
@@ -60,6 +62,11 @@ try {
     }
     finally {
         Pop-Location
+        # pip may materialize local project metadata while resolving the source
+        # tree. It is generated build state and must never dirty the repository.
+        if (Test-Path -LiteralPath $visionEggInfo -PathType Container) {
+            Remove-Item -LiteralPath $visionEggInfo -Recurse -Force
+        }
     }
 }
 finally {
@@ -95,7 +102,7 @@ $packageLockPath = Join-Path $repoRoot "src\web\mavi-web\package-lock.json"
 # only the fields needed for the audit manifest.
 $nodeParser = @'
 const fs = require("fs");
-const path = process.argv[1];
+const path = process.argv[2];
 const lock = JSON.parse(fs.readFileSync(path, "utf8"));
 
 if (!lock.packages || typeof lock.packages !== "object") {
@@ -118,9 +125,19 @@ const rows = Object.entries(lock.packages)
 process.stdout.write(JSON.stringify(rows));
 '@
 
-$npmInventoryJson = (& node.exe -e $nodeParser $packageLockPath | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($npmInventoryJson)) {
-    throw "Unable to derive npm package inventory from '$packageLockPath'."
+$nodeParserPath = Join-Path ([IO.Path]::GetTempPath()) ("mavi-npm-lock-parser-" + [Guid]::NewGuid().ToString("N") + ".js")
+try {
+    # Avoid passing JavaScript through Windows PowerShell's native-command
+    # quoting layer. Writing the parser to a temporary file preserves the
+    # JavaScript source exactly and keeps package-lock.json as a normal argv.
+    [IO.File]::WriteAllText($nodeParserPath, $nodeParser, (New-Object Text.UTF8Encoding($false)))
+    $npmInventoryJson = (& node.exe $nodeParserPath $packageLockPath | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($npmInventoryJson)) {
+        throw "Unable to derive npm package inventory from '$packageLockPath'."
+    }
+}
+finally {
+    Remove-Item -LiteralPath $nodeParserPath -Force -ErrorAction SilentlyContinue
 }
 
 try {
