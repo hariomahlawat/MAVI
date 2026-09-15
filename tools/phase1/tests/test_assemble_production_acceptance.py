@@ -16,6 +16,7 @@ SPEC.loader.exec_module(mod)
 
 EXECUTION_ID = "11111111-1111-4111-8111-111111111111"
 CONTEXT_SHA = "c" * 64
+WINDOWS_HOST = "6" * 64
 
 
 def variant_payload(mode: str = "production") -> dict:
@@ -69,6 +70,7 @@ def scenario_payload(e2e_sha: str) -> dict:
         "mode": "formal",
         "sourceCommit": "a" * 40,
         "maviBuild": "build-a",
+        "operationalHostIdentitySha256": WINDOWS_HOST,
         "targetVerifiedManifestSha256": "b" * 64,
         "linuxCudaVariantEvidenceSha256": "f" * 64,
         "productionBundleManifestSha256": "d" * 64,
@@ -96,6 +98,7 @@ def e2e_payload() -> dict:
         "mode": "formal",
         "sourceCommit": "a" * 40,
         "targetVerifiedManifestSha256": "b" * 64,
+        "operationalApi": {"hostIdentitySha256": WINDOWS_HOST},
         "releaseExpected": {"modelManifestSha256": "b" * 64},
         "attestation": {
             "verificationStatus": "verified",
@@ -134,41 +137,136 @@ def test_production_variant_set_requires_all_four():
         ])
 
 
-def test_backup_must_reference_exact_final_e2e(tmp_path: Path):
-    value = {
+def _write_json(path: Path, value: dict) -> Path:
+    path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def _backup_proof_fixture(tmp_path: Path, *, formal_e2e_sha: str = "1" * 64):
+    db_manifest = _write_json(tmp_path / "db-manifest.json", {
+        "schemaVersion": "mavi-backup-database-manifest-v1",
+        "files": [{"relativePath": "postgres.dump", "sizeBytes": 1, "sha256": "d" * 64}],
+    })
+    media_manifest = _write_json(tmp_path / "media-manifest.json", {
+        "schemaVersion": "mavi-backup-store-manifest-v1",
+        "files": [{"relativePath": "video.mp4", "sizeBytes": 1, "sha256": "e" * 64}],
+    })
+    evidence_manifest = _write_json(tmp_path / "evidence-manifest.json", {
+        "schemaVersion": "mavi-backup-store-manifest-v1",
+        "files": [{"relativePath": "thumb.jpg", "sizeBytes": 1, "sha256": "f" * 64}],
+    })
+    tooling = {
+        "databaseBackup": {
+            "tool": "pg_dump", "version": "17.6", "arguments": ["--format=custom"],
+            "exitCode": 0, "passed": True,
+        },
+        "databaseRestore": {
+            "tool": "pg_restore", "version": "17.6", "arguments": ["--clean"],
+            "exitCode": 0, "passed": True,
+        },
+        "managedSourceCopy": {
+            "tool": "python-shutil.copytree", "version": "3.12", "arguments": ["src", "dst"],
+            "exitCode": 0, "passed": True,
+        },
+        "acceptedEvidenceCopy": {
+            "tool": "python-shutil.copytree", "version": "3.12", "arguments": ["src", "dst"],
+            "exitCode": 0, "passed": True,
+        },
+    }
+    live = {
+        "schemaVersion": "mavi-storage-topology-attestation-v1",
+        "maviBuild": "build-a",
+        "maviCommit": "a" * 40,
+        "operationalHostIdentitySha256": WINDOWS_HOST,
+        "databaseIdentity": "source|127.0.0.1|5432",
+        "managedMediaRootIdentitySha256": "8" * 64,
+        "acceptedEvidenceRootIdentitySha256": "9" * 64,
+    }
+    restore = {
+        **live,
+        "databaseIdentity": "restore|127.0.0.1|5433",
+        "managedMediaRootIdentitySha256": "a" * 64,
+        "acceptedEvidenceRootIdentitySha256": "b" * 64,
+    }
+    backup_set = _write_json(tmp_path / "backup-set.json", {
+        "schemaVersion": "mavi-backup-set-v1",
+        "sourceCommit": "a" * 40,
+        "acceptanceEvidenceSha256": formal_e2e_sha,
+        "acceptanceProfileSha256": "c" * 64,
+        "sourceDatabaseIdentity": live["databaseIdentity"],
+        "restoreDatabaseIdentity": restore["databaseIdentity"],
+        "liveStorageTopology": live,
+        "databaseManifestSha256": mod.sha256_file(db_manifest),
+        "managedSourceManifestSha256": mod.sha256_file(media_manifest),
+        "acceptedEvidenceManifestSha256": mod.sha256_file(evidence_manifest),
+        "pgDumpVersion": "17.6",
+        "pgRestoreVersion": "17.6",
+        "tooling": tooling,
+    })
+    execution = _write_json(tmp_path / "execution.json", {
+        "schemaVersion": "mavi-backup-restore-execution-v1",
+        "sourceCommit": "a" * 40,
+        "acceptanceEvidenceSha256": formal_e2e_sha,
+        "acceptanceProfileSha256": "c" * 64,
+        "sourceDatabaseIdentity": live["databaseIdentity"],
+        "restoreDatabaseIdentity": restore["databaseIdentity"],
+        "liveStorageTopology": live,
+        "restoreStorageTopology": restore,
+        "tooling": tooling,
+        "database": {"included": True, "manifestSha256": mod.sha256_file(db_manifest)},
+        "managedSource": {"included": True, "manifestSha256": mod.sha256_file(media_manifest)},
+        "acceptedEvidence": {"included": True, "manifestSha256": mod.sha256_file(evidence_manifest)},
+        "backupManifestSha256": mod.sha256_file(backup_set),
+        "cleanRestoreTarget": True,
+        "result": "restore-complete",
+    })
+    post = _write_json(tmp_path / "post.json", {
+        "schemaVersion": "mavi-post-restore-check-v1",
+        "sourceCommit": "a" * 40,
+        "acceptanceEvidenceSha256": formal_e2e_sha,
+        "executionEvidenceSha256": mod.sha256_file(execution),
+        "backupManifestSha256": mod.sha256_file(backup_set),
+        "databaseManifestSha256": mod.sha256_file(db_manifest),
+        "managedSourceManifestSha256": mod.sha256_file(media_manifest),
+        "acceptedEvidenceManifestSha256": mod.sha256_file(evidence_manifest),
+        "restoreStorageTopology": restore,
+        "stateCheck": {
+            "operationalHostIdentitySha256": WINDOWS_HOST,
+            "authoritativeStateSha256": "7" * 64,
+        },
+        "result": {"passed": True, "failureCodes": []},
+    })
+    summary = _write_json(tmp_path / "backup.json", {
         "schemaVersion": "mavi-backup-restore-evidence-v1",
         "sourceCommit": "a" * 40,
-        "acceptanceEvidenceSha256": "1" * 64,
+        "acceptanceEvidenceSha256": formal_e2e_sha,
         "acceptanceProfileSha256": "c" * 64,
-        "executionEvidenceSha256": "2" * 64,
-        "sourceDatabaseIdentity": "source|127.0.0.1|5432",
-        "restoreDatabaseIdentity": "restore|127.0.0.1|5433",
-        "liveStorageTopology": {
-            "schemaVersion": "mavi-storage-topology-attestation-v1",
-            "maviBuild": "build-a",
-            "maviCommit": "a" * 40,
-            "databaseIdentity": "source|127.0.0.1|5432",
-            "managedMediaRootIdentitySha256": "8" * 64,
-            "acceptedEvidenceRootIdentitySha256": "9" * 64,
-        },
-        "restoreStorageTopology": {
-            "schemaVersion": "mavi-storage-topology-attestation-v1",
-            "maviBuild": "build-a",
-            "maviCommit": "a" * 40,
-            "databaseIdentity": "restore|127.0.0.1|5433",
-            "managedMediaRootIdentitySha256": "a" * 64,
-            "acceptedEvidenceRootIdentitySha256": "b" * 64,
-        },
-        "database": {"included": True, "manifestSha256": "3" * 64},
-        "managedSource": {"included": True, "manifestSha256": "4" * 64},
-        "acceptedEvidence": {"included": True, "manifestSha256": "5" * 64},
-        "backupManifestSha256": "6" * 64,
+        "executionEvidenceSha256": mod.sha256_file(execution),
+        "sourceDatabaseIdentity": live["databaseIdentity"],
+        "restoreDatabaseIdentity": restore["databaseIdentity"],
+        "liveStorageTopology": live,
+        "restoreStorageTopology": restore,
+        "database": {"included": True, "manifestSha256": mod.sha256_file(db_manifest)},
+        "managedSource": {"included": True, "manifestSha256": mod.sha256_file(media_manifest)},
+        "acceptedEvidence": {"included": True, "manifestSha256": mod.sha256_file(evidence_manifest)},
+        "backupManifestSha256": mod.sha256_file(backup_set),
         "cleanRestoreTarget": True,
-        "postRestoreCheckSha256": "7" * 64,
+        "postRestoreCheckSha256": mod.sha256_file(post),
         "result": {"passed": True, "failureCodes": []},
+    })
+    kwargs = {
+        "execution_evidence": execution,
+        "post_restore_check": post,
+        "backup_set_manifest": backup_set,
+        "database_manifest": db_manifest,
+        "managed_source_manifest": media_manifest,
+        "accepted_evidence_manifest": evidence_manifest,
     }
-    path = tmp_path / "backup.json"
-    path.write_text(json.dumps(value), encoding="utf-8")
+    return summary, kwargs
+
+
+def test_backup_must_reference_exact_final_e2e(tmp_path: Path):
+    path, proofs = _backup_proof_fixture(tmp_path, formal_e2e_sha="1" * 64)
     with pytest.raises(mod.ProductionAcceptanceError, match="production_backup_restore_binding_failed"):
         mod.validate_backup(
             path,
@@ -176,6 +274,23 @@ def test_backup_must_reference_exact_final_e2e(tmp_path: Path):
             mavi_build="build-a",
             acceptance_profile_sha256="c" * 64,
             formal_e2e_sha256="9" * 64,
+            **proofs,
+        )
+
+
+def test_backup_rejects_tampered_underlying_execution(tmp_path: Path):
+    path, proofs = _backup_proof_fixture(tmp_path)
+    execution = json.loads(proofs["execution_evidence"].read_text(encoding="utf-8"))
+    execution["restoreDatabaseIdentity"] = "tampered|127.0.0.1|5999"
+    proofs["execution_evidence"].write_text(json.dumps(execution), encoding="utf-8")
+    with pytest.raises(mod.ProductionAcceptanceError, match="production_backup_restore_binding_failed"):
+        mod.validate_backup(
+            path,
+            source_commit="a" * 40,
+            mavi_build="build-a",
+            acceptance_profile_sha256="c" * 64,
+            formal_e2e_sha256="1" * 64,
+            **proofs,
         )
 
 
@@ -187,11 +302,23 @@ def test_topology_binding_rejects_other_linux_host():
             "linuxVisionWorker": "2" * 64,
         }
     }
-    fresh = {"hosting": {"hostIdentitySha256": "1" * 64}}
-    update = {"hosting": {"hostIdentitySha256": "1" * 64}}
+    fresh = {
+        "hosting": {"hostIdentitySha256": "1" * 64},
+        "operationalApi": {"hostIdentitySha256": "1" * 64},
+    }
+    update = {
+        "hosting": {"hostIdentitySha256": "1" * 64},
+        "operationalApi": {"hostIdentitySha256": "1" * 64},
+    }
     backup = {
         "sourceDatabaseIdentity": "mavi|10.0.0.20|5432",
-        "liveStorageTopology": {"databaseIdentity": "mavi|10.0.0.20|5432"},
+        "liveStorageTopology": {
+            "databaseIdentity": "mavi|10.0.0.20|5432",
+            "operationalHostIdentitySha256": "1" * 64,
+        },
+        "restoreStorageTopology": {
+            "operationalHostIdentitySha256": "1" * 64,
+        },
     }
     linux = {"hostIdentitySha256": "9" * 64}
     with pytest.raises(mod.ProductionAcceptanceError, match="production_linux_topology_mismatch"):
@@ -235,6 +362,7 @@ def test_final_scenario_rejects_other_venv(tmp_path: Path, monkeypatch):
             linux_cuda_lock_sha256="e" * 64,
             acceptance_execution_id=EXECUTION_ID,
             acceptance_context_sha256=CONTEXT_SHA,
+            expected_operational_host_identity_sha256=WINDOWS_HOST,
         )
 
 
@@ -288,6 +416,7 @@ def test_failure_reprocess_rejects_source_drift(tmp_path: Path, monkeypatch):
         "scenarioCompletedAtUtc": "2026-09-14T18:13:00Z",
         "sourceCommit": "a" * 40,
         "maviBuild": "build-a",
+        "operationalHostIdentitySha256": WINDOWS_HOST,
         "targetVerifiedManifestSha256": "b" * 64,
         "productionBundleManifestSha256": "d" * 64,
         "productionReleaseLockSha256": "e" * 64,
@@ -463,37 +592,19 @@ def test_log_inspection_rejects_checkpoint_after_scenario(tmp_path: Path, monkey
         )
 
 
-def test_backup_rejects_restore_topology_database_mismatch(tmp_path: Path, monkeypatch):
-    value = {
-        "sourceCommit": "a" * 40,
-        "acceptanceProfileSha256": "c" * 64,
-        "acceptanceEvidenceSha256": "9" * 64,
-        "cleanRestoreTarget": True,
-        "sourceDatabaseIdentity": "source|127.0.0.1|5432",
-        "restoreDatabaseIdentity": "restore|127.0.0.1|5433",
-        "liveStorageTopology": {
-            "maviCommit": "a" * 40,
-            "maviBuild": "build-a",
-            "databaseIdentity": "source|127.0.0.1|5432",
-        },
-        "restoreStorageTopology": {
-            "maviCommit": "a" * 40,
-            "maviBuild": "build-a",
-            "databaseIdentity": "source|127.0.0.1|5432",
-        },
-        "result": {"passed": True, "failureCodes": []},
-    }
-    path = tmp_path / "backup.json"
+def test_backup_rejects_restore_topology_database_mismatch(tmp_path: Path):
+    path, proofs = _backup_proof_fixture(tmp_path)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["restoreStorageTopology"]["databaseIdentity"] = "source|127.0.0.1|5432"
     path.write_text(json.dumps(value), encoding="utf-8")
-    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
-    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     with pytest.raises(mod.ProductionAcceptanceError, match="production_backup_restore_binding_failed"):
         mod.validate_backup(
             path,
             source_commit="a" * 40,
             mavi_build="build-a",
             acceptance_profile_sha256="c" * 64,
-            formal_e2e_sha256="9" * 64,
+            formal_e2e_sha256="1" * 64,
+            **proofs,
         )
 
 
@@ -513,6 +624,8 @@ def _state_check_payload(
         "observedApplicationCommit": expected_commit,
         "expectedApplicationBuild": expected_build,
         "observedApplicationBuild": expected_build,
+        "operationalHostIdentitySha256": WINDOWS_HOST,
+        "authoritativeStateSha256": "7" * 64,
         "cameraId": camera_id,
         "videoAssetId": "video-1",
         "processingRunId": "run-1",
@@ -542,6 +655,7 @@ def _prior_acceptance(tmp_path: Path) -> Path:
     path.write_text(json.dumps({
         "schemaVersion": "mavi-phase1-acceptance-evidence-v1",
         "sourceCommit": "a" * 40,
+        "operationalApi": {"hostIdentitySha256": WINDOWS_HOST},
         "attestation": {
             "maviCommit": "a" * 40,
             "maviBuild": "prior-build",
@@ -579,7 +693,12 @@ def _offline_update_value(
             "siteName": "MAVI",
             "applicationPool": "MAVI",
             "physicalPath": "mavi-root",
-            "hostIdentitySha256": "6" * 64,
+            "hostIdentitySha256": WINDOWS_HOST,
+            "passed": True,
+        },
+        "operationalApi": {
+            "baseUrl": "http://mavi.local",
+            "hostIdentitySha256": WINDOWS_HOST,
             "passed": True,
         },
         "internetUnavailable": True,

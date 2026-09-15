@@ -35,6 +35,7 @@ def test_authoritative_state_rejects_same_commit_wrong_build(tmp_path: Path, mon
         json.dumps({
             "schemaVersion": "mavi-phase1-acceptance-evidence-v1",
             "sourceCommit": "a" * 40,
+            "operationalApi": {"hostIdentitySha256": "f" * 64},
             "attestation": {"maviCommit": "a" * 40, "maviBuild": "prior-build"},
             "result": {"passed": True, "failureCodes": []},
         }),
@@ -49,6 +50,7 @@ def test_authoritative_state_rejects_same_commit_wrong_build(tmp_path: Path, mon
             acceptance_evidence=evidence,
             expected_application_commit="a" * 40,
             expected_application_build="prior-build",
+            expected_operational_host_identity_sha256="f" * 64,
         )
 
 
