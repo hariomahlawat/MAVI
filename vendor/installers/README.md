@@ -10,3 +10,5 @@ Place the approved Windows x64 installers here using the canonical names below:
 These files are release inputs. The normal source repository should not carry large third-party installers in ordinary Git history. The release-media builder copies them into the SHA-256-manifested MAVI offline setup bundle.
 
 If the organisation later chooses Git LFS or a dedicated binary repository, keep these same canonical paths so the setup tooling does not change.
+
+When a future feature requires another machine-installed tool/runtime, update `config/dependencies/offline-dependency-policy-v1.json`, this canonical staging contract, the bundle builder, Setup/readiness checks and licence/version verification together.
