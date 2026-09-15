@@ -59,6 +59,10 @@ def offline(os_name="linux"):
         "os": os_name,
         "bundleMode": "qualification-candidate",
         "isolationMethod": "physically isolated qualification VLAN",
+        "variantEvidenceSha256": {
+            f"{os_name}-x86_64-cpu": "9" * 64,
+            f"{os_name}-x86_64-cuda": "a" * 64,
+        },
         "variants": variants,
         "result": "passed",
     }
@@ -124,3 +128,31 @@ def test_acceptance_rejects_wrong_frozen_profile_hash():
             expected_source_commit="a" * 40,
             expected_acceptance_profile_sha256="c" * 64,
         )
+
+
+def test_offline_rejects_incomplete_variant_evidence_hash_binding():
+    value = offline()
+    value["variantEvidenceSha256"] = {
+        "linux-x86_64-cpu": "9" * 64,
+        "linux-x86_64-cuda": "a" * 64,
+        "windows-x86_64-cpu": "b" * 64,
+    }
+    with pytest.raises(
+        mod.EvidenceError,
+        match="offline_variant_evidence_hash_coverage_incomplete",
+    ):
+        mod.verify_offline_install(value)
+
+
+def test_acceptance_rejects_attested_commit_different_from_source_commit():
+    value = {
+        "sourceCommit": "a" * 40,
+        "acceptanceProfileSha256": "b" * 64,
+        "attestation": {
+            "processingRunId": "run-1",
+            "maviCommit": "c" * 40,
+        },
+        "processing": {"processingRunId": "run-1"},
+    }
+    with pytest.raises(mod.EvidenceError, match="acceptance_attested_commit_mismatch"):
+        mod.verify_acceptance(value)
