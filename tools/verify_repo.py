@@ -479,6 +479,7 @@ def check_offline_binary_catalog(errors: list[str]) -> None:
         "profiles",
         "versionPolicy",
         "baselineVersion",
+        "dependencyPolicyId",
         "exactVersionSource",
         "binaryKitPath",
         "releasePath",
@@ -503,6 +504,31 @@ def check_offline_binary_catalog(errors: list[str]) -> None:
     missing = required_ids - set(by_id)
     if missing:
         fail(f"Offline binary catalog is missing required components: {sorted(missing)}", errors)
+
+    try:
+        dependency_policy = json.loads(
+            (ROOT / "config/dependencies/offline-dependency-policy-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        policy_ids = {
+            item.get("id")
+            for item in dependency_policy.get("nativeAndToolchain", [])
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        }
+        for component_id, component in by_id.items():
+            policy_id = component.get("dependencyPolicyId")
+            if policy_id not in policy_ids:
+                fail(
+                    f"Offline binary catalog component {component_id} references unknown "
+                    f"dependency policy group {policy_id!r}.",
+                    errors,
+                )
+        vision = catalog.get("visionRuntime")
+        if isinstance(vision, dict) and vision.get("dependencyPolicyId") not in policy_ids:
+            fail("Offline binary catalog vision runtime references an unknown dependency policy group.", errors)
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"Unable to reconcile offline binary catalog with dependency policy: {exc}", errors)
 
     try:
         global_json = json.loads((ROOT / "global.json").read_text(encoding="utf-8"))
