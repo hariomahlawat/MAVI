@@ -140,8 +140,10 @@ The generated kit contains no MAVI application build. It contains the external W
 
 - `mavi-offline-binary-kit.json` — SHA-256 and size for every retained file;
 - exact observed PostgreSQL, pgvector and FFmpeg versions;
+- observed file/product versions for the .NET Hosting Bundle, .NET SDK and Python installer;
+- exact MSI ProductVersion for Node.js;
 - the repository-owned binary/version catalog; and
-- the approved installer bytes bound by their catalog baseline and SHA-256.
+- SHA-256 identity for every installer and retained payload byte.
 
 Keep this ZIP with release/development media. Do not commit it to ordinary Git.
 
