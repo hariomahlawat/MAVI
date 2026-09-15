@@ -45,7 +45,9 @@ Do not manually choose PostgreSQL ports, install pgvector, edit connection strin
 
 Any future feature that adds or changes a .NET, npm, Python, native, model/runtime or operating-system dependency must update the offline dependency contract in the same PR. `python tools/verify_repo.py` fails if direct .NET/npm/Python dependency surfaces change without an update to `config/dependencies/offline-dependency-policy-v1.json`.
 
-The full methodology is defined in `docs/architecture/dependency-and-offline-packaging-policy.md`. Production must never download models, packages or runtime dependencies from the Internet.
+The full methodology is defined in `docs/architecture/dependency-and-offline-packaging-policy.md`. External binary/version baselines are recorded in `config/dependencies/offline-binary-catalog-v1.json` and summarized in `docs/architecture/offline-binary-inventory.md`.
+
+Large third-party payloads are retained in the separately downloadable **MAVI Offline Binary Kit**, not ordinary Git. A prepared Development workstation can keep that extracted kit beside the repository; `Setup-MAVI-Development.cmd` auto-detects and verifies it. Production must never download models, packages or runtime dependencies from the Internet.
 
 ## First checks
 
@@ -86,6 +88,7 @@ Start with:
 - `docs/superpowers/specs/2026-09-08-mavi-repository-architecture-design.md`
 - `docs/architecture/README.md`
 - `docs/architecture/dependency-and-offline-packaging-policy.md`
+- `docs/architecture/offline-binary-inventory.md`
 - `docs/decisions/`
 - `AGENTS.md`
 
