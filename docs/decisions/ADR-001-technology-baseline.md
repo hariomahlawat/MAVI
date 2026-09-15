@@ -14,3 +14,5 @@ The stack separates long-lived operational workflows from the rapidly changing M
 ## Consequence
 
 Cross-language boundaries must be explicit and versioned. Model-specific Python libraries must not leak into the operational domain.
+
+Dependency additions within this technology baseline remain subject to the accepted offline-production decision (ADR-003) and the operational dependency policy in `docs/architecture/dependency-and-offline-packaging-policy.md`.
