@@ -16,9 +16,13 @@ on:
       - 'src/platform/**'
       - 'src/vision/**'
       - 'models/**'
-      - 'docs/runbooks/phase1-acceptance.md'
+      - 'docs/**'
       - '.github/workflows/task17-acceptance.yml'
       - 'tools/verify_repo.py'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'CONTRIBUTING.md'
+      - '.github/pull_request_template.md'
   workflow_dispatch:
 
 permissions:
