@@ -15,6 +15,19 @@ Verify that:
 9. an update can be applied from a controlled offline bundle.
 
 
+## Native prerequisite packaging
+
+Before any disconnected acceptance run, the offline media must contain:
+
+- the MAVI application artifact with its app-local, hash-manifested FFmpeg/ffprobe pack;
+- the approved PostgreSQL 18 installer/prerequisite set;
+- the PostgreSQL-18-specific pgvector offline prerequisite pack;
+- the exact Python/runtime/model bundles already required by Phase-1 qualification.
+
+The target application must start with Internet unavailable. MAVI verifies bundled media-tool hashes and executable viability before request handling. PostgreSQL/pgvector installation is a one-time administrative bootstrap action; normal startup only verifies PostgreSQL major version, verifies pgvector availability, enables the extension in the selected database, and applies EF migrations.
+
+A release is not offline-ready if it succeeds only because `ffmpeg`/`ffprobe` happen to be installed on PATH, if pgvector was manually copied without retained hashes, or if first startup downloads any missing dependency.
+
 ## Phase-1 formal acceptance
 
 Task 17 owns the formal Phase-1 disconnected-install and end-to-end offline acceptance event. Hosted CI, an invalid proxy, or the existence of a qualification-candidate bundle is not by itself proof of a disconnected deployment.
