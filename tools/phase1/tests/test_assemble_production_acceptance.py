@@ -490,3 +490,216 @@ def test_backup_rejects_restore_topology_database_mismatch(tmp_path: Path, monke
             acceptance_profile_sha256="c" * 64,
             formal_e2e_sha256="9" * 64,
         )
+
+
+def _state_check_payload(
+    *,
+    acceptance_sha: str = "1" * 64,
+    acceptance_commit: str = "a" * 40,
+    expected_commit: str = "a" * 40,
+    expected_build: str = "prior-build",
+    camera_id: str = "camera-1",
+) -> dict:
+    return {
+        "schemaVersion": "mavi-authoritative-state-check-v1",
+        "acceptanceEvidenceSha256": acceptance_sha,
+        "acceptanceSourceCommit": acceptance_commit,
+        "expectedApplicationCommit": expected_commit,
+        "observedApplicationCommit": expected_commit,
+        "expectedApplicationBuild": expected_build,
+        "observedApplicationBuild": expected_build,
+        "cameraId": camera_id,
+        "videoAssetId": "video-1",
+        "processingRunId": "run-1",
+        "trackIds": ["track-1"],
+        "representativeArtifactId": "artifact-1",
+        "sourceSha256": "2" * 64,
+        "sourceEtagSha256": "2" * 64,
+        "artifactSha256": "3" * 64,
+        "artifactEtagSha256": "3" * 64,
+        "result": {"passed": True, "failureCodes": []},
+    }
+
+
+def _offline_update_value(pre_sha: str, post_sha: str, *, migration_policy: str = "none") -> dict:
+    return {
+        "schemaVersion": "mavi-application-lifecycle-evidence-v1",
+        "mode": "offline-update",
+        "sourceCommit": "b" * 40,
+        "build": "target-build",
+        "applicationManifestSha256": "4" * 64,
+        "supportedUpdatesPolicySha256": "5" * 64,
+        "destination": "mavi-root",
+        "hosting": {
+            "siteName": "MAVI",
+            "applicationPool": "MAVI",
+            "physicalPath": "mavi-root",
+            "hostIdentitySha256": "6" * 64,
+            "passed": True,
+        },
+        "internetUnavailable": True,
+        "networkIsolation": {
+            "proxyEnvironmentAbsent": True,
+            "probes": [{}, {}, {}, {}, {}],
+            "passed": True,
+        },
+        "priorRelease": {
+            "sourceCommit": "a" * 40,
+            "build": "prior-build",
+            "applicationManifestSha256": "7" * 64,
+            "supported": True,
+        },
+        "migrationPolicy": migration_policy,
+        "migration": None,
+        "retainedState": {
+            "acceptanceEvidenceSha256": "1" * 64,
+            "preUpdateCheckSha256": pre_sha,
+            "postUpdateCheckSha256": post_sha,
+        },
+        "uiSmoke": {
+            "rootStatusCode": 200,
+            "rootBytes": 1,
+            "assetCount": 1,
+            "passed": True,
+        },
+        "observedHealth": {
+            "status": "ok",
+            "build": "target-build",
+            "commit": "b" * 40,
+        },
+        "result": {"passed": True, "failureCodes": []},
+    }
+
+
+def test_supported_prior_rejects_forged_manifest_hash(monkeypatch):
+    policy = {
+        "priorReleases": [{
+            "sourceCommit": "a" * 40,
+            "applicationManifestSha256": "8" * 64,
+            "migrationPolicy": "none",
+        }]
+    }
+    monkeypatch.setattr(mod, "load_json", lambda *_: policy)
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_offline_update_prior_policy_mismatch",
+    ):
+        mod._validate_supported_prior(
+            {
+                "sourceCommit": "a" * 40,
+                "applicationManifestSha256": "7" * 64,
+            },
+            "none",
+        )
+
+
+def test_offline_update_rejects_missing_required_migration(tmp_path: Path, monkeypatch):
+    pre = tmp_path / "pre.json"
+    post = tmp_path / "post.json"
+    pre.write_text(json.dumps(_state_check_payload()), encoding="utf-8")
+    post.write_text(json.dumps(_state_check_payload(
+        expected_commit="b" * 40,
+        expected_build="target-build",
+    )), encoding="utf-8")
+    lifecycle = tmp_path / "update.json"
+    lifecycle.write_text(json.dumps(_offline_update_value(
+        mod.sha256_file(pre),
+        mod.sha256_file(post),
+        migration_policy="required",
+    )), encoding="utf-8")
+    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: None)
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_offline_update_migration_invalid",
+    ):
+        mod.validate_lifecycle(
+            lifecycle,
+            mode="offline-update",
+            source_commit="b" * 40,
+            mavi_build="target-build",
+            application_manifest_sha256="4" * 64,
+            supported_updates_policy_sha256="5" * 64,
+            pre_update_state_check=pre,
+            post_update_state_check=post,
+        )
+
+
+def test_offline_update_rejects_cross_spliced_retained_state(tmp_path: Path, monkeypatch):
+    pre = tmp_path / "pre.json"
+    post = tmp_path / "post.json"
+    pre.write_text(json.dumps(_state_check_payload()), encoding="utf-8")
+    post.write_text(json.dumps(_state_check_payload(
+        expected_commit="b" * 40,
+        expected_build="target-build",
+        camera_id="other-camera",
+    )), encoding="utf-8")
+    lifecycle = tmp_path / "update.json"
+    lifecycle.write_text(json.dumps(_offline_update_value(
+        mod.sha256_file(pre),
+        mod.sha256_file(post),
+    )), encoding="utf-8")
+    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: None)
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_offline_update_retained_state_mismatch",
+    ):
+        mod.validate_lifecycle(
+            lifecycle,
+            mode="offline-update",
+            source_commit="b" * 40,
+            mavi_build="target-build",
+            application_manifest_sha256="4" * 64,
+            supported_updates_policy_sha256="5" * 64,
+            pre_update_state_check=pre,
+            post_update_state_check=post,
+        )
+
+
+def test_offline_update_rejects_wrong_prior_running_build(tmp_path: Path, monkeypatch):
+    pre = tmp_path / "pre.json"
+    post = tmp_path / "post.json"
+    pre.write_text(json.dumps(_state_check_payload(
+        expected_build="wrong-prior-build",
+    )), encoding="utf-8")
+    post.write_text(json.dumps(_state_check_payload(
+        expected_commit="b" * 40,
+        expected_build="target-build",
+    )), encoding="utf-8")
+    lifecycle = tmp_path / "update.json"
+    lifecycle.write_text(json.dumps(_offline_update_value(
+        mod.sha256_file(pre),
+        mod.sha256_file(post),
+    )), encoding="utf-8")
+    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: None)
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_pre_update_state_binding_failed",
+    ):
+        mod.validate_lifecycle(
+            lifecycle,
+            mode="offline-update",
+            source_commit="b" * 40,
+            mavi_build="target-build",
+            application_manifest_sha256="4" * 64,
+            supported_updates_policy_sha256="5" * 64,
+            pre_update_state_check=pre,
+            post_update_state_check=post,
+        )
+
+
+def test_offline_update_rejects_missing_state_proofs(tmp_path: Path, monkeypatch):
+    lifecycle = tmp_path / "update.json"
+    lifecycle.write_text(json.dumps(_offline_update_value("8" * 64, "9" * 64)), encoding="utf-8")
+    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    with pytest.raises(mod.ProductionAcceptanceError, match="production_offline_update_invalid"):
+        mod.validate_lifecycle(
+            lifecycle,
+            mode="offline-update",
+            source_commit="b" * 40,
+            mavi_build="target-build",
+            application_manifest_sha256="4" * 64,
+            supported_updates_policy_sha256="5" * 64,
+        )
