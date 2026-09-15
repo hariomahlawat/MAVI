@@ -61,7 +61,7 @@ cd src/vision
 python -m pytest -q
 ```
 
-For .NET after configuring `MAVI_TEST_DB_CONNECTION` as described in the local-development runbook:
+For .NET after `Setup-MAVI-Development.cmd` has prepared the Development/test database environment:
 
 ```bash
 dotnet restore MAVI.sln
