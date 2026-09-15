@@ -21,8 +21,14 @@ Assert-MaviWindows
 Assert-MaviAdministrator
 
 if ([string]::IsNullOrWhiteSpace($BundleRoot)) {
-    $candidate = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
-    $BundleRoot = $candidate
+    $bundleCandidate = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+    $repositoryCandidate = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+    $BundleRoot = if (Test-Path -LiteralPath (Join-Path $bundleCandidate "mavi-offline-bundle.json") -PathType Leaf) {
+        $bundleCandidate
+    }
+    else {
+        $repositoryCandidate
+    }
 }
 $BundleRoot = [IO.Path]::GetFullPath($BundleRoot)
 
