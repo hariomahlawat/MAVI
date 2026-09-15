@@ -32,13 +32,19 @@ if ([string]::IsNullOrWhiteSpace($BundleRoot)) {
         $repositoryCandidate
     }
 }
-$BundleRoot = [IO.Path]::GetFullPath($BundleRoot)
+$BundleRoot = [IO.Path]::GetFullPath($BundleRoot.Trim().Trim('"'))
 
 if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
     $candidate = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
     if (Test-Path -LiteralPath (Join-Path $candidate "MAVI.sln") -PathType Leaf) {
         $RepositoryRoot = $candidate
     }
+}
+elseif ($RepositoryRoot) {
+    # Defensive normalization for quoted/trailing-separator arguments from cmd.exe.
+    # A quoted Windows path ending in "\" can otherwise arrive with a literal
+    # quote and later make Test-Path report "Illegal characters in path".
+    $RepositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot.Trim().Trim('"'))
 }
 
 $bundleManifestPath = Join-Path $BundleRoot "mavi-offline-bundle.json"
