@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": [
     "schemaVersion", "sourceCommit", "acceptanceEvidenceSha256", "acceptanceProfileSha256", "executionEvidenceSha256",
-    "sourceDatabaseIdentity", "restoreDatabaseIdentity", "liveStorageTopology", "database", "managedSource", "acceptedEvidence",
+    "sourceDatabaseIdentity", "restoreDatabaseIdentity", "liveStorageTopology", "restoreStorageTopology", "database", "managedSource", "acceptedEvidence",
     "backupManifestSha256", "cleanRestoreTarget", "postRestoreCheckSha256", "result"
   ],
   "properties": {
@@ -17,6 +17,22 @@
     "sourceDatabaseIdentity": { "type": "string", "minLength": 1 },
     "restoreDatabaseIdentity": { "type": "string", "minLength": 1 },
     "liveStorageTopology": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion","maviBuild","maviCommit","databaseIdentity",
+        "managedMediaRootIdentitySha256","acceptedEvidenceRootIdentitySha256"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "mavi-storage-topology-attestation-v1" },
+        "maviBuild": { "type": "string", "minLength": 1 },
+        "maviCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "databaseIdentity": { "type": "string", "minLength": 1 },
+        "managedMediaRootIdentitySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "acceptedEvidenceRootIdentitySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "restoreStorageTopology": {
       "type": "object",
       "additionalProperties": false,
       "required": [
