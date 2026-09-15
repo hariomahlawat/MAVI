@@ -28,7 +28,7 @@ foreach ($required in @($postgresExe, $pgConfigExe, $vectorControl)) {
 }
 
 $postgresVersionOutput = (& $postgresExe --version | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $postgresVersionOutput -notmatch "PostgreSQL 18\.") {
+if ($LASTEXITCODE -ne 0 -or $postgresVersionOutput -notmatch '(?i)\bPostgreSQL\b.*\b18(?:\.|\b)') {
     throw "MAVI requires a PostgreSQL 18 source runtime."
 }
 $postgresVersion = (($postgresVersionOutput -split "\s+") | Select-Object -Last 1).Trim()
