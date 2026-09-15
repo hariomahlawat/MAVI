@@ -59,6 +59,30 @@ if ([string]$manifest.versions.ffmpeg -ne [string]$ffmpeg.version) {
     throw "Offline binary kit FFmpeg version record does not match nested dependency manifest."
 }
 
+function Get-CatalogBaseline {
+    param([Parameter(Mandatory = $true)][string]$Id)
+    foreach ($component in @($catalog.applicationAndSetup)) {
+        if ([string]$component.id -eq $Id) {
+            return [string]$component.baselineVersion
+        }
+    }
+    throw "Offline binary kit catalog does not contain required component '$Id'."
+}
+
+$baselineChecks = [ordered]@{
+    dotnetHostingBaseline = "dotnet-hosting-win-x64"
+    dotnetSdkBaseline = "dotnet-sdk-win-x64"
+    nodeBaseline = "node-win-x64"
+    pythonDevelopmentBaseline = "python-development-win-x64"
+}
+foreach ($entry in $baselineChecks.GetEnumerator()) {
+    $expected = Get-CatalogBaseline -Id $entry.Value
+    $actualProperty = $manifest.versions.PSObject.Properties[$entry.Key]
+    if (-not $actualProperty -or [string]$actualProperty.Value -ne $expected) {
+        throw "Offline binary kit version baseline '$($entry.Key)' does not match its catalog."
+    }
+}
+
 Write-Host "MAVI offline binary kit validation PASSED."
 Write-Host "  PostgreSQL : $($postgreSql.postgresqlVersion)"
 Write-Host "  pgvector   : $($postgreSql.pgvectorVersion)"
