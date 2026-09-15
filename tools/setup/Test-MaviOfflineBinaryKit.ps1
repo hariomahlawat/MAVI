@@ -134,6 +134,51 @@ foreach ($entry in $baselineChecks.GetEnumerator()) {
     }
 }
 
+$observedProperty = $manifest.versions.PSObject.Properties["observedInstallers"]
+if (-not $observedProperty) {
+    throw "Offline binary kit does not record exact installer version metadata."
+}
+$observed = $observedProperty.Value
+$installerRecords = [ordered]@{
+    dotnetHosting = "vendor\installers\win-x64\dotnet-hosting.exe"
+    dotnetSdk = "vendor\installers\win-x64\dotnet-sdk.exe"
+    node = "vendor\installers\win-x64\node.msi"
+    pythonDevelopment = "vendor\installers\win-x64\python.exe"
+}
+foreach ($entry in $installerRecords.GetEnumerator()) {
+    $recordProperty = $observed.PSObject.Properties[$entry.Key]
+    if (-not $recordProperty) {
+        throw "Offline binary kit is missing observed installer record: $($entry.Key)"
+    }
+    $record = $recordProperty.Value
+    $shaProperty = $record.PSObject.Properties["sha256"]
+    $sizeProperty = $record.PSObject.Properties["sizeBytes"]
+    if (-not $shaProperty -or -not $sizeProperty) {
+        throw "Offline binary kit observed installer record is incomplete: $($entry.Key)"
+    }
+
+    $path = Join-Path $kitRoot $entry.Value
+    if ([string]$shaProperty.Value -ne (Get-MaviSha256 -Path $path)) {
+        throw "Offline binary kit observed installer hash does not match payload: $($entry.Key)"
+    }
+    if ([long]$sizeProperty.Value -ne [long](Get-Item -LiteralPath $path).Length) {
+        throw "Offline binary kit observed installer size does not match payload: $($entry.Key)"
+    }
+
+    if ($entry.Key -eq "node") {
+        if (-not $record.PSObject.Properties["productVersion"] -or
+            [string]::IsNullOrWhiteSpace([string]$record.productVersion)) {
+            throw "Offline binary kit Node MSI ProductVersion is missing."
+        }
+    }
+    elseif ((-not $record.PSObject.Properties["fileVersion"] -or
+             [string]::IsNullOrWhiteSpace([string]$record.fileVersion)) -and
+            (-not $record.PSObject.Properties["productVersion"] -or
+             [string]::IsNullOrWhiteSpace([string]$record.productVersion))) {
+        throw "Offline binary kit executable version metadata is missing: $($entry.Key)"
+    }
+}
+
 Write-Host "MAVI offline binary kit validation PASSED."
 Write-Host "  PostgreSQL : $($postgreSql.postgresqlVersion)"
 Write-Host "  pgvector   : $($postgreSql.pgvectorVersion)"
