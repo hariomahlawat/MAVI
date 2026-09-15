@@ -143,6 +143,21 @@ function Protect-MaviSecret {
     }
 }
 
+function Unprotect-MaviSecret {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "MAVI secret file was not found: $Path"
+    }
+    Add-Type -AssemblyName System.Security
+    $protected = [Convert]::FromBase64String(
+        (Get-Content -LiteralPath $Path -Raw).Trim())
+    $bytes = [Security.Cryptography.ProtectedData]::Unprotect(
+        $protected,
+        $null,
+        [Security.Cryptography.DataProtectionScope]::LocalMachine)
+    return [Text.Encoding]::UTF8.GetString($bytes)
+}
+
 function Test-MaviTcpPortInUse {
     param([Parameter(Mandatory = $true)][int]$Port)
     try {
@@ -210,6 +225,8 @@ function Invoke-MaviPsql {
         "-d", $Database,
         "-v", "ON_ERROR_STOP=1",
         "-X",
+        "-t",
+        "-A",
         "-c", $Sql
     )
     return Invoke-MaviCommand -FilePath $PsqlPath -Arguments $arguments -CaptureOutput:$CaptureOutput -Environment @{
