@@ -19,6 +19,14 @@ function Install-MaviPostgreSqlInstance {
     }
 
     $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($existingService) {
+        $escapedServiceName = $ServiceName.Replace("'", "''")
+        $serviceRecord = Get-CimInstance -ClassName Win32_Service -Filter "Name='$escapedServiceName'" -ErrorAction Stop
+        if ($serviceRecord.PathName.IndexOf($InstallRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+            $serviceRecord.PathName.IndexOf($DataRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            throw "Service '$ServiceName' already exists but is not owned by this MAVI PostgreSQL installation."
+        }
+    }
     if (-not $existingService -and (Test-MaviTcpPortInUse -Port $Port)) {
         throw "Port $Port is already in use. MAVI will not reuse an unknown PostgreSQL instance."
     }
@@ -377,6 +385,7 @@ function Enable-MaviIis {
         "IIS-RequestFiltering",
         "IIS-ISAPIExtensions",
         "IIS-ISAPIFilter",
+        "IIS-ManagementScriptingTools",
         "IIS-ManagementConsole"
     )
     foreach ($feature in $features) {
