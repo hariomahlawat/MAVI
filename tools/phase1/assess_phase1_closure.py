@@ -100,6 +100,7 @@ def validate_application_lifecycle(
     *,
     expected_mode: str,
     source_commit: str,
+    mavi_build: str | None,
     supported_updates_policy_sha256: str,
     schema_path: Path,
 ) -> dict[str, Any]:
@@ -119,6 +120,14 @@ def validate_application_lifecycle(
         raise ClosureError("application_lifecycle_not_offline")
     if value.get("observedHealth", {}).get("commit") != source_commit:
         raise ClosureError("application_lifecycle_health_mismatch")
+    if (
+        mavi_build is not None
+        and (
+            value.get("build") != mavi_build
+            or value.get("observedHealth", {}).get("build") != mavi_build
+        )
+    ):
+        raise ClosureError("application_lifecycle_build_mismatch")
     if value.get("supportedUpdatesPolicySha256") != supported_updates_policy_sha256:
         raise ClosureError("application_lifecycle_supported_updates_policy_mismatch")
     if value.get("uiSmoke", {}).get("passed") is not True:
@@ -401,6 +410,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             args.fresh_install,
             expected_mode="fresh-install",
             source_commit=args.source_commit,
+            mavi_build=expected_mavi_build,
             supported_updates_policy_sha256=supported_updates_policy_sha256,
             schema_path=args.application_lifecycle_schema,
         )
@@ -410,6 +420,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             args.offline_update,
             expected_mode="offline-update",
             source_commit=args.source_commit,
+            mavi_build=expected_mavi_build,
             supported_updates_policy_sha256=supported_updates_policy_sha256,
             schema_path=args.application_lifecycle_schema,
         )
