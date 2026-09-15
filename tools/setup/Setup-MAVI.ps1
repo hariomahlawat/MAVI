@@ -42,6 +42,9 @@ if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
 }
 
 $bundleManifestPath = Join-Path $BundleRoot "mavi-offline-bundle.json"
+if ($Profile -eq "Production" -and -not (Test-Path -LiteralPath $bundleManifestPath -PathType Leaf)) {
+    throw "Production setup requires the canonical MAVI offline setup bundle and its manifest."
+}
 if (Test-Path -LiteralPath $bundleManifestPath -PathType Leaf) {
     [void](Test-MaviManifest -Root $BundleRoot -ManifestPath $bundleManifestPath -ExpectedSchemaVersion "mavi-offline-setup-bundle-v1")
     Write-MaviSetupStatus -Name "Offline bundle" -Status "OK" -Detail "SHA-256 verified"
