@@ -235,7 +235,7 @@ def check_dependency_policy(errors: list[str]) -> None:
     actual_npm: dict[str, dict[str, dict[str, str]]] = {}
     for package_json in tracked:
         relative = package_json.relative_to(ROOT).as_posix()
-        if package_json.name != "package.json" or not relative.startswith("src/"):
+        if package_json.name != "package.json":
             continue
         try:
             payload = json.loads(package_json.read_text(encoding="utf-8"))
@@ -270,7 +270,7 @@ def check_dependency_policy(errors: list[str]) -> None:
     actual_python: dict[str, dict[str, object]] = {}
     for pyproject in tracked:
         relative = pyproject.relative_to(ROOT).as_posix()
-        if pyproject.name != "pyproject.toml" or not relative.startswith("src/"):
+        if pyproject.name != "pyproject.toml":
             continue
         try:
             payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
@@ -289,14 +289,18 @@ def check_dependency_policy(errors: list[str]) -> None:
             "buildSystemRequires": sorted(build_system.get("requires") or []),
         }
 
-    requirements_path = ROOT / "tools/requirements.txt"
-    if requirements_path.exists():
+    for requirements_path in tracked:
+        relative = requirements_path.relative_to(ROOT).as_posix()
+        if not re.fullmatch(r"requirements[^/]*\.txt", requirements_path.name, re.IGNORECASE):
+            continue
+        if not (relative.startswith("src/") or relative.startswith("tools/")):
+            continue
         requirements = [
             line.strip()
             for line in requirements_path.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.lstrip().startswith("#")
         ]
-        actual_python["tools/requirements.txt"] = {
+        actual_python[relative] = {
             "requirements": sorted(requirements),
         }
 
