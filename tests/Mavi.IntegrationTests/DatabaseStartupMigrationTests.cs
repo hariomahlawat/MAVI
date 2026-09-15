@@ -12,7 +12,7 @@ public sealed class DatabaseStartupMigrationTests
     private const int AdvisoryLockPurpose = 1397248845;
 
     [Fact]
-    public async Task BlankDatabase_IsMigratedBeforeApplicationServesRequests()
+    public async Task BlankDatabaseIsMigratedBeforeApplicationServesRequests()
     {
         var connectionString = GetTestConnectionString();
         await ResetSchemaAsync(connectionString);
@@ -34,7 +34,7 @@ public sealed class DatabaseStartupMigrationTests
     }
 
     [Fact]
-    public async Task CurrentDatabase_StartsWithoutChangingMigrationHistory()
+    public async Task CurrentDatabaseStartsWithoutChangingMigrationHistory()
     {
         var connectionString = GetTestConnectionString();
         await ResetSchemaAsync(connectionString);
@@ -66,7 +66,7 @@ public sealed class DatabaseStartupMigrationTests
     }
 
     [Fact]
-    public async Task MigrationLockTimeout_PreventsApplicationStartup()
+    public async Task MigrationLockTimeoutPreventsApplicationStartup()
     {
         var connectionString = GetTestConnectionString();
         await ResetSchemaAsync(connectionString);
