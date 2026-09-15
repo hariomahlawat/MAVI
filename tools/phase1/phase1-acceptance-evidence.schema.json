@@ -19,10 +19,10 @@
     "operationalApi": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["hostIdentitySha256","databaseIdentity","managedMediaRootIdentitySha256","acceptedEvidenceRootIdentitySha256"],
+      "required": ["hostIdentitySha256","databaseIdentitySha256","managedMediaRootIdentitySha256","acceptedEvidenceRootIdentitySha256"],
       "properties": {
         "hostIdentitySha256": { "$ref": "#/$defs/sha256" },
-        "databaseIdentity": { "type": "string", "minLength": 1 },
+        "databaseIdentitySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "managedMediaRootIdentitySha256": { "$ref": "#/$defs/sha256" },
         "acceptedEvidenceRootIdentitySha256": { "$ref": "#/$defs/sha256" }
       }
