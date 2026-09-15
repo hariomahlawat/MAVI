@@ -141,9 +141,24 @@ function Get-CatalogBaseline {
     throw "Binary catalog does not contain required component '$Id'."
 }
 
+$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+$sourceInputPaths = [ordered]@{
+    offlineDependencyPolicy = (Join-Path $repoRoot "config\dependencies\offline-dependency-policy-v1.json")
+    offlineBinaryCatalog = $catalogPath
+    globalJson = (Join-Path $repoRoot "global.json")
+    webPackageLock = (Join-Path $repoRoot "src\web\mavi-web\package-lock.json")
+    visionPyproject = (Join-Path $repoRoot "src\vision\pyproject.toml")
+    toolsRequirements = (Join-Path $repoRoot "tools\requirements.txt")
+}
+$sourceInputs = [ordered]@{}
+foreach ($entry in $sourceInputPaths.GetEnumerator()) {
+    $sourceInputs[$entry.Key] = Get-MaviSha256 -Path $entry.Value
+}
+
 $manifest = [ordered]@{
     schemaVersion = "mavi-offline-binary-kit-v1"
     sourceCatalogSha256 = (Get-MaviSha256 -Path $catalogPath)
+    sourceInputs = $sourceInputs
     versions = [ordered]@{
         postgresql = [string]$postgreSqlManifest.postgresqlVersion
         pgvector = [string]$postgreSqlManifest.pgvectorVersion
