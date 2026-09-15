@@ -55,9 +55,14 @@ public static class NativeMediaToolStartup
             string.Equals(ffprobe, bundledFfprobe, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(ffmpeg, bundledFfmpeg, StringComparison.OrdinalIgnoreCase);
 
+        MediaToolManifest? manifest = null;
         if (usingBundle)
         {
-            await VerifyManifestAsync(options, ffprobe, ffmpeg, cancellationToken);
+            manifest = await VerifyManifestAsync(
+                options,
+                ffprobe,
+                ffmpeg,
+                cancellationToken);
             LogBundledToolVerified(logger, "ffprobe", ffprobe, null);
             LogBundledToolVerified(logger, "ffmpeg", ffmpeg, null);
         }
@@ -73,11 +78,21 @@ public static class NativeMediaToolStartup
             LogDevelopmentFallback(logger, ffprobe, null);
         }
 
-        await VerifyExecutableAsync(ffprobe, cancellationToken);
-        await VerifyExecutableAsync(ffmpeg, cancellationToken);
+        var ffprobeVersion = await VerifyExecutableAsync(
+            ffprobe,
+            cancellationToken);
+        var ffmpegVersion = await VerifyExecutableAsync(
+            ffmpeg,
+            cancellationToken);
+
+        if (manifest is not null)
+        {
+            VerifyDeclaredVersion(manifest.Version, "ffprobe", ffprobeVersion);
+            VerifyDeclaredVersion(manifest.Version, "ffmpeg", ffmpegVersion);
+        }
     }
 
-    private static async Task VerifyManifestAsync(
+    private static async Task<MediaToolManifest> VerifyManifestAsync(
         MediaProcessingOptions options,
         string ffprobePath,
         string ffmpegPath,
@@ -120,6 +135,21 @@ public static class NativeMediaToolStartup
 
         VerifyArtifact(manifest, ffprobePath);
         VerifyArtifact(manifest, ffmpegPath);
+        return manifest;
+    }
+
+    private static void VerifyDeclaredVersion(
+        string declaredVersion,
+        string toolName,
+        string versionOutput)
+    {
+        if (versionOutput.IndexOf(
+                declaredVersion,
+                StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            throw new InvalidOperationException(
+                $"Bundled media tool '{toolName}' does not report declared version '{declaredVersion}'.");
+        }
     }
 
     private static void VerifyArtifact(
@@ -153,7 +183,7 @@ public static class NativeMediaToolStartup
         }
     }
 
-    private static async Task VerifyExecutableAsync(
+    private static async Task<string> VerifyExecutableAsync(
         string executable,
         CancellationToken cancellationToken)
     {
@@ -184,6 +214,11 @@ public static class NativeMediaToolStartup
                 exception);
         }
 
+        var standardOutput = process.StandardOutput.ReadToEndAsync(
+            cancellationToken);
+        var standardError = process.StandardError.ReadToEndAsync(
+            cancellationToken);
+
         using var timeout = CancellationTokenSource
             .CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -201,11 +236,24 @@ public static class NativeMediaToolStartup
                 $"MAVI media prerequisite '{executable}' did not respond to a version check.");
         }
 
+        var output = await standardOutput;
+        var error = await standardError;
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException(
                 $"MAVI media prerequisite '{executable}' failed its version check.");
         }
+
+        var versionOutput = string.IsNullOrWhiteSpace(output)
+            ? error
+            : output;
+        if (string.IsNullOrWhiteSpace(versionOutput))
+        {
+            throw new InvalidOperationException(
+                $"MAVI media prerequisite '{executable}' returned no version identity.");
+        }
+
+        return versionOutput;
     }
 
     private sealed record MediaToolManifest(
