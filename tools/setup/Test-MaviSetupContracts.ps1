@@ -80,6 +80,20 @@ try {
         throw "PostgreSQL version parser accepted the wrong major version."
     }
 
+    # Regression guard: the disconnected Development test pass imports packages
+    # from tools/requirements.txt (for example jsonschema). The connected cache
+    # builder must acquire that closure, and offline setup must install it before
+    # invoking pytest.
+    $cacheBuilderText = Get-Content -LiteralPath (Join-Path $repoRoot "tools\setup\Prepare-MaviDeveloperOfflineCache.ps1") -Raw
+    if ($cacheBuilderText -notmatch '(?s)pip\s+download.*-r\s+\$toolsRequirements') {
+        throw "Developer offline-cache preparation does not include tools/requirements.txt."
+    }
+
+    $windowsSetupText = Get-Content -LiteralPath (Join-Path $repoRoot "tools\setup\Mavi.Setup.Windows.psm1") -Raw
+    if ($windowsSetupText -notmatch '(?s)pip.*install.*--no-index.*-r.*\$toolsRequirements') {
+        throw "Development setup does not install tools/requirements.txt from the offline wheelhouse."
+    }
+
     $planBundle = Join-Path $tempRoot "plan-bundle"
     $runtimeRoot = Join-Path $planBundle "prerequisites\postgresql\pg18\win-x64"
     New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
