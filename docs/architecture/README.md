@@ -35,3 +35,10 @@ Implementation completion remains distinct from release verification: CUDA, disc
 - `docs/runbooks/mavi-offline-setup.md` — offline media preparation and installation.
 - `docs/runbooks/offline-readiness.md` — milestone/release offline-readiness checks.
 - `docs/runbooks/phase1-acceptance.md` — formal Phase-1 qualification.
+
+
+## Documentation precedence
+
+Dated files under `docs/superpowers/plans/` and task-specific design specs are retained as implementation/history records and may describe the state or workflow that existed when that task was planned. They are not operator runbooks.
+
+For current Development, Production, dependency packaging and qualification procedures, use the current architecture policy, accepted ADRs and `docs/runbooks/`. When a historical task plan conflicts with a current runbook, the current runbook governs operational procedure.
