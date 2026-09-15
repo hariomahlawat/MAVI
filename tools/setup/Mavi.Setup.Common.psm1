@@ -23,6 +23,20 @@ function Get-MaviSha256 {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Test-MaviPostgreSqlMajorVersionOutput {
+    param(
+        [Parameter(Mandatory = $true)][string]$VersionOutput,
+        [int]$Major = 18
+    )
+
+    if ([string]::IsNullOrWhiteSpace($VersionOutput) -or $Major -lt 1) {
+        return $false
+    }
+
+    $majorText = [regex]::Escape([string]$Major)
+    return $VersionOutput -match ("(?i)\bPostgreSQL\b.*\b{0}(?:\.|\b)" -f $majorText)
+}
+
 function Read-MaviJson {
     param([Parameter(Mandatory = $true)][string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required file not found: $Path" }
