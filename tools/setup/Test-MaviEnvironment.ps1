@@ -71,7 +71,8 @@ if ($machineConfigExists -and (Test-Path -LiteralPath $psqlPath -PathType Leaf))
         $dbPassword = [string]$parts["password"]
 
         $server = Invoke-MaviPsql -PsqlPath $psqlPath -Port $dbPort -User $dbUser -Password $dbPassword -Database $dbName -Sql "select current_setting('server_version_num')::int;" -CaptureOutput
-        $major = [int]$server.StandardOutput.Trim() / 10000
+        $versionNumber = [int]$server.StandardOutput.Trim()
+        $major = [int][Math]::Floor($versionNumber / 10000)
         Add-Check -Name "PostgreSQL major version" -Passed ($major -eq 18) -Detail "PostgreSQL $major"
 
         $vector = Invoke-MaviPsql -PsqlPath $psqlPath -Port $dbPort -User $dbUser -Password $dbPassword -Database $dbName -Sql "select extversion from pg_extension where extname='vector';" -CaptureOutput
