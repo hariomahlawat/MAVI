@@ -86,6 +86,8 @@ def _post_payload(execution_path: Path, execution: dict):
             "acceptanceEvidenceSha256": execution["acceptanceEvidenceSha256"],
             "expectedApplicationCommit": execution["sourceCommit"],
             "observedApplicationCommit": execution["sourceCommit"],
+            "expectedApplicationBuild": execution["restoreStorageTopology"]["maviBuild"],
+            "observedApplicationBuild": execution["restoreStorageTopology"]["maviBuild"],
             "result": {"passed": True, "failureCodes": []},
         },
         "result": {"passed": True, "failureCodes": []},
@@ -246,6 +248,18 @@ def test_finalize_rejects_missing_authoritative_state_proof(tmp_path: Path):
     post = tmp_path / "post.json"
     post_value = _post_payload(execution, execution_value)
     post_value.pop("stateCheck")
+    post.write_text(json.dumps(post_value), encoding="utf-8")
+    with pytest.raises(mod.BackupRestoreError, match="post_restore_state_check_binding_mismatch"):
+        mod.finalize(execution, post)
+
+
+def test_finalize_rejects_wrong_restored_application_build(tmp_path: Path):
+    execution = tmp_path / "execution.json"
+    execution_value = _execution_payload()
+    execution.write_text(json.dumps(execution_value), encoding="utf-8")
+    post = tmp_path / "post.json"
+    post_value = _post_payload(execution, execution_value)
+    post_value["stateCheck"]["observedApplicationBuild"] = "other-build"
     post.write_text(json.dumps(post_value), encoding="utf-8")
     with pytest.raises(mod.BackupRestoreError, match="post_restore_state_check_binding_mismatch"):
         mod.finalize(execution, post)
