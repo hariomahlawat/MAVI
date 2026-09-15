@@ -128,3 +128,36 @@ def test_backup_restore_validator_rejects_restore_topology_database_mismatch(tmp
             acceptance_profile_sha256="b" * 64,
             schema_path=_backup_restore_schema(tmp_path),
         )
+
+
+def test_application_lifecycle_build_mismatch_is_rejected(tmp_path: Path):
+    schema_path = tmp_path / "lifecycle.schema.json"
+    schema_path.write_text(
+        __import__("json").dumps({"type": "object"}),
+        encoding="utf-8",
+    )
+    value = {
+        "sourceCommit": "a" * 40,
+        "mode": "fresh-install",
+        "build": "build-b",
+        "destination": "mavi-root",
+        "hosting": {"passed": True, "physicalPath": "mavi-root"},
+        "internetUnavailable": True,
+        "observedHealth": {"commit": "a" * 40, "build": "build-b"},
+        "supportedUpdatesPolicySha256": "c" * 64,
+        "uiSmoke": {"passed": True},
+        "priorRelease": None,
+        "retainedState": None,
+        "result": {"passed": True, "failureCodes": []},
+    }
+    path = tmp_path / "lifecycle.json"
+    path.write_text(__import__("json").dumps(value), encoding="utf-8")
+    with pytest.raises(mod.ClosureError, match="application_lifecycle_build_mismatch"):
+        mod.validate_application_lifecycle(
+            path,
+            expected_mode="fresh-install",
+            source_commit="a" * 40,
+            mavi_build="build-a",
+            supported_updates_policy_sha256="c" * 64,
+            schema_path=schema_path,
+        )
