@@ -23,9 +23,13 @@ REQUIRED_PATHS = [
     "AGENTS.md",
     "CLAUDE.md",
     "CONTRIBUTING.md",
+    ".github/pull_request_template.md",
     "Setup-MAVI-Development.cmd",
     "config/dependencies/offline-dependency-policy-v1.json",
     "docs/architecture/dependency-and-offline-packaging-policy.md",
+    "docs/runbooks/local-development.md",
+    "docs/runbooks/mavi-offline-setup.md",
+    "docs/runbooks/offline-readiness.md",
     "src/platform/Mavi.Domain/Mavi.Domain.csproj",
     "src/platform/Mavi.Contracts/Mavi.Contracts.csproj",
     "src/platform/Mavi.Application/Mavi.Application.csproj",
@@ -379,6 +383,28 @@ def check_dependency_policy(errors: list[str]) -> None:
         not isinstance(item, str) or not item.strip() for item in review
     ):
         fail("Offline dependency policy requiredChangeReview is incomplete.", errors)
+
+    policy_reference = "docs/architecture/dependency-and-offline-packaging-policy.md"
+    documentation_contract = [
+        ROOT / "README.md",
+        ROOT / "AGENTS.md",
+        ROOT / "CONTRIBUTING.md",
+        ROOT / "docs/architecture/README.md",
+        ROOT / "docs/runbooks/mavi-offline-setup.md",
+        ROOT / "docs/runbooks/offline-readiness.md",
+    ]
+    for document in documentation_contract:
+        try:
+            content = document.read_text(encoding="utf-8")
+        except OSError as exc:
+            fail(f"Cannot read dependency-governance document {document}: {exc}", errors)
+            continue
+        if policy_reference not in content:
+            fail(
+                f"Dependency-governance document does not reference the canonical policy: "
+                f"{document.relative_to(ROOT)}",
+                errors,
+            )
 
 
 def check_contracts(errors: list[str]) -> None:
