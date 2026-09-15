@@ -133,18 +133,20 @@ $hostingDestination = Join-Path $destination "prerequisites\hosting\win-x64"
 New-Item -ItemType Directory -Path $hostingDestination -Force | Out-Null
 Copy-Item -LiteralPath $HostingBundle -Destination (Join-Path $hostingDestination "dotnet-hosting.exe")
 
-$developerDestination = Join-Path $destination "prerequisites\developer\win-x64"
-New-Item -ItemType Directory -Path $developerDestination -Force | Out-Null
-Copy-Item -LiteralPath $DotNetSdkInstaller -Destination (Join-Path $developerDestination "dotnet-sdk.exe")
-Copy-Item -LiteralPath $NodeInstaller -Destination (Join-Path $developerDestination "node.msi")
-Copy-Item -LiteralPath $PythonInstaller -Destination (Join-Path $developerDestination "python.exe")
+if ($IncludeDevelopmentPayload) {
+    $developerDestination = Join-Path $destination "prerequisites\developer\win-x64"
+    New-Item -ItemType Directory -Path $developerDestination -Force | Out-Null
+    Copy-Item -LiteralPath $DotNetSdkInstaller -Destination (Join-Path $developerDestination "dotnet-sdk.exe")
+    Copy-Item -LiteralPath $NodeInstaller -Destination (Join-Path $developerDestination "node.msi")
+    Copy-Item -LiteralPath $PythonInstaller -Destination (Join-Path $developerDestination "python.exe")
 
-foreach ($cacheDirectory in @("nuget-packages", "npm-cache", "python-wheelhouse")) {
-    $source = Join-Path $developerDependencyCache $cacheDirectory
-    if (-not (Test-Path -LiteralPath $source -PathType Container)) {
-        throw "Developer dependency cache is incomplete: $cacheDirectory"
+    foreach ($cacheDirectory in @("nuget-packages", "npm-cache", "python-wheelhouse")) {
+        $source = Join-Path $developerDependencyCache $cacheDirectory
+        if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+            throw "Developer dependency cache is incomplete: $cacheDirectory"
+        }
+        Copy-Tree -Source $source -Target (Join-Path $developerDestination $cacheDirectory)
     }
-    Copy-Tree -Source $source -Target (Join-Path $developerDestination $cacheDirectory)
 }
 
 $readme = @"
