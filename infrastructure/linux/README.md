@@ -13,7 +13,7 @@ Python: CPython 3.12.14
 
 Provision CPython `3.12.14` before consuming the bundle. Install only from the supplied wheelhouse and lock using the command in `infrastructure/offline-bundle/README.md` / bundle `INSTALL.txt`.
 
-The Task-12 bundle is a `qualification-candidate` until Task 14 completes formal disconnected-install, CUDA hardware, recovery, CCTV quality and production-performance qualification.
+The Task-12 bundle remains a `qualification-candidate` until the Task-17 Phase-1 qualification/acceptance gates complete formal disconnected installation, CUDA hardware, recovery, CCTV quality and production-performance evidence.
 
 Do not infer Linux CUDA support from the CPU bundle. `linux-x86_64-cuda` remains pending hardware qualification and must receive its own qualified wheel lock after the CUDA environment is frozen.
 
