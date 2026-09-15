@@ -180,6 +180,7 @@ def validate_lifecycle(
     application_manifest_sha256: str,
     supported_updates_policy_sha256: str,
     prior_application_manifest: Path | None = None,
+    prior_acceptance_evidence: Path | None = None,
     pre_update_state_check: Path | None = None,
     post_update_state_check: Path | None = None,
 ) -> str:
@@ -230,6 +231,7 @@ def validate_lifecycle(
         or not isinstance(prior.get("build"), str)
         or not isinstance(retained, dict)
         or prior_application_manifest is None
+        or prior_acceptance_evidence is None
         or pre_update_state_check is None
         or post_update_state_check is None
     ):
@@ -247,6 +249,27 @@ def validate_lifecycle(
         or prior_manifest.get("build") != prior.get("build")
     ):
         raise ProductionAcceptanceError("production_prior_application_manifest_mismatch")
+
+    prior_acceptance = load_json(
+        prior_acceptance_evidence,
+        "production_prior_acceptance_evidence_invalid",
+    )
+    validate_schema(
+        prior_acceptance,
+        "phase1-acceptance-evidence.schema.json",
+        "production_prior_acceptance_evidence",
+    )
+    try:
+        evidence_verifier.verify_acceptance(
+            prior_acceptance,
+            expected_source_commit=prior["sourceCommit"],
+        )
+    except evidence_verifier.EvidenceError as exc:
+        raise ProductionAcceptanceError(
+            "production_prior_acceptance_evidence_invalid:" + exc.code
+        ) from exc
+    if sha256_file(prior_acceptance_evidence) != retained.get("acceptanceEvidenceSha256"):
+        raise ProductionAcceptanceError("production_prior_acceptance_evidence_mismatch")
 
     migration = value.get("migration")
     if migration_policy == "required":
@@ -911,6 +934,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         application_manifest_sha256=application_manifest_sha,
         supported_updates_policy_sha256=supported_policy_sha,
         prior_application_manifest=args.prior_application_manifest,
+        prior_acceptance_evidence=args.prior_acceptance_evidence,
         pre_update_state_check=args.pre_update_state_check,
         post_update_state_check=args.post_update_state_check,
     )
@@ -1045,6 +1069,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         "freshInstallEvidenceSha256": fresh_sha,
         "offlineUpdateEvidenceSha256": update_sha,
         "priorApplicationManifestSha256": sha256_file(args.prior_application_manifest),
+        "priorAcceptanceEvidenceSha256": sha256_file(args.prior_acceptance_evidence),
         "preUpdateStateCheckSha256": sha256_file(args.pre_update_state_check),
         "postUpdateStateCheckSha256": sha256_file(args.post_update_state_check),
         "backupRestoreEvidenceSha256": backup_sha,
@@ -1077,6 +1102,7 @@ def main() -> int:
     parser.add_argument("--fresh-install", type=Path, required=True)
     parser.add_argument("--offline-update", type=Path, required=True)
     parser.add_argument("--prior-application-manifest", type=Path, required=True)
+    parser.add_argument("--prior-acceptance-evidence", type=Path, required=True)
     parser.add_argument("--pre-update-state-check", type=Path, required=True)
     parser.add_argument("--post-update-state-check", type=Path, required=True)
     parser.add_argument("--production-variant", action="append", default=[])
