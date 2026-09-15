@@ -28,7 +28,24 @@
     <SpaRoot>$(MaviFrontendDirectory)</SpaRoot>
     <SpaProxyServerUrl>http://127.0.0.1:5173</SpaProxyServerUrl>
     <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
+    <MaviNativeMediaToolsDirectory>$(MSBuildProjectDirectory)/../../../vendor/ffmpeg</MaviNativeMediaToolsDirectory>
+    <RequireMaviBundledMediaTools Condition="'$(RequireMaviBundledMediaTools)' == ''">false</RequireMaviBundledMediaTools>
   </PropertyGroup>
+
+  <ItemGroup Condition="Exists('$(MaviNativeMediaToolsDirectory)/manifest.json')">
+    <Content Include="$(MaviNativeMediaToolsDirectory)/**/*">
+      <Link>tools/ffmpeg/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target Name="VerifyBundledMediaToolsForPublish"
+          BeforeTargets="ComputeFilesToPublish"
+          Condition="'$(RequireMaviBundledMediaTools)' == 'true'">
+    <Error Condition="!Exists('$(MaviNativeMediaToolsDirectory)/manifest.json')"
+           Text="MAVI production publish requires vendor/ffmpeg/manifest.json and its vetted native binaries. Stage the approved offline FFmpeg dependency pack before publishing." />
+  </Target>
 
   <Target Name="BuildTask15Frontend" BeforeTargets="ComputeFilesToPublish">
     <Exec WorkingDirectory="$(MaviFrontendDirectory)" Command="npm ci" />
