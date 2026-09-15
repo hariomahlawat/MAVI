@@ -16,6 +16,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.SpaProxy" Version="10.0.11" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Mavi.Application\Mavi.Application.csproj" />
@@ -24,6 +25,9 @@
   </ItemGroup>
   <PropertyGroup>
     <MaviFrontendDirectory>$(MSBuildProjectDirectory)/../../web/mavi-web</MaviFrontendDirectory>
+    <SpaRoot>$(MaviFrontendDirectory)</SpaRoot>
+    <SpaProxyServerUrl>http://127.0.0.1:5173</SpaProxyServerUrl>
+    <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
   </PropertyGroup>
 
   <Target Name="BuildTask15Frontend" BeforeTargets="ComputeFilesToPublish">
