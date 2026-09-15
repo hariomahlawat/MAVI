@@ -72,8 +72,23 @@ if ($Profile -eq "Development") {
     $databaseUser = [string]$profileDefaults.postgresqlAdminUser
     $adminPassword = [string]$profileDefaults.postgresqlAdminPassword
     $databasePassword = $adminPassword
-    $mediaRoot = if ($DataRoot) { Join-Path $DataRoot "Media" } else { [string]$profileDefaults.mediaRoot }
-    $evidenceRoot = if ($DataRoot) { Join-Path $DataRoot "Evidence" } else { [string]$profileDefaults.evidenceRoot }
+    if ($DataRoot) {
+        $mediaRoot = Join-Path $DataRoot "Media"
+        $evidenceRoot = Join-Path $DataRoot "Evidence"
+    }
+    else {
+        $configuredMediaRoot = [string]$profileDefaults.mediaRoot
+        $configuredEvidenceRoot = [string]$profileDefaults.evidenceRoot
+        $configuredDrive = [IO.Path]::GetPathRoot($configuredMediaRoot)
+        if ($configuredDrive -and (Test-Path -LiteralPath $configuredDrive -PathType Container)) {
+            $mediaRoot = $configuredMediaRoot
+            $evidenceRoot = $configuredEvidenceRoot
+        }
+        else {
+            $mediaRoot = Join-Path $programDataRoot "Data"
+            $evidenceRoot = Join-Path $programDataRoot "Evidence"
+        }
+    }
     $machineConfigPath = Join-Path $env:LOCALAPPDATA "MAVI\config\appsettings.development.machine.json"
     $setupRoot = Join-Path $env:LOCALAPPDATA "MAVI\setup"
 }
@@ -190,6 +205,11 @@ try {
 
     New-Item -ItemType Directory -Path $mediaRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $evidenceRoot -Force | Out-Null
+    if ($Profile -eq "Development") {
+        $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        Set-MaviDirectoryAcl -Path $mediaRoot -Identity $currentIdentity -Rights "M"
+        Set-MaviDirectoryAcl -Path $evidenceRoot -Identity $currentIdentity -Rights "M"
+    }
 
     $connectionString = "Host=127.0.0.1;Port=$port;Database=$databaseName;Username=$databaseUser;Password=$databasePassword"
     $developmentFfmpegPack = Join-Path $BundleRoot "prerequisites\ffmpeg"
