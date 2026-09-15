@@ -236,6 +236,8 @@ Use `tools/phase1/assemble_production_acceptance.py` with:
 - exact compiled application artifact and manifest;
 - validated prerequisite evidence plus all three raw prerequisite observations;
 - fresh-install and supported-update evidence;
+- the retained policy-approved prior application manifest;
+- the pre-update and post-update authoritative-state evidence files produced by the lifecycle qualifier;
 - the retained prior application manifest, retained prior acceptance evidence, and the exact pre-update and post-update authoritative-state check files emitted by the update qualifier;
 - all four production variant evidence files;
 - formal scenario record + formal E2E;
