@@ -155,23 +155,48 @@ function Test-Node22 {
 }
 
 function Resolve-Python313 {
-    $candidates = @()
-    $cmd = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($cmd) { $candidates += $cmd.Source }
-    $candidates += (Join-Path $env:ProgramFiles "Python313\python.exe")
-    $candidates += (Join-Path $env:LOCALAPPDATA "Programs\Python\Python313\python.exe")
+    $candidates = New-Object System.Collections.Generic.List[string]
 
-    foreach ($candidate in ($candidates | Select-Object -Unique)) {
-        if (-not $candidate) { continue }
-        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
-        $v = (& $candidate --version 2>&1 | Out-String).Trim()
-        if ($v -match "^Python\s+3\.13(\.|$)") { return [string]$candidate }
+    function Add-PythonCandidate {
+        param([string]$Path)
+        if ([string]::IsNullOrWhiteSpace($Path)) { return }
+        try {
+            $full = [IO.Path]::GetFullPath($Path)
+            if (-not $candidates.Contains($full)) {
+                [void]$candidates.Add($full)
+            }
+        }
+        catch {
+            # Ignore malformed candidates.
+        }
     }
 
+    Add-PythonCandidate (Join-Path $env:ProgramFiles "Python313\python.exe")
+    Add-PythonCandidate (Join-Path $env:LOCALAPPDATA "Programs\Python\Python313\python.exe")
+
     $py = Get-Command py.exe -ErrorAction SilentlyContinue
-    if ($py) {
-        $p = (& $py.Source -3.13 -c "import sys; print(sys.executable)" 2>$null | Out-String).Trim()
-        if ($p -and (Test-Path -LiteralPath $p -PathType Leaf)) { return $p }
+    if ($py -and $py.Source) {
+        try {
+            $p = (& $py.Source -3.13 -c "import sys; print(sys.executable)" 2>$null | Out-String).Trim()
+            if ($p) { Add-PythonCandidate $p }
+        }
+        catch {
+            # Continue with direct interpreter discovery.
+        }
+    }
+
+    $cmd = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source) { Add-PythonCandidate $cmd.Source }
+
+    foreach ($candidate in $candidates) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        try {
+            $v = (& $candidate --version 2>&1 | Out-String).Trim()
+            if ($v -match "^Python\s+3\.13(\.|$)") { return [string]$candidate }
+        }
+        catch {
+            # Ignore WindowsApps aliases and stale PATH entries.
+        }
     }
 
     return $null
@@ -329,7 +354,7 @@ function Resolve-PostgresRoot {
         # Standard postgres output is normally:
         #   postgres (PostgreSQL) 18.x
         # Do not require "PostgreSQL 18.x" to be directly adjacent.
-        if ($version -notmatch '(?i)\bPostgreSQL\b.*\b18(?:\.|\b)') {
+        if (-not (Test-MaviPostgreSqlMajorVersionOutput -VersionOutput $version -Major 18)) {
             Write-Host "  skipped: not PostgreSQL major version 18"
             continue
         }
@@ -411,16 +436,36 @@ try {
 
     Write-Step "Download controlled external inputs"
 
-    # FFmpeg release essentials (Gyan Windows build) + published SHA-256.
-    $ffmpegZip = Join-Path $downloads "ffmpeg-release-essentials.zip"
-    $ffmpegSha = Join-Path $downloads "ffmpeg-release-essentials.zip.sha256"
-    Invoke-Download "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" $ffmpegZip
-    Invoke-Download "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256" $ffmpegSha
+    # FFmpeg is acquired only from the repository-pinned catalog source.
+    # Do not use a floating "latest release" URL for an offline supply-chain artifact.
+    $catalogPath = Join-Path $repoRoot "config\dependencies\offline-binary-catalog-v1.json"
+    $catalog = Read-MaviJson -Path $catalogPath
+    $ffmpegCatalog = @($catalog.applicationAndSetup | Where-Object { [string]$_.id -eq "ffmpeg-win-x64" }) | Select-Object -First 1
+    if (-not $ffmpegCatalog) { throw "FFmpeg is not declared in the offline binary catalog." }
 
-    $expectedFfmpeg = ([regex]::Match((Get-Content $ffmpegSha -Raw), "(?i)\b[0-9a-f]{64}\b")).Value.ToLowerInvariant()
+    $ffmpegSourceProperty = $ffmpegCatalog.PSObject.Properties["acquisitionSource"]
+    if (-not $ffmpegSourceProperty) { throw "FFmpeg catalog entry has no acquisitionSource." }
+    $ffmpegSource = $ffmpegSourceProperty.Value
+    if (-not [bool]$ffmpegSource.connectedPreparationOnly) {
+        throw "FFmpeg acquisition source must be marked connectedPreparationOnly."
+    }
+
+    $ffmpegUri = [string]$ffmpegSource.url
+    $ffmpegArchiveName = [string]$ffmpegSource.archiveName
+    $expectedFfmpeg = ([string]$ffmpegSource.sha256).ToLowerInvariant()
+    $ffmpegBaseline = [string]$ffmpegCatalog.baselineVersion
+
+    if ($ffmpegUri -notmatch "^https://") { throw "FFmpeg acquisition URL must use HTTPS." }
+    if ($expectedFfmpeg -notmatch "^[0-9a-f]{64}$") { throw "FFmpeg catalog SHA-256 is invalid." }
+    if ([string]::IsNullOrWhiteSpace($ffmpegArchiveName)) { throw "FFmpeg catalog archiveName is missing." }
+    if ([string]::IsNullOrWhiteSpace($ffmpegBaseline)) { throw "FFmpeg catalog baselineVersion is missing." }
+
+    $ffmpegZip = Join-Path $downloads $ffmpegArchiveName
+    Invoke-Download $ffmpegUri $ffmpegZip
+
     $actualFfmpeg = Get-Sha256 $ffmpegZip
-    if (-not $expectedFfmpeg -or $actualFfmpeg -ne $expectedFfmpeg) {
-        throw "FFmpeg SHA-256 verification failed."
+    if ($actualFfmpeg -ne $expectedFfmpeg) {
+        throw "FFmpeg SHA-256 verification failed against the pinned offline binary catalog."
     }
 
     # .NET 10 official Microsoft redirect endpoints; Authenticode checked below.
@@ -483,6 +528,9 @@ try {
     $m = [regex]::Match($firstLine, "^ffmpeg version\s+(?<v>\S+)")
     if (-not $m.Success) { throw "Unable to determine FFmpeg version." }
     $ffmpegVersion = $m.Groups["v"].Value
+    if ($ffmpegVersion -notmatch ("^" + [regex]::Escape($ffmpegBaseline) + "(?:\D|$)")) {
+        throw "Downloaded FFmpeg reports '$ffmpegVersion', which does not match pinned baseline '$ffmpegBaseline'."
+    }
 
     & (Join-Path $repoRoot "tools\native\stage_ffmpeg_windows.ps1") -SourceDirectory $ffmpegExe.Directory.FullName -Version $ffmpegVersion
 
