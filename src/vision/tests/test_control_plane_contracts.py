@@ -23,8 +23,8 @@ COMPLETION_CONFORMANCE = ROOT / "contracts/test-vectors/vision-job-complete-v2-c
 
 
 def test_canonical_lease_golden_example_round_trips_semantically() -> None:
-    payload = json.loads(EXAMPLE.read_text())
-    model = VisionJobLease.model_validate_json(EXAMPLE.read_text())
+    payload = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    model = VisionJobLease.model_validate_json(EXAMPLE.read_text(encoding="utf-8"))
     assert model.model_dump(by_alias=True, mode="json") == payload
 
 
@@ -38,7 +38,7 @@ def test_canonical_lease_golden_example_round_trips_semantically() -> None:
     {"unexpected": True},
 ])
 def test_invalid_control_plane_vectors_are_rejected(change: dict[str, object]) -> None:
-    payload = json.loads(EXAMPLE.read_text())
+    payload = json.loads(EXAMPLE.read_text(encoding="utf-8"))
     payload.update(change)
     with pytest.raises(ValidationError):
         VisionJobLease.model_validate_json(json.dumps(payload))
@@ -53,7 +53,7 @@ def test_shared_invalid_vectors_are_rejected() -> None:
         "vision-job-fail-v2": VisionJobFail,
         "worker-health-v2": WorkerHealth,
     }
-    for vector in json.loads(INVALID_VECTORS.read_text()):
+    for vector in json.loads(INVALID_VECTORS.read_text(encoding="utf-8")):
         with pytest.raises(ValidationError):
             models[vector["schema"]].model_validate_json(json.dumps(vector["payload"]))
 
@@ -65,7 +65,7 @@ def test_shared_invalid_vectors_are_rejected() -> None:
     {"leaseExpiresAtUtc": 1788912000},
 ])
 def test_lease_rejects_coercible_wire_values(change: dict[str, object]) -> None:
-    payload = json.loads(EXAMPLE.read_text())
+    payload = json.loads(EXAMPLE.read_text(encoding="utf-8"))
     payload.update(change)
     with pytest.raises(ValidationError):
         VisionJobLease.model_validate_json(json.dumps(payload))
@@ -147,7 +147,7 @@ def test_wire_json_accepts_only_canonical_aliases(
     [
         (
             VisionJobLease,
-            json.loads(EXAMPLE.read_text()),
+            json.loads(EXAMPLE.read_text(encoding="utf-8")),
             ("leaseExpiresAtUtc", "recordingStartUtc", "recordingEndUtc"),
         ),
         (
@@ -208,7 +208,7 @@ def test_failure_message_is_optional_and_nullable(include_member: bool, failure_
 
 def test_completion_example_is_accepted_by_canonical_python_model() -> None:
     path = ROOT / "contracts/examples/vision-job-complete-v2.example.json"
-    model = VisionJobComplete.model_validate_json(path.read_text())
+    model = VisionJobComplete.model_validate_json(path.read_text(encoding="utf-8"))
 
     assert model.schema_version == "2.0"
     assert model.worker_id == "gpu-sdd-01"
@@ -223,7 +223,7 @@ def test_completion_track_id_is_lowercase_filesystem_canonical() -> None:
     payload["tracks"][0]["trackId"] = "Person-000001"
 
     schema = json.loads(
-        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text()
+        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text(encoding="utf-8")
     )
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(
@@ -237,7 +237,7 @@ def test_completion_track_id_is_lowercase_filesystem_canonical() -> None:
 
 def test_completion_model_rejects_unknown_members() -> None:
     payload = json.loads(
-        (ROOT / "contracts/examples/vision-job-complete-v2.example.json").read_text()
+        (ROOT / "contracts/examples/vision-job-complete-v2.example.json").read_text(encoding="utf-8")
     )
     payload["unexpected"] = True
 
@@ -247,8 +247,8 @@ def test_completion_model_rejects_unknown_members() -> None:
 def test_verified_completion_schema_requires_qualification_and_platform_lock() -> None:
     example_path = ROOT / "contracts/examples/vision-job-complete-v2.example.json"
     schema_path = ROOT / "contracts/schemas/vision-job-complete-v2.schema.json"
-    payload = json.loads(example_path.read_text())
-    schema = json.loads(schema_path.read_text())
+    payload = json.loads(example_path.read_text(encoding="utf-8"))
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
     payload["provenance"]["verificationStatus"] = "verified"
     payload["provenance"].pop("qualificationId", None)
@@ -281,8 +281,8 @@ def test_verified_completion_schema_requires_qualification_and_platform_lock() -
 def test_completion_provenance_text_bounds_match_schema_and_python_model(mutate) -> None:
     example_path = ROOT / "contracts/examples/vision-job-complete-v2.example.json"
     schema_path = ROOT / "contracts/schemas/vision-job-complete-v2.schema.json"
-    payload = json.loads(example_path.read_text())
-    schema = json.loads(schema_path.read_text())
+    payload = json.loads(example_path.read_text(encoding="utf-8"))
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
     mutate(payload)
 
     with pytest.raises(jsonschema.ValidationError):
@@ -300,8 +300,8 @@ def test_completion_provenance_text_bounds_match_schema_and_python_model(mutate)
 def test_completion_provenance_rejects_nul_consistently() -> None:
     example_path = ROOT / "contracts/examples/vision-job-complete-v2.example.json"
     schema_path = ROOT / "contracts/schemas/vision-job-complete-v2.schema.json"
-    payload = json.loads(example_path.read_text())
-    schema = json.loads(schema_path.read_text())
+    payload = json.loads(example_path.read_text(encoding="utf-8"))
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
     payload["provenance"]["modelId"] = "rtmdet\u0000m"
 
     with pytest.raises(jsonschema.ValidationError):
@@ -317,7 +317,7 @@ def test_completion_provenance_rejects_nul_consistently() -> None:
 
 def _completion_example_payload() -> dict[str, object]:
     return json.loads(
-        (ROOT / "contracts/examples/vision-job-complete-v2.example.json").read_text()
+        (ROOT / "contracts/examples/vision-job-complete-v2.example.json").read_text(encoding="utf-8")
     )
 
 
@@ -332,7 +332,7 @@ def _raw_completion_with_number(field: str, token: str) -> str:
 
 def _load_completion_schema_exact() -> dict[str, object]:
     return json.loads(
-        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text(),
+        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text(encoding="utf-8"),
         parse_float=Decimal,
     )
 
@@ -367,7 +367,7 @@ def _exact_schema_validator(schema: dict[str, object]):
 
 
 def test_completion_integer_conformance_corpus_matches_schema_and_python() -> None:
-    vectors = json.loads(COMPLETION_CONFORMANCE.read_text())
+    vectors = json.loads(COMPLETION_CONFORMANCE.read_text(encoding="utf-8"))
     schema = _load_completion_schema_exact()
     validator = _exact_schema_validator(schema)
 
@@ -398,9 +398,9 @@ def test_completion_integer_conformance_corpus_matches_schema_and_python() -> No
 
 
 def test_completion_provenance_edge_corpus_matches_schema_and_python() -> None:
-    vectors = json.loads(COMPLETION_CONFORMANCE.read_text())
+    vectors = json.loads(COMPLETION_CONFORMANCE.read_text(encoding="utf-8"))
     schema = json.loads(
-        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text()
+        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text(encoding="utf-8")
     )
 
     for vector in vectors["provenanceEdgeCases"]:
@@ -478,7 +478,7 @@ def test_completion_dependency_version_count_matches_schema_and_python() -> None
         "trackers": "2.6.0",
     }
     schema = json.loads(
-        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text()
+        (ROOT / "contracts/schemas/vision-job-complete-v2.schema.json").read_text(encoding="utf-8")
     )
 
     with pytest.raises(jsonschema.ValidationError):
