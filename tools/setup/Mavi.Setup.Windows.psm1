@@ -194,11 +194,9 @@ function Test-MaviNode22 {
     $result = Invoke-MaviCommand -FilePath $node.Source -Arguments @("--version") -CaptureOutput
     $match = [regex]::Match($result.StandardOutput.Trim(), "^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)")
     if (-not $match.Success) { return $false }
-    $version = New-Object Version(
-        [int]$match.Groups["major"].Value,
-        [int]$match.Groups["minor"].Value,
-        [int]$match.Groups["patch"].Value)
-    return $version.Major -eq 22 -and $version -ge (New-Object Version(22, 13, 0))
+    $major = [int]$match.Groups["major"].Value
+    $minor = [int]$match.Groups["minor"].Value
+    return $major -eq 22 -and $minor -ge 13
 }
 
 function Test-MaviPython313 {
