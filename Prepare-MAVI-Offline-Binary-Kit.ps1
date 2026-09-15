@@ -150,17 +150,185 @@ function Install-IfNeeded {
 function Resolve-PostgresRoot {
     param([string]$Preferred)
 
-    foreach ($candidate in @($Preferred, (Join-Path $env:ProgramFiles "PostgreSQL\18")) | Select-Object -Unique) {
-        if (-not $candidate) { continue }
-        $postgres = Join-Path $candidate "bin\postgres.exe"
-        $vector = Join-Path $candidate "share\extension\vector.control"
-        if ((Test-Path $postgres) -and (Test-Path $vector)) {
-            $v = (& $postgres --version | Out-String).Trim()
-            if ($v -match "PostgreSQL 18\.") { return [IO.Path]::GetFullPath($candidate) }
+    $candidates = New-Object System.Collections.Generic.List[string]
+
+    function Add-Candidate {
+        param([string]$Path)
+
+        if ([string]::IsNullOrWhiteSpace($Path)) { return }
+
+        try {
+            $full = [IO.Path]::GetFullPath($Path.Trim('"'))
+            if (-not $candidates.Contains($full)) {
+                [void]$candidates.Add($full)
+            }
+        }
+        catch {
+            # Ignore malformed discovery candidates.
         }
     }
 
-    throw "PostgreSQL 18 with pgvector was not found. Supply -PostgreSqlRoot if it is installed elsewhere."
+    # Explicit/default locations.
+    Add-Candidate $Preferred
+    Add-Candidate (Join-Path $env:ProgramFiles "PostgreSQL\18")
+
+    $pf86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+    if ($pf86) {
+        Add-Candidate (Join-Path $pf86 "PostgreSQL\18")
+    }
+
+    # PATH.
+    $postgresCommand = Get-Command postgres.exe -ErrorAction SilentlyContinue
+    if ($postgresCommand -and $postgresCommand.Source) {
+        Add-Candidate (Split-Path (Split-Path $postgresCommand.Source -Parent) -Parent)
+    }
+
+    # Running postgres.exe processes.
+    try {
+        foreach ($process in @(Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" -ErrorAction Stop)) {
+            if ($process.ExecutablePath) {
+                Add-Candidate (Split-Path (Split-Path $process.ExecutablePath -Parent) -Parent)
+            }
+        }
+    }
+    catch {
+        Write-Verbose "Unable to inspect running PostgreSQL processes: $($_.Exception.Message)"
+    }
+
+    # Registered PostgreSQL Windows services.
+    try {
+        foreach ($service in @(Get-CimInstance Win32_Service -ErrorAction Stop | Where-Object {
+            $_.Name -match "postgres" -or $_.DisplayName -match "PostgreSQL"
+        })) {
+            $pathName = [string]$service.PathName
+            if (-not $pathName) { continue }
+
+            $exePath = $null
+
+            $quoted = [regex]::Match(
+                $pathName,
+                '^\s*"(?<exe>[^"]*postgres\.exe)"',
+                [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+            if ($quoted.Success) {
+                $exePath = $quoted.Groups["exe"].Value
+            }
+            else {
+                $plain = [regex]::Match(
+                    $pathName,
+                    '^\s*(?<exe>\S*postgres\.exe)\b',
+                    [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+                if ($plain.Success) {
+                    $exePath = $plain.Groups["exe"].Value
+                }
+            }
+
+            if ($exePath) {
+                Add-Candidate (Split-Path (Split-Path $exePath -Parent) -Parent)
+            }
+        }
+    }
+    catch {
+        Write-Verbose "Unable to inspect PostgreSQL Windows services: $($_.Exception.Message)"
+    }
+
+    # PostgreSQL installer registry entries.
+    foreach ($registryRoot in @(
+        "HKLM:\SOFTWARE\PostgreSQL\Installations",
+        "HKLM:\SOFTWARE\WOW6432Node\PostgreSQL\Installations"
+    )) {
+        if (-not (Test-Path -LiteralPath $registryRoot)) { continue }
+
+        foreach ($key in @(Get-ChildItem -LiteralPath $registryRoot -ErrorAction SilentlyContinue)) {
+            try {
+                $props = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction Stop
+
+                foreach ($propertyName in @("Base Directory", "BaseDirectory")) {
+                    $property = $props.PSObject.Properties[$propertyName]
+                    if ($property -and $property.Value) {
+                        Add-Candidate ([string]$property.Value)
+                    }
+                }
+            }
+            catch {
+                Write-Verbose "Unable to inspect PostgreSQL registry key: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    $postgres18Roots = New-Object System.Collections.Generic.List[string]
+
+    foreach ($candidate in $candidates) {
+        $postgres = Join-Path $candidate "bin\postgres.exe"
+        if (-not (Test-Path -LiteralPath $postgres -PathType Leaf)) { continue }
+
+        $version = (& $postgres --version 2>&1 | Out-String).Trim()
+        Write-Host "PostgreSQL candidate: $candidate"
+        Write-Host "  postgres.exe reports: $version"
+
+        # Standard postgres output is normally:
+        #   postgres (PostgreSQL) 18.x
+        # Do not require "PostgreSQL 18.x" to be directly adjacent.
+        if ($version -notmatch '(?i)\bPostgreSQL\b.*\b18(?:\.|\b)') {
+            Write-Host "  skipped: not PostgreSQL major version 18"
+            continue
+        }
+
+        [void]$postgres18Roots.Add($candidate)
+
+        $vector = Join-Path $candidate "share\extension\vector.control"
+        if (Test-Path -LiteralPath $vector -PathType Leaf) {
+            Write-Host "  pgvector control: $vector" -ForegroundColor Green
+            Write-Host "Detected PostgreSQL 18 + pgvector: $candidate" -ForegroundColor Green
+            return $candidate
+        }
+
+        Write-Host "  PostgreSQL 18 found, but pgvector control file is missing:" -ForegroundColor Yellow
+        Write-Host "  $vector" -ForegroundColor Yellow
+    }
+
+    if ($postgres18Roots.Count -gt 0) {
+        $roots = ($postgres18Roots | ForEach-Object { "  - $_" }) -join [Environment]::NewLine
+
+        throw @"
+PostgreSQL 18 was found, but pgvector was not found in that PostgreSQL 18 installation.
+
+Expected file:
+  share\extension\vector.control
+
+PostgreSQL 18 roots found:
+$roots
+
+If pgvector is installed under another PostgreSQL 18 root, run:
+  .\Prepare-MAVI-Offline-Binary-Kit.ps1 -InstallMissingToolchain -PostgreSqlRoot "<root>"
+"@
+    }
+
+    $inspected = if ($candidates.Count -gt 0) {
+        ($candidates | ForEach-Object { "  - $_" }) -join [Environment]::NewLine
+    }
+    else {
+        "  (none discovered)"
+    }
+
+    throw @"
+PostgreSQL 18 with pgvector was not found.
+
+The script checked:
+  - the explicit/default PostgreSQL root;
+  - Program Files;
+  - PATH;
+  - running postgres.exe processes;
+  - PostgreSQL Windows services; and
+  - PostgreSQL installer registry records.
+
+Candidates inspected:
+$inspected
+
+If PostgreSQL 18 is installed elsewhere, run:
+  .\Prepare-MAVI-Offline-Binary-Kit.ps1 -InstallMissingToolchain -PostgreSqlRoot "<root>"
+"@
 }
 
 New-Item -ItemType Directory -Path $downloads -Force | Out-Null
