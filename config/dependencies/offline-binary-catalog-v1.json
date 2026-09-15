@@ -101,11 +101,11 @@
         "Development"
       ],
       "versionPolicy": "major-22-minimum",
-      "baselineVersion": "22.13.0",
+      "baselineVersion": "22.22.2",
       "exactVersionSource": "binary-kit MSI ProductVersion",
       "binaryKitPath": "vendor/installers/win-x64/node.msi",
       "releasePath": "prerequisites/developer/win-x64/node.msi",
-      "verification": "binary-kit SHA-256 plus node --version >=22.13.0 <23",
+      "verification": "binary-kit SHA-256 plus node --version >=22.22.2 <23",
       "licence": "approved Node.js redistribution/licence material retained by release preparation",
       "dependencyPolicyId": "developer-toolchain-win-x64"
     },
