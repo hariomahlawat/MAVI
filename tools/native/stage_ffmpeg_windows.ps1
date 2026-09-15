@@ -24,6 +24,15 @@ foreach ($name in $required) {
     }
 }
 
+foreach ($name in $required) {
+    $candidate = Join-Path $source $name
+    $versionOutput = & $candidate -version 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or
+        $versionOutput.IndexOf($Version, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw "$name does not report declared FFmpeg version '$Version'."
+    }
+}
+
 $licenseCandidates = @(
     (Join-Path $source "LICENSE.txt"),
     (Join-Path $source "LICENSE"),
