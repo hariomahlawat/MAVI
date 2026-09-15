@@ -83,5 +83,7 @@ $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifestPath -En
 Write-Host "Staged approved FFmpeg dependency pack:"
 Write-Host "  Version : $Version"
 Write-Host "  Runtime : $runtimeId"
+$manifestHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $manifestPath).Hash.ToLowerInvariant()
 Write-Host "  Output  : $destinationRoot"
+Write-Host "  Manifest SHA-256: $manifestHash"
 Get-Content -LiteralPath $manifestPath
