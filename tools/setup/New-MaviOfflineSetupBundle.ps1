@@ -22,7 +22,10 @@ param(
     [string]$NodeInstaller,
 
     [Parameter(Mandatory = $true)]
-    [string]$PythonInstaller
+    [string]$PythonInstaller,
+
+    [Parameter(Mandatory = $true)]
+    [string]$DeveloperDependencyCache
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,6 +38,7 @@ $destination = [IO.Path]::GetFullPath($Destination)
 $postgreSqlRuntimePack = (Resolve-Path -LiteralPath $PostgreSqlRuntimePack).Path
 $ffmpegPack = (Resolve-Path -LiteralPath $FfmpegPack).Path
 $applicationArtifact = (Resolve-Path -LiteralPath $ApplicationArtifact).Path
+$developerDependencyCache = (Resolve-Path -LiteralPath $DeveloperDependencyCache).Path
 
 [void](Test-MaviManifest -Root $postgreSqlRuntimePack -ManifestPath (Join-Path $postgreSqlRuntimePack "manifest.json") -ExpectedSchemaVersion "mavi-postgresql-runtime-pack-v1")
 [void](Test-MaviManifest -Root $ffmpegPack -ManifestPath (Join-Path $ffmpegPack "manifest.json") -ExpectedSchemaVersion "1.0")
@@ -97,6 +101,14 @@ New-Item -ItemType Directory -Path $developerDestination -Force | Out-Null
 Copy-Item -LiteralPath $DotNetSdkInstaller -Destination (Join-Path $developerDestination "dotnet-sdk.exe")
 Copy-Item -LiteralPath $NodeInstaller -Destination (Join-Path $developerDestination "node.msi")
 Copy-Item -LiteralPath $PythonInstaller -Destination (Join-Path $developerDestination "python.exe")
+
+foreach ($cacheDirectory in @("nuget-packages", "npm-cache", "python-wheelhouse")) {
+    $source = Join-Path $developerDependencyCache $cacheDirectory
+    if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+        throw "Developer dependency cache is incomplete: $cacheDirectory"
+    }
+    Copy-Tree -Source $source -Target (Join-Path $developerDestination $cacheDirectory)
+}
 
 $readme = @"
 MAVI OFFLINE SETUP
@@ -169,6 +181,9 @@ $manifest = [ordered]@{
         dotnetSdk = $true
         node = $true
         python = $true
+        nugetCache = $true
+        npmCache = $true
+        pythonWheelhouse = $true
     }
     artifacts = @($artifacts)
 }
