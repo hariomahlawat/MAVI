@@ -259,27 +259,37 @@ public static class DatabaseMigrationStartup
                 "package before starting MAVI.");
         }
 
-        try
-        {
-            await using var enableCommand = connection.CreateCommand();
-            enableCommand.CommandText =
-                "create extension if not exists vector;";
-            await enableCommand.ExecuteNonQueryAsync(cancellationToken);
-        }
-        catch (PostgresException exception)
-        {
-            throw new InvalidOperationException(
-                "pgvector is installed but MAVI could not enable the 'vector' extension. " +
-                "The database principal must be permitted to create the approved extension.",
-                exception);
-        }
-
         await using var installedCommand = connection.CreateCommand();
         installedCommand.CommandText =
             "select extversion from pg_extension where extname = 'vector';";
         var installedVersion = Convert.ToString(
             await installedCommand.ExecuteScalarAsync(cancellationToken),
             System.Globalization.CultureInfo.InvariantCulture);
+
+        if (string.IsNullOrWhiteSpace(installedVersion))
+        {
+            try
+            {
+                await using var enableCommand = connection.CreateCommand();
+                enableCommand.CommandText = "create extension vector;";
+                await enableCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (PostgresException exception)
+            {
+                throw new InvalidOperationException(
+                    "pgvector is installed on the PostgreSQL server but is not enabled in this database. " +
+                    "Run the MAVI setup/bootstrapper with administrative database privileges, or grant the " +
+                    "database principal permission to create the approved extension.",
+                    exception);
+            }
+
+            await using var verifyCommand = connection.CreateCommand();
+            verifyCommand.CommandText =
+                "select extversion from pg_extension where extname = 'vector';";
+            installedVersion = Convert.ToString(
+                await verifyCommand.ExecuteScalarAsync(cancellationToken),
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
         if (string.IsNullOrWhiteSpace(installedVersion))
         {
             throw new InvalidOperationException(
