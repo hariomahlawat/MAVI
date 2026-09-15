@@ -72,6 +72,17 @@ foreach ($cache in @(
     }
 }
 
+$developerCacheManifestPath = Join-Path $kitRoot "vendor\developer-cache\win-x64\developer-cache-manifest.json"
+$developerCacheManifest = Read-MaviJson -Path $developerCacheManifestPath
+if ([string]$developerCacheManifest.schemaVersion -ne "mavi-developer-offline-cache-v1") {
+    throw "Offline binary kit contains an unsupported Development cache manifest."
+}
+$developerCacheHashProperty = $manifest.versions.PSObject.Properties["developerCacheManifestSha256"]
+if (-not $developerCacheHashProperty -or
+    [string]$developerCacheHashProperty.Value -ne (Get-MaviSha256 -Path $developerCacheManifestPath)) {
+    throw "Offline binary kit Development cache manifest hash does not match the kit manifest."
+}
+
 if ([string]$manifest.versions.postgresql -ne [string]$postgreSql.postgresqlVersion) {
     throw "Offline binary kit PostgreSQL version record does not match nested runtime manifest."
 }
