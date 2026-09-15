@@ -71,11 +71,49 @@ public static class StorageTopologyEndpoints
             schemaVersion = "mavi-storage-topology-attestation-v1",
             maviBuild = string.IsNullOrWhiteSpace(build) ? "unknown-development" : build,
             maviCommit = string.IsNullOrWhiteSpace(commit) ? "unknown-development" : commit,
+            operationalHostIdentitySha256 = HostIdentitySha256(),
             databaseIdentity,
             managedMediaRootIdentitySha256 = RootIdentitySha256(options.RootPath),
             acceptedEvidenceRootIdentitySha256 = RootIdentitySha256(options.EvidenceRootPath)
         };
         return Results.Ok(response);
+    }
+
+    internal static string HostIdentitySha256()
+    {
+        var hostname = Environment.MachineName.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(hostname))
+            throw new InvalidOperationException("Operational host name is unavailable.");
+
+        string family;
+        string machineIdentity;
+        if (OperatingSystem.IsWindows())
+        {
+            family = "windows";
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                @"SOFTWARE\Microsoft\Cryptography");
+            machineIdentity = Convert.ToString(
+                key?.GetValue("MachineGuid"),
+                System.Globalization.CultureInfo.InvariantCulture)?.Trim().ToLowerInvariant()
+                ?? string.Empty;
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            family = "linux";
+            machineIdentity = File.ReadAllText("/etc/machine-id").Trim().ToLowerInvariant();
+        }
+        else
+        {
+            throw new PlatformNotSupportedException(
+                "Operational host identity is supported only on Windows and Linux.");
+        }
+
+        if (string.IsNullOrWhiteSpace(machineIdentity))
+            throw new InvalidOperationException("Operational machine identity is unavailable.");
+
+        var payload = Encoding.UTF8.GetBytes(
+            $"{family}|{hostname}|{machineIdentity}");
+        return Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
     }
 
     internal static string RootIdentitySha256(string path)

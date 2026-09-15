@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion", "mode", "sourceCommit", "targetVerifiedManifestSha256", "acceptanceProfileSha256", "environmentLabel", "releaseExpected",
+    "schemaVersion", "mode", "sourceCommit", "targetVerifiedManifestSha256", "acceptanceProfileSha256", "environmentLabel", "operationalApi", "authoritativeStateSha256", "releaseExpected",
     "attestation", "camera", "video", "sourceMedia", "processing", "tracks",
     "evidenceReads", "sourceRange", "metrics", "result"
   ],
@@ -16,6 +16,18 @@
     "targetVerifiedManifestSha256": { "$ref": "#/$defs/sha256" },
     "acceptanceProfileSha256": { "$ref": "#/$defs/sha256" },
     "environmentLabel": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "operationalApi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostIdentitySha256","databaseIdentity","managedMediaRootIdentitySha256","acceptedEvidenceRootIdentitySha256"],
+      "properties": {
+        "hostIdentitySha256": { "$ref": "#/$defs/sha256" },
+        "databaseIdentity": { "type": "string", "minLength": 1 },
+        "managedMediaRootIdentitySha256": { "$ref": "#/$defs/sha256" },
+        "acceptedEvidenceRootIdentitySha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "authoritativeStateSha256": { "$ref": "#/$defs/sha256" },
     "releaseExpected": { "$ref": "#/$defs/release" },
     "attestation": {
       "type": "object",
@@ -55,10 +67,11 @@
     "camera": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "code", "timeZoneId", "isActive"],
+      "required": ["id", "code", "name", "timeZoneId", "isActive"],
       "properties": {
         "id": { "$ref": "#/$defs/guid" },
         "code": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
         "timeZoneId": { "type": "string", "minLength": 1 },
         "isActive": { "const": true }
       }
@@ -112,7 +125,7 @@
     "tracks": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["total", "person", "vehicle", "detailsResolved", "orphanCount", "trackIds"],
+      "required": ["total", "person", "vehicle", "detailsResolved", "orphanCount", "trackIds", "semanticState"],
       "properties": {
         "total": { "type": "integer", "minimum": 0 },
         "person": { "type": "integer", "minimum": 0 },
@@ -123,6 +136,30 @@
           "type": "array",
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/guid" }
+        },
+        "semanticState": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id","objectClass","startOffsetMs","endOffsetMs","representative"],
+            "properties": {
+              "id": { "$ref": "#/$defs/guid" },
+              "objectClass": { "enum": ["Person","Vehicle"] },
+              "startOffsetMs": { "type": "integer", "minimum": 0 },
+              "endOffsetMs": { "type": "integer", "minimum": 1 },
+              "representative": {
+                "type": ["object","null"],
+                "additionalProperties": false,
+                "required": ["videoOffsetMs","boundingBox","thumbnailArtifactId"],
+                "properties": {
+                  "videoOffsetMs": { "type": "integer", "minimum": 0 },
+                  "boundingBox": { "type": "object" },
+                  "thumbnailArtifactId": { "type": ["string","null"] }
+                }
+              }
+            }
+          }
         }
       }
     },

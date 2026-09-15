@@ -548,6 +548,98 @@ def _validate_application_health(
         raise AcceptanceError("qualification_application_identity_mismatch")
 
 
+def _validate_operational_topology(
+    client: ApiClient,
+    *,
+    source_commit: str,
+    expected_mavi_build: str,
+    expected_host_identity_sha256: str | None = None,
+) -> dict[str, Any]:
+    value = client.json("GET", "/api/system/storage-topology")
+    host_identity = (
+        value.get("operationalHostIdentitySha256")
+        if isinstance(value, dict)
+        else None
+    )
+    if (
+        not isinstance(value, dict)
+        or value.get("schemaVersion") != "mavi-storage-topology-attestation-v1"
+        or value.get("maviCommit") != source_commit
+        or value.get("maviBuild") != expected_mavi_build
+        or not isinstance(host_identity, str)
+        or len(host_identity) != 64
+        or any(ch not in "0123456789abcdef" for ch in host_identity)
+        or not isinstance(value.get("databaseIdentity"), str)
+        or not value.get("databaseIdentity")
+        or not isinstance(value.get("managedMediaRootIdentitySha256"), str)
+        or not isinstance(value.get("acceptedEvidenceRootIdentitySha256"), str)
+    ):
+        raise AcceptanceError("qualification_operational_topology_invalid")
+    if (
+        expected_host_identity_sha256 is not None
+        and host_identity != expected_host_identity_sha256
+    ):
+        raise AcceptanceError("qualification_operational_host_mismatch")
+    return {
+        "hostIdentitySha256": host_identity,
+        "databaseIdentity": value["databaseIdentity"],
+        "managedMediaRootIdentitySha256": value["managedMediaRootIdentitySha256"],
+        "acceptedEvidenceRootIdentitySha256": value["acceptedEvidenceRootIdentitySha256"],
+    }
+
+
+def _authoritative_state_payload(
+    *,
+    camera: dict[str, Any],
+    video: dict[str, Any],
+    processing_run_id: str,
+    track_semantic_state: list[dict[str, Any]],
+    source_sha256: str,
+    source_etag_sha256: str,
+    representative_artifact_id: str | None,
+    artifact_sha256: str | None,
+    artifact_etag_sha256: str | None,
+) -> dict[str, Any]:
+    return {
+        "camera": {
+            "id": camera["id"],
+            "code": camera["code"],
+            "name": camera["name"],
+            "timeZoneId": camera["timeZoneId"],
+            "isActive": camera["isActive"],
+        },
+        "video": {
+            "id": video["id"],
+            "cameraId": video["cameraId"],
+            "recordingStartUtc": video["recordingStartUtc"],
+            "recordingTimeZoneId": video["recordingTimeZoneId"],
+            "recordingUtcOffsetMinutes": video["recordingUtcOffsetMinutes"],
+            "durationMs": video["durationMs"],
+        },
+        "processingRunId": processing_run_id,
+        "tracks": sorted(track_semantic_state, key=lambda item: item["id"]),
+        "source": {
+            "sha256": source_sha256,
+            "etagSha256": source_etag_sha256,
+        },
+        "representativeArtifact": {
+            "id": representative_artifact_id,
+            "sha256": artifact_sha256,
+            "etagSha256": artifact_etag_sha256,
+        },
+    }
+
+
+def _authoritative_state_sha256(value: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.mode == "formal" and (args.corpus_manifest is None or args.ground_truth is None):
         raise AcceptanceError("qualification_formal_ground_truth_required")
@@ -564,6 +656,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise AcceptanceError("qualification_health_invalid")
     _validate_application_health(
         health,
+        source_commit=args.source_commit,
+        expected_mavi_build=args.expected_mavi_build,
+    )
+    operational_api = _validate_operational_topology(
+        client,
         source_commit=args.source_commit,
         expected_mavi_build=args.expected_mavi_build,
     )
@@ -624,6 +721,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     details: list[dict[str, Any]] = []
     normalized_tracks: list[dict[str, Any]] = []
+    track_semantic_state: list[dict[str, Any]] = []
     orphan_count = 0
     for item in exact_tracks:
         detail = client.json("GET", f"/api/tracks/{item['id']}")
@@ -634,6 +732,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             continue
         details.append(detail)
         representative = detail.get("representative")
+        semantic_representative = None
+        if isinstance(representative, dict):
+            semantic_representative = {
+                "videoOffsetMs": representative.get("videoOffsetMs"),
+                "boundingBox": representative.get("boundingBox"),
+                "thumbnailArtifactId": representative.get("thumbnailArtifactId"),
+            }
+        track_semantic_state.append({
+            "id": detail.get("id"),
+            "objectClass": detail.get("objectClass"),
+            "startOffsetMs": detail.get("startOffsetMs"),
+            "endOffsetMs": detail.get("endOffsetMs"),
+            "representative": semantic_representative,
+        })
         if representative is None:
             if args.mode == "formal":
                 raise AcceptanceError("qualification_track_representative_missing")
@@ -725,6 +837,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         ):
             raise AcceptanceError("qualification_corpus_not_approved")
 
+    state_payload = _authoritative_state_payload(
+        camera=camera,
+        video=video,
+        processing_run_id=run_id,
+        track_semantic_state=track_semantic_state,
+        source_sha256=streamed_sha,
+        source_etag_sha256=source_etag,
+        representative_artifact_id=representative_id,
+        artifact_sha256=representative_sha,
+        artifact_etag_sha256=representative_etag,
+    )
+    authoritative_state_sha = _authoritative_state_sha256(state_payload)
+
     counts = {"Person": 0, "Vehicle": 0}
     for item in exact_tracks:
         object_class = item.get("objectClass")
@@ -738,11 +863,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
         "acceptanceProfileSha256": sha256_file(args.acceptance_profile),
         "environmentLabel": args.environment_label,
+        "operationalApi": operational_api,
+        "authoritativeStateSha256": authoritative_state_sha,
         "releaseExpected": expected_release,
         "attestation": attestation_evidence,
         "camera": {
             "id": camera["id"],
             "code": camera["code"],
+            "name": camera["name"],
             "timeZoneId": camera["timeZoneId"],
             "isActive": camera["isActive"],
         },
@@ -773,6 +901,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "detailsResolved": len(details),
             "orphanCount": orphan_count,
             "trackIds": sorted(item["id"] for item in exact_tracks),
+            "semanticState": sorted(track_semantic_state, key=lambda item: item["id"]),
         },
         "evidenceReads": {
             "attempted": evidence_attempted,
