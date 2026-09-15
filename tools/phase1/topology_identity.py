@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
 import subprocess
 from pathlib import Path
@@ -62,7 +63,7 @@ def host_identity_sha256() -> str:
 
 def storage_root_identity_sha256(path: Path) -> str:
     try:
-        canonical = str(path.resolve(strict=True))
+        canonical = os.path.normpath(str(path.resolve(strict=True)))
     except OSError as exc:
         raise TopologyIdentityError("topology_storage_root_missing") from exc
     system = platform.system()
@@ -71,7 +72,7 @@ def storage_root_identity_sha256(path: Path) -> str:
         family = "windows"
     else:
         family = "posix"
-    return _sha256_text(f"mavi-storage-root-v1|{family}|{canonical.rstrip('/\\')}")
+    return _sha256_text(f"mavi-storage-root-v1|{family}|{canonical}")
 
 
 def database_identity(psql: str, service: str) -> str:
