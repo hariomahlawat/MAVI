@@ -215,9 +215,15 @@ function Test-MaviPython313 {
 }
 
 function Ensure-MaviDeveloperToolchain {
-    param([Parameter(Mandatory = $true)][string]$BundleRoot)
+    param(
+        [Parameter(Mandatory = $true)][string]$BundleRoot,
+        [string]$RepositoryRoot
+    )
 
     $root = Join-Path $BundleRoot "prerequisites\developer\win-x64"
+    if (-not (Test-Path -LiteralPath $root -PathType Container) -and $RepositoryRoot) {
+        $root = Join-Path $RepositoryRoot "vendor\installers\win-x64"
+    }
 
     if (-not (Test-MaviDotNet10Sdk)) {
         $installer = Join-Path $root "dotnet-sdk.exe"
@@ -276,6 +282,9 @@ function Initialize-MaviDeveloperWorkspace {
     }
 
     $bundleCacheRoot = Join-Path $BundleRoot "prerequisites\developer\win-x64"
+    if (-not (Test-Path -LiteralPath (Join-Path $bundleCacheRoot "nuget-packages") -PathType Container)) {
+        $bundleCacheRoot = Join-Path $RepositoryRoot "vendor\developer-cache\win-x64"
+    }
     $localCacheRoot = Join-Path $env:ProgramData "MAVI\Development\developer-cache"
     $nugetSource = Join-Path $bundleCacheRoot "nuget-packages"
     $npmSource = Join-Path $bundleCacheRoot "npm-cache"
