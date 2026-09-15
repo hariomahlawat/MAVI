@@ -58,3 +58,30 @@ def test_load_hashes_exact_bytes(tmp_path: Path):
     value, digest = mod.load(path)
     assert value["variant"] == "linux-x86_64-cpu"
     assert len(digest) == 64
+
+
+def test_variant_evidence_hashes_are_exact_source_bytes(tmp_path: Path, monkeypatch):
+    cpu = tmp_path / "cpu.json"
+    cuda = tmp_path / "cuda.json"
+    output = tmp_path / "offline.json"
+    cpu.write_text(json.dumps(variant("linux-x86_64-cpu", "a" * 40)), encoding="utf-8")
+    cuda.write_text(json.dumps(variant("linux-x86_64-cuda", "a" * 40)), encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(MODULE_PATH),
+            "--os", "linux",
+            "--cpu", str(cpu),
+            "--cuda", str(cuda),
+            "--isolation-method", "air-gapped",
+            "--output", str(output),
+        ],
+    )
+    assert mod.main() == 0
+    value = json.loads(output.read_text(encoding="utf-8"))
+    assert value["variantEvidenceSha256"] == {
+        "linux-x86_64-cpu": __import__("hashlib").sha256(cpu.read_bytes()).hexdigest(),
+        "linux-x86_64-cuda": __import__("hashlib").sha256(cuda.read_bytes()).hexdigest(),
+    }
