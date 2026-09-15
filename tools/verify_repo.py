@@ -28,6 +28,7 @@ REQUIRED_PATHS = [
     "config/dependencies/offline-dependency-policy-v1.json",
     "config/dependencies/offline-binary-catalog-v1.json",
     "docs/architecture/dependency-and-offline-packaging-policy.md",
+    "docs/architecture/offline-binary-inventory.md",
     "vendor/offline-binary-kit/README.md",
     "tools/setup/New-MaviOfflineBinaryKit.ps1",
     "tools/setup/Test-MaviOfflineBinaryKit.ps1",
