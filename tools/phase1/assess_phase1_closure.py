@@ -105,6 +105,7 @@ def validate_application_lifecycle(
     supported_updates_policy_sha256: str,
     schema_path: Path,
     prior_application_manifest: Path | None = None,
+    prior_acceptance_evidence: Path | None = None,
     pre_update_state_check: Path | None = None,
     post_update_state_check: Path | None = None,
 ) -> dict[str, Any]:
@@ -159,6 +160,7 @@ def validate_application_lifecycle(
             raise ClosureError("offline_update_retained_state_missing")
         update_proofs = (
             prior_application_manifest,
+            prior_acceptance_evidence,
             pre_update_state_check,
             post_update_state_check,
         )
@@ -180,6 +182,7 @@ def validate_application_lifecycle(
                     application_manifest_sha256=application_manifest_sha256,
                     supported_updates_policy_sha256=supported_updates_policy_sha256,
                     prior_application_manifest=prior_application_manifest,
+                    prior_acceptance_evidence=prior_acceptance_evidence,
                     pre_update_state_check=pre_update_state_check,
                     post_update_state_check=post_update_state_check,
                 )
@@ -310,6 +313,7 @@ def validate_production_acceptance_record(
     fresh_install: Path,
     offline_update: Path,
     prior_application_manifest: Path,
+    prior_acceptance_evidence: Path,
     pre_update_state_check: Path,
     post_update_state_check: Path,
     backup_restore: Path,
@@ -344,6 +348,7 @@ def validate_production_acceptance_record(
         or value.get("freshInstallEvidenceSha256") != sha256_file(fresh_install)
         or value.get("offlineUpdateEvidenceSha256") != sha256_file(offline_update)
         or value.get("priorApplicationManifestSha256") != sha256_file(prior_application_manifest)
+        or value.get("priorAcceptanceEvidenceSha256") != sha256_file(prior_acceptance_evidence)
         or value.get("preUpdateStateCheckSha256") != sha256_file(pre_update_state_check)
         or value.get("postUpdateStateCheckSha256") != sha256_file(post_update_state_check)
         or value.get("backupRestoreEvidenceSha256") != sha256_file(backup_restore)
@@ -419,6 +424,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         "fresh-install": args.fresh_install,
         "offline-update": args.offline_update,
         "prior-application-manifest": args.prior_application_manifest,
+        "prior-acceptance-evidence": args.prior_acceptance_evidence,
         "pre-update-state-check": args.pre_update_state_check,
         "post-update-state-check": args.post_update_state_check,
         "backup-restore": args.backup_restore,
@@ -472,6 +478,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             supported_updates_policy_sha256=supported_updates_policy_sha256,
             schema_path=args.application_lifecycle_schema,
             prior_application_manifest=args.prior_application_manifest,
+            prior_acceptance_evidence=args.prior_acceptance_evidence,
             pre_update_state_check=args.pre_update_state_check,
             post_update_state_check=args.post_update_state_check,
         )
@@ -479,6 +486,10 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         if args.prior_application_manifest is not None:
             evidence_hashes["prior-application-manifest"] = sha256_file(
                 args.prior_application_manifest
+            )
+        if args.prior_acceptance_evidence is not None:
+            evidence_hashes["prior-acceptance-evidence"] = sha256_file(
+                args.prior_acceptance_evidence
             )
         if args.pre_update_state_check is not None:
             evidence_hashes["pre-update-state-check"] = sha256_file(
@@ -756,6 +767,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and args.fresh_install is not None
         and args.offline_update is not None
         and args.prior_application_manifest is not None
+        and args.prior_acceptance_evidence is not None
         and args.pre_update_state_check is not None
         and args.post_update_state_check is not None
         and args.backup_restore is not None
@@ -824,6 +836,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             fresh_install=args.fresh_install,
             offline_update=args.offline_update,
             prior_application_manifest=args.prior_application_manifest,
+            prior_acceptance_evidence=args.prior_acceptance_evidence,
             pre_update_state_check=args.pre_update_state_check,
             post_update_state_check=args.post_update_state_check,
             backup_restore=args.backup_restore,
@@ -899,6 +912,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fresh-install", type=Path)
     parser.add_argument("--offline-update", type=Path)
     parser.add_argument("--prior-application-manifest", type=Path)
+    parser.add_argument("--prior-acceptance-evidence", type=Path)
     parser.add_argument("--pre-update-state-check", type=Path)
     parser.add_argument("--post-update-state-check", type=Path)
     parser.add_argument("--backup-restore", type=Path)
