@@ -221,6 +221,10 @@ function Ensure-MaviDeveloperToolchain {
     )
 
     $root = Join-Path $BundleRoot "prerequisites\developer\win-x64"
+    if (-not (Test-Path -LiteralPath $root -PathType Container) -and
+        (Test-Path -LiteralPath (Join-Path $BundleRoot "mavi-offline-binary-kit.json") -PathType Leaf)) {
+        $root = Join-Path $BundleRoot "vendor\installers\win-x64"
+    }
     if (-not (Test-Path -LiteralPath $root -PathType Container) -and $RepositoryRoot) {
         $root = Join-Path $RepositoryRoot "vendor\installers\win-x64"
     }
@@ -282,6 +286,10 @@ function Initialize-MaviDeveloperWorkspace {
     }
 
     $bundleCacheRoot = Join-Path $BundleRoot "prerequisites\developer\win-x64"
+    if (-not (Test-Path -LiteralPath (Join-Path $bundleCacheRoot "nuget-packages") -PathType Container) -and
+        (Test-Path -LiteralPath (Join-Path $BundleRoot "mavi-offline-binary-kit.json") -PathType Leaf)) {
+        $bundleCacheRoot = Join-Path $BundleRoot "vendor\developer-cache\win-x64"
+    }
     if (-not (Test-Path -LiteralPath (Join-Path $bundleCacheRoot "nuget-packages") -PathType Container)) {
         $bundleCacheRoot = Join-Path $RepositoryRoot "vendor\developer-cache\win-x64"
     }
