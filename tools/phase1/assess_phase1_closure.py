@@ -104,6 +104,7 @@ def validate_application_lifecycle(
     application_manifest_sha256: str | None,
     supported_updates_policy_sha256: str,
     schema_path: Path,
+    prior_application_manifest: Path | None = None,
     pre_update_state_check: Path | None = None,
     post_update_state_check: Path | None = None,
 ) -> dict[str, Any]:
@@ -156,10 +157,16 @@ def validate_application_lifecycle(
         retained = value.get("retainedState")
         if not isinstance(retained, dict):
             raise ClosureError("offline_update_retained_state_missing")
-        if (pre_update_state_check is None) != (post_update_state_check is None):
+        update_proofs = (
+            prior_application_manifest,
+            pre_update_state_check,
+            post_update_state_check,
+        )
+        if any(item is None for item in update_proofs) and any(item is not None for item in update_proofs):
             raise ClosureError("offline_update_state_proof_incomplete")
         if (
-            pre_update_state_check is not None
+            prior_application_manifest is not None
+            and pre_update_state_check is not None
             and post_update_state_check is not None
             and mavi_build is not None
             and application_manifest_sha256 is not None
@@ -172,6 +179,7 @@ def validate_application_lifecycle(
                     mavi_build=mavi_build,
                     application_manifest_sha256=application_manifest_sha256,
                     supported_updates_policy_sha256=supported_updates_policy_sha256,
+                    prior_application_manifest=prior_application_manifest,
                     pre_update_state_check=pre_update_state_check,
                     post_update_state_check=post_update_state_check,
                 )
@@ -463,35 +471,23 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             application_manifest_sha256=application_manifest_sha256,
             supported_updates_policy_sha256=supported_updates_policy_sha256,
             schema_path=args.application_lifecycle_schema,
+            prior_application_manifest=args.prior_application_manifest,
             pre_update_state_check=args.pre_update_state_check,
-            post_update_state_check=args.post_update_state_check,
-        )
-        if (
-            args.prior_application_manifest is not None
-            and args.pre_update_state_check is not None
-            and args.post_update_state_check is not None
-            and expected_mavi_build is not None
-            and application_manifest_sha256 is not None
-        ):
-            try:
-                production_acceptance.validate_lifecycle(
-                    args.offline_update,
-                    mode="offline-update",
-                    source_commit=args.source_commit,
-                    mavi_build=expected_mavi_build,
-                    application_manifest_sha256=application_manifest_sha256,
-                    supported_updates_policy_sha256=supported_updates_policy_sha256,
-                    prior_application_manifest=args.prior_application_manifest,
-                    pre_update_state_check=args.pre_update_state_check,
             post_update_state_check=args.post_update_state_check,
         )
         evidence_hashes["offline-update"] = sha256_file(args.offline_update)
         if args.prior_application_manifest is not None:
-            evidence_hashes["prior-application-manifest"] = sha256_file(args.prior_application_manifest)
+            evidence_hashes["prior-application-manifest"] = sha256_file(
+                args.prior_application_manifest
+            )
         if args.pre_update_state_check is not None:
-            evidence_hashes["pre-update-state-check"] = sha256_file(args.pre_update_state_check)
+            evidence_hashes["pre-update-state-check"] = sha256_file(
+                args.pre_update_state_check
+            )
         if args.post_update_state_check is not None:
-            evidence_hashes["post-update-state-check"] = sha256_file(args.post_update_state_check)
+            evidence_hashes["post-update-state-check"] = sha256_file(
+                args.post_update_state_check
+            )
     if args.backup_restore is not None:
         validate_backup_restore(
             args.backup_restore,
@@ -792,6 +788,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and application_manifest_sha256 is not None
         and args.fresh_install is not None
         and args.offline_update is not None
+        and args.prior_application_manifest is not None
         and args.pre_update_state_check is not None
         and args.post_update_state_check is not None
         and args.backup_restore is not None
