@@ -108,6 +108,7 @@ def main() -> int:
             base_url=args.base_url,
             acceptance_evidence=args.acceptance_evidence,
             expected_application_commit=execution["sourceCommit"],
+            expected_application_build=execution["restoreStorageTopology"]["maviBuild"],
         )
         result = {
             "schemaVersion": "mavi-post-restore-check-v1",
