@@ -175,32 +175,32 @@ connection strings, extensions or migrations manually.
     [Text.UTF8Encoding]::new($false))
 
 if ($IncludeDevelopmentPayload) {
-    $developmentLauncher = @'
-    @echo off
-    setlocal
-    echo MAVI Development Setup
-    echo ======================
-    
-    net session >nul 2>&1
-    if not %errorlevel%==0 (
-      echo Requesting Administrator permission...
-      powershell.exe -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-      exit /b
-    )
-    
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup\Setup-MAVI.ps1" -Profile Development -BundleRoot "%~dp0"
-    set "MAVI_SETUP_EXIT=%errorlevel%"
-    if not "%MAVI_SETUP_EXIT%"=="0" (
-      echo.
-      echo MAVI Development Setup FAILED. Review C:\ProgramData\MAVI\Development\setup\logs.
-      pause
-      exit /b %MAVI_SETUP_EXIT%
-    )
-    echo.
-    echo MAVI Development Setup completed successfully.
-    pause
-    endlocal
-    '@
+    $developmentLauncher = @(
+        "@echo off",
+        "setlocal",
+        "echo MAVI Development Setup",
+        "echo ======================",
+        "",
+        "net session >nul 2>&1",
+        "if not %errorlevel%==0 (",
+        "  echo Requesting Administrator permission...",
+        "  powershell.exe -NoProfile -Command \"Start-Process -FilePath '%~f0' -Verb RunAs\"",
+        "  exit /b",
+        ")",
+        "",
+        "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0setup\Setup-MAVI.ps1\" -Profile Development -BundleRoot \"%~dp0\"",
+        "set \"MAVI_SETUP_EXIT=%errorlevel%\"",
+        "if not \"%MAVI_SETUP_EXIT%\"==\"0\" (",
+        "  echo.",
+        "  echo MAVI Development Setup FAILED. Review C:\ProgramData\MAVI\Development\setup\logs.",
+        "  pause",
+        "  exit /b %MAVI_SETUP_EXIT%",
+        ")",
+        "echo.",
+        "echo MAVI Development Setup completed successfully.",
+        "pause",
+        "endlocal"
+    ) -join [Environment]::NewLine
     [IO.File]::WriteAllText(
         (Join-Path $destination "Setup-MAVI-Development.cmd"),
         $developmentLauncher,
