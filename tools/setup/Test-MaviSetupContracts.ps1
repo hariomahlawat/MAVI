@@ -102,6 +102,140 @@ try {
         throw "Production plan did not resolve the canonical MAVI ports."
     }
 
+
+    # Companion binary-kit contract: nested manifests, catalog binding and tamper rejection.
+    $kitRoot = Join-Path $tempRoot "binary-kit"
+    $kitCatalogRoot = Join-Path $kitRoot "catalog"
+    $kitPostgresRoot = Join-Path $kitRoot "vendor\postgresql\pg18\win-x64"
+    $kitFfmpegRoot = Join-Path $kitRoot "vendor\ffmpeg"
+    $kitFfmpegRuntime = Join-Path $kitFfmpegRoot "win-x64"
+    $kitInstallerRoot = Join-Path $kitRoot "vendor\installers\win-x64"
+    $kitCacheRoot = Join-Path $kitRoot "vendor\developer-cache\win-x64"
+    foreach ($directory in @(
+        $kitCatalogRoot,
+        (Join-Path $kitPostgresRoot "bin"),
+        (Join-Path $kitPostgresRoot "share\extension"),
+        $kitFfmpegRuntime,
+        $kitInstallerRoot,
+        (Join-Path $kitCacheRoot "nuget-packages"),
+        (Join-Path $kitCacheRoot "npm-cache"),
+        (Join-Path $kitCacheRoot "python-wheelhouse")
+    )) {
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    }
+
+    $kitCatalog = [ordered]@{
+        schemaVersion = "mavi-offline-binary-catalog-v1"
+        applicationAndSetup = @(
+            [ordered]@{ id = "dotnet-hosting-win-x64"; baselineVersion = "10.0.11" },
+            [ordered]@{ id = "dotnet-sdk-win-x64"; baselineVersion = "10.0.100" },
+            [ordered]@{ id = "node-win-x64"; baselineVersion = "22.13.0" },
+            [ordered]@{ id = "python-development-win-x64"; baselineVersion = "3.13" }
+        )
+    }
+    $kitCatalogPath = Join-Path $kitCatalogRoot "offline-binary-catalog-v1.json"
+    Write-MaviJson -Value $kitCatalog -Path $kitCatalogPath -Depth 6
+
+    $postgresFixture = Join-Path $kitPostgresRoot "bin\postgres.exe"
+    $vectorFixture = Join-Path $kitPostgresRoot "share\extension\vector.control"
+    [IO.File]::WriteAllText($postgresFixture, "postgres-18-fixture", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($vectorFixture, "vector-fixture", [Text.UTF8Encoding]::new($false))
+    $postgresManifest = [ordered]@{
+        schemaVersion = "mavi-postgresql-runtime-pack-v1"
+        runtimeId = "win-x64"
+        postgresqlMajorVersion = 18
+        postgresqlVersion = "18.99-test"
+        pgvectorVersion = "0.99-test"
+        artifacts = @(
+            [ordered]@{
+                relativePath = "bin/postgres.exe"
+                sha256 = (Get-MaviSha256 -Path $postgresFixture)
+                sizeBytes = [long](Get-Item $postgresFixture).Length
+            },
+            [ordered]@{
+                relativePath = "share/extension/vector.control"
+                sha256 = (Get-MaviSha256 -Path $vectorFixture)
+                sizeBytes = [long](Get-Item $vectorFixture).Length
+            }
+        )
+    }
+    Write-MaviJson -Value $postgresManifest -Path (Join-Path $kitPostgresRoot "manifest.json") -Depth 6
+
+    $ffmpegFixture = Join-Path $kitFfmpegRuntime "ffmpeg.exe"
+    [IO.File]::WriteAllText($ffmpegFixture, "ffmpeg-fixture", [Text.UTF8Encoding]::new($false))
+    $ffmpegKitManifest = [ordered]@{
+        schemaVersion = "1.0"
+        runtimeId = "win-x64"
+        version = "test-ffmpeg"
+        artifacts = @(
+            [ordered]@{
+                fileName = "ffmpeg.exe"
+                sha256 = (Get-MaviSha256 -Path $ffmpegFixture)
+                sizeBytes = [long](Get-Item $ffmpegFixture).Length
+            }
+        )
+    }
+    Write-MaviJson -Value $ffmpegKitManifest -Path (Join-Path $kitFfmpegRoot "manifest.json") -Depth 6
+
+    foreach ($installer in @("dotnet-hosting.exe", "dotnet-sdk.exe", "node.msi", "python.exe")) {
+        [IO.File]::WriteAllText((Join-Path $kitInstallerRoot $installer), "installer-$installer", [Text.UTF8Encoding]::new($false))
+    }
+    foreach ($cache in @("nuget-packages", "npm-cache", "python-wheelhouse")) {
+        [IO.File]::WriteAllText((Join-Path $kitCacheRoot "$cache\fixture.bin"), "cache-$cache", [Text.UTF8Encoding]::new($false))
+    }
+    [IO.File]::WriteAllText((Join-Path $kitRoot "README-FIRST.txt"), "binary-kit-fixture", [Text.UTF8Encoding]::new($false))
+
+    $kitFiles = @(
+        Get-ChildItem -LiteralPath $kitRoot -File -Recurse |
+            Where-Object { $_.Name -ne "mavi-offline-binary-kit.json" } |
+            Sort-Object FullName
+    )
+    $kitPrefix = $kitRoot.TrimEnd("\") + "\"
+    $kitArtifacts = foreach ($file in $kitFiles) {
+        [ordered]@{
+            relativePath = $file.FullName.Substring($kitPrefix.Length).Replace("\", "/")
+            sha256 = (Get-MaviSha256 -Path $file.FullName)
+            sizeBytes = [long]$file.Length
+        }
+    }
+    $kitManifest = [ordered]@{
+        schemaVersion = "mavi-offline-binary-kit-v1"
+        sourceCatalogSha256 = (Get-MaviSha256 -Path $kitCatalogPath)
+        versions = [ordered]@{
+            postgresql = "18.99-test"
+            pgvector = "0.99-test"
+            ffmpeg = "test-ffmpeg"
+            dotnetHostingBaseline = "10.0.11"
+            dotnetSdkBaseline = "10.0.100"
+            nodeBaseline = "22.13.0"
+            pythonDevelopmentBaseline = "3.13"
+        }
+        artifacts = @($kitArtifacts)
+    }
+    Write-MaviJson -Value $kitManifest -Path (Join-Path $kitRoot "mavi-offline-binary-kit.json") -Depth 8
+
+    $binaryKitVerifier = Join-Path $repoRoot "tools\setup\Test-MaviOfflineBinaryKit.ps1"
+    & $binaryKitVerifier -KitRoot $kitRoot
+
+    $binaryKitPlan = & $setupScript -Profile Development -BundleRoot $kitRoot -RepositoryRoot $repoRoot -PlanOnly | Out-String
+    if ($binaryKitPlan -notmatch '"port"\s*:\s*55433' -or
+        $binaryKitPlan -notmatch [regex]::Escape("vendor\postgresql\pg18\win-x64")) {
+        throw "Development plan did not resolve the verified companion binary kit."
+    }
+
+    $nodeFixture = Join-Path $kitInstallerRoot "node.msi"
+    [IO.File]::AppendAllText($nodeFixture, "tamper")
+    $kitTamperRejected = $false
+    try {
+        & $binaryKitVerifier -KitRoot $kitRoot
+    }
+    catch {
+        $kitTamperRejected = $true
+    }
+    if (-not $kitTamperRejected) {
+        throw "Offline binary kit verifier accepted a tampered installer."
+    }
+
     Write-Host "MAVI setup contract validation PASSED."
 }
 finally {
