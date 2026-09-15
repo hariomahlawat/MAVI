@@ -16,6 +16,7 @@ Set-StrictMode -Version Latest
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
+Assert-MaviWindows
 
 if ([string]::IsNullOrWhiteSpace($BinaryKitRoot)) {
     $siblingKit = [IO.Path]::GetFullPath((Join-Path $repoRoot "..\MAVI-Offline-Binary-Kit"))
