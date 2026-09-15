@@ -1,19 +1,13 @@
 using System.Runtime.InteropServices;
-using Microsoft.Extensions.Hosting;
-
 namespace Mavi.Infrastructure.Media;
 
 public static class MediaToolPathResolver
 {
-    public static string ResolveFfprobePath(
-        MediaProcessingOptions options,
-        IHostEnvironment? environment = null) =>
-        Resolve(options, options.FfprobePath, "ffprobe", environment);
+    public static string ResolveFfprobePath(MediaProcessingOptions options) =>
+        Resolve(options, options.FfprobePath, "ffprobe");
 
-    public static string ResolveFfmpegPath(
-        MediaProcessingOptions options,
-        IHostEnvironment? environment = null) =>
-        Resolve(options, options.FfmpegPath, "ffmpeg", environment);
+    public static string ResolveFfmpegPath(MediaProcessingOptions options) =>
+        Resolve(options, options.FfmpegPath, "ffmpeg");
 
     public static string CurrentRuntimeId()
     {
@@ -55,20 +49,11 @@ public static class MediaToolPathResolver
     private static string Resolve(
         MediaProcessingOptions options,
         string configuredPath,
-        string toolName,
-        IHostEnvironment? environment)
+        string toolName)
     {
         var bundled = BundledExecutablePath(options, toolName);
         if (File.Exists(bundled))
             return bundled;
-
-        if (options.RequireBundledTools &&
-            !(environment?.IsDevelopment() == true &&
-              options.AllowPathFallbackInDevelopment))
-        {
-            throw new InvalidOperationException(
-                $"Bundled MAVI media tool '{toolName}' was not found at '{bundled}'.");
-        }
 
         if (string.IsNullOrWhiteSpace(configuredPath))
             throw new InvalidOperationException(
