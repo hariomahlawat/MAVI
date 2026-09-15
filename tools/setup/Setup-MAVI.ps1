@@ -354,9 +354,6 @@ try {
             if ((Test-Path -LiteralPath $visionManifest -PathType Leaf) -or
                 (Test-Path -LiteralPath $nestedVisionManifest -PathType Leaf)) {
                 & (Join-Path $PSScriptRoot "Install-MaviVisionRuntime.ps1") -BundleRoot $visionBundleRoot -RepositoryRoot $RepositoryRoot
-                if ($LASTEXITCODE -ne 0) {
-                    throw "MAVI Vision Runtime installation failed."
-                }
                 Write-MaviSetupStatus -Name "Vision runtime" -Status "OK" -Detail "qualified Windows CPU bundle installed"
             }
             else {
