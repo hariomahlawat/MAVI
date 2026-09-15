@@ -5,8 +5,6 @@ param(
 
     [string]$PostgreSqlRuntimePack = (Join-Path $PSScriptRoot "..\..\vendor\postgresql\pg18\win-x64"),
 
-    [string]$FfmpegPack = (Join-Path $PSScriptRoot "..\..\vendor\ffmpeg"),
-
     [Parameter(Mandatory = $true)]
     [string]$ApplicationArtifact,
 
@@ -29,12 +27,10 @@ Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
 
 $destination = [IO.Path]::GetFullPath($Destination)
 $postgreSqlRuntimePack = (Resolve-Path -LiteralPath $PostgreSqlRuntimePack).Path
-$ffmpegPack = (Resolve-Path -LiteralPath $FfmpegPack).Path
 $applicationArtifact = (Resolve-Path -LiteralPath $ApplicationArtifact).Path
 $developerDependencyCache = (Resolve-Path -LiteralPath $DeveloperDependencyCache).Path
 
 [void](Test-MaviManifest -Root $postgreSqlRuntimePack -ManifestPath (Join-Path $postgreSqlRuntimePack "manifest.json") -ExpectedSchemaVersion "mavi-postgresql-runtime-pack-v1")
-[void](Test-MaviManifest -Root $ffmpegPack -ManifestPath (Join-Path $ffmpegPack "manifest.json") -ExpectedSchemaVersion "1.0")
 
 foreach ($requiredFile in @($HostingBundle, $DotNetSdkInstaller, $NodeInstaller, $PythonInstaller)) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
@@ -67,7 +63,6 @@ New-Item -ItemType Directory -Path $configDestination -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repoRoot "config\setup\mavi-setup-defaults.json") -Destination (Join-Path $configDestination "mavi-setup-defaults.json")
 
 Copy-Tree -Source $postgreSqlRuntimePack -Target (Join-Path $destination "prerequisites\postgresql\pg18\win-x64")
-Copy-Tree -Source $ffmpegPack -Target (Join-Path $destination "prerequisites\ffmpeg")
 Copy-Tree -Source $applicationArtifact -Target (Join-Path $destination "application")
 
 $applicationDestination = Join-Path $destination "application"
@@ -84,6 +79,9 @@ foreach ($required in @(
         throw "Production application artifact is incomplete: $required"
     }
 }
+
+$applicationFfmpegRoot = Join-Path $applicationDestination "tools\ffmpeg"
+[void](Test-MaviManifest -Root $applicationFfmpegRoot -ManifestPath (Join-Path $applicationFfmpegRoot "manifest.json") -ExpectedSchemaVersion "1.0")
 
 $hostingDestination = Join-Path $destination "prerequisites\hosting\win-x64"
 New-Item -ItemType Directory -Path $hostingDestination -Force | Out-Null
