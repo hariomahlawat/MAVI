@@ -33,7 +33,7 @@ public sealed class MachineConfigurationStartupTests
         }
 
         Assert.EndsWith(
-            Path.Combine("MAVI", "config", "appsettings.development.machine.json"),
+            Path.Combine("MAVI", "Development", "config", "appsettings.development.machine.json"),
             development,
             StringComparison.OrdinalIgnoreCase);
         Assert.EndsWith(
