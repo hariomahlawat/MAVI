@@ -106,13 +106,26 @@ function Install-MaviPostgreSqlInstance {
     if ($postgresqlText -notmatch "(?m)^\s*include_if_exists\s*=\s*'mavi\.conf'\s*$") {
         Add-Content -LiteralPath $postgresqlConf -Value ([Environment]::NewLine + $includeLine)
     }
-    @(
+    $managedLines = @(
         "# Managed by MAVI Setup. Do not edit manually.",
         "listen_addresses = '127.0.0.1'",
         "port = $Port",
         "password_encryption = 'scram-sha-256'",
         "max_connections = 100"
-    ) | Set-Content -LiteralPath $managedConf -Encoding UTF8
+    )
+    # Windows PowerShell 5.1's Set-Content -Encoding UTF8 writes a BOM.
+    # Keep PostgreSQL configuration explicitly BOM-less and deterministic.
+    [IO.File]::WriteAllLines($managedConf, $managedLines, (New-Object Text.UTF8Encoding($false)))
+
+    # Validate the effective PostgreSQL configuration before service registration/start.
+    # This produces an actionable parser error instead of a generic SCM start failure.
+    $configCheck = Invoke-MaviCommand -FilePath $postgresExe -Arguments @(
+        "-D", $DataRoot,
+        "-C", "port"
+    ) -CaptureOutput
+    if ([string]::IsNullOrWhiteSpace($configCheck.StandardOutput)) {
+        throw "PostgreSQL configuration validation returned no port value."
+    }
 
     $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if (-not $service) {
@@ -121,8 +134,50 @@ function Install-MaviPostgreSqlInstance {
     }
 
     if ($service.Status -ne "Running") {
-        Start-Service -Name $ServiceName -ErrorAction Stop
-        $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+        try {
+            Start-Service -Name $ServiceName -ErrorAction Stop
+            $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+        }
+        catch {
+            $serviceRecord = Get-CimInstance -ClassName Win32_Service -Filter ("Name='" + $ServiceName.Replace("'", "''") + "'") -ErrorAction SilentlyContinue
+            $serviceDetail = if ($serviceRecord) {
+                "State=$($serviceRecord.State); StartMode=$($serviceRecord.StartMode); ExitCode=$($serviceRecord.ExitCode); ServiceSpecificExitCode=$($serviceRecord.ServiceSpecificExitCode); PathName=$($serviceRecord.PathName)"
+            }
+            else {
+                "Windows service record could not be queried."
+            }
+
+            $diagnosticLog = Join-Path $DataRoot "mavi-postgresql-start-diagnostic.log"
+            Remove-Item -LiteralPath $diagnosticLog -Force -ErrorAction SilentlyContinue
+            try {
+                # Ask pg_ctl to start the same cluster only for diagnostics. If it
+                # succeeds, stop it immediately so SCM ownership remains authoritative.
+                $probe = Invoke-MaviCommand -FilePath $pgCtlExe -Arguments @(
+                    "start", "-D", $DataRoot, "-w", "-t", "10", "-l", $diagnosticLog
+                ) -CaptureOutput
+                Invoke-MaviCommand -FilePath $pgCtlExe -Arguments @("stop", "-D", $DataRoot, "-m", "fast", "-w", "-t", "10")
+            }
+            catch {
+                # Expected when PostgreSQL itself cannot start. The log below is the
+                # useful diagnostic artifact.
+            }
+
+            $diagnosticText = if (Test-Path -LiteralPath $diagnosticLog -PathType Leaf) {
+                (Get-Content -LiteralPath $diagnosticLog -Raw -ErrorAction SilentlyContinue).Trim()
+            }
+            else {
+                ""
+            }
+
+            $detail = if ([string]::IsNullOrWhiteSpace($diagnosticText)) {
+                $serviceDetail
+            }
+            else {
+                $serviceDetail + [Environment]::NewLine + "PostgreSQL diagnostic:" + [Environment]::NewLine + $diagnosticText
+            }
+
+            throw "Failed to start service '$ServiceName'. $detail"
+        }
     }
     Wait-MaviTcpPort -Port $Port -TimeoutSeconds 60
 
