@@ -214,3 +214,20 @@ def test_empty_scene_diagnostic_accepts_zero_detections():
         detail_count=0,
         evidence_count=0,
     )
+
+
+def test_application_health_requires_exact_expected_build():
+    with pytest.raises(mod.AcceptanceError, match="qualification_application_identity_mismatch"):
+        mod._validate_application_health(
+            {"status": "ok", "commit": "a" * 40, "build": "build-b"},
+            source_commit="a" * 40,
+            expected_mavi_build="build-a",
+        )
+
+
+def test_application_health_accepts_exact_expected_identity():
+    mod._validate_application_health(
+        {"status": "ok", "commit": "a" * 40, "build": "build-a"},
+        source_commit="a" * 40,
+        expected_mavi_build="build-a",
+    )
