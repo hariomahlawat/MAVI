@@ -55,7 +55,28 @@ elseif (Test-Path -LiteralPath $binaryKitManifestPath -PathType Leaf) {
         throw "The MAVI offline binary kit is a preparation/Development dependency source, not a Production application bundle."
     }
     & (Join-Path $PSScriptRoot "Test-MaviOfflineBinaryKit.ps1") -KitRoot $BundleRoot
-    Write-MaviSetupStatus -Name "Offline binary kit" -Status "OK" -Detail "catalog/nested manifests/SHA-256 verified"
+
+    if ($RepositoryRoot) {
+        $kitManifest = Read-MaviJson -Path $binaryKitManifestPath
+        $repositoryInputs = [ordered]@{
+            offlineDependencyPolicy = (Join-Path $RepositoryRoot "config\dependencies\offline-dependency-policy-v1.json")
+            offlineBinaryCatalog = (Join-Path $RepositoryRoot "config\dependencies\offline-binary-catalog-v1.json")
+            globalJson = (Join-Path $RepositoryRoot "global.json")
+            webPackageLock = (Join-Path $RepositoryRoot "src\web\mavi-web\package-lock.json")
+            visionPyproject = (Join-Path $RepositoryRoot "src\vision\pyproject.toml")
+            toolsRequirements = (Join-Path $RepositoryRoot "tools\requirements.txt")
+        }
+        foreach ($entry in $repositoryInputs.GetEnumerator()) {
+            $expectedProperty = $kitManifest.sourceInputs.PSObject.Properties[$entry.Key]
+            $expected = if ($expectedProperty) { [string]$expectedProperty.Value } else { "" }
+            $actual = Get-MaviSha256 -Path $entry.Value
+            if ($expected -ne $actual) {
+                throw "MAVI-Offline-Binary-Kit is stale for this source repository: $($entry.Key) does not match. Rebuild or obtain the matching binary kit."
+            }
+        }
+    }
+
+    Write-MaviSetupStatus -Name "Offline binary kit" -Status "OK" -Detail "catalog/nested manifests/source inputs/SHA-256 verified"
 }
 
 $bundleDefaults = Join-Path $BundleRoot "config\mavi-setup-defaults.json"
