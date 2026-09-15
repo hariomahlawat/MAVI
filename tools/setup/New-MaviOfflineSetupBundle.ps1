@@ -125,8 +125,18 @@ connection strings, extensions or migrations manually.
 $developmentLauncher = @'
 @echo off
 setlocal
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File ""%~dp0setup\Setup-MAVI.ps1"" -Profile Development -BundleRoot ""%~dp0""'"
-if errorlevel 1 pause
+echo MAVI Development Setup
+echo ======================
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File ""%~dp0setup\Setup-MAVI.ps1"" -Profile Development -BundleRoot ""%~dp0""'; exit $p.ExitCode"
+if errorlevel 1 (
+  echo.
+  echo MAVI Development Setup FAILED. Review the setup log shown by the installer.
+  pause
+  exit /b 1
+)
+echo.
+echo MAVI Development Setup completed successfully.
+pause
 endlocal
 '@
 [IO.File]::WriteAllText(
@@ -137,8 +147,18 @@ endlocal
 $productionLauncher = @'
 @echo off
 setlocal
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File ""%~dp0setup\Setup-MAVI.ps1"" -Profile Production -BundleRoot ""%~dp0""'"
-if errorlevel 1 pause
+echo MAVI Production Setup
+echo =====================
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File ""%~dp0setup\Setup-MAVI.ps1"" -Profile Production -BundleRoot ""%~dp0""'; exit $p.ExitCode"
+if errorlevel 1 (
+  echo.
+  echo MAVI Production Setup FAILED. Review C:\ProgramData\MAVI\setup\logs.
+  pause
+  exit /b 1
+)
+echo.
+echo MAVI Production Setup completed successfully.
+pause
 endlocal
 '@
 [IO.File]::WriteAllText(
