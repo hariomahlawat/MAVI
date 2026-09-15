@@ -367,6 +367,23 @@ def validate_production_acceptance_record(
         raise ClosureError("production_acceptance_binding_mismatch")
     return value
 
+def validate_qualification_evidence_hashes(
+    qualification: Any,
+    observed_hashes: dict[str, str],
+) -> None:
+    for gate in sorted(MANDATORY_QUALIFICATION_GATES):
+        if qualification.required_gates.get(gate) != "passed":
+            continue
+        expected = qualification.evidence.get(gate)
+        if expected is None:
+            raise ClosureError("qualification_evidence_missing:" + gate)
+        actual = observed_hashes.get(gate)
+        if actual is None:
+            raise ClosureError("qualification_evidence_bytes_missing:" + gate)
+        if actual != expected.sha256:
+            raise ClosureError("qualification_evidence_hash_mismatch:" + gate)
+
+
 def assess(args: argparse.Namespace) -> dict[str, Any]:
     runtime = load_runtime_profile(args.runtime_profile)
     qualification = load_qualification_record(args.qualification)
@@ -403,6 +420,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
 
     pending: list[str] = []
     evidence_hashes: dict[str, str] = {}
+    qualification_evidence_hashes: dict[str, str] = {}
 
     for variant, identity in runtime.platform_variants.items():
         expected = "qualified-hardware" if variant.endswith("-cuda") else "qualified-hosted-cpu"
@@ -521,7 +539,15 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             raise ClosureError("windows_offline_os_mismatch")
         if expected_mavi_build is not None and value.get("maviBuild") != expected_mavi_build:
             raise ClosureError("windows_offline_mavi_build_mismatch")
-        evidence_hashes["windows-offline-install"] = sha256_file(args.windows_offline)
+        windows_offline_sha = sha256_file(args.windows_offline)
+        evidence_hashes["windows-offline-install"] = windows_offline_sha
+        qualification_evidence_hashes["windows-offline-install"] = windows_offline_sha
+        variant_hashes = value.get("variantEvidenceSha256", {})
+        for gate in ("windows-x86_64-cpu", "windows-x86_64-cuda"):
+            observed = variant_hashes.get(gate)
+            if not isinstance(observed, str):
+                raise ClosureError("windows_offline_variant_evidence_hash_missing:" + gate)
+            qualification_evidence_hashes[gate] = observed
     if args.linux_offline is not None:
         value = load_json(args.linux_offline)
         validate_schema(value, Path(__file__).with_name("offline-install-evidence.schema.json"))
@@ -534,7 +560,15 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             raise ClosureError("linux_offline_os_mismatch")
         if expected_mavi_build is not None and value.get("maviBuild") != expected_mavi_build:
             raise ClosureError("linux_offline_mavi_build_mismatch")
-        evidence_hashes["linux-offline-install"] = sha256_file(args.linux_offline)
+        linux_offline_sha = sha256_file(args.linux_offline)
+        evidence_hashes["linux-offline-install"] = linux_offline_sha
+        qualification_evidence_hashes["linux-offline-install"] = linux_offline_sha
+        variant_hashes = value.get("variantEvidenceSha256", {})
+        for gate in ("linux-x86_64-cpu", "linux-x86_64-cuda"):
+            observed = variant_hashes.get(gate)
+            if not isinstance(observed, str):
+                raise ClosureError("linux_offline_variant_evidence_hash_missing:" + gate)
+            qualification_evidence_hashes[gate] = observed
     if args.quality is not None:
         validate_quality(
             args.quality,
@@ -543,7 +577,9 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             expected_corpus_sha,
             expected_mavi_build,
         )
-        evidence_hashes["cctv-quality-baseline"] = sha256_file(args.quality)
+        quality_sha = sha256_file(args.quality)
+        evidence_hashes["cctv-quality-baseline"] = quality_sha
+        qualification_evidence_hashes["cctv-quality-baseline"] = quality_sha
     if args.performance is not None:
         validate_performance(
             args.performance,
@@ -552,7 +588,9 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             acceptance_profile,
             expected_mavi_build,
         )
-        evidence_hashes["linux-nvidia-recovery-performance"] = sha256_file(args.performance)
+        performance_sha = sha256_file(args.performance)
+        evidence_hashes["linux-nvidia-recovery-performance"] = performance_sha
+        qualification_evidence_hashes["linux-nvidia-recovery-performance"] = performance_sha
 
     production_variant_paths = {
         "windows-x86_64-cpu": args.production_windows_cpu,
@@ -854,6 +892,15 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         )
         evidence_hashes["production-acceptance"] = sha256_file(
             args.production_acceptance
+        )
+
+    if all(
+        gate in qualification_evidence_hashes
+        for gate in MANDATORY_QUALIFICATION_GATES
+    ):
+        validate_qualification_evidence_hashes(
+            qualification,
+            qualification_evidence_hashes,
         )
 
     # Only a fully promoted release may be called verified.
