@@ -867,6 +867,66 @@ def validate_log_inspection(
         raise ProductionAcceptanceError("production_log_inspection_binding_failed")
     return sha256_file(path)
 
+def _validate_backup_store_manifest(
+    path: Path,
+    *,
+    expected_schema_version: str,
+    code: str,
+    require_postgres_dump: bool = False,
+) -> tuple[str, dict[str, Any]]:
+    value = load_json(path, code + "_invalid")
+    files = value.get("files")
+    if (
+        value.get("schemaVersion") != expected_schema_version
+        or not isinstance(files, list)
+        or not files
+    ):
+        raise ProductionAcceptanceError(code + "_invalid")
+    seen: set[str] = set()
+    for item in files:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"relativePath", "sizeBytes", "sha256"}
+            or not isinstance(item.get("relativePath"), str)
+            or not item["relativePath"]
+            or item["relativePath"] in seen
+            or not isinstance(item.get("sizeBytes"), int)
+            or item["sizeBytes"] <= 0
+            or not isinstance(item.get("sha256"), str)
+            or len(item["sha256"]) != 64
+        ):
+            raise ProductionAcceptanceError(code + "_invalid")
+        seen.add(item["relativePath"])
+    if require_postgres_dump and seen != {"postgres.dump"}:
+        raise ProductionAcceptanceError(code + "_invalid")
+    return sha256_file(path), value
+
+
+def _validate_backup_tooling(value: Any) -> None:
+    if not isinstance(value, dict) or set(value) != {
+        "databaseBackup",
+        "databaseRestore",
+        "managedSourceCopy",
+        "acceptedEvidenceCopy",
+    }:
+        raise ProductionAcceptanceError("production_backup_tooling_invalid")
+    for role, item in value.items():
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("tool"), str)
+            or not item.get("tool")
+            or not isinstance(item.get("version"), str)
+            or not item.get("version")
+            or not isinstance(item.get("arguments"), list)
+            or not item.get("arguments")
+            or item.get("exitCode") != 0
+            or item.get("passed") is not True
+        ):
+            raise ProductionAcceptanceError(
+                "production_backup_tooling_invalid:" + role
+            )
+
+
 def validate_backup(
     path: Path,
     *,
@@ -874,6 +934,12 @@ def validate_backup(
     mavi_build: str,
     acceptance_profile_sha256: str,
     formal_e2e_sha256: str,
+    execution_evidence: Path,
+    post_restore_check: Path,
+    backup_set_manifest: Path,
+    database_manifest: Path,
+    managed_source_manifest: Path,
+    accepted_evidence_manifest: Path,
 ) -> str:
     value = load_json(path, "production_backup_restore_invalid")
     validate_schema(
@@ -881,12 +947,83 @@ def validate_backup(
         "backup-restore-evidence.schema.json",
         "production_backup_restore",
     )
+    execution = load_json(
+        execution_evidence,
+        "production_backup_execution_invalid",
+    )
+    post = load_json(
+        post_restore_check,
+        "production_post_restore_check_invalid",
+    )
+    backup_manifest = load_json(
+        backup_set_manifest,
+        "production_backup_set_manifest_invalid",
+    )
+    database_manifest_sha, _ = _validate_backup_store_manifest(
+        database_manifest,
+        expected_schema_version="mavi-backup-database-manifest-v1",
+        code="production_backup_database_manifest",
+        require_postgres_dump=True,
+    )
+    managed_source_manifest_sha, _ = _validate_backup_store_manifest(
+        managed_source_manifest,
+        expected_schema_version="mavi-backup-store-manifest-v1",
+        code="production_backup_managed_source_manifest",
+    )
+    accepted_evidence_manifest_sha, _ = _validate_backup_store_manifest(
+        accepted_evidence_manifest,
+        expected_schema_version="mavi-backup-store-manifest-v1",
+        code="production_backup_accepted_evidence_manifest",
+    )
+    execution_sha = sha256_file(execution_evidence)
+    post_sha = sha256_file(post_restore_check)
+    backup_set_sha = sha256_file(backup_set_manifest)
+
+    _validate_backup_tooling(execution.get("tooling"))
+    if backup_manifest.get("tooling") != execution.get("tooling"):
+        raise ProductionAcceptanceError(
+            "production_backup_tooling_binding_failed"
+        )
+
     if (
         value.get("sourceCommit") != source_commit
         or value.get("acceptanceProfileSha256") != acceptance_profile_sha256
         or value.get("acceptanceEvidenceSha256") != formal_e2e_sha256
         or value.get("cleanRestoreTarget") is not True
         or value.get("sourceDatabaseIdentity") == value.get("restoreDatabaseIdentity")
+        or value.get("executionEvidenceSha256") != execution_sha
+        or value.get("postRestoreCheckSha256") != post_sha
+        or value.get("backupManifestSha256") != backup_set_sha
+        or value.get("database", {}).get("manifestSha256") != database_manifest_sha
+        or value.get("managedSource", {}).get("manifestSha256") != managed_source_manifest_sha
+        or value.get("acceptedEvidence", {}).get("manifestSha256") != accepted_evidence_manifest_sha
+        or execution.get("schemaVersion") != "mavi-backup-restore-execution-v1"
+        or execution.get("result") != "restore-complete"
+        or execution.get("sourceCommit") != source_commit
+        or execution.get("acceptanceEvidenceSha256") != formal_e2e_sha256
+        or execution.get("acceptanceProfileSha256") != acceptance_profile_sha256
+        or execution.get("backupManifestSha256") != backup_set_sha
+        or execution.get("database", {}).get("manifestSha256") != database_manifest_sha
+        or execution.get("managedSource", {}).get("manifestSha256") != managed_source_manifest_sha
+        or execution.get("acceptedEvidence", {}).get("manifestSha256") != accepted_evidence_manifest_sha
+        or post.get("schemaVersion") != "mavi-post-restore-check-v1"
+        or post.get("executionEvidenceSha256") != execution_sha
+        or post.get("acceptanceEvidenceSha256") != formal_e2e_sha256
+        or post.get("backupManifestSha256") != backup_set_sha
+        or post.get("databaseManifestSha256") != database_manifest_sha
+        or post.get("managedSourceManifestSha256") != managed_source_manifest_sha
+        or post.get("acceptedEvidenceManifestSha256") != accepted_evidence_manifest_sha
+        or post.get("result", {}).get("passed") is not True
+        or backup_manifest.get("schemaVersion") != "mavi-backup-set-v1"
+        or backup_manifest.get("sourceCommit") != source_commit
+        or backup_manifest.get("acceptanceEvidenceSha256") != formal_e2e_sha256
+        or backup_manifest.get("acceptanceProfileSha256") != acceptance_profile_sha256
+        or backup_manifest.get("databaseManifestSha256") != database_manifest_sha
+        or backup_manifest.get("managedSourceManifestSha256") != managed_source_manifest_sha
+        or backup_manifest.get("acceptedEvidenceManifestSha256") != accepted_evidence_manifest_sha
+        or value.get("liveStorageTopology") != execution.get("liveStorageTopology")
+        or value.get("restoreStorageTopology") != execution.get("restoreStorageTopology")
+        or post.get("restoreStorageTopology") != execution.get("restoreStorageTopology")
         or value.get("liveStorageTopology", {}).get("maviCommit") != source_commit
         or value.get("liveStorageTopology", {}).get("maviBuild") != mavi_build
         or value.get("liveStorageTopology", {}).get("databaseIdentity")
@@ -895,6 +1032,9 @@ def validate_backup(
         or value.get("restoreStorageTopology", {}).get("maviBuild") != mavi_build
         or value.get("restoreStorageTopology", {}).get("databaseIdentity")
         != value.get("restoreDatabaseIdentity")
+        or post.get("stateCheck", {}).get("operationalHostIdentitySha256")
+        != value.get("restoreStorageTopology", {}).get("operationalHostIdentitySha256")
+        or not isinstance(post.get("stateCheck", {}).get("authoritativeStateSha256"), str)
         or not passed_result(value)
     ):
         raise ProductionAcceptanceError("production_backup_restore_binding_failed")
@@ -932,6 +1072,8 @@ def validate_topology_binding(
         or fresh_install.get("operationalApi", {}).get("hostIdentitySha256") != windows_topology
         or offline_update.get("hosting", {}).get("hostIdentitySha256") != windows_topology
         or offline_update.get("operationalApi", {}).get("hostIdentitySha256") != windows_topology
+        or backup_restore.get("liveStorageTopology", {}).get("operationalHostIdentitySha256") != windows_topology
+        or backup_restore.get("restoreStorageTopology", {}).get("operationalHostIdentitySha256") != windows_topology
     ):
         raise ProductionAcceptanceError("production_windows_topology_mismatch")
     if (
@@ -1159,6 +1301,12 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         mavi_build=mavi_build,
         acceptance_profile_sha256=profile_sha,
         formal_e2e_sha256=formal_e2e_sha,
+        execution_evidence=args.backup_execution,
+        post_restore_check=args.post_restore_check,
+        backup_set_manifest=args.backup_set_manifest,
+        database_manifest=args.backup_database_manifest,
+        managed_source_manifest=args.backup_managed_source_manifest,
+        accepted_evidence_manifest=args.backup_accepted_evidence_manifest,
     )
 
     fresh_value = load_json(args.fresh_install, "production_fresh_install_invalid")
@@ -1190,6 +1338,12 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         "preUpdateStateCheckSha256": sha256_file(args.pre_update_state_check),
         "postUpdateStateCheckSha256": sha256_file(args.post_update_state_check),
         "backupRestoreEvidenceSha256": backup_sha,
+        "backupExecutionEvidenceSha256": sha256_file(args.backup_execution),
+        "postRestoreCheckSha256": sha256_file(args.post_restore_check),
+        "backupSetManifestSha256": sha256_file(args.backup_set_manifest),
+        "backupDatabaseManifestSha256": sha256_file(args.backup_database_manifest),
+        "backupManagedSourceManifestSha256": sha256_file(args.backup_managed_source_manifest),
+        "backupAcceptedEvidenceManifestSha256": sha256_file(args.backup_accepted_evidence_manifest),
         "productionVariantEvidenceSha256": variant_evidence,
         "productionBundleManifestSha256": bundle_hashes,
         "productionReleaseLockSha256": lock_hashes,
@@ -1231,6 +1385,12 @@ def main() -> int:
     parser.add_argument("--log-inspection", type=Path, required=True)
     parser.add_argument("--production-log", action="append", default=[])
     parser.add_argument("--backup-restore", type=Path, required=True)
+    parser.add_argument("--backup-execution", type=Path, required=True)
+    parser.add_argument("--post-restore-check", type=Path, required=True)
+    parser.add_argument("--backup-set-manifest", type=Path, required=True)
+    parser.add_argument("--backup-database-manifest", type=Path, required=True)
+    parser.add_argument("--backup-managed-source-manifest", type=Path, required=True)
+    parser.add_argument("--backup-accepted-evidence-manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
