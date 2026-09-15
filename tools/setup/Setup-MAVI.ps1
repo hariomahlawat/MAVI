@@ -223,7 +223,7 @@ try {
     }
 
     $connectionString = "Host=127.0.0.1;Port=$port;Database=$databaseName;Username=$databaseUser;Password=$databasePassword"
-    $developmentFfmpegPack = Join-Path $BundleRoot "prerequisites\ffmpeg"
+    $developmentFfmpegPack = Join-Path $BundleRoot "application\tools\ffmpeg"
     if (-not (Test-Path -LiteralPath (Join-Path $developmentFfmpegPack "manifest.json") -PathType Leaf) -and $RepositoryRoot) {
         $repositoryFfmpeg = Join-Path $RepositoryRoot "vendor\ffmpeg"
         if (Test-Path -LiteralPath (Join-Path $repositoryFfmpeg "manifest.json") -PathType Leaf) {
