@@ -125,12 +125,21 @@ $developmentLauncher = @'
 setlocal
 echo MAVI Development Setup
 echo ======================
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File ""%~dp0setup\Setup-MAVI.ps1"" -Profile Development -BundleRoot ""%~dp0""'; exit $p.ExitCode"
-if errorlevel 1 (
+
+net session >nul 2>&1
+if not %errorlevel%==0 (
+  echo Requesting Administrator permission...
+  powershell.exe -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  exit /b
+)
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup\Setup-MAVI.ps1" -Profile Development -BundleRoot "%~dp0"
+set "MAVI_SETUP_EXIT=%errorlevel%"
+if not "%MAVI_SETUP_EXIT%"=="0" (
   echo.
-  echo MAVI Development Setup FAILED. Review the setup log shown by the installer.
+  echo MAVI Development Setup FAILED. Review C:\ProgramData\MAVI\Development\setup\logs.
   pause
-  exit /b 1
+  exit /b %MAVI_SETUP_EXIT%
 )
 echo.
 echo MAVI Development Setup completed successfully.
@@ -147,12 +156,21 @@ $productionLauncher = @'
 setlocal
 echo MAVI Production Setup
 echo =====================
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p=Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File ""%~dp0setup\Setup-MAVI.ps1"" -Profile Production -BundleRoot ""%~dp0""'; exit $p.ExitCode"
-if errorlevel 1 (
+
+net session >nul 2>&1
+if not %errorlevel%==0 (
+  echo Requesting Administrator permission...
+  powershell.exe -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  exit /b
+)
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup\Setup-MAVI.ps1" -Profile Production -BundleRoot "%~dp0"
+set "MAVI_SETUP_EXIT=%errorlevel%"
+if not "%MAVI_SETUP_EXIT%"=="0" (
   echo.
   echo MAVI Production Setup FAILED. Review C:\ProgramData\MAVI\setup\logs.
   pause
-  exit /b 1
+  exit /b %MAVI_SETUP_EXIT%
 )
 echo.
 echo MAVI Production Setup completed successfully.
