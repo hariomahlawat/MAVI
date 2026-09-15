@@ -990,7 +990,7 @@ def validate_backup(
         or value.get("acceptanceProfileSha256") != acceptance_profile_sha256
         or value.get("acceptanceEvidenceSha256") != formal_e2e_sha256
         or value.get("cleanRestoreTarget") is not True
-        or value.get("sourceDatabaseIdentity") == value.get("restoreDatabaseIdentity")
+        or value.get("sourceDatabaseIdentitySha256") == value.get("restoreDatabaseIdentitySha256")
         or value.get("executionEvidenceSha256") != execution_sha
         or value.get("postRestoreCheckSha256") != post_sha
         or value.get("backupManifestSha256") != backup_set_sha
@@ -1026,12 +1026,12 @@ def validate_backup(
         or post.get("restoreStorageTopology") != execution.get("restoreStorageTopology")
         or value.get("liveStorageTopology", {}).get("maviCommit") != source_commit
         or value.get("liveStorageTopology", {}).get("maviBuild") != mavi_build
-        or value.get("liveStorageTopology", {}).get("databaseIdentity")
-        != value.get("sourceDatabaseIdentity")
+        or value.get("liveStorageTopology", {}).get("databaseIdentitySha256")
+        != value.get("sourceDatabaseIdentitySha256")
         or value.get("restoreStorageTopology", {}).get("maviCommit") != source_commit
         or value.get("restoreStorageTopology", {}).get("maviBuild") != mavi_build
-        or value.get("restoreStorageTopology", {}).get("databaseIdentity")
-        != value.get("restoreDatabaseIdentity")
+        or value.get("restoreStorageTopology", {}).get("databaseIdentitySha256")
+        != value.get("restoreDatabaseIdentitySha256")
         or post.get("stateCheck", {}).get("operationalHostIdentitySha256")
         != value.get("restoreStorageTopology", {}).get("operationalHostIdentitySha256")
         or not isinstance(post.get("stateCheck", {}).get("authoritativeStateSha256"), str)
@@ -1078,8 +1078,8 @@ def validate_topology_binding(
         raise ProductionAcceptanceError("production_windows_topology_mismatch")
     if (
         not isinstance(database_topology, str)
-        or backup_restore.get("sourceDatabaseIdentity") != database_topology
-        or backup_restore.get("liveStorageTopology", {}).get("databaseIdentity")
+        or backup_restore.get("sourceDatabaseIdentitySha256") != database_topology
+        or backup_restore.get("liveStorageTopology", {}).get("databaseIdentitySha256")
         != database_topology
     ):
         raise ProductionAcceptanceError("production_database_topology_mismatch")
