@@ -14,6 +14,8 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+Import-Module (Join-Path $PSScriptRoot "..\setup\Mavi.Setup.Common.psm1") -Force
+
 $sourceRoot = (Resolve-Path -LiteralPath $PostgreSqlRoot).Path
 $pgVectorLicensePath = (Resolve-Path -LiteralPath $PgVectorLicensePath).Path
 $destinationRoot = [IO.Path]::GetFullPath($DestinationRoot)
@@ -28,7 +30,7 @@ foreach ($required in @($postgresExe, $pgConfigExe, $vectorControl)) {
 }
 
 $postgresVersionOutput = (& $postgresExe --version | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $postgresVersionOutput -notmatch '(?i)\bPostgreSQL\b.*\b18(?:\.|\b)') {
+if ($LASTEXITCODE -ne 0 -or -not (Test-MaviPostgreSqlMajorVersionOutput -VersionOutput $postgresVersionOutput -Major 18)) {
     throw "MAVI requires a PostgreSQL 18 source runtime."
 }
 $postgresVersion = (($postgresVersionOutput -split "\s+") | Select-Object -Last 1).Trim()
