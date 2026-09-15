@@ -108,8 +108,8 @@ function Assert-IisHostingBinding([string]$SiteName, [string]$ExpectedPool, [str
     }
 }
 
-function Invoke-StateCheck([string]$AcceptanceEvidence, [string]$ExpectedCommit, [string]$ExpectedBuild, [string]$Output) {
-    & $Python "$PSScriptRoot\verify_authoritative_state.py" --base-url $BaseUrl --acceptance-evidence $AcceptanceEvidence --expected-application-commit $ExpectedCommit --expected-application-build $ExpectedBuild --output $Output
+function Invoke-StateCheck([string]$AcceptanceEvidence, [string]$ExpectedCommit, [string]$ExpectedBuild, [string]$ExpectedHostIdentity, [string]$Output) {
+    & $Python "$PSScriptRoot\verify_authoritative_state.py" --base-url $BaseUrl --acceptance-evidence $AcceptanceEvidence --expected-application-commit $ExpectedCommit --expected-application-build $ExpectedBuild --expected-operational-host-identity-sha256 $ExpectedHostIdentity --output $Output
     if ($LASTEXITCODE -ne 0) { throw "authoritative_state_check_failed" }
 }
 
@@ -213,7 +213,7 @@ if ($Mode -eq "fresh-install") {
     Copy-Item -LiteralPath $PreUpdateAcceptanceEvidence -Destination $priorAcceptanceEvidence -ErrorAction Stop
     if ((Get-Sha256 $priorAcceptanceEvidence) -ne (Get-Sha256 $PreUpdateAcceptanceEvidence)) { throw "update_prior_acceptance_evidence_mismatch" }
 
-    Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $priorCommit -ExpectedBuild $priorBuild -Output $preStateOutput
+    Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $priorCommit -ExpectedBuild $priorBuild -ExpectedHostIdentity (Get-HostIdentitySha256) -Output $preStateOutput
 
     $priorRelease = [ordered]@{
         sourceCommit = $priorCommit
@@ -270,12 +270,24 @@ try {
     Start-Sleep -Seconds 2
     $health = Invoke-RestMethod -Uri ($BaseUrl.TrimEnd('/') + "/api/health") -Method Get
     if ($health.status -ne "ok" -or $health.build -ne $build -or $health.commit -ne $sourceCommit) { throw "post_deploy_application_identity_mismatch" }
+    $apiTopology = Invoke-RestMethod -Uri ($BaseUrl.TrimEnd('/') + "/api/system/storage-topology") -Method Get
+    if (
+        [string]$apiTopology.schemaVersion -ne "mavi-storage-topology-attestation-v1" -or
+        [string]$apiTopology.maviBuild -ne $build -or
+        [string]$apiTopology.maviCommit -ne $sourceCommit -or
+        [string]$apiTopology.operationalHostIdentitySha256 -ne [string]$hosting.hostIdentitySha256
+    ) { throw "post_deploy_operational_host_identity_mismatch" }
+    $operationalApi = [ordered]@{
+        baseUrl = $BaseUrl.TrimEnd('/')
+        hostIdentitySha256 = [string]$apiTopology.operationalHostIdentitySha256
+        passed = $true
+    }
 
     $uiSmoke = Invoke-UiSmoke
 
     $retainedState = $null
     if ($Mode -eq "offline-update") {
-        Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $sourceCommit -ExpectedBuild $build -Output $postStateOutput
+        Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $sourceCommit -ExpectedBuild $build -ExpectedHostIdentity ([string]$hosting.hostIdentitySha256) -Output $postStateOutput
         $retainedState = [ordered]@{
             acceptanceEvidenceSha256 = Get-Sha256 $PreUpdateAcceptanceEvidence
             preUpdateCheckSha256 = Get-Sha256 $preStateOutput
@@ -300,6 +312,7 @@ try {
             passed = $true
         }
         hosting = $hosting
+        operationalApi = $operationalApi
         internetUnavailable = $true
         networkIsolation = $networkIsolation
         priorRelease = $priorRelease

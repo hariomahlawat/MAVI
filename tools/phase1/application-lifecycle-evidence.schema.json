@@ -13,6 +13,7 @@
     "destination",
     "deployment",
     "hosting",
+    "operationalApi",
     "internetUnavailable",
     "networkIsolation",
     "priorRelease",
@@ -106,6 +107,16 @@
         "passed": {
           "const": true
         }
+      }
+    },
+    "operationalApi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseUrl","hostIdentitySha256","passed"],
+      "properties": {
+        "baseUrl": { "type": "string", "minLength": 1 },
+        "hostIdentitySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "passed": { "const": true }
       }
     },
     "internetUnavailable": {

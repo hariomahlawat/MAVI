@@ -40,6 +40,7 @@ def check_state(
     acceptance_evidence: Path,
     expected_application_commit: str,
     expected_application_build: str,
+    expected_operational_host_identity_sha256: str,
 ) -> dict:
     evidence = json.loads(acceptance_evidence.read_text(encoding="utf-8"))
     if not isinstance(evidence, dict):
@@ -63,6 +64,10 @@ def check_state(
     ):
         raise StateCheckError("state_acceptance_release_identity_mismatch")
 
+    accepted_host_identity = evidence.get("operationalApi", {}).get("hostIdentitySha256")
+    if accepted_host_identity != expected_operational_host_identity_sha256:
+        raise StateCheckError("state_acceptance_operational_host_mismatch")
+
     client = e2e.ApiClient(base_url)
     health = client.json("GET", "/api/health")
     if (
@@ -72,12 +77,21 @@ def check_state(
         or health.get("build") != expected_application_build
     ):
         raise StateCheckError("state_application_identity_mismatch")
+    try:
+        operational_api = e2e._validate_operational_topology(
+            client,
+            source_commit=expected_application_commit,
+            expected_mavi_build=expected_application_build,
+            expected_host_identity_sha256=expected_operational_host_identity_sha256,
+        )
+    except e2e.AcceptanceError as exc:
+        raise StateCheckError("state_operational_host_mismatch") from exc
 
     camera_expected = evidence["camera"]
     camera = client.json("GET", f"/api/cameras/{camera_expected['id']}")
     if not isinstance(camera, dict) or any(
         camera.get(key) != camera_expected[key]
-        for key in ("id", "code", "timeZoneId", "isActive")
+        for key in ("id", "code", "name", "timeZoneId", "isActive")
     ):
         raise StateCheckError("state_camera_identity_mismatch")
 
@@ -141,6 +155,7 @@ def check_state(
     if restored_track_ids != expected_track_ids:
         raise StateCheckError("state_track_identity_mismatch")
 
+    live_track_state: list[dict] = []
     for track_id in sorted(expected_track_ids):
         detail = client.json("GET", f"/api/tracks/{track_id}")
         if (
@@ -149,6 +164,24 @@ def check_state(
             or detail.get("videoAssetId") != video_expected["id"]
         ):
             raise StateCheckError("state_track_detail_mismatch")
+        representative = detail.get("representative")
+        semantic_representative = None
+        if isinstance(representative, dict):
+            semantic_representative = {
+                "videoOffsetMs": representative.get("videoOffsetMs"),
+                "boundingBox": representative.get("boundingBox"),
+                "thumbnailArtifactId": representative.get("thumbnailArtifactId"),
+            }
+        live_track_state.append({
+            "id": detail.get("id"),
+            "objectClass": detail.get("objectClass"),
+            "startOffsetMs": detail.get("startOffsetMs"),
+            "endOffsetMs": detail.get("endOffsetMs"),
+            "representative": semantic_representative,
+        })
+    expected_track_state = evidence["tracks"].get("semanticState")
+    if live_track_state != expected_track_state:
+        raise StateCheckError("state_track_semantics_mismatch")
 
     artifact_id = evidence["evidenceReads"]["representativeArtifactId"]
     artifact_sha = None
@@ -167,6 +200,21 @@ def check_state(
         ):
             raise StateCheckError("state_evidence_integrity_mismatch")
 
+    live_state_payload = e2e._authoritative_state_payload(
+        camera=camera,
+        video=video,
+        processing_run_id=run_id,
+        track_semantic_state=live_track_state,
+        source_sha256=source_sha,
+        source_etag_sha256=source_etag,
+        representative_artifact_id=artifact_id,
+        artifact_sha256=artifact_sha,
+        artifact_etag_sha256=artifact_etag,
+    )
+    live_state_sha = e2e._authoritative_state_sha256(live_state_payload)
+    if live_state_sha != evidence.get("authoritativeStateSha256"):
+        raise StateCheckError("state_authoritative_digest_mismatch")
+
     return {
         "schemaVersion": "mavi-authoritative-state-check-v1",
         "acceptanceEvidenceSha256": sha256_file(acceptance_evidence),
@@ -175,6 +223,8 @@ def check_state(
         "observedApplicationCommit": health["commit"],
         "expectedApplicationBuild": expected_application_build,
         "observedApplicationBuild": health["build"],
+        "operationalHostIdentitySha256": operational_api["hostIdentitySha256"],
+        "authoritativeStateSha256": live_state_sha,
         "cameraId": camera_expected["id"],
         "videoAssetId": video_expected["id"],
         "processingRunId": run_id,
@@ -194,6 +244,7 @@ def main() -> int:
     parser.add_argument("--acceptance-evidence", type=Path, required=True)
     parser.add_argument("--expected-application-commit", required=True)
     parser.add_argument("--expected-application-build", required=True)
+    parser.add_argument("--expected-operational-host-identity-sha256", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -205,6 +256,7 @@ def main() -> int:
             acceptance_evidence=args.acceptance_evidence,
             expected_application_commit=args.expected_application_commit,
             expected_application_build=args.expected_application_build,
+            expected_operational_host_identity_sha256=args.expected_operational_host_identity_sha256,
         )
         args.output.write_text(
             json.dumps(value, indent=2, sort_keys=True) + "\n",

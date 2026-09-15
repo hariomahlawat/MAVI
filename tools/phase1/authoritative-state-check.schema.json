@@ -7,6 +7,7 @@
     "schemaVersion","acceptanceEvidenceSha256","acceptanceSourceCommit",
     "expectedApplicationCommit","observedApplicationCommit",
     "expectedApplicationBuild","observedApplicationBuild",
+    "operationalHostIdentitySha256","authoritativeStateSha256",
     "cameraId","videoAssetId","processingRunId","trackIds","representativeArtifactId",
     "sourceSha256","sourceEtagSha256","artifactSha256","artifactEtagSha256","result"
   ],
@@ -18,6 +19,8 @@
     "observedApplicationCommit": { "$ref": "#/$defs/commit" },
     "expectedApplicationBuild": { "type": "string", "minLength": 1 },
     "observedApplicationBuild": { "type": "string", "minLength": 1 },
+    "operationalHostIdentitySha256": { "$ref": "#/$defs/sha256" },
+    "authoritativeStateSha256": { "$ref": "#/$defs/sha256" },
     "cameraId": { "type": "string", "minLength": 1 },
     "videoAssetId": { "type": "string", "minLength": 1 },
     "processingRunId": { "type": "string", "minLength": 1 },
