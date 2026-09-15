@@ -8,6 +8,11 @@ namespace Mavi.Api.Startup;
 
 public static class NativeMediaToolStartup
 {
+    private static readonly JsonSerializerOptions ManifestJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+    };
+
     private static readonly Action<ILogger, string, string, Exception?> LogBundledToolVerified =
         LoggerMessage.Define<string, string>(
             LogLevel.Information,
@@ -91,7 +96,7 @@ public static class NativeMediaToolStartup
         await using var stream = File.OpenRead(manifestPath);
         var manifest = await JsonSerializer.DeserializeAsync<MediaToolManifest>(
             stream,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true },
+            ManifestJsonOptions,
             cancellationToken)
             ?? throw new InvalidOperationException(
                 "Bundled media-tool manifest is invalid.");
