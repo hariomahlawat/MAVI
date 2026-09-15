@@ -403,6 +403,7 @@ def test_final_scenario_cannot_reuse_variant_smoke_e2e(tmp_path: Path, monkeypat
             linux_cuda_lock_sha256="e" * 64,
             acceptance_execution_id=EXECUTION_ID,
             acceptance_context_sha256=CONTEXT_SHA,
+            expected_operational_host_identity_sha256=WINDOWS_HOST,
         )
 
 
@@ -474,6 +475,7 @@ def test_failure_reprocess_rejects_source_drift(tmp_path: Path, monkeypatch):
             linux_cuda_lock_sha256="e" * 64,
             acceptance_execution_id=EXECUTION_ID,
             acceptance_context_sha256=CONTEXT_SHA,
+            expected_operational_host_identity_sha256=WINDOWS_HOST,
         )
 
 
