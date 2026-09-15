@@ -401,21 +401,28 @@ function Enable-MaviIis {
     }
 }
 
+function Test-MaviAspNetCore10Runtime {
+    $dotnet = Join-Path $env:ProgramFiles "dotnet\dotnet.exe"
+    if (-not (Test-Path -LiteralPath $dotnet -PathType Leaf)) { return $false }
+    $result = Invoke-MaviCommand -FilePath $dotnet -Arguments @("--list-runtimes") -CaptureOutput
+    return $result.StandardOutput -match "(?m)^Microsoft\.AspNetCore\.App 10\."
+}
+
 function Install-MaviHostingBundle {
     param([Parameter(Mandatory = $true)][string]$HostingBundlePath)
 
     $module = Join-Path $env:ProgramFiles "IIS\Asp.Net Core Module\V2\aspnetcorev2.dll"
-    if (Test-Path -LiteralPath $module -PathType Leaf) {
-        return
-    }
+    $modulePresent = Test-Path -LiteralPath $module -PathType Leaf
+    if ($modulePresent -and (Test-MaviAspNetCore10Runtime)) { return }
+
     if (-not (Test-Path -LiteralPath $HostingBundlePath -PathType Leaf)) {
-        throw "ASP.NET Core Hosting Bundle is not installed and the offline installer is missing: $HostingBundlePath"
+        throw "ASP.NET Core 10 Hosting Bundle is missing and the approved offline installer was not found: $HostingBundlePath"
     }
 
     Invoke-MaviCommand -FilePath $HostingBundlePath -Arguments @("/install", "/quiet", "/norestart") -AllowedExitCodes @(0,3010)
 
-    if (-not (Test-Path -LiteralPath $module -PathType Leaf)) {
-        throw "ASP.NET Core Module V2 was not found after Hosting Bundle installation. A restart may be required."
+    if (-not (Test-Path -LiteralPath $module -PathType Leaf) -or -not (Test-MaviAspNetCore10Runtime)) {
+        throw "ASP.NET Core 10 Hosting Bundle installation did not complete successfully. A Windows restart may be required."
     }
 }
 
@@ -489,6 +496,18 @@ function Set-MaviIisSite {
     Invoke-MaviCommand -FilePath $appCmd -Arguments @("set", "app", "$SiteName/", "/applicationPool:$AppPoolName")
     Invoke-MaviCommand -FilePath $appCmd -Arguments @("start", "apppool", "/apppool.name:$AppPoolName") -AllowedExitCodes @(0,183)
     Invoke-MaviCommand -FilePath $appCmd -Arguments @("start", "site", "/site.name:$SiteName") -AllowedExitCodes @(0,183)
+}
+
+function Ensure-MaviFirewallRule {
+    param([Parameter(Mandatory = $true)][int]$HttpPort)
+
+    $displayName = "MAVI HTTP"
+    $existing = Get-NetFirewallRule -DisplayName $displayName -ErrorAction SilentlyContinue
+    if ($existing) {
+        $existing | Remove-NetFirewallRule -ErrorAction Stop
+    }
+
+    New-NetFirewallRule -DisplayName $displayName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $HttpPort -RemoteAddress LocalSubnet -Profile Any | Out-Null
 }
 
 function Wait-MaviHealth {
