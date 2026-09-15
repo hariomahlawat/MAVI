@@ -126,3 +126,36 @@ release-verified is permissible only after:
 Internal implementation audit: **PASS subject to exact-head CI and final independent review**.
 
 No hardware/offline evidence is inferred by this audit. Any deterministic CI failure or final-review material finding reopens implementation readiness.
+
+
+## 8. PR #38 remediation and strengthened internal gate
+
+The first external review of PR #38 on frozen head `b58c09ed88f3a9789e42427766ec38aacfd1dddd` identified three genuine P1 implementation defects that the earlier internal audit had missed:
+
+1. final closure passed an unsupported keyword to backup/restore validation, causing complete-path failure;
+2. post-restore verification was not cryptographically/topologically bound to the restored database and storage roots;
+3. the public-API E2E harness did not require the deployed API build identity to equal the accepted MAVI build.
+
+The remediation cycle fixed those defects and deliberately expanded the internal review beyond the reported findings. The follow-on internal audit additionally found and closed:
+
+- a second caller/callee mismatch in final closure when invoking production backup validation;
+- a missing server-log-checkpoint guard in the final closure path;
+- missing independent restore-topology revalidation in final closure and production-acceptance assembly;
+- missing exact-build validation for lifecycle evidence at final closure;
+- missing lifecycle-to-application-manifest SHA-256 binding at final closure;
+- insufficient validation of the embedded authoritative-state proof during backup/restore finalization.
+
+Regression coverage now includes direct negative tests for these bindings plus a structural AST/signature contract test that checks every `production_acceptance.*` call in the final closure assessor against the live callee signatures. This class of caller/callee drift must therefore fail deterministic CI.
+
+### Revised internal stopping rule
+
+PR #38 remains in internal engineering review until all of the following are true on one exact frozen head:
+
+- Task-17 deterministic validation is green;
+- the full MAVI Quality Gate is green;
+- the Task-12 Offline Bundle workflow is green;
+- no known Critical/P1/P2 defect remains from the internal architecture, provenance, topology, closure or negative-path audit;
+- all known external-review findings are closed with regression coverage;
+- no evidence path can pass using a different application build, source commit, restore database, storage root, runtime variant, release lock, acceptance context or required underlying evidence object.
+
+Only after this internal gate is satisfied should a final external Codex review be requested. Until then, Codex is not used as an iterative debugger.
