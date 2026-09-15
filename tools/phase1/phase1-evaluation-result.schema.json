@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/phase1-evaluation-result-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","mode","perClass","overall","matching","qualification"],
+  "properties": {
+    "schemaVersion": { "const": "mavi-phase1-evaluation-result-v1" },
+    "mode": { "enum": ["baseline","qualification"] },
+    "perClass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Person","Vehicle"],
+      "properties": {
+        "Person": { "$ref": "#/$defs/classSummary" },
+        "Vehicle": { "$ref": "#/$defs/classSummary" }
+      }
+    },
+    "overall": { "$ref": "#/$defs/summary" },
+    "matching": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["eventId","trackId","spatialIou","temporalIou"],
+        "properties": {
+          "eventId": { "type": "string", "minLength": 1 },
+          "trackId": { "type": "string", "minLength": 1 },
+          "spatialIou": { "type": "number", "minimum": 0, "maximum": 1 },
+          "temporalIou": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed","failures"],
+      "properties": {
+        "passed": { "type": ["boolean","null"] },
+        "failures": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "metric": {
+      "type": ["number","null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "groundTruthEventCount","producedTrackCount","matchedCount",
+        "missedCount","unmatchedTrackCount","precision","recall","f1"
+      ],
+      "properties": {
+        "groundTruthEventCount": { "type": "integer", "minimum": 0 },
+        "producedTrackCount": { "type": "integer", "minimum": 0 },
+        "matchedCount": { "type": "integer", "minimum": 0 },
+        "missedCount": { "type": "integer", "minimum": 0 },
+        "unmatchedTrackCount": { "type": "integer", "minimum": 0 },
+        "precision": { "$ref": "#/$defs/metric" },
+        "recall": { "$ref": "#/$defs/metric" },
+        "f1": { "$ref": "#/$defs/metric" }
+      }
+    },
+    "classSummary": {
+      "allOf": [
+        { "$ref": "#/$defs/summary" },
+        {
+          "type": "object",
+          "required": ["temporalIou","spatialIou"],
+          "properties": {
+            "temporalIou": {
+              "type": "array",
+              "items": { "type": "number", "minimum": 0, "maximum": 1 }
+            },
+            "spatialIou": {
+              "type": "array",
+              "items": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
