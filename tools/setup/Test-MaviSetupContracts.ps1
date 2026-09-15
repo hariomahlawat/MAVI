@@ -224,6 +224,35 @@ try {
             dotnetSdkBaseline = "10.0.100"
             nodeBaseline = "22.13.0"
             pythonDevelopmentBaseline = "3.13"
+            observedInstallers = [ordered]@{
+                dotnetHosting = [ordered]@{
+                    fileName = "dotnet-hosting.exe"
+                    fileVersion = "10.0.11-test"
+                    productVersion = "10.0.11-test"
+                    sha256 = (Get-MaviSha256 -Path (Join-Path $kitInstallerRoot "dotnet-hosting.exe"))
+                    sizeBytes = [long](Get-Item (Join-Path $kitInstallerRoot "dotnet-hosting.exe")).Length
+                }
+                dotnetSdk = [ordered]@{
+                    fileName = "dotnet-sdk.exe"
+                    fileVersion = "10.0.100-test"
+                    productVersion = "10.0.100-test"
+                    sha256 = (Get-MaviSha256 -Path (Join-Path $kitInstallerRoot "dotnet-sdk.exe"))
+                    sizeBytes = [long](Get-Item (Join-Path $kitInstallerRoot "dotnet-sdk.exe")).Length
+                }
+                node = [ordered]@{
+                    fileName = "node.msi"
+                    productVersion = "22.13.0-test"
+                    sha256 = (Get-MaviSha256 -Path (Join-Path $kitInstallerRoot "node.msi"))
+                    sizeBytes = [long](Get-Item (Join-Path $kitInstallerRoot "node.msi")).Length
+                }
+                pythonDevelopment = [ordered]@{
+                    fileName = "python.exe"
+                    fileVersion = "3.13.0-test"
+                    productVersion = "3.13.0-test"
+                    sha256 = (Get-MaviSha256 -Path (Join-Path $kitInstallerRoot "python.exe"))
+                    sizeBytes = [long](Get-Item (Join-Path $kitInstallerRoot "python.exe")).Length
+                }
+            }
             developerCacheManifestSha256 = (Get-MaviSha256 -Path $developerCacheManifestPath)
         }
         artifacts = @($kitArtifacts)
