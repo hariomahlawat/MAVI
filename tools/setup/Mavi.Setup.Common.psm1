@@ -266,11 +266,20 @@ function Test-MaviManifest {
     }
 
     foreach ($artifact in $manifest.artifacts) {
-        $relative = [string]$artifact.relativePath
+        $relativeProperty = $artifact.PSObject.Properties["relativePath"]
+        $fileNameProperty = $artifact.PSObject.Properties["fileName"]
+        $shaProperty = $artifact.PSObject.Properties["sha256"]
+        $sizeProperty = $artifact.PSObject.Properties["sizeBytes"]
+        $runtimeProperty = $manifest.PSObject.Properties["runtimeId"]
+
+        $relative = if ($relativeProperty) { [string]$relativeProperty.Value } else { "" }
+        $fileName = if ($fileNameProperty) { [string]$fileNameProperty.Value } else { "" }
+        $runtimeId = if ($runtimeProperty) { [string]$runtimeProperty.Value } else { "" }
+
         if ([string]::IsNullOrWhiteSpace($relative) -and
-            -not [string]::IsNullOrWhiteSpace([string]$artifact.fileName) -and
-            -not [string]::IsNullOrWhiteSpace([string]$manifest.runtimeId)) {
-            $relative = ([string]$manifest.runtimeId).TrimEnd("/", "\") + "/" + [string]$artifact.fileName
+            -not [string]::IsNullOrWhiteSpace($fileName) -and
+            -not [string]::IsNullOrWhiteSpace($runtimeId)) {
+            $relative = $runtimeId.TrimEnd("/", "\") + "/" + $fileName
         }
         if ([string]::IsNullOrWhiteSpace($relative) -or
             [IO.Path]::IsPathRooted($relative) -or
@@ -281,16 +290,47 @@ function Test-MaviManifest {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "Manifest artifact is missing: $relative"
         }
-        $expected = ([string]$artifact.sha256).ToLowerInvariant()
-        if ($expected -notmatch '^[0-9a-f]{64}$') {
+        if (-not $shaProperty) {
+            throw "Manifest artifact has no SHA-256: $relative"
+        }
+        $expected = ([string]$shaProperty.Value).ToLowerInvariant()
+        if ($expected -notmatch '^[0-9a-f]{64}
+    return $manifest
+}
+
+function Set-MaviDirectoryAcl {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Identity,
+        [ValidateSet("R", "M", "F")][string]$Rights = "M"
+    )
+    New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    & icacls.exe $Path /grant:r ("{0}:(OI)(CI){1}" -f $Identity, $Rights) | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to grant $Rights ACL to $Identity on $Path."
+    }
+}
+
+function Write-MaviSetupStatus {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Status,
+        [string]$Detail
+    )
+    $suffix = if ($Detail) { " - $Detail" } else { "" }
+    Write-Host ("{0,-26} {1}{2}" -f $Name, $Status, $suffix)
+}
+
+Export-ModuleMember -Function *
+) {
             throw "Manifest artifact has invalid SHA-256: $relative"
         }
         $actual = Get-MaviSha256 -Path $path
         if ($actual -ne $expected) {
             throw "Manifest artifact failed SHA-256 verification: $relative"
         }
-        if ($null -ne $artifact.sizeBytes -and
-            [long](Get-Item -LiteralPath $path).Length -ne [long]$artifact.sizeBytes) {
+        if ($sizeProperty -and
+            [long](Get-Item -LiteralPath $path).Length -ne [long]$sizeProperty.Value) {
             throw "Manifest artifact size mismatch: $relative"
         }
     }
