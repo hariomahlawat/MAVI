@@ -1,10 +1,12 @@
 # Task 17 — Phase-1 Hardening, Qualification and Offline Acceptance
 
-**Status:** Authoritative implementation plan. Task 17 is the active final Phase-1 task.
+**Status:** Implementation complete. Task 17 software/tooling was merged by PR #38. Remaining real-host qualification and final Phase-1 closure are explicitly re-baselined into Task 18: `2026-09-15-task-18-phase1-production-qualification-closure.md`.
 
 **Planning baseline:** accepted Phase-1 integration head `e877dcac9efaefe4f935fa50b2913e806b197d27` after Task 16 PR #36.
 
 **Primary objective:** prove that the already-built Phase-1 MAVI system is repeatable, evidence-linked, recoverable and operable without Internet connectivity, then close the remaining release-qualification evidence truthfully. Task 17 is a hardening/acceptance task; it does not add new analytical product features.
+
+> **Post-PR #38 re-baselining note:** Task 17 now records the accepted implementation contract and historical design intent. The deterministic software/tooling portion is complete. Operational execution of hardware, disconnected-host, quality, performance, lifecycle, backup/restore and final production acceptance evidence is owned by Task 18. Nothing in this re-baselining weakens the proof requirements below.
 
 ---
 
