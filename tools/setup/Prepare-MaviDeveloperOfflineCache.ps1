@@ -87,31 +87,56 @@ foreach ($packageDirectory in @(Get-ChildItem -LiteralPath $nugetRoot -Directory
 }
 
 $packageLockPath = Join-Path $repoRoot "src\web\mavi-web\package-lock.json"
-$packageLockJson = Get-Content -LiteralPath $packageLockPath -Raw
+
+# Windows PowerShell / ConvertFrom-Json cannot reliably materialize npm lockfile
+# package maps because lockfileVersion 3 contains the required root entry with
+# an empty-string property name (""). Parse the lock with Node.js (which is
+# already a required preparation tool) and emit a normalized array containing
+# only the fields needed for the audit manifest.
+$nodeParser = @'
+const fs = require("fs");
+const path = process.argv[1];
+const lock = JSON.parse(fs.readFileSync(path, "utf8"));
+
+if (!lock.packages || typeof lock.packages !== "object") {
+  throw new Error("package-lock.json does not contain the expected top-level packages object.");
+}
+
+const rows = Object.entries(lock.packages)
+  .filter(([packagePath, entry]) =>
+    packagePath.length > 0 &&
+    entry &&
+    typeof entry === "object" &&
+    typeof entry.version === "string")
+  .sort(([a], [b]) => a.localeCompare(b))
+  .map(([packagePath, entry]) => ({
+    packagePath,
+    version: entry.version,
+    developmentOnly: entry.dev === true
+  }));
+
+process.stdout.write(JSON.stringify(rows));
+'@
+
+$npmInventoryJson = (& node.exe -e $nodeParser $packageLockPath | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($npmInventoryJson)) {
+    throw "Unable to derive npm package inventory from '$packageLockPath'."
+}
+
 try {
-    $packageLock = ConvertFrom-Json -InputObject $packageLockJson -ErrorAction Stop
+    $npmInventory = ConvertFrom-Json -InputObject $npmInventoryJson -ErrorAction Stop
 }
 catch {
-    throw "Unable to parse npm package lock '$packageLockPath': $($_.Exception.Message)"
+    throw "Unable to parse normalized npm package inventory for '$packageLockPath': $($_.Exception.Message)"
 }
 
 $npmPackages = @()
-$packagesProperty = $packageLock.PSObject.Properties["packages"]
-if ($packagesProperty -and $null -ne $packagesProperty.Value) {
-    foreach ($property in @($packagesProperty.Value.PSObject.Properties | Sort-Object Name)) {
-        if ([string]::IsNullOrWhiteSpace([string]$property.Name)) { continue }
-        $entry = $property.Value
-        $versionProperty = $entry.PSObject.Properties["version"]
-        if (-not $versionProperty) { continue }
-        $npmPackages += [ordered]@{
-            packagePath = [string]$property.Name
-            version = [string]$versionProperty.Value
-            developmentOnly = [bool]($entry.PSObject.Properties["dev"] -and [bool]$entry.dev)
-        }
+foreach ($entry in @($npmInventory)) {
+    $npmPackages += [ordered]@{
+        packagePath = [string]$entry.packagePath
+        version = [string]$entry.version
+        developmentOnly = [bool]$entry.developmentOnly
     }
-}
-else {
-    throw "npm package lock '$packageLockPath' does not contain the expected top-level 'packages' object."
 }
 
 $pythonArtifacts = @()
