@@ -111,6 +111,7 @@ class VerifiedBundleInputs:
     checkpoint_sha256: str
     resolved_config_sha256: str
     wheelhouse: Path
+    python_installer_path: Path | None = None
 
 
 def _bundle_host_compatibility(platform_variant: str) -> BundleHostCompatibility:
@@ -189,6 +190,10 @@ def build_bundle_from_verified_inputs(
     ):
         _assert_safe_regular_file(path)
     _assert_safe_directory(inputs.wheelhouse)
+    if inputs.python_installer_path is not None:
+        _assert_safe_regular_file(inputs.python_installer_path)
+        if not inputs.platform_variant.startswith("windows-"):
+            raise OfflineBundleError("python_installer_platform_mismatch")
     verified_locks = _revalidate_assembly_boundary(inputs)
     for lock_path in verified_locks.values():
         _assert_safe_regular_file(lock_path)
@@ -313,6 +318,16 @@ def build_bundle_from_verified_inputs(
                 platform_variant=variant,
             )
 
+        if inputs.python_installer_path is not None:
+            add_file(
+                inputs.python_installer_path,
+                f"prerequisites/python/{inputs.python_installer_path.name}",
+                purpose="python-runtime-installer",
+                package="cpython",
+                version=inputs.python_version,
+                platform_variant=inputs.platform_variant,
+            )
+
         install_path = stage / "INSTALL.txt"
         install_payload = _install_instructions(inputs).encode("utf-8")
         install_path.write_bytes(install_payload)
@@ -376,6 +391,7 @@ def resolve_verified_bundle_inputs(
     pipeline_profile_path: Path,
     runtime_profile_path: Path,
     wheelhouse: Path,
+    python_installer_path: Path | None = None,
 ) -> VerifiedBundleInputs:
     _validate_source_commit_against_checkout(source_commit, ROOT)
     try:
@@ -434,6 +450,7 @@ def resolve_verified_bundle_inputs(
         checkpoint_sha256=selection.manifest.checkpoint.sha256,
         resolved_config_sha256=selection.manifest.resolved_config.sha256,
         wheelhouse=wheelhouse,
+        python_installer_path=python_installer_path,
     )
 
 
@@ -567,6 +584,7 @@ def build_offline_bundle(
     runtime_profile_path: Path,
     wheelhouse: Path,
     output: Path,
+    python_installer_path: Path | None = None,
 ) -> BundleManifest:
     inputs = resolve_verified_bundle_inputs(
         source_commit=source_commit,
@@ -578,6 +596,7 @@ def build_offline_bundle(
         pipeline_profile_path=pipeline_profile_path,
         runtime_profile_path=runtime_profile_path,
         wheelhouse=wheelhouse,
+        python_installer_path=python_installer_path,
     )
     return build_bundle_from_verified_inputs(inputs, output)
 
@@ -1073,6 +1092,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--pipeline-profile", type=Path, required=True)
     parser.add_argument("--runtime-profile", type=Path, required=True)
     parser.add_argument("--wheelhouse", type=Path, required=True)
+    parser.add_argument("--python-installer", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -1091,6 +1111,7 @@ def main() -> int:
             runtime_profile_path=args.runtime_profile,
             wheelhouse=args.wheelhouse,
             output=args.output,
+            python_installer_path=args.python_installer,
         )
     except (OfflineBundleError, ReleaseMetadataError) as exc:
         print(str(exc), file=sys.stderr)
