@@ -10,7 +10,7 @@
     "acceptanceContextSha256": { "$ref": "#/$defs/sha256" },
     "role": { "enum": ["windows-operational-plane","database","linux-vision-worker"] },
     "capturedAtUtc": { "type": "string", "format": "date-time" },
-    "topologyIdentity": { "type": "string", "minLength": 1 },
+    "topologyIdentity": { "$ref": "#/$defs/sha256" },
     "values": {
       "type": "object",
       "additionalProperties": { "type": "string", "minLength": 1 },
