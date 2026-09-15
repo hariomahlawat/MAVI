@@ -86,18 +86,32 @@ foreach ($packageDirectory in @(Get-ChildItem -LiteralPath $nugetRoot -Directory
     }
 }
 
-$packageLock = Get-Content -LiteralPath (Join-Path $repoRoot "src\web\mavi-web\package-lock.json") -Raw | ConvertFrom-Json
+$packageLockPath = Join-Path $repoRoot "src\web\mavi-web\package-lock.json"
+$packageLockJson = Get-Content -LiteralPath $packageLockPath -Raw
+try {
+    $packageLock = ConvertFrom-Json -InputObject $packageLockJson -ErrorAction Stop
+}
+catch {
+    throw "Unable to parse npm package lock '$packageLockPath': $($_.Exception.Message)"
+}
+
 $npmPackages = @()
-foreach ($property in @($packageLock.packages.PSObject.Properties | Sort-Object Name)) {
-    if ([string]::IsNullOrWhiteSpace([string]$property.Name)) { continue }
-    $entry = $property.Value
-    $versionProperty = $entry.PSObject.Properties["version"]
-    if (-not $versionProperty) { continue }
-    $npmPackages += [ordered]@{
-        packagePath = [string]$property.Name
-        version = [string]$versionProperty.Value
-        developmentOnly = [bool]($entry.PSObject.Properties["dev"] -and [bool]$entry.dev)
+$packagesProperty = $packageLock.PSObject.Properties["packages"]
+if ($packagesProperty -and $null -ne $packagesProperty.Value) {
+    foreach ($property in @($packagesProperty.Value.PSObject.Properties | Sort-Object Name)) {
+        if ([string]::IsNullOrWhiteSpace([string]$property.Name)) { continue }
+        $entry = $property.Value
+        $versionProperty = $entry.PSObject.Properties["version"]
+        if (-not $versionProperty) { continue }
+        $npmPackages += [ordered]@{
+            packagePath = [string]$property.Name
+            version = [string]$versionProperty.Value
+            developmentOnly = [bool]($entry.PSObject.Properties["dev"] -and [bool]$entry.dev)
+        }
     }
+}
+else {
+    throw "npm package lock '$packageLockPath' does not contain the expected top-level 'packages' object."
 }
 
 $pythonArtifacts = @()
