@@ -28,7 +28,7 @@ public static class StorageTopologyEndpoints
         if (closeWhenDone)
             await connection.OpenAsync(cancellationToken);
 
-        string databaseIdentity;
+        string databaseIdentitySha256;
         try
         {
             await using var command = connection.CreateCommand();
@@ -37,25 +37,15 @@ public static class StorageTopologyEndpoints
                 "coalesce(inet_server_addr()::text, 'local-socket') || '|' || " +
                 "coalesce(inet_server_port()::text, 'local')";
             var value = await command.ExecuteScalarAsync(cancellationToken);
-            databaseIdentity = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)
-                ?? string.Empty;
+            var rawDatabaseTopology = Convert.ToString(
+                value,
+                System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+            databaseIdentitySha256 = DatabaseIdentitySha256(rawDatabaseTopology);
         }
         finally
         {
             if (closeWhenDone)
                 await connection.CloseAsync();
-        }
-
-        if (string.IsNullOrWhiteSpace(databaseIdentity) ||
-            databaseIdentity.Count(character => character == '|') != 2)
-        {
-            return Results.Problem(
-                statusCode: StatusCodes.Status500InternalServerError,
-                detail: "The live storage topology could not be attested.",
-                extensions: new Dictionary<string, object?>
-                {
-                    ["code"] = "storage_topology_database_identity_invalid"
-                });
         }
 
         var assembly = typeof(Program).Assembly;
@@ -72,11 +62,25 @@ public static class StorageTopologyEndpoints
             maviBuild = string.IsNullOrWhiteSpace(build) ? "unknown-development" : build,
             maviCommit = string.IsNullOrWhiteSpace(commit) ? "unknown-development" : commit,
             operationalHostIdentitySha256 = HostIdentitySha256(),
-            databaseIdentity,
+            databaseIdentitySha256,
             managedMediaRootIdentitySha256 = RootIdentitySha256(options.RootPath),
             acceptedEvidenceRootIdentitySha256 = RootIdentitySha256(options.EvidenceRootPath)
         };
         return Results.Ok(response);
+    }
+
+    internal static string DatabaseIdentitySha256(string rawDatabaseTopology)
+    {
+        if (string.IsNullOrWhiteSpace(rawDatabaseTopology) ||
+            rawDatabaseTopology.Count(character => character == '|') != 2)
+        {
+            throw new InvalidOperationException(
+                "Database topology identity is unavailable.");
+        }
+
+        var payload = Encoding.UTF8.GetBytes(
+            $"mavi-database-topology-v1|{rawDatabaseTopology}");
+        return Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
     }
 
     internal static string HostIdentitySha256()
