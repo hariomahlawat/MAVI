@@ -8,6 +8,9 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
+Assert-MaviWindows
+
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $destination = [IO.Path]::GetFullPath($Destination)
 $nugetRoot = Join-Path $destination "nuget-packages"
