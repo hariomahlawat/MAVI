@@ -411,6 +411,9 @@ def validate_prerequisites(
     linux_observation: Path,
     source_commit: str,
     mavi_build: str,
+    acceptance_execution_id: str,
+    acceptance_context_sha256: str,
+    context_started_at: str,
 ) -> str:
     evidence = load_json(evidence_path, "production_prerequisite_evidence_invalid")
     validate_schema(
@@ -431,6 +434,14 @@ def validate_prerequisites(
         raise ProductionAcceptanceError(
             "production_prerequisite_policy_not_approved"
         )
+
+    try:
+        context_start = _parse_utc(
+            context_started_at,
+            "production_prerequisite_context_time_invalid",
+        )
+    except ProductionAcceptanceError:
+        raise
 
     observations = {
         "windows-operational-plane": windows_observation,
@@ -455,8 +466,15 @@ def validate_prerequisites(
             "production_prerequisite_observation",
         )
         policy_key = PREREQUISITE_ROLES[role]
+        captured = _parse_utc(
+            value.get("capturedAtUtc"),
+            "production_prerequisite_observation_time_invalid:" + role,
+        )
         if (
-            value.get("role") != role
+            value.get("acceptanceExecutionId") != acceptance_execution_id
+            or value.get("acceptanceContextSha256") != acceptance_context_sha256
+            or captured < context_start
+            or value.get("role") != role
             or value.get("values") != policy.get(policy_key)
             or evidence.get(policy_key) != value.get("values")
             or evidence.get(expected_hash_fields[role]) != sha256_file(path)
@@ -468,13 +486,40 @@ def validate_prerequisites(
             )
 
     if (
-        evidence.get("sourceCommit") != source_commit
+        evidence.get("acceptanceExecutionId") != acceptance_execution_id
+        or evidence.get("acceptanceContextSha256") != acceptance_context_sha256
+        or evidence.get("sourceCommit") != source_commit
         or evidence.get("maviBuild") != mavi_build
         or evidence.get("policySha256") != policy_sha
         or not passed_result(evidence)
     ):
         raise ProductionAcceptanceError("production_prerequisite_binding_failed")
     return sha256_file(evidence_path)
+
+
+def validate_prerequisite_observation_window(
+    observation_paths: tuple[Path, Path, Path],
+    *,
+    first_scenario_started_at: str,
+) -> None:
+    first_start = _parse_utc(
+        first_scenario_started_at,
+        "production_first_scenario_time_invalid",
+    )
+    for path in observation_paths:
+        value = load_json(
+            path,
+            "production_prerequisite_observation_invalid",
+        )
+        role = str(value.get("role", "unknown"))
+        captured = _parse_utc(
+            value.get("capturedAtUtc"),
+            "production_prerequisite_observation_time_invalid:" + role,
+        )
+        if captured > first_start:
+            raise ProductionAcceptanceError(
+                "production_prerequisite_observation_after_scenario:" + role
+            )
 
 
 def validate_scenario(
@@ -962,6 +1007,9 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         linux_observation=args.linux_prerequisite_observation,
         source_commit=args.source_commit,
         mavi_build=mavi_build,
+        acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
+        acceptance_context_sha256=acceptance_context_sha,
+        context_started_at=acceptance_context["startedAtUtc"],
     )
 
     prerequisite_value = load_json(
@@ -1071,6 +1119,19 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
     formal_scenario_value = load_json(args.formal_scenario, "production_formal_scenario_invalid")
     empty_scenario_value = load_json(args.empty_scene_scenario, "production_empty_scenario_invalid")
     failure_value = load_json(args.failure_reprocess, "production_failure_reprocess_invalid")
+    first_scenario_started_at = min(
+        formal_scenario_value["scenarioStartedAtUtc"],
+        empty_scenario_value["scenarioStartedAtUtc"],
+        failure_value["scenarioStartedAtUtc"],
+    )
+    validate_prerequisite_observation_window(
+        (
+            args.windows_prerequisite_observation,
+            args.database_prerequisite_observation,
+            args.linux_prerequisite_observation,
+        ),
+        first_scenario_started_at=first_scenario_started_at,
+    )
     production_log_paths = parse_log_arguments(args.production_log)
     log_inspection_sha = validate_log_inspection(
         args.log_inspection,

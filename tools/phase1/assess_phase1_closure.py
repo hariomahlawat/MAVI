@@ -619,6 +619,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and args.database_prerequisite_observation is not None
         and args.linux_prerequisite_observation is not None
         and expected_mavi_build is not None
+        and acceptance_context is not None
+        and acceptance_context_sha is not None
     ):
         prerequisite_sha = production_acceptance.validate_prerequisites(
             args.prerequisite_evidence,
@@ -627,6 +629,9 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             linux_observation=args.linux_prerequisite_observation,
             source_commit=args.source_commit,
             mavi_build=expected_mavi_build,
+            acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
+            acceptance_context_sha256=acceptance_context_sha,
+            context_started_at=acceptance_context["startedAtUtc"],
         )
         evidence_hashes["production-prerequisites"] = prerequisite_sha
 
@@ -787,6 +792,24 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         formal_scenario_value = load_json(args.formal_scenario)
         empty_scenario_value = load_json(args.empty_scene_scenario)
         failure_value = load_json(args.failure_reprocess)
+        if (
+            args.windows_prerequisite_observation is None
+            or args.database_prerequisite_observation is None
+            or args.linux_prerequisite_observation is None
+        ):
+            raise ClosureError("production_prerequisite_observations_missing")
+        production_acceptance.validate_prerequisite_observation_window(
+            (
+                args.windows_prerequisite_observation,
+                args.database_prerequisite_observation,
+                args.linux_prerequisite_observation,
+            ),
+            first_scenario_started_at=min(
+                formal_scenario_value["scenarioStartedAtUtc"],
+                empty_scenario_value["scenarioStartedAtUtc"],
+                failure_value["scenarioStartedAtUtc"],
+            ),
+        )
         log_sha = production_acceptance.validate_log_inspection(
             args.log_inspection,
             context_path=args.acceptance_context,

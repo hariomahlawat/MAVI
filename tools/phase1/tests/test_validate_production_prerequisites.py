@@ -55,6 +55,8 @@ def observation(role: str, values: dict) -> dict:
     }[role]
     return {
         "schemaVersion": "mavi-production-prerequisite-observation-v1",
+        "acceptanceExecutionId": "11111111-1111-4111-8111-111111111111",
+        "acceptanceContextSha256": "c" * 64,
         "role": role,
         "capturedAtUtc": "2026-09-14T18:00:00Z",
         "topologyIdentity": topology,
@@ -84,7 +86,7 @@ def test_pending_prerequisite_policy_cannot_pass():
         mod.PrerequisiteEvidenceError,
         match="production_prerequisite_policy_not_approved",
     ):
-        mod.validate_observations(policy, windows, database, linux)
+        mod.validate_observations(policy, windows, database, linux, acceptance_execution_id="11111111-1111-4111-8111-111111111111", acceptance_context_sha256="c" * 64, context_started_at="2026-09-14T17:59:00Z")
 
 
 def test_mismatched_observed_prerequisite_cannot_pass():
@@ -95,13 +97,13 @@ def test_mismatched_observed_prerequisite_cannot_pass():
         mod.PrerequisiteEvidenceError,
         match="production_prerequisite_observation_mismatch:linux-vision-worker",
     ):
-        mod.validate_observations(policy, windows, database, linux)
+        mod.validate_observations(policy, windows, database, linux, acceptance_execution_id="11111111-1111-4111-8111-111111111111", acceptance_context_sha256="c" * 64, context_started_at="2026-09-14T17:59:00Z")
 
 
 def test_exact_approved_observations_pass():
     policy = approved_policy()
     windows, database, linux = observations(policy)
-    mod.validate_observations(policy, windows, database, linux)
+    mod.validate_observations(policy, windows, database, linux, acceptance_execution_id="11111111-1111-4111-8111-111111111111", acceptance_context_sha256="c" * 64, context_started_at="2026-09-14T17:59:00Z")
 
 
 def test_missing_topology_identity_cannot_pass():
@@ -112,4 +114,42 @@ def test_missing_topology_identity_cannot_pass():
         mod.PrerequisiteEvidenceError,
         match="production_prerequisite_policy_not_frozen:linux-vision-worker",
     ):
-        mod.validate_observations(policy, windows, database, linux)
+        mod.validate_observations(policy, windows, database, linux, acceptance_execution_id="11111111-1111-4111-8111-111111111111", acceptance_context_sha256="c" * 64, context_started_at="2026-09-14T17:59:00Z")
+
+
+def test_stale_observation_before_acceptance_context_cannot_pass():
+    policy = approved_policy()
+    windows, database, linux = observations(policy)
+    windows["capturedAtUtc"] = "2026-09-13T18:00:00Z"
+    with pytest.raises(
+        mod.PrerequisiteEvidenceError,
+        match="production_prerequisite_context_mismatch:windows-operational-plane",
+    ):
+        mod.validate_observations(
+            policy,
+            windows,
+            database,
+            linux,
+            acceptance_execution_id="11111111-1111-4111-8111-111111111111",
+            acceptance_context_sha256="c" * 64,
+            context_started_at="2026-09-14T17:59:00Z",
+        )
+
+
+def test_observation_from_other_acceptance_execution_cannot_pass():
+    policy = approved_policy()
+    windows, database, linux = observations(policy)
+    linux["acceptanceExecutionId"] = "22222222-2222-4222-8222-222222222222"
+    with pytest.raises(
+        mod.PrerequisiteEvidenceError,
+        match="production_prerequisite_context_mismatch:linux-vision-worker",
+    ):
+        mod.validate_observations(
+            policy,
+            windows,
+            database,
+            linux,
+            acceptance_execution_id="11111111-1111-4111-8111-111111111111",
+            acceptance_context_sha256="c" * 64,
+            context_started_at="2026-09-14T17:59:00Z",
+        )
