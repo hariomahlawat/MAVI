@@ -174,6 +174,9 @@ if ($PlanOnly) {
 }
 
 New-Item -ItemType Directory -Path $setupRoot -Force | Out-Null
+if ($Profile -eq "Production") {
+    Set-MaviPrivateDirectoryAcl -Path $setupRoot
+}
 $logRoot = Join-Path $setupRoot "logs"
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 $logPath = Join-Path $logRoot ("setup-" + $Profile.ToLowerInvariant() + "-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
@@ -310,8 +313,8 @@ try {
         }
 
         Set-MaviDirectoryAcl -Path $applicationRoot -Identity "IIS AppPool\$appPoolName" -Rights "R"
-        Set-MaviDirectoryAcl -Path $mediaRoot -Identity "IIS AppPool\$appPoolName" -Rights "M"
-        Set-MaviDirectoryAcl -Path $evidenceRoot -Identity "IIS AppPool\$appPoolName" -Rights "M"
+        Set-MaviPrivateDirectoryAcl -Path $mediaRoot -ApplicationIdentity "IIS AppPool\$appPoolName" -ApplicationRights "M"
+        Set-MaviPrivateDirectoryAcl -Path $evidenceRoot -ApplicationIdentity "IIS AppPool\$appPoolName" -ApplicationRights "M"
         Set-MaviDirectoryAcl -Path (Split-Path $machineConfigPath -Parent) -Identity "IIS AppPool\$appPoolName" -Rights "R"
 
         Set-MaviIisSite -SiteName $siteName -AppPoolName $appPoolName -PhysicalPath $applicationRoot -HttpPort $HttpPort
