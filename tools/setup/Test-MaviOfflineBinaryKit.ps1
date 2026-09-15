@@ -83,6 +83,23 @@ if (-not $developerCacheHashProperty -or
     throw "Offline binary kit Development cache manifest hash does not match the kit manifest."
 }
 
+$cacheToKitInputs = [ordered]@{
+    offlineDependencyPolicySha256 = "offlineDependencyPolicy"
+    globalJsonSha256 = "globalJson"
+    packageLockSha256 = "webPackageLock"
+    visionPyprojectSha256 = "visionPyproject"
+    toolsRequirementsSha256 = "toolsRequirements"
+}
+foreach ($entry in $cacheToKitInputs.GetEnumerator()) {
+    $cacheProperty = $developerCacheManifest.sourceInputs.PSObject.Properties[$entry.Key]
+    $kitProperty = $manifest.sourceInputs.PSObject.Properties[$entry.Value]
+    $cacheHash = if ($cacheProperty) { [string]$cacheProperty.Value } else { "" }
+    $kitHash = if ($kitProperty) { [string]$kitProperty.Value } else { "" }
+    if ($cacheHash -ne $kitHash) {
+        throw "Offline binary kit contains a stale Development cache: $($entry.Key) does not match the kit source identity."
+    }
+}
+
 if ([string]$manifest.versions.postgresql -ne [string]$postgreSql.postgresqlVersion) {
     throw "Offline binary kit PostgreSQL version record does not match nested runtime manifest."
 }
