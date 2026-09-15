@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$RepositoryRoot = (Join-Path $PSScriptRoot "..\.."),
-    [string]$ApiBaseUrl = "https://localhost:62152",
+    [string]$ApiBaseUrl = "http://localhost:62153",
     [string]$WorkerId = "dev-worker-01",
     [string]$MediaRoot = "C:\ProgramData\MAVI\Development\Data",
     [ValidateSet("cpu","cuda","auto")]
