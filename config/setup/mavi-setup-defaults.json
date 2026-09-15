@@ -8,8 +8,8 @@
     "postgresqlAdminPassword": "postgres",
     "databaseName": "mavi_dev",
     "testDatabaseName": "mavi_test",
-    "mediaRoot": "D:\\MAVI-Data",
-    "evidenceRoot": "D:\\MAVI-Evidence"
+    "mediaRoot": "C:\\ProgramData\\MAVI\\Development\\Data",
+    "evidenceRoot": "C:\\ProgramData\\MAVI\\Development\\Evidence"
   },
   "production": {
     "postgresqlMajorVersion": 18,
