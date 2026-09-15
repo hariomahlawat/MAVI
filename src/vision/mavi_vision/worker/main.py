@@ -154,6 +154,19 @@ async def _run_worker(
         logger.info("Starting MAVI vision worker %s", settings.worker_id)
         await supervisor.start()
 
+        if supervisor.state is RuntimeState.READY:
+            logger.info(
+                "MAVI vision runtime READY for worker %s",
+                settings.worker_id,
+            )
+        else:
+            logger.error(
+                "MAVI vision runtime %s for worker %s: %s",
+                supervisor.state.value.upper(),
+                settings.worker_id,
+                supervisor.unavailable_reason or "no diagnostic reason reported",
+            )
+
         processor: VisionProcessor | None = None
         if supervisor.state is RuntimeState.READY:
             processor = processor_factory(
