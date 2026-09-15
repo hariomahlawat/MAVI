@@ -3,22 +3,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Destination,
 
-    [string]$PostgreSqlRuntimePack = (Join-Path $PSScriptRoot "..\..\vendor\postgresql\pg18\win-x64"),
-
     [Parameter(Mandatory = $true)]
     [string]$ApplicationArtifact,
 
     [string]$BinaryKitRoot,
-
-    [string]$HostingBundle = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\dotnet-hosting.exe"),
-
-    [string]$DotNetSdkInstaller = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\dotnet-sdk.exe"),
-
-    [string]$NodeInstaller = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\node.msi"),
-
-    [string]$PythonInstaller = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\python.exe"),
-
-    [string]$DeveloperDependencyCache = (Join-Path $PSScriptRoot "..\..\vendor\developer-cache\win-x64"),
 
     [switch]$IncludeDevelopmentPayload
 )
@@ -29,49 +17,47 @@ Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
 
-$binaryKitManifestHash = $null
-$binaryCatalogHash = $null
 if ([string]::IsNullOrWhiteSpace($BinaryKitRoot)) {
     $siblingKit = [IO.Path]::GetFullPath((Join-Path $repoRoot "..\MAVI-Offline-Binary-Kit"))
     if (Test-Path -LiteralPath (Join-Path $siblingKit "mavi-offline-binary-kit.json") -PathType Leaf) {
         $BinaryKitRoot = $siblingKit
     }
 }
-if (-not [string]::IsNullOrWhiteSpace($BinaryKitRoot)) {
-    $BinaryKitRoot = (Resolve-Path -LiteralPath $BinaryKitRoot).Path
-    $kitManifestPath = Join-Path $BinaryKitRoot "mavi-offline-binary-kit.json"
-    [void](Test-MaviManifest -Root $BinaryKitRoot -ManifestPath $kitManifestPath -ExpectedSchemaVersion "mavi-offline-binary-kit-v1")
-    $kitCatalogPath = Join-Path $BinaryKitRoot "catalog\offline-binary-catalog-v1.json"
-    if (-not (Test-Path -LiteralPath $kitCatalogPath -PathType Leaf)) {
-        throw "Offline binary kit is missing its version catalog."
-    }
-    $binaryKitManifestHash = Get-MaviSha256 -Path $kitManifestPath
-    $binaryCatalogHash = Get-MaviSha256 -Path $kitCatalogPath
-
-    $PostgreSqlRuntimePack = Join-Path $BinaryKitRoot "vendor\postgresql\pg18\win-x64"
-    $HostingBundle = Join-Path $BinaryKitRoot "vendor\installers\win-x64\dotnet-hosting.exe"
-    $DotNetSdkInstaller = Join-Path $BinaryKitRoot "vendor\installers\win-x64\dotnet-sdk.exe"
-    $NodeInstaller = Join-Path $BinaryKitRoot "vendor\installers\win-x64\node.msi"
-    $PythonInstaller = Join-Path $BinaryKitRoot "vendor\installers\win-x64\python.exe"
-    $DeveloperDependencyCache = Join-Path $BinaryKitRoot "vendor\developer-cache\win-x64"
+if ([string]::IsNullOrWhiteSpace($BinaryKitRoot)) {
+    throw "MAVI setup-media assembly requires MAVI-Offline-Binary-Kit. Create it first with tools/setup/New-MaviOfflineBinaryKit.ps1 or pass -BinaryKitRoot."
 }
 
+$BinaryKitRoot = (Resolve-Path -LiteralPath $BinaryKitRoot).Path
+$kitManifestPath = Join-Path $BinaryKitRoot "mavi-offline-binary-kit.json"
+& (Join-Path $PSScriptRoot "Test-MaviOfflineBinaryKit.ps1") -KitRoot $BinaryKitRoot
+
+$kitCatalogPath = Join-Path $BinaryKitRoot "catalog\offline-binary-catalog-v1.json"
+$binaryKitManifestHash = Get-MaviSha256 -Path $kitManifestPath
+$binaryCatalogHash = Get-MaviSha256 -Path $kitCatalogPath
+
+$postgreSqlRuntimePack = Join-Path $BinaryKitRoot "vendor\postgresql\pg18\win-x64"
+$hostingBundle = Join-Path $BinaryKitRoot "vendor\installers\win-x64\dotnet-hosting.exe"
+$dotNetSdkInstaller = Join-Path $BinaryKitRoot "vendor\installers\win-x64\dotnet-sdk.exe"
+$nodeInstaller = Join-Path $BinaryKitRoot "vendor\installers\win-x64\node.msi"
+$pythonInstaller = Join-Path $BinaryKitRoot "vendor\installers\win-x64\python.exe"
+$developerDependencyCache = Join-Path $BinaryKitRoot "vendor\developer-cache\win-x64"
+
 $destination = [IO.Path]::GetFullPath($Destination)
-$postgreSqlRuntimePack = (Resolve-Path -LiteralPath $PostgreSqlRuntimePack).Path
+$postgreSqlRuntimePack = (Resolve-Path -LiteralPath $postgreSqlRuntimePack).Path
 $applicationArtifact = (Resolve-Path -LiteralPath $ApplicationArtifact).Path
 if ($IncludeDevelopmentPayload) {
-    $developerDependencyCache = (Resolve-Path -LiteralPath $DeveloperDependencyCache).Path
+    $developerDependencyCache = (Resolve-Path -LiteralPath $developerDependencyCache).Path
 }
 
 [void](Test-MaviManifest -Root $postgreSqlRuntimePack -ManifestPath (Join-Path $postgreSqlRuntimePack "manifest.json") -ExpectedSchemaVersion "mavi-postgresql-runtime-pack-v1")
 
-if (-not (Test-Path -LiteralPath $HostingBundle -PathType Leaf)) {
-    throw "Required ASP.NET Core Hosting Bundle was not found: $HostingBundle"
+if (-not (Test-Path -LiteralPath $hostingBundle -PathType Leaf)) {
+    throw "Required ASP.NET Core Hosting Bundle was not found in the verified binary kit."
 }
 if ($IncludeDevelopmentPayload) {
-    foreach ($requiredFile in @($DotNetSdkInstaller, $NodeInstaller, $PythonInstaller)) {
+    foreach ($requiredFile in @($dotNetSdkInstaller, $nodeInstaller, $pythonInstaller)) {
         if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
-            throw "Required Development offline installer was not found: $requiredFile"
+            throw "Required Development installer was not found in the verified binary kit: $requiredFile"
         }
     }
 }
@@ -131,14 +117,14 @@ $applicationFfmpegRoot = Join-Path $applicationDestination "tools\ffmpeg"
 
 $hostingDestination = Join-Path $destination "prerequisites\hosting\win-x64"
 New-Item -ItemType Directory -Path $hostingDestination -Force | Out-Null
-Copy-Item -LiteralPath $HostingBundle -Destination (Join-Path $hostingDestination "dotnet-hosting.exe")
+Copy-Item -LiteralPath $hostingBundle -Destination (Join-Path $hostingDestination "dotnet-hosting.exe")
 
 if ($IncludeDevelopmentPayload) {
     $developerDestination = Join-Path $destination "prerequisites\developer\win-x64"
     New-Item -ItemType Directory -Path $developerDestination -Force | Out-Null
-    Copy-Item -LiteralPath $DotNetSdkInstaller -Destination (Join-Path $developerDestination "dotnet-sdk.exe")
-    Copy-Item -LiteralPath $NodeInstaller -Destination (Join-Path $developerDestination "node.msi")
-    Copy-Item -LiteralPath $PythonInstaller -Destination (Join-Path $developerDestination "python.exe")
+    Copy-Item -LiteralPath $dotNetSdkInstaller -Destination (Join-Path $developerDestination "dotnet-sdk.exe")
+    Copy-Item -LiteralPath $nodeInstaller -Destination (Join-Path $developerDestination "node.msi")
+    Copy-Item -LiteralPath $pythonInstaller -Destination (Join-Path $developerDestination "python.exe")
 
     foreach ($cacheDirectory in @("nuget-packages", "npm-cache", "python-wheelhouse")) {
         $source = Join-Path $developerDependencyCache $cacheDirectory
