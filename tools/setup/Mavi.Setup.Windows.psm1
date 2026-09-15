@@ -375,7 +375,8 @@ function Initialize-MaviDeveloperWorkspace {
     $solutionPath = Join-Path $RepositoryRoot "MAVI.sln"
     $webRoot = Join-Path $RepositoryRoot "src\web\mavi-web"
     $visionRoot = Join-Path $RepositoryRoot "src\vision"
-    foreach ($required in @($solutionPath, (Join-Path $webRoot "package-lock.json"), (Join-Path $visionRoot "pyproject.toml"))) {
+    $toolsRequirements = Join-Path $RepositoryRoot "tools\requirements.txt"
+    foreach ($required in @($solutionPath, (Join-Path $webRoot "package-lock.json"), (Join-Path $visionRoot "pyproject.toml"), $toolsRequirements)) {
         if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
             throw "MAVI repository is incomplete for Development setup: $required"
         }
@@ -463,6 +464,13 @@ function Initialize-MaviDeveloperWorkspace {
         "--no-index",
         "--find-links", $pythonLocal,
         "setuptools>=75"
+    )
+
+    Invoke-MaviCommand -FilePath $venvPython -Arguments @(
+        "-m", "pip", "install",
+        "--no-index",
+        "--find-links", $pythonLocal,
+        "-r", $toolsRequirements
     )
 
     Push-Location $visionRoot
