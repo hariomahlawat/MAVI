@@ -37,13 +37,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "schemaVersion","maviBuild","maviCommit","databaseIdentity",
+        "schemaVersion","maviBuild","maviCommit","operationalHostIdentitySha256","databaseIdentity",
         "managedMediaRootIdentitySha256","acceptedEvidenceRootIdentitySha256"
       ],
       "properties": {
         "schemaVersion": { "const": "mavi-storage-topology-attestation-v1" },
         "maviBuild": { "type": "string", "minLength": 1 },
         "maviCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "operationalHostIdentitySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "databaseIdentity": { "type": "string", "minLength": 1 },
         "managedMediaRootIdentitySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "acceptedEvidenceRootIdentitySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }

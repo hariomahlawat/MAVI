@@ -186,6 +186,7 @@ def test_live_storage_topology_accepts_exact_sources(tmp_path: Path):
         "schemaVersion": "mavi-storage-topology-attestation-v1",
         "maviBuild": "build-a",
         "maviCommit": "a" * 40,
+        "operationalHostIdentitySha256": "f" * 64,
         "databaseIdentity": "source|127.0.0.1|5432",
         "managedMediaRootIdentitySha256": mod.storage_root_identity_sha256(media),
         "acceptedEvidenceRootIdentitySha256": mod.storage_root_identity_sha256(evidence),

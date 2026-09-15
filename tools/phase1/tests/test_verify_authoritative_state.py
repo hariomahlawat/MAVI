@@ -76,4 +76,5 @@ def test_authoritative_state_rejects_malformed_evidence_before_api_access(
             acceptance_evidence=evidence,
             expected_application_commit="a" * 40,
             expected_application_build="prior-build",
+            expected_operational_host_identity_sha256="f" * 64,
         )
