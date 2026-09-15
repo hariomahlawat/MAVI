@@ -521,7 +521,24 @@ def _state_check_payload(
     }
 
 
-def _offline_update_value(pre_sha: str, post_sha: str, *, migration_policy: str = "none") -> dict:
+def _prior_manifest(tmp_path: Path) -> Path:
+    path = tmp_path / "prior-manifest.json"
+    path.write_text(json.dumps({
+        "schemaVersion": "mavi-application-artifact-v1",
+        "sourceCommit": "a" * 40,
+        "build": "prior-build",
+        "files": [],
+    }), encoding="utf-8")
+    return path
+
+
+def _offline_update_value(
+    pre_sha: str,
+    post_sha: str,
+    prior_manifest_sha: str,
+    *,
+    migration_policy: str = "none",
+) -> dict:
     return {
         "schemaVersion": "mavi-application-lifecycle-evidence-v1",
         "mode": "offline-update",
@@ -546,7 +563,7 @@ def _offline_update_value(pre_sha: str, post_sha: str, *, migration_policy: str 
         "priorRelease": {
             "sourceCommit": "a" * 40,
             "build": "prior-build",
-            "applicationManifestSha256": "7" * 64,
+            "applicationManifestSha256": prior_manifest_sha,
             "supported": True,
         },
         "migrationPolicy": migration_policy,
@@ -594,6 +611,7 @@ def test_supported_prior_rejects_forged_manifest_hash(monkeypatch):
 
 
 def test_offline_update_rejects_missing_required_migration(tmp_path: Path, monkeypatch):
+    prior = _prior_manifest(tmp_path)
     pre = tmp_path / "pre.json"
     post = tmp_path / "post.json"
     pre.write_text(json.dumps(_state_check_payload()), encoding="utf-8")
@@ -605,10 +623,15 @@ def test_offline_update_rejects_missing_required_migration(tmp_path: Path, monke
     lifecycle.write_text(json.dumps(_offline_update_value(
         mod.sha256_file(pre),
         mod.sha256_file(post),
+        mod.sha256_file(prior),
         migration_policy="required",
     )), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
-    monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: None)
+    monkeypatch.setattr(
+        mod,
+        "_validate_supported_prior",
+        lambda *_: {"migrationScriptSha256": "a" * 64},
+    )
     with pytest.raises(
         mod.ProductionAcceptanceError,
         match="production_offline_update_migration_invalid",
@@ -620,12 +643,14 @@ def test_offline_update_rejects_missing_required_migration(tmp_path: Path, monke
             mavi_build="target-build",
             application_manifest_sha256="4" * 64,
             supported_updates_policy_sha256="5" * 64,
+            prior_application_manifest=prior,
             pre_update_state_check=pre,
             post_update_state_check=post,
         )
 
 
 def test_offline_update_rejects_cross_spliced_retained_state(tmp_path: Path, monkeypatch):
+    prior = _prior_manifest(tmp_path)
     pre = tmp_path / "pre.json"
     post = tmp_path / "post.json"
     pre.write_text(json.dumps(_state_check_payload()), encoding="utf-8")
@@ -638,9 +663,10 @@ def test_offline_update_rejects_cross_spliced_retained_state(tmp_path: Path, mon
     lifecycle.write_text(json.dumps(_offline_update_value(
         mod.sha256_file(pre),
         mod.sha256_file(post),
+        mod.sha256_file(prior),
     )), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
-    monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: None)
+    monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: {})
     with pytest.raises(
         mod.ProductionAcceptanceError,
         match="production_offline_update_retained_state_mismatch",
@@ -652,12 +678,14 @@ def test_offline_update_rejects_cross_spliced_retained_state(tmp_path: Path, mon
             mavi_build="target-build",
             application_manifest_sha256="4" * 64,
             supported_updates_policy_sha256="5" * 64,
+            prior_application_manifest=prior,
             pre_update_state_check=pre,
             post_update_state_check=post,
         )
 
 
 def test_offline_update_rejects_wrong_prior_running_build(tmp_path: Path, monkeypatch):
+    prior = _prior_manifest(tmp_path)
     pre = tmp_path / "pre.json"
     post = tmp_path / "post.json"
     pre.write_text(json.dumps(_state_check_payload(
@@ -671,9 +699,10 @@ def test_offline_update_rejects_wrong_prior_running_build(tmp_path: Path, monkey
     lifecycle.write_text(json.dumps(_offline_update_value(
         mod.sha256_file(pre),
         mod.sha256_file(post),
+        mod.sha256_file(prior),
     )), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
-    monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: None)
+    monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: {})
     with pytest.raises(
         mod.ProductionAcceptanceError,
         match="production_pre_update_state_binding_failed",
@@ -685,14 +714,20 @@ def test_offline_update_rejects_wrong_prior_running_build(tmp_path: Path, monkey
             mavi_build="target-build",
             application_manifest_sha256="4" * 64,
             supported_updates_policy_sha256="5" * 64,
+            prior_application_manifest=prior,
             pre_update_state_check=pre,
             post_update_state_check=post,
         )
 
 
 def test_offline_update_rejects_missing_state_proofs(tmp_path: Path, monkeypatch):
+    prior = _prior_manifest(tmp_path)
     lifecycle = tmp_path / "update.json"
-    lifecycle.write_text(json.dumps(_offline_update_value("8" * 64, "9" * 64)), encoding="utf-8")
+    lifecycle.write_text(json.dumps(_offline_update_value(
+        "8" * 64,
+        "9" * 64,
+        mod.sha256_file(prior),
+    )), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
     with pytest.raises(mod.ProductionAcceptanceError, match="production_offline_update_invalid"):
         mod.validate_lifecycle(
@@ -702,4 +737,5 @@ def test_offline_update_rejects_missing_state_proofs(tmp_path: Path, monkeypatch
             mavi_build="target-build",
             application_manifest_sha256="4" * 64,
             supported_updates_policy_sha256="5" * 64,
+            prior_application_manifest=prior,
         )
