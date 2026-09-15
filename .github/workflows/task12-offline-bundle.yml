@@ -1,6 +1,16 @@
 name: Task 12 Offline Bundle
 
 on:
+  push:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'tools/vision/**'
+      - 'src/vision/**'
+      - 'models/**'
+      - '.github/workflows/task12-offline-bundle.yml'
+      - 'tools/setup/**'
+      - 'Start-MAVI-Vision-Worker.cmd'
   pull_request:
     branches:
       - feature/task-10-rtmdet-bytetrack
@@ -453,6 +463,26 @@ jobs:
           print("task12-model-artifacts-ok", actual_checkpoint, actual_config)
           PY
 
+      - name: Acquire signed CPython 3.12.10 Windows installer
+        if: env.MAVI_TASK12_STRICT_BUNDLE == '1' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path .task12-prerequisites -Force | Out-Null
+          $uri = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+          $out = ".task12-prerequisites/python-3.12.10-amd64.exe"
+          & curl.exe --fail --location --retry 3 --retry-all-errors --output $out $uri
+          if ($LASTEXITCODE -ne 0) { throw "CPython 3.12.10 download failed." }
+          $signature = Get-AuthenticodeSignature -FilePath $out
+          if ($signature.Status -ne "Valid") {
+            throw "CPython installer Authenticode signature is not valid: $($signature.Status)"
+          }
+          $version = (Get-Item $out).VersionInfo.ProductVersion
+          if ($version -notmatch '^3\.12\.10(?:\D|$)') {
+            throw "Unexpected CPython installer product version: $version"
+          }
+          Get-FileHash -Algorithm SHA256 -Path $out | Format-List
+
       - name: Build deterministic qualification-candidate bundle
         if: env.MAVI_TASK12_STRICT_BUNDLE == '1'
         shell: bash
@@ -469,6 +499,10 @@ jobs:
           else
             PY=".task12-offline-venv/bin/python"
           fi
+          EXTRA_ARGS=()
+          if test "${RUNNER_OS}" = "Windows"; then
+            EXTRA_ARGS+=(--python-installer .task12-prerequisites/python-3.12.10-amd64.exe)
+          fi
           "$PY" tools/vision/build_offline_bundle.py \
             --source-commit "$MAVI_EXPECTED_SOURCE_SHA" \
             --release-status qualification-candidate \
@@ -479,6 +513,7 @@ jobs:
             --pipeline-profile src/vision/config/pipelines/phase1-detection-tracking-v1.json \
             --runtime-profile src/vision/runtime/mmdetection-phase1-v1/runtime.json \
             --wheelhouse .task12-wheelhouse \
+            "${EXTRA_ARGS[@]}" \
             --output ".task12-bundle/$MAVI_RUNTIME_VARIANT"
 
       - name: Run real local RTMDet smoke from bundle
