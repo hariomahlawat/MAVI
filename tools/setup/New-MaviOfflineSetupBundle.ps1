@@ -8,6 +8,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ApplicationArtifact,
 
+    [string]$BinaryKitRoot,
+
     [string]$HostingBundle = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\dotnet-hosting.exe"),
 
     [string]$DotNetSdkInstaller = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\dotnet-sdk.exe"),
@@ -24,6 +26,33 @@ Set-StrictMode -Version Latest
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
+
+$binaryKitManifestHash = $null
+$binaryCatalogHash = $null
+if ([string]::IsNullOrWhiteSpace($BinaryKitRoot)) {
+    $siblingKit = [IO.Path]::GetFullPath((Join-Path $repoRoot "..\MAVI-Offline-Binary-Kit"))
+    if (Test-Path -LiteralPath (Join-Path $siblingKit "mavi-offline-binary-kit.json") -PathType Leaf) {
+        $BinaryKitRoot = $siblingKit
+    }
+}
+if (-not [string]::IsNullOrWhiteSpace($BinaryKitRoot)) {
+    $BinaryKitRoot = (Resolve-Path -LiteralPath $BinaryKitRoot).Path
+    $kitManifestPath = Join-Path $BinaryKitRoot "mavi-offline-binary-kit.json"
+    [void](Test-MaviManifest -Root $BinaryKitRoot -ManifestPath $kitManifestPath -ExpectedSchemaVersion "mavi-offline-binary-kit-v1")
+    $kitCatalogPath = Join-Path $BinaryKitRoot "catalog\offline-binary-catalog-v1.json"
+    if (-not (Test-Path -LiteralPath $kitCatalogPath -PathType Leaf)) {
+        throw "Offline binary kit is missing its version catalog."
+    }
+    $binaryKitManifestHash = Get-MaviSha256 -Path $kitManifestPath
+    $binaryCatalogHash = Get-MaviSha256 -Path $kitCatalogPath
+
+    $PostgreSqlRuntimePack = Join-Path $BinaryKitRoot "vendor\postgresql\pg18\win-x64"
+    $HostingBundle = Join-Path $BinaryKitRoot "vendor\installers\win-x64\dotnet-hosting.exe"
+    $DotNetSdkInstaller = Join-Path $BinaryKitRoot "vendor\installers\win-x64\dotnet-sdk.exe"
+    $NodeInstaller = Join-Path $BinaryKitRoot "vendor\installers\win-x64\node.msi"
+    $PythonInstaller = Join-Path $BinaryKitRoot "vendor\installers\win-x64\python.exe"
+    $DeveloperDependencyCache = Join-Path $BinaryKitRoot "vendor\developer-cache\win-x64"
+}
 
 $destination = [IO.Path]::GetFullPath($Destination)
 $postgreSqlRuntimePack = (Resolve-Path -LiteralPath $PostgreSqlRuntimePack).Path
@@ -61,6 +90,14 @@ Copy-Tree -Source (Join-Path $repoRoot "tools\setup") -Target (Join-Path $destin
 $configDestination = Join-Path $destination "config"
 New-Item -ItemType Directory -Path $configDestination -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repoRoot "config\setup\mavi-setup-defaults.json") -Destination (Join-Path $configDestination "mavi-setup-defaults.json")
+Copy-Item -LiteralPath (Join-Path $repoRoot "config\dependencies\offline-binary-catalog-v1.json") -Destination (Join-Path $configDestination "offline-binary-catalog-v1.json")
+
+if (-not [string]::IsNullOrWhiteSpace($BinaryKitRoot)) {
+    $provenanceRoot = Join-Path $destination "provenance\binary-kit"
+    New-Item -ItemType Directory -Path $provenanceRoot -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $BinaryKitRoot "mavi-offline-binary-kit.json") -Destination (Join-Path $provenanceRoot "mavi-offline-binary-kit.json")
+    Copy-Item -LiteralPath (Join-Path $BinaryKitRoot "catalog\offline-binary-catalog-v1.json") -Destination (Join-Path $provenanceRoot "offline-binary-catalog-v1.json")
+}
 
 Copy-Tree -Source $postgreSqlRuntimePack -Target (Join-Path $destination "prerequisites\postgresql\pg18\win-x64")
 Copy-Tree -Source $applicationArtifact -Target (Join-Path $destination "application")
@@ -206,6 +243,8 @@ $manifest = [ordered]@{
     profiles = @("Development", "Production")
     containsProductionApplication = $true
     containsHostingBundle = $true
+    sourceBinaryKitManifestSha256 = $binaryKitManifestHash
+    sourceBinaryCatalogSha256 = $binaryCatalogHash
     containsDeveloperToolchain = [ordered]@{
         dotnetSdk = $true
         node = $true
