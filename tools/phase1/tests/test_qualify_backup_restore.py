@@ -14,6 +14,14 @@ mod = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = mod
 SPEC.loader.exec_module(mod)
 
+POST_RESTORE_PATH = Path(__file__).resolve().parents[1] / "post_restore_check.py"
+POST_RESTORE_SPEC = importlib.util.spec_from_file_location("post_restore_check_tests", POST_RESTORE_PATH)
+assert POST_RESTORE_SPEC and POST_RESTORE_SPEC.loader
+post_restore = importlib.util.module_from_spec(POST_RESTORE_SPEC)
+sys.modules[POST_RESTORE_SPEC.name] = post_restore
+POST_RESTORE_SPEC.loader.exec_module(post_restore)
+
+
 
 def test_tree_manifest_rejects_links(tmp_path: Path):
     root = tmp_path / "root"
@@ -191,3 +199,34 @@ def test_finalize_rejects_post_restore_topology_mismatch(tmp_path: Path):
     post.write_text(json.dumps(post_value), encoding="utf-8")
     with pytest.raises(mod.BackupRestoreError, match="post_restore_topology_binding_mismatch"):
         mod.finalize(execution, post)
+
+
+def test_post_restore_topology_accepts_exact_restored_target():
+    expected = _execution_payload()["restoreStorageTopology"]
+    result = post_restore.validate_restored_storage_topology(
+        dict(expected),
+        {"restoreStorageTopology": expected},
+    )
+    assert result == expected
+
+
+def test_post_restore_topology_rejects_original_database():
+    expected = _execution_payload()["restoreStorageTopology"]
+    live = dict(expected)
+    live["databaseIdentity"] = "source|127.0.0.1|5432"
+    with pytest.raises(post_restore.RestoreCheckError, match="restore_storage_topology_mismatch"):
+        post_restore.validate_restored_storage_topology(
+            live,
+            {"restoreStorageTopology": expected},
+        )
+
+
+def test_post_restore_topology_rejects_wrong_storage_root():
+    expected = _execution_payload()["restoreStorageTopology"]
+    live = dict(expected)
+    live["managedMediaRootIdentitySha256"] = "f" * 64
+    with pytest.raises(post_restore.RestoreCheckError, match="restore_storage_topology_mismatch"):
+        post_restore.validate_restored_storage_topology(
+            live,
+            {"restoreStorageTopology": expected},
+        )
