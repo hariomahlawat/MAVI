@@ -1,6 +1,9 @@
 name: Task 17 Acceptance Validation
 
 on:
+  push:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
   pull_request:
     branches:
       - feature/task-10-rtmdet-bytetrack
@@ -13,6 +16,8 @@ on:
       - 'config/setup/**'
       - 'config/dependencies/**'
       - 'Setup-MAVI-Development.cmd'
+      - 'Prepare-MAVI-Offline-Binary-Kit.cmd'
+      - 'Prepare-MAVI-Offline-Binary-Kit.ps1'
       - 'src/platform/**'
       - 'src/vision/**'
       - 'models/**'
@@ -114,7 +119,8 @@ jobs:
             "tools/setup/Test-MaviEnvironment.ps1",
             "tools/setup/Test-MaviSetupContracts.ps1",
             "tools/setup/Mavi.Setup.Common.psm1",
-            "tools/setup/Mavi.Setup.Windows.psm1"
+            "tools/setup/Mavi.Setup.Windows.psm1",
+            "Prepare-MAVI-Offline-Binary-Kit.ps1"
           )
           foreach ($script in $scripts) {
             Write-Host "Parsing $script"
