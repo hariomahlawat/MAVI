@@ -131,7 +131,7 @@ def validate_state_check(
     return sha256_file(path), value
 
 
-def _validate_supported_prior(prior: dict[str, Any], migration_policy: str) -> None:
+def _validate_supported_prior(prior: dict[str, Any], migration_policy: str) -> dict[str, Any]:
     policy = load_json(
         CANONICAL_SUPPORTED_UPDATES,
         "production_supported_updates_policy_invalid",
@@ -147,6 +147,7 @@ def _validate_supported_prior(prior: dict[str, Any], migration_policy: str) -> N
     ]
     if len(matches) != 1 or matches[0].get("migrationPolicy") != migration_policy:
         raise ProductionAcceptanceError("production_offline_update_prior_policy_mismatch")
+    return matches[0]
 
 
 def _assert_retained_state_equivalent(
@@ -178,6 +179,7 @@ def validate_lifecycle(
     mavi_build: str,
     application_manifest_sha256: str,
     supported_updates_policy_sha256: str,
+    prior_application_manifest: Path | None = None,
     pre_update_state_check: Path | None = None,
     post_update_state_check: Path | None = None,
 ) -> str:
@@ -227,21 +229,36 @@ def validate_lifecycle(
         or not isinstance(prior.get("applicationManifestSha256"), str)
         or not isinstance(prior.get("build"), str)
         or not isinstance(retained, dict)
+        or prior_application_manifest is None
         or pre_update_state_check is None
         or post_update_state_check is None
     ):
         raise ProductionAcceptanceError("production_offline_update_invalid")
 
-    _validate_supported_prior(prior, migration_policy)
+    selected_prior = _validate_supported_prior(prior, migration_policy)
+    prior_manifest = load_json(
+        prior_application_manifest,
+        "production_prior_application_manifest_invalid",
+    )
+    if (
+        prior_manifest.get("schemaVersion") != "mavi-application-artifact-v1"
+        or sha256_file(prior_application_manifest) != prior.get("applicationManifestSha256")
+        or prior_manifest.get("sourceCommit") != prior.get("sourceCommit")
+        or prior_manifest.get("build") != prior.get("build")
+    ):
+        raise ProductionAcceptanceError("production_prior_application_manifest_mismatch")
 
     migration = value.get("migration")
     if migration_policy == "required":
+        expected_migration_sha = selected_prior.get("migrationScriptSha256")
         if (
-            not isinstance(migration, dict)
+            not isinstance(expected_migration_sha, str)
+            or len(expected_migration_sha) != 64
+            or any(ch not in "0123456789abcdef" for ch in expected_migration_sha)
+            or not isinstance(migration, dict)
             or migration.get("exitCode") != 0
             or migration.get("passed") is not True
-            or not isinstance(migration.get("commandIdentity"), str)
-            or not migration.get("commandIdentity")
+            or migration.get("commandIdentity") != expected_migration_sha
         ):
             raise ProductionAcceptanceError("production_offline_update_migration_invalid")
     elif migration_policy == "none":
@@ -893,6 +910,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         mavi_build=mavi_build,
         application_manifest_sha256=application_manifest_sha,
         supported_updates_policy_sha256=supported_policy_sha,
+        prior_application_manifest=args.prior_application_manifest,
         pre_update_state_check=args.pre_update_state_check,
         post_update_state_check=args.post_update_state_check,
     )
@@ -1026,6 +1044,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         "prerequisiteEvidenceSha256": prerequisite_sha,
         "freshInstallEvidenceSha256": fresh_sha,
         "offlineUpdateEvidenceSha256": update_sha,
+        "priorApplicationManifestSha256": sha256_file(args.prior_application_manifest),
         "preUpdateStateCheckSha256": sha256_file(args.pre_update_state_check),
         "postUpdateStateCheckSha256": sha256_file(args.post_update_state_check),
         "backupRestoreEvidenceSha256": backup_sha,
@@ -1057,6 +1076,7 @@ def main() -> int:
     parser.add_argument("--linux-prerequisite-observation", type=Path, required=True)
     parser.add_argument("--fresh-install", type=Path, required=True)
     parser.add_argument("--offline-update", type=Path, required=True)
+    parser.add_argument("--prior-application-manifest", type=Path, required=True)
     parser.add_argument("--pre-update-state-check", type=Path, required=True)
     parser.add_argument("--post-update-state-check", type=Path, required=True)
     parser.add_argument("--production-variant", action="append", default=[])
