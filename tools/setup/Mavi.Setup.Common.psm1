@@ -77,8 +77,20 @@ function Invoke-MaviCommand {
                 [Environment]::SetEnvironmentVariable($name, [string]$Environment[$key], [System.EnvironmentVariableTarget]::Process)
             }
         }
-        $output = & $FilePath @Arguments 2>&1
-        $exitCode = $LASTEXITCODE
+        # Native tools frequently emit warnings/progress on stderr even when
+        # they succeed (npm is a common example). Under Windows PowerShell 5.1,
+        # merged native stderr can surface as ErrorRecord objects and interact
+        # badly with $ErrorActionPreference = "Stop". Judge native commands by
+        # exit code, not by the mere presence of stderr text.
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            $output = & $FilePath @Arguments 2>&1
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
         $textOutput = ($output | Out-String).TrimEnd()
         if ($AllowedExitCodes -notcontains $exitCode) {
             throw ("Command failed ({0}): {1}{2}{3}" -f $exitCode, $FilePath, [Environment]::NewLine, $textOutput)
