@@ -3,6 +3,11 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$PostgreSqlRoot,
 
+    [Parameter(Mandatory = $true)]
+    [string]$PgVectorLicensePath,
+
+    [string]$PostgreSqlLicensePath,
+
     [string]$DestinationRoot = (Join-Path $PSScriptRoot "..\..\vendor\postgresql\pg18\win-x64")
 )
 
@@ -10,6 +15,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $sourceRoot = (Resolve-Path -LiteralPath $PostgreSqlRoot).Path
+$pgVectorLicensePath = (Resolve-Path -LiteralPath $PgVectorLicensePath).Path
 $destinationRoot = [IO.Path]::GetFullPath($DestinationRoot)
 $postgresExe = Join-Path $sourceRoot "bin\postgres.exe"
 $pgConfigExe = Join-Path $sourceRoot "bin\pg_config.exe"
@@ -47,10 +53,27 @@ foreach ($directory in @("bin", "lib", "share")) {
     Copy-Item -LiteralPath $source -Destination $destinationRoot -Recurse -Force
 }
 
-$copyright = Join-Path $sourceRoot "COPYRIGHT"
-if (Test-Path -LiteralPath $copyright -PathType Leaf) {
-    Copy-Item -LiteralPath $copyright -Destination $destinationRoot -Force
+$postgresLicense = $null
+if (-not [string]::IsNullOrWhiteSpace($PostgreSqlLicensePath)) {
+    $postgresLicense = (Resolve-Path -LiteralPath $PostgreSqlLicensePath).Path
 }
+else {
+    foreach ($candidate in @(
+        (Join-Path $sourceRoot "COPYRIGHT"),
+        (Join-Path $sourceRoot "doc\COPYRIGHT"),
+        (Join-Path $sourceRoot "doc\copyright")
+    )) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            $postgresLicense = $candidate
+            break
+        }
+    }
+}
+if (-not $postgresLicense) {
+    throw "PostgreSQL licence/copyright file was not found. Supply -PostgreSqlLicensePath explicitly."
+}
+Copy-Item -LiteralPath $postgresLicense -Destination (Join-Path $destinationRoot "LICENSE-POSTGRESQL.txt") -Force
+Copy-Item -LiteralPath $pgVectorLicensePath -Destination (Join-Path $destinationRoot "LICENSE-PGVECTOR.txt") -Force
 
 $artifactFiles = @(Get-ChildItem -LiteralPath $destinationRoot -File -Recurse | Sort-Object FullName)
 $artifacts = foreach ($file in $artifactFiles) {
