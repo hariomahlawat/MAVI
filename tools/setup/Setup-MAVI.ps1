@@ -99,8 +99,17 @@ else {
     $postgresDataRoot = Join-Path $programDataRoot "PostgreSQL\18\data"
     $databaseName = [string]$profileDefaults.databaseName
     $databaseUser = [string]$profileDefaults.databaseUser
-    $mediaRoot = if ($DataRoot) { Join-Path $DataRoot "Media" } else { Join-Path $programDataRoot "Data" }
-    $evidenceRoot = if ($DataRoot) { Join-Path $DataRoot "Evidence" } else { Join-Path $programDataRoot "Evidence" }
+    if ($DataRoot) {
+        $productionDataRoot = $DataRoot
+    }
+    elseif (Test-Path -LiteralPath "D:\" -PathType Container) {
+        $productionDataRoot = "D:\MAVI"
+    }
+    else {
+        $productionDataRoot = $programDataRoot
+    }
+    $mediaRoot = Join-Path $productionDataRoot "Data"
+    $evidenceRoot = Join-Path $productionDataRoot "Evidence"
     $machineConfigPath = Join-Path $programDataRoot "config\appsettings.machine.json"
     $setupRoot = Join-Path $programDataRoot "setup"
     if ($HttpPort -eq 0) {
@@ -209,9 +218,8 @@ try {
     New-Item -ItemType Directory -Path $mediaRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $evidenceRoot -Force | Out-Null
     if ($Profile -eq "Development") {
-        $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-        Set-MaviDirectoryAcl -Path $mediaRoot -Identity $currentIdentity -Rights "M"
-        Set-MaviDirectoryAcl -Path $evidenceRoot -Identity $currentIdentity -Rights "M"
+        Set-MaviDirectoryAcl -Path $mediaRoot -Identity "*S-1-5-11" -Rights "M"
+        Set-MaviDirectoryAcl -Path $evidenceRoot -Identity "*S-1-5-11" -Rights "M"
     }
 
     $connectionString = "Host=127.0.0.1;Port=$port;Database=$databaseName;Username=$databaseUser;Password=$databasePassword"
@@ -239,8 +247,7 @@ try {
     }
 
     if ($Profile -eq "Development") {
-        $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-        & icacls.exe $machineConfigPath /inheritance:r /grant:r ("{0}:F" -f $currentIdentity) "Administrators:F" | Out-Null
+        & icacls.exe $machineConfigPath /inheritance:r /grant:r "SYSTEM:F" "Administrators:F" "*S-1-5-11:R" | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to secure Development machine configuration."
         }
@@ -318,6 +325,7 @@ try {
         Set-MaviDirectoryAcl -Path (Split-Path $machineConfigPath -Parent) -Identity "IIS AppPool\$appPoolName" -Rights "R"
 
         Set-MaviIisSite -SiteName $siteName -AppPoolName $appPoolName -PhysicalPath $applicationRoot -HttpPort $HttpPort
+        Ensure-MaviFirewallRule -HttpPort $HttpPort
 
         $baseUrl = "http://127.0.0.1:$HttpPort"
         $health = Wait-MaviHealth -BaseUrl $baseUrl -TimeoutSeconds 120
@@ -342,7 +350,7 @@ try {
         logPath = $logPath
     }
     if ($Profile -eq "Production") {
-        $result.baseUrl = "http://127.0.0.1:$HttpPort"
+        $result["baseUrl"] = "http://127.0.0.1:$HttpPort"
     }
     Write-MaviJson -Value $result -Path $resultPath -Depth 8
 }
