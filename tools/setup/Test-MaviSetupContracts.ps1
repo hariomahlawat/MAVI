@@ -219,7 +219,7 @@ try {
 
     $binaryKitPlan = & $setupScript -Profile Development -BundleRoot $kitRoot -RepositoryRoot $repoRoot -PlanOnly | Out-String
     if ($binaryKitPlan -notmatch '"port"\s*:\s*55433' -or
-        $binaryKitPlan -notmatch [regex]::Escape("vendor\postgresql\pg18\win-x64")) {
+        $binaryKitPlan -notmatch 'vendor\\\\postgresql\\\\pg18\\\\win-x64') {
         throw "Development plan did not resolve the verified companion binary kit."
     }
 
