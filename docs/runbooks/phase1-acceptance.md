@@ -36,9 +36,26 @@ The normal Quality Gate and Task 17 Acceptance Validation workflow must be green
 
 Ground truth uses sample-data/ground-truth/phase1-ground-truth.schema.json, sample-data/ground-truth/phase1-corpus.schema.json and config/acceptance/phase1-acceptance-v1.json.
 
-Formal qualification requires exact media SHA-256, imported VideoAsset duration, explicit corpus-to-media-to-ground-truth mapping, nonzero Person coverage, nonzero Vehicle coverage, reviewed per-class precision/recall/F1 thresholds and deterministic spatial plus temporal matching. Aggregate results cannot compensate for a failing class.
+Formal qualification requires exact media SHA-256, imported VideoAsset duration, explicit corpus-to-media-to-ground-truth mapping, nonzero **corpus-level** Person coverage, nonzero **corpus-level** Vehicle coverage, reviewed per-class precision/recall/F1 thresholds and deterministic spatial plus temporal matching. Individual clips may legitimately exercise only one supported class; the final gate is decided from the complete approved corpus. Aggregate class results cannot compensate for a failing class.
 
 The repository intentionally keeps quality thresholds unapproved until reviewed values are supplied. Do not invent values merely to make the gate pass.
+
+Each formal corpus case first produces its own `mavi-phase1-acceptance-evidence-v1` object. After **every** case in the approved corpus has been executed, assemble the gate with:
+
+```text
+python tools/phase1/assemble_quality_corpus_evidence.py \
+  --source-commit <frozen-commit> \
+  --mavi-build <frozen-build> \
+  --target-verified-manifest-sha256 <target-manifest-sha256> \
+  --acceptance-profile config/acceptance/phase1-acceptance-v1.json \
+  --corpus-manifest <approved-corpus.json> \
+  --case-evidence case-01=<case-01-e2e.json> \
+  --ground-truth case-01=<case-01-ground-truth.json> \
+  [repeat both arguments for every corpus case] \
+  --output <cctv-quality-corpus-evidence.json>
+```
+
+The assembler requires exact case-set equality with the corpus manifest, reopens every case E2E and ground-truth file, recomputes the raw-count-derived precision/recall/F1 values, aggregates counts across the full corpus, and independently derives Person/Vehicle qualification against the canonical profile. A stored `qualification.passed=true` is never authoritative by itself.
 
 ## Public-API acceptance harness
 
@@ -57,7 +74,7 @@ dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:MaviBuild=<bu
 python tools/phase1/build_application_artifact_manifest.py --artifact-root <published-root> --source-commit <exact-commit> --build <build-id> --output <published-root>/mavi-application-manifest.json
 ~~~
 
-`GET /api/health` reads `MaviBuild` and `MaviCommit` from compile-time assembly metadata. Do not set environment variables to manufacture build identity. The lifecycle qualifier compares the manifest identity with the independently reported running binary identity; relabeling manifest JSON without rebuilding the binary must fail. `unknown-development` is never a formal promotion/production identity.
+`GET /api/health` reads `MaviBuild` and `MaviCommit` from compile-time assembly metadata. Do not set environment variables to manufacture build identity. The lifecycle qualifier compares the manifest identity with the independently reported running binary identity; relabeling manifest JSON without rebuilding the binary must fail. It also compares the API-reported `operationalHostIdentitySha256` with the local Windows/IIS host identity, so a same-build MAVI instance on another host cannot satisfy lifecycle or production E2E acceptance. `unknown-development` is never a formal promotion/production identity.
 
 For fresh install use tools/phase1/qualify_application_lifecycle.ps1 with Mode=fresh-install against a clean/reprovisioned Windows/IIS destination. A pre-existing deployment is not acceptable.
 
@@ -106,7 +123,9 @@ Execute `tools/phase1/qualify_backup_restore.py execute` with `--base-url <live-
 
 Start MAVI against the restored target, then run tools/phase1/post_restore_check.py using both the original passed acceptance evidence and the exact `backup-restore-execution` evidence via `--execution-evidence`. It revalidates the original Camera ID, VideoAsset ID, ProcessingRun ID, every Track ID, representative Artifact, managed source bytes/ETag, completed-run attestation and search/detail retrieval, while cryptographically binding the result to the exact backup-set/store manifests.
 
-Finalize with tools/phase1/qualify_backup_restore.py finalize. Restore evidence is not valid until the public-API post-restore check passes.
+Finalize with tools/phase1/qualify_backup_restore.py finalize. Restore evidence is not valid until the public-API post-restore check passes. The execution/backup-set evidence records the exact `pg_dump`/`pg_restore` versions and arguments plus the managed-source/evidence copy mechanism.
+
+Do not discard the underlying proof files after finalization. Final production assembly and closure require the finalized backup evidence **and** the exact backup execution evidence, post-restore check, backup-set manifest, PostgreSQL manifest, managed-source manifest and accepted-evidence manifest. Each is re-hashed and cross-checked; the final summary cannot stand in for missing underlying proof bytes.
 
 ## Evidence verification and closure
 
@@ -122,7 +141,7 @@ Do not hand-edit pending release metadata to verified.
 
 After every mandatory qualification gate has real evidence and the runtime is fully qualified, use `tools/phase1/promote_phase1_release.py`.
 
-Promotion requires **all eight mandatory gate evidence files again**, even if the pending qualification record already contains an older `passed` entry. It never grandfathers prior evidence references. The two OS offline-install aggregates must cryptographically reference the exact CPU/CUDA variant files supplied in the same promotion operation. Supply the canonical acceptance profile, the exact approved corpus manifest and ground-truth manifest, the frozen MAVI build identity, and one `--gate-evidence gate=path` argument for every mandatory gate. Promotion re-hashes and schema-validates every supplied object, requires the canonical corpus/media/ground-truth relationship, recomputes the performance threshold decision from the canonical profile, verifies cross-gate source/build/profile/target-manifest identities, reconstructs deterministic final manifest/qualification bytes and re-runs canonical release selection.
+Promotion requires **all eight mandatory gate evidence files again**, even if the pending qualification record already contains an older `passed` entry. It never grandfathers prior evidence references. The two OS offline-install aggregates must cryptographically reference the exact CPU/CUDA variant files supplied in the same promotion operation. For CCTV quality, supply the canonical acceptance profile, exact approved corpus manifest, the corpus-level quality evidence, and repeated `--quality-case-evidence caseId=path` / `--quality-ground-truth caseId=path` arguments covering **every** corpus case. Promotion independently reopens every case, requires exact corpus case-set equality, recomputes per-case and aggregate quality metrics/threshold decisions, recomputes the performance threshold decision, verifies cross-gate source/build/profile/target-manifest identities, reconstructs deterministic final manifest/qualification bytes and re-runs canonical release selection.
 
 Promotion must be status/evidence-only. Any model/config/profile/runtime/application-build behavior change invalidates earlier evidence.
 
@@ -137,9 +156,9 @@ The canonical policy is `config/acceptance/phase1-production-prerequisites-v1.js
 Capture observations on the actual acceptance topology:
 
 ~~~text
-python tools/phase1/collect_production_prerequisites.py --role windows-operational-plane --output <windows-prereq.json>
-python tools/phase1/collect_production_prerequisites.py --role database --pg-service <service> --output <database-prereq.json>
-<exact Linux CUDA venv python> tools/phase1/collect_production_prerequisites.py --role linux-vision-worker --output <linux-prereq.json>
+python tools/phase1/collect_production_prerequisites.py --acceptance-context <acceptance-context.json> --source-commit <commit> --mavi-build <build> --role windows-operational-plane --output <windows-prereq.json>
+python tools/phase1/collect_production_prerequisites.py --acceptance-context <acceptance-context.json> --source-commit <commit> --mavi-build <build> --role database --pg-service <service> --output <database-prereq.json>
+<exact Linux CUDA venv python> tools/phase1/collect_production_prerequisites.py --acceptance-context <acceptance-context.json> --source-commit <commit> --mavi-build <build> --role linux-vision-worker --output <linux-prereq.json>
 ~~~
 
 Once the canonical policy is formally approved, validate the three observed records:
@@ -147,6 +166,7 @@ Once the canonical policy is formally approved, validate the three observed reco
 ~~~text
 python tools/phase1/validate_production_prerequisites.py \
   --policy config/acceptance/phase1-production-prerequisites-v1.json \
+  --acceptance-context <acceptance-context.json> \
   --source-commit <exact-commit> \
   --mavi-build <build-id> \
   --windows-observation <windows-prereq.json> \
@@ -256,7 +276,7 @@ The resulting `mavi-phase1-production-acceptance-evidence-v1` is an immutable ag
 
 ### 9. Final closure
 
-Pass the aggregate record **and every underlying evidence file**, including `--prior-application-manifest`, `--prior-acceptance-evidence`, `--pre-update-state-check`, `--post-update-state-check`, and the same six raw `--production-log role=path` files, to `tools/phase1/assess_phase1_closure.py`. Closure reopens, re-hashes and revalidates them against the canonical supported-update policy before allowing `release-verified`. It also compares the exact mandatory-gate evidence SHA-256 values against the evidence hashes embedded in the promoted qualification record; a semantically valid but different evidence set cannot be substituted at closure.
+Pass the aggregate record **and every underlying evidence file**, including `--prior-application-manifest`, `--prior-acceptance-evidence`, `--pre-update-state-check`, `--post-update-state-check`, all six backup proof inputs (`--backup-execution`, `--post-restore-check`, `--backup-set-manifest`, `--backup-database-manifest`, `--backup-managed-source-manifest`, `--backup-accepted-evidence-manifest`), the full quality corpus inputs, and the same six raw `--production-log role=path` files, to `tools/phase1/assess_phase1_closure.py`. Closure reopens, re-hashes and revalidates them against the canonical supported-update policy before allowing `release-verified`. It also compares the exact mandatory-gate evidence SHA-256 values against the evidence hashes embedded in the promoted qualification record; a semantically valid but different evidence set cannot be substituted at closure.
 
 `release-verified` is impossible if the prerequisite policy is pending, any production variant is missing, the formal/empty scenarios are reused or mismatched, failure/reprocess is absent, required topology logs are absent/dirty, backup/restore references another case, or the aggregate record contains hashes from another acceptance execution.
 
@@ -277,6 +297,6 @@ Formal Task-17 evidence is not interchangeable merely because it names the same 
 
 ### Topology and exact-environment continuity
 
-Final acceptance binds approved prerequisite **versions** to the concrete systems actually exercised. Windows prerequisite evidence must match the lifecycle host identity, the database prerequisite identity must equal the backup source database identity, and the Linux prerequisite host identity must equal the Linux-CUDA production variant host identity.
+Final acceptance binds approved prerequisite **versions** to the concrete systems actually exercised. The three prerequisite observations are part of one immutable acceptance context: they must be captured after that context starts and before the first production scenario. Windows prerequisite evidence must match the lifecycle/API operational host identity, the database prerequisite identity must equal the backup source database identity, and the Linux prerequisite host identity must equal the Linux-CUDA production variant host identity.
 
 Each qualified variant records an exact virtual-environment fingerprint derived from the venv root, `pyvenv.cfg`, resolved interpreter and installed-distribution metadata. Final formal, empty-scene and failure/reprocess scenarios recompute this fingerprint and must match the Linux-CUDA production qualification; sharing the same base Python executable is insufficient.

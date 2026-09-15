@@ -223,3 +223,42 @@ The implementation must again pass all deterministic gates on one frozen exact h
 - a final static/internal inspection finds no known Critical/P1/P2 defect.
 
 Real CUDA, disconnected, quality, performance and production-topology evidence remains pending until actually executed and is not manufactured by this remediation.
+
+
+## 11. Second cold independent review and proof-composition remediation
+
+A second cold review was performed after all three deterministic workflows were green on `d3bed6aa5b4fe880a354e3998653114fd8def121`. The review deliberately ignored prior implementation history and attacked the final acceptance claims from the outside.
+
+Six material proof-composition gaps were identified:
+
+1. **Operational API host binding:** lifecycle could qualify IIS/files on Windows Host A while an operator-supplied `BaseUrl` exercised a same-build Host B.
+2. **Backup summary trust:** final assembly/closure reopened only the finalized backup summary, not the execution/post-restore/store-manifest bytes named by that summary.
+3. **Quality decision authority:** quality promotion trusted `metrics.qualification.passed` rather than recomputing raw-count metrics against canonical Person/Vehicle thresholds.
+4. **Corpus completeness:** one valid case from a multi-case approved corpus could represent the entire `cctv-quality-baseline` gate.
+5. **Stale prerequisite replay:** prerequisite observations carried timestamps but were not tied to the final acceptance execution.
+6. **Retained-state semantics:** update/restore checks proved primary identities and bytes but retained too little Camera/Track semantic state to detect some corruption.
+
+The remediation changes the proof architecture rather than adding local assertions:
+
+- `/api/system/storage-topology` now attests an `operationalHostIdentitySha256` derived from the same stable host identity used by production prerequisite/lifecycle tooling.
+- fresh-install, offline-update, formal/empty production scenarios, failure/reprocess, authoritative-state verification and backup/restore all require the exercised API host to equal the qualified Windows operational-plane identity;
+- Phase-1 E2E evidence retains Camera name, deterministic Track semantic state and a canonical `authoritativeStateSha256`; pre/post update and post-restore verification independently reconstruct and compare that semantic state;
+- prerequisite observations carry the acceptance execution/context identities and must be captured after context creation and before the first production scenario;
+- backup execution retains exact `pg_dump`/`pg_restore` tool versions and arguments plus managed-store copy mechanisms;
+- final production assembly/closure require and reopen the backup execution evidence, post-restore proof, backup-set manifest and all three store manifests rather than trusting summary hashes;
+- CCTV quality is promoted to a corpus-level evidence contract. Every corpus case has an exact E2E evidence file and ground-truth manifest; the case set must exactly equal the approved corpus; raw counts are independently reconciled; Person/Vehicle precision, recall and F1 are recomputed; corpus aggregate metrics and the final decision are derived from the canonical acceptance profile;
+- promotion and final closure reopen every quality case/ground-truth file and reject a forged aggregate decision even when its top-level `passed` field is true.
+
+Regression coverage includes same-build/wrong-host rejection, semantic-state digest drift, stale/wrong-context prerequisites, tampered backup execution evidence, incomplete corpus case sets, raw-count/metric inconsistency and forged quality PASS decisions.
+
+### Revised internal gate
+
+The branch is not eligible for final external review until this second-cold-review remediation itself passes:
+
+- Task 17 Acceptance Validation;
+- MAVI Quality Gate;
+- Task 12 Offline Bundle;
+- structural caller/callee checks;
+- a final clean internal review of the new proof composition.
+
+Real hardware/disconnected/quality/performance evidence remains pending until actually executed. No implementation test or hosted workflow may manufacture those operational proofs.
