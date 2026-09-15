@@ -352,6 +352,15 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     if safe_tree_manifest(args.restore_evidence_root)["files"] != evidence_manifest["files"]:
         raise BackupRestoreError("accepted_evidence_restore_integrity_failed")
 
+    restore_storage_topology = {
+        "schemaVersion": "mavi-storage-topology-attestation-v1",
+        "maviBuild": args.expected_mavi_build,
+        "maviCommit": args.source_commit,
+        "databaseIdentity": restore_database_identity,
+        "managedMediaRootIdentitySha256": storage_root_identity_sha256(args.restore_media_root),
+        "acceptedEvidenceRootIdentitySha256": storage_root_identity_sha256(args.restore_evidence_root),
+    }
+
     return {
         "schemaVersion": "mavi-backup-restore-execution-v1",
         "sourceCommit": args.source_commit,
@@ -360,6 +369,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "sourceDatabaseIdentity": source_database_identity,
         "restoreDatabaseIdentity": restore_database_identity,
         "liveStorageTopology": live_storage_topology,
+        "restoreStorageTopology": restore_storage_topology,
         "database": {"included": True, "manifestSha256": database_manifest_sha},
         "managedSource": {"included": True, "manifestSha256": media_manifest_sha},
         "acceptedEvidence": {"included": True, "manifestSha256": evidence_manifest_sha},
@@ -396,6 +406,8 @@ def finalize(execution_path: Path, post_restore_path: Path) -> dict[str, Any]:
         raise BackupRestoreError("post_restore_source_store_binding_mismatch")
     if post.get("acceptedEvidenceManifestSha256") != execution.get("acceptedEvidence", {}).get("manifestSha256"):
         raise BackupRestoreError("post_restore_evidence_store_binding_mismatch")
+    if post.get("restoreStorageTopology") != execution.get("restoreStorageTopology"):
+        raise BackupRestoreError("post_restore_topology_binding_mismatch")
 
     return {
         "schemaVersion": "mavi-backup-restore-evidence-v1",
@@ -406,6 +418,7 @@ def finalize(execution_path: Path, post_restore_path: Path) -> dict[str, Any]:
         "sourceDatabaseIdentity": execution["sourceDatabaseIdentity"],
         "restoreDatabaseIdentity": execution["restoreDatabaseIdentity"],
         "liveStorageTopology": execution["liveStorageTopology"],
+        "restoreStorageTopology": execution["restoreStorageTopology"],
         "database": execution["database"],
         "managedSource": execution["managedSource"],
         "acceptedEvidence": execution["acceptedEvidence"],
