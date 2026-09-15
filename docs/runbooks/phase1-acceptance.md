@@ -61,7 +61,7 @@ python tools/phase1/build_application_artifact_manifest.py --artifact-root <publ
 
 For fresh install use tools/phase1/qualify_application_lifecycle.ps1 with Mode=fresh-install against a clean/reprovisioned Windows/IIS destination. A pre-existing deployment is not acceptable.
 
-For update use the same tool with Mode=offline-update against an explicitly supported prior release listed in config/acceptance/phase1-supported-updates-v1.json. The policy must contain the reviewed SHA-256 of that prior release's `mavi-application-manifest.json`; a null/unfrozen manifest hash keeps the update gate pending. Supply `-PreUpdateAcceptanceEvidence <prior-release-passed-acceptance.json>`. The qualifier verifies the complete prior deployment against its manifest, proves the representative authoritative state before update, performs the update/migration, and proves the same state again after the target build starts. If migrationPolicy is required, the reviewed migration script is mandatory.
+For update use the same tool with Mode=offline-update against an explicitly supported prior release listed in config/acceptance/phase1-supported-updates-v1.json. The policy must contain the reviewed SHA-256 of that prior release's `mavi-application-manifest.json`; a null/unfrozen manifest hash keeps the update gate pending. Supply `-PreUpdateAcceptanceEvidence <prior-release-passed-acceptance.json>`. Before overwrite, the qualifier retains the exact approved prior manifest as `<EvidenceOutput>.prior-application-manifest.json`. It also emits `<EvidenceOutput>.pre-update-state.json` and `<EvidenceOutput>.post-update-state.json`. Both state checks bind the live API to the exact expected commit **and build**, and must prove the same camera/video/run/tracks/artifact/source state across the update. If `migrationPolicy=required`, the canonical policy must freeze `migrationScriptSha256`; the supplied migration script must match that hash before execution.
 
 Fresh-install and update evidence are distinct mandatory proofs.
 
@@ -236,6 +236,7 @@ Use `tools/phase1/assemble_production_acceptance.py` with:
 - exact compiled application artifact and manifest;
 - validated prerequisite evidence plus all three raw prerequisite observations;
 - fresh-install and supported-update evidence;
+- the retained prior application manifest plus the exact pre-update and post-update authoritative-state check files emitted by the update qualifier;
 - all four production variant evidence files;
 - formal scenario record + formal E2E;
 - empty-scene scenario record + empty-scene E2E;
@@ -249,7 +250,7 @@ The resulting `mavi-phase1-production-acceptance-evidence-v1` is an immutable ag
 
 ### 9. Final closure
 
-Pass the aggregate record **and every underlying evidence file**, including the same six raw `--production-log role=path` files, to `tools/phase1/assess_phase1_closure.py`. Closure reopens, re-hashes and re-scans them before allowing `release-verified`.
+Pass the aggregate record **and every underlying evidence file**, including `--prior-application-manifest`, `--pre-update-state-check`, `--post-update-state-check`, and the same six raw `--production-log role=path` files, to `tools/phase1/assess_phase1_closure.py`. Closure reopens, re-hashes and revalidates them against the canonical supported-update policy before allowing `release-verified`.
 
 `release-verified` is impossible if the prerequisite policy is pending, any production variant is missing, the formal/empty scenarios are reused or mismatched, failure/reprocess is absent, required topology logs are absent/dirty, backup/restore references another case, or the aggregate record contains hashes from another acceptance execution.
 
