@@ -19,6 +19,8 @@ e2e = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = e2e
 SPEC.loader.exec_module(e2e)
 
+import verify_phase1_evidence as evidence_verifier  # noqa: E402
+
 
 class StateCheckError(ValueError):
     pass
@@ -40,10 +42,26 @@ def check_state(
     expected_application_build: str,
 ) -> dict:
     evidence = json.loads(acceptance_evidence.read_text(encoding="utf-8"))
-    if evidence.get("schemaVersion") != "mavi-phase1-acceptance-evidence-v1":
+    if not isinstance(evidence, dict):
         raise StateCheckError("state_acceptance_evidence_invalid")
-    if evidence.get("result", {}).get("passed") is not True:
-        raise StateCheckError("state_acceptance_evidence_not_passed")
+    try:
+        evidence_verifier._validate_schema(
+            evidence,
+            Path(__file__).with_name("phase1-acceptance-evidence.schema.json"),
+        )
+        evidence_verifier.verify_acceptance(
+            evidence,
+            expected_source_commit=expected_application_commit,
+        )
+    except evidence_verifier.EvidenceError as exc:
+        raise StateCheckError("state_acceptance_evidence_invalid:" + exc.code) from exc
+    accepted_attestation = evidence.get("attestation")
+    if (
+        not isinstance(accepted_attestation, dict)
+        or accepted_attestation.get("maviCommit") != expected_application_commit
+        or accepted_attestation.get("maviBuild") != expected_application_build
+    ):
+        raise StateCheckError("state_acceptance_release_identity_mismatch")
 
     client = e2e.ApiClient(base_url)
     health = client.json("GET", "/api/health")
@@ -80,7 +98,10 @@ def check_state(
         not isinstance(attestation, dict)
         or attestation.get("processingRunId") != run_id
         or attestation.get("videoAssetId") != video_expected["id"]
-        or attestation.get("maviCommit") != evidence["attestation"]["maviCommit"]
+        or attestation.get("maviCommit") != expected_application_commit
+        or attestation.get("maviBuild") != expected_application_build
+        or attestation.get("maviCommit") != accepted_attestation["maviCommit"]
+        or attestation.get("maviBuild") != accepted_attestation["maviBuild"]
     ):
         raise StateCheckError("state_run_attestation_mismatch")
 
@@ -190,7 +211,15 @@ def main() -> int:
             encoding="utf-8",
             newline="\n",
         )
-    except (OSError, json.JSONDecodeError, e2e.AcceptanceError, StateCheckError) as exc:
+    except (
+        OSError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+        e2e.AcceptanceError,
+        evidence_verifier.EvidenceError,
+        StateCheckError,
+    ) as exc:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2
 
