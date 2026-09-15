@@ -4,7 +4,7 @@ This runbook aligns a Windows/Visual Studio workstation with the MAVI Quality Ga
 
 ## Preferred setup: one click
 
-On a prepared Development workstation, keep the extracted companion binary kit beside the repository when the repository-local `vendor/...` payloads are not already staged:
+On a prepared Development workstation, keep the extracted companion binary kit beside the repository:
 
 ```text
 <workspace>/
@@ -85,7 +85,7 @@ Restart Visual Studio afterward.
 
 ## Advanced release preparation
 
-Developers normally do **not** run native-dependency installers manually. The release/preparation machine stages approved FFmpeg, PostgreSQL 18 + pgvector, SDK installers and offline dependency caches into the canonical `vendor/...` locations, then `New-MaviOfflineSetupBundle.ps1` produces the single disconnected setup bundle.
+Developers normally do **not** run native-dependency installers manually. The release/preparation machine stages approved FFmpeg, PostgreSQL 18 + pgvector, SDK installers and offline dependency caches into canonical `vendor/...` preparation locations, builds the verified `MAVI-Offline-Binary-Kit`, and then assembles Production setup media from that kit. Loose `vendor/...` staging is never a normal target-workstation setup source.
 
 See `docs/runbooks/mavi-offline-setup.md` for that build-side workflow.
 
