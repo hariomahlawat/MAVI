@@ -154,6 +154,11 @@ try {
     Write-Host "MAVI $Profile environment setup"
     Write-Host "========================================"
 
+    if ($Profile -eq "Development") {
+        Ensure-MaviDeveloperToolchain -BundleRoot $BundleRoot
+        Write-MaviSetupStatus -Name "Developer toolchain" -Status "OK" -Detail ".NET 10 / Node 22 / Python 3.13+"
+    }
+
     $postgres = Install-MaviPostgreSqlInstance -RuntimePackRoot $runtimePackRoot -InstallRoot $postgresInstallRoot -DataRoot $postgresDataRoot -ServiceName $serviceName -Port $port -AdminPassword $adminPassword
     Write-MaviSetupStatus -Name "PostgreSQL 18" -Status "OK" -Detail "$serviceName @ 127.0.0.1:$port"
     Write-MaviSetupStatus -Name "pgvector" -Status "OK" -Detail ([string]$postgres.Manifest.pgvectorVersion)
@@ -170,6 +175,8 @@ try {
     New-Item -ItemType Directory -Path $evidenceRoot -Force | Out-Null
 
     $connectionString = "Host=127.0.0.1;Port=$port;Database=$databaseName;Username=$databaseUser;Password=$databasePassword"
+    $developmentFfmpegPack = Join-Path $BundleRoot "prerequisites\ffmpeg"
+    $hasDevelopmentFfmpegPack = Test-Path -LiteralPath (Join-Path $developmentFfmpegPack "manifest.json") -PathType Leaf
     $machineConfig = [ordered]@{
         ConnectionStrings = [ordered]@{ Mavi = $connectionString }
         MediaStorage = [ordered]@{
@@ -179,7 +186,7 @@ try {
     }
     if ($Profile -eq "Development") {
         $machineConfig["MediaProcessing"] = [ordered]@{
-            AllowPathFallbackInDevelopment = $false
+            AllowPathFallbackInDevelopment = -not $hasDevelopmentFfmpegPack
         }
     }
     Write-MaviJson -Value $machineConfig -Path $machineConfigPath -Depth 8
@@ -198,9 +205,9 @@ try {
         $env:MAVI_TEST_DB_CONNECTION = "Host=127.0.0.1;Port=$port;Database=$testDatabaseName;Username=$databaseUser;Password=$databasePassword"
 
         if ($RepositoryRoot) {
-            $bundleFfmpeg = Join-Path $BundleRoot "prerequisites\ffmpeg"
+            $bundleFfmpeg = $developmentFfmpegPack
             $repoFfmpeg = Join-Path $RepositoryRoot "vendor\ffmpeg"
-            if (Test-Path -LiteralPath (Join-Path $bundleFfmpeg "manifest.json") -PathType Leaf) {
+            if ($hasDevelopmentFfmpegPack) {
                 [void](Test-MaviManifest -Root $bundleFfmpeg -ManifestPath (Join-Path $bundleFfmpeg "manifest.json"))
                 New-Item -ItemType Directory -Path $repoFfmpeg -Force | Out-Null
                 Invoke-MaviCommand -FilePath "robocopy.exe" -Arguments @($bundleFfmpeg, $repoFfmpeg, "/MIR", "/COPY:DAT", "/DCOPY:DAT", "/R:2", "/W:1", "/NFL", "/NDL", "/NP") -AllowedExitCodes @(0,1,2,3,4,5,6,7)
