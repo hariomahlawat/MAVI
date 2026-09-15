@@ -28,7 +28,11 @@
     <SpaRoot>$(MaviFrontendDirectory)</SpaRoot>
     <SpaProxyServerUrl>http://127.0.0.1:5173</SpaProxyServerUrl>
     <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
-    <MaviNativeMediaToolsDirectory>$(MSBuildProjectDirectory)/../../../vendor/ffmpeg</MaviNativeMediaToolsDirectory>
+    <MaviRepositoryRoot>$(MSBuildProjectDirectory)/../../..</MaviRepositoryRoot>
+    <MaviOfflineBinaryKitRoot>$(MaviRepositoryRoot)/../MAVI-Offline-Binary-Kit</MaviOfflineBinaryKitRoot>
+    <MaviNativeMediaToolsDirectory Condition="Exists('$(MaviRepositoryRoot)/vendor/ffmpeg/manifest.json')">$(MaviRepositoryRoot)/vendor/ffmpeg</MaviNativeMediaToolsDirectory>
+    <MaviNativeMediaToolsDirectory Condition="'$(MaviNativeMediaToolsDirectory)' == '' and Exists('$(MaviOfflineBinaryKitRoot)/vendor/ffmpeg/manifest.json')">$(MaviOfflineBinaryKitRoot)/vendor/ffmpeg</MaviNativeMediaToolsDirectory>
+    <MaviNativeMediaToolsDirectory Condition="'$(MaviNativeMediaToolsDirectory)' == ''">$(MaviRepositoryRoot)/vendor/ffmpeg</MaviNativeMediaToolsDirectory>
     <RequireMaviBundledMediaTools Condition="'$(RequireMaviBundledMediaTools)' == '' and '$(Configuration)' == 'Release'">true</RequireMaviBundledMediaTools>
     <RequireMaviBundledMediaTools Condition="'$(RequireMaviBundledMediaTools)' == ''">false</RequireMaviBundledMediaTools>
   </PropertyGroup>
