@@ -70,23 +70,31 @@
       }
     },
     "classSummary": {
-      "allOf": [
-        { "$ref": "#/$defs/summary" },
-        {
-          "type": "object",
-          "required": ["temporalIou","spatialIou"],
-          "properties": {
-            "temporalIou": {
-              "type": "array",
-              "items": { "type": "number", "minimum": 0, "maximum": 1 }
-            },
-            "spatialIou": {
-              "type": "array",
-              "items": { "type": "number", "minimum": 0, "maximum": 1 }
-            }
-          }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "groundTruthEventCount","producedTrackCount","matchedCount",
+        "missedCount","unmatchedTrackCount","precision","recall","f1",
+        "temporalIou","spatialIou"
+      ],
+      "properties": {
+        "groundTruthEventCount": { "type": "integer", "minimum": 0 },
+        "producedTrackCount": { "type": "integer", "minimum": 0 },
+        "matchedCount": { "type": "integer", "minimum": 0 },
+        "missedCount": { "type": "integer", "minimum": 0 },
+        "unmatchedTrackCount": { "type": "integer", "minimum": 0 },
+        "precision": { "$ref": "#/$defs/metric" },
+        "recall": { "$ref": "#/$defs/metric" },
+        "f1": { "$ref": "#/$defs/metric" },
+        "temporalIou": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "spatialIou": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0, "maximum": 1 }
         }
-      ]
+      }
     }
   }
 }

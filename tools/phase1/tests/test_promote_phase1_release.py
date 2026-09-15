@@ -19,6 +19,10 @@ def policy() -> dict:
     return {
         "mode": "qualification",
         "qualificationCorpusManifestSha256": "9" * 64,
+        "classThresholds": {
+            "Person": {"precision": 0.8, "recall": 0.8, "f1": 0.8},
+            "Vehicle": {"precision": 0.8, "recall": 0.8, "f1": 0.8},
+        },
         "performanceThresholds": {
             "minimumProcessingFps": 10.0,
             "maximumP95LatencyMs": 1000.0,
@@ -41,7 +45,8 @@ def validation_kwargs(tmp_path: Path) -> dict:
     return {
         "acceptance_profile": policy(),
         "quality_corpus_manifest": tmp_path / "corpus.json",
-        "quality_ground_truth": tmp_path / "gt.json",
+        "quality_case_evidence": {},
+        "quality_ground_truth": {},
         "expected_mavi_build": "build-a",
     }
 
@@ -128,37 +133,39 @@ def test_promotion_reopens_every_gate_even_if_qualification_record_already_says_
             acceptance_profile_sha256="b" * 64,
             acceptance_profile=policy(),
             quality_corpus_manifest=tmp_path / "corpus.json",
-            quality_ground_truth=tmp_path / "gt.json",
+            quality_case_evidence={},
+            quality_ground_truth={},
             expected_mavi_build="build-a",
         )
 
 
-def test_quality_gate_rejects_wrong_frozen_profile_hash(monkeypatch, tmp_path: Path):
-    value = {"acceptanceProfileSha256": "a" * 64}
-    monkeypatch.setattr(mod, "_validate_schema", lambda *_: None)
+def test_quality_gate_surfaces_independent_corpus_validation_failure(
+    monkeypatch,
+    tmp_path: Path,
+):
     monkeypatch.setattr(
-        mod.evidence_verifier,
-        "verify_acceptance",
-        lambda *_, **kwargs: (
-            (_ for _ in ()).throw(
-                mod.evidence_verifier.EvidenceError("acceptance_profile_hash_mismatch")
+        mod.quality_corpus,
+        "validate_quality_corpus_evidence",
+        lambda *_, **__: (_ for _ in ()).throw(
+            mod.quality_corpus.QualityCorpusError(
+                "quality_corpus_evidence_recalculation_mismatch"
             )
-            if kwargs.get("expected_acceptance_profile_sha256") != "a" * 64
-            else None
         ),
     )
     with pytest.raises(
-        mod.evidence_verifier.EvidenceError,
-        match="acceptance_profile_hash_mismatch",
+        mod.PromotionError,
+        match="promotion_quality_invalid:quality_corpus_evidence_recalculation_mismatch",
     ):
         mod._validate_quality_evidence(
-            value,
+            {"schemaVersion": "mavi-cctv-quality-corpus-evidence-v1"},
             "b" * 40,
             "c" * 64,
-            "9" * 64,
+            policy(),
             tmp_path / "corpus.json",
-            tmp_path / "gt.json",
+            {},
+            {},
             "build-a",
+            "d" * 64,
         )
 
 
