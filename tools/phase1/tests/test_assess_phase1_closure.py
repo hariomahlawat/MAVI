@@ -76,7 +76,16 @@ def _backup_restore_value(tmp_path: Path, build: str = "build-a") -> Path:
         "sourceDatabaseIdentity": "source|127.0.0.1|5432",
         "restoreDatabaseIdentity": "restore|127.0.0.1|5433",
         "cleanRestoreTarget": True,
-        "liveStorageTopology": {"maviBuild": build},
+        "liveStorageTopology": {
+            "maviBuild": build,
+            "maviCommit": "a" * 40,
+            "databaseIdentity": "source|127.0.0.1|5432",
+        },
+        "restoreStorageTopology": {
+            "maviBuild": build,
+            "maviCommit": "a" * 40,
+            "databaseIdentity": "restore|127.0.0.1|5433",
+        },
         "result": {"passed": True, "failureCodes": []},
     }
     path = tmp_path / "backup.json"
@@ -99,6 +108,21 @@ def test_backup_restore_validator_rejects_wrong_build(tmp_path: Path):
     with pytest.raises(mod.ClosureError, match="backup_restore_mavi_build_mismatch"):
         mod.validate_backup_restore(
             _backup_restore_value(tmp_path, build="build-b"),
+            source_commit="a" * 40,
+            mavi_build="build-a",
+            acceptance_profile_sha256="b" * 64,
+            schema_path=_backup_restore_schema(tmp_path),
+        )
+
+
+def test_backup_restore_validator_rejects_restore_topology_database_mismatch(tmp_path: Path):
+    path = _backup_restore_value(tmp_path)
+    value = __import__("json").loads(path.read_text(encoding="utf-8"))
+    value["restoreStorageTopology"]["databaseIdentity"] = "source|127.0.0.1|5432"
+    path.write_text(__import__("json").dumps(value), encoding="utf-8")
+    with pytest.raises(mod.ClosureError, match="backup_restore_topology_binding_mismatch"):
+        mod.validate_backup_restore(
+            path,
             source_commit="a" * 40,
             mavi_build="build-a",
             acceptance_profile_sha256="b" * 64,
