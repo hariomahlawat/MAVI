@@ -4,106 +4,367 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion", "mode", "sourceCommit", "build", "applicationManifestSha256",
-    "supportedUpdatesPolicySha256", "destination", "hosting", "internetUnavailable", "networkIsolation", "priorRelease", "migrationPolicy",
-    "retainedState", "uiSmoke", "observedHealth", "result"
+    "schemaVersion",
+    "mode",
+    "sourceCommit",
+    "build",
+    "applicationManifestSha256",
+    "supportedUpdatesPolicySha256",
+    "destination",
+    "hosting",
+    "internetUnavailable",
+    "networkIsolation",
+    "priorRelease",
+    "migrationPolicy",
+    "retainedState",
+    "uiSmoke",
+    "observedHealth",
+    "result"
   ],
   "properties": {
-    "schemaVersion": { "const": "mavi-application-lifecycle-evidence-v1" },
-    "mode": { "enum": ["fresh-install", "offline-update"] },
-    "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
-    "build": { "type": "string", "minLength": 1 },
-    "applicationManifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "supportedUpdatesPolicySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "destination": { "type": "string", "minLength": 1 },
+    "schemaVersion": {
+      "const": "mavi-application-lifecycle-evidence-v1"
+    },
+    "mode": {
+      "enum": [
+        "fresh-install",
+        "offline-update"
+      ]
+    },
+    "sourceCommit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "build": {
+      "type": "string",
+      "minLength": 1
+    },
+    "applicationManifestSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "supportedUpdatesPolicySha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "destination": {
+      "type": "string",
+      "minLength": 1
+    },
     "hosting": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["siteName", "applicationPool", "physicalPath", "hostIdentitySha256", "passed"],
+      "required": [
+        "siteName",
+        "applicationPool",
+        "physicalPath",
+        "hostIdentitySha256",
+        "passed"
+      ],
       "properties": {
-        "siteName": { "type": "string", "minLength": 1 },
-        "applicationPool": { "type": "string", "minLength": 1 },
-        "physicalPath": { "type": "string", "minLength": 1 },
-        "hostIdentitySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "passed": { "const": true }
+        "siteName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "applicationPool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "physicalPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hostIdentitySha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "passed": {
+          "const": true
+        }
       }
     },
-    "internetUnavailable": { "const": true },
+    "internetUnavailable": {
+      "const": true
+    },
     "networkIsolation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["proxyEnvironmentAbsent", "probes", "passed"],
+      "required": [
+        "proxyEnvironmentAbsent",
+        "probes",
+        "passed"
+      ],
       "properties": {
-        "proxyEnvironmentAbsent": { "const": true },
-        "probes": { "type": "array", "minItems": 5 },
-        "passed": { "const": true }
+        "proxyEnvironmentAbsent": {
+          "const": true
+        },
+        "probes": {
+          "type": "array",
+          "minItems": 5
+        },
+        "passed": {
+          "const": true
+        }
       }
     },
     "priorRelease": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
-      "required": ["sourceCommit", "build", "applicationManifestSha256", "supported"],
+      "required": [
+        "sourceCommit",
+        "build",
+        "applicationManifestSha256",
+        "supported"
+      ],
       "properties": {
-        "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
-        "build": { "type": "string", "minLength": 1 },
-        "applicationManifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "supported": { "const": true }
+        "sourceCommit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "build": {
+          "type": "string",
+          "minLength": 1
+        },
+        "applicationManifestSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "supported": {
+          "const": true
+        }
       }
     },
-    "migrationPolicy": { "enum": ["none", "required"] },
+    "migrationPolicy": {
+      "enum": [
+        "none",
+        "required"
+      ]
+    },
     "retainedState": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
-      "required": ["acceptanceEvidenceSha256", "preUpdateCheckSha256", "postUpdateCheckSha256"],
+      "required": [
+        "acceptanceEvidenceSha256",
+        "preUpdateCheckSha256",
+        "postUpdateCheckSha256"
+      ],
       "properties": {
-        "acceptanceEvidenceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "preUpdateCheckSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "postUpdateCheckSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        "acceptanceEvidenceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "preUpdateCheckSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "postUpdateCheckSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
       }
     },
     "uiSmoke": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["rootStatusCode", "rootBytes", "assetCount", "passed"],
+      "required": [
+        "rootStatusCode",
+        "rootBytes",
+        "assetCount",
+        "passed"
+      ],
       "properties": {
-        "rootStatusCode": { "const": 200 },
-        "rootBytes": { "type": "integer", "minimum": 1 },
-        "assetCount": { "type": "integer", "minimum": 1 },
-        "passed": { "const": true }
+        "rootStatusCode": {
+          "const": 200
+        },
+        "rootBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "assetCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "passed": {
+          "const": true
+        }
       }
     },
     "migration": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
-      "required": ["commandIdentity", "exitCode", "passed"],
+      "required": [
+        "commandIdentity",
+        "exitCode",
+        "passed"
+      ],
       "properties": {
-        "commandIdentity": { "type": "string", "minLength": 1 },
-        "exitCode": { "type": "integer" },
-        "passed": { "type": "boolean" }
+        "commandIdentity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exitCode": {
+          "type": "integer"
+        },
+        "passed": {
+          "type": "boolean"
+        }
       }
     },
     "observedHealth": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "build", "commit"],
+      "required": [
+        "status",
+        "build",
+        "commit"
+      ],
       "properties": {
-        "status": { "const": "ok" },
-        "build": { "type": "string", "minLength": 1 },
-        "commit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }
+        "status": {
+          "const": "ok"
+        },
+        "build": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        }
       }
     },
     "result": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["passed", "failureCodes"],
+      "required": [
+        "passed",
+        "failureCodes"
+      ],
       "properties": {
-        "passed": { "type": "boolean" },
+        "passed": {
+          "type": "boolean"
+        },
         "failureCodes": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "fresh-install"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "priorRelease": {
+            "type": "null"
+          },
+          "retainedState": {
+            "type": "null"
+          },
+          "migrationPolicy": {
+            "const": "none"
+          },
+          "migration": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "offline-update"
+          },
+          "migrationPolicy": {
+            "const": "required"
+          }
+        },
+        "required": [
+          "mode",
+          "migrationPolicy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "priorRelease": {
+            "type": "object"
+          },
+          "retainedState": {
+            "type": "object"
+          },
+          "migration": {
+            "type": "object",
+            "properties": {
+              "exitCode": {
+                "const": 0
+              },
+              "passed": {
+                "const": true
+              }
+            },
+            "required": [
+              "commandIdentity",
+              "exitCode",
+              "passed"
+            ]
+          }
+        },
+        "required": [
+          "migration"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "offline-update"
+          },
+          "migrationPolicy": {
+            "const": "none"
+          }
+        },
+        "required": [
+          "mode",
+          "migrationPolicy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "priorRelease": {
+            "type": "object"
+          },
+          "retainedState": {
+            "type": "object"
+          },
+          "migration": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
 }
