@@ -101,7 +101,9 @@ jobs:
             "tools/native/stage_postgresql_runtime_windows.ps1",
             "tools/setup/Setup-MAVI.ps1",
             "tools/setup/New-MaviOfflineSetupBundle.ps1",
+            "tools/setup/Prepare-MaviDeveloperOfflineCache.ps1",
             "tools/setup/Test-MaviEnvironment.ps1",
+            "tools/setup/Test-MaviSetupContracts.ps1",
             "tools/setup/Mavi.Setup.Common.psm1",
             "tools/setup/Mavi.Setup.Windows.psm1"
           )
@@ -118,3 +120,9 @@ jobs:
               throw "PowerShell parse failed: $script"
             }
           }
+
+      - name: Validate MAVI setup contracts on Windows PowerShell
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          .\tools\setup\Test-MaviSetupContracts.ps1
