@@ -130,6 +130,8 @@ foreach ($required in @(
     }
 }
 
+$applicationManifestSha256 = Get-MaviSha256 -Path (Join-Path $applicationDestination "mavi-application-manifest.json")
+
 $applicationFfmpegRoot = Join-Path $applicationDestination "tools\ffmpeg"
 $applicationFfmpegManifestPath = Join-Path $applicationFfmpegRoot "manifest.json"
 [void](Test-MaviManifest -Root $applicationFfmpegRoot -ManifestPath $applicationFfmpegManifestPath -ExpectedSchemaVersion "1.0")
@@ -268,7 +270,7 @@ $artifacts = foreach ($file in $artifactFiles) {
 
 $manifest = [ordered]@{
     schemaVersion = "mavi-offline-setup-bundle-v1"
-    createdAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
+    applicationManifestSha256 = $applicationManifestSha256
     profiles = if ($IncludeDevelopmentPayload) { @("Development", "Production") } else { @("Production") }
     containsProductionApplication = $true
     containsHostingBundle = $true
