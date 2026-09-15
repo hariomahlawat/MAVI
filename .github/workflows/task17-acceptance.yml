@@ -8,6 +8,7 @@ on:
       - 'config/acceptance/**'
       - 'sample-data/ground-truth/**'
       - 'tools/phase1/**'
+      - 'tools/native/**'
       - 'src/platform/**'
       - 'src/vision/**'
       - 'models/**'
@@ -91,7 +92,10 @@ jobs:
           $ErrorActionPreference = "Stop"
           $scripts = @(
             "tools/phase1/qualify_windows_offline.ps1",
-            "tools/phase1/qualify_application_lifecycle.ps1"
+            "tools/phase1/qualify_application_lifecycle.ps1",
+            "tools/native/stage_ffmpeg_windows.ps1",
+            "tools/native/stage_pgvector_windows.ps1",
+            "tools/native/install_pgvector_windows.ps1"
           )
           foreach ($script in $scripts) {
             $tokens = $null
