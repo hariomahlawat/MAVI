@@ -119,8 +119,11 @@ Install that pack on the target machine from an elevated PowerShell:
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/native/install_pgvector_windows.ps1 `
   -PackageRoot "X:\OfflineMedia\pgvector\pg18\win-x64" `
+  -ExpectedManifestSha256 "<APPROVED_MANIFEST_SHA256>" `
   -PostgreSqlRoot "C:\Program Files\PostgreSQL\18"
 ```
+
+The staging command prints the pgvector manifest SHA-256. Carry that approved hash separately with the release evidence and supply it to the installer; the bootstrapper refuses a pack whose manifest identity does not match.
 
 Normal MAVI startup then verifies PostgreSQL major version 18, confirms pgvector is available, enables `vector` in the selected database if required, and only then runs EF migrations.
 
