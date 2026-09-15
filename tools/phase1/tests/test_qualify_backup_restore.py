@@ -81,6 +81,13 @@ def _post_payload(execution_path: Path, execution: dict):
         "managedSourceManifestSha256": execution["managedSource"]["manifestSha256"],
         "acceptedEvidenceManifestSha256": execution["acceptedEvidence"]["manifestSha256"],
         "restoreStorageTopology": execution["restoreStorageTopology"],
+        "stateCheck": {
+            "schemaVersion": "mavi-authoritative-state-check-v1",
+            "acceptanceEvidenceSha256": execution["acceptanceEvidenceSha256"],
+            "expectedApplicationCommit": execution["sourceCommit"],
+            "observedApplicationCommit": execution["sourceCommit"],
+            "result": {"passed": True, "failureCodes": []},
+        },
         "result": {"passed": True, "failureCodes": []},
     }
 
@@ -230,3 +237,15 @@ def test_post_restore_topology_rejects_wrong_storage_root():
             live,
             {"restoreStorageTopology": expected},
         )
+
+
+def test_finalize_rejects_missing_authoritative_state_proof(tmp_path: Path):
+    execution = tmp_path / "execution.json"
+    execution_value = _execution_payload()
+    execution.write_text(json.dumps(execution_value), encoding="utf-8")
+    post = tmp_path / "post.json"
+    post_value = _post_payload(execution, execution_value)
+    post_value.pop("stateCheck")
+    post.write_text(json.dumps(post_value), encoding="utf-8")
+    with pytest.raises(mod.BackupRestoreError, match="post_restore_state_check_binding_mismatch"):
+        mod.finalize(execution, post)
