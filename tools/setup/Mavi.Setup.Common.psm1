@@ -232,6 +232,20 @@ function Set-MaviDirectoryAcl {
     if ($LASTEXITCODE -ne 0) { throw "Failed to grant $Rights ACL to $Identity on $Path." }
 }
 
+function Set-MaviPrivateDirectoryAcl {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [string]$ApplicationIdentity,
+        [ValidateSet("R","M","F")][string]$ApplicationRights = "M"
+    )
+    New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    $arguments = @($Path, "/inheritance:r", "/grant:r", "SYSTEM:(OI)(CI)F", "Administrators:(OI)(CI)F")
+    if (-not [string]::IsNullOrWhiteSpace($ApplicationIdentity)) {
+        $arguments += ("{0}:(OI)(CI){1}" -f $ApplicationIdentity, $ApplicationRights)
+    }
+    & icacls.exe @arguments | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to secure MAVI directory: $Path" }
+}
 function Write-MaviSetupStatus {
     param([Parameter(Mandatory = $true)][string]$Name, [Parameter(Mandatory = $true)][string]$Status, [string]$Detail)
     $suffix = if ($Detail) { " - $Detail" } else { "" }
