@@ -283,6 +283,15 @@ def validate_lifecycle(
         raise ProductionAcceptanceError(
             "production_prior_acceptance_evidence_invalid:" + exc.code
         ) from exc
+    prior_attestation = prior_acceptance.get("attestation")
+    if (
+        not isinstance(prior_attestation, dict)
+        or prior_attestation.get("maviCommit") != prior.get("sourceCommit")
+        or prior_attestation.get("maviBuild") != prior.get("build")
+    ):
+        raise ProductionAcceptanceError(
+            "production_prior_acceptance_release_identity_mismatch"
+        )
     if sha256_file(prior_acceptance_evidence) != retained.get("acceptanceEvidenceSha256"):
         raise ProductionAcceptanceError("production_prior_acceptance_evidence_mismatch")
 
