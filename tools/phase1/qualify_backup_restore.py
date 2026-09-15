@@ -408,6 +408,17 @@ def finalize(execution_path: Path, post_restore_path: Path) -> dict[str, Any]:
         raise BackupRestoreError("post_restore_evidence_store_binding_mismatch")
     if post.get("restoreStorageTopology") != execution.get("restoreStorageTopology"):
         raise BackupRestoreError("post_restore_topology_binding_mismatch")
+    state_check = post.get("stateCheck")
+    if (
+        not isinstance(state_check, dict)
+        or state_check.get("schemaVersion") != "mavi-authoritative-state-check-v1"
+        or state_check.get("acceptanceEvidenceSha256") != execution.get("acceptanceEvidenceSha256")
+        or state_check.get("expectedApplicationCommit") != execution.get("sourceCommit")
+        or state_check.get("observedApplicationCommit") != execution.get("sourceCommit")
+        or state_check.get("result", {}).get("passed") is not True
+        or state_check.get("result", {}).get("failureCodes") != []
+    ):
+        raise BackupRestoreError("post_restore_state_check_binding_mismatch")
 
     return {
         "schemaVersion": "mavi-backup-restore-evidence-v1",
