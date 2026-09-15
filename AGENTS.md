@@ -39,6 +39,25 @@ Do not introduce production runtime dependencies on:
 
 Development may use the Internet. Release artifacts must be self-contained and support controlled offline transfer.
 
+## Dependency and packaging changes
+
+A library/runtime prerequisite is part of the feature that introduces it; do not defer offline packaging to a later task.
+
+Before adding or changing any NuGet, npm, Python, native, model/runtime or OS dependency:
+
+1. justify the dependency and prefer existing framework/platform capability when reasonable;
+2. update `config/dependencies/offline-dependency-policy-v1.json`;
+3. define its disconnected Development and Production strategy;
+4. integrate machine prerequisites into MAVI Setup, or make the dependency application-local;
+5. add deterministic version/hash/viability checks for native/external payloads;
+6. retain required licences/notices;
+7. update offline caches/runtime locks/release bundles and qualification evidence as applicable;
+8. update the affected runbooks and tests.
+
+`python tools/verify_repo.py` must remain green. It intentionally fails when direct .NET/npm/Python dependency surfaces drift from the declared offline dependency policy.
+
+Do not make normal operator setup depend on manual PATH edits, package-manager commands, pgAdmin steps or first-run downloads. See `docs/architecture/dependency-and-offline-packaging-policy.md`.
+
 ## Data and security
 
 - Never commit credentials, secrets, certificates, CCTV recordings, biometric datasets or model weights.
