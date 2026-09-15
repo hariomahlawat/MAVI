@@ -175,6 +175,7 @@ $migrationPolicy = "none"
 $preStateOutput = $null
 $postStateOutput = $null
 $priorManifestEvidence = $null
+$priorAcceptanceEvidence = $null
 $expectedMigrationScriptSha256 = $null
 
 if ($Mode -eq "fresh-install") {
@@ -205,9 +206,12 @@ if ($Mode -eq "fresh-install") {
     $preStateOutput = "$EvidenceOutput.pre-update-state.json"
     $postStateOutput = "$EvidenceOutput.post-update-state.json"
     $priorManifestEvidence = "$EvidenceOutput.prior-application-manifest.json"
-    if ((Test-Path -LiteralPath $preStateOutput) -or (Test-Path -LiteralPath $postStateOutput) -or (Test-Path -LiteralPath $priorManifestEvidence)) { throw "update_state_check_output_exists" }
+    $priorAcceptanceEvidence = "$EvidenceOutput.prior-acceptance-evidence.json"
+    if ((Test-Path -LiteralPath $preStateOutput) -or (Test-Path -LiteralPath $postStateOutput) -or (Test-Path -LiteralPath $priorManifestEvidence) -or (Test-Path -LiteralPath $priorAcceptanceEvidence)) { throw "update_state_check_output_exists" }
     Copy-Item -LiteralPath $priorManifestPath -Destination $priorManifestEvidence -ErrorAction Stop
     if ((Get-Sha256 $priorManifestEvidence) -ne $priorManifestSha) { throw "update_prior_manifest_evidence_mismatch" }
+    Copy-Item -LiteralPath $PreUpdateAcceptanceEvidence -Destination $priorAcceptanceEvidence -ErrorAction Stop
+    if ((Get-Sha256 $priorAcceptanceEvidence) -ne (Get-Sha256 $PreUpdateAcceptanceEvidence)) { throw "update_prior_acceptance_evidence_mismatch" }
 
     Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $priorCommit -ExpectedBuild $priorBuild -Output $preStateOutput
 
