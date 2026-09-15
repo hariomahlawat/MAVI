@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,10 @@ PHASE1_ROOT = Path(__file__).resolve().parent
 if str(PHASE1_ROOT) not in sys.path:
     sys.path.insert(0, str(PHASE1_ROOT))
 
+from production_acceptance_context import (
+    AcceptanceContextError,
+    load_context as load_acceptance_context,
+)
 from policy_identity import (  # noqa: E402
     PolicyIdentityError,
     canonical_production_prerequisites,
@@ -66,11 +71,22 @@ def validate_observations(
     windows: dict[str, Any],
     database: dict[str, Any],
     linux: dict[str, Any],
+    *,
+    acceptance_execution_id: str,
+    acceptance_context_sha256: str,
+    context_started_at: str,
 ) -> None:
     if policy.get("approvalStatus") != "approved":
         raise PrerequisiteEvidenceError(
             "production_prerequisite_policy_not_approved"
         )
+
+    try:
+        context_start = datetime.fromisoformat(context_started_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise PrerequisiteEvidenceError(
+            "production_prerequisite_context_time_invalid"
+        ) from exc
 
     expected_roles = (
         (windows, "windows-operational-plane", "windowsOperationalPlane"),
@@ -78,6 +94,22 @@ def validate_observations(
         (linux, "linux-vision-worker", "linuxVisionWorker"),
     )
     for observation, role, policy_key in expected_roles:
+        try:
+            captured = datetime.fromisoformat(
+                str(observation.get("capturedAtUtc", "")).replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise PrerequisiteEvidenceError(
+                "production_prerequisite_observation_time_invalid:" + role
+            ) from exc
+        if (
+            observation.get("acceptanceExecutionId") != acceptance_execution_id
+            or observation.get("acceptanceContextSha256") != acceptance_context_sha256
+            or captured < context_start
+        ):
+            raise PrerequisiteEvidenceError(
+                "production_prerequisite_context_mismatch:" + role
+            )
         if observation.get("role") != role:
             raise PrerequisiteEvidenceError(
                 "production_prerequisite_role_mismatch:" + role
@@ -105,6 +137,12 @@ def validate_observations(
 
 
 def assemble(args: argparse.Namespace) -> dict[str, Any]:
+    context, context_sha = load_acceptance_context(
+        args.acceptance_context,
+        schema_path=PHASE1_ROOT / "production-acceptance-context.schema.json",
+        expected_source_commit=args.source_commit,
+        expected_mavi_build=args.mavi_build,
+    )
     canonical, policy_sha = canonical_production_prerequisites(args.policy)
     policy = load_json(canonical, "production_prerequisite_policy_invalid")
     validate_schema(
@@ -132,10 +170,20 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
             "production_prerequisite_observation",
         )
 
-    validate_observations(policy, windows, database, linux)
+    validate_observations(
+        policy,
+        windows,
+        database,
+        linux,
+        acceptance_execution_id=context["acceptanceExecutionId"],
+        acceptance_context_sha256=context_sha,
+        context_started_at=context["startedAtUtc"],
+    )
 
     return {
         "schemaVersion": "mavi-production-prerequisite-evidence-v1",
+        "acceptanceExecutionId": context["acceptanceExecutionId"],
+        "acceptanceContextSha256": context_sha,
         "sourceCommit": args.source_commit,
         "maviBuild": args.mavi_build,
         "policySha256": policy_sha,
@@ -157,6 +205,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument("--acceptance-context", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--mavi-build", required=True)
     parser.add_argument("--windows-observation", type=Path, required=True)
@@ -199,6 +248,7 @@ def main() -> int:
         json.JSONDecodeError,
         PolicyIdentityError,
         PrerequisiteEvidenceError,
+        AcceptanceContextError,
     ) as exc:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2

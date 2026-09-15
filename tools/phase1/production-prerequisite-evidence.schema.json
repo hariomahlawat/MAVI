@@ -4,13 +4,15 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion","sourceCommit","maviBuild","policySha256",
+    "schemaVersion","acceptanceExecutionId","acceptanceContextSha256","sourceCommit","maviBuild","policySha256",
     "windowsObservationSha256","databaseObservationSha256",
     "linuxObservationSha256","topologyIdentities","windowsOperationalPlane","database",
     "linuxVisionWorker","result"
   ],
   "properties": {
     "schemaVersion": { "const": "mavi-production-prerequisite-evidence-v1" },
+    "acceptanceExecutionId": { "type": "string", "format": "uuid" },
+    "acceptanceContextSha256": { "$ref": "#/$defs/sha256" },
     "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "maviBuild": { "type": "string", "minLength": 1 },
     "policySha256": { "$ref": "#/$defs/sha256" },

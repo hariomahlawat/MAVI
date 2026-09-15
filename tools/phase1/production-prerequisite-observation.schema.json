@@ -3,9 +3,11 @@
   "$id": "https://mavi.local/schemas/production-prerequisite-observation-v1.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion","role","capturedAtUtc","topologyIdentity","values"],
+  "required": ["schemaVersion","acceptanceExecutionId","acceptanceContextSha256","role","capturedAtUtc","topologyIdentity","values"],
   "properties": {
     "schemaVersion": { "const": "mavi-production-prerequisite-observation-v1" },
+    "acceptanceExecutionId": { "type": "string", "format": "uuid" },
+    "acceptanceContextSha256": { "$ref": "#/$defs/sha256" },
     "role": { "enum": ["windows-operational-plane","database","linux-vision-worker"] },
     "capturedAtUtc": { "type": "string", "format": "date-time" },
     "topologyIdentity": { "type": "string", "minLength": 1 },
@@ -14,5 +16,8 @@
       "additionalProperties": { "type": "string", "minLength": 1 },
       "minProperties": 1
     }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
   }
 }

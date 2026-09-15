@@ -16,6 +16,10 @@ PHASE1_ROOT = Path(__file__).resolve().parent
 if str(PHASE1_ROOT) not in sys.path:
     sys.path.insert(0, str(PHASE1_ROOT))
 
+from production_acceptance_context import (
+    AcceptanceContextError,
+    load_context as load_acceptance_context,
+)
 from topology_identity import (  # noqa: E402
     TopologyIdentityError,
     database_identity,
@@ -180,6 +184,9 @@ def linux_values() -> dict[str, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--acceptance-context", type=Path, required=True)
+    parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--mavi-build", required=True)
     parser.add_argument(
         "--role",
         choices=(
@@ -199,6 +206,12 @@ def main() -> int:
             raise PrerequisiteObservationError(
                 "prerequisite_observation_output_exists"
             )
+        context, context_sha = load_acceptance_context(
+            args.acceptance_context,
+            schema_path=PHASE1_ROOT / "production-acceptance-context.schema.json",
+            expected_source_commit=args.source_commit,
+            expected_mavi_build=args.mavi_build,
+        )
         if args.role == "windows-operational-plane":
             values = windows_values()
             topology_identity = host_identity_sha256()
@@ -219,6 +232,8 @@ def main() -> int:
             )
         payload = {
             "schemaVersion": "mavi-production-prerequisite-observation-v1",
+            "acceptanceExecutionId": context["acceptanceExecutionId"],
+            "acceptanceContextSha256": context_sha,
             "role": args.role,
             "capturedAtUtc": datetime.now(timezone.utc)
             .isoformat()
@@ -231,7 +246,12 @@ def main() -> int:
             encoding="utf-8",
             newline="\n",
         )
-    except (OSError, PrerequisiteObservationError, TopologyIdentityError) as exc:
+    except (
+        OSError,
+        PrerequisiteObservationError,
+        TopologyIdentityError,
+        AcceptanceContextError,
+    ) as exc:
         print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
         return 2
 
