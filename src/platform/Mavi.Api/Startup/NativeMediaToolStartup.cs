@@ -36,7 +36,15 @@ public static class NativeMediaToolStartup
             .GetRequiredService<IOptions<MediaProcessingOptions>>()
             .Value;
         if (!options.VerifyOnStartup)
+        {
+            if (!app.Environment.IsEnvironment("Testing"))
+            {
+                throw new InvalidOperationException(
+                    "MediaProcessing:VerifyOnStartup may be disabled only in the Testing environment.");
+            }
+
             return;
+        }
 
         var logger = scope.ServiceProvider
             .GetRequiredService<ILoggerFactory>()
