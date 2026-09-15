@@ -15,18 +15,25 @@ Verify that:
 9. an update can be applied from a controlled offline bundle.
 
 
-## Native prerequisite packaging
+## Dependency and prerequisite packaging
 
-Before any disconnected acceptance run, the offline media must contain:
+Before any disconnected acceptance run, the canonical offline media must contain all prerequisites needed by the target profile, including:
 
-- the MAVI application artifact with its app-local, hash-manifested FFmpeg/ffprobe pack;
-- the approved PostgreSQL 18 installer/prerequisite set;
-- the PostgreSQL-18-specific pgvector offline prerequisite pack;
-- the exact Python/runtime/model bundles already required by Phase-1 qualification.
+- the qualified MAVI application artifact with its app-local, hash-manifested FFmpeg/ffprobe pack;
+- the approved MAVI-owned PostgreSQL 18 runtime pack containing pgvector and retained PostgreSQL/pgvector notices;
+- the ASP.NET Core 10 Hosting Bundle required by the Windows/IIS operational plane;
+- the exact Python/runtime/model bundles required by the qualified vision profile; and
+- Development SDK installers/caches when validating the disconnected Development profile.
 
-The target application must start with Internet unavailable. MAVI verifies bundled media-tool hashes and executable viability before request handling. PostgreSQL/pgvector installation is a one-time administrative bootstrap action; normal startup only verifies PostgreSQL major version, verifies pgvector availability, enables the extension in the selected database, and applies EF migrations.
+Normal installation is performed through `Setup-MAVI-Production.cmd` or `Setup-MAVI-Development.cmd`. Setup verifies the media, provisions/repairs MAVI-owned prerequisites, and the application then verifies PostgreSQL/pgvector/media-tool readiness before automatic EF migrations.
 
-A release is not offline-ready if it succeeds only because `ffmpeg`/`ffprobe` happen to be installed on PATH, if pgvector was manually copied without retained hashes, or if first startup downloads any missing dependency.
+A release is not offline-ready if it succeeds only because a prerequisite happens to be installed on PATH, because pgvector/native files were copied manually outside the approved runtime pack, or because first startup downloads anything.
+
+### Future dependency changes
+
+Every new library, SDK, native executable, runtime, model, database extension or OS prerequisite must be integrated before the feature is considered complete. Follow `docs/architecture/dependency-and-offline-packaging-policy.md`.
+
+`config/dependencies/offline-dependency-policy-v1.json` is the machine-readable direct-dependency baseline. Repository verification must fail when a direct .NET/npm/Python dependency changes without an explicit policy update. For native/external dependencies, the same feature must update staging/bundle composition, Setup/readiness, deterministic version/hash checks, licence/notices and applicable disconnected qualification.
 
 ## Phase-1 formal acceptance
 
