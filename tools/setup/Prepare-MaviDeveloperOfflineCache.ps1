@@ -63,7 +63,64 @@ finally {
     Pop-Location
 }
 
+# Create a human/audit-readable exact cache inventory. The binary-kit manifest
+# will additionally hash this file and every retained cache byte.
+$sourceInputs = [ordered]@{
+    offlineDependencyPolicySha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "config\dependencies\offline-dependency-policy-v1.json") -Algorithm SHA256).Hash.ToLowerInvariant()
+    globalJsonSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "global.json") -Algorithm SHA256).Hash.ToLowerInvariant()
+    packageLockSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "src\web\mavi-web\package-lock.json") -Algorithm SHA256).Hash.ToLowerInvariant()
+    visionPyprojectSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "src\vision\pyproject.toml") -Algorithm SHA256).Hash.ToLowerInvariant()
+    toolsRequirementsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\requirements.txt") -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+$nugetPackages = @()
+foreach ($packageDirectory in @(Get-ChildItem -LiteralPath $nugetRoot -Directory | Sort-Object Name)) {
+    foreach ($versionDirectory in @(Get-ChildItem -LiteralPath $packageDirectory.FullName -Directory | Sort-Object Name)) {
+        $nugetPackages += [ordered]@{
+            id = $packageDirectory.Name
+            version = $versionDirectory.Name
+        }
+    }
+}
+
+$packageLock = Get-Content -LiteralPath (Join-Path $repoRoot "src\web\mavi-web\package-lock.json") -Raw | ConvertFrom-Json
+$npmPackages = @()
+foreach ($property in @($packageLock.packages.PSObject.Properties | Sort-Object Name)) {
+    if ([string]::IsNullOrWhiteSpace([string]$property.Name)) { continue }
+    $entry = $property.Value
+    $versionProperty = $entry.PSObject.Properties["version"]
+    if (-not $versionProperty) { continue }
+    $npmPackages += [ordered]@{
+        packagePath = [string]$property.Name
+        version = [string]$versionProperty.Value
+        developmentOnly = [bool]($entry.PSObject.Properties["dev"] -and [bool]$entry.dev)
+    }
+}
+
+$pythonArtifacts = @()
+foreach ($file in @(Get-ChildItem -LiteralPath $pythonRoot -File | Sort-Object Name)) {
+    $pythonArtifacts += [ordered]@{
+        fileName = $file.Name
+        sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = [long]$file.Length
+    }
+}
+
+$cacheManifest = [ordered]@{
+    schemaVersion = "mavi-developer-offline-cache-v1"
+    sourceInputs = $sourceInputs
+    nugetPackages = @($nugetPackages)
+    npmPackages = @($npmPackages)
+    pythonArtifacts = @($pythonArtifacts)
+}
+$cacheManifestPath = Join-Path $destination "developer-cache-manifest.json"
+$cacheManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $cacheManifestPath -Encoding UTF8
+
 Write-Host "MAVI offline developer dependency cache prepared."
+Write-Host "  Manifest: $cacheManifestPath"
+Write-Host "  NuGet packages : $($nugetPackages.Count)"
+Write-Host "  npm packages   : $($npmPackages.Count)"
+Write-Host "  Python artifacts: $($pythonArtifacts.Count)"
 Write-Host "  NuGet : $nugetRoot"
 Write-Host "  npm   : $npmRoot"
 Write-Host "  Python: $pythonRoot"
