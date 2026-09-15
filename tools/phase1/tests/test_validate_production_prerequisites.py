@@ -50,7 +50,7 @@ def approved_policy() -> dict:
 def observation(role: str, values: dict) -> dict:
     topology = {
         "windows-operational-plane": "1" * 64,
-        "database": "mavi|10.0.0.20|5432",
+        "database": "3" * 64,
         "linux-vision-worker": "2" * 64,
     }[role]
     return {
