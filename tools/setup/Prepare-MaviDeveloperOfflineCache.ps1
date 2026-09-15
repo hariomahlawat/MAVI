@@ -51,6 +51,12 @@ try {
         throw "Python build dependency download failed."
     }
 
+    $toolsRequirements = Join-Path $repoRoot "tools\requirements.txt"
+    & $Python -m pip download --dest $pythonRoot -r $toolsRequirements
+    if ($LASTEXITCODE -ne 0) {
+        throw "Repository verification dependency download failed."
+    }
+
     $visionRoot = Join-Path $repoRoot "src\vision"
     $visionEggInfo = Join-Path $visionRoot "mavi_vision.egg-info"
     Push-Location $visionRoot
