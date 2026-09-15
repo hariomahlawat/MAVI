@@ -638,6 +638,10 @@ def validate_backup(
         or value.get("liveStorageTopology", {}).get("maviBuild") != mavi_build
         or value.get("liveStorageTopology", {}).get("databaseIdentity")
         != value.get("sourceDatabaseIdentity")
+        or value.get("restoreStorageTopology", {}).get("maviCommit") != source_commit
+        or value.get("restoreStorageTopology", {}).get("maviBuild") != mavi_build
+        or value.get("restoreStorageTopology", {}).get("databaseIdentity")
+        != value.get("restoreDatabaseIdentity")
         or not passed_result(value)
     ):
         raise ProductionAcceptanceError("production_backup_restore_binding_failed")
