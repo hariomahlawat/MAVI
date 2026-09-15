@@ -25,6 +25,92 @@ Current repository baseline:
 - pgvector extension compatible with PostgreSQL 18
 - FFmpeg and ffprobe
 
+## Run MAVI locally from Visual Studio
+
+For normal local development, set **Mavi.Api** as the startup project and press **F5** (or **Ctrl+F5**).
+
+The repository uses ASP.NET Core's development SPA proxy:
+
+1. Visual Studio starts `Mavi.Api` on `https://localhost:62152`.
+2. The SPA proxy starts `npm run dev` in `src/web/mavi-web` when Vite is not already running.
+3. Vite listens only on `http://127.0.0.1:5173` with a strict port.
+4. The browser is redirected to the Vite development UI.
+5. Vite proxies `/api/*` back to the running ASP.NET Core API.
+
+This behavior is local-development only. Published MAVI builds continue to serve the compiled React application from ASP.NET Core/IIS as same-origin static content.
+
+### First local launch
+
+Install the frontend dependencies once:
+
+```powershell
+cd src/web/mavi-web
+npm ci
+cd ../../..
+```
+
+Then start **Mavi.Api** from Visual Studio. A successful F5 launch should open the React UI rather than the API root.
+
+The local API proxy target defaults to:
+
+```text
+https://localhost:62152
+```
+
+and is also set explicitly in the Visual Studio launch profile through `MAVI_API_PROXY_TARGET`.
+
+### Manual frontend launch
+
+If you intentionally want to run Vite yourself, keep `Mavi.Api` running and execute:
+
+```powershell
+cd src/web/mavi-web
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. The strict port prevents Vite from silently moving to a different port and breaking the SPA-proxy contract.
+
+### Local HTTPS certificate
+
+If the browser or Vite proxy reports a local certificate problem, trust the .NET development certificate once:
+
+```powershell
+dotnet dev-certs https --trust
+```
+
+Restart Visual Studio afterward.
+
+## Automatic database migrations
+
+MAVI applies pending EF Core migrations automatically during application startup in both Development and Production.
+
+Startup is intentionally fail-closed:
+
+1. the application connects to PostgreSQL;
+2. it acquires a MAVI-specific PostgreSQL advisory lock;
+3. it enumerates applied and pending migrations;
+4. it applies pending EF Core migrations;
+5. it verifies that no migration remains pending;
+6. only then does the application begin serving requests.
+
+If migration fails, times out, or the migration lock cannot be obtained within the configured interval, MAVI startup fails rather than serving against an unknown schema state.
+
+Default settings are in `src/platform/Mavi.Api/appsettings.json`:
+
+```json
+"DatabaseMigrations": {
+  "Enabled": true,
+  "LockTimeoutSeconds": 120,
+  "CommandTimeoutSeconds": 300
+}
+```
+
+Production application database credentials must therefore have the schema privileges required by the repository's EF Core migrations. Do not use `EnsureCreated` and do not manually edit `__EFMigrationsHistory`.
+
+The advisory lock serializes migration attempts from concurrent MAVI application starts against the same PostgreSQL server/database session environment. Routine startup against an already-current database performs only the migration-state check and does not modify schema history.
+
+The integration-test host disables automatic startup migration by default because its fixture deliberately resets `mavi_test` and controls migrations explicitly. Dedicated integration tests opt in to startup migration and verify blank-database migration, idempotent current-database startup, and fail-fast lock timeout behavior.
+
 ## PostgreSQL databases
 
 MAVI development and integration tests use separate databases. Never point the integration-test variable at the development or production database.
