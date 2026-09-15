@@ -111,6 +111,7 @@ def validate_state_check(
     acceptance_evidence_sha256: str,
     expected_application_commit: str,
     expected_application_build: str,
+    expected_operational_host_identity_sha256: str,
     code: str,
 ) -> tuple[str, dict[str, Any]]:
     value = load_json(path, code + "_invalid")
@@ -125,6 +126,8 @@ def validate_state_check(
         or value.get("observedApplicationCommit") != expected_application_commit
         or value.get("expectedApplicationBuild") != expected_application_build
         or value.get("observedApplicationBuild") != expected_application_build
+        or value.get("operationalHostIdentitySha256") != expected_operational_host_identity_sha256
+        or not isinstance(value.get("authoritativeStateSha256"), str)
         or not passed_result(value)
     ):
         raise ProductionAcceptanceError(code + "_binding_failed")
@@ -166,6 +169,8 @@ def _assert_retained_state_equivalent(
         "sourceEtagSha256",
         "artifactSha256",
         "artifactEtagSha256",
+        "operationalHostIdentitySha256",
+        "authoritativeStateSha256",
     )
     if any(pre.get(field) != post.get(field) for field in retained_fields):
         raise ProductionAcceptanceError("production_offline_update_retained_state_mismatch")
@@ -206,10 +211,14 @@ def validate_lifecycle(
     ):
         raise ProductionAcceptanceError("production_lifecycle_deployment_audit_failed")
     hosting = value.get("hosting")
+    operational_api = value.get("operationalApi")
     if (
         not isinstance(hosting, dict)
         or hosting.get("passed") is not True
         or hosting.get("physicalPath") != value.get("destination")
+        or not isinstance(operational_api, dict)
+        or operational_api.get("passed") is not True
+        or operational_api.get("hostIdentitySha256") != hosting.get("hostIdentitySha256")
     ):
         raise ProductionAcceptanceError("production_lifecycle_iis_binding_failed")
     if (
@@ -288,6 +297,8 @@ def validate_lifecycle(
         not isinstance(prior_attestation, dict)
         or prior_attestation.get("maviCommit") != prior.get("sourceCommit")
         or prior_attestation.get("maviBuild") != prior.get("build")
+        or prior_acceptance.get("operationalApi", {}).get("hostIdentitySha256")
+        != hosting.get("hostIdentitySha256")
     ):
         raise ProductionAcceptanceError(
             "production_prior_acceptance_release_identity_mismatch"
@@ -322,6 +333,7 @@ def validate_lifecycle(
         acceptance_evidence_sha256=acceptance_sha,
         expected_application_commit=prior["sourceCommit"],
         expected_application_build=prior["build"],
+        expected_operational_host_identity_sha256=hosting["hostIdentitySha256"],
         code="production_pre_update_state",
     )
     post_sha, post = validate_state_check(
@@ -329,6 +341,7 @@ def validate_lifecycle(
         acceptance_evidence_sha256=acceptance_sha,
         expected_application_commit=source_commit,
         expected_application_build=mavi_build,
+        expected_operational_host_identity_sha256=hosting["hostIdentitySha256"],
         code="production_post_update_state",
     )
     if (
@@ -480,6 +493,7 @@ def validate_scenario(
     linux_cuda_lock_sha256: str,
     acceptance_execution_id: str,
     acceptance_context_sha256: str,
+    expected_operational_host_identity_sha256: str,
 ) -> tuple[str, str, str]:
     scenario = load_json(scenario_path, "production_scenario_invalid")
     validate_schema(
@@ -514,6 +528,10 @@ def validate_scenario(
         or scenario.get("acceptanceContextSha256") != acceptance_context_sha256
         or scenario.get("sourceCommit") != source_commit
         or scenario.get("maviBuild") != mavi_build
+        or scenario.get("operationalHostIdentitySha256")
+        != expected_operational_host_identity_sha256
+        or e2e.get("operationalApi", {}).get("hostIdentitySha256")
+        != expected_operational_host_identity_sha256
         or scenario.get("targetVerifiedManifestSha256") != target_manifest_sha256
         or scenario.get("linuxCudaVariantEvidenceSha256")
         != sha256_file(linux_cuda_variant_path)
@@ -587,6 +605,7 @@ def validate_failure_reprocess(
     linux_cuda_lock_sha256: str,
     acceptance_execution_id: str,
     acceptance_context_sha256: str,
+    expected_operational_host_identity_sha256: str,
 ) -> tuple[str, str]:
     value = load_json(path, "production_failure_reprocess_invalid")
     validate_schema(
@@ -608,6 +627,8 @@ def validate_failure_reprocess(
         or value.get("acceptanceContextSha256") != acceptance_context_sha256
         or value.get("sourceCommit") != source_commit
         or value.get("maviBuild") != mavi_build
+        or value.get("operationalHostIdentitySha256")
+        != expected_operational_host_identity_sha256
         or value.get("targetVerifiedManifestSha256") != target_manifest_sha256
         or value.get("productionBundleManifestSha256")
         != linux_cuda_bundle_sha256
@@ -863,7 +884,9 @@ def validate_topology_binding(
     if (
         not isinstance(windows_topology, str)
         or fresh_install.get("hosting", {}).get("hostIdentitySha256") != windows_topology
+        or fresh_install.get("operationalApi", {}).get("hostIdentitySha256") != windows_topology
         or offline_update.get("hosting", {}).get("hostIdentitySha256") != windows_topology
+        or offline_update.get("operationalApi", {}).get("hostIdentitySha256") != windows_topology
     ):
         raise ProductionAcceptanceError("production_windows_topology_mismatch")
     if (
@@ -941,6 +964,16 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         mavi_build=mavi_build,
     )
 
+    prerequisite_value = load_json(
+        args.prerequisite_evidence,
+        "production_prerequisite_evidence_invalid",
+    )
+    windows_operational_identity = prerequisite_value.get(
+        "topologyIdentities", {}
+    ).get("windowsOperationalPlane")
+    if not isinstance(windows_operational_identity, str):
+        raise ProductionAcceptanceError("production_windows_topology_missing")
+
     supported_policy_sha = policy_sha256_file(CANONICAL_SUPPORTED_UPDATES)
     fresh_sha = validate_lifecycle(
         args.fresh_install,
@@ -999,6 +1032,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
         acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
         acceptance_context_sha256=acceptance_context_sha,
+        expected_operational_host_identity_sha256=windows_operational_identity,
     )
     empty_scenario_sha, empty_e2e_sha, empty_log_sha = validate_scenario(
         args.empty_scene_scenario,
@@ -1015,6 +1049,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
         acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
         acceptance_context_sha256=acceptance_context_sha,
+        expected_operational_host_identity_sha256=windows_operational_identity,
     )
     if formal_e2e_sha == empty_e2e_sha:
         raise ProductionAcceptanceError("production_scenarios_not_distinct")
@@ -1030,6 +1065,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
         acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
         acceptance_context_sha256=acceptance_context_sha,
+        expected_operational_host_identity_sha256=windows_operational_identity,
     )
 
     formal_scenario_value = load_json(args.formal_scenario, "production_formal_scenario_invalid")
@@ -1064,10 +1100,6 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         formal_e2e_sha256=formal_e2e_sha,
     )
 
-    prerequisite_value = load_json(
-        args.prerequisite_evidence,
-        "production_prerequisite_evidence_invalid",
-    )
     fresh_value = load_json(args.fresh_install, "production_fresh_install_invalid")
     update_value = load_json(args.offline_update, "production_offline_update_invalid")
     backup_value = load_json(args.backup_restore, "production_backup_restore_invalid")

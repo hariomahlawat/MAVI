@@ -115,10 +115,14 @@ def validate_application_lifecycle(
     if value.get("mode") != expected_mode:
         raise ClosureError("application_lifecycle_mode_mismatch")
     hosting = value.get("hosting")
+    operational_api = value.get("operationalApi")
     if (
         not isinstance(hosting, dict)
         or hosting.get("passed") is not True
         or hosting.get("physicalPath") != value.get("destination")
+        or not isinstance(operational_api, dict)
+        or operational_api.get("passed") is not True
+        or operational_api.get("hostIdentitySha256") != hosting.get("hostIdentitySha256")
     ):
         raise ClosureError("application_lifecycle_iis_binding_mismatch")
     if value.get("internetUnavailable") is not True:
@@ -626,6 +630,17 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         )
         evidence_hashes["production-prerequisites"] = prerequisite_sha
 
+    prerequisite_value = (
+        load_json(args.prerequisite_evidence)
+        if prerequisite_sha is not None and args.prerequisite_evidence is not None
+        else None
+    )
+    windows_operational_identity = (
+        prerequisite_value.get("topologyIdentities", {}).get("windowsOperationalPlane")
+        if isinstance(prerequisite_value, dict)
+        else None
+    )
+
     if (
         expected_mavi_build is not None
         and all(path is not None for path in production_variant_paths.values())
@@ -665,6 +680,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and acceptance_context is not None
         and acceptance_context_sha is not None
         and "linux-x86_64-cuda" in production_variant_values
+        and isinstance(windows_operational_identity, str)
     ):
         (
             formal_scenario_sha,
@@ -685,6 +701,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             linux_cuda_lock_sha256=production_lock_hashes["linux-x86_64-cuda"],
             acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
             acceptance_context_sha256=acceptance_context_sha,
+            expected_operational_host_identity_sha256=windows_operational_identity,
         )
         evidence_hashes["formal-production-scenario"] = formal_scenario_sha
         evidence_hashes["production-e2e"] = final_e2e_sha
@@ -696,6 +713,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and acceptance_context is not None
         and acceptance_context_sha is not None
         and "linux-x86_64-cuda" in production_variant_values
+        and isinstance(windows_operational_identity, str)
     ):
         (
             empty_scenario_sha,
@@ -716,6 +734,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             linux_cuda_lock_sha256=production_lock_hashes["linux-x86_64-cuda"],
             acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
             acceptance_context_sha256=acceptance_context_sha,
+            expected_operational_host_identity_sha256=windows_operational_identity,
         )
         evidence_hashes["empty-scene-scenario"] = empty_scenario_sha
         evidence_hashes["empty-scene-e2e"] = empty_e2e_sha
@@ -733,6 +752,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and acceptance_context is not None
         and acceptance_context_sha is not None
         and "linux-x86_64-cuda" in production_variant_values
+        and isinstance(windows_operational_identity, str)
     ):
         failure_sha, failure_log_sha = (
             production_acceptance.validate_failure_reprocess(
@@ -746,6 +766,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
                 linux_cuda_lock_sha256=production_lock_hashes["linux-x86_64-cuda"],
                 acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
                 acceptance_context_sha256=acceptance_context_sha,
+                expected_operational_host_identity_sha256=windows_operational_identity,
             )
         )
         evidence_hashes["failure-reprocess"] = failure_sha
@@ -820,7 +841,11 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         if (
             fresh_value.get("hosting", {}).get("hostIdentitySha256")
             != topology.get("windowsOperationalPlane")
+            or fresh_value.get("operationalApi", {}).get("hostIdentitySha256")
+            != topology.get("windowsOperationalPlane")
             or update_value.get("hosting", {}).get("hostIdentitySha256")
+            != topology.get("windowsOperationalPlane")
+            or update_value.get("operationalApi", {}).get("hostIdentitySha256")
             != topology.get("windowsOperationalPlane")
         ):
             raise ClosureError("production_windows_topology_mismatch")
