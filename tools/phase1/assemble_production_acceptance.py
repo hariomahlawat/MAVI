@@ -190,6 +190,21 @@ def validate_lifecycle(
         "application-lifecycle-evidence.schema.json",
         "production_lifecycle",
     )
+    deployment = value.get("deployment")
+    if (
+        not isinstance(deployment, dict)
+        or deployment.get("mechanism") != "robocopy-mirror"
+        or deployment.get("tool") != "robocopy.exe"
+        or not isinstance(deployment.get("toolVersion"), str)
+        or not deployment.get("toolVersion")
+        or not isinstance(deployment.get("arguments"), list)
+        or len(deployment.get("arguments")) < 4
+        or not isinstance(deployment.get("exitCode"), int)
+        or deployment.get("exitCode") < 0
+        or deployment.get("exitCode") > 7
+        or deployment.get("passed") is not True
+    ):
+        raise ProductionAcceptanceError("production_lifecycle_deployment_audit_failed")
     hosting = value.get("hosting")
     if (
         not isinstance(hosting, dict)
