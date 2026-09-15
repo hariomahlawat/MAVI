@@ -75,7 +75,7 @@ function Install-MaviPostgreSqlInstance {
     }
 
     $version = Invoke-MaviCommand -FilePath $postgresExe -Arguments @("--version") -CaptureOutput
-    if ($version.StandardOutput -notmatch '(?i)\bPostgreSQL\b.*\b18(?:\.|\b)') {
+    if (-not (Test-MaviPostgreSqlMajorVersionOutput -VersionOutput $version.StandardOutput -Major 18)) {
         throw "Installed MAVI PostgreSQL runtime is not PostgreSQL 18."
     }
 
