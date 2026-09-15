@@ -267,6 +267,11 @@ function Test-MaviManifest {
 
     foreach ($artifact in $manifest.artifacts) {
         $relative = [string]$artifact.relativePath
+        if ([string]::IsNullOrWhiteSpace($relative) -and
+            -not [string]::IsNullOrWhiteSpace([string]$artifact.fileName) -and
+            -not [string]::IsNullOrWhiteSpace([string]$manifest.runtimeId)) {
+            $relative = ([string]$manifest.runtimeId).TrimEnd("/", "\") + "/" + [string]$artifact.fileName
+        }
         if ([string]::IsNullOrWhiteSpace($relative) -or
             [IO.Path]::IsPathRooted($relative) -or
             $relative.Contains("..")) {
