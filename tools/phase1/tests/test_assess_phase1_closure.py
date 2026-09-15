@@ -254,3 +254,40 @@ def test_application_lifecycle_manifest_hash_mismatch_is_rejected(tmp_path: Path
             supported_updates_policy_sha256="c" * 64,
             schema_path=schema_path,
         )
+
+
+def test_qualification_evidence_hashes_must_match_promoted_record():
+    class Evidence:
+        def __init__(self, sha256: str):
+            self.sha256 = sha256
+
+    class Qualification:
+        required_gates = {
+            gate: "passed"
+            for gate in mod.MANDATORY_QUALIFICATION_GATES
+        }
+        evidence = {
+            gate: Evidence("a" * 64)
+            for gate in mod.MANDATORY_QUALIFICATION_GATES
+        }
+
+    observed = {
+        gate: "a" * 64
+        for gate in mod.MANDATORY_QUALIFICATION_GATES
+    }
+    mod.validate_qualification_evidence_hashes(Qualification(), observed)
+
+    observed["linux-x86_64-cuda"] = "b" * 64
+    with pytest.raises(
+        mod.ClosureError,
+        match="qualification_evidence_hash_mismatch:linux-x86_64-cuda",
+    ):
+        mod.validate_qualification_evidence_hashes(Qualification(), observed)
+
+
+def test_production_acceptance_guard_requires_prior_acceptance_evidence():
+    source = __import__("inspect").getsource(mod.assess)
+    guard_start = source.index("if (\n        args.production_acceptance is not None")
+    guard_end = source.index("    ):\n        typed_variants", guard_start)
+    guard = source[guard_start:guard_end]
+    assert "args.prior_acceptance_evidence is not None" in guard
