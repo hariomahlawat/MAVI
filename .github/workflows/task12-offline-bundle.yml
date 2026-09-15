@@ -8,6 +8,7 @@ on:
       - 'tools/vision/**'
       - 'src/vision/**'
       - 'models/**'
+      - 'config/dependencies/offline-binary-catalog-v1.json'
       - '.github/workflows/task12-offline-bundle.yml'
       - 'tools/setup/**'
       - 'Start-MAVI-Vision-Worker.cmd'
