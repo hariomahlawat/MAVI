@@ -122,10 +122,17 @@ def open_verified_source(
             expected_sha256=expected_sha256,
             cancel_requested=cancel_requested,
         )
+    finally:
+        # The verified snapshot is an owned temporary file. Release the source
+        # handle before yielding so Windows does not keep the original pathname
+        # locked and callers remain bound to the verified file instance rather
+        # than to subsequent path replacement/mutation.
+        source_stream.close()
+
+    try:
         _raise_if_cancelled(cancel_requested)
         yield verified
     finally:
-        source_stream.close()
         if verified is not None and verified.stream is not None:
             verified.stream.close()
 
