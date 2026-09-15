@@ -178,13 +178,13 @@ def _backup_proof_fixture(tmp_path: Path, *, formal_e2e_sha: str = "1" * 64):
         "maviBuild": "build-a",
         "maviCommit": "a" * 40,
         "operationalHostIdentitySha256": WINDOWS_HOST,
-        "databaseIdentity": "source|127.0.0.1|5432",
+        "databaseIdentitySha256": "1" * 64,
         "managedMediaRootIdentitySha256": "8" * 64,
         "acceptedEvidenceRootIdentitySha256": "9" * 64,
     }
     restore = {
         **live,
-        "databaseIdentity": "restore|127.0.0.1|5433",
+        "databaseIdentitySha256": "2" * 64,
         "managedMediaRootIdentitySha256": "a" * 64,
         "acceptedEvidenceRootIdentitySha256": "b" * 64,
     }
@@ -193,8 +193,8 @@ def _backup_proof_fixture(tmp_path: Path, *, formal_e2e_sha: str = "1" * 64):
         "sourceCommit": "a" * 40,
         "acceptanceEvidenceSha256": formal_e2e_sha,
         "acceptanceProfileSha256": "c" * 64,
-        "sourceDatabaseIdentity": live["databaseIdentity"],
-        "restoreDatabaseIdentity": restore["databaseIdentity"],
+        "sourceDatabaseIdentitySha256": live["databaseIdentitySha256"],
+        "restoreDatabaseIdentitySha256": restore["databaseIdentitySha256"],
         "liveStorageTopology": live,
         "databaseManifestSha256": mod.sha256_file(db_manifest),
         "managedSourceManifestSha256": mod.sha256_file(media_manifest),
@@ -208,8 +208,8 @@ def _backup_proof_fixture(tmp_path: Path, *, formal_e2e_sha: str = "1" * 64):
         "sourceCommit": "a" * 40,
         "acceptanceEvidenceSha256": formal_e2e_sha,
         "acceptanceProfileSha256": "c" * 64,
-        "sourceDatabaseIdentity": live["databaseIdentity"],
-        "restoreDatabaseIdentity": restore["databaseIdentity"],
+        "sourceDatabaseIdentitySha256": live["databaseIdentitySha256"],
+        "restoreDatabaseIdentitySha256": restore["databaseIdentitySha256"],
         "liveStorageTopology": live,
         "restoreStorageTopology": restore,
         "tooling": tooling,
@@ -242,8 +242,8 @@ def _backup_proof_fixture(tmp_path: Path, *, formal_e2e_sha: str = "1" * 64):
         "acceptanceEvidenceSha256": formal_e2e_sha,
         "acceptanceProfileSha256": "c" * 64,
         "executionEvidenceSha256": mod.sha256_file(execution),
-        "sourceDatabaseIdentity": live["databaseIdentity"],
-        "restoreDatabaseIdentity": restore["databaseIdentity"],
+        "sourceDatabaseIdentitySha256": live["databaseIdentitySha256"],
+        "restoreDatabaseIdentitySha256": restore["databaseIdentitySha256"],
         "liveStorageTopology": live,
         "restoreStorageTopology": restore,
         "database": {"included": True, "manifestSha256": mod.sha256_file(db_manifest)},
@@ -281,7 +281,7 @@ def test_backup_must_reference_exact_final_e2e(tmp_path: Path):
 def test_backup_rejects_tampered_underlying_execution(tmp_path: Path):
     path, proofs = _backup_proof_fixture(tmp_path)
     execution = json.loads(proofs["execution_evidence"].read_text(encoding="utf-8"))
-    execution["restoreDatabaseIdentity"] = "tampered|127.0.0.1|5999"
+    execution["restoreDatabaseIdentitySha256"] = "6" * 64
     proofs["execution_evidence"].write_text(json.dumps(execution), encoding="utf-8")
     with pytest.raises(mod.ProductionAcceptanceError, match="production_backup_restore_binding_failed"):
         mod.validate_backup(
@@ -298,7 +298,7 @@ def test_topology_binding_rejects_other_linux_host():
     prereq = {
         "topologyIdentities": {
             "windowsOperationalPlane": "1" * 64,
-            "database": "mavi|10.0.0.20|5432",
+            "database": "5" * 64,
             "linuxVisionWorker": "2" * 64,
         }
     }
@@ -311,9 +311,9 @@ def test_topology_binding_rejects_other_linux_host():
         "operationalApi": {"hostIdentitySha256": "1" * 64},
     }
     backup = {
-        "sourceDatabaseIdentity": "mavi|10.0.0.20|5432",
+        "sourceDatabaseIdentitySha256": "5" * 64,
         "liveStorageTopology": {
-            "databaseIdentity": "mavi|10.0.0.20|5432",
+            "databaseIdentitySha256": "5" * 64,
             "operationalHostIdentitySha256": "1" * 64,
         },
         "restoreStorageTopology": {
@@ -597,7 +597,7 @@ def test_log_inspection_rejects_checkpoint_after_scenario(tmp_path: Path, monkey
 def test_backup_rejects_restore_topology_database_mismatch(tmp_path: Path):
     path, proofs = _backup_proof_fixture(tmp_path)
     value = json.loads(path.read_text(encoding="utf-8"))
-    value["restoreStorageTopology"]["databaseIdentity"] = "source|127.0.0.1|5432"
+    value["restoreStorageTopology"]["databaseIdentitySha256"] = "1" * 64
     path.write_text(json.dumps(value), encoding="utf-8")
     with pytest.raises(mod.ProductionAcceptanceError, match="production_backup_restore_binding_failed"):
         mod.validate_backup(
