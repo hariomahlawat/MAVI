@@ -33,7 +33,7 @@ if (-not (Test-Path -LiteralPath $postgresExe -PathType Leaf)) {
     throw "PostgreSQL 18 installation not found at $postgresRoot"
 }
 $versionOutput = & $postgresExe --version
-if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch "PostgreSQL 18\.") {
+if ($LASTEXITCODE -ne 0 -or -not (Test-MaviPostgreSqlMajorVersionOutput -VersionOutput ($versionOutput | Out-String) -Major 18)) {
     throw "The selected PostgreSQL installation is not PostgreSQL 18."
 }
 
