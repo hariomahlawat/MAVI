@@ -174,6 +174,8 @@ $priorRelease = $null
 $migrationPolicy = "none"
 $preStateOutput = $null
 $postStateOutput = $null
+$priorManifestEvidence = $null
+$expectedMigrationScriptSha256 = $null
 
 if ($Mode -eq "fresh-install") {
     if (Test-Path -LiteralPath $Destination) {
@@ -193,6 +195,7 @@ if ($Mode -eq "fresh-install") {
 
     if ([string]$priorValidation.supportedUpdatesPolicySha256 -ne $supportedUpdatesPolicySha256) { throw "supported_updates_policy_hash_mismatch" }
     $migrationPolicy = [string]$priorValidation.migrationPolicy
+    $expectedMigrationScriptSha256 = if ($null -eq $priorValidation.migrationScriptSha256) { $null } else { [string]$priorValidation.migrationScriptSha256 }
     $priorManifestSha = [string]$priorValidation.applicationManifestSha256
     $priorCommit = [string]$priorValidation.sourceCommit
     $priorBuild = [string]$priorValidation.build
@@ -201,7 +204,10 @@ if ($Mode -eq "fresh-install") {
 
     $preStateOutput = "$EvidenceOutput.pre-update-state.json"
     $postStateOutput = "$EvidenceOutput.post-update-state.json"
-    if ((Test-Path -LiteralPath $preStateOutput) -or (Test-Path -LiteralPath $postStateOutput)) { throw "update_state_check_output_exists" }
+    $priorManifestEvidence = "$EvidenceOutput.prior-application-manifest.json"
+    if ((Test-Path -LiteralPath $preStateOutput) -or (Test-Path -LiteralPath $postStateOutput) -or (Test-Path -LiteralPath $priorManifestEvidence)) { throw "update_state_check_output_exists" }
+    Copy-Item -LiteralPath $priorManifestPath -Destination $priorManifestEvidence -ErrorAction Stop
+    if ((Get-Sha256 $priorManifestEvidence) -ne $priorManifestSha) { throw "update_prior_manifest_evidence_mismatch" }
 
     Invoke-StateCheck -AcceptanceEvidence $PreUpdateAcceptanceEvidence -ExpectedCommit $priorCommit -ExpectedBuild $priorBuild -Output $preStateOutput
 
@@ -241,6 +247,7 @@ try {
     $migrationEvidence = $null
     if ($migrationPolicy -eq "required") {
         if (-not $MigrationScriptPath -or -not (Test-Path -LiteralPath $MigrationScriptPath -PathType Leaf)) { throw "required_migration_script_missing" }
+        if (-not $expectedMigrationScriptSha256 -or (Get-Sha256 $MigrationScriptPath) -ne $expectedMigrationScriptSha256) { throw "required_migration_script_identity_mismatch" }
         & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $MigrationScriptPath
         $migrationExit = $LASTEXITCODE
         if ($migrationExit -ne 0) { throw "required_migration_failed:$migrationExit" }
