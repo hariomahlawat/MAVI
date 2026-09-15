@@ -103,8 +103,14 @@ function New-MaviPassword {
         throw "Generated MAVI passwords must be at least 24 characters."
     }
     $alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!#%+-_"
-    $bytes = [byte[]]::new($Length)
-    [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    $bytes = New-Object byte[] $Length
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $rng.GetBytes($bytes)
+    }
+    finally {
+        $rng.Dispose()
+    }
     $characters = for ($index = 0; $index -lt $Length; $index++) {
         $alphabet[$bytes[$index] % $alphabet.Length]
     }
