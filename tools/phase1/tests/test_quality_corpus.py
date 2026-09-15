@@ -58,7 +58,15 @@ def metrics(person: tuple[int, int, int], vehicle: tuple[int, int, int]) -> dict
         "mode": "qualification",
         "perClass": {"Person": p, "Vehicle": v},
         "overall": overall,
-        "matching": [],
+        "matching": [
+            {
+                "eventId": f"event-{index}",
+                "trackId": f"track-{index}",
+                "spatialIou": 0.9,
+                "temporalIou": 0.9,
+            }
+            for index in range(overall["matchedCount"])
+        ],
         "qualification": qualification,
     }
 

@@ -66,7 +66,7 @@ def test_gate_evidence_requires_exact_source_commit(tmp_path: Path):
 
 def test_generic_passing_json_cannot_promote_quality_gate(tmp_path: Path):
     path = evidence(tmp_path / "e.json", "a" * 40, passed=True)
-    with pytest.raises(mod.PromotionError, match="promotion_evidence_schema_invalid"):
+    with pytest.raises(mod.PromotionError, match="promotion_quality_invalid:"):
         mod.load_gate_evidence(
             path,
             gate="cctv-quality-baseline",

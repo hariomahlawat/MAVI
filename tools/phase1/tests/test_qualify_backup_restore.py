@@ -58,6 +58,7 @@ def _execution_payload():
             "schemaVersion": "mavi-storage-topology-attestation-v1",
             "maviBuild": "build-a",
             "maviCommit": "a" * 40,
+            "operationalHostIdentitySha256": "f" * 64,
             "databaseIdentity": "restore|127.0.0.1|5433",
             "managedMediaRootIdentitySha256": "9" * 64,
             "acceptedEvidenceRootIdentitySha256": "a" * 64,

@@ -231,3 +231,67 @@ def test_application_health_accepts_exact_expected_identity():
         source_commit="a" * 40,
         expected_mavi_build="build-a",
     )
+
+
+class TopologyClient:
+    def __init__(self, host_identity: str):
+        self.host_identity = host_identity
+
+    def json(self, method: str, path: str):
+        assert method == "GET"
+        assert path == "/api/system/storage-topology"
+        return {
+            "schemaVersion": "mavi-storage-topology-attestation-v1",
+            "maviBuild": "build-a",
+            "maviCommit": "a" * 40,
+            "operationalHostIdentitySha256": self.host_identity,
+            "databaseIdentity": "mavi|127.0.0.1|5432",
+            "managedMediaRootIdentitySha256": "2" * 64,
+            "acceptedEvidenceRootIdentitySha256": "3" * 64,
+        }
+
+
+def test_operational_topology_rejects_same_build_on_other_host():
+    with pytest.raises(
+        mod.AcceptanceError,
+        match="qualification_operational_host_mismatch",
+    ):
+        mod._validate_operational_topology(
+            TopologyClient("b" * 64),
+            source_commit="a" * 40,
+            expected_mavi_build="build-a",
+            expected_host_identity_sha256="c" * 64,
+        )
+
+
+def test_authoritative_state_digest_changes_on_semantic_track_change():
+    base = {
+        "camera": {
+            "id": "camera",
+            "code": "Q",
+            "name": "Qualification",
+            "timeZoneId": "UTC",
+            "isActive": True,
+        },
+        "video": {
+            "id": "video",
+            "cameraId": "camera",
+            "recordingStartUtc": "2026-01-01T00:00:00Z",
+            "recordingTimeZoneId": "UTC",
+            "recordingUtcOffsetMinutes": 0,
+            "durationMs": 1000,
+        },
+        "processingRunId": "run",
+        "tracks": [{
+            "id": "track",
+            "objectClass": "Person",
+            "startOffsetMs": 0,
+            "endOffsetMs": 100,
+            "representative": None,
+        }],
+        "source": {"sha256": "1" * 64, "etagSha256": "1" * 64},
+        "representativeArtifact": {"id": None, "sha256": None, "etagSha256": None},
+    }
+    changed = json.loads(json.dumps(base))
+    changed["tracks"][0]["objectClass"] = "Vehicle"
+    assert mod._authoritative_state_sha256(base) != mod._authoritative_state_sha256(changed)

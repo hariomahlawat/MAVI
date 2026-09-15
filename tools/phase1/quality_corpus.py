@@ -214,6 +214,18 @@ def validate_evaluation_metrics(
         metrics["overall"],
         "quality_metrics_overall_invalid",
     )
+    matching = metrics.get("matching")
+    if not isinstance(matching, list) or len(matching) != expected_overall["matchedCount"]:
+        raise QualityCorpusError("quality_matching_count_invalid")
+    event_ids = [item.get("eventId") for item in matching if isinstance(item, dict)]
+    track_ids = [item.get("trackId") for item in matching if isinstance(item, dict)]
+    if (
+        len(event_ids) != len(matching)
+        or len(track_ids) != len(matching)
+        or len(set(event_ids)) != len(event_ids)
+        or len(set(track_ids)) != len(track_ids)
+    ):
+        raise QualityCorpusError("quality_matching_identity_invalid")
     summed = summary_from_counts(
         sum(row["groundTruthEventCount"] for row in expected_per_class.values()),
         sum(row["producedTrackCount"] for row in expected_per_class.values()),
