@@ -241,10 +241,13 @@ function Test-MaviNode22 {
     }
     $result = Invoke-MaviCommand -FilePath $node.Source -Arguments @("--version") -CaptureOutput
     $match = [regex]::Match($result.StandardOutput.Trim(), "^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)")
-    if (-not $match.Success) { return $false }
-    $major = [int]$match.Groups["major"].Value
-    $minor = [int]$match.Groups["minor"].Value
-    return $major -eq 22 -and $minor -ge 13
+    if (-not $match.Success -or [int]$match.Groups["major"].Value -ne 22) { return $false }
+
+    $observed = [Version]::new(
+        [int]$match.Groups["major"].Value,
+        [int]$match.Groups["minor"].Value,
+        [int]$match.Groups["patch"].Value)
+    return $observed -ge [Version]::new(22, 22, 2) -and $observed -lt [Version]::new(23, 0, 0)
 }
 
 function Resolve-MaviPython313 {
@@ -337,12 +340,12 @@ function Ensure-MaviDeveloperToolchain {
     if (-not (Test-MaviNode22)) {
         $installer = Join-Path $root "node.msi"
         if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
-            throw "Node.js 22 is missing and the offline developer installer was not found: $installer"
+            throw "Node.js 22.22.2+ is missing and the offline developer installer was not found: $installer"
         }
         Invoke-MaviCommand -FilePath "msiexec.exe" -Arguments @("/i", $installer, "/qn", "/norestart") -AllowedExitCodes @(0,3010)
         Refresh-MaviProcessPath
         if (-not (Test-MaviNode22)) {
-            throw "Node.js 22 installation did not become available."
+            throw "Node.js 22.22.2+ installation did not become available."
         }
     }
 
