@@ -18,7 +18,9 @@ param(
 
     [string]$PythonInstaller = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\python.exe"),
 
-    [string]$DeveloperDependencyCache = (Join-Path $PSScriptRoot "..\..\vendor\developer-cache\win-x64")
+    [string]$DeveloperDependencyCache = (Join-Path $PSScriptRoot "..\..\vendor\developer-cache\win-x64"),
+
+    [switch]$IncludeDevelopmentPayload
 )
 
 $ErrorActionPreference = "Stop"
@@ -57,13 +59,20 @@ if (-not [string]::IsNullOrWhiteSpace($BinaryKitRoot)) {
 $destination = [IO.Path]::GetFullPath($Destination)
 $postgreSqlRuntimePack = (Resolve-Path -LiteralPath $PostgreSqlRuntimePack).Path
 $applicationArtifact = (Resolve-Path -LiteralPath $ApplicationArtifact).Path
-$developerDependencyCache = (Resolve-Path -LiteralPath $DeveloperDependencyCache).Path
+if ($IncludeDevelopmentPayload) {
+    $developerDependencyCache = (Resolve-Path -LiteralPath $DeveloperDependencyCache).Path
+}
 
 [void](Test-MaviManifest -Root $postgreSqlRuntimePack -ManifestPath (Join-Path $postgreSqlRuntimePack "manifest.json") -ExpectedSchemaVersion "mavi-postgresql-runtime-pack-v1")
 
-foreach ($requiredFile in @($HostingBundle, $DotNetSdkInstaller, $NodeInstaller, $PythonInstaller)) {
-    if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
-        throw "Required offline installer was not found: $requiredFile"
+if (-not (Test-Path -LiteralPath $HostingBundle -PathType Leaf)) {
+    throw "Required ASP.NET Core Hosting Bundle was not found: $HostingBundle"
+}
+if ($IncludeDevelopmentPayload) {
+    foreach ($requiredFile in @($DotNetSdkInstaller, $NodeInstaller, $PythonInstaller)) {
+        if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+            throw "Required Development offline installer was not found: $requiredFile"
+        }
     }
 }
 
