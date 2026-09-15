@@ -4,13 +4,21 @@ This runbook aligns a Windows/Visual Studio workstation with the MAVI Quality Ga
 
 ## Preferred setup: one click
 
-On a prepared Development repository, double-click:
+On a prepared Development workstation, keep the extracted companion binary kit beside the repository when the repository-local `vendor/...` payloads are not already staged:
+
+```text
+<workspace>/
+  MAVI/
+  MAVI-Offline-Binary-Kit/
+```
+
+Then double-click:
 
 ```text
 Setup-MAVI-Development.cmd
 ```
 
-Approve the Administrator prompt. Setup automatically prepares the supported .NET 10, Node.js 22.13+, Python 3.13, MAVI-owned PostgreSQL 18 + pgvector environment, `mavi_dev`/`mavi_test` databases, FFmpeg/ffprobe, machine configuration, offline dependency caches and test connection. It also validates the attached workspace when the offline caches are available.
+The launcher auto-detects and verifies the sibling kit. Approve the Administrator prompt. Setup automatically prepares the supported .NET 10, Node.js 22.13+, Python 3.13, MAVI-owned PostgreSQL 18 + pgvector environment, `mavi_dev`/`mavi_test` databases, FFmpeg/ffprobe, machine configuration, offline dependency caches and test connection. It also validates the attached workspace when the offline caches are available.
 
 After the first setup, restart Visual Studio once and press **F5**.
 
@@ -85,7 +93,7 @@ See `docs/runbooks/mavi-offline-setup.md` for that build-side workflow.
 
 Do not stop at updating a package file. Follow `docs/architecture/dependency-and-offline-packaging-policy.md` and update `config/dependencies/offline-dependency-policy-v1.json` in the same feature.
 
-For ordinary managed dependencies, the existing cache builders are intentionally generic: NuGet restores the solution closure, npm uses `package-lock.json`, and the Python Development wheelhouse is rebuilt from `pyproject.toml`. If a feature introduces a new optional/native/model/runtime dependency that is outside those closures, extend the cache/runtime-pack/Setup path and its verification before considering the feature complete.
+For ordinary managed dependencies, the existing cache builders are intentionally generic: NuGet restores the solution closure, npm uses `package-lock.json`, and the Python Development wheelhouse is rebuilt from `pyproject.toml`. If a feature introduces a new optional/native/model/runtime dependency that is outside those closures, update `config/dependencies/offline-binary-catalog-v1.json`, the companion binary kit, Setup/readiness and its verification before considering the feature complete.
 
 ## Automatic database migrations
 
