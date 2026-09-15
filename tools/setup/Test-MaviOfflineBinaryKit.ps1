@@ -22,6 +22,29 @@ if ((Get-MaviSha256 -Path $catalogPath) -ne ([string]$manifest.sourceCatalogSha2
     throw "Offline binary kit catalog hash does not match the kit manifest."
 }
 
+$requiredSourceInputs = @(
+    "offlineDependencyPolicy",
+    "offlineBinaryCatalog",
+    "globalJson",
+    "webPackageLock",
+    "visionPyproject",
+    "toolsRequirements"
+)
+$sourceInputsProperty = $manifest.PSObject.Properties["sourceInputs"]
+if (-not $sourceInputsProperty) {
+    throw "Offline binary kit does not record repository source-input identities."
+}
+foreach ($name in $requiredSourceInputs) {
+    $property = $sourceInputsProperty.Value.PSObject.Properties[$name]
+    $value = if ($property) { [string]$property.Value } else { "" }
+    if ($value -notmatch "^[0-9a-f]{64}$") {
+        throw "Offline binary kit source-input identity is missing or invalid: $name"
+    }
+}
+if ([string]$sourceInputsProperty.Value.offlineBinaryCatalog -ne ([string]$manifest.sourceCatalogSha256)) {
+    throw "Offline binary kit sourceCatalogSha256 does not match sourceInputs.offlineBinaryCatalog."
+}
+
 $postgreSqlRoot = Join-Path $kitRoot "vendor\postgresql\pg18\win-x64"
 $postgreSql = Test-MaviManifest -Root $postgreSqlRoot -ManifestPath (Join-Path $postgreSqlRoot "manifest.json") -ExpectedSchemaVersion "mavi-postgresql-runtime-pack-v1"
 
