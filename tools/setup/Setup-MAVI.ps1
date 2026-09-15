@@ -42,12 +42,20 @@ if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
 }
 
 $bundleManifestPath = Join-Path $BundleRoot "mavi-offline-bundle.json"
+$binaryKitManifestPath = Join-Path $BundleRoot "mavi-offline-binary-kit.json"
 if ($Profile -eq "Production" -and -not (Test-Path -LiteralPath $bundleManifestPath -PathType Leaf)) {
     throw "Production setup requires the canonical MAVI offline setup bundle and its manifest."
 }
 if (Test-Path -LiteralPath $bundleManifestPath -PathType Leaf) {
     [void](Test-MaviManifest -Root $BundleRoot -ManifestPath $bundleManifestPath -ExpectedSchemaVersion "mavi-offline-setup-bundle-v1")
     Write-MaviSetupStatus -Name "Offline bundle" -Status "OK" -Detail "SHA-256 verified"
+}
+elseif (Test-Path -LiteralPath $binaryKitManifestPath -PathType Leaf) {
+    if ($Profile -ne "Development") {
+        throw "The MAVI offline binary kit is a preparation/Development dependency source, not a Production application bundle."
+    }
+    [void](Test-MaviManifest -Root $BundleRoot -ManifestPath $binaryKitManifestPath -ExpectedSchemaVersion "mavi-offline-binary-kit-v1")
+    Write-MaviSetupStatus -Name "Offline binary kit" -Status "OK" -Detail "SHA-256 verified"
 }
 
 $bundleDefaults = Join-Path $BundleRoot "config\mavi-setup-defaults.json"
@@ -135,6 +143,10 @@ else {
 }
 
 $runtimePackRoot = Join-Path $BundleRoot "prerequisites\postgresql\pg18\win-x64"
+if (-not (Test-Path -LiteralPath (Join-Path $runtimePackRoot "manifest.json") -PathType Leaf) -and
+    (Test-Path -LiteralPath $binaryKitManifestPath -PathType Leaf)) {
+    $runtimePackRoot = Join-Path $BundleRoot "vendor\postgresql\pg18\win-x64"
+}
 if (-not (Test-Path -LiteralPath (Join-Path $runtimePackRoot "manifest.json") -PathType Leaf) -and $RepositoryRoot) {
     $repoRuntime = Join-Path $RepositoryRoot "vendor\postgresql\pg18\win-x64"
     if (Test-Path -LiteralPath (Join-Path $repoRuntime "manifest.json") -PathType Leaf) {
@@ -216,6 +228,10 @@ try {
 
     $connectionString = "Host=127.0.0.1;Port=$port;Database=$databaseName;Username=$databaseUser;Password=$databasePassword"
     $developmentFfmpegPack = Join-Path $BundleRoot "application\tools\ffmpeg"
+    if (-not (Test-Path -LiteralPath (Join-Path $developmentFfmpegPack "manifest.json") -PathType Leaf) -and
+        (Test-Path -LiteralPath $binaryKitManifestPath -PathType Leaf)) {
+        $developmentFfmpegPack = Join-Path $BundleRoot "vendor\ffmpeg"
+    }
     if (-not (Test-Path -LiteralPath (Join-Path $developmentFfmpegPack "manifest.json") -PathType Leaf) -and $RepositoryRoot) {
         $repositoryFfmpeg = Join-Path $RepositoryRoot "vendor\ffmpeg"
         if (Test-Path -LiteralPath (Join-Path $repositoryFfmpeg "manifest.json") -PathType Leaf) {
@@ -223,6 +239,9 @@ try {
         }
     }
     $hasDevelopmentFfmpegPack = Test-Path -LiteralPath (Join-Path $developmentFfmpegPack "manifest.json") -PathType Leaf
+    if ($Profile -eq "Development" -and -not $hasDevelopmentFfmpegPack) {
+        throw "The approved FFmpeg dependency pack is missing. Attach MAVI-Offline-Binary-Kit or stage vendor\ffmpeg before Development setup."
+    }
     $machineConfig = [ordered]@{
         ConnectionStrings = [ordered]@{ Mavi = $connectionString }
         MediaStorage = [ordered]@{
@@ -232,7 +251,7 @@ try {
     }
     if ($Profile -eq "Development") {
         $machineConfig["MediaProcessing"] = [ordered]@{
-            AllowPathFallbackInDevelopment = -not $hasDevelopmentFfmpegPack
+            AllowPathFallbackInDevelopment = $false
         }
     }
     Write-MaviJson -Value $machineConfig -Path $machineConfigPath -Depth 8
@@ -259,18 +278,17 @@ try {
         if ($RepositoryRoot) {
             $bundleFfmpeg = $developmentFfmpegPack
             $repoFfmpeg = Join-Path $RepositoryRoot "vendor\ffmpeg"
-            if ($hasDevelopmentFfmpegPack) {
-                [void](Test-MaviManifest -Root $bundleFfmpeg -ManifestPath (Join-Path $bundleFfmpeg "manifest.json"))
-                New-Item -ItemType Directory -Path $repoFfmpeg -Force | Out-Null
-                Invoke-MaviCommand -FilePath "robocopy.exe" -Arguments @($bundleFfmpeg, $repoFfmpeg, "/MIR", "/COPY:DAT", "/DCOPY:DAT", "/R:2", "/W:1", "/NFL", "/NDL", "/NP") -AllowedExitCodes @(0,1,2,3,4,5,6,7)
-                Write-MaviSetupStatus -Name "FFmpeg / ffprobe" -Status "OK" -Detail "staged app-local dependency pack"
-            }
-            else {
-                Write-MaviSetupStatus -Name "FFmpeg / ffprobe" -Status "WARN" -Detail "bundle pack absent; repository Development fallback may use PATH"
-            }
+            [void](Test-MaviManifest -Root $bundleFfmpeg -ManifestPath (Join-Path $bundleFfmpeg "manifest.json"))
+            New-Item -ItemType Directory -Path $repoFfmpeg -Force | Out-Null
+            Invoke-MaviCommand -FilePath "robocopy.exe" -Arguments @($bundleFfmpeg, $repoFfmpeg, "/MIR", "/COPY:DAT", "/DCOPY:DAT", "/R:2", "/W:1", "/NFL", "/NDL", "/NP") -AllowedExitCodes @(0,1,2,3,4,5,6,7)
+            Write-MaviSetupStatus -Name "FFmpeg / ffprobe" -Status "OK" -Detail "verified and staged app-local dependency pack"
         }
 
         $developerCacheRoot = Join-Path $BundleRoot "prerequisites\developer\win-x64"
+        if (-not (Test-Path -LiteralPath (Join-Path $developerCacheRoot "nuget-packages") -PathType Container) -and
+            (Test-Path -LiteralPath $binaryKitManifestPath -PathType Leaf)) {
+            $developerCacheRoot = Join-Path $BundleRoot "vendor\developer-cache\win-x64"
+        }
         if (-not (Test-Path -LiteralPath (Join-Path $developerCacheRoot "nuget-packages") -PathType Container) -and $RepositoryRoot) {
             $developerCacheRoot = Join-Path $RepositoryRoot "vendor\developer-cache\win-x64"
         }
