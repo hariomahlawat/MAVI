@@ -767,6 +767,8 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and application_manifest_sha256 is not None
         and args.fresh_install is not None
         and args.offline_update is not None
+        and args.pre_update_state_check is not None
+        and args.post_update_state_check is not None
         and args.backup_restore is not None
         and args.formal_scenario is not None
         and args.production_e2e is not None
