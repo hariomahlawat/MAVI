@@ -73,12 +73,6 @@ MAVI-Offline-Setup/
           bin/
           lib/
           share/
-    ffmpeg/
-      manifest.json
-      win-x64/
-        ffmpeg.exe
-        ffprobe.exe
-        LICENSE.txt
     hosting/
       win-x64/
         dotnet-hosting.exe
@@ -146,7 +140,7 @@ Provide approved offline installers for the .NET Hosting Bundle, .NET 10 SDK, No
 powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviOfflineSetupBundle.ps1 -Destination "D:\Release\MAVI-Offline-Setup" -ApplicationArtifact "<PUBLISHED_ROOT>"
 ~~~
 
-The builder uses the canonical vendor paths by default, verifies the PostgreSQL and FFmpeg manifests, confirms all installers/caches are present, and then hashes the complete final media. Override paths only for an exceptional controlled build.
+The builder uses the canonical vendor paths by default, verifies the PostgreSQL manifest and the FFmpeg pack already embedded in the application artifact, confirms all installers/caches are present, and then hashes the complete final media. Override paths only for an exceptional controlled build.
 
 
 ## Where the binaries live
@@ -165,9 +159,11 @@ Double-click:
 Setup-MAVI-Development.cmd
 ~~~
 
-Setup automatically verifies the offline media; installs the pinned .NET/Node/Python prerequisites only if they are missing; deploys the isolated MAVI PostgreSQL 18 runtime; initializes MAVI-Dev-PostgreSQL-18 on port 55433; creates mavi_dev and mavi_test; enables pgvector; creates media/evidence roots; writes machine-owned Development configuration under ProgramData; configures MAVI_TEST_DB_CONNECTION for the PC; restores the repository from the bundled offline NuGet/npm/Python caches when the source tree is attached; and stages the approved FFmpeg pack into vendor/ffmpeg when the repository path is available.
+Setup automatically verifies the offline media; installs the pinned .NET/Node/Python prerequisites only if they are missing; deploys the isolated MAVI PostgreSQL 18 runtime; initializes MAVI-Dev-PostgreSQL-18 on port 55433; creates mavi_dev and mavi_test; enables pgvector; creates media/evidence roots; writes machine-owned Development configuration under ProgramData; configures MAVI_TEST_DB_CONNECTION for the PC; restores the repository from the bundled offline NuGet/npm/Python caches when the source tree is attached; and reuses the same verified FFmpeg pack embedded in the application artifact.
 
 Restart Visual Studio once after first setup so it inherits the new user environment variable. No pgAdmin configuration is required.
+
+For a repository-based Development workstation, approved payloads may instead be staged under the canonical `vendor/...` paths and the developer can simply double-click `Setup-MAVI-Development.cmd` at the repository root. The script auto-discovers those paths; no port, database or FFmpeg configuration is required.
 
 ## Production workstation
 
