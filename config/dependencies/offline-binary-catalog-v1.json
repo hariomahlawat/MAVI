@@ -194,6 +194,17 @@
       "pillow": "11.3.0"
     },
     "storagePolicy": "Qualified platform/model bundles are retained outside ordinary Git and remain separately manifest/hash qualified; the Windows application binary kit does not silently substitute for vision qualification.",
-    "dependencyPolicyId": "vision-model-runtime-bundles"
+    "dependencyPolicyId": "vision-model-runtime-bundles",
+    "windowsCpuBundle": {
+      "releaseStatus": "qualification-candidate-until-all-mandatory-gates-pass",
+      "platformVariant": "windows-x86_64-cpu",
+      "pythonInstaller": {
+        "version": "3.12.10",
+        "fileName": "python-3.12.10-amd64.exe",
+        "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe",
+        "verification": "valid Authenticode signature at connected bundle build plus bundle-manifest SHA-256 on target"
+      },
+      "packaging": "Task 12 bundle carries exact runtime wheels, model checkpoint/config, release metadata, runtime lock and the signed CPython installer; target installation is no-index/require-hashes and source-commit bound."
+    }
   }
 }
