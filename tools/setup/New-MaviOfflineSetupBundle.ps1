@@ -3,29 +3,22 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Destination,
 
-    [Parameter(Mandatory = $true)]
-    [string]$PostgreSqlRuntimePack,
+    [string]$PostgreSqlRuntimePack = (Join-Path $PSScriptRoot "..\..\vendor\postgresql\pg18\win-x64"),
 
-    [Parameter(Mandatory = $true)]
-    [string]$FfmpegPack,
+    [string]$FfmpegPack = (Join-Path $PSScriptRoot "..\..\vendor\ffmpeg"),
 
     [Parameter(Mandatory = $true)]
     [string]$ApplicationArtifact,
 
-    [Parameter(Mandatory = $true)]
-    [string]$HostingBundle,
+    [string]$HostingBundle = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\dotnet-hosting.exe"),
 
-    [Parameter(Mandatory = $true)]
-    [string]$DotNetSdkInstaller,
+    [string]$DotNetSdkInstaller = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\dotnet-sdk.exe"),
 
-    [Parameter(Mandatory = $true)]
-    [string]$NodeInstaller,
+    [string]$NodeInstaller = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\node.msi"),
 
-    [Parameter(Mandatory = $true)]
-    [string]$PythonInstaller,
+    [string]$PythonInstaller = (Join-Path $PSScriptRoot "..\..\vendor\installers\win-x64\python.exe"),
 
-    [Parameter(Mandatory = $true)]
-    [string]$DeveloperDependencyCache
+    [string]$DeveloperDependencyCache = (Join-Path $PSScriptRoot "..\..\vendor\developer-cache\win-x64")
 )
 
 $ErrorActionPreference = "Stop"
