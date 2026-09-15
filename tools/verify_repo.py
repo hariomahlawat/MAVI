@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -21,6 +22,10 @@ REQUIRED_PATHS = [
     "MAVI.sln",
     "AGENTS.md",
     "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "Setup-MAVI-Development.cmd",
+    "config/dependencies/offline-dependency-policy-v1.json",
+    "docs/architecture/dependency-and-offline-packaging-policy.md",
     "src/platform/Mavi.Domain/Mavi.Domain.csproj",
     "src/platform/Mavi.Contracts/Mavi.Contracts.csproj",
     "src/platform/Mavi.Application/Mavi.Application.csproj",
@@ -152,6 +157,228 @@ def check_project_references(errors: list[str]) -> None:
                 f"{project} references {sorted(actual)}; expected {sorted(expected)}",
                 errors,
             )
+
+
+def check_dependency_policy(errors: list[str]) -> None:
+    """Keep direct dependency changes coupled to the offline deployment policy."""
+
+    policy_path = ROOT / "config/dependencies/offline-dependency-policy-v1.json"
+    try:
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"Offline dependency policy is invalid JSON: {exc}", errors)
+        return
+
+    if policy.get("schemaVersion") != "mavi-offline-dependency-policy-v1":
+        fail("Offline dependency policy schemaVersion is invalid.", errors)
+        return
+
+    managed = policy.get("managedSources")
+    if not isinstance(managed, dict):
+        fail("Offline dependency policy has no managedSources object.", errors)
+        return
+
+    tracked = tracked_files()
+
+    # .NET: every tracked project with a PackageReference must be represented.
+    actual_dotnet: dict[str, dict[str, str]] = {}
+    for project in tracked:
+        if project.suffix.lower() != ".csproj":
+            continue
+        relative = project.relative_to(ROOT).as_posix()
+        if not (relative.startswith("src/") or relative.startswith("tests/")):
+            continue
+        try:
+            tree = ET.parse(project)
+        except ET.ParseError as exc:
+            fail(f"Cannot parse project dependency surface {relative}: {exc}", errors)
+            continue
+
+        packages: dict[str, str] = {}
+        for reference in tree.findall(".//PackageReference"):
+            name = reference.attrib.get("Include")
+            version = reference.attrib.get("Version")
+            if version is None:
+                version_element = reference.find("Version")
+                version = version_element.text if version_element is not None else None
+            if name and version:
+                packages[name] = version.strip()
+            elif name:
+                fail(
+                    f"PackageReference {name} in {relative} must declare an explicit version.",
+                    errors,
+                )
+        if packages:
+            actual_dotnet[relative] = dict(sorted(packages.items()))
+
+    expected_dotnet_raw = managed.get("dotnet")
+    if not isinstance(expected_dotnet_raw, dict):
+        fail("Offline dependency policy dotnet surface is missing.", errors)
+    else:
+        expected_dotnet = {
+            path: dict(sorted(packages.items()))
+            for path, packages in expected_dotnet_raw.items()
+            if isinstance(packages, dict)
+        }
+        if actual_dotnet != expected_dotnet:
+            fail(
+                "Direct .NET dependencies changed without a matching update to "
+                "config/dependencies/offline-dependency-policy-v1.json.",
+                errors,
+            )
+
+    # npm: every tracked source package.json is policy-controlled.
+    actual_npm: dict[str, dict[str, dict[str, str]]] = {}
+    for package_json in tracked:
+        relative = package_json.relative_to(ROOT).as_posix()
+        if package_json.name != "package.json" or not relative.startswith("src/"):
+            continue
+        try:
+            payload = json.loads(package_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            fail(f"Cannot parse npm dependency surface {relative}: {exc}", errors)
+            continue
+        actual_npm[relative] = {
+            "dependencies": dict(sorted((payload.get("dependencies") or {}).items())),
+            "devDependencies": dict(sorted((payload.get("devDependencies") or {}).items())),
+        }
+
+    expected_npm_raw = managed.get("npm")
+    if not isinstance(expected_npm_raw, dict):
+        fail("Offline dependency policy npm surface is missing.", errors)
+    else:
+        expected_npm = {
+            path: {
+                "dependencies": dict(sorted((values.get("dependencies") or {}).items())),
+                "devDependencies": dict(sorted((values.get("devDependencies") or {}).items())),
+            }
+            for path, values in expected_npm_raw.items()
+            if isinstance(values, dict)
+        }
+        if actual_npm != expected_npm:
+            fail(
+                "Direct npm dependencies changed without a matching update to "
+                "config/dependencies/offline-dependency-policy-v1.json.",
+                errors,
+            )
+
+    # Python: every tracked src pyproject plus repository verification requirements.
+    actual_python: dict[str, dict[str, object]] = {}
+    for pyproject in tracked:
+        relative = pyproject.relative_to(ROOT).as_posix()
+        if pyproject.name != "pyproject.toml" or not relative.startswith("src/"):
+            continue
+        try:
+            payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            fail(f"Cannot parse Python dependency surface {relative}: {exc}", errors)
+            continue
+        project = payload.get("project") or {}
+        optional = project.get("optional-dependencies") or {}
+        build_system = payload.get("build-system") or {}
+        actual_python[relative] = {
+            "projectDependencies": sorted(project.get("dependencies") or []),
+            "optionalDependencies": {
+                key: sorted(value)
+                for key, value in sorted(optional.items())
+            },
+            "buildSystemRequires": sorted(build_system.get("requires") or []),
+        }
+
+    requirements_path = ROOT / "tools/requirements.txt"
+    if requirements_path.exists():
+        requirements = [
+            line.strip()
+            for line in requirements_path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        actual_python["tools/requirements.txt"] = {
+            "requirements": sorted(requirements),
+        }
+
+    expected_python_raw = managed.get("python")
+    if not isinstance(expected_python_raw, dict):
+        fail("Offline dependency policy Python surface is missing.", errors)
+    else:
+        expected_python: dict[str, dict[str, object]] = {}
+        for source_path, values in expected_python_raw.items():
+            if not isinstance(values, dict):
+                continue
+            if source_path.endswith("pyproject.toml"):
+                optional = values.get("optionalDependencies") or {}
+                expected_python[source_path] = {
+                    "projectDependencies": sorted(values.get("projectDependencies") or []),
+                    "optionalDependencies": {
+                        key: sorted(value)
+                        for key, value in sorted(optional.items())
+                    },
+                    "buildSystemRequires": sorted(values.get("buildSystemRequires") or []),
+                }
+            else:
+                expected_python[source_path] = {
+                    "requirements": sorted(values.get("requirements") or []),
+                }
+        if actual_python != expected_python:
+            fail(
+                "Direct Python dependencies changed without a matching update to "
+                "config/dependencies/offline-dependency-policy-v1.json.",
+                errors,
+            )
+
+    strategies = policy.get("ecosystemStrategies")
+    if not isinstance(strategies, dict) or set(strategies) != {"dotnet", "npm", "python"}:
+        fail("Offline dependency policy ecosystemStrategies must cover dotnet, npm and python.", errors)
+    else:
+        for ecosystem, values in strategies.items():
+            if not isinstance(values, dict) or any(
+                not isinstance(values.get(field), str) or not values.get(field)
+                for field in ("developmentOffline", "productionOffline", "changeRule")
+            ):
+                fail(
+                    f"Offline dependency strategy is incomplete for {ecosystem}.",
+                    errors,
+                )
+
+    native = policy.get("nativeAndToolchain")
+    required_native_fields = {
+        "id",
+        "scope",
+        "stagingPath",
+        "packagedAs",
+        "setupIntegration",
+        "verification",
+        "licenceHandling",
+    }
+    if not isinstance(native, list) or not native:
+        fail("Offline dependency policy must declare native/toolchain dependencies.", errors)
+    else:
+        seen_ids: set[str] = set()
+        for entry in native:
+            if not isinstance(entry, dict) or not required_native_fields.issubset(entry):
+                fail("Offline native/toolchain dependency entry is incomplete.", errors)
+                continue
+            dependency_id = entry.get("id")
+            if not isinstance(dependency_id, str) or not dependency_id or dependency_id in seen_ids:
+                fail("Offline native/toolchain dependency IDs must be unique and non-empty.", errors)
+                continue
+            seen_ids.add(dependency_id)
+            for field in required_native_fields - {"id", "scope"}:
+                if not isinstance(entry.get(field), str) or not entry.get(field):
+                    fail(
+                        f"Offline native/toolchain dependency {dependency_id} has empty {field}.",
+                        errors,
+                    )
+            if not isinstance(entry.get("scope"), list) or not entry["scope"]:
+                fail(
+                    f"Offline native/toolchain dependency {dependency_id} has no scope.",
+                    errors,
+                )
+
+    review = policy.get("requiredChangeReview")
+    if not isinstance(review, list) or len(review) < 8 or any(
+        not isinstance(item, str) or not item.strip() for item in review
+    ):
+        fail("Offline dependency policy requiredChangeReview is incomplete.", errors)
 
 
 def check_contracts(errors: list[str]) -> None:
@@ -788,6 +1015,7 @@ def main() -> int:
     errors: list[str] = []
     check_required_paths(errors)
     check_project_references(errors)
+    check_dependency_policy(errors)
     check_contracts(errors)
     check_phase1_acceptance_assets(errors)
     check_production_urls(errors)
@@ -803,6 +1031,7 @@ def main() -> int:
     print("MAVI repository verification PASSED")
     print(f" - required paths: {len(REQUIRED_PATHS)}")
     print(f" - project boundaries: {len(ALLOWED_REFERENCES)}")
+    print(" - direct dependency/offline packaging policy: synchronized")
     print(" - contract examples: 7")
     print(" - Task-17 acceptance schemas/configuration: validated")
     print(" - production Internet URL scan: clean")
