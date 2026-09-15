@@ -89,8 +89,8 @@ if ($Profile -eq "Development") {
             $evidenceRoot = Join-Path $programDataRoot "Evidence"
         }
     }
-    $machineConfigPath = Join-Path $env:LOCALAPPDATA "MAVI\config\appsettings.development.machine.json"
-    $setupRoot = Join-Path $env:LOCALAPPDATA "MAVI\setup"
+    $machineConfigPath = Join-Path $programDataRoot "config\appsettings.development.machine.json"
+    $setupRoot = Join-Path $programDataRoot "setup"
 }
 else {
     $programRoot = [string]$profileDefaults.installRoot
@@ -245,7 +245,7 @@ try {
         [Environment]::SetEnvironmentVariable(
             "MAVI_TEST_DB_CONNECTION",
             "Host=127.0.0.1;Port=$port;Database=$testDatabaseName;Username=$databaseUser;Password=$databasePassword",
-            [System.EnvironmentVariableTarget]::User)
+            [System.EnvironmentVariableTarget]::Machine)
         $env:MAVI_TEST_DB_CONNECTION = "Host=127.0.0.1;Port=$port;Database=$testDatabaseName;Username=$databaseUser;Password=$databasePassword"
 
         if ($RepositoryRoot) {
@@ -281,7 +281,7 @@ try {
         }
 
         Write-MaviSetupStatus -Name "Machine config" -Status "OK" -Detail $machineConfigPath
-        Write-MaviSetupStatus -Name "Test connection" -Status "OK" -Detail "MAVI_TEST_DB_CONNECTION configured for current user"
+        Write-MaviSetupStatus -Name "Test connection" -Status "OK" -Detail "MAVI_TEST_DB_CONNECTION configured for this PC"
         Write-Host ""
         Write-Host "Development environment ready. Restart Visual Studio once, then build/run MAVI."
     }
