@@ -37,12 +37,8 @@ public static class NativeMediaToolStartup
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger("Mavi.NativeMediaTools");
 
-        var ffprobe = MediaToolPathResolver.ResolveFfprobePath(
-            options,
-            app.Environment);
-        var ffmpeg = MediaToolPathResolver.ResolveFfmpegPath(
-            options,
-            app.Environment);
+        var ffprobe = MediaToolPathResolver.ResolveFfprobePath(options);
+        var ffmpeg = MediaToolPathResolver.ResolveFfmpegPath(options);
 
         var bundledFfprobe = MediaToolPathResolver.BundledExecutablePath(
             options,
