@@ -175,6 +175,21 @@ try {
     foreach ($cache in @("nuget-packages", "npm-cache", "python-wheelhouse")) {
         [IO.File]::WriteAllText((Join-Path $kitCacheRoot "$cache\fixture.bin"), "cache-$cache", [Text.UTF8Encoding]::new($false))
     }
+    $developerCacheManifest = [ordered]@{
+        schemaVersion = "mavi-developer-offline-cache-v1"
+        sourceInputs = [ordered]@{
+            offlineDependencyPolicySha256 = (Get-MaviSha256 -Path (Join-Path $repoRoot "config\dependencies\offline-dependency-policy-v1.json"))
+            globalJsonSha256 = (Get-MaviSha256 -Path (Join-Path $repoRoot "global.json"))
+            packageLockSha256 = (Get-MaviSha256 -Path (Join-Path $repoRoot "src\web\mavi-web\package-lock.json"))
+            visionPyprojectSha256 = (Get-MaviSha256 -Path (Join-Path $repoRoot "src\vision\pyproject.toml"))
+            toolsRequirementsSha256 = (Get-MaviSha256 -Path (Join-Path $repoRoot "tools\requirements.txt"))
+        }
+        nugetPackages = @()
+        npmPackages = @()
+        pythonArtifacts = @()
+    }
+    $developerCacheManifestPath = Join-Path $kitCacheRoot "developer-cache-manifest.json"
+    Write-MaviJson -Value $developerCacheManifest -Path $developerCacheManifestPath -Depth 6
     [IO.File]::WriteAllText((Join-Path $kitRoot "README-FIRST.txt"), "binary-kit-fixture", [Text.UTF8Encoding]::new($false))
 
     $kitFiles = @(
@@ -209,6 +224,7 @@ try {
             dotnetSdkBaseline = "10.0.100"
             nodeBaseline = "22.13.0"
             pythonDevelopmentBaseline = "3.13"
+            developerCacheManifestSha256 = (Get-MaviSha256 -Path $developerCacheManifestPath)
         }
         artifacts = @($kitArtifacts)
     }
