@@ -199,7 +199,7 @@ try {
     Write-Host "========================================"
 
     if ($Profile -eq "Development") {
-        Ensure-MaviDeveloperToolchain -BundleRoot $BundleRoot
+        Ensure-MaviDeveloperToolchain -BundleRoot $BundleRoot -RepositoryRoot $RepositoryRoot
         Write-MaviSetupStatus -Name "Developer toolchain" -Status "OK" -Detail ".NET 10 / Node 22 / Python 3.13+"
     }
 
@@ -224,6 +224,12 @@ try {
 
     $connectionString = "Host=127.0.0.1;Port=$port;Database=$databaseName;Username=$databaseUser;Password=$databasePassword"
     $developmentFfmpegPack = Join-Path $BundleRoot "prerequisites\ffmpeg"
+    if (-not (Test-Path -LiteralPath (Join-Path $developmentFfmpegPack "manifest.json") -PathType Leaf) -and $RepositoryRoot) {
+        $repositoryFfmpeg = Join-Path $RepositoryRoot "vendor\ffmpeg"
+        if (Test-Path -LiteralPath (Join-Path $repositoryFfmpeg "manifest.json") -PathType Leaf) {
+            $developmentFfmpegPack = $repositoryFfmpeg
+        }
+    }
     $hasDevelopmentFfmpegPack = Test-Path -LiteralPath (Join-Path $developmentFfmpegPack "manifest.json") -PathType Leaf
     $machineConfig = [ordered]@{
         ConnectionStrings = [ordered]@{ Mavi = $connectionString }
@@ -273,6 +279,9 @@ try {
         }
 
         $developerCacheRoot = Join-Path $BundleRoot "prerequisites\developer\win-x64"
+        if (-not (Test-Path -LiteralPath (Join-Path $developerCacheRoot "nuget-packages") -PathType Container) -and $RepositoryRoot) {
+            $developerCacheRoot = Join-Path $RepositoryRoot "vendor\developer-cache\win-x64"
+        }
         $hasOfflineCaches =
             (Test-Path -LiteralPath (Join-Path $developerCacheRoot "nuget-packages") -PathType Container) -and
             (Test-Path -LiteralPath (Join-Path $developerCacheRoot "npm-cache") -PathType Container) -and
