@@ -293,7 +293,7 @@ try {
         destination = (Resolve-Path -LiteralPath $Destination).Path
         deployment = [ordered]@{
             mechanism = "robocopy-mirror"
-            tool = [IO.Path]::GetFileName($robocopyCommand.Source)
+            tool = "robocopy.exe"
             toolVersion = $robocopyVersion
             arguments = @($robocopyArgs)
             exitCode = [int]$robocopyCode
