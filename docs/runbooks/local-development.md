@@ -1,29 +1,32 @@
 # Local Development and Test Runbook
 
-This runbook aligns a Windows/Visual Studio workstation with the MAVI Quality Gate. It covers the prerequisites that are intentionally supplied by GitHub Actions but are not automatically created by Visual Studio Test Explorer.
+This runbook aligns a Windows/Visual Studio workstation with the MAVI Quality Gate.
 
-## Required local toolchain
+## Preferred setup: one click
 
-Install and verify:
+On a prepared Development repository, double-click:
 
-```powershell
-dotnet --info
-python --version
-node --version
-npm --version
-psql --version
+```text
+Setup-MAVI-Development.cmd
 ```
 
-Current repository baseline:
+Approve the Administrator prompt. Setup automatically prepares the supported .NET 10, Node.js 22.13+, Python 3.13, MAVI-owned PostgreSQL 18 + pgvector environment, `mavi_dev`/`mavi_test` databases, FFmpeg/ffprobe, machine configuration, offline dependency caches and test connection. It also validates the attached workspace when the offline caches are available.
+
+After the first setup, restart Visual Studio once and press **F5**.
+
+The canonical MAVI services are deliberately fixed: Development PostgreSQL runs as `MAVI-Dev-PostgreSQL-18` on `127.0.0.1:55433`. Developers should not edit ports, PATH, connection strings or pgvector installation manually.
+
+Use `tools/setup/Test-MaviEnvironment.ps1 -Profile Development` when you only want to check readiness without changing the machine.
+
+## Supported Development baseline
 
 - .NET 10 SDK
-- Python 3.13+
-- Node.js 22+
-- PostgreSQL 18
-- approved pgvector extension pack for PostgreSQL 18
-- approved FFmpeg/ffprobe dependency pack
+- Python 3.13.x
+- Node.js 22.13+
+- MAVI-owned PostgreSQL 18 on port 55433
+- pgvector embedded in the approved PostgreSQL runtime pack
+- app-local FFmpeg/ffprobe
 
-FFmpeg/ffprobe are application dependencies, not workstation prerequisites for a qualified release. Production artifacts must carry the vetted binaries under `tools/ffmpeg/`. Development may temporarily use PATH fallback when the bundle has not yet been staged, but that fallback is explicitly non-qualifying.
 
 ## Run MAVI locally from Visual Studio
 
@@ -41,15 +44,7 @@ This behavior is local-development only. Published MAVI builds continue to serve
 
 ### First local launch
 
-Install the frontend dependencies once:
-
-```powershell
-cd src/web/mavi-web
-npm ci
-cd ../../..
-```
-
-Then start **Mavi.Api** from Visual Studio. A successful F5 launch should open the React UI rather than the API root.
+After `Setup-MAVI-Development.cmd` completes, start **Mavi.Api** from Visual Studio. The setup process restores the supported offline dependencies when the cache is present, so no separate npm/pgvector/FFmpeg preparation should be necessary. A successful F5 launch should open the React UI rather than the API root.
 
 The local API proxy target defaults to:
 
@@ -80,52 +75,11 @@ dotnet dev-certs https --trust
 
 Restart Visual Studio afterward.
 
-## Offline native dependency preparation
+## Advanced release preparation
 
-### FFmpeg / ffprobe
+Developers normally do **not** run native-dependency installers manually. The release/preparation machine stages approved FFmpeg, PostgreSQL 18 + pgvector, SDK installers and offline dependency caches into the canonical `vendor/...` locations, then `New-MaviOfflineSetupBundle.ps1` produces the single disconnected setup bundle.
 
-Prepare the application-local dependency pack from a vetted Windows x64 FFmpeg distribution:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/native/stage_ffmpeg_windows.ps1 `
-  -SourceDirectory "C:\Path\To\ApprovedFFmpeg\bin" `
-  -Version "<APPROVED_VERSION>"
-```
-
-The script copies `ffmpeg.exe`, `ffprobe.exe` and the licence/notices into `vendor/ffmpeg/win-x64` and writes SHA-256 values into `vendor/ffmpeg/manifest.json`.
-
-A production publish must require the bundle:
-
-```powershell
-dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:RequireMaviBundledMediaTools=true
-```
-
-At runtime MAVI verifies the manifest, SHA-256 values and executable version checks before serving requests. Production does not search PATH or download FFmpeg.
-
-### PostgreSQL / pgvector
-
-pgvector modifies the PostgreSQL server installation and is therefore handled by the one-time offline bootstrapper, not by normal application startup.
-
-Create an approved prerequisite pack from a known-good PostgreSQL 18 + pgvector installation:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/native/stage_pgvector_windows.ps1 `
-  -PostgreSqlRoot "C:\Program Files\PostgreSQL\18" `
-  -PgVectorVersion "<APPROVED_VERSION>"
-```
-
-Install that pack on the target machine from an elevated PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/native/install_pgvector_windows.ps1 `
-  -PackageRoot "X:\OfflineMedia\pgvector\pg18\win-x64" `
-  -ExpectedManifestSha256 "<APPROVED_MANIFEST_SHA256>" `
-  -PostgreSqlRoot "C:\Program Files\PostgreSQL\18"
-```
-
-The staging command prints the pgvector manifest SHA-256. Carry that approved hash separately with the release evidence and supply it to the installer; the bootstrapper refuses a pack whose manifest identity does not match.
-
-Normal MAVI startup then verifies PostgreSQL major version 18, confirms pgvector is available, enables `vector` in the selected database if required, and only then runs EF migrations.
+See `docs/runbooks/mavi-offline-setup.md` for that build-side workflow.
 
 ## Automatic database migrations
 
