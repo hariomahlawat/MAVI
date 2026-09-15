@@ -322,6 +322,12 @@ def validate_production_acceptance_record(
     pre_update_state_check: Path,
     post_update_state_check: Path,
     backup_restore: Path,
+    backup_execution: Path,
+    post_restore_check: Path,
+    backup_set_manifest: Path,
+    backup_database_manifest: Path,
+    backup_managed_source_manifest: Path,
+    backup_accepted_evidence_manifest: Path,
     production_variants: dict[str, Path],
     formal_scenario: Path,
     production_e2e: Path,
@@ -357,6 +363,12 @@ def validate_production_acceptance_record(
         or value.get("preUpdateStateCheckSha256") != sha256_file(pre_update_state_check)
         or value.get("postUpdateStateCheckSha256") != sha256_file(post_update_state_check)
         or value.get("backupRestoreEvidenceSha256") != sha256_file(backup_restore)
+        or value.get("backupExecutionEvidenceSha256") != sha256_file(backup_execution)
+        or value.get("postRestoreCheckSha256") != sha256_file(post_restore_check)
+        or value.get("backupSetManifestSha256") != sha256_file(backup_set_manifest)
+        or value.get("backupDatabaseManifestSha256") != sha256_file(backup_database_manifest)
+        or value.get("backupManagedSourceManifestSha256") != sha256_file(backup_managed_source_manifest)
+        or value.get("backupAcceptedEvidenceManifestSha256") != sha256_file(backup_accepted_evidence_manifest)
         or value.get("productionVariantEvidenceSha256") != expected_variant_evidence
         or value.get("productionBundleManifestSha256") != variant_bundle_hashes
         or value.get("productionReleaseLockSha256") != variant_lock_hashes
@@ -451,6 +463,12 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         "pre-update-state-check": args.pre_update_state_check,
         "post-update-state-check": args.post_update_state_check,
         "backup-restore": args.backup_restore,
+        "backup-execution": args.backup_execution,
+        "post-restore-check": args.post_restore_check,
+        "backup-set-manifest": args.backup_set_manifest,
+        "backup-database-manifest": args.backup_database_manifest,
+        "backup-managed-source-manifest": args.backup_managed_source_manifest,
+        "backup-accepted-evidence-manifest": args.backup_accepted_evidence_manifest,
         "windows-offline-install": args.windows_offline,
         "linux-offline-install": args.linux_offline,
         "cctv-quality-baseline": args.quality,
@@ -833,6 +851,12 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
 
     if (
         args.backup_restore is not None
+        and args.backup_execution is not None
+        and args.post_restore_check is not None
+        and args.backup_set_manifest is not None
+        and args.backup_database_manifest is not None
+        and args.backup_managed_source_manifest is not None
+        and args.backup_accepted_evidence_manifest is not None
         and final_e2e_sha is not None
         and expected_mavi_build is not None
     ):
@@ -842,7 +866,19 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             mavi_build=expected_mavi_build,
             acceptance_profile_sha256=acceptance_profile_sha256,
             formal_e2e_sha256=final_e2e_sha,
+            execution_evidence=args.backup_execution,
+            post_restore_check=args.post_restore_check,
+            backup_set_manifest=args.backup_set_manifest,
+            database_manifest=args.backup_database_manifest,
+            managed_source_manifest=args.backup_managed_source_manifest,
+            accepted_evidence_manifest=args.backup_accepted_evidence_manifest,
         )
+        evidence_hashes["backup-execution"] = sha256_file(args.backup_execution)
+        evidence_hashes["post-restore-check"] = sha256_file(args.post_restore_check)
+        evidence_hashes["backup-set-manifest"] = sha256_file(args.backup_set_manifest)
+        evidence_hashes["backup-database-manifest"] = sha256_file(args.backup_database_manifest)
+        evidence_hashes["backup-managed-source-manifest"] = sha256_file(args.backup_managed_source_manifest)
+        evidence_hashes["backup-accepted-evidence-manifest"] = sha256_file(args.backup_accepted_evidence_manifest)
 
     if (
         prerequisite_sha is not None
@@ -870,6 +906,10 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             != topology.get("windowsOperationalPlane")
             or update_value.get("operationalApi", {}).get("hostIdentitySha256")
             != topology.get("windowsOperationalPlane")
+            or backup_value.get("liveStorageTopology", {}).get("operationalHostIdentitySha256")
+            != topology.get("windowsOperationalPlane")
+            or backup_value.get("restoreStorageTopology", {}).get("operationalHostIdentitySha256")
+            != topology.get("windowsOperationalPlane")
         ):
             raise ClosureError("production_windows_topology_mismatch")
         if backup_value.get("sourceDatabaseIdentity") != topology.get("database"):
@@ -892,6 +932,12 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and args.pre_update_state_check is not None
         and args.post_update_state_check is not None
         and args.backup_restore is not None
+        and args.backup_execution is not None
+        and args.post_restore_check is not None
+        and args.backup_set_manifest is not None
+        and args.backup_database_manifest is not None
+        and args.backup_managed_source_manifest is not None
+        and args.backup_accepted_evidence_manifest is not None
         and args.formal_scenario is not None
         and args.production_e2e is not None
         and args.empty_scene_scenario is not None
@@ -928,6 +974,12 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             pre_update_state_check=args.pre_update_state_check,
             post_update_state_check=args.post_update_state_check,
             backup_restore=args.backup_restore,
+            backup_execution=args.backup_execution,
+            post_restore_check=args.post_restore_check,
+            backup_set_manifest=args.backup_set_manifest,
+            backup_database_manifest=args.backup_database_manifest,
+            backup_managed_source_manifest=args.backup_managed_source_manifest,
+            backup_accepted_evidence_manifest=args.backup_accepted_evidence_manifest,
             production_variants=typed_variants,
             formal_scenario=args.formal_scenario,
             production_e2e=args.production_e2e,
@@ -1013,6 +1065,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pre-update-state-check", type=Path)
     parser.add_argument("--post-update-state-check", type=Path)
     parser.add_argument("--backup-restore", type=Path)
+    parser.add_argument("--backup-execution", type=Path)
+    parser.add_argument("--post-restore-check", type=Path)
+    parser.add_argument("--backup-set-manifest", type=Path)
+    parser.add_argument("--backup-database-manifest", type=Path)
+    parser.add_argument("--backup-managed-source-manifest", type=Path)
+    parser.add_argument("--backup-accepted-evidence-manifest", type=Path)
     parser.add_argument("--windows-offline", type=Path)
     parser.add_argument("--linux-offline", type=Path)
     parser.add_argument("--quality", type=Path)
