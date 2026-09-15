@@ -59,6 +59,15 @@ foreach ($cacheDirectory in @("nuget-packages", "npm-cache", "python-wheelhouse"
     }
 }
 
+$developerCacheManifestPath = Join-Path $developerDependencyCache "developer-cache-manifest.json"
+if (-not (Test-Path -LiteralPath $developerCacheManifestPath -PathType Leaf)) {
+    throw "Developer dependency cache is missing developer-cache-manifest.json. Rebuild it with Prepare-MaviDeveloperOfflineCache.ps1."
+}
+$developerCacheManifest = Read-MaviJson -Path $developerCacheManifestPath
+if ([string]$developerCacheManifest.schemaVersion -ne "mavi-developer-offline-cache-v1") {
+    throw "Developer dependency cache manifest schema is unsupported."
+}
+
 function Copy-MaviTree {
     param(
         [Parameter(Mandatory = $true)][string]$Source,
@@ -167,6 +176,7 @@ $manifest = [ordered]@{
         dotnetSdkBaseline = Get-CatalogBaseline -Id "dotnet-sdk-win-x64"
         nodeBaseline = Get-CatalogBaseline -Id "node-win-x64"
         pythonDevelopmentBaseline = Get-CatalogBaseline -Id "python-development-win-x64"
+        developerCacheManifestSha256 = Get-MaviSha256 -Path $developerCacheManifestPath
     }
     payload = [ordered]@{
         postgresqlRuntime = "vendor/postgresql/pg18/win-x64"
