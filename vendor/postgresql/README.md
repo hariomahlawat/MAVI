@@ -17,3 +17,5 @@ vendor/postgresql/pg18/win-x64/
 ~~~
 
 The manifest records the exact PostgreSQL version, pgvector version, file sizes and SHA-256 values. The canonical offline setup bundle copies this isolated runtime onto the target machine and registers a MAVI-owned PostgreSQL service, avoiding dependence on arbitrary machine-wide PostgreSQL installations.
+
+Any future database/native prerequisite added to this runtime pack must follow `docs/architecture/dependency-and-offline-packaging-policy.md`, including licence retention, manifest identity and Setup/readiness integration.
