@@ -81,6 +81,12 @@ Developers normally do **not** run native-dependency installers manually. The re
 
 See `docs/runbooks/mavi-offline-setup.md` for that build-side workflow.
 
+## Adding or changing a dependency
+
+Do not stop at updating a package file. Follow `docs/architecture/dependency-and-offline-packaging-policy.md` and update `config/dependencies/offline-dependency-policy-v1.json` in the same feature.
+
+For ordinary managed dependencies, the existing cache builders are intentionally generic: NuGet restores the solution closure, npm uses `package-lock.json`, and the Python Development wheelhouse is rebuilt from `pyproject.toml`. If a feature introduces a new optional/native/model/runtime dependency that is outside those closures, extend the cache/runtime-pack/Setup path and its verification before considering the feature complete.
+
 ## Automatic database migrations
 
 MAVI applies pending EF Core migrations automatically during application startup in both Development and Production.
