@@ -1,6 +1,7 @@
 using System.Reflection;
 using Mavi.Api.Endpoints;
 using Mavi.Api.Middleware;
+using Mavi.Api.Startup;
 using Mavi.Application.Health;
 using Mavi.Application;
 using Mavi.Application.Modules.Media;
@@ -11,6 +12,7 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddMaviInfrastructure(builder.Configuration);
+builder.Services.AddDatabaseMigrationStartup(builder.Configuration);
 builder.Services.AddHealthChecks();
 // Canonical API JSON policy: property names are case-sensitive and numeric properties must be JSON numbers.
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -29,6 +31,7 @@ builder.Services.Configure<FormOptions>(options =>
 });
 
 var app = builder.Build();
+await app.ApplyDatabaseMigrationsAsync();
 app.UseVisionCompletionRequestLimits();
 app.UseDefaultFiles();
 app.UseStaticFiles();
