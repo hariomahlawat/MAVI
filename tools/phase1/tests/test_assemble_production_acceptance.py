@@ -457,3 +457,36 @@ def test_log_inspection_rejects_checkpoint_after_scenario(tmp_path: Path, monkey
             empty_scenario=empty,
             failure_evidence=failure,
         )
+
+
+def test_backup_rejects_restore_topology_database_mismatch(tmp_path: Path, monkeypatch):
+    value = {
+        "sourceCommit": "a" * 40,
+        "acceptanceProfileSha256": "c" * 64,
+        "acceptanceEvidenceSha256": "9" * 64,
+        "cleanRestoreTarget": True,
+        "sourceDatabaseIdentity": "source|127.0.0.1|5432",
+        "restoreDatabaseIdentity": "restore|127.0.0.1|5433",
+        "liveStorageTopology": {
+            "maviCommit": "a" * 40,
+            "maviBuild": "build-a",
+            "databaseIdentity": "source|127.0.0.1|5432",
+        },
+        "restoreStorageTopology": {
+            "maviCommit": "a" * 40,
+            "maviBuild": "build-a",
+            "databaseIdentity": "source|127.0.0.1|5432",
+        },
+        "result": {"passed": True, "failureCodes": []},
+    }
+    path = tmp_path / "backup.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    with pytest.raises(mod.ProductionAcceptanceError, match="production_backup_restore_binding_failed"):
+        mod.validate_backup(
+            path,
+            source_commit="a" * 40,
+            mavi_build="build-a",
+            acceptance_profile_sha256="c" * 64,
+            formal_e2e_sha256="9" * 64,
+        )
