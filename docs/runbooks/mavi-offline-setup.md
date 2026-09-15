@@ -44,11 +44,10 @@ MAVI loads this file before registering infrastructure services. Environment var
 
 ## Canonical offline media
 
-The canonical bundle has this shape:
+The normal **Production** setup bundle is deliberately smaller than the companion binary kit:
 
 ~~~text
 MAVI-Offline-Setup/
-  Setup-MAVI-Development.cmd
   Setup-MAVI-Production.cmd
   README-FIRST.txt
   mavi-offline-bundle.json
@@ -56,11 +55,18 @@ MAVI-Offline-Setup/
   setup/
     Setup-MAVI.ps1
     Test-MaviEnvironment.ps1
+    Test-MaviOfflineBinaryKit.ps1
     Mavi.Setup.Common.psm1
     Mavi.Setup.Windows.psm1
 
   config/
     mavi-setup-defaults.json
+    offline-binary-catalog-v1.json
+
+  provenance/
+    binary-kit/
+      mavi-offline-binary-kit.json
+      offline-binary-catalog-v1.json
 
   application/
     <qualified MAVI publish, including tools/ffmpeg/>
@@ -70,23 +76,19 @@ MAVI-Offline-Setup/
       pg18/
         win-x64/
           manifest.json
+          LICENSE-POSTGRESQL.txt
+          LICENSE-PGVECTOR.txt
           bin/
           lib/
           share/
     hosting/
       win-x64/
         dotnet-hosting.exe
-    developer/
-      win-x64/
-        dotnet-sdk.exe
-        node.msi
-        python.exe
-        nuget-packages/
-        npm-cache/
-        python-wheelhouse/
 ~~~
 
-mavi-offline-bundle.json contains SHA-256 and size for every payload file. Setup verifies the complete bundle before changing the target machine.
+`mavi-offline-bundle.json` contains SHA-256 and size for every payload file and, when the companion kit was used, records the source binary-kit/catalog hashes.
+
+A combined Development+Production bundle can still be generated with `-IncludeDevelopmentPayload`; only then are `Setup-MAVI-Development.cmd`, the .NET SDK, Node, Python and Development dependency caches copied into the final setup media. The preferred Development workflow is the source repository plus the separately retained binary kit.
 
 ## Preparing the release media
 
