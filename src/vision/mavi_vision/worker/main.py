@@ -164,7 +164,8 @@ async def _run_worker(
                 "MAVI vision runtime %s for worker %s: %s",
                 supervisor.state.value.upper(),
                 settings.worker_id,
-                supervisor.unavailable_reason or "no diagnostic reason reported",
+                getattr(supervisor, "unavailable_reason", None)
+                or "no diagnostic reason reported",
             )
 
         processor: VisionProcessor | None = None
