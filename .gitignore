@@ -67,3 +67,11 @@ appsettings.*.Local.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated third-party offline payloads (release inputs, not normal Git history)
+vendor/ffmpeg/manifest.json
+vendor/ffmpeg/win-x64/
+vendor/postgresql/pg18/
+vendor/pgvector/pg18/
+vendor/installers/win-x64/
+vendor/developer-cache/win-x64/
