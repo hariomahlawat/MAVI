@@ -73,8 +73,8 @@ def _backup_restore_schema(tmp_path: Path) -> Path:
         "required": [
             "sourceCommit",
             "acceptanceProfileSha256",
-            "sourceDatabaseIdentity",
-            "restoreDatabaseIdentity",
+            "sourceDatabaseIdentitySha256",
+            "restoreDatabaseIdentitySha256",
             "cleanRestoreTarget",
             "liveStorageTopology",
             "result",
@@ -90,18 +90,18 @@ def _backup_restore_value(tmp_path: Path, build: str = "build-a") -> Path:
     value = {
         "sourceCommit": "a" * 40,
         "acceptanceProfileSha256": "b" * 64,
-        "sourceDatabaseIdentity": "source|127.0.0.1|5432",
-        "restoreDatabaseIdentity": "restore|127.0.0.1|5433",
+        "sourceDatabaseIdentitySha256": "1" * 64,
+        "restoreDatabaseIdentitySha256": "2" * 64,
         "cleanRestoreTarget": True,
         "liveStorageTopology": {
             "maviBuild": build,
             "maviCommit": "a" * 40,
-            "databaseIdentity": "source|127.0.0.1|5432",
+            "databaseIdentitySha256": "1" * 64,
         },
         "restoreStorageTopology": {
             "maviBuild": build,
             "maviCommit": "a" * 40,
-            "databaseIdentity": "restore|127.0.0.1|5433",
+            "databaseIdentitySha256": "2" * 64,
         },
         "result": {"passed": True, "failureCodes": []},
     }
@@ -135,7 +135,7 @@ def test_backup_restore_validator_rejects_wrong_build(tmp_path: Path):
 def test_backup_restore_validator_rejects_restore_topology_database_mismatch(tmp_path: Path):
     path = _backup_restore_value(tmp_path)
     value = __import__("json").loads(path.read_text(encoding="utf-8"))
-    value["restoreStorageTopology"]["databaseIdentity"] = "source|127.0.0.1|5432"
+    value["restoreStorageTopology"]["databaseIdentitySha256"] = "1" * 64
     path.write_text(__import__("json").dumps(value), encoding="utf-8")
     with pytest.raises(mod.ClosureError, match="backup_restore_topology_binding_mismatch"):
         mod.validate_backup_restore(
