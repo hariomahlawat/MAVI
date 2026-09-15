@@ -35,18 +35,27 @@ public static class MachineConfigurationStartup
         if (!OperatingSystem.IsWindows())
             return null;
 
-        var root = environment.IsDevelopment()
-            ? Environment.GetFolderPath(
-                Environment.SpecialFolder.LocalApplicationData)
-            : Environment.GetFolderPath(
+        string root;
+        string fileName;
+        if (environment.IsDevelopment())
+        {
+            root = Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData);
+            fileName = "appsettings.development.machine.json";
+        }
+        else if (environment.IsProduction())
+        {
+            root = Environment.GetFolderPath(
                 Environment.SpecialFolder.CommonApplicationData);
+            fileName = "appsettings.machine.json";
+        }
+        else
+        {
+            return null;
+        }
 
         if (string.IsNullOrWhiteSpace(root))
             return null;
-
-        var fileName = environment.IsDevelopment()
-            ? "appsettings.development.machine.json"
-            : "appsettings.machine.json";
         return Path.Combine(root, "MAVI", "config", fileName);
     }
 }
