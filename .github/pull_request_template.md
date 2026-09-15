@@ -16,6 +16,8 @@
 
 - [ ] The dependency is justified; existing platform/framework capability was considered
 - [ ] `config/dependencies/offline-dependency-policy-v1.json` is updated
+- [ ] `config/dependencies/offline-binary-catalog-v1.json` is updated when external/native/toolchain payloads change
+- [ ] Companion binary-kit staging/manifest is updated where applicable
 - [ ] Package/lock files are updated
 - [ ] Disconnected Development cache/staging is updated
 - [ ] Production/offline bundle/runtime lock is updated where applicable
