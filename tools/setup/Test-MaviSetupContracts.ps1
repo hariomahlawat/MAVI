@@ -94,6 +94,35 @@ try {
         throw "Development setup does not install tools/requirements.txt from the offline wheelhouse."
     }
 
+    $visionInstallerText = Get-Content -LiteralPath (Join-Path $repoRoot "tools\setup\Install-MaviVisionRuntime.ps1") -Raw
+    foreach ($requiredFragment in @(
+        "bundle-manifest.json",
+        "windows-x86_64-cpu",
+        "Python 3.12.10",
+        "--no-index",
+        "--only-binary=:all:",
+        "--require-hashes",
+        "sourceCommit",
+        "Get-AuthenticodeSignature"
+    )) {
+        if ($visionInstallerText -notmatch [regex]::Escape($requiredFragment)) {
+            throw "Vision runtime installer is missing required contract fragment: $requiredFragment"
+        }
+    }
+
+    $visionLauncherText = Get-Content -LiteralPath (Join-Path $repoRoot "tools\setup\Start-MaviVisionWorker.ps1") -Raw
+    foreach ($requiredFragment in @(
+        "MAVI_VISION_RUNTIME_ROOT",
+        "MAVI_MODEL_ROOT",
+        "MAVI_RUNTIME_PROFILE_PATH",
+        "MAVI_QUALIFICATION_RECORD_PATH",
+        "mavi_vision.worker.main"
+    )) {
+        if ($visionLauncherText -notmatch [regex]::Escape($requiredFragment)) {
+            throw "Vision worker launcher is missing required contract fragment: $requiredFragment"
+        }
+    }
+
     $planBundle = Join-Path $tempRoot "plan-bundle"
     $runtimeRoot = Join-Path $planBundle "prerequisites\postgresql\pg18\win-x64"
     New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
@@ -266,7 +295,7 @@ try {
                 }
                 node = [ordered]@{
                     fileName = "node.msi"
-                    productVersion = "22.13.0-test"
+                    productVersion = "22.23.0-test"
                     sha256 = (Get-MaviSha256 -Path (Join-Path $kitInstallerRoot "node.msi"))
                     sizeBytes = [long](Get-Item (Join-Path $kitInstallerRoot "node.msi")).Length
                 }
