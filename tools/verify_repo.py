@@ -32,6 +32,7 @@ REQUIRED_PATHS = [
     "vendor/offline-binary-kit/README.md",
     "tools/setup/New-MaviOfflineBinaryKit.ps1",
     "tools/setup/Test-MaviOfflineBinaryKit.ps1",
+    "tools/setup/Prepare-MaviFfmpegWindows.ps1",
     "docs/runbooks/local-development.md",
     "docs/runbooks/mavi-offline-setup.md",
     "docs/runbooks/offline-readiness.md",
