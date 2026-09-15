@@ -178,14 +178,15 @@ try {
         }
     }
     if ($Profile -eq "Development") {
-        $machineConfig.MediaProcessing = [ordered]@{
+        $machineConfig["MediaProcessing"] = [ordered]@{
             AllowPathFallbackInDevelopment = $false
         }
     }
     Write-MaviJson -Value $machineConfig -Path $machineConfigPath -Depth 8
 
     if ($Profile -eq "Development") {
-        & icacls.exe $machineConfigPath /inheritance:r /grant:r "$env:USERNAME:F" "Administrators:F" | Out-Null
+        $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        & icacls.exe $machineConfigPath /inheritance:r /grant:r ("{0}:F" -f $currentIdentity) "Administrators:F" | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to secure Development machine configuration."
         }
