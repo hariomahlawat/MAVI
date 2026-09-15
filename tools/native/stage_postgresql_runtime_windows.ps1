@@ -54,7 +54,11 @@ if (Test-Path -LiteralPath $copyright -PathType Leaf) {
 
 $artifactFiles = @(Get-ChildItem -LiteralPath $destinationRoot -File -Recurse | Sort-Object FullName)
 $artifacts = foreach ($file in $artifactFiles) {
-    $relative = [IO.Path]::GetRelativePath($destinationRoot, $file.FullName).Replace("\", "/")
+    $prefix = $destinationRoot.TrimEnd("\") + "\"
+    if (-not $file.FullName.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "PostgreSQL staging artifact escaped destination root: $($file.FullName)"
+    }
+    $relative = $file.FullName.Substring($prefix.Length).Replace("\", "/")
     [ordered]@{
         relativePath = $relative
         sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
