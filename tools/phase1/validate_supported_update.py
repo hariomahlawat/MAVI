@@ -73,6 +73,16 @@ def validate(policy_path: Path, prior_manifest_path: Path, prior_root: Path) -> 
     migration_policy = selected.get("migrationPolicy")
     if migration_policy not in {"none", "required"}:
         raise SupportedUpdateError("update_migration_policy_invalid")
+    migration_script_sha = selected.get("migrationScriptSha256")
+    if migration_policy == "required":
+        if (
+            not isinstance(migration_script_sha, str)
+            or len(migration_script_sha) != 64
+            or any(ch not in "0123456789abcdef" for ch in migration_script_sha)
+        ):
+            raise SupportedUpdateError("update_migration_script_identity_not_frozen")
+    elif migration_script_sha is not None:
+        raise SupportedUpdateError("update_migration_script_unexpected")
 
     try:
         app_manifest.verify_manifest(prior_root, prior)
@@ -84,6 +94,7 @@ def validate(policy_path: Path, prior_manifest_path: Path, prior_root: Path) -> 
         "build": prior["build"],
         "applicationManifestSha256": actual_sha,
         "migrationPolicy": migration_policy,
+        "migrationScriptSha256": migration_script_sha,
         "supportedUpdatesPolicySha256": policy_sha,
     }
 
