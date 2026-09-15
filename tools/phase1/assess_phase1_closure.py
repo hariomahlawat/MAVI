@@ -301,6 +301,7 @@ def validate_production_acceptance_record(
     prerequisite_evidence: Path,
     fresh_install: Path,
     offline_update: Path,
+    prior_application_manifest: Path,
     pre_update_state_check: Path,
     post_update_state_check: Path,
     backup_restore: Path,
@@ -334,6 +335,7 @@ def validate_production_acceptance_record(
         or value.get("prerequisiteEvidenceSha256") != sha256_file(prerequisite_evidence)
         or value.get("freshInstallEvidenceSha256") != sha256_file(fresh_install)
         or value.get("offlineUpdateEvidenceSha256") != sha256_file(offline_update)
+        or value.get("priorApplicationManifestSha256") != sha256_file(prior_application_manifest)
         or value.get("preUpdateStateCheckSha256") != sha256_file(pre_update_state_check)
         or value.get("postUpdateStateCheckSha256") != sha256_file(post_update_state_check)
         or value.get("backupRestoreEvidenceSha256") != sha256_file(backup_restore)
@@ -408,6 +410,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
     optional_inputs = {
         "fresh-install": args.fresh_install,
         "offline-update": args.offline_update,
+        "prior-application-manifest": args.prior_application_manifest,
         "pre-update-state-check": args.pre_update_state_check,
         "post-update-state-check": args.post_update_state_check,
         "backup-restore": args.backup_restore,
@@ -463,7 +466,28 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             pre_update_state_check=args.pre_update_state_check,
             post_update_state_check=args.post_update_state_check,
         )
+        if (
+            args.prior_application_manifest is not None
+            and args.pre_update_state_check is not None
+            and args.post_update_state_check is not None
+            and expected_mavi_build is not None
+            and application_manifest_sha256 is not None
+        ):
+            try:
+                production_acceptance.validate_lifecycle(
+                    args.offline_update,
+                    mode="offline-update",
+                    source_commit=args.source_commit,
+                    mavi_build=expected_mavi_build,
+                    application_manifest_sha256=application_manifest_sha256,
+                    supported_updates_policy_sha256=supported_updates_policy_sha256,
+                    prior_application_manifest=args.prior_application_manifest,
+                    pre_update_state_check=args.pre_update_state_check,
+            post_update_state_check=args.post_update_state_check,
+        )
         evidence_hashes["offline-update"] = sha256_file(args.offline_update)
+        if args.prior_application_manifest is not None:
+            evidence_hashes["prior-application-manifest"] = sha256_file(args.prior_application_manifest)
         if args.pre_update_state_check is not None:
             evidence_hashes["pre-update-state-check"] = sha256_file(args.pre_update_state_check)
         if args.post_update_state_check is not None:
@@ -735,6 +759,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and args.prerequisite_evidence is not None
         and args.fresh_install is not None
         and args.offline_update is not None
+        and args.prior_application_manifest is not None
         and args.pre_update_state_check is not None
         and args.post_update_state_check is not None
         and args.backup_restore is not None
@@ -801,6 +826,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             prerequisite_evidence=args.prerequisite_evidence,
             fresh_install=args.fresh_install,
             offline_update=args.offline_update,
+            prior_application_manifest=args.prior_application_manifest,
             pre_update_state_check=args.pre_update_state_check,
             post_update_state_check=args.post_update_state_check,
             backup_restore=args.backup_restore,
@@ -875,6 +901,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--linux-prerequisite-observation", type=Path)
     parser.add_argument("--fresh-install", type=Path)
     parser.add_argument("--offline-update", type=Path)
+    parser.add_argument("--prior-application-manifest", type=Path)
     parser.add_argument("--pre-update-state-check", type=Path)
     parser.add_argument("--post-update-state-check", type=Path)
     parser.add_argument("--backup-restore", type=Path)
