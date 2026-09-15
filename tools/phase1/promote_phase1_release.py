@@ -184,6 +184,28 @@ def _validate_offline_os_evidence(
         raise PromotionError("promotion_offline_evidence_not_candidate:" + gate)
 
 
+def _validate_offline_aggregate_bindings(gate_evidence: dict[str, Path]) -> None:
+    for os_name in ("windows", "linux"):
+        aggregate_gate = f"{os_name}-offline-install"
+        cpu_gate = f"{os_name}-x86_64-cpu"
+        cuda_gate = f"{os_name}-x86_64-cuda"
+        if aggregate_gate not in gate_evidence:
+            continue
+        aggregate = _load_dict(
+            gate_evidence[aggregate_gate],
+            "promotion_offline_evidence_invalid:" + aggregate_gate,
+        )
+        hashes = aggregate.get("variantEvidenceSha256")
+        expected = {
+            cpu_gate: sha256_file_bytes(gate_evidence[cpu_gate]),
+            cuda_gate: sha256_file_bytes(gate_evidence[cuda_gate]),
+        }
+        if hashes != expected:
+            raise PromotionError(
+                "promotion_offline_variant_evidence_binding_mismatch:" + aggregate_gate
+            )
+
+
 def _validate_quality_evidence(
     value: dict[str, Any],
     source_commit: str,
@@ -451,6 +473,7 @@ def build_promoted_metadata(
 
     # Never grandfather prior status/evidence references. Promotion rebuilds the
     # complete evidence map from exact local/transferred bytes on this candidate.
+    _validate_offline_aggregate_bindings(gate_evidence)
     evidence: dict[str, dict[str, str]] = {}
     gates = {gate: "pending" for gate in MANDATORY_QUALIFICATION_GATES}
     for gate, path in sorted(gate_evidence.items()):
