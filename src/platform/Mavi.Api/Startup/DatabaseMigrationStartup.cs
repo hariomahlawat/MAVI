@@ -23,6 +23,42 @@ public static class DatabaseMigrationStartup
     private const int AdvisoryLockNamespace = 1296127561; // "MAVI"
     private const int AdvisoryLockPurpose = 1397248845;
 
+    private static readonly Action<ILogger, int, int, Exception?> LogMigrationStatus =
+        LoggerMessage.Define<int, int>(
+            LogLevel.Information,
+            new EventId(1800, "DatabaseMigrationStatus"),
+            "Database migration startup check: {AppliedCount} applied, {PendingCount} pending.");
+
+    private static readonly Action<ILogger, Exception?> LogSchemaCurrent =
+        LoggerMessage.Define(
+            LogLevel.Information,
+            new EventId(1801, "DatabaseSchemaCurrent"),
+            "Database schema is current.");
+
+    private static readonly Action<ILogger, string, Exception?> LogPendingMigration =
+        LoggerMessage.Define<string>(
+            LogLevel.Information,
+            new EventId(1802, "PendingDatabaseMigration"),
+            "Pending database migration: {Migration}");
+
+    private static readonly Action<ILogger, int, Exception?> LogMigrationsApplied =
+        LoggerMessage.Define<int>(
+            LogLevel.Information,
+            new EventId(1803, "DatabaseMigrationsApplied"),
+            "Database migrations completed successfully. Applied {MigrationCount} migration(s).");
+
+    private static readonly Action<ILogger, int, Exception?> LogMigrationLockTimeout =
+        LoggerMessage.Define<int>(
+            LogLevel.Critical,
+            new EventId(1804, "DatabaseMigrationLockTimeout"),
+            "Timed out after {TimeoutSeconds}s waiting for the MAVI database migration lock.");
+
+    private static readonly Action<ILogger, Exception?> LogMigrationFailure =
+        LoggerMessage.Define(
+            LogLevel.Critical,
+            new EventId(1805, "DatabaseMigrationFailure"),
+            "Database startup migration failed. MAVI will not start with an unverified schema state.");
+
     public static IServiceCollection AddDatabaseMigrationStartup(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -84,19 +120,16 @@ public static class DatabaseMigrationStartup
                     .GetPendingMigrationsAsync(cancellationToken))
                     .ToArray();
 
-                logger.LogInformation(
-                    "Database migration startup check: {AppliedCount} applied, {PendingCount} pending.",
-                    applied.Count,
-                    pending.Length);
+                LogMigrationStatus(logger, applied.Count, pending.Length, null);
 
                 if (pending.Length == 0)
                 {
-                    logger.LogInformation("Database schema is current.");
+                    LogSchemaCurrent(logger, null);
                     return;
                 }
 
                 foreach (var migration in pending)
-                    logger.LogInformation("Pending database migration: {Migration}", migration);
+                    LogPendingMigration(logger, migration, null);
 
                 var previousTimeout = db.Database.GetCommandTimeout();
                 try
@@ -119,9 +152,7 @@ public static class DatabaseMigrationStartup
                         $"Database migration did not converge; {remaining.Length} migration(s) remain pending.");
                 }
 
-                logger.LogInformation(
-                    "Database migrations completed successfully. Applied {MigrationCount} migration(s).",
-                    pending.Length);
+                LogMigrationsApplied(logger, pending.Length, null);
             }
             finally
             {
@@ -130,27 +161,26 @@ public static class DatabaseMigrationStartup
         }
         catch (TimeoutException exception)
         {
-            logger.LogCritical(
-                exception,
-                "Timed out after {TimeoutSeconds}s waiting for the MAVI database migration lock.",
-                options.LockTimeoutSeconds);
+            LogMigrationLockTimeout(
+                logger,
+                options.LockTimeoutSeconds,
+                exception);
             throw new InvalidOperationException(
                 "Timed out waiting for the MAVI database migration lock.",
                 exception);
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            logger.LogCritical(
-                "Timed out after {TimeoutSeconds}s waiting for the MAVI database migration lock.",
-                options.LockTimeoutSeconds);
+            LogMigrationLockTimeout(
+                logger,
+                options.LockTimeoutSeconds,
+                null);
             throw new InvalidOperationException(
                 "Timed out waiting for the MAVI database migration lock.");
         }
         catch (Exception exception)
         {
-            logger.LogCritical(
-                exception,
-                "Database startup migration failed. MAVI will not start with an unverified schema state.");
+            LogMigrationFailure(logger, exception);
             throw;
         }
         finally
