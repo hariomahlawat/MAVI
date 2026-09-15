@@ -160,7 +160,7 @@ $plan = [ordered]@{
     machineConfig = $machineConfigPath
 }
 if ($Profile -eq "Production") {
-    $plan.iis = [ordered]@{
+    $plan["iis"] = [ordered]@{
         siteName = [string]$profileDefaults.iisSiteName
         appPoolName = [string]$profileDefaults.iisAppPoolName
         httpPort = $HttpPort
