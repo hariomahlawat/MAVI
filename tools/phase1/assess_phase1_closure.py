@@ -168,6 +168,7 @@ def validate_application_lifecycle(
             raise ClosureError("offline_update_state_proof_incomplete")
         if (
             prior_application_manifest is not None
+            and prior_acceptance_evidence is not None
             and pre_update_state_check is not None
             and post_update_state_check is not None
             and mavi_build is not None
@@ -801,6 +802,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         and args.fresh_install is not None
         and args.offline_update is not None
         and args.prior_application_manifest is not None
+        and args.prior_acceptance_evidence is not None
         and args.pre_update_state_check is not None
         and args.post_update_state_check is not None
         and args.backup_restore is not None
