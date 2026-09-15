@@ -415,6 +415,8 @@ def finalize(execution_path: Path, post_restore_path: Path) -> dict[str, Any]:
         or state_check.get("acceptanceEvidenceSha256") != execution.get("acceptanceEvidenceSha256")
         or state_check.get("expectedApplicationCommit") != execution.get("sourceCommit")
         or state_check.get("observedApplicationCommit") != execution.get("sourceCommit")
+        or state_check.get("expectedApplicationBuild") != execution.get("restoreStorageTopology", {}).get("maviBuild")
+        or state_check.get("observedApplicationBuild") != execution.get("restoreStorageTopology", {}).get("maviBuild")
         or state_check.get("result", {}).get("passed") is not True
         or state_check.get("result", {}).get("failureCodes") != []
     ):
