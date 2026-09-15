@@ -9,10 +9,15 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$FfmpegPack,
 
+    [Parameter(Mandatory = $true)]
     [string]$ApplicationArtifact,
+    [Parameter(Mandatory = $true)]
     [string]$HostingBundle,
+    [Parameter(Mandatory = $true)]
     [string]$DotNetSdkInstaller,
+    [Parameter(Mandatory = $true)]
     [string]$NodeInstaller,
+    [Parameter(Mandatory = $true)]
     [string]$PythonInstaller
 )
 
@@ -57,9 +62,8 @@ if (-not (Test-Path -LiteralPath (Join-Path $ffmpegDestination "manifest.json") 
     throw "FFmpeg pack has no manifest.json."
 }
 
-if ($ApplicationArtifact) {
-    $applicationDestination = Join-Path $destination "application"
-    Copy-Tree $ApplicationArtifact $applicationDestination
+$applicationDestination = Join-Path $destination "application"
+Copy-Tree $ApplicationArtifact $applicationDestination
     foreach ($required in @(
         "Mavi.Api.dll",
         "web.config",
@@ -74,11 +78,9 @@ if ($ApplicationArtifact) {
     }
 }
 
-if ($HostingBundle) {
-    $hostingDestination = Join-Path $destination "prerequisites\hosting\win-x64"
-    New-Item -ItemType Directory -Path $hostingDestination -Force | Out-Null
-    Copy-Item -LiteralPath $HostingBundle -Destination (Join-Path $hostingDestination "dotnet-hosting.exe")
-}
+$hostingDestination = Join-Path $destination "prerequisites\hosting\win-x64"
+New-Item -ItemType Directory -Path $hostingDestination -Force | Out-Null
+Copy-Item -LiteralPath $HostingBundle -Destination (Join-Path $hostingDestination "dotnet-hosting.exe")
 
 $developerDestination = Join-Path $destination "prerequisites\developer\win-x64"
 $developerInstallers = [ordered]@{
@@ -157,12 +159,12 @@ $manifest = [ordered]@{
     schemaVersion = "mavi-offline-setup-bundle-v1"
     createdAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     profiles = @("Development", "Production")
-    containsProductionApplication = [bool]$ApplicationArtifact
-    containsHostingBundle = [bool]$HostingBundle
+    containsProductionApplication = $true
+    containsHostingBundle = $true
     containsDeveloperToolchain = [ordered]@{
-        dotnetSdk = [bool]$DotNetSdkInstaller
-        node = [bool]$NodeInstaller
-        python = [bool]$PythonInstaller
+        dotnetSdk = $true
+        node = $true
+        python = $true
     }
     artifacts = @($artifacts)
 }
