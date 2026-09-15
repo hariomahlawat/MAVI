@@ -43,14 +43,14 @@ def _execution_payload():
         "sourceCommit": "a" * 40,
         "acceptanceEvidenceSha256": "5" * 64,
         "acceptanceProfileSha256": "6" * 64,
-        "sourceDatabaseIdentity": "source|127.0.0.1|5432",
-        "restoreDatabaseIdentity": "restore|127.0.0.1|5433",
+        "sourceDatabaseIdentitySha256": "1" * 64,
+        "restoreDatabaseIdentitySha256": "2" * 64,
         "liveStorageTopology": {
             "schemaVersion": "mavi-storage-topology-attestation-v1",
             "maviBuild": "build-a",
             "maviCommit": "a" * 40,
             "operationalHostIdentitySha256": "f" * 64,
-            "databaseIdentity": "source|127.0.0.1|5432",
+            "databaseIdentitySha256": "1" * 64,
             "managedMediaRootIdentitySha256": "7" * 64,
             "acceptedEvidenceRootIdentitySha256": "8" * 64,
         },
@@ -59,7 +59,7 @@ def _execution_payload():
             "maviBuild": "build-a",
             "maviCommit": "a" * 40,
             "operationalHostIdentitySha256": "f" * 64,
-            "databaseIdentity": "restore|127.0.0.1|5433",
+            "databaseIdentitySha256": "2" * 64,
             "managedMediaRootIdentitySha256": "9" * 64,
             "acceptedEvidenceRootIdentitySha256": "a" * 64,
         },
@@ -125,9 +125,18 @@ def test_finalize_rejects_evidence_spliced_from_other_execution(tmp_path: Path):
 
 
 def test_database_identity_rejects_same_source_and_restore():
-    identity = "mavi|127.0.0.1|5432"
+    identity = "4" * 64
     with pytest.raises(mod.BackupRestoreError, match="backup_restore_database_targets_not_distinct"):
         mod.assert_database_targets_distinct(identity, identity)
+
+def test_database_topology_identity_is_domain_separated_sha256():
+    raw = "mavi|10.0.0.20|5432"
+    expected = mod.hashlib.sha256(
+        f"mavi-database-topology-v1|{raw}".encode("utf-8")
+    ).hexdigest()
+    assert mod.database_identity_sha256(raw) == expected
+    assert raw not in expected
+
 
 def test_disjoint_roots_reject_nested_paths(tmp_path: Path):
     source = tmp_path / "source"
@@ -159,7 +168,7 @@ def test_live_storage_topology_rejects_other_database_or_roots(tmp_path: Path):
         "schemaVersion": "mavi-storage-topology-attestation-v1",
         "maviBuild": "build-a",
         "maviCommit": "a" * 40,
-        "databaseIdentity": "other|127.0.0.1|5432",
+        "databaseIdentitySha256": "3" * 64,
         "managedMediaRootIdentitySha256": mod.storage_root_identity_sha256(media),
         "acceptedEvidenceRootIdentitySha256": mod.storage_root_identity_sha256(evidence),
     }
@@ -171,7 +180,7 @@ def test_live_storage_topology_rejects_other_database_or_roots(tmp_path: Path):
             live,
             source_commit="a" * 40,
             expected_mavi_build="build-a",
-            source_database_identity="source|127.0.0.1|5432",
+            source_database_identity="1" * 64,
             source_media_root=media,
             source_evidence_root=evidence,
         )
@@ -187,7 +196,7 @@ def test_live_storage_topology_accepts_exact_sources(tmp_path: Path):
         "maviBuild": "build-a",
         "maviCommit": "a" * 40,
         "operationalHostIdentitySha256": "f" * 64,
-        "databaseIdentity": "source|127.0.0.1|5432",
+        "databaseIdentitySha256": "1" * 64,
         "managedMediaRootIdentitySha256": mod.storage_root_identity_sha256(media),
         "acceptedEvidenceRootIdentitySha256": mod.storage_root_identity_sha256(evidence),
     }
@@ -195,7 +204,7 @@ def test_live_storage_topology_accepts_exact_sources(tmp_path: Path):
         live,
         source_commit="a" * 40,
         expected_mavi_build="build-a",
-        source_database_identity="source|127.0.0.1|5432",
+        source_database_identity="1" * 64,
         source_media_root=media,
         source_evidence_root=evidence,
     )
@@ -209,7 +218,7 @@ def test_finalize_rejects_post_restore_topology_mismatch(tmp_path: Path):
     post = tmp_path / "post.json"
     post_value = _post_payload(execution, execution_value)
     post_value["restoreStorageTopology"] = dict(post_value["restoreStorageTopology"])
-    post_value["restoreStorageTopology"]["databaseIdentity"] = "source|127.0.0.1|5432"
+    post_value["restoreStorageTopology"]["databaseIdentitySha256"] = "1" * 64
     post.write_text(json.dumps(post_value), encoding="utf-8")
     with pytest.raises(mod.BackupRestoreError, match="post_restore_topology_binding_mismatch"):
         mod.finalize(execution, post)
@@ -227,7 +236,7 @@ def test_post_restore_topology_accepts_exact_restored_target():
 def test_post_restore_topology_rejects_original_database():
     expected = _execution_payload()["restoreStorageTopology"]
     live = dict(expected)
-    live["databaseIdentity"] = "source|127.0.0.1|5432"
+    live["databaseIdentitySha256"] = "1" * 64
     with pytest.raises(post_restore.RestoreCheckError, match="restore_storage_topology_mismatch"):
         post_restore.validate_restored_storage_topology(
             live,
