@@ -59,8 +59,49 @@ if (-not $needsDownload) {
 
 if ($needsDownload) {
     Write-Host "Downloading approved FFmpeg $version preparation archive..."
-    $ProgressPreference = "SilentlyContinue"
-    Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $archivePath
+    $partialPath = "$archivePath.partial"
+    Remove-Item -LiteralPath $partialPath -Force -ErrorAction SilentlyContinue
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+
+    try {
+        if ($curl -and $curl.Source) {
+            & $curl.Source `
+                --fail `
+                --location `
+                --silent `
+                --show-error `
+                --retry 3 `
+                --retry-delay 3 `
+                --retry-all-errors `
+                --connect-timeout 30 `
+                --output $partialPath `
+                $uri
+
+            if ($LASTEXITCODE -ne 0) {
+                throw "curl.exe failed with exit code $LASTEXITCODE."
+            }
+        }
+        else {
+            $ProgressPreference = "SilentlyContinue"
+            Invoke-WebRequest `
+                -UseBasicParsing `
+                -Uri $uri `
+                -OutFile $partialPath `
+                -MaximumRedirection 10 `
+                -TimeoutSec 300 `
+                -ErrorAction Stop
+        }
+
+        if (-not (Test-Path -LiteralPath $partialPath -PathType Leaf) -or
+            (Get-Item -LiteralPath $partialPath).Length -le 0) {
+            throw "FFmpeg download produced no usable archive."
+        }
+
+        Move-Item -LiteralPath $partialPath -Destination $archivePath -Force
+    }
+    finally {
+        Remove-Item -LiteralPath $partialPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 $actualArchiveHash = Get-MaviSha256 -Path $archivePath
