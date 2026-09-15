@@ -389,9 +389,16 @@ def check_dependency_policy(errors: list[str]) -> None:
         ROOT / "README.md",
         ROOT / "AGENTS.md",
         ROOT / "CONTRIBUTING.md",
+        ROOT / "database/README.md",
         ROOT / "docs/architecture/README.md",
+        ROOT / "docs/runbooks/local-development.md",
         ROOT / "docs/runbooks/mavi-offline-setup.md",
         ROOT / "docs/runbooks/offline-readiness.md",
+        ROOT / "docs/runbooks/phase1-acceptance.md",
+        ROOT / "infrastructure/development/README.md",
+        ROOT / "infrastructure/windows/README.md",
+        ROOT / "infrastructure/linux/README.md",
+        ROOT / "infrastructure/offline-bundle/README.md",
     ]
     for document in documentation_contract:
         try:
