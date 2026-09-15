@@ -542,6 +542,10 @@ def _prior_acceptance(tmp_path: Path) -> Path:
     path.write_text(json.dumps({
         "schemaVersion": "mavi-phase1-acceptance-evidence-v1",
         "sourceCommit": "a" * 40,
+        "attestation": {
+            "maviCommit": "a" * 40,
+            "maviBuild": "prior-build",
+        },
         "result": {"passed": True, "failureCodes": []},
     }), encoding="utf-8")
     return path
@@ -563,6 +567,14 @@ def _offline_update_value(
         "applicationManifestSha256": "4" * 64,
         "supportedUpdatesPolicySha256": "5" * 64,
         "destination": "mavi-root",
+        "deployment": {
+            "mechanism": "robocopy-mirror",
+            "tool": "robocopy.exe",
+            "toolVersion": "10.0.0",
+            "arguments": ["source", "target", "/MIR", "/COPY:DAT"],
+            "exitCode": 1,
+            "passed": True,
+        },
         "hosting": {
             "siteName": "MAVI",
             "applicationPool": "MAVI",
@@ -806,6 +818,96 @@ def test_offline_update_rejects_prior_acceptance_hash_splice(tmp_path: Path, mon
     with pytest.raises(
         mod.ProductionAcceptanceError,
         match="production_prior_acceptance_evidence_mismatch",
+    ):
+        mod.validate_lifecycle(
+            lifecycle,
+            mode="offline-update",
+            source_commit="b" * 40,
+            mavi_build="target-build",
+            application_manifest_sha256="4" * 64,
+            supported_updates_policy_sha256="5" * 64,
+            prior_application_manifest=prior,
+            prior_acceptance_evidence=prior_acceptance,
+            pre_update_state_check=pre,
+            post_update_state_check=post,
+        )
+
+
+def test_offline_update_rejects_prior_acceptance_from_different_build(
+    tmp_path: Path,
+    monkeypatch,
+):
+    prior = _prior_manifest(tmp_path)
+    prior_acceptance = _prior_acceptance(tmp_path)
+    value = json.loads(prior_acceptance.read_text(encoding="utf-8"))
+    value["attestation"]["maviBuild"] = "other-build"
+    prior_acceptance.write_text(json.dumps(value), encoding="utf-8")
+    acceptance_sha = mod.sha256_file(prior_acceptance)
+    pre = tmp_path / "pre-build.json"
+    post = tmp_path / "post-build.json"
+    pre.write_text(json.dumps(_state_check_payload(
+        acceptance_sha=acceptance_sha,
+    )), encoding="utf-8")
+    post.write_text(json.dumps(_state_check_payload(
+        acceptance_sha=acceptance_sha,
+        expected_commit="b" * 40,
+        expected_build="target-build",
+    )), encoding="utf-8")
+    lifecycle = tmp_path / "update-build.json"
+    lifecycle.write_text(json.dumps(_offline_update_value(
+        mod.sha256_file(pre),
+        mod.sha256_file(post),
+        mod.sha256_file(prior),
+        acceptance_sha,
+    )), encoding="utf-8")
+    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
+    monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: {})
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_prior_acceptance_release_identity_mismatch",
+    ):
+        mod.validate_lifecycle(
+            lifecycle,
+            mode="offline-update",
+            source_commit="b" * 40,
+            mavi_build="target-build",
+            application_manifest_sha256="4" * 64,
+            supported_updates_policy_sha256="5" * 64,
+            prior_application_manifest=prior,
+            prior_acceptance_evidence=prior_acceptance,
+            pre_update_state_check=pre,
+            post_update_state_check=post,
+        )
+
+
+def test_lifecycle_rejects_missing_deployment_audit(tmp_path: Path, monkeypatch):
+    prior = _prior_manifest(tmp_path)
+    prior_acceptance = _prior_acceptance(tmp_path)
+    acceptance_sha = mod.sha256_file(prior_acceptance)
+    pre = tmp_path / "pre-deployment.json"
+    post = tmp_path / "post-deployment.json"
+    pre.write_text(json.dumps(_state_check_payload(
+        acceptance_sha=acceptance_sha,
+    )), encoding="utf-8")
+    post.write_text(json.dumps(_state_check_payload(
+        acceptance_sha=acceptance_sha,
+        expected_commit="b" * 40,
+        expected_build="target-build",
+    )), encoding="utf-8")
+    value = _offline_update_value(
+        mod.sha256_file(pre),
+        mod.sha256_file(post),
+        mod.sha256_file(prior),
+        acceptance_sha,
+    )
+    value.pop("deployment")
+    lifecycle = tmp_path / "update-no-deployment.json"
+    lifecycle.write_text(json.dumps(value), encoding="utf-8")
+    monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_lifecycle_deployment_audit_failed",
     ):
         mod.validate_lifecycle(
             lifecycle,
