@@ -78,7 +78,7 @@ The binary kit is the controlled home for those payloads.
 
 `config/dependencies/offline-binary-catalog-v1.json` records the repository-approved baseline and version policy.
 
-The generated `mavi-offline-binary-kit.json` records the exact SHA-256 and size of every retained file and the observed PostgreSQL, pgvector and FFmpeg versions. Toolchain installer versions are bound by catalog baseline + installer hash and are revalidated after installation.
+The generated `mavi-offline-binary-kit.json` records the exact SHA-256 and size of every retained file, the observed PostgreSQL/pgvector/FFmpeg versions, and exact installer metadata for the ASP.NET Hosting Bundle, .NET SDK, Node MSI and Python installer. Toolchain installers are therefore identified by both readable version metadata and cryptographic file identity, then revalidated after installation.
 
 The final MAVI setup bundle has its own manifest, so provenance is chained:
 
