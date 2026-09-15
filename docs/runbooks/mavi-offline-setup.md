@@ -210,7 +210,7 @@ Setup automatically verifies the offline media; installs the pinned .NET/Node/Py
 
 Restart Visual Studio once after first setup so it inherits the machine-scoped Development environment. No pgAdmin configuration is required.
 
-For a repository-based Development workstation, keep the extracted `MAVI-Offline-Binary-Kit` beside the `MAVI` repository and double-click `Setup-MAVI-Development.cmd`. The launcher auto-detects and verifies the sibling kit. Direct `vendor/...` staging remains a release-preparation fallback, not the preferred disconnected developer workflow. No port, database, pgvector or FFmpeg PATH configuration is required.
+For a repository-based Development workstation, keep the extracted `MAVI-Offline-Binary-Kit` beside the `MAVI` repository and double-click `Setup-MAVI-Development.cmd`. The launcher auto-detects and verifies the sibling kit. Loose `vendor/...` staging is accepted only as release-preparation input to the kit builder; target Development Setup deliberately refuses it. No port, database, pgvector or FFmpeg PATH configuration is required.
 
 ## Production workstation
 
