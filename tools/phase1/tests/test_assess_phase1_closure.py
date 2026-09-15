@@ -14,19 +14,36 @@ sys.modules[SPEC.name] = mod
 SPEC.loader.exec_module(mod)
 
 
-def test_quality_requires_formal_qualification_metrics():
-    value = {
-        "sourceCommit": "a" * 40,
-        "mode": "formal",
-        "metrics": {
-            "mode": "baseline",
-            "qualification": {"passed": None},
-        },
-    }
-    with pytest.raises(mod.ClosureError, match="quality_qualification_not_passed"):
-        metrics = value["metrics"]
-        if metrics.get("mode") != "qualification" or metrics.get("qualification", {}).get("passed") is not True:
-            raise mod.ClosureError("quality_qualification_not_passed")
+def test_quality_closure_rejects_independent_corpus_validation_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    evidence = tmp_path / "quality.json"
+    evidence.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        mod.quality_corpus,
+        "validate_quality_corpus_evidence",
+        lambda *_, **__: (_ for _ in ()).throw(
+            mod.quality_corpus.QualityCorpusError(
+                "quality_corpus_evidence_recalculation_mismatch"
+            )
+        ),
+    )
+    with pytest.raises(
+        mod.ClosureError,
+        match="quality_corpus_invalid:quality_corpus_evidence_recalculation_mismatch",
+    ):
+        mod.validate_quality(
+            evidence,
+            source_commit="a" * 40,
+            acceptance_profile_sha256="b" * 64,
+            acceptance_profile={},
+            expected_mavi_build="build-a",
+            target_verified_manifest_sha256="c" * 64,
+            corpus_manifest=tmp_path / "corpus.json",
+            case_evidence={},
+            ground_truth={},
+        )
 
 
 def test_application_update_requires_supported_prior():
@@ -142,7 +159,16 @@ def test_application_lifecycle_build_mismatch_is_rejected(tmp_path: Path):
         "build": "build-b",
         "applicationManifestSha256": "d" * 64,
         "destination": "mavi-root",
-        "hosting": {"passed": True, "physicalPath": "mavi-root"},
+        "hosting": {
+            "passed": True,
+            "physicalPath": "mavi-root",
+            "hostIdentitySha256": "6" * 64,
+        },
+        "operationalApi": {
+            "baseUrl": "http://mavi.local",
+            "hostIdentitySha256": "6" * 64,
+            "passed": True,
+        },
         "internetUnavailable": True,
         "observedHealth": {"commit": "a" * 40, "build": "build-b"},
         "supportedUpdatesPolicySha256": "c" * 64,
@@ -233,7 +259,16 @@ def test_application_lifecycle_manifest_hash_mismatch_is_rejected(tmp_path: Path
         "build": "build-a",
         "applicationManifestSha256": "e" * 64,
         "destination": "mavi-root",
-        "hosting": {"passed": True, "physicalPath": "mavi-root"},
+        "hosting": {
+            "passed": True,
+            "physicalPath": "mavi-root",
+            "hostIdentitySha256": "6" * 64,
+        },
+        "operationalApi": {
+            "baseUrl": "http://mavi.local",
+            "hostIdentitySha256": "6" * 64,
+            "passed": True,
+        },
         "internetUnavailable": True,
         "observedHealth": {"commit": "a" * 40, "build": "build-a"},
         "supportedUpdatesPolicySha256": "c" * 64,
