@@ -12,7 +12,7 @@ MAVI is a standalone, offline-production visual-intelligence platform. The proof
 - **Scale target:** approximately 200–500 cameras per large establishment
 - **Production constraint:** no Internet connectivity required for installation or operation
 
-The current Phase-1 product implementation is complete through Task 16. Task 17 supplies the final acceptance/qualification layer: deterministic ground-truth evaluation, completed-run attestation, public-API end-to-end acceptance, exact application install/update proof, disconnected CPU/CUDA runtime qualification, backup/restore verification, recovery/performance evaluation, evidence verification and fail-closed release promotion. Implementation completion is distinct from release verification: unavailable CUDA/offline/quality/performance evidence remains explicitly pending, and the model release remains intentionally unverified/partially qualified until every mandatory gate actually passes.
+The Phase-1 software implementation is complete through Task 17. PR #38 delivered the deterministic acceptance/qualification framework, evidence schemas and verifiers, disconnected qualification tooling, backup/restore proof path, application lifecycle proof and fail-closed release-promotion machinery. Task 18 is the active operational closure task: it executes those contracts on production-representative Windows/Linux/CUDA/PostgreSQL hosts, generates the mandatory real evidence, qualifies the exact production bundles and closes Phase 1 only when the independent closure assessor reports `release-verified`. Until that operational evidence exists, the model release remains intentionally unverified/partially qualified.
 
 ## Repository layout
 
