@@ -117,8 +117,12 @@ foreach ($artifact in @($manifest.artifacts)) {
     }
 }
 
+$bundlePrefix = $BundleRoot.TrimEnd("\") + "\"
 $actualFiles = Get-ChildItem -LiteralPath $BundleRoot -Recurse -File | ForEach-Object {
-    [IO.Path]::GetRelativePath($BundleRoot, $_.FullName).Replace('\', '/')
+    if (-not $_.FullName.StartsWith($bundlePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Vision runtime bundle enumeration escaped its root."
+    }
+    $_.FullName.Substring($bundlePrefix.Length).Replace("\", "/")
 } | Where-Object { $_ -ne "bundle-manifest.json" }
 
 foreach ($relative in $actualFiles) {
@@ -137,6 +141,14 @@ if (-not $installerArtifact) {
     throw "Vision runtime bundle does not contain its qualified CPython installer."
 }
 $pythonInstaller = Join-Path $BundleRoot (([string]$installerArtifact.relativePath).Replace('/', [IO.Path]::DirectorySeparatorChar))
+$signature = Get-AuthenticodeSignature -FilePath $pythonInstaller
+if ($signature.Status -ne "Valid") {
+    throw "Bundled CPython installer Authenticode signature is not valid: $($signature.Status)"
+}
+$installerVersion = (Get-Item -LiteralPath $pythonInstaller).VersionInfo.ProductVersion
+if ($installerVersion -notmatch '^3\.12\.10(?:\D|$)') {
+    throw "Bundled CPython installer product version '$installerVersion' does not match 3.12.10."
+}
 
 $runtimeBase = Split-Path $InstallRoot -Parent
 $pythonRoot = Join-Path $runtimeBase "Python312"
