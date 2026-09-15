@@ -70,9 +70,13 @@ Formal runs require a target-containing corpus. Empty-scene diagnostic runs are 
 Publish MAVI with an immutable build identity compiled into `Mavi.Api.dll`, then create the application artifact manifest with the same identities:
 
 ~~~text
-dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:MaviBuild=<build-id> -p:MaviCommit=<exact-commit> -o <published-root>
+dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:RequireMaviBundledMediaTools=true -p:MaviBuild=<build-id> -p:MaviCommit=<exact-commit> -o <published-root>
 python tools/phase1/build_application_artifact_manifest.py --artifact-root <published-root> --source-commit <exact-commit> --build <build-id> --output <published-root>/mavi-application-manifest.json
 ~~~
+
+Release publish is fail-closed unless the approved FFmpeg dependency pack has been staged. The resulting artifact must contain `tools/ffmpeg/manifest.json`, `tools/ffmpeg/win-x64/ffmpeg.exe`, `ffprobe.exe` and the retained licence/notices. MAVI revalidates their hashes and declared version at startup. These files are included automatically in the application-artifact manifest, so fresh-install/update evidence is bound to the exact native media tooling exercised.
+
+The PostgreSQL-18-specific pgvector pack is separate prerequisite media because it modifies the PostgreSQL server installation. Its one-time bootstrap must use `tools/native/install_pgvector_windows.ps1` with the approved pack-manifest SHA-256; normal MAVI startup then verifies PostgreSQL 18, verifies pgvector availability, enables `vector` under the migration lock, and applies EF migrations.
 
 `GET /api/health` reads `MaviBuild` and `MaviCommit` from compile-time assembly metadata. Do not set environment variables to manufacture build identity. The lifecycle qualifier compares the manifest identity with the independently reported running binary identity; relabeling manifest JSON without rebuilding the binary must fail. It also compares the API-reported `operationalHostIdentitySha256` with the local Windows/IIS host identity, so a same-build MAVI instance on another host cannot satisfy lifecycle or production E2E acceptance. `unknown-development` is never a formal promotion/production identity.
 
