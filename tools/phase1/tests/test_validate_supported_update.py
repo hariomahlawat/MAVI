@@ -78,3 +78,45 @@ def test_rejects_noncanonical_supported_update_policy(tmp_path: Path):
     }), encoding="utf-8")
     with pytest.raises(mod.PolicyIdentityError, match="supported_updates_policy_not_canonical"):
         mod.validate(policy, manifest_path, root)
+
+
+def test_required_migration_requires_frozen_script_hash(tmp_path: Path, monkeypatch):
+    root, manifest_path = build_prior(tmp_path)
+    manifest_sha = mod.sha256_file(manifest_path)
+    policy = tmp_path / "policy.json"
+    policy.write_text(json.dumps({
+        "schemaVersion": "mavi-phase1-supported-updates-v1",
+        "priorReleases": [{
+            "sourceCommit": "a" * 40,
+            "applicationManifestSha256": manifest_sha,
+            "migrationPolicy": "required",
+            "migrationScriptSha256": None,
+        }],
+    }), encoding="utf-8")
+    _use_test_policy(monkeypatch, policy)
+    with pytest.raises(
+        mod.SupportedUpdateError,
+        match="update_migration_script_identity_not_frozen",
+    ):
+        mod.validate(policy, manifest_path, root)
+
+
+def test_none_migration_rejects_script_hash(tmp_path: Path, monkeypatch):
+    root, manifest_path = build_prior(tmp_path)
+    manifest_sha = mod.sha256_file(manifest_path)
+    policy = tmp_path / "policy.json"
+    policy.write_text(json.dumps({
+        "schemaVersion": "mavi-phase1-supported-updates-v1",
+        "priorReleases": [{
+            "sourceCommit": "a" * 40,
+            "applicationManifestSha256": manifest_sha,
+            "migrationPolicy": "none",
+            "migrationScriptSha256": "b" * 64,
+        }],
+    }), encoding="utf-8")
+    _use_test_policy(monkeypatch, policy)
+    with pytest.raises(
+        mod.SupportedUpdateError,
+        match="update_migration_script_unexpected",
+    ):
+        mod.validate(policy, manifest_path, root)
