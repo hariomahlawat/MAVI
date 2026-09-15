@@ -37,8 +37,13 @@ if (-not $license) {
     throw "A licence/notices file is required in the approved FFmpeg package."
 }
 
-if (Test-Path -LiteralPath $destinationRoot) {
-    Remove-Item -LiteralPath $destinationRoot -Recurse -Force
+New-Item -ItemType Directory -Path $destinationRoot -Force | Out-Null
+if (Test-Path -LiteralPath $runtimeDestination) {
+    Remove-Item -LiteralPath $runtimeDestination -Recurse -Force
+}
+$existingManifest = Join-Path $destinationRoot "manifest.json"
+if (Test-Path -LiteralPath $existingManifest) {
+    Remove-Item -LiteralPath $existingManifest -Force
 }
 New-Item -ItemType Directory -Path $runtimeDestination -Force | Out-Null
 
