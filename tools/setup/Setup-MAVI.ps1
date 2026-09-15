@@ -242,6 +242,24 @@ try {
             }
         }
 
+        $developerCacheRoot = Join-Path $BundleRoot "prerequisites\developer\win-x64"
+        $hasOfflineCaches =
+            (Test-Path -LiteralPath (Join-Path $developerCacheRoot "nuget-packages") -PathType Container) -and
+            (Test-Path -LiteralPath (Join-Path $developerCacheRoot "npm-cache") -PathType Container) -and
+            (Test-Path -LiteralPath (Join-Path $developerCacheRoot "python-wheelhouse") -PathType Container)
+
+        if ($RepositoryRoot -and $hasOfflineCaches) {
+            Initialize-MaviDeveloperWorkspace -BundleRoot $BundleRoot -RepositoryRoot $RepositoryRoot
+            Write-MaviSetupStatus -Name "Offline dependencies" -Status "OK" -Detail "NuGet / npm / Python restored"
+            Write-MaviSetupStatus -Name "Workspace validation" -Status "OK" -Detail ".NET / frontend / Python tests"
+        }
+        elseif (-not $RepositoryRoot) {
+            Write-MaviSetupStatus -Name "Workspace validation" -Status "INFO" -Detail "repository not attached; rerun with -RepositoryRoot after copying source"
+        }
+        else {
+            Write-MaviSetupStatus -Name "Workspace validation" -Status "WARN" -Detail "developer dependency cache not present in this non-canonical setup source"
+        }
+
         Write-MaviSetupStatus -Name "Machine config" -Status "OK" -Detail $machineConfigPath
         Write-MaviSetupStatus -Name "Test connection" -Status "OK" -Detail "MAVI_TEST_DB_CONNECTION configured for current user"
         Write-Host ""
