@@ -54,8 +54,8 @@ elseif (Test-Path -LiteralPath $binaryKitManifestPath -PathType Leaf) {
     if ($Profile -ne "Development") {
         throw "The MAVI offline binary kit is a preparation/Development dependency source, not a Production application bundle."
     }
-    [void](Test-MaviManifest -Root $BundleRoot -ManifestPath $binaryKitManifestPath -ExpectedSchemaVersion "mavi-offline-binary-kit-v1")
-    Write-MaviSetupStatus -Name "Offline binary kit" -Status "OK" -Detail "SHA-256 verified"
+    & (Join-Path $PSScriptRoot "Test-MaviOfflineBinaryKit.ps1") -KitRoot $BundleRoot
+    Write-MaviSetupStatus -Name "Offline binary kit" -Status "OK" -Detail "catalog/nested manifests/SHA-256 verified"
 }
 
 $bundleDefaults = Join-Path $BundleRoot "config\mavi-setup-defaults.json"
