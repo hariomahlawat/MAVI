@@ -50,6 +50,10 @@ if (Test-Path -LiteralPath $bundleManifestPath -PathType Leaf) {
     [void](Test-MaviManifest -Root $BundleRoot -ManifestPath $bundleManifestPath -ExpectedSchemaVersion "mavi-offline-setup-bundle-v1")
     Write-MaviSetupStatus -Name "Offline bundle" -Status "OK" -Detail "SHA-256 verified"
 }
+elseif ($Profile -eq "Development" -and -not $PlanOnly -and
+        -not (Test-Path -LiteralPath $binaryKitManifestPath -PathType Leaf)) {
+    throw "Development setup requires a verified MAVI-Offline-Binary-Kit beside the repository (or a canonical setup bundle). Loose vendor staging is release-preparation input, not a target-machine setup source."
+}
 elseif (Test-Path -LiteralPath $binaryKitManifestPath -PathType Leaf) {
     if ($Profile -ne "Development") {
         throw "The MAVI offline binary kit is a preparation/Development dependency source, not a Production application bundle."
