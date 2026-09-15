@@ -11,8 +11,6 @@ dotnet --info
 python --version
 node --version
 npm --version
-ffmpeg -version
-ffprobe -version
 psql --version
 ```
 
@@ -22,8 +20,10 @@ Current repository baseline:
 - Python 3.13+
 - Node.js 22+
 - PostgreSQL 18
-- pgvector extension compatible with PostgreSQL 18
-- FFmpeg and ffprobe
+- approved pgvector extension pack for PostgreSQL 18
+- approved FFmpeg/ffprobe dependency pack
+
+FFmpeg/ffprobe are application dependencies, not workstation prerequisites for a qualified release. Production artifacts must carry the vetted binaries under `tools/ffmpeg/`. Development may temporarily use PATH fallback when the bundle has not yet been staged, but that fallback is explicitly non-qualifying.
 
 ## Run MAVI locally from Visual Studio
 
@@ -79,6 +79,50 @@ dotnet dev-certs https --trust
 ```
 
 Restart Visual Studio afterward.
+
+## Offline native dependency preparation
+
+### FFmpeg / ffprobe
+
+Prepare the application-local dependency pack from a vetted Windows x64 FFmpeg distribution:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/native/stage_ffmpeg_windows.ps1 `
+  -SourceDirectory "C:\Path\To\ApprovedFFmpeg\bin" `
+  -Version "<APPROVED_VERSION>"
+```
+
+The script copies `ffmpeg.exe`, `ffprobe.exe` and the licence/notices into `vendor/ffmpeg/win-x64` and writes SHA-256 values into `vendor/ffmpeg/manifest.json`.
+
+A production publish must require the bundle:
+
+```powershell
+dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:RequireMaviBundledMediaTools=true
+```
+
+At runtime MAVI verifies the manifest, SHA-256 values and executable version checks before serving requests. Production does not search PATH or download FFmpeg.
+
+### PostgreSQL / pgvector
+
+pgvector modifies the PostgreSQL server installation and is therefore handled by the one-time offline bootstrapper, not by normal application startup.
+
+Create an approved prerequisite pack from a known-good PostgreSQL 18 + pgvector installation:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/native/stage_pgvector_windows.ps1 `
+  -PostgreSqlRoot "C:\Program Files\PostgreSQL\18" `
+  -PgVectorVersion "<APPROVED_VERSION>"
+```
+
+Install that pack on the target machine from an elevated PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/native/install_pgvector_windows.ps1 `
+  -PackageRoot "X:\OfflineMedia\pgvector\pg18\win-x64" `
+  -PostgreSqlRoot "C:\Program Files\PostgreSQL\18"
+```
+
+Normal MAVI startup then verifies PostgreSQL major version 18, confirms pgvector is available, enables `vector` in the selected database if required, and only then runs EF migrations.
 
 ## Automatic database migrations
 
@@ -206,7 +250,7 @@ If the message says tests may reset only `mavi_test`, inspect the database compo
 
 ### FFmpeg/ffprobe tests fail
 
-Confirm both executables are available on `PATH` from the same process environment used by Visual Studio or the test shell.
+For a qualified application build, verify that the staged dependency pack is present and its hashes match `vendor/ffmpeg/manifest.json`. Development-only PATH fallback is permitted by `appsettings.Development.json`, but it is not accepted for production qualification.
 
 ### Tests pass in CI but fail on Windows
 
