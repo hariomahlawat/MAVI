@@ -39,8 +39,11 @@ public static class MachineConfigurationStartup
         string fileName;
         if (environment.IsDevelopment())
         {
-            root = Environment.GetFolderPath(
-                Environment.SpecialFolder.LocalApplicationData);
+            root = Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.CommonApplicationData),
+                "MAVI",
+                "Development");
             fileName = "appsettings.development.machine.json";
         }
         else if (environment.IsProduction())
@@ -56,6 +59,8 @@ public static class MachineConfigurationStartup
 
         if (string.IsNullOrWhiteSpace(root))
             return null;
-        return Path.Combine(root, "MAVI", "config", fileName);
+        return environment.IsDevelopment()
+            ? Path.Combine(root, "config", fileName)
+            : Path.Combine(root, "MAVI", "config", fileName);
     }
 }
