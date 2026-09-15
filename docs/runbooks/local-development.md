@@ -112,50 +112,25 @@ The advisory lock serializes migration attempts from concurrent MAVI application
 
 The integration-test host disables automatic startup migration by default because its fixture deliberately resets `mavi_test` and controls migrations explicitly. Dedicated integration tests opt in to startup migration and verify blank-database migration, idempotent current-database startup, and fail-fast lock timeout behavior.
 
-## PostgreSQL databases
+## Managed Development database and integration-test connection
 
-MAVI development and integration tests use separate databases. Never point the integration-test variable at the development or production database.
+`Setup-MAVI-Development.cmd` owns the Development database environment. It creates and maintains:
 
-Create the databases using `database/scripts/create-local-databases.sql`, running the statements individually if required by the PostgreSQL client:
+- PostgreSQL service `MAVI-Dev-PostgreSQL-18` on `127.0.0.1:55433`;
+- `mavi_dev`;
+- `mavi_test`;
+- pgvector in both databases; and
+- machine-scoped `MAVI_TEST_DB_CONNECTION`.
 
-```sql
-CREATE DATABASE mavi_dev;
-CREATE DATABASE mavi_test;
-```
+Do not manually create the databases, switch the integration tests to port 5432, or point tests at another PostgreSQL instance as the normal workflow.
 
-The integration fixture is destructive by design: it drops and recreates the `public` schema and the `vector` extension while preparing tests. For that reason, the code rejects any integration-test connection whose database name is not exactly `mavi_test`.
-
-## Configure the integration-test connection
-
-Set `MAVI_TEST_DB_CONNECTION` to the dedicated test database. Substitute your local PostgreSQL credentials; do not commit passwords or connection strings containing secrets.
-
-For the current PowerShell session:
+The integration fixture is intentionally destructive and may reset only the database named exactly `mavi_test`. If integration tests report a missing/incorrect connection, rerun `Setup-MAVI-Development.cmd` or use:
 
 ```powershell
-$env:MAVI_TEST_DB_CONNECTION = "Host=localhost;Port=5432;Database=mavi_test;Username=postgres;Password=<LOCAL_PASSWORD>"
+powershell -ExecutionPolicy Bypass -File tools/setup/Test-MaviEnvironment.ps1 -Profile Development
 ```
 
-For Visual Studio Test Explorer, Visual Studio must inherit the variable. One simple Windows approach is to create a user environment variable and then restart Visual Studio:
-
-```powershell
-setx MAVI_TEST_DB_CONNECTION "Host=localhost;Port=5432;Database=mavi_test;Username=postgres;Password=<LOCAL_PASSWORD>"
-```
-
-`setx` affects future processes, not the already-running shell or Visual Studio instance. Close all Visual Studio instances and reopen the solution after setting it.
-
-Alternatively, define `MAVI_TEST_DB_CONNECTION` through the Windows Environment Variables UI and restart Visual Studio.
-
-## Confirm PostgreSQL and pgvector
-
-Before running integration tests:
-
-```powershell
-pg_isready -h localhost -p 5432 -U postgres -d mavi_test
-psql -h localhost -p 5432 -U postgres -d mavi_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-psql -h localhost -p 5432 -U postgres -d mavi_test -c "SELECT extname FROM pg_extension WHERE extname='vector';"
-```
-
-If `CREATE EXTENSION vector` is unavailable, install/enable pgvector for the same PostgreSQL major version before continuing.
+Then restart Visual Studio if Setup changed the machine environment.
 
 ## Run the .NET suite
 
@@ -193,21 +168,15 @@ The target is parity with the hosted MAVI Quality Gate: repository verification,
 
 ### Many integration tests fail immediately
 
-If failures complete in milliseconds and show:
-
-```text
-MAVI_TEST_DB_CONNECTION is required for PostgreSQL integration tests
-```
-
-this is a workstation configuration failure, not dozens of independent application defects. Set the variable, restart Visual Studio, and rerun.
+If failures complete in milliseconds and report that `MAVI_TEST_DB_CONNECTION` is missing, this is a workstation setup failure rather than dozens of independent application defects. Rerun `Setup-MAVI-Development.cmd`, verify the Development environment, restart Visual Studio, and rerun the tests.
 
 ### Integration tests reject the connection
 
-If the message says tests may reset only `mavi_test`, inspect the database component of the connection string. Do not weaken the safeguard and do not point tests at `mavi_dev`.
+If the message says tests may reset only `mavi_test`, do not weaken the safeguard or manually repoint tests. Verify the MAVI-owned Development environment; Setup should configure the canonical test database automatically.
 
 ### FFmpeg/ffprobe tests fail
 
-For a qualified application build, verify that the staged dependency pack is present and its hashes match `vendor/ffmpeg/manifest.json`. Development-only PATH fallback is permitted by `appsettings.Development.json`, but it is not accepted for production qualification.
+Rerun Setup or `Test-MaviEnvironment.ps1 -Profile Development`. The supported Development path uses the approved staged/app-local FFmpeg pack; Production never relies on PATH fallback.
 
 ### Tests pass in CI but fail on Windows
 
