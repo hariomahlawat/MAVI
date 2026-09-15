@@ -151,6 +151,14 @@ The repository contains the scripts, manifests and canonical staging locations. 
 
 Git LFS can be adopted later if organisational policy requires binary version control, but Setup does not depend on Git or Git LFS on the target machine.
 
+## Adding a dependency in a future feature
+
+Do not add a separate manual installation procedure as the default response to a new library or runtime requirement.
+
+Follow `docs/architecture/dependency-and-offline-packaging-policy.md` and update `config/dependencies/offline-dependency-policy-v1.json` in the same feature PR. Depending on the dependency type, update the Development cache/wheelhouse, application publish, native/runtime pack, canonical offline bundle, Setup/repair, readiness verification, licence/notices and qualification evidence together.
+
+The target experience should remain unchanged: Development is one setup launcher followed by F5; Production is one setup launcher followed by normal use.
+
 ## Development workstation
 
 Double-click:
@@ -161,7 +169,7 @@ Setup-MAVI-Development.cmd
 
 Setup automatically verifies the offline media; installs the pinned .NET/Node/Python prerequisites only if they are missing; deploys the isolated MAVI PostgreSQL 18 runtime; initializes MAVI-Dev-PostgreSQL-18 on port 55433; creates mavi_dev and mavi_test; enables pgvector; creates media/evidence roots; writes machine-owned Development configuration under ProgramData; configures MAVI_TEST_DB_CONNECTION for the PC; restores the repository from the bundled offline NuGet/npm/Python caches when the source tree is attached; and reuses the same verified FFmpeg pack embedded in the application artifact.
 
-Restart Visual Studio once after first setup so it inherits the new user environment variable. No pgAdmin configuration is required.
+Restart Visual Studio once after first setup so it inherits the machine-scoped Development environment. No pgAdmin configuration is required.
 
 For a repository-based Development workstation, approved payloads may instead be staged under the canonical `vendor/...` paths and the developer can simply double-click `Setup-MAVI-Development.cmd` at the repository root. The script auto-discovers those paths; no port, database or FFmpeg configuration is required.
 
