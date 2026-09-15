@@ -219,8 +219,8 @@ def validate_backup_restore(
     if (
         source_topology.get("maviCommit") != source_commit
         or restore_topology.get("maviCommit") != source_commit
-        or source_topology.get("databaseIdentity") != value.get("sourceDatabaseIdentity")
-        or restore_topology.get("databaseIdentity") != value.get("restoreDatabaseIdentity")
+        or source_topology.get("databaseIdentitySha256") != value.get("sourceDatabaseIdentitySha256")
+        or restore_topology.get("databaseIdentitySha256") != value.get("restoreDatabaseIdentitySha256")
     ):
         raise ClosureError("backup_restore_topology_binding_mismatch")
     if (
@@ -231,7 +231,7 @@ def validate_backup_restore(
         )
     ):
         raise ClosureError("backup_restore_mavi_build_mismatch")
-    if value.get("sourceDatabaseIdentity") == value.get("restoreDatabaseIdentity"):
+    if value.get("sourceDatabaseIdentitySha256") == value.get("restoreDatabaseIdentitySha256"):
         raise ClosureError("backup_restore_database_targets_not_distinct")
     return value
 
@@ -943,7 +943,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             != topology.get("windowsOperationalPlane")
         ):
             raise ClosureError("production_windows_topology_mismatch")
-        if backup_value.get("sourceDatabaseIdentity") != topology.get("database"):
+        if backup_value.get("sourceDatabaseIdentitySha256") != topology.get("database"):
             raise ClosureError("production_database_topology_mismatch")
         if (
             production_variant_values["linux-x86_64-cuda"].get("hostIdentitySha256")
