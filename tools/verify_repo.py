@@ -26,7 +26,11 @@ REQUIRED_PATHS = [
     ".github/pull_request_template.md",
     "Setup-MAVI-Development.cmd",
     "config/dependencies/offline-dependency-policy-v1.json",
+    "config/dependencies/offline-binary-catalog-v1.json",
     "docs/architecture/dependency-and-offline-packaging-policy.md",
+    "vendor/offline-binary-kit/README.md",
+    "tools/setup/New-MaviOfflineBinaryKit.ps1",
+    "tools/setup/Test-MaviOfflineBinaryKit.ps1",
     "docs/runbooks/local-development.md",
     "docs/runbooks/mavi-offline-setup.md",
     "docs/runbooks/offline-readiness.md",
@@ -97,6 +101,13 @@ PROHIBITED_TRACKED_SUFFIXES = {
     ".mp4", ".avi", ".mov", ".mkv", ".m4v", ".webm",
     ".pem", ".key", ".pfx", ".p12",
 }
+
+PROHIBITED_DISTRIBUTABLE_SUFFIXES = {
+    ".exe", ".dll", ".msi", ".msix", ".zip", ".7z", ".rar", ".nupkg",
+    ".so", ".pyd", ".dylib",
+}
+
+MAX_UNAPPROVED_TRACKED_FILE_BYTES = 10 * 1024 * 1024
 
 PRODUCTION_SCAN_ROOTS = [
     ROOT / "src/platform",
@@ -418,6 +429,141 @@ def check_dependency_policy(errors: list[str]) -> None:
             )
 
 
+def check_offline_binary_catalog(errors: list[str]) -> None:
+    """Validate the repository-owned external-binary/version baseline."""
+
+    catalog_path = ROOT / "config/dependencies/offline-binary-catalog-v1.json"
+    try:
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"Offline binary catalog is invalid JSON: {exc}", errors)
+        return
+
+    if catalog.get("schemaVersion") != "mavi-offline-binary-catalog-v1":
+        fail("Offline binary catalog schemaVersion is invalid.", errors)
+        return
+
+    git_policy = catalog.get("gitPolicy")
+    if not isinstance(git_policy, dict):
+        fail("Offline binary catalog has no gitPolicy object.", errors)
+    else:
+        if git_policy.get("trackedThirdPartyExecutables") is not False:
+            fail("Offline binary catalog must prohibit tracked third-party executables.", errors)
+        if git_policy.get("maximumUnapprovedTrackedFileBytes") != MAX_UNAPPROVED_TRACKED_FILE_BYTES:
+            fail(
+                "Offline binary catalog tracked-file size policy does not match repository verification.",
+                errors,
+            )
+
+    components = catalog.get("applicationAndSetup")
+    required_ids = {
+        "postgresql-win-x64",
+        "pgvector-pg18-win-x64",
+        "ffmpeg-win-x64",
+        "dotnet-hosting-win-x64",
+        "dotnet-sdk-win-x64",
+        "node-win-x64",
+        "python-development-win-x64",
+        "developer-nuget-cache",
+        "developer-npm-cache",
+        "developer-python-wheelhouse",
+    }
+    if not isinstance(components, list):
+        fail("Offline binary catalog applicationAndSetup must be a list.", errors)
+        components = []
+
+    by_id: dict[str, dict[str, object]] = {}
+    required_fields = {
+        "id",
+        "role",
+        "profiles",
+        "versionPolicy",
+        "baselineVersion",
+        "exactVersionSource",
+        "binaryKitPath",
+        "releasePath",
+        "verification",
+        "licence",
+    }
+    for component in components:
+        if not isinstance(component, dict) or not required_fields.issubset(component):
+            fail("Offline binary catalog component is incomplete.", errors)
+            continue
+        component_id = component.get("id")
+        if not isinstance(component_id, str) or not component_id or component_id in by_id:
+            fail("Offline binary catalog component IDs must be unique and non-empty.", errors)
+            continue
+        by_id[component_id] = component
+        if not isinstance(component.get("profiles"), list) or not component["profiles"]:
+            fail(f"Offline binary catalog component {component_id} has no profiles.", errors)
+        for field in required_fields - {"id", "profiles"}:
+            if not isinstance(component.get(field), str) or not component[field]:
+                fail(f"Offline binary catalog component {component_id} has empty {field}.", errors)
+
+    missing = required_ids - set(by_id)
+    extra = set(by_id) - required_ids
+    if missing:
+        fail(f"Offline binary catalog is missing required components: {sorted(missing)}", errors)
+    if extra:
+        fail(f"Offline binary catalog has unrecognized components: {sorted(extra)}", errors)
+
+    try:
+        global_json = json.loads((ROOT / "global.json").read_text(encoding="utf-8"))
+        sdk_version = str(global_json["sdk"]["version"])
+        catalog_sdk = str(by_id.get("dotnet-sdk-win-x64", {}).get("baselineVersion", ""))
+        if sdk_version != catalog_sdk:
+            fail(
+                f"Offline binary catalog .NET SDK baseline {catalog_sdk!r} "
+                f"does not match global.json {sdk_version!r}.",
+                errors,
+            )
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        fail(f"Unable to reconcile global.json with offline binary catalog: {exc}", errors)
+
+    try:
+        runtime = json.loads(
+            (ROOT / "src/vision/runtime/mmdetection-phase1-v1/runtime.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        vision = catalog.get("visionRuntime")
+        if not isinstance(vision, dict):
+            fail("Offline binary catalog has no visionRuntime object.", errors)
+        else:
+            if vision.get("runtimeProfileId") != runtime.get("runtimeProfileId"):
+                fail("Offline binary catalog vision runtime profile ID is stale.", errors)
+            if vision.get("semanticGraph") != runtime.get("semanticGraph"):
+                fail("Offline binary catalog vision semantic graph is stale.", errors)
+            catalog_python = vision.get("python")
+            if not isinstance(catalog_python, dict):
+                fail("Offline binary catalog vision Python identities are missing.", errors)
+            else:
+                for variant in ("windows-x86_64-cpu", "linux-x86_64-cpu"):
+                    observed = (
+                        runtime.get("platformVariants", {})
+                        .get(variant, {})
+                        .get("pythonIdentity", {})
+                        .get("version")
+                    )
+                    if catalog_python.get(variant) != observed:
+                        fail(
+                            f"Offline binary catalog Python version for {variant} "
+                            f"does not match runtime qualification metadata.",
+                            errors,
+                        )
+                for variant in ("windows-x86_64-cuda", "linux-x86_64-cuda"):
+                    runtime_status = runtime.get("platformVariants", {}).get(variant, {}).get("status")
+                    if runtime_status == "pending-hardware-qualification":
+                        if catalog_python.get(variant) != "pending-hardware-qualification":
+                            fail(
+                                f"Offline binary catalog must keep {variant} pending until "
+                                "hardware qualification freezes its Python identity.",
+                                errors,
+                            )
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"Unable to reconcile vision runtime with offline binary catalog: {exc}", errors)
+
+
 def check_contracts(errors: list[str]) -> None:
     if jsonschema is None:
         fail("Python package 'jsonschema' is required to validate contract examples.", errors)
@@ -718,10 +864,27 @@ def check_runtime_lock_file(path: Path, errors: list[str]) -> None:
 
 def check_tracked_binaries_and_secrets(errors: list[str]) -> None:
     for path in tracked_files():
-        if path.suffix.lower() in PROHIBITED_TRACKED_SUFFIXES:
-            fail(f"Prohibited model/media/secret file is tracked: {path.relative_to(ROOT)}", errors)
+        suffix = path.suffix.lower()
+        relative = path.relative_to(ROOT)
+        if suffix in PROHIBITED_TRACKED_SUFFIXES:
+            fail(f"Prohibited model/media/secret file is tracked: {relative}", errors)
+        if suffix in PROHIBITED_DISTRIBUTABLE_SUFFIXES:
+            fail(
+                f"Third-party/generated distributable payload must live in the offline binary kit, "
+                f"not ordinary Git: {relative}",
+                errors,
+            )
+        try:
+            if path.stat().st_size > MAX_UNAPPROVED_TRACKED_FILE_BYTES:
+                fail(
+                    f"Tracked file exceeds the {MAX_UNAPPROVED_TRACKED_FILE_BYTES // (1024 * 1024)} MiB "
+                    f"ordinary-Git limit and requires an explicit packaging decision: {relative}",
+                    errors,
+                )
+        except OSError as exc:
+            fail(f"Unable to inspect tracked file size for {relative}: {exc}", errors)
         if path.name in {".env", "secrets.json"}:
-            fail(f"Prohibited secret file is tracked: {path.relative_to(ROOT)}", errors)
+            fail(f"Prohibited secret file is tracked: {relative}", errors)
 
 
 def check_vision_release_metadata(errors: list[str]) -> None:
@@ -1053,6 +1216,7 @@ def main() -> int:
     check_required_paths(errors)
     check_project_references(errors)
     check_dependency_policy(errors)
+    check_offline_binary_catalog(errors)
     check_contracts(errors)
     check_phase1_acceptance_assets(errors)
     check_production_urls(errors)
@@ -1069,6 +1233,8 @@ def main() -> int:
     print(f" - required paths: {len(REQUIRED_PATHS)}")
     print(f" - project boundaries: {len(ALLOWED_REFERENCES)}")
     print(" - direct dependency/offline packaging policy: synchronized")
+    print(" - offline binary/version catalog: synchronized")
+    print(" - ordinary Git executable/archive/large-file gate: clean")
     print(" - contract examples: 7")
     print(" - Task-17 acceptance schemas/configuration: validated")
     print(" - production Internet URL scan: clean")
