@@ -190,3 +190,27 @@ def test_performance_gate_rejects_forged_easier_thresholds(monkeypatch):
     monkeypatch.setattr(mod, "_validate_schema", lambda *_: None)
     with pytest.raises(mod.PromotionError, match="promotion_performance_thresholds_mismatch"):
         mod._validate_performance_evidence(value, "a" * 64, policy(), "build-a")
+
+
+def test_offline_aggregate_rejects_cross_spliced_variant_evidence(tmp_path: Path):
+    cpu = tmp_path / "cpu.json"
+    cuda = tmp_path / "cuda.json"
+    aggregate = tmp_path / "offline.json"
+    cpu.write_text('{"variant":"windows-x86_64-cpu"}', encoding="utf-8")
+    cuda.write_text('{"variant":"windows-x86_64-cuda"}', encoding="utf-8")
+    aggregate.write_text(json.dumps({
+        "variantEvidenceSha256": {
+            "windows-x86_64-cpu": mod.sha256_file_bytes(cpu),
+            "windows-x86_64-cuda": "0" * 64,
+        }
+    }), encoding="utf-8")
+    gates = {
+        "windows-x86_64-cpu": cpu,
+        "windows-x86_64-cuda": cuda,
+        "windows-offline-install": aggregate,
+    }
+    with pytest.raises(
+        mod.PromotionError,
+        match="promotion_offline_variant_evidence_binding_mismatch",
+    ):
+        mod._validate_offline_aggregate_bindings(gates)
