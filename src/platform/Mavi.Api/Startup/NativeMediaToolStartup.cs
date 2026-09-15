@@ -97,10 +97,11 @@ public static class NativeMediaToolStartup
                 "Bundled media-tool manifest is invalid.");
 
         if (!string.Equals(manifest.SchemaVersion, "1.0", StringComparison.Ordinal) ||
-            string.IsNullOrWhiteSpace(manifest.Version))
+            string.IsNullOrWhiteSpace(manifest.Version) ||
+            manifest.Artifacts is not { Length: > 0 })
         {
             throw new InvalidOperationException(
-                "Bundled media-tool manifest has an unsupported schema or missing version.");
+                "Bundled media-tool manifest has an unsupported schema or missing required data.");
         }
 
         if (!string.Equals(
@@ -128,10 +129,13 @@ public static class NativeMediaToolStartup
                 StringComparison.OrdinalIgnoreCase));
         if (artifact is null ||
             string.IsNullOrWhiteSpace(artifact.Sha256) ||
-            artifact.Sha256.Length != 64)
+            artifact.Sha256.Length != 64 ||
+            artifact.Sha256.Any(character =>
+                character is not (>= '0' and <= '9') and
+                not (>= 'a' and <= 'f')))
         {
             throw new InvalidOperationException(
-                $"Bundled media-tool manifest has no valid SHA-256 for '{name}'.");
+                $"Bundled media-tool manifest has no valid lowercase SHA-256 for '{name}'.");
         }
 
         using var file = File.OpenRead(executablePath);
