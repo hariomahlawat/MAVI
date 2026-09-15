@@ -25,6 +25,61 @@ Current repository baseline:
 - pgvector extension compatible with PostgreSQL 18
 - FFmpeg and ffprobe
 
+## Run MAVI locally from Visual Studio
+
+For normal local development, set **Mavi.Api** as the startup project and press **F5** (or **Ctrl+F5**).
+
+The repository uses ASP.NET Core's development SPA proxy:
+
+1. Visual Studio starts `Mavi.Api` on `https://localhost:62152`.
+2. The SPA proxy starts `npm run dev` in `src/web/mavi-web` when Vite is not already running.
+3. Vite listens only on `http://127.0.0.1:5173` with a strict port.
+4. The browser is redirected to the Vite development UI.
+5. Vite proxies `/api/*` back to the running ASP.NET Core API.
+
+This behavior is local-development only. Published MAVI builds continue to serve the compiled React application from ASP.NET Core/IIS as same-origin static content.
+
+### First local launch
+
+Install the frontend dependencies once:
+
+```powershell
+cd src/web/mavi-web
+npm ci
+cd ../../..
+```
+
+Then start **Mavi.Api** from Visual Studio. A successful F5 launch should open the React UI rather than the API root.
+
+The local API proxy target defaults to:
+
+```text
+https://localhost:62152
+```
+
+and is also set explicitly in the Visual Studio launch profile through `MAVI_API_PROXY_TARGET`.
+
+### Manual frontend launch
+
+If you intentionally want to run Vite yourself, keep `Mavi.Api` running and execute:
+
+```powershell
+cd src/web/mavi-web
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. The strict port prevents Vite from silently moving to a different port and breaking the SPA-proxy contract.
+
+### Local HTTPS certificate
+
+If the browser or Vite proxy reports a local certificate problem, trust the .NET development certificate once:
+
+```powershell
+dotnet dev-certs https --trust
+```
+
+Restart Visual Studio afterward.
+
 ## PostgreSQL databases
 
 MAVI development and integration tests use separate databases. Never point the integration-test variable at the development or production database.
