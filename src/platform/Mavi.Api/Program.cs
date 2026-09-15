@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Server.IIS;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddMaviMachineConfiguration();
 builder.Services.AddMaviInfrastructure(builder.Configuration);
 builder.Services.AddDatabaseMigrationStartup(builder.Configuration);
 builder.Services.AddHealthChecks();
@@ -31,6 +32,7 @@ builder.Services.Configure<FormOptions>(options =>
 });
 
 var app = builder.Build();
+await app.VerifyNativeMediaToolsAsync();
 await app.ApplyDatabaseMigrationsAsync();
 app.UseVisionCompletionRequestLimits();
 app.UseDefaultFiles();

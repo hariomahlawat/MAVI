@@ -11,6 +11,16 @@ Task 12 produces CPU **qualification-candidate** bundles for:
 
 CUDA bundle qualification remains pending hardware qualification. Task 12 does not promote the model manifest to `verified`, the runtime to `qualified`, or the formal offline-install qualification gates to `passed`.
 
+## Relationship to the MAVI application setup bundle
+
+This directory documents the **vision-worker runtime bundle**, not the Windows operational-plane installer.
+
+The Windows Development/Production application environment is prepared through the canonical MAVI setup bundle described in `docs/runbooks/mavi-offline-setup.md`. That bundle carries the qualified MAVI application, MAVI-owned PostgreSQL 18 + pgvector runtime, ASP.NET Core hosting prerequisite and Development toolchain/cache material.
+
+Vision CPU/CUDA bundles remain separate because they are platform/device-qualified Python/model runtime closures. Final acceptance binds the Windows application/setup identity and the selected vision-runtime bundle identity together.
+
+Future Python/model/native dependencies must follow `docs/architecture/dependency-and-offline-packaging-policy.md`; do not add an untracked wheel or manual target-host installation step.
+
 ## Release modes
 
 ### Qualification candidate
@@ -29,9 +39,9 @@ Task 17 must generate a production bundle for every required qualified platform/
 
 The exact CPython patch version for the selected bundle must already be provisioned on the target host.
 
-Task 12 does not bundle or install the operating system, Windows Server/IIS, PostgreSQL/pgvector, CPython itself, NVIDIA/CUDA drivers, compiler toolchains, or the complete MAVI application deployment. Target-machine compilation is prohibited.
+The vision-runtime bundle does not install the operating system, Windows Server/IIS, PostgreSQL/pgvector, CPython itself, NVIDIA/CUDA drivers, compiler toolchains, or the complete MAVI application deployment. Target-machine compilation is prohibited.
 
-For final Task-17 Phase-1 acceptance, those prerequisites must be pre-provisioned or installed from separately controlled offline media. The MAVI application build/deployment artifact is identified and hashed separately from this vision runtime bundle. Final acceptance evidence must bind both the application build identity and the selected vision-runtime production-bundle identity.
+The Windows operational-plane prerequisites are owned by the canonical MAVI application setup media. Vision-host prerequisites such as the exact CPython/NVIDIA/CUDA baseline remain controlled offline prerequisites for the qualified worker topology. Final Task-17 evidence must bind the application/setup identity and selected vision-runtime production-bundle identity together.
 
 ## Directory contract
 

@@ -15,6 +15,14 @@ public sealed class DatabaseMigrationOptions
     public int CommandTimeoutSeconds { get; init; } = 300;
 }
 
+public sealed class DatabasePrerequisiteOptions
+{
+    public const string SectionName = "DatabasePrerequisites";
+
+    public int RequiredPostgreSqlMajorVersion { get; init; } = 18;
+    public bool RequirePgVector { get; init; } = true;
+}
+
 public static class DatabaseMigrationStartup
 {
     // Stable, application-owned PostgreSQL advisory-lock key pair.
@@ -59,6 +67,12 @@ public static class DatabaseMigrationStartup
             new EventId(1805, "DatabaseMigrationFailure"),
             "Database startup migration failed. MAVI will not start with an unverified schema state.");
 
+    private static readonly Action<ILogger, int, string, Exception?> LogDatabasePrerequisitesVerified =
+        LoggerMessage.Define<int, string>(
+            LogLevel.Information,
+            new EventId(1806, "DatabasePrerequisitesVerified"),
+            "Verified PostgreSQL {PostgreSqlMajorVersion} and pgvector {PgVectorVersion} prerequisites.");
+
     public static IServiceCollection AddDatabaseMigrationStartup(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -71,6 +85,12 @@ public static class DatabaseMigrationStartup
             .Validate(
                 options => options.CommandTimeoutSeconds is >= 30 and <= 3600,
                 "DatabaseMigrations:CommandTimeoutSeconds must be between 30 and 3600.")
+            .ValidateOnStart();
+        services.AddOptions<DatabasePrerequisiteOptions>()
+            .Bind(configuration.GetSection(DatabasePrerequisiteOptions.SectionName))
+            .Validate(
+                options => options.RequiredPostgreSqlMajorVersion is >= 12 and <= 99,
+                "DatabasePrerequisites:RequiredPostgreSqlMajorVersion is invalid.")
             .ValidateOnStart();
 
         return services;
@@ -93,6 +113,9 @@ public static class DatabaseMigrationStartup
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger("Mavi.DatabaseMigration");
         var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        var prerequisites = scope.ServiceProvider
+            .GetRequiredService<IOptions<DatabasePrerequisiteOptions>>()
+            .Value;
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
@@ -113,6 +136,12 @@ public static class DatabaseMigrationStartup
 
             try
             {
+                await EnsureDatabasePrerequisitesAsync(
+                    connection,
+                    prerequisites,
+                    logger,
+                    cancellationToken);
+
                 var applied = (await db.Database
                     .GetAppliedMigrationsAsync(cancellationToken))
                     .ToHashSet(StringComparer.Ordinal);
@@ -188,6 +217,90 @@ public static class DatabaseMigrationStartup
             if (closeWhenDone && connection.State != ConnectionState.Closed)
                 await connection.CloseAsync();
         }
+    }
+
+    private static async Task EnsureDatabasePrerequisitesAsync(
+        NpgsqlConnection connection,
+        DatabasePrerequisiteOptions options,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        await using var versionCommand = connection.CreateCommand();
+        versionCommand.CommandText =
+            "select current_setting('server_version_num')::int;";
+        var versionValue = await versionCommand.ExecuteScalarAsync(
+            cancellationToken);
+        var versionNumber = Convert.ToInt32(
+            versionValue,
+            System.Globalization.CultureInfo.InvariantCulture);
+        var majorVersion = versionNumber / 10000;
+        if (majorVersion != options.RequiredPostgreSqlMajorVersion)
+        {
+            throw new InvalidOperationException(
+                $"MAVI requires PostgreSQL {options.RequiredPostgreSqlMajorVersion}; " +
+                $"the connected server reports major version {majorVersion}.");
+        }
+
+        if (!options.RequirePgVector)
+            return;
+
+        await using var availabilityCommand = connection.CreateCommand();
+        availabilityCommand.CommandText =
+            "select default_version from pg_available_extensions " +
+            "where name = 'vector';";
+        var availableVersion = Convert.ToString(
+            await availabilityCommand.ExecuteScalarAsync(cancellationToken),
+            System.Globalization.CultureInfo.InvariantCulture);
+        if (string.IsNullOrWhiteSpace(availableVersion))
+        {
+            throw new InvalidOperationException(
+                "MAVI PostgreSQL prerequisite is missing: pgvector is not installed " +
+                "for this PostgreSQL server. Install the approved offline pgvector " +
+                "package before starting MAVI.");
+        }
+
+        await using var installedCommand = connection.CreateCommand();
+        installedCommand.CommandText =
+            "select extversion from pg_extension where extname = 'vector';";
+        var installedVersion = Convert.ToString(
+            await installedCommand.ExecuteScalarAsync(cancellationToken),
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        if (string.IsNullOrWhiteSpace(installedVersion))
+        {
+            try
+            {
+                await using var enableCommand = connection.CreateCommand();
+                enableCommand.CommandText = "create extension vector;";
+                await enableCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (PostgresException exception)
+            {
+                throw new InvalidOperationException(
+                    "pgvector is installed on the PostgreSQL server but is not enabled in this database. " +
+                    "Run the MAVI setup/bootstrapper with administrative database privileges, or grant the " +
+                    "database principal permission to create the approved extension.",
+                    exception);
+            }
+
+            await using var verifyCommand = connection.CreateCommand();
+            verifyCommand.CommandText =
+                "select extversion from pg_extension where extname = 'vector';";
+            installedVersion = Convert.ToString(
+                await verifyCommand.ExecuteScalarAsync(cancellationToken),
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
+        if (string.IsNullOrWhiteSpace(installedVersion))
+        {
+            throw new InvalidOperationException(
+                "MAVI could not verify the enabled pgvector extension.");
+        }
+
+        LogDatabasePrerequisitesVerified(
+            logger,
+            majorVersion,
+            installedVersion,
+            null);
     }
 
     private static async Task AcquireMigrationLockAsync(

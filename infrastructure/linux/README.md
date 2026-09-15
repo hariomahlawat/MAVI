@@ -13,8 +13,15 @@ Python: CPython 3.12.14
 
 Provision CPython `3.12.14` before consuming the bundle. Install only from the supplied wheelhouse and lock using the command in `infrastructure/offline-bundle/README.md` / bundle `INSTALL.txt`.
 
-The Task-12 bundle is a `qualification-candidate` until Task 14 completes formal disconnected-install, CUDA hardware, recovery, CCTV quality and production-performance qualification.
+The Task-12 bundle remains a `qualification-candidate` until the Task-17 Phase-1 qualification/acceptance gates complete formal disconnected installation, CUDA hardware, recovery, CCTV quality and production-performance evidence.
 
 Do not infer Linux CUDA support from the CPU bundle. `linux-x86_64-cuda` remains pending hardware qualification and must receive its own qualified wheel lock after the CUDA environment is frozen.
 
 Runtime release files remain local and read-only inside the deployment boundary. No package-index, model-hub or first-run download fallback is permitted.
+
+
+## Future runtime dependencies
+
+A new Python/native/CUDA/model dependency is not complete when it merely imports on a connected workstation. Update `config/dependencies/offline-dependency-policy-v1.json`, the applicable platform lock/wheelhouse/runtime bundle, licence/provenance records and disconnected qualification in the same feature.
+
+Follow `docs/architecture/dependency-and-offline-packaging-policy.md`. Runtime package-index, model-hub, first-run download and silent CPU fallback remain prohibited.

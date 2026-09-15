@@ -1,0 +1,191 @@
+{
+  "schemaVersion": "mavi-offline-binary-catalog-v1",
+  "catalogStatus": "implementation-baseline",
+  "purpose": "Repository-owned version and packaging policy for external binary/toolchain payloads kept outside ordinary Git history.",
+  "gitPolicy": {
+    "trackedThirdPartyExecutables": false,
+    "maximumUnapprovedTrackedFileBytes": 10485760,
+    "rationale": "Keep ordinary clones small and prevent unreviewed executable/archive payloads from bypassing staged hashes, licences and release-media manifests."
+  },
+  "applicationAndSetup": [
+    {
+      "id": "postgresql-win-x64",
+      "role": "database-runtime",
+      "profiles": [
+        "Development",
+        "Production"
+      ],
+      "versionPolicy": "major-exact-observed-patch",
+      "baselineVersion": "18",
+      "exactVersionSource": "PostgreSQL runtime-pack manifest field postgresqlVersion",
+      "binaryKitPath": "vendor/postgresql/pg18/win-x64",
+      "releasePath": "prerequisites/postgresql/pg18/win-x64",
+      "verification": "nested SHA-256 runtime-pack manifest plus postgres --version",
+      "licence": "LICENSE-POSTGRESQL.txt",
+      "dependencyPolicyId": "postgresql-pgvector-win-x64"
+    },
+    {
+      "id": "pgvector-pg18-win-x64",
+      "role": "database-extension",
+      "profiles": [
+        "Development",
+        "Production"
+      ],
+      "versionPolicy": "exact-observed",
+      "baselineVersion": "from-staged-runtime",
+      "exactVersionSource": "PostgreSQL runtime-pack manifest field pgvectorVersion",
+      "binaryKitPath": "vendor/postgresql/pg18/win-x64",
+      "releasePath": "prerequisites/postgresql/pg18/win-x64",
+      "verification": "nested SHA-256 runtime-pack manifest plus pg_available_extensions/CREATE EXTENSION",
+      "licence": "LICENSE-PGVECTOR.txt",
+      "dependencyPolicyId": "postgresql-pgvector-win-x64"
+    },
+    {
+      "id": "ffmpeg-win-x64",
+      "role": "application-native-media-tool",
+      "profiles": [
+        "Development",
+        "Production"
+      ],
+      "versionPolicy": "exact-observed",
+      "baselineVersion": "from-staged-manifest",
+      "exactVersionSource": "FFmpeg dependency-pack manifest field version",
+      "binaryKitPath": "vendor/ffmpeg",
+      "releasePath": "application/tools/ffmpeg",
+      "verification": "nested SHA-256 manifest plus ffmpeg/ffprobe version viability",
+      "licence": "win-x64/LICENSE.txt",
+      "dependencyPolicyId": "ffmpeg-win-x64"
+    },
+    {
+      "id": "dotnet-hosting-win-x64",
+      "role": "production-hosting-runtime",
+      "profiles": [
+        "Production"
+      ],
+      "versionPolicy": "same-major-minimum-patch",
+      "baselineVersion": "10.0.11",
+      "exactVersionSource": "binary-kit observed installer file version",
+      "binaryKitPath": "vendor/installers/win-x64/dotnet-hosting.exe",
+      "releasePath": "prerequisites/hosting/win-x64/dotnet-hosting.exe",
+      "verification": "binary-kit SHA-256 plus installed Microsoft.AspNetCore.App 10.x/ANCM check",
+      "licence": "approved Microsoft redistributable terms retained by release preparation",
+      "dependencyPolicyId": "dotnet-hosting-win-x64"
+    },
+    {
+      "id": "dotnet-sdk-win-x64",
+      "role": "development-sdk",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "global-json-baseline-compatible",
+      "baselineVersion": "10.0.100",
+      "exactVersionSource": "global.json plus binary-kit observed installer file version",
+      "binaryKitPath": "vendor/installers/win-x64/dotnet-sdk.exe",
+      "releasePath": "prerequisites/developer/win-x64/dotnet-sdk.exe",
+      "verification": "binary-kit SHA-256 plus dotnet --list-sdks",
+      "licence": "approved Microsoft redistributable terms retained by release preparation",
+      "dependencyPolicyId": "developer-toolchain-win-x64"
+    },
+    {
+      "id": "node-win-x64",
+      "role": "development-toolchain",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "major-22-minimum",
+      "baselineVersion": "22.13.0",
+      "exactVersionSource": "binary-kit MSI ProductVersion",
+      "binaryKitPath": "vendor/installers/win-x64/node.msi",
+      "releasePath": "prerequisites/developer/win-x64/node.msi",
+      "verification": "binary-kit SHA-256 plus node --version >=22.13.0 <23",
+      "licence": "approved Node.js redistribution/licence material retained by release preparation",
+      "dependencyPolicyId": "developer-toolchain-win-x64"
+    },
+    {
+      "id": "python-development-win-x64",
+      "role": "development-toolchain",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "major-minor-exact-observed-patch",
+      "baselineVersion": "3.13",
+      "exactVersionSource": "binary-kit installer file version plus python --version",
+      "binaryKitPath": "vendor/installers/win-x64/python.exe",
+      "releasePath": "prerequisites/developer/win-x64/python.exe",
+      "verification": "binary-kit SHA-256 plus Python 3.13.x check",
+      "licence": "approved CPython redistribution/licence material retained by release preparation",
+      "dependencyPolicyId": "developer-toolchain-win-x64"
+    },
+    {
+      "id": "developer-nuget-cache",
+      "role": "development-offline-cache",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "derived-from-solution",
+      "baselineVersion": "dependency-closure",
+      "exactVersionSource": "developer-cache-manifest.json NuGet package/version inventory generated from a fresh solution restore",
+      "binaryKitPath": "vendor/developer-cache/win-x64/nuget-packages",
+      "releasePath": "prerequisites/developer/win-x64/nuget-packages",
+      "verification": "binary-kit file hashes plus disconnected dotnet restore/build",
+      "licence": "package licences governed by dependency policy",
+      "dependencyPolicyId": "developer-offline-caches"
+    },
+    {
+      "id": "developer-npm-cache",
+      "role": "development-offline-cache",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "derived-from-package-lock",
+      "baselineVersion": "package-lock-v3-closure",
+      "exactVersionSource": "developer-cache-manifest.json npm package/version inventory derived from package-lock.json",
+      "binaryKitPath": "vendor/developer-cache/win-x64/npm-cache",
+      "releasePath": "prerequisites/developer/win-x64/npm-cache",
+      "verification": "binary-kit file hashes plus npm ci --offline and frontend build",
+      "licence": "package licences governed by package-lock/dependency policy",
+      "dependencyPolicyId": "developer-offline-caches"
+    },
+    {
+      "id": "developer-python-wheelhouse",
+      "role": "development-offline-cache",
+      "profiles": [
+        "Development"
+      ],
+      "versionPolicy": "derived-from-pyproject",
+      "baselineVersion": "development-wheel-closure",
+      "exactVersionSource": "developer-cache-manifest.json exact wheel filenames/SHA-256 derived from pyproject.toml Development closure",
+      "binaryKitPath": "vendor/developer-cache/win-x64/python-wheelhouse",
+      "releasePath": "prerequisites/developer/win-x64/python-wheelhouse",
+      "verification": "binary-kit file hashes plus pip --no-index install and pytest",
+      "licence": "package licences governed by dependency policy",
+      "dependencyPolicyId": "developer-offline-caches"
+    }
+  ],
+  "visionRuntime": {
+    "runtimeProfileId": "mmdetection-phase1-v1",
+    "python": {
+      "windows-x86_64-cpu": "3.12.10",
+      "linux-x86_64-cpu": "3.12.14",
+      "windows-x86_64-cuda": "pending-hardware-qualification",
+      "linux-x86_64-cuda": "pending-hardware-qualification"
+    },
+    "semanticGraph": {
+      "torch": "2.6.0",
+      "torchvision": "0.21.0",
+      "mmcv": "2.1.0",
+      "mmengine": "0.10.7",
+      "mmdet": "3.3.0",
+      "trackers": "2.6.0",
+      "supervision": "0.30.2",
+      "scipy": "1.18.1",
+      "numpy": "2.5.3",
+      "opencv": "5.0.0",
+      "av": "16.1.0",
+      "opencvPython": "5.0.0.93",
+      "pillow": "11.3.0"
+    },
+    "storagePolicy": "Qualified platform/model bundles are retained outside ordinary Git and remain separately manifest/hash qualified; the Windows application binary kit does not silently substitute for vision qualification.",
+    "dependencyPolicyId": "vision-model-runtime-bundles"
+  }
+}

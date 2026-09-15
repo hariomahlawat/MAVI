@@ -1,20 +1,27 @@
 # Windows Operational Deployment
 
-Target platform role: ASP.NET Core operational platform behind IIS on Windows Server. Detailed service-account, certificate, PostgreSQL placement and backup procedures remain separate from Task-12 vision runtime work.
+## Operational plane
 
-## Task-12 Windows vision CPU bundle
+The supported Production operational plane is ASP.NET Core behind IIS on Windows. Normal installation is performed from the canonical MAVI offline setup media by double-clicking:
 
-Where a native Windows vision worker is deployed, the qualified hosted CPU baseline uses:
+```text
+Setup-MAVI-Production.cmd
+```
 
-~~~text
-platform variant: windows-x86_64-cpu
-Python: CPython 3.12.10
-~~~
+Setup verifies the complete media, provisions/repairs the MAVI-owned PostgreSQL 18 + pgvector service, protected machine configuration, IIS/ASP.NET Core 10 hosting prerequisites, storage ACLs and LAN firewall rule, deploys the qualified application artifact, starts MAVI and verifies health/UI readiness. EF Core migrations are then applied automatically by fail-closed application startup.
 
-Provision CPython `3.12.10` before consuming the bundle. Install only from the supplied wheelhouse and lock using the command in `infrastructure/offline-bundle/README.md` / bundle `INSTALL.txt`.
+Do not make a Production deployment depend on manual PATH edits, pgAdmin, package-manager commands or first-run Internet access.
 
-The Task-12 bundle is a `qualification-candidate` until Task 14 completes formal disconnected-install and remaining hardware/quality gates.
+See `docs/runbooks/mavi-offline-setup.md`.
 
-Do not infer Windows CUDA qualification from the CPU bundle. `windows-x86_64-cuda` remains pending hardware qualification and requires a separately frozen/qualified CUDA wheel closure.
+## Vision workers on Windows
+
+Where a native Windows vision worker is required, it remains a separately qualified runtime bundle tied to its exact platform/device variant. Install only from the supplied wheelhouse and immutable runtime lock; do not infer CUDA qualification from CPU qualification.
 
 Model/config/profile/runtime artifacts are consumed from local controlled storage. No package-index, model-hub, online licence or first-run download fallback is permitted.
+
+The exact current runtime/qualification truth is governed by the model manifest, runtime profile, platform locks and `docs/runbooks/phase1-acceptance.md`, not by this infrastructure overview.
+
+## Future prerequisites
+
+Any new Windows library/runtime/native/OS prerequisite must follow `docs/architecture/dependency-and-offline-packaging-policy.md`: update dependency policy, offline media, Setup/readiness, hashes/version checks, licences and qualification in the same feature.
