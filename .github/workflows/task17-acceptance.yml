@@ -8,12 +8,21 @@ on:
       - 'config/acceptance/**'
       - 'sample-data/ground-truth/**'
       - 'tools/phase1/**'
+      - 'tools/native/**'
+      - 'tools/setup/**'
+      - 'config/setup/**'
+      - 'config/dependencies/**'
+      - 'Setup-MAVI-Development.cmd'
       - 'src/platform/**'
       - 'src/vision/**'
       - 'models/**'
-      - 'docs/runbooks/phase1-acceptance.md'
+      - 'docs/**'
       - '.github/workflows/task17-acceptance.yml'
       - 'tools/verify_repo.py'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'CONTRIBUTING.md'
+      - '.github/pull_request_template.md'
   workflow_dispatch:
 
 permissions:
@@ -91,9 +100,23 @@ jobs:
           $ErrorActionPreference = "Stop"
           $scripts = @(
             "tools/phase1/qualify_windows_offline.ps1",
-            "tools/phase1/qualify_application_lifecycle.ps1"
+            "tools/phase1/qualify_application_lifecycle.ps1",
+            "tools/native/stage_ffmpeg_windows.ps1",
+            "tools/native/stage_pgvector_windows.ps1",
+            "tools/native/install_pgvector_windows.ps1",
+            "tools/native/stage_postgresql_runtime_windows.ps1",
+            "tools/setup/Setup-MAVI.ps1",
+            "tools/setup/New-MaviOfflineSetupBundle.ps1",
+            "tools/setup/New-MaviOfflineBinaryKit.ps1",
+            "tools/setup/Test-MaviOfflineBinaryKit.ps1",
+            "tools/setup/Prepare-MaviDeveloperOfflineCache.ps1",
+            "tools/setup/Test-MaviEnvironment.ps1",
+            "tools/setup/Test-MaviSetupContracts.ps1",
+            "tools/setup/Mavi.Setup.Common.psm1",
+            "tools/setup/Mavi.Setup.Windows.psm1"
           )
           foreach ($script in $scripts) {
+            Write-Host "Parsing $script"
             $tokens = $null
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile(
@@ -102,7 +125,15 @@ jobs:
               [ref]$errors
             )
             if ($errors.Count -gt 0) {
-              $errors | ForEach-Object { Write-Error $_.Message }
+              $errors | ForEach-Object {
+                Write-Error "${script}:$($_.Extent.StartLineNumber):$($_.Extent.StartColumnNumber): $($_.Message)"
+              }
               throw "PowerShell parse failed: $script"
             }
           }
+
+      - name: Validate MAVI setup contracts on Windows PowerShell
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          .\tools\setup\Test-MaviSetupContracts.ps1

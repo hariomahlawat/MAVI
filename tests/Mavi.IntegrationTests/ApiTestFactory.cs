@@ -54,6 +54,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["VideoImport:MultipartOverheadBytes"] = "1048576",
                 ["VideoImport:AllowedExtensions:0"] = ".mp4",
                 ["DatabaseMigrations:Enabled"] = EnableStartupMigrations ? "true" : "false",
+                ["MediaProcessing:VerifyOnStartup"] = "false",
                 ["DatabaseMigrations:LockTimeoutSeconds"] =
                     StartupMigrationLockTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["DatabaseMigrations:CommandTimeoutSeconds"] =

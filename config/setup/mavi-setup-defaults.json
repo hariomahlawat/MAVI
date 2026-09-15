@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "mavi-setup-defaults-v1",
+  "development": {
+    "postgresqlMajorVersion": 18,
+    "postgresqlPort": 55433,
+    "postgresqlServiceName": "MAVI-Dev-PostgreSQL-18",
+    "postgresqlAdminUser": "postgres",
+    "postgresqlAdminPassword": "postgres",
+    "databaseName": "mavi_dev",
+    "testDatabaseName": "mavi_test",
+    "mediaRoot": "C:\\ProgramData\\MAVI\\Development\\Data",
+    "evidenceRoot": "C:\\ProgramData\\MAVI\\Development\\Evidence"
+  },
+  "production": {
+    "postgresqlMajorVersion": 18,
+    "postgresqlPort": 55432,
+    "postgresqlServiceName": "MAVI-PostgreSQL-18",
+    "databaseName": "mavi",
+    "databaseUser": "mavi_app",
+    "iisSiteName": "MAVI",
+    "iisAppPoolName": "MAVI",
+    "httpPort": 8080,
+    "installRoot": "C:\\Program Files\\MAVI",
+    "programDataRoot": "C:\\ProgramData\\MAVI"
+  }
+}

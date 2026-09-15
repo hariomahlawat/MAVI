@@ -28,7 +28,35 @@
     <SpaRoot>$(MaviFrontendDirectory)</SpaRoot>
     <SpaProxyServerUrl>http://127.0.0.1:5173</SpaProxyServerUrl>
     <SpaProxyLaunchCommand>npm run dev</SpaProxyLaunchCommand>
+    <MaviRepositoryRoot>$(MSBuildProjectDirectory)/../../..</MaviRepositoryRoot>
+    <MaviOfflineBinaryKitRoot>$(MaviRepositoryRoot)/../MAVI-Offline-Binary-Kit</MaviOfflineBinaryKitRoot>
+    <MaviNativeMediaToolsDirectory Condition="Exists('$(MaviRepositoryRoot)/vendor/ffmpeg/manifest.json')">$(MaviRepositoryRoot)/vendor/ffmpeg</MaviNativeMediaToolsDirectory>
+    <MaviNativeMediaToolsDirectory Condition="'$(MaviNativeMediaToolsDirectory)' == '' and Exists('$(MaviOfflineBinaryKitRoot)/vendor/ffmpeg/manifest.json')">$(MaviOfflineBinaryKitRoot)/vendor/ffmpeg</MaviNativeMediaToolsDirectory>
+    <MaviNativeMediaToolsDirectory Condition="'$(MaviNativeMediaToolsDirectory)' == ''">$(MaviRepositoryRoot)/vendor/ffmpeg</MaviNativeMediaToolsDirectory>
+    <RequireMaviBundledMediaTools Condition="'$(RequireMaviBundledMediaTools)' == '' and '$(Configuration)' == 'Release'">true</RequireMaviBundledMediaTools>
+    <RequireMaviBundledMediaTools Condition="'$(RequireMaviBundledMediaTools)' == ''">false</RequireMaviBundledMediaTools>
   </PropertyGroup>
+
+  <ItemGroup Condition="Exists('$(MaviNativeMediaToolsDirectory)/manifest.json')">
+    <Content Include="$(MaviNativeMediaToolsDirectory)/**/*">
+      <Link>tools/ffmpeg/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target Name="VerifyBundledMediaToolsForPublish"
+          BeforeTargets="ComputeFilesToPublish"
+          Condition="'$(RequireMaviBundledMediaTools)' == 'true'">
+    <Error Condition="!Exists('$(MaviNativeMediaToolsDirectory)/manifest.json')"
+           Text="MAVI production publish requires vendor/ffmpeg/manifest.json. Stage the approved offline FFmpeg dependency pack before publishing." />
+    <Error Condition="!Exists('$(MaviNativeMediaToolsDirectory)/win-x64/ffmpeg.exe')"
+           Text="MAVI production publish requires the vetted win-x64 ffmpeg.exe payload." />
+    <Error Condition="!Exists('$(MaviNativeMediaToolsDirectory)/win-x64/ffprobe.exe')"
+           Text="MAVI production publish requires the vetted win-x64 ffprobe.exe payload." />
+    <Error Condition="!Exists('$(MaviNativeMediaToolsDirectory)/win-x64/LICENSE.txt')"
+           Text="MAVI production publish requires the FFmpeg licence/notices payload." />
+  </Target>
 
   <Target Name="BuildTask15Frontend" BeforeTargets="ComputeFilesToPublish">
     <Exec WorkingDirectory="$(MaviFrontendDirectory)" Command="npm ci" />

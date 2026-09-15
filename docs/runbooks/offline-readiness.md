@@ -15,6 +15,38 @@ Verify that:
 9. an update can be applied from a controlled offline bundle.
 
 
+## Dependency and prerequisite packaging
+
+Before any disconnected acceptance run, the canonical offline media must contain all prerequisites needed by the target profile, including:
+
+- the qualified MAVI application artifact with its app-local, hash-manifested FFmpeg/ffprobe pack;
+- the approved MAVI-owned PostgreSQL 18 runtime pack containing pgvector and retained PostgreSQL/pgvector notices;
+- the ASP.NET Core 10 Hosting Bundle required by the Windows/IIS operational plane;
+- the exact Python/runtime/model bundles required by the qualified vision profile; and
+- Development SDK installers/caches when validating the disconnected Development profile.
+
+Normal installation is performed through `Setup-MAVI-Production.cmd` or `Setup-MAVI-Development.cmd`. Setup verifies the media, provisions/repairs MAVI-owned prerequisites, and the application then verifies PostgreSQL/pgvector/media-tool readiness before automatic EF migrations.
+
+A release is not offline-ready if it succeeds only because a prerequisite happens to be installed on PATH, because pgvector/native files were copied manually outside the approved runtime pack, or because first startup downloads anything.
+
+### Future dependency changes
+
+Every new library, SDK, native executable, runtime, model, database extension or OS prerequisite must be integrated before the feature is considered complete. Follow `docs/architecture/dependency-and-offline-packaging-policy.md`.
+
+`config/dependencies/offline-dependency-policy-v1.json` is the machine-readable direct-dependency baseline. Repository verification must fail when a direct .NET/npm/Python dependency changes without an explicit policy update. For native/external dependencies, the same feature must update staging/bundle composition, Setup/readiness, deterministic version/hash checks, licence/notices and applicable disconnected qualification.
+
+## Binary-kit readiness
+
+Before final setup-media assembly, verify the separately retained `MAVI-Offline-Binary-Kit` with:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File tools/setup/Test-MaviOfflineBinaryKit.ps1 -KitRoot "<KIT_ROOT>"
+~~~
+
+The kit must match `config/dependencies/offline-binary-catalog-v1.json`, its complete SHA-256 manifest, and the nested PostgreSQL/pgvector and FFmpeg manifests.
+
+The final Production setup bundle should normally omit Development SDKs and package caches. Development workstations consume the source repository plus the verified companion binary kit; a combined Development+Production setup bundle is an explicit exception.
+
 ## Phase-1 formal acceptance
 
 Task 17 owns the formal Phase-1 disconnected-install and end-to-end offline acceptance event. Hosted CI, an invalid proxy, or the existence of a qualification-candidate bundle is not by itself proof of a disconnected deployment.

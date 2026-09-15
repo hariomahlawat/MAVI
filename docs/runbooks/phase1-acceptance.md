@@ -70,9 +70,13 @@ Formal runs require a target-containing corpus. Empty-scene diagnostic runs are 
 Publish MAVI with an immutable build identity compiled into `Mavi.Api.dll`, then create the application artifact manifest with the same identities:
 
 ~~~text
-dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:MaviBuild=<build-id> -p:MaviCommit=<exact-commit> -o <published-root>
+dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:RequireMaviBundledMediaTools=true -p:MaviBuild=<build-id> -p:MaviCommit=<exact-commit> -o <published-root>
 python tools/phase1/build_application_artifact_manifest.py --artifact-root <published-root> --source-commit <exact-commit> --build <build-id> --output <published-root>/mavi-application-manifest.json
 ~~~
+
+Release publish is fail-closed unless the approved FFmpeg dependency pack has been staged. The resulting artifact must contain `tools/ffmpeg/manifest.json`, `tools/ffmpeg/win-x64/ffmpeg.exe`, `ffprobe.exe` and the retained licence/notices. MAVI revalidates their hashes and declared version at startup. These files are included automatically in the application-artifact manifest, so fresh-install/update evidence is bound to the exact native media tooling exercised.
+
+The canonical Windows offline setup media carries a MAVI-owned PostgreSQL 18 runtime pack with the approved pgvector files already integrated and hash-manifested. `Setup-MAVI-Production.cmd` provisions/repairs that isolated database service before MAVI starts. Normal MAVI startup then independently verifies PostgreSQL 18, verifies pgvector availability, enables `vector` under the migration lock when required, and applies EF migrations. The lower-level pgvector staging/installer scripts remain controlled maintenance/build-preparation tools; they are not the normal target-machine installation workflow.
 
 `GET /api/health` reads `MaviBuild` and `MaviCommit` from compile-time assembly metadata. Do not set environment variables to manufacture build identity. The lifecycle qualifier compares the manifest identity with the independently reported running binary identity; relabeling manifest JSON without rebuilding the binary must fail. It also compares the API-reported `operationalHostIdentitySha256` with the local Windows/IIS host identity, so a same-build MAVI instance on another host cannot satisfy lifecycle or production E2E acceptance. `unknown-development` is never a formal promotion/production identity.
 
@@ -83,6 +87,12 @@ For update use the same tool with Mode=offline-update against an explicitly supp
 Fresh-install and update evidence are distinct mandatory proofs. Each lifecycle evidence object also retains the deployment mechanism, exact tool/version identity, invocation arguments, exit code and destination binding. Final production assembly rejects lifecycle evidence that omits or weakens this installation/update audit trail.
 
 The retained prior acceptance is not accepted merely because its top-level source commit matches the supported prior release. Its completed-run attestation must carry the exact same prior MAVI commit and build, and the live pre-update state verifier requires the retained run attestation, current API health and approved prior manifest identity to agree.
+
+## Dependency changes after Phase 1
+
+A later feature that adds or changes a library/runtime prerequisite must not silently invalidate the qualified offline topology. Follow `docs/architecture/dependency-and-offline-packaging-policy.md` and update `config/dependencies/offline-dependency-policy-v1.json`, release packaging/setup, prerequisite observations and any affected qualification/runtime locks in the same change.
+
+If a dependency affects Production behavior, native execution, model/runtime identity, installation/update semantics or persisted data, the relevant acceptance evidence must be rerun rather than assuming the earlier Phase-1 evidence still applies.
 
 ## Completed-run attestation
 

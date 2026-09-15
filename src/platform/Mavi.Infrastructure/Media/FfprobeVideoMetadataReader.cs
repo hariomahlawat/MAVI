@@ -29,7 +29,12 @@ internal sealed class FfprobeVideoMetadataReader(
             throw new FileNotFoundException("Managed media was not found for the supplied storage key.");
         }
 
-        using var process = new Process { StartInfo = CreateStartInfo(options.Value.FfprobePath, localPath) };
+        using var process = new Process
+        {
+            StartInfo = CreateStartInfo(
+                MediaToolPathResolver.ResolveFfprobePath(options.Value),
+                localPath),
+        };
         try
         {
             if (!process.Start()) throw new VideoMetadataException("ffprobe could not be started.");
