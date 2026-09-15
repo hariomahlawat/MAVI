@@ -148,6 +148,7 @@ def validate_backup_restore(
     path: Path,
     *,
     source_commit: str,
+    mavi_build: str | None,
     acceptance_profile_sha256: str,
     schema_path: Path,
 ) -> dict[str, Any]:
@@ -158,6 +159,11 @@ def validate_backup_restore(
         raise ClosureError("backup_restore_not_passed")
     if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
         raise ClosureError("backup_restore_acceptance_profile_mismatch")
+    if (
+        mavi_build is not None
+        and value.get("liveStorageTopology", {}).get("maviBuild") != mavi_build
+    ):
+        raise ClosureError("backup_restore_mavi_build_mismatch")
     if value.get("sourceDatabaseIdentity") == value.get("restoreDatabaseIdentity"):
         raise ClosureError("backup_restore_database_targets_not_distinct")
     return value
