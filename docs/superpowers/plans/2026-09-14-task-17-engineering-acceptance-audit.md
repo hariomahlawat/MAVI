@@ -159,3 +159,28 @@ PR #38 remains in internal engineering review until all of the following are tru
 - no evidence path can pass using a different application build, source commit, restore database, storage root, runtime variant, release lock, acceptance context or required underlying evidence object.
 
 Only after this internal gate is satisfied should a final external Codex review be requested. Until then, Codex is not used as an iterative debugger.
+
+
+## 9. Independent offline-update evidence hardening
+
+A subsequent independent internal review deliberately ignored prior conclusions and re-audited Task-17 as an adversarial evidence consumer. It identified a concentrated weakness in the offline-update chain even though deterministic CI was green:
+
+- final consumers trusted `priorRelease.supported=true` without reopening the canonical supported-update policy;
+- required-migration semantics were not independently tied to a reviewed migration-script identity;
+- retained-state hashes were recorded in lifecycle JSON without requiring the actual pre/post authoritative-state evidence at final assembly/closure;
+- the running prior deployment was commit-bound but not exact-build-bound;
+- the policy-approved prior application manifest and prior passed acceptance evidence were not first-class retained inputs to final production acceptance.
+
+The remediation makes the update proof fail closed at execution, production assembly and final closure:
+
+1. `verify_authoritative_state.py` now requires both expected application commit and expected application build and emits both observed identities.
+2. `authoritative-state-check.schema.json` formalizes that proof and is repository-verified.
+3. The lifecycle qualifier retains the exact approved prior application manifest and prior acceptance evidence before overwrite, plus pre-update and post-update state-check files.
+4. The canonical supported-update policy now carries `migrationScriptSha256`; it must be a frozen SHA-256 when `migrationPolicy=required` and must be null when migration is not required.
+5. Required migration execution verifies the supplied script against that frozen hash before execution.
+6. Production assembly reopens the canonical policy, prior application manifest, prior acceptance evidence and both state checks. It verifies the exact prior commit/build/manifest, actual state-check hashes, migration result and retained camera/video/run/track/artifact/source identities.
+7. The final production-acceptance record directly hash-binds the prior application manifest, prior acceptance evidence, pre-update state check and post-update state check.
+8. Final closure requires and independently reopens the same underlying objects before `release-verified` is possible.
+9. Regression coverage explicitly rejects forged supported releases, missing required migration, cross-spliced retained state, same-commit/wrong-build prior deployments, missing state proofs, altered prior acceptance evidence and wrong restored build identity.
+
+This strengthens the internal review standard further: evidence producers are not considered sufficient merely because they are correct. Every material summary claim must either be independently reproducible or be cryptographically bound to the underlying retained evidence object and canonical policy at the final acceptance boundary.
