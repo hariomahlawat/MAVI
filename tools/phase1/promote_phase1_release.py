@@ -36,6 +36,7 @@ from mavi_vision.runtime.qualification import (  # noqa: E402
     verify_release_selection,
 )
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
+import quality_corpus  # noqa: E402
 from compute_target_verified_manifest import build_target_manifest, sha256_bytes as target_sha256_bytes  # noqa: E402
 from jsonschema import Draft202012Validator  # noqa: E402
 from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
@@ -210,80 +211,29 @@ def _validate_quality_evidence(
     value: dict[str, Any],
     source_commit: str,
     acceptance_profile_sha256: str,
-    expected_corpus_sha256: str,
+    acceptance_profile: dict[str, Any],
     corpus_manifest_path: Path,
-    ground_truth_path: Path,
+    case_evidence: dict[str, Path],
+    ground_truth: dict[str, Path],
     expected_mavi_build: str,
+    target_verified_manifest_sha256: str,
 ) -> None:
-    _validate_schema(value, "phase1-acceptance-evidence.schema.json")
-    evidence_verifier.verify_acceptance(
-        value,
-        expected_source_commit=source_commit,
-        expected_acceptance_profile_sha256=acceptance_profile_sha256,
-        expected_qualification_corpus_sha256=expected_corpus_sha256,
-    )
-    ground_truth_evidence = value.get("groundTruth")
-    source_media = value.get("sourceMedia")
-    video = value.get("video")
-    if not isinstance(ground_truth_evidence, dict) or not isinstance(source_media, dict) or not isinstance(video, dict):
-        raise PromotionError("promotion_quality_binding_missing")
+    try:
+        quality_corpus.validate_quality_corpus_evidence(
+            value,
+            source_commit=source_commit,
+            mavi_build=expected_mavi_build,
+            target_verified_manifest_sha256=target_verified_manifest_sha256,
+            acceptance_profile_sha256=acceptance_profile_sha256,
+            corpus_manifest=corpus_manifest_path,
+            profile=acceptance_profile,
+            case_evidence=case_evidence,
+            ground_truth=ground_truth,
+            require_passed=True,
+        )
+    except quality_corpus.QualityCorpusError as exc:
+        raise PromotionError("promotion_quality_invalid:" + exc.code) from exc
 
-    corpus_bytes_sha = sha256_file_bytes(corpus_manifest_path)
-    gt_bytes_sha = sha256_file_bytes(ground_truth_path)
-    if corpus_bytes_sha != expected_corpus_sha256:
-        raise PromotionError("promotion_quality_corpus_hash_mismatch")
-    if ground_truth_evidence.get("corpusManifestSha256") != corpus_bytes_sha:
-        raise PromotionError("promotion_quality_corpus_evidence_mismatch")
-    if ground_truth_evidence.get("groundTruthManifestSha256") != gt_bytes_sha:
-        raise PromotionError("promotion_quality_ground_truth_hash_mismatch")
-
-    corpus = _load_dict(corpus_manifest_path, "promotion_quality_corpus_invalid")
-    gt = _load_dict(ground_truth_path, "promotion_quality_ground_truth_invalid")
-    _validate_external_schema(
-        corpus,
-        ROOT / "sample-data" / "ground-truth" / "phase1-corpus.schema.json",
-        "promotion_quality_corpus",
-    )
-    _validate_external_schema(
-        gt,
-        ROOT / "sample-data" / "ground-truth" / "phase1-ground-truth.schema.json",
-        "promotion_quality_ground_truth",
-    )
-    media_sha = source_media.get("localSha256")
-    if (
-        gt.get("videoSha256") != media_sha
-        or gt.get("durationMs") != video.get("durationMs")
-        or ground_truth_evidence.get("videoSha256") != media_sha
-        or ground_truth_evidence.get("durationMs") != video.get("durationMs")
-    ):
-        raise PromotionError("promotion_quality_media_binding_mismatch")
-    matching_cases = [
-        item
-        for item in corpus.get("cases", [])
-        if isinstance(item, dict)
-        and item.get("mediaSha256") == media_sha
-        and item.get("groundTruthManifestSha256") == gt_bytes_sha
-    ]
-    if len(matching_cases) != 1:
-        raise PromotionError("promotion_quality_corpus_mapping_mismatch")
-
-    if value.get("attestation", {}).get("maviBuild") != expected_mavi_build:
-        raise PromotionError("promotion_quality_build_mismatch")
-    metrics = value.get("metrics")
-    if (
-        value.get("mode") != "formal"
-        or not isinstance(metrics, dict)
-        or metrics.get("mode") != "qualification"
-        or metrics.get("qualification", {}).get("passed") is not True
-    ):
-        raise PromotionError("promotion_quality_not_formally_qualified")
-    per_class = metrics.get("perClass")
-    if not isinstance(per_class, dict):
-        raise PromotionError("promotion_quality_per_class_missing")
-    for object_class in ("Person", "Vehicle"):
-        row = per_class.get(object_class)
-        if not isinstance(row, dict) or row.get("groundTruthEventCount", 0) <= 0:
-            raise PromotionError("promotion_quality_class_coverage_missing:" + object_class)
 
 def _validate_performance_evidence(
     value: dict[str, Any],
@@ -317,7 +267,8 @@ def validate_gate_evidence(
     acceptance_profile_sha256: str,
     acceptance_profile: dict[str, Any],
     quality_corpus_manifest: Path,
-    quality_ground_truth: Path,
+    quality_case_evidence: dict[str, Path],
+    quality_ground_truth: dict[str, Path],
     expected_mavi_build: str,
 ) -> None:
     if value.get("sourceCommit") != source_commit:
@@ -344,10 +295,12 @@ def validate_gate_evidence(
             value,
             source_commit,
             acceptance_profile_sha256,
-            acceptance_profile["qualificationCorpusManifestSha256"],
+            acceptance_profile,
             quality_corpus_manifest,
+            quality_case_evidence,
             quality_ground_truth,
             expected_mavi_build,
+            target_verified_manifest_sha256,
         )
         return
     if gate == "linux-nvidia-recovery-performance":
@@ -367,7 +320,8 @@ def load_gate_evidence(
     acceptance_profile_sha256: str,
     acceptance_profile: dict[str, Any],
     quality_corpus_manifest: Path,
-    quality_ground_truth: Path,
+    quality_case_evidence: dict[str, Path],
+    quality_ground_truth: dict[str, Path],
     expected_mavi_build: str,
 ) -> dict[str, str]:
     try:
@@ -386,6 +340,7 @@ def load_gate_evidence(
         acceptance_profile_sha256=acceptance_profile_sha256,
         acceptance_profile=acceptance_profile,
         quality_corpus_manifest=quality_corpus_manifest,
+        quality_case_evidence=quality_case_evidence,
         quality_ground_truth=quality_ground_truth,
         expected_mavi_build=expected_mavi_build,
     )
@@ -442,7 +397,8 @@ def build_promoted_metadata(
     acceptance_profile_sha256: str,
     acceptance_profile: dict[str, Any],
     quality_corpus_manifest: Path,
-    quality_ground_truth: Path,
+    quality_case_evidence: dict[str, Path],
+    quality_ground_truth: dict[str, Path],
     expected_mavi_build: str,
 ) -> tuple[bytes, bytes]:
     if manifest_raw.get("verificationStatus") != "unverified" or manifest_raw.get("qualificationId") is not None:
@@ -485,6 +441,7 @@ def build_promoted_metadata(
             acceptance_profile_sha256=acceptance_profile_sha256,
             acceptance_profile=acceptance_profile,
             quality_corpus_manifest=quality_corpus_manifest,
+            quality_case_evidence=quality_case_evidence,
             quality_ground_truth=quality_ground_truth,
             expected_mavi_build=expected_mavi_build,
         )
@@ -545,7 +502,8 @@ def main() -> int:
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--expected-mavi-build", required=True)
     parser.add_argument("--quality-corpus-manifest", type=Path, required=True)
-    parser.add_argument("--quality-ground-truth", type=Path, required=True)
+    parser.add_argument("--quality-case-evidence", action="append", default=[])
+    parser.add_argument("--quality-ground-truth", action="append", default=[])
     parser.add_argument("--gate-evidence", action="append", default=[])
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
@@ -554,6 +512,14 @@ def main() -> int:
         if not args.expected_mavi_build or args.expected_mavi_build == "unknown-development":
             raise PromotionError("promotion_mavi_build_not_frozen")
         gate_evidence = parse_gate_arguments(args.gate_evidence)
+        quality_case_evidence = quality_corpus.parse_named_paths(
+            args.quality_case_evidence,
+            "promotion_quality_case_argument_invalid",
+        )
+        quality_ground_truth = quality_corpus.parse_named_paths(
+            args.quality_ground_truth,
+            "promotion_quality_ground_truth_argument_invalid",
+        )
         manifest_raw = read_release_json(args.manifest, code="model_manifest_invalid")
         qualification_raw = read_release_json(args.qualification, code="qualification_record_invalid")
         runtime_raw = read_release_json(args.runtime_profile, code="runtime_profile_invalid")
@@ -580,7 +546,8 @@ def main() -> int:
             acceptance_profile_sha256=acceptance_profile_sha256,
             acceptance_profile=acceptance_profile,
             quality_corpus_manifest=args.quality_corpus_manifest,
-            quality_ground_truth=args.quality_ground_truth,
+            quality_case_evidence=quality_case_evidence,
+            quality_ground_truth=quality_ground_truth,
             expected_mavi_build=args.expected_mavi_build,
         )
         validate_promoted_outputs(
@@ -590,7 +557,12 @@ def main() -> int:
             profile_path=args.pipeline_profile,
             runtime_profile_path=args.runtime_profile,
         )
-    except (PromotionError, ReleaseMetadataError, PolicyIdentityError) as exc:
+    except (
+        PromotionError,
+        ReleaseMetadataError,
+        PolicyIdentityError,
+        quality_corpus.QualityCorpusError,
+    ) as exc:
         code = getattr(exc, "code", str(exc))
         print(json.dumps({"ok": False, "code": code}, sort_keys=True))
         return 2
