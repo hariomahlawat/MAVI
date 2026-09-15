@@ -63,7 +63,9 @@ For fresh install use tools/phase1/qualify_application_lifecycle.ps1 with Mode=f
 
 For update use the same tool with Mode=offline-update against an explicitly supported prior release listed in config/acceptance/phase1-supported-updates-v1.json. The policy must contain the reviewed SHA-256 of that prior release's `mavi-application-manifest.json`; a null/unfrozen manifest hash keeps the update gate pending. Supply `-PreUpdateAcceptanceEvidence <prior-release-passed-acceptance.json>`. Before overwrite, the qualifier retains the exact approved prior manifest as `<EvidenceOutput>.prior-application-manifest.json`. It also retains `<EvidenceOutput>.prior-acceptance-evidence.json` and emits `<EvidenceOutput>.pre-update-state.json` and `<EvidenceOutput>.post-update-state.json`. Both state checks bind the live API to the exact expected commit **and build**, and must prove the same camera/video/run/tracks/artifact/source state across the update. If `migrationPolicy=required`, the canonical policy must freeze `migrationScriptSha256`; the supplied migration script must match that hash before execution.
 
-Fresh-install and update evidence are distinct mandatory proofs.
+Fresh-install and update evidence are distinct mandatory proofs. Each lifecycle evidence object also retains the deployment mechanism, exact tool/version identity, invocation arguments, exit code and destination binding. Final production assembly rejects lifecycle evidence that omits or weakens this installation/update audit trail.
+
+The retained prior acceptance is not accepted merely because its top-level source commit matches the supported prior release. Its completed-run attestation must carry the exact same prior MAVI commit and build, and the live pre-update state verifier requires the retained run attestation, current API health and approved prior manifest identity to agree.
 
 ## Completed-run attestation
 
@@ -87,6 +89,8 @@ Use tools/phase1/qualify_windows_offline.ps1 for Windows CPU+CUDA and tools/phas
 The variant qualifier creates a clean venv, installs the exact bundle lock with no-index/hash-only semantics, and then launches `mavi_vision.worker.main` from that newly installed venv. While that exact worker process is alive it runs the public-API E2E harness and generates the worker-flow evidence itself. A previously generated/detached worker-evidence JSON is not accepted. Variant evidence retains the installed Python executable SHA-256, worker-command SHA-256, worker-log SHA-256, worker-flow evidence SHA-256, bundle/lock identities, host identity, device and MAVI build.
 
 A CPU run never substitutes for CUDA. A CUDA run that falls back to CPU fails.
+
+The Windows/Linux offline-install aggregate records the exact SHA-256 of the CPU and CUDA variant evidence files from which it was assembled. Promotion independently re-hashes the four supplied platform-variant evidence objects and rejects any OS aggregate assembled from different evidence bytes, even when all objects are individually valid.
 
 ## Linux NVIDIA recovery/performance
 
@@ -118,7 +122,7 @@ Do not hand-edit pending release metadata to verified.
 
 After every mandatory qualification gate has real evidence and the runtime is fully qualified, use `tools/phase1/promote_phase1_release.py`.
 
-Promotion requires **all eight mandatory gate evidence files again**, even if the pending qualification record already contains an older `passed` entry. It never grandfathers prior evidence references. Supply the canonical acceptance profile, the exact approved corpus manifest and ground-truth manifest, the frozen MAVI build identity, and one `--gate-evidence gate=path` argument for every mandatory gate. Promotion re-hashes and schema-validates every supplied object, requires the canonical corpus/media/ground-truth relationship, recomputes the performance threshold decision from the canonical profile, verifies cross-gate source/build/profile/target-manifest identities, reconstructs deterministic final manifest/qualification bytes and re-runs canonical release selection.
+Promotion requires **all eight mandatory gate evidence files again**, even if the pending qualification record already contains an older `passed` entry. It never grandfathers prior evidence references. The two OS offline-install aggregates must cryptographically reference the exact CPU/CUDA variant files supplied in the same promotion operation. Supply the canonical acceptance profile, the exact approved corpus manifest and ground-truth manifest, the frozen MAVI build identity, and one `--gate-evidence gate=path` argument for every mandatory gate. Promotion re-hashes and schema-validates every supplied object, requires the canonical corpus/media/ground-truth relationship, recomputes the performance threshold decision from the canonical profile, verifies cross-gate source/build/profile/target-manifest identities, reconstructs deterministic final manifest/qualification bytes and re-runs canonical release selection.
 
 Promotion must be status/evidence-only. Any model/config/profile/runtime/application-build behavior change invalidates earlier evidence.
 
@@ -252,7 +256,7 @@ The resulting `mavi-phase1-production-acceptance-evidence-v1` is an immutable ag
 
 ### 9. Final closure
 
-Pass the aggregate record **and every underlying evidence file**, including `--prior-application-manifest`, `--prior-acceptance-evidence`, `--pre-update-state-check`, `--post-update-state-check`, and the same six raw `--production-log role=path` files, to `tools/phase1/assess_phase1_closure.py`. Closure reopens, re-hashes and revalidates them against the canonical supported-update policy before allowing `release-verified`.
+Pass the aggregate record **and every underlying evidence file**, including `--prior-application-manifest`, `--prior-acceptance-evidence`, `--pre-update-state-check`, `--post-update-state-check`, and the same six raw `--production-log role=path` files, to `tools/phase1/assess_phase1_closure.py`. Closure reopens, re-hashes and revalidates them against the canonical supported-update policy before allowing `release-verified`. It also compares the exact mandatory-gate evidence SHA-256 values against the evidence hashes embedded in the promoted qualification record; a semantically valid but different evidence set cannot be substituted at closure.
 
 `release-verified` is impossible if the prerequisite policy is pending, any production variant is missing, the formal/empty scenarios are reused or mismatched, failure/reprocess is absent, required topology logs are absent/dirty, backup/restore references another case, or the aggregate record contains hashes from another acceptance execution.
 
