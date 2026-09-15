@@ -62,6 +62,8 @@ def verify_acceptance(
         raise EvidenceError("acceptance_profile_hash_mismatch")
     if value["attestation"]["processingRunId"] != value["processing"]["processingRunId"]:
         raise EvidenceError("acceptance_processing_run_identity_mismatch")
+    if value["attestation"].get("maviCommit") != value["sourceCommit"]:
+        raise EvidenceError("acceptance_attested_commit_mismatch")
     if not value["attestation"]["comparisonPassed"]:
         raise EvidenceError("acceptance_attestation_mismatch")
     source = value["sourceMedia"]
@@ -125,6 +127,10 @@ def verify_offline_install(
     actual = {item["variant"] for item in value["variants"]}
     if actual != required:
         raise EvidenceError("offline_variant_coverage_incomplete")
+
+    aggregate_hashes = value.get("variantEvidenceSha256")
+    if not isinstance(aggregate_hashes, dict) or set(aggregate_hashes) != required:
+        raise EvidenceError("offline_variant_evidence_hash_coverage_incomplete")
 
     strict_tokens = ("--no-index", "--only-binary=:all:", "--require-hashes", "--find-links")
     for item in value["variants"]:
