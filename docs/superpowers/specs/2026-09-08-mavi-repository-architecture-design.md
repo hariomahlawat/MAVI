@@ -4,6 +4,8 @@
 **Product:** MAVI — Mission-Aware Visual Intelligence  
 **Status:** Approved design baseline for repository bootstrap
 
+> **Current implementation note (2026-09-15):** This file is the original approved repository-bootstrap design and retains historical bootstrap success criteria. Current Development/Production setup and dependency-handling procedures are defined by `docs/architecture/dependency-and-offline-packaging-policy.md`, `docs/runbooks/local-development.md` and `docs/runbooks/mavi-offline-setup.md`. Where a dated bootstrap procedure differs from those current runbooks, the current operational runbooks govern.
+
 ## 1. Purpose
 
 Create the initial source repository for MAVI so that the proof of concept is the first increment of the eventual production system rather than disposable prototype code. Development may use Internet-connected tools and public services, but the production release must be installable and operable on an air-gapped establishment LAN without any Internet dependency.
