@@ -569,8 +569,12 @@ def _validate_operational_topology(
         or not isinstance(host_identity, str)
         or len(host_identity) != 64
         or any(ch not in "0123456789abcdef" for ch in host_identity)
-        or not isinstance(value.get("databaseIdentity"), str)
-        or not value.get("databaseIdentity")
+        or not isinstance(value.get("databaseIdentitySha256"), str)
+        or len(value["databaseIdentitySha256"]) != 64
+        or any(
+            ch not in "0123456789abcdef"
+            for ch in value["databaseIdentitySha256"]
+        )
         or not isinstance(value.get("managedMediaRootIdentitySha256"), str)
         or not isinstance(value.get("acceptedEvidenceRootIdentitySha256"), str)
     ):
@@ -582,7 +586,7 @@ def _validate_operational_topology(
         raise AcceptanceError("qualification_operational_host_mismatch")
     return {
         "hostIdentitySha256": host_identity,
-        "databaseIdentity": value["databaseIdentity"],
+        "databaseIdentitySha256": value["databaseIdentitySha256"],
         "managedMediaRootIdentitySha256": value["managedMediaRootIdentitySha256"],
         "acceptedEvidenceRootIdentitySha256": value["acceptedEvidenceRootIdentitySha256"],
     }
