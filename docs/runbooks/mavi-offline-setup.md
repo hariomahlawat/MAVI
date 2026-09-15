@@ -124,7 +124,26 @@ This populates the canonical vendor/developer-cache/win-x64 location with NuGet,
 
 Place the approved installers at the canonical names documented in vendor/installers/README.md.
 
-### 4. Publish MAVI with app-local FFmpeg
+### 4. Build and retain the companion offline binary kit
+
+After the approved runtime packs, installers and Development caches are staged, create the separately retained binary kit:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviOfflineBinaryKit.ps1 ^
+  -Destination "D:\Release\MAVI-Offline-Binary-Kit" ^
+  -ZipPath "D:\Release\MAVI-Offline-Binary-Kit.zip"
+~~~
+
+The generated kit contains no MAVI application build. It contains the external Windows runtime/toolchain payloads and Development caches, plus:
+
+- `mavi-offline-binary-kit.json` — SHA-256 and size for every retained file;
+- exact observed PostgreSQL, pgvector and FFmpeg versions;
+- the repository-owned binary/version catalog; and
+- the approved installer bytes bound by their catalog baseline and SHA-256.
+
+Keep this ZIP with release/development media. Do not commit it to ordinary Git.
+
+### 5. Publish MAVI with app-local FFmpeg
 
 ~~~powershell
 dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:RequireMaviBundledMediaTools=true -p:MaviBuild="<BUILD_ID>" -p:MaviCommit="<EXACT_COMMIT>" -o "<PUBLISHED_ROOT>"
@@ -132,24 +151,42 @@ dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:RequireMaviBu
 
 Create the application artifact manifest using the existing Phase-1 tool before assembling setup media.
 
-### 5. Assemble the canonical bundle
-
-Provide approved offline installers for the .NET Hosting Bundle, .NET 10 SDK, Node.js 22 and Python 3.13+:
+### 6. Assemble the canonical setup bundle
 
 ~~~powershell
-powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviOfflineSetupBundle.ps1 -Destination "D:\Release\MAVI-Offline-Setup" -ApplicationArtifact "<PUBLISHED_ROOT>"
+powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviOfflineSetupBundle.ps1 ^
+  -Destination "D:\Release\MAVI-Offline-Setup" ^
+  -ApplicationArtifact "<PUBLISHED_ROOT>" ^
+  -BinaryKitRoot "D:\Release\MAVI-Offline-Binary-Kit"
 ~~~
 
-The builder uses the canonical vendor paths by default, verifies the PostgreSQL manifest and the FFmpeg pack already embedded in the application artifact, confirms all installers/caches are present, and then hashes the complete final media. Override paths only for an exceptional controlled build.
+If `MAVI-Offline-Binary-Kit` is kept beside the repository, the builder auto-detects it and `-BinaryKitRoot` may be omitted.
+
+The builder verifies the binary-kit manifest, copies only the required payloads into the final setup media, retains the source binary-kit/catalog hashes as provenance, verifies the PostgreSQL and application-local FFmpeg manifests, and then hashes the complete final media.
 
 
 ## Where the binaries live
 
-Do not put the large third-party runtime payload into ordinary Git history. That makes every clone heavy and still does not improve the operator experience.
+Use a two-tier model:
 
-The repository contains the scripts, manifests and canonical staging locations. Approved binaries are staged locally under vendor/ and then copied into one versioned, SHA-256-manifested MAVI offline setup bundle. That bundle is the deployment medium.
+1. **Ordinary Git** — source, scripts, configuration, dependency/version policies, textual documentation and deterministic small manifests.
+2. **MAVI Offline Binary Kit** — external EXE/DLL/MSI/runtime payloads, PostgreSQL/pgvector, FFmpeg and generated NuGet/npm/Python caches.
 
-Git LFS can be adopted later if organisational policy requires binary version control, but Setup does not depend on Git or Git LFS on the target machine.
+Repository verification rejects third-party/generated distributable extensions such as EXE, DLL, MSI, ZIP, 7z, WHL, SO and PYD, and rejects unapproved tracked files larger than 10 MiB. This deliberately avoids having one rule for “small” third-party binaries and another for “large” ones.
+
+The binary kit can be kept/downloaded as a separate ZIP. The final MAVI setup bundle is then assembled from the exact verified kit plus the qualified MAVI application artifact.
+
+See `docs/architecture/offline-binary-inventory.md` and `config/dependencies/offline-binary-catalog-v1.json`.
+
+Git LFS or an approved internal binary repository can be adopted later for central retention of the companion kit without changing target-machine Setup.
+
+## Version record
+
+The repository baseline is recorded in `config/dependencies/offline-binary-catalog-v1.json` and summarized in `docs/architecture/offline-binary-inventory.md`.
+
+The catalog records policy/baseline versions; the generated binary-kit manifest records the exact retained bytes. PostgreSQL, pgvector and FFmpeg additionally carry nested manifests with observed versions. Final setup media records the source binary-kit/catalog hashes, and Phase-1 evidence binds the installed/runtime identities.
+
+This separates **human version labels** from **cryptographic release identity**: a version string is useful, but the SHA-256 of the actual retained file is decisive.
 
 ## Adding a dependency in a future feature
 
@@ -171,7 +208,7 @@ Setup automatically verifies the offline media; installs the pinned .NET/Node/Py
 
 Restart Visual Studio once after first setup so it inherits the machine-scoped Development environment. No pgAdmin configuration is required.
 
-For a repository-based Development workstation, approved payloads may instead be staged under the canonical `vendor/...` paths and the developer can simply double-click `Setup-MAVI-Development.cmd` at the repository root. The script auto-discovers those paths; no port, database or FFmpeg configuration is required.
+For a repository-based Development workstation, keep the extracted `MAVI-Offline-Binary-Kit` beside the `MAVI` repository and double-click `Setup-MAVI-Development.cmd`. The launcher auto-detects and verifies the sibling kit. Direct `vendor/...` staging remains a release-preparation fallback, not the preferred disconnected developer workflow. No port, database, pgvector or FFmpeg PATH configuration is required.
 
 ## Production workstation
 
