@@ -532,6 +532,22 @@ def assert_empty_scene_diagnostic(
         raise AcceptanceError("qualification_empty_scene_false_positive")
 
 
+def _validate_application_health(
+    health: dict[str, Any],
+    *,
+    source_commit: str,
+    expected_mavi_build: str,
+) -> None:
+    if (
+        health.get("status") != "ok"
+        or health.get("commit") != source_commit
+        or health.get("build") != expected_mavi_build
+        or not expected_mavi_build
+        or expected_mavi_build == "unknown-development"
+    ):
+        raise AcceptanceError("qualification_application_identity_mismatch")
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.mode == "formal" and (args.corpus_manifest is None or args.ground_truth is None):
         raise AcceptanceError("qualification_formal_ground_truth_required")
@@ -546,14 +562,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     config = client.json("GET", "/api/system/config")
     if not isinstance(health, dict) or not isinstance(config, dict):
         raise AcceptanceError("qualification_health_invalid")
-    if (
-        health.get("status") != "ok"
-        or health.get("commit") != args.source_commit
-        or not isinstance(health.get("build"), str)
-        or not health["build"]
-        or health["build"] == "unknown-development"
-    ):
-        raise AcceptanceError("qualification_application_identity_mismatch")
+    _validate_application_health(
+        health,
+        source_commit=args.source_commit,
+        expected_mavi_build=args.expected_mavi_build,
+    )
 
     camera = resolve_camera(
         client,
