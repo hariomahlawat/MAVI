@@ -2,7 +2,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function Assert-MaviWindows {
-    if (-not $IsWindows -and $env:OS -ne "Windows_NT") {
+    if ($env:OS -ne "Windows_NT") {
         throw "MAVI Windows setup can run only on Windows."
     }
 }
@@ -58,51 +58,42 @@ function Invoke-MaviCommand {
         [hashtable]$Environment
     )
 
-    if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf) -and
-        -not (Get-Command $FilePath -ErrorAction SilentlyContinue)) {
+    $command = Get-Command $FilePath -ErrorAction SilentlyContinue
+    if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf) -and -not $command) {
         throw "Required executable was not found: $FilePath"
     }
 
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $FilePath
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    foreach ($argument in $Arguments) {
-        [void]$startInfo.ArgumentList.Add([string]$argument)
-    }
-    if ($Environment) {
-        foreach ($key in $Environment.Keys) {
-            $startInfo.Environment[[string]$key] = [string]$Environment[$key]
-        }
-    }
-
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
+    $previousEnvironment = @{}
     try {
-        if (-not $process.Start()) {
-            throw "Unable to start command: $FilePath"
+        if ($Environment) {
+            foreach ($key in $Environment.Keys) {
+                $name = [string]$key
+                $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+                [Environment]::SetEnvironmentVariable($name, [string]$Environment[$key], "Process")
+            }
         }
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
-        $process.WaitForExit()
-        $stdout = $stdoutTask.GetAwaiter().GetResult()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
-        if ($AllowedExitCodes -notcontains $process.ExitCode) {
-            $detail = ($stderr + [Environment]::NewLine + $stdout).Trim()
-            throw ("Command failed ({0}): {1} {2}{3}{4}" -f $process.ExitCode, $FilePath, ($Arguments -join " "), [Environment]::NewLine, $detail)
+
+        $output = & $FilePath @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+        $textOutput = ($output | Out-String).TrimEnd()
+        if ($AllowedExitCodes -notcontains $exitCode) {
+            throw ("Command failed ({0}): {1}{2}{3}" -f $exitCode, $FilePath, [Environment]::NewLine, $textOutput)
         }
         if ($CaptureOutput) {
             return [pscustomobject]@{
-                ExitCode = $process.ExitCode
-                StandardOutput = $stdout
-                StandardError = $stderr
+                ExitCode = $exitCode
+                StandardOutput = $textOutput
+                StandardError = ""
             }
         }
     }
     finally {
-        $process.Dispose()
+        foreach ($name in $previousEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable(
+                [string]$name,
+                $previousEnvironment[$name],
+                "Process")
+        }
     }
 }
 
@@ -218,20 +209,37 @@ function Invoke-MaviPsql {
         [Parameter(Mandatory = $true)][string]$Sql,
         [switch]$CaptureOutput
     )
-    $arguments = @(
-        "-h", "127.0.0.1",
-        "-p", [string]$Port,
-        "-U", $User,
-        "-d", $Database,
-        "-v", "ON_ERROR_STOP=1",
-        "-X",
-        "-t",
-        "-A",
-        "-c", $Sql
-    )
-    return Invoke-MaviCommand -FilePath $PsqlPath -Arguments $arguments -CaptureOutput:$CaptureOutput -Environment @{
-        PGPASSWORD = $Password
-        PGCONNECT_TIMEOUT = "10"
+
+    $sqlPath = Join-Path ([IO.Path]::GetTempPath()) ("mavi-sql-" + [Guid]::NewGuid().ToString("N") + ".sql")
+    try {
+        [IO.File]::WriteAllText(
+            $sqlPath,
+            $Sql + [Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        & icacls.exe $sqlPath /inheritance:r /grant:r ("{0}:F" -f $identity) "SYSTEM:F" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to secure temporary PostgreSQL command file."
+        }
+
+        $arguments = @(
+            "-h", "127.0.0.1",
+            "-p", [string]$Port,
+            "-U", $User,
+            "-d", $Database,
+            "-v", "ON_ERROR_STOP=1",
+            "-X",
+            "-t",
+            "-A",
+            "-f", $sqlPath
+        )
+        return Invoke-MaviCommand -FilePath $PsqlPath -Arguments $arguments -CaptureOutput:$CaptureOutput -Environment @{
+            PGPASSWORD = $Password
+            PGCONNECT_TIMEOUT = "10"
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $sqlPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -285,7 +293,7 @@ function Set-MaviDirectoryAcl {
         [ValidateSet("R", "M", "F")][string]$Rights = "M"
     )
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
-    & icacls.exe $Path /grant:r "$Identity:(OI)(CI)$Rights" | Out-Null
+    & icacls.exe $Path /grant:r ("{0}:(OI)(CI){1}" -f $Identity, $Rights) | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to grant $Rights ACL to $Identity on $Path."
     }
