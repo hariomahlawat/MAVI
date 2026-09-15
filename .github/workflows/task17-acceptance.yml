@@ -118,7 +118,7 @@ jobs:
             )
             if ($errors.Count -gt 0) {
               $errors | ForEach-Object {
-                Write-Error "$script:$($_.Extent.StartLineNumber):$($_.Extent.StartColumnNumber): $($_.Message)"
+                Write-Error "${script}:$($_.Extent.StartLineNumber):$($_.Extent.StartColumnNumber): $($_.Message)"
               }
               throw "PowerShell parse failed: $script"
             }
