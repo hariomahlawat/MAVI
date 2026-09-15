@@ -159,9 +159,21 @@ def validate_backup_restore(
         raise ClosureError("backup_restore_not_passed")
     if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
         raise ClosureError("backup_restore_acceptance_profile_mismatch")
+    source_topology = value.get("liveStorageTopology", {})
+    restore_topology = value.get("restoreStorageTopology", {})
+    if (
+        source_topology.get("maviCommit") != source_commit
+        or restore_topology.get("maviCommit") != source_commit
+        or source_topology.get("databaseIdentity") != value.get("sourceDatabaseIdentity")
+        or restore_topology.get("databaseIdentity") != value.get("restoreDatabaseIdentity")
+    ):
+        raise ClosureError("backup_restore_topology_binding_mismatch")
     if (
         mavi_build is not None
-        and value.get("liveStorageTopology", {}).get("maviBuild") != mavi_build
+        and (
+            source_topology.get("maviBuild") != mavi_build
+            or restore_topology.get("maviBuild") != mavi_build
+        )
     ):
         raise ClosureError("backup_restore_mavi_build_mismatch")
     if value.get("sourceDatabaseIdentity") == value.get("restoreDatabaseIdentity"):
