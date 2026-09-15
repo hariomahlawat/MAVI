@@ -65,7 +65,7 @@ def validate_restored_storage_topology(
         "maviBuild",
         "maviCommit",
         "operationalHostIdentitySha256",
-        "databaseIdentity",
+        "databaseIdentitySha256",
         "managedMediaRootIdentitySha256",
         "acceptedEvidenceRootIdentitySha256",
     )
