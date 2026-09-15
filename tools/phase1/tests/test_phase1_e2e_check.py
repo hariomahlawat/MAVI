@@ -245,7 +245,7 @@ class TopologyClient:
             "maviBuild": "build-a",
             "maviCommit": "a" * 40,
             "operationalHostIdentitySha256": self.host_identity,
-            "databaseIdentity": "mavi|127.0.0.1|5432",
+            "databaseIdentitySha256": "4" * 64,
             "managedMediaRootIdentitySha256": "2" * 64,
             "acceptedEvidenceRootIdentitySha256": "3" * 64,
         }
