@@ -121,6 +121,7 @@ jobs:
           dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj
           --configuration Release
           --no-restore
+          -p:RequireMaviBundledMediaTools=false
           -p:MaviBuild=github-${{ github.run_id }}-${{ github.run_attempt }}
           -p:MaviCommit=${{ github.sha }}
           --output .artifacts/task15-host
