@@ -118,6 +118,7 @@ def fetch_live_storage_topology(base_url: str) -> dict[str, Any]:
     if (
         not isinstance(value, dict)
         or value.get("schemaVersion") != "mavi-storage-topology-attestation-v1"
+        or not isinstance(value.get("operationalHostIdentitySha256"), str)
         or not isinstance(value.get("databaseIdentity"), str)
         or not isinstance(value.get("managedMediaRootIdentitySha256"), str)
         or not isinstance(value.get("acceptedEvidenceRootIdentitySha256"), str)
@@ -142,6 +143,8 @@ def validate_live_storage_topology(
     if (
         live.get("maviCommit") != source_commit
         or live.get("maviBuild") != expected_mavi_build
+        or not isinstance(live.get("operationalHostIdentitySha256"), str)
+        or len(live["operationalHostIdentitySha256"]) != 64
         or live.get("databaseIdentity") != source_database_identity
         or live.get("managedMediaRootIdentitySha256") != media_identity
         or live.get("acceptedEvidenceRootIdentitySha256") != evidence_identity
@@ -151,6 +154,7 @@ def validate_live_storage_topology(
         "schemaVersion": "mavi-storage-topology-attestation-v1",
         "maviBuild": expected_mavi_build,
         "maviCommit": source_commit,
+        "operationalHostIdentitySha256": live["operationalHostIdentitySha256"],
         "databaseIdentity": source_database_identity,
         "managedMediaRootIdentitySha256": media_identity,
         "acceptedEvidenceRootIdentitySha256": evidence_identity,
@@ -248,6 +252,11 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         source_media_root=args.source_media_root,
         source_evidence_root=args.source_evidence_root,
     )
+    if (
+        acceptance.get("operationalApi", {}).get("hostIdentitySha256")
+        != live_storage_topology["operationalHostIdentitySha256"]
+    ):
+        raise BackupRestoreError("backup_restore_acceptance_operational_host_mismatch")
     assert_restore_database_clean(args.psql, args.restore_pg_service)
 
     _assert_disjoint_roots([
@@ -278,7 +287,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
 
     pg_dump_version = run_checked([args.pg_dump, "--version"])
     pg_restore_version = run_checked([args.pg_restore, "--version"])
-    run_checked([
+    pg_dump_command = [
         args.pg_dump,
         "--format=custom",
         "--no-owner",
@@ -286,7 +295,18 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "--file",
         str(database_dump),
         f"service={args.source_pg_service}",
-    ])
+    ]
+    pg_restore_command = [
+        args.pg_restore,
+        "--clean",
+        "--if-exists",
+        "--no-owner",
+        "--no-privileges",
+        "--dbname",
+        f"service={args.restore_pg_service}",
+        str(database_dump),
+    ]
+    run_checked(pg_dump_command)
     if not database_dump.is_file() or database_dump.stat().st_size == 0:
         raise BackupRestoreError("database_backup_empty")
 
@@ -311,6 +331,37 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         raise BackupRestoreError("accepted_evidence_backup_integrity_failed")
     evidence_manifest_sha = write_manifest(evidence_dir / "manifest.json", evidence_manifest)
 
+    tooling = {
+        "databaseBackup": {
+            "tool": str(args.pg_dump),
+            "version": pg_dump_version,
+            "arguments": pg_dump_command[1:],
+            "exitCode": 0,
+            "passed": True,
+        },
+        "databaseRestore": {
+            "tool": str(args.pg_restore),
+            "version": pg_restore_version,
+            "arguments": pg_restore_command[1:],
+            "exitCode": 0,
+            "passed": True,
+        },
+        "managedSourceCopy": {
+            "tool": "python-shutil.copytree",
+            "version": sys.version.split()[0],
+            "arguments": [str(args.source_media_root), str(media_dir)],
+            "exitCode": 0,
+            "passed": True,
+        },
+        "acceptedEvidenceCopy": {
+            "tool": "python-shutil.copytree",
+            "version": sys.version.split()[0],
+            "arguments": [str(args.source_evidence_root), str(evidence_dir)],
+            "exitCode": 0,
+            "passed": True,
+        },
+    }
+
     backup_manifest = {
         "schemaVersion": "mavi-backup-set-v1",
         "sourceCommit": args.source_commit,
@@ -324,19 +375,11 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "acceptedEvidenceManifestSha256": evidence_manifest_sha,
         "pgDumpVersion": pg_dump_version,
         "pgRestoreVersion": pg_restore_version,
+        "tooling": tooling,
     }
     backup_manifest_sha = write_manifest(args.backup_dir / "backup-manifest.json", backup_manifest)
 
-    run_checked([
-        args.pg_restore,
-        "--clean",
-        "--if-exists",
-        "--no-owner",
-        "--no-privileges",
-        "--dbname",
-        f"service={args.restore_pg_service}",
-        str(database_dump),
-    ])
+    run_checked(pg_restore_command)
 
     shutil.copytree(media_dir, args.restore_media_root, dirs_exist_ok=True, symlinks=False)
     shutil.copytree(evidence_dir, args.restore_evidence_root, dirs_exist_ok=True, symlinks=False)
@@ -356,6 +399,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "schemaVersion": "mavi-storage-topology-attestation-v1",
         "maviBuild": args.expected_mavi_build,
         "maviCommit": args.source_commit,
+        "operationalHostIdentitySha256": live_storage_topology["operationalHostIdentitySha256"],
         "databaseIdentity": restore_database_identity,
         "managedMediaRootIdentitySha256": storage_root_identity_sha256(args.restore_media_root),
         "acceptedEvidenceRootIdentitySha256": storage_root_identity_sha256(args.restore_evidence_root),
@@ -370,6 +414,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "restoreDatabaseIdentity": restore_database_identity,
         "liveStorageTopology": live_storage_topology,
         "restoreStorageTopology": restore_storage_topology,
+        "tooling": tooling,
         "database": {"included": True, "manifestSha256": database_manifest_sha},
         "managedSource": {"included": True, "manifestSha256": media_manifest_sha},
         "acceptedEvidence": {"included": True, "manifestSha256": evidence_manifest_sha},
@@ -417,6 +462,9 @@ def finalize(execution_path: Path, post_restore_path: Path) -> dict[str, Any]:
         or state_check.get("observedApplicationCommit") != execution.get("sourceCommit")
         or state_check.get("expectedApplicationBuild") != execution.get("restoreStorageTopology", {}).get("maviBuild")
         or state_check.get("observedApplicationBuild") != execution.get("restoreStorageTopology", {}).get("maviBuild")
+        or state_check.get("operationalHostIdentitySha256")
+        != execution.get("restoreStorageTopology", {}).get("operationalHostIdentitySha256")
+        or not isinstance(state_check.get("authoritativeStateSha256"), str)
         or state_check.get("result", {}).get("passed") is not True
         or state_check.get("result", {}).get("failureCodes") != []
     ):

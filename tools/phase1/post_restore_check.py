@@ -64,6 +64,7 @@ def validate_restored_storage_topology(
         "schemaVersion",
         "maviBuild",
         "maviCommit",
+        "operationalHostIdentitySha256",
         "databaseIdentity",
         "managedMediaRootIdentitySha256",
         "acceptedEvidenceRootIdentitySha256",
@@ -109,6 +110,9 @@ def main() -> int:
             acceptance_evidence=args.acceptance_evidence,
             expected_application_commit=execution["sourceCommit"],
             expected_application_build=execution["restoreStorageTopology"]["maviBuild"],
+            expected_operational_host_identity_sha256=execution[
+                "restoreStorageTopology"
+            ]["operationalHostIdentitySha256"],
         )
         result = {
             "schemaVersion": "mavi-post-restore-check-v1",
