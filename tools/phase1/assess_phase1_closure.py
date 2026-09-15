@@ -674,10 +674,15 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         )
         evidence_hashes["production-log-inspection"] = log_sha
 
-    if args.backup_restore is not None and final_e2e_sha is not None:
+    if (
+        args.backup_restore is not None
+        and final_e2e_sha is not None
+        and expected_mavi_build is not None
+    ):
         production_acceptance.validate_backup(
             args.backup_restore,
             source_commit=args.source_commit,
+            mavi_build=expected_mavi_build,
             acceptance_profile_sha256=acceptance_profile_sha256,
             formal_e2e_sha256=final_e2e_sha,
         )
