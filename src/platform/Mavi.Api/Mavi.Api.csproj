@@ -45,7 +45,13 @@
           BeforeTargets="ComputeFilesToPublish"
           Condition="'$(RequireMaviBundledMediaTools)' == 'true'">
     <Error Condition="!Exists('$(MaviNativeMediaToolsDirectory)/manifest.json')"
-           Text="MAVI production publish requires vendor/ffmpeg/manifest.json and its vetted native binaries. Stage the approved offline FFmpeg dependency pack before publishing." />
+           Text="MAVI production publish requires vendor/ffmpeg/manifest.json. Stage the approved offline FFmpeg dependency pack before publishing." />
+    <Error Condition="!Exists('$(MaviNativeMediaToolsDirectory)/win-x64/ffmpeg.exe')"
+           Text="MAVI production publish requires the vetted win-x64 ffmpeg.exe payload." />
+    <Error Condition="!Exists('$(MaviNativeMediaToolsDirectory)/win-x64/ffprobe.exe')"
+           Text="MAVI production publish requires the vetted win-x64 ffprobe.exe payload." />
+    <Error Condition="!Exists('$(MaviNativeMediaToolsDirectory)/win-x64/LICENSE.txt')"
+           Text="MAVI production publish requires the FFmpeg licence/notices payload." />
   </Target>
 
   <Target Name="BuildTask15Frontend" BeforeTargets="ComputeFilesToPublish">
