@@ -35,6 +35,18 @@ Every new library, SDK, native executable, runtime, model, database extension or
 
 `config/dependencies/offline-dependency-policy-v1.json` is the machine-readable direct-dependency baseline. Repository verification must fail when a direct .NET/npm/Python dependency changes without an explicit policy update. For native/external dependencies, the same feature must update staging/bundle composition, Setup/readiness, deterministic version/hash checks, licence/notices and applicable disconnected qualification.
 
+## Binary-kit readiness
+
+Before final setup-media assembly, verify the separately retained `MAVI-Offline-Binary-Kit` with:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File tools/setup/Test-MaviOfflineBinaryKit.ps1 -KitRoot "<KIT_ROOT>"
+~~~
+
+The kit must match `config/dependencies/offline-binary-catalog-v1.json`, its complete SHA-256 manifest, and the nested PostgreSQL/pgvector and FFmpeg manifests.
+
+The final Production setup bundle should normally omit Development SDKs and package caches. Development workstations consume the source repository plus the verified companion binary kit; a combined Development+Production setup bundle is an explicit exception.
+
 ## Phase-1 formal acceptance
 
 Task 17 owns the formal Phase-1 disconnected-install and end-to-end offline acceptance event. Hosted CI, an invalid proxy, or the existence of a qualification-candidate bundle is not by itself proof of a disconnected deployment.
