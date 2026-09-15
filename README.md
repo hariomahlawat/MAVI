@@ -29,21 +29,23 @@ docs           architecture decisions, specifications and runbooks
 tools          repository verification tooling
 ```
 
-## Development prerequisites
+## Development setup
 
-Install the following on a connected development workstation:
+The supported Windows Development path is one-click. On a prepared repository, double-click:
 
-- Visual Studio with the ASP.NET and web-development workloads
-- .NET 10 SDK
-- PostgreSQL 18 with pgvector
-- FFmpeg/ffprobe
-- Node.js 22 or later
-- Python 3.13 for the current core development/test baseline; the Task-10 qualified RTMDet runtime candidate uses Python 3.12
-- Git
+```text
+Setup-MAVI-Development.cmd
+```
 
-For Windows/Visual Studio database and test setup, follow `docs/runbooks/local-development.md` before running the integration tests. The integration suite intentionally requires a dedicated `mavi_test` database and never falls back to the development database.
+Approve elevation, allow Setup to prepare/verify the supported toolchain and MAVI-owned PostgreSQL/pgvector/FFmpeg/offline caches, then restart Visual Studio once and press **F5**.
 
-CUDA, PyTorch and computer-vision model packages are introduced only when the corresponding vision-processing task requires them. Production runtime must not download models or other dependencies from the Internet.
+Do not manually choose PostgreSQL ports, install pgvector, edit connection strings, or configure FFmpeg PATH as the normal workflow. See `docs/runbooks/local-development.md`.
+
+### Dependency policy
+
+Any future feature that adds or changes a .NET, npm, Python, native, model/runtime or operating-system dependency must update the offline dependency contract in the same PR. `python tools/verify_repo.py` fails if direct .NET/npm/Python dependency surfaces change without an update to `config/dependencies/offline-dependency-policy-v1.json`.
+
+The full methodology is defined in `docs/architecture/dependency-and-offline-packaging-policy.md`. Production must never download models, packages or runtime dependencies from the Internet.
 
 ## First checks
 
@@ -83,6 +85,7 @@ Start with:
 
 - `docs/superpowers/specs/2026-09-08-mavi-repository-architecture-design.md`
 - `docs/architecture/README.md`
+- `docs/architecture/dependency-and-offline-packaging-policy.md`
 - `docs/decisions/`
 - `AGENTS.md`
 
