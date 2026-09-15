@@ -116,6 +116,8 @@ jobs:
             "tools/setup/Test-MaviOfflineBinaryKit.ps1",
             "tools/setup/Prepare-MaviDeveloperOfflineCache.ps1",
             "tools/setup/Prepare-MaviFfmpegWindows.ps1",
+            "tools/setup/Install-MaviVisionRuntime.ps1",
+            "tools/setup/Start-MaviVisionWorker.ps1",
             "tools/setup/Test-MaviEnvironment.ps1",
             "tools/setup/Test-MaviSetupContracts.ps1",
             "tools/setup/Mavi.Setup.Common.psm1",
