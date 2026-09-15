@@ -233,7 +233,7 @@ try {
             ffmpeg = "test-ffmpeg"
             dotnetHostingBaseline = "10.0.11"
             dotnetSdkBaseline = "10.0.100"
-            nodeBaseline = "22.13.0"
+            nodeBaseline = "22.22.2"
             pythonDevelopmentBaseline = "3.13"
             observedInstallers = [ordered]@{
                 dotnetHosting = [ordered]@{
