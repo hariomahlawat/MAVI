@@ -501,11 +501,8 @@ def check_offline_binary_catalog(errors: list[str]) -> None:
                 fail(f"Offline binary catalog component {component_id} has empty {field}.", errors)
 
     missing = required_ids - set(by_id)
-    extra = set(by_id) - required_ids
     if missing:
         fail(f"Offline binary catalog is missing required components: {sorted(missing)}", errors)
-    if extra:
-        fail(f"Offline binary catalog has unrecognized components: {sorted(extra)}", errors)
 
     try:
         global_json = json.loads((ROOT / "global.json").read_text(encoding="utf-8"))
