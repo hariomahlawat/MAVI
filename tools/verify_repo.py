@@ -506,6 +506,50 @@ def check_offline_binary_catalog(errors: list[str]) -> None:
     if missing:
         fail(f"Offline binary catalog is missing required components: {sorted(missing)}", errors)
 
+    ffmpeg_component = by_id.get("ffmpeg-win-x64")
+    if ffmpeg_component is not None:
+        acquisition = ffmpeg_component.get("acquisitionSource")
+        if not isinstance(acquisition, dict):
+            fail("Offline binary catalog FFmpeg entry has no acquisitionSource.", errors)
+        else:
+            required_acquisition_fields = {
+                "connectedPreparationOnly",
+                "provider",
+                "archiveName",
+                "url",
+                "sha256",
+                "upstreamSourceCommit",
+            }
+            if not required_acquisition_fields.issubset(acquisition):
+                fail("Offline binary catalog FFmpeg acquisitionSource is incomplete.", errors)
+            else:
+                if acquisition.get("connectedPreparationOnly") is not True:
+                    fail("FFmpeg acquisition must be connected-preparation-only.", errors)
+                url = acquisition.get("url")
+                if not isinstance(url, str) or not url.startswith("https://"):
+                    fail("FFmpeg acquisition URL must be HTTPS.", errors)
+                sha = acquisition.get("sha256")
+                if (
+                    not isinstance(sha, str)
+                    or len(sha) != 64
+                    or any(ch not in "0123456789abcdef" for ch in sha)
+                ):
+                    fail("FFmpeg acquisition SHA-256 is invalid.", errors)
+                archive_name = acquisition.get("archiveName")
+                if (
+                    not isinstance(archive_name, str)
+                    or not archive_name.endswith(".zip")
+                    or "/" in archive_name
+                    or "\\" in archive_name
+                ):
+                    fail("FFmpeg acquisition archiveName must be a simple ZIP filename.", errors)
+                baseline = ffmpeg_component.get("baselineVersion")
+                if (
+                    not isinstance(baseline, str)
+                    or baseline in {"", "from-staged-manifest"}
+                ):
+                    fail("FFmpeg connected-preparation baseline version must be pinned.", errors)
+
     try:
         dependency_policy = json.loads(
             (ROOT / "config/dependencies/offline-dependency-policy-v1.json").read_text(
