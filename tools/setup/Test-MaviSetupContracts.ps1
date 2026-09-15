@@ -124,17 +124,9 @@ try {
         New-Item -ItemType Directory -Path $directory -Force | Out-Null
     }
 
-    $kitCatalog = [ordered]@{
-        schemaVersion = "mavi-offline-binary-catalog-v1"
-        applicationAndSetup = @(
-            [ordered]@{ id = "dotnet-hosting-win-x64"; baselineVersion = "10.0.11" },
-            [ordered]@{ id = "dotnet-sdk-win-x64"; baselineVersion = "10.0.100" },
-            [ordered]@{ id = "node-win-x64"; baselineVersion = "22.13.0" },
-            [ordered]@{ id = "python-development-win-x64"; baselineVersion = "3.13" }
-        )
-    }
     $kitCatalogPath = Join-Path $kitCatalogRoot "offline-binary-catalog-v1.json"
-    Write-MaviJson -Value $kitCatalog -Path $kitCatalogPath -Depth 6
+    Copy-Item -LiteralPath (Join-Path $repoRoot "config\dependencies\offline-binary-catalog-v1.json") -Destination $kitCatalogPath
+    $kitCatalog = Read-MaviJson -Path $kitCatalogPath
 
     $postgresFixture = Join-Path $kitPostgresRoot "bin\postgres.exe"
     $vectorFixture = Join-Path $kitPostgresRoot "share\extension\vector.control"
@@ -201,6 +193,14 @@ try {
     $kitManifest = [ordered]@{
         schemaVersion = "mavi-offline-binary-kit-v1"
         sourceCatalogSha256 = (Get-MaviSha256 -Path $kitCatalogPath)
+        sourceInputs = [ordered]@{
+            offlineDependencyPolicy = (Get-MaviSha256 -Path (Join-Path $repoRoot "config\dependencies\offline-dependency-policy-v1.json"))
+            offlineBinaryCatalog = (Get-MaviSha256 -Path (Join-Path $repoRoot "config\dependencies\offline-binary-catalog-v1.json"))
+            globalJson = (Get-MaviSha256 -Path (Join-Path $repoRoot "global.json"))
+            webPackageLock = (Get-MaviSha256 -Path (Join-Path $repoRoot "src\web\mavi-web\package-lock.json"))
+            visionPyproject = (Get-MaviSha256 -Path (Join-Path $repoRoot "src\vision\pyproject.toml"))
+            toolsRequirements = (Get-MaviSha256 -Path (Join-Path $repoRoot "tools\requirements.txt"))
+        }
         versions = [ordered]@{
             postgresql = "18.99-test"
             pgvector = "0.99-test"
