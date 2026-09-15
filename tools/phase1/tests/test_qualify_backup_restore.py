@@ -45,6 +45,14 @@ def _execution_payload():
             "managedMediaRootIdentitySha256": "7" * 64,
             "acceptedEvidenceRootIdentitySha256": "8" * 64,
         },
+        "restoreStorageTopology": {
+            "schemaVersion": "mavi-storage-topology-attestation-v1",
+            "maviBuild": "build-a",
+            "maviCommit": "a" * 40,
+            "databaseIdentity": "restore|127.0.0.1|5433",
+            "managedMediaRootIdentitySha256": "9" * 64,
+            "acceptedEvidenceRootIdentitySha256": "a" * 64,
+        },
         "database": {"included": True, "manifestSha256": "1" * 64},
         "managedSource": {"included": True, "manifestSha256": "2" * 64},
         "acceptedEvidence": {"included": True, "manifestSha256": "3" * 64},
@@ -64,6 +72,7 @@ def _post_payload(execution_path: Path, execution: dict):
         "databaseManifestSha256": execution["database"]["manifestSha256"],
         "managedSourceManifestSha256": execution["managedSource"]["manifestSha256"],
         "acceptedEvidenceManifestSha256": execution["acceptedEvidence"]["manifestSha256"],
+        "restoreStorageTopology": execution["restoreStorageTopology"],
         "result": {"passed": True, "failureCodes": []},
     }
 
@@ -169,3 +178,16 @@ def test_live_storage_topology_accepts_exact_sources(tmp_path: Path):
         source_evidence_root=evidence,
     )
     assert result == live
+
+
+def test_finalize_rejects_post_restore_topology_mismatch(tmp_path: Path):
+    execution = tmp_path / "execution.json"
+    execution_value = _execution_payload()
+    execution.write_text(json.dumps(execution_value), encoding="utf-8")
+    post = tmp_path / "post.json"
+    post_value = _post_payload(execution, execution_value)
+    post_value["restoreStorageTopology"] = dict(post_value["restoreStorageTopology"])
+    post_value["restoreStorageTopology"]["databaseIdentity"] = "source|127.0.0.1|5432"
+    post.write_text(json.dumps(post_value), encoding="utf-8")
+    with pytest.raises(mod.BackupRestoreError, match="post_restore_topology_binding_mismatch"):
+        mod.finalize(execution, post)
