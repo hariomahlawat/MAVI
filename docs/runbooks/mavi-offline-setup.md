@@ -31,7 +31,7 @@ The application artifact remains immutable.
 Development configuration is written to:
 
 ~~~text
-%LOCALAPPDATA%\MAVI\config\appsettings.development.machine.json
+C:\ProgramData\MAVI\Development\config\appsettings.development.machine.json
 ~~~
 
 Production configuration is written to:
@@ -87,6 +87,9 @@ MAVI-Offline-Setup/
         dotnet-sdk.exe
         node.msi
         python.exe
+        nuget-packages/
+        npm-cache/
+        python-wheelhouse/
 ~~~
 
 mavi-offline-bundle.json contains SHA-256 and size for every payload file. Setup verifies the complete bundle before changing the target machine.
@@ -108,15 +111,26 @@ powershell -ExecutionPolicy Bypass -File tools/native/stage_ffmpeg_windows.ps1 ^
 Use a known-good PostgreSQL 18 installation on the build machine after the approved pgvector version has been installed into that PostgreSQL tree:
 
 ~~~powershell
-powershell -ExecutionPolicy Bypass -File tools/native/stage_postgresql_runtime_windows.ps1 ^
-  -PostgreSqlRoot "C:\Program Files\PostgreSQL\18"
+powershell -ExecutionPolicy Bypass -File tools/native/stage_postgresql_runtime_windows.ps1 -PostgreSqlRoot "C:\Program Files\PostgreSQL\18" -PgVectorLicensePath "<PGVECTOR_LICENSE>"
 ~~~
 
 The runtime pack contains the PostgreSQL bin, lib and share trees, including pgvector. Its manifest records every file hash plus the observed PostgreSQL and pgvector versions.
 
 This is the preferred end-user deployment path. The lower-level standalone pgvector staging/installer remains available for controlled maintenance/build-machine workflows but is not required during normal MAVI installation.
 
-### 3. Publish MAVI with app-local FFmpeg
+### 3. Prepare the offline Development dependency cache
+
+On a connected preparation machine:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File tools/setup/Prepare-MaviDeveloperOfflineCache.ps1
+~~~
+
+This populates the canonical vendor/developer-cache/win-x64 location with NuGet, npm and Python dependencies needed by a fresh disconnected Development workstation.
+
+Place the approved installers at the canonical names documented in vendor/installers/README.md.
+
+### 4. Publish MAVI with app-local FFmpeg
 
 ~~~powershell
 dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:RequireMaviBundledMediaTools=true -p:MaviBuild="<BUILD_ID>" -p:MaviCommit="<EXACT_COMMIT>" -o "<PUBLISHED_ROOT>"
@@ -124,15 +138,24 @@ dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj -c Release -p:RequireMaviBu
 
 Create the application artifact manifest using the existing Phase-1 tool before assembling setup media.
 
-### 4. Assemble the canonical bundle
+### 5. Assemble the canonical bundle
 
 Provide approved offline installers for the .NET Hosting Bundle, .NET 10 SDK, Node.js 22 and Python 3.13+:
 
 ~~~powershell
-powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviOfflineSetupBundle.ps1 -Destination "D:\Release\MAVI-Offline-Setup" -PostgreSqlRuntimePack "vendor\postgresql\pg18\win-x64" -FfmpegPack "vendor\ffmpeg" -ApplicationArtifact "<PUBLISHED_ROOT>" -HostingBundle "<DOTNET_HOSTING_BUNDLE_EXE>" -DotNetSdkInstaller "<DOTNET_10_SDK_EXE>" -NodeInstaller "<NODE_22_MSI>" -PythonInstaller "<PYTHON_313_EXE>"
+powershell -ExecutionPolicy Bypass -File tools/setup/New-MaviOfflineSetupBundle.ps1 -Destination "D:\Release\MAVI-Offline-Setup" -ApplicationArtifact "<PUBLISHED_ROOT>"
 ~~~
 
-The builder verifies the nested PostgreSQL and FFmpeg manifests and then hashes the complete final media.
+The builder uses the canonical vendor paths by default, verifies the PostgreSQL and FFmpeg manifests, confirms all installers/caches are present, and then hashes the complete final media. Override paths only for an exceptional controlled build.
+
+
+## Where the binaries live
+
+Do not put the large third-party runtime payload into ordinary Git history. That makes every clone heavy and still does not improve the operator experience.
+
+The repository contains the scripts, manifests and canonical staging locations. Approved binaries are staged locally under vendor/ and then copied into one versioned, SHA-256-manifested MAVI offline setup bundle. That bundle is the deployment medium.
+
+Git LFS can be adopted later if organisational policy requires binary version control, but Setup does not depend on Git or Git LFS on the target machine.
 
 ## Development workstation
 
@@ -142,7 +165,7 @@ Double-click:
 Setup-MAVI-Development.cmd
 ~~~
 
-Setup automatically verifies the offline media; installs the pinned .NET/Node/Python prerequisites only if they are missing; deploys the isolated MAVI PostgreSQL 18 runtime; initializes MAVI-Dev-PostgreSQL-18 on port 55433; creates mavi_dev and mavi_test; enables pgvector; creates media/evidence roots; writes Development machine configuration; configures MAVI_TEST_DB_CONNECTION for the current user; and stages the approved FFmpeg pack into vendor/ffmpeg when the repository path is available.
+Setup automatically verifies the offline media; installs the pinned .NET/Node/Python prerequisites only if they are missing; deploys the isolated MAVI PostgreSQL 18 runtime; initializes MAVI-Dev-PostgreSQL-18 on port 55433; creates mavi_dev and mavi_test; enables pgvector; creates media/evidence roots; writes machine-owned Development configuration under ProgramData; configures MAVI_TEST_DB_CONNECTION for the PC; restores the repository from the bundled offline NuGet/npm/Python caches when the source tree is attached; and stages the approved FFmpeg pack into vendor/ffmpeg when the repository path is available.
 
 Restart Visual Studio once after first setup so it inherits the new user environment variable. No pgAdmin configuration is required.
 
