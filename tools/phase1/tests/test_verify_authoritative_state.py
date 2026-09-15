@@ -35,7 +35,7 @@ def test_authoritative_state_rejects_same_commit_wrong_build(tmp_path: Path, mon
         json.dumps({
             "schemaVersion": "mavi-phase1-acceptance-evidence-v1",
             "sourceCommit": "a" * 40,
-            "attestation": {"maviCommit": "a" * 40, "maviBuild": "wrong-build"},
+            "attestation": {"maviCommit": "a" * 40, "maviBuild": "prior-build"},
             "result": {"passed": True, "failureCodes": []},
         }),
         encoding="utf-8",
@@ -43,7 +43,7 @@ def test_authoritative_state_rejects_same_commit_wrong_build(tmp_path: Path, mon
     monkeypatch.setattr(mod.e2e, "ApiClient", HealthOnlyClient)
     monkeypatch.setattr(mod.evidence_verifier, "_validate_schema", lambda *_: None)
     monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
-    with pytest.raises(mod.StateCheckError, match="state_acceptance_release_identity_mismatch"):
+    with pytest.raises(mod.StateCheckError, match="state_application_identity_mismatch"):
         mod.check_state(
             base_url="http://mavi.local",
             acceptance_evidence=evidence,
