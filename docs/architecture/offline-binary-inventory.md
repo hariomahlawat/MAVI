@@ -11,10 +11,10 @@ The JSON catalog is authoritative for automation. The generated `mavi-offline-bi
 | PostgreSQL | 18.x | exact patch + every file SHA-256 recorded by the staged PostgreSQL runtime-pack manifest |
 | pgvector | PostgreSQL-18-compatible approved build | exact version + every file SHA-256 recorded inside the PostgreSQL runtime-pack manifest |
 | FFmpeg / ffprobe | approved Windows x64 build | exact FFmpeg version + executable SHA-256 recorded by the FFmpeg pack manifest |
-| ASP.NET Core Hosting Bundle | 10.0.11 baseline; compatible 10.0 servicing line | installer bytes SHA-256 recorded by the binary-kit manifest; installed ASP.NET Core 10/ANCM rechecked by Setup |
-| .NET SDK | 10.0.100 repository baseline | `global.json` baseline + installer SHA-256 + post-install `dotnet --list-sdks` check |
-| Node.js | 22.13.0 minimum on major 22 | MSI SHA-256 + post-install `node --version` check |
-| Python Development | 3.13.x | installer SHA-256 + post-install `python --version` check |
+| ASP.NET Core Hosting Bundle | 10.0.11 baseline; compatible 10.0 servicing line | observed installer file/product version + installer SHA-256 in the binary-kit manifest; installed ASP.NET Core 10/ANCM rechecked by Setup |
+| .NET SDK | 10.0.100 repository baseline | `global.json` baseline + observed installer file/product version + installer SHA-256 + post-install `dotnet --list-sdks` check |
+| Node.js | 22.13.0 minimum on major 22 | exact MSI ProductVersion + MSI SHA-256 + post-install `node --version` check |
+| Python Development | 3.13.x | observed installer file/product version + installer SHA-256 + post-install `python --version` check |
 | NuGet cache | current solution dependency closure | every retained cache file SHA-256 in binary-kit manifest + offline restore/build |
 | npm cache | `package-lock.json` v3 closure | every retained cache file SHA-256 in binary-kit manifest + `npm ci --offline` |
 | Python Development wheelhouse | current `pyproject.toml` Development closure | every retained wheel SHA-256 in binary-kit manifest + `pip --no-index` install/tests |
