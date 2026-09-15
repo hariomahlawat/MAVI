@@ -59,6 +59,10 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(MediaProcessingOptions.SectionName))
             .Validate(options => !string.IsNullOrWhiteSpace(options.FfprobePath), "MediaProcessing:FfprobePath is required.")
             .Validate(options => !string.IsNullOrWhiteSpace(options.FfmpegPath), "MediaProcessing:FfmpegPath is required.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.BundledRootPath),
+                "MediaProcessing:BundledRootPath is required.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.BundledManifestPath),
+                "MediaProcessing:BundledManifestPath is required.")
             .Validate(options => options.ProbeTimeoutSeconds is >= 1 and <= 300,
                 "MediaProcessing:ProbeTimeoutSeconds must be between 1 and 300.")
             .ValidateOnStart();
