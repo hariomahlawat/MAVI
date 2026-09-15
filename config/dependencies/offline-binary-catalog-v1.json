@@ -47,14 +47,22 @@
         "Development",
         "Production"
       ],
-      "versionPolicy": "exact-observed",
-      "baselineVersion": "from-staged-manifest",
-      "exactVersionSource": "FFmpeg dependency-pack manifest field version",
+      "versionPolicy": "exact-pinned-connected-preparation-source",
+      "baselineVersion": "9.0.1",
+      "exactVersionSource": "FFmpeg dependency-pack manifest field version, produced from the pinned connected-preparation archive",
       "binaryKitPath": "vendor/ffmpeg",
       "releasePath": "application/tools/ffmpeg",
       "verification": "nested SHA-256 manifest plus ffmpeg/ffprobe version viability",
       "licence": "win-x64/LICENSE.txt",
-      "dependencyPolicyId": "ffmpeg-win-x64"
+      "dependencyPolicyId": "ffmpeg-win-x64",
+      "acquisitionSource": {
+        "connectedPreparationOnly": true,
+        "provider": "GyanD codexffmpeg GitHub release mirror",
+        "archiveName": "ffmpeg-9.0.1-essentials_build.zip",
+        "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build.zip",
+        "sha256": "fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9",
+        "upstreamSourceCommit": "FFmpeg/FFmpeg@bf1b838f2a"
+      }
     },
     {
       "id": "dotnet-hosting-win-x64",
