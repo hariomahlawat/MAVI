@@ -163,6 +163,91 @@ function Initialize-MaviDatabase {
     Invoke-MaviPsql -PsqlPath $PsqlPath -Port $Port -User "postgres" -Password $AdminPassword -Database $DatabaseName -Sql "create extension if not exists vector;"
 }
 
+function Refresh-MaviProcessPath {
+    $machine = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine)
+    $user = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::User)
+    $env:Path = (($machine, $user) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ";"
+}
+
+function Test-MaviDotNet10Sdk {
+    $dotnet = Get-Command dotnet.exe -ErrorAction SilentlyContinue
+    if (-not $dotnet) {
+        return $false
+    }
+    $result = Invoke-MaviCommand -FilePath $dotnet.Source -Arguments @("--list-sdks") -CaptureOutput
+    return $result.StandardOutput -match "(?m)^10\."
+}
+
+function Test-MaviNode22 {
+    $node = Get-Command node.exe -ErrorAction SilentlyContinue
+    if (-not $node) {
+        return $false
+    }
+    $result = Invoke-MaviCommand -FilePath $node.Source -Arguments @("--version") -CaptureOutput
+    return $result.StandardOutput.Trim() -match "^v22\."
+}
+
+function Test-MaviPython313 {
+    $python = Get-Command python.exe -ErrorAction SilentlyContinue
+    if (-not $python) {
+        return $false
+    }
+    $result = Invoke-MaviCommand -FilePath $python.Source -Arguments @("--version") -CaptureOutput
+    $match = [regex]::Match($result.StandardOutput, "Python\s+(?<major>\d+)\.(?<minor>\d+)")
+    if (-not $match.Success) {
+        return $false
+    }
+    $major = [int]$match.Groups["major"].Value
+    $minor = [int]$match.Groups["minor"].Value
+    return $major -gt 3 -or ($major -eq 3 -and $minor -ge 13)
+}
+
+function Ensure-MaviDeveloperToolchain {
+    param([Parameter(Mandatory = $true)][string]$BundleRoot)
+
+    $root = Join-Path $BundleRoot "prerequisites\developer\win-x64"
+
+    if (-not (Test-MaviDotNet10Sdk)) {
+        $installer = Join-Path $root "dotnet-sdk.exe"
+        if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw ".NET 10 SDK is missing and the offline developer installer was not found: $installer"
+        }
+        Invoke-MaviCommand -FilePath $installer -Arguments @("/install", "/quiet", "/norestart") -AllowedExitCodes @(0,3010)
+        Refresh-MaviProcessPath
+        if (-not (Test-MaviDotNet10Sdk)) {
+            throw ".NET 10 SDK installation did not become available."
+        }
+    }
+
+    if (-not (Test-MaviNode22)) {
+        $installer = Join-Path $root "node.msi"
+        if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Node.js 22 is missing and the offline developer installer was not found: $installer"
+        }
+        Invoke-MaviCommand -FilePath "msiexec.exe" -Arguments @("/i", $installer, "/qn", "/norestart") -AllowedExitCodes @(0,3010)
+        Refresh-MaviProcessPath
+        if (-not (Test-MaviNode22)) {
+            throw "Node.js 22 installation did not become available."
+        }
+    }
+
+    if (-not (Test-MaviPython313)) {
+        $installer = Join-Path $root "python.exe"
+        if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Python 3.13+ is missing and the offline developer installer was not found: $installer"
+        }
+        Invoke-MaviCommand -FilePath $installer -Arguments @("/quiet", "InstallAllUsers=1", "PrependPath=1", "Include_test=0") -AllowedExitCodes @(0,3010)
+        Refresh-MaviProcessPath
+        if (-not (Test-MaviPython313)) {
+            throw "Python 3.13+ installation did not become available."
+        }
+    }
+
+    if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
+        throw "npm is unavailable after Node.js setup."
+    }
+}
+
 function Enable-MaviIis {
     $appCmd = Join-Path $env:windir "System32\inetsrv\appcmd.exe"
     if (Test-Path -LiteralPath $appCmd -PathType Leaf) {
