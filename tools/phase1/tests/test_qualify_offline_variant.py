@@ -140,3 +140,26 @@ def test_bundle_file_set_rejects_nested_same_named_manifest(tmp_path: Path):
         match="bundle_artifact_set_mismatch",
     ):
         mod.build_offline_bundle._verify_staged_bundle(stage, manifest)
+
+
+def test_qualified_bundle_rejects_nested_same_named_manifest(tmp_path: Path, monkeypatch):
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "bundle-manifest.json").write_text(
+        '{"artifacts":[],"platformVariant":"linux-x86_64-cpu"}\n',
+        encoding="utf-8",
+    )
+    nested = bundle / "release" / "unexpected"
+    nested.mkdir(parents=True)
+    (nested / "bundle-manifest.json").write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        mod.build_offline_bundle,
+        "_verify_bundled_release_selection",
+        lambda *_: None,
+    )
+    with pytest.raises(
+        mod.VariantQualificationError,
+        match="variant_bundle_file_set_mismatch",
+    ):
+        mod.verify_bundle(bundle)
