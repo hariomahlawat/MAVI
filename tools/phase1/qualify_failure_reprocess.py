@@ -203,6 +203,17 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         raise FailureReprocessError(
             "failure_reprocess_application_identity_mismatch"
         )
+    try:
+        operational_api = e2e._validate_operational_topology(
+            client,
+            source_commit=args.source_commit,
+            expected_mavi_build=args.mavi_build,
+            expected_host_identity_sha256=args.expected_operational_host_identity_sha256,
+        )
+    except e2e.AcceptanceError as exc:
+        raise FailureReprocessError(
+            "failure_reprocess_operational_host_mismatch"
+        ) from exc
 
     camera = e2e.resolve_camera(
         client,
@@ -405,6 +416,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "scenarioCompletedAtUtc": scenario_completed.isoformat().replace("+00:00", "Z"),
         "sourceCommit": args.source_commit,
         "maviBuild": args.mavi_build,
+        "operationalHostIdentitySha256": operational_api["hostIdentitySha256"],
         "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
         "productionBundleManifestSha256": bundle_sha,
         "productionReleaseLockSha256": bundle["lockSha256"],
@@ -455,6 +467,7 @@ def main() -> int:
     parser.add_argument("--video", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--mavi-build", required=True)
+    parser.add_argument("--expected-operational-host-identity-sha256", required=True)
     parser.add_argument(
         "--target-verified-manifest-sha256",
         required=True,

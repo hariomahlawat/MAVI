@@ -4,7 +4,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion","acceptanceExecutionId","acceptanceContextSha256","scenarioStartedAtUtc","scenarioCompletedAtUtc","sourceCommit","maviBuild","targetVerifiedManifestSha256",
+    "schemaVersion","acceptanceExecutionId","acceptanceContextSha256","scenarioStartedAtUtc","scenarioCompletedAtUtc","sourceCommit","maviBuild","operationalHostIdentitySha256","targetVerifiedManifestSha256",
     "productionBundleManifestSha256","productionReleaseLockSha256",
     "linuxCudaVariantEvidenceSha256","workerPythonSha256","workerEnvironmentSha256","workerVenvRootSha256","workerResolvedPythonSha256","videoAssetId",
     "firstProcessingRunId","firstVisionJobId","failureCode",
@@ -19,6 +19,7 @@
     "scenarioCompletedAtUtc": { "type": "string", "format": "date-time" },
     "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "maviBuild": { "type": "string", "minLength": 1 },
+    "operationalHostIdentitySha256": { "$ref": "#/$defs/sha256" },
     "targetVerifiedManifestSha256": { "$ref": "#/$defs/sha256" },
     "productionBundleManifestSha256": { "$ref": "#/$defs/sha256" },
     "productionReleaseLockSha256": { "$ref": "#/$defs/sha256" },

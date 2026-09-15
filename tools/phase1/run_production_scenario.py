@@ -175,7 +175,8 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     bundle, bundle_sha, variant, environment_identity = validate_inputs(args)
     network_isolation = offline_variant.assert_outbound_internet_unavailable()
 
-    health = e2e.ApiClient(args.base_url).json("GET", "/api/health")
+    client = e2e.ApiClient(args.base_url)
+    health = client.json("GET", "/api/health")
     if (
         not isinstance(health, dict)
         or health.get("status") != "ok"
@@ -185,6 +186,17 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         raise ProductionScenarioError(
             "production_scenario_application_identity_mismatch"
         )
+    try:
+        operational_api = e2e._validate_operational_topology(
+            client,
+            source_commit=args.source_commit,
+            expected_mavi_build=args.mavi_build,
+            expected_host_identity_sha256=args.expected_operational_host_identity_sha256,
+        )
+    except e2e.AcceptanceError as exc:
+        raise ProductionScenarioError(
+            "production_scenario_operational_host_mismatch"
+        ) from exc
 
     worker_log = args.output.with_suffix(
         args.output.suffix + ".worker.log"
@@ -336,6 +348,8 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         != bundle_sha
         or attestation.get("platformLockSha256")
         != bundle.get("lockSha256")
+        or evidence.get("operationalApi", {}).get("hostIdentitySha256")
+        != args.expected_operational_host_identity_sha256
         or evidence.get("result", {}).get("passed") is not True
     ):
         raise ProductionScenarioError(
@@ -362,6 +376,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "mode": args.mode,
         "sourceCommit": args.source_commit,
         "maviBuild": args.mavi_build,
+        "operationalHostIdentitySha256": operational_api["hostIdentitySha256"],
         "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
         "linuxCudaVariantEvidenceSha256": sha256_file(
             args.linux_cuda_variant_evidence
@@ -397,6 +412,7 @@ def main() -> int:
     parser.add_argument("--environment-label", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--mavi-build", required=True)
+    parser.add_argument("--expected-operational-host-identity-sha256", required=True)
     parser.add_argument(
         "--target-verified-manifest-sha256",
         required=True,
