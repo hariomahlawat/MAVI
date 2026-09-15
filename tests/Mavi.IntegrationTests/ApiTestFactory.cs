@@ -31,6 +31,8 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     public Action<IServiceCollection>? OverrideServices { get; init; }
     public string? StaticWebRoot { get; init; }
     public bool EnableStartupMigrations { get; init; }
+    public int StartupMigrationLockTimeoutSeconds { get; init; } = 30;
+    public int StartupMigrationCommandTimeoutSeconds { get; init; } = 120;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -52,8 +54,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["VideoImport:MultipartOverheadBytes"] = "1048576",
                 ["VideoImport:AllowedExtensions:0"] = ".mp4",
                 ["DatabaseMigrations:Enabled"] = EnableStartupMigrations ? "true" : "false",
-                ["DatabaseMigrations:LockTimeoutSeconds"] = "30",
-                ["DatabaseMigrations:CommandTimeoutSeconds"] = "120",
+                ["DatabaseMigrations:LockTimeoutSeconds"] =
+                    StartupMigrationLockTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["DatabaseMigrations:CommandTimeoutSeconds"] =
+                    StartupMigrationCommandTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
             });
         });
         builder.ConfigureServices(services =>
