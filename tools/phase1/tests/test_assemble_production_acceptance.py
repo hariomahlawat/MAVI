@@ -211,6 +211,7 @@ def test_final_scenario_rejects_other_venv(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
     monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     variant = {
         "workerPythonSha256": "2" * 64,
         "workerEnvironmentSha256": "5" * 64,
@@ -249,6 +250,7 @@ def test_final_scenario_cannot_reuse_variant_smoke_e2e(tmp_path: Path, monkeypat
     scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
 
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     variant = {
         "workerPythonSha256": "2" * 64,
@@ -324,6 +326,7 @@ def test_failure_reprocess_rejects_source_drift(tmp_path: Path, monkeypatch):
     path = tmp_path / "failure.json"
     path.write_text(json.dumps(value), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     variant = {
         "workerPythonSha256": "2" * 64,
         "workerEnvironmentSha256": "5" * 64,
@@ -417,6 +420,7 @@ def test_log_inspection_rejects_checkpoint_after_scenario(tmp_path: Path, monkey
     inspection = tmp_path / "inspection.json"
     inspection.write_text(json.dumps(value), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     monkeypatch.setattr(
         mod,
         "load_acceptance_context",
@@ -482,6 +486,7 @@ def test_backup_rejects_restore_topology_database_mismatch(tmp_path: Path, monke
     path = tmp_path / "backup.json"
     path.write_text(json.dumps(value), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     with pytest.raises(mod.ProductionAcceptanceError, match="production_backup_restore_binding_failed"):
         mod.validate_backup(
             path,
@@ -532,10 +537,21 @@ def _prior_manifest(tmp_path: Path) -> Path:
     return path
 
 
+def _prior_acceptance(tmp_path: Path) -> Path:
+    path = tmp_path / "prior-acceptance.json"
+    path.write_text(json.dumps({
+        "schemaVersion": "mavi-phase1-acceptance-evidence-v1",
+        "sourceCommit": "a" * 40,
+        "result": {"passed": True, "failureCodes": []},
+    }), encoding="utf-8")
+    return path
+
+
 def _offline_update_value(
     pre_sha: str,
     post_sha: str,
     prior_manifest_sha: str,
+    prior_acceptance_sha: str,
     *,
     migration_policy: str = "none",
 ) -> dict:
@@ -569,7 +585,7 @@ def _offline_update_value(
         "migrationPolicy": migration_policy,
         "migration": None,
         "retainedState": {
-            "acceptanceEvidenceSha256": "1" * 64,
+            "acceptanceEvidenceSha256": prior_acceptance_sha,
             "preUpdateCheckSha256": pre_sha,
             "postUpdateCheckSha256": post_sha,
         },
@@ -612,10 +628,13 @@ def test_supported_prior_rejects_forged_manifest_hash(monkeypatch):
 
 def test_offline_update_rejects_missing_required_migration(tmp_path: Path, monkeypatch):
     prior = _prior_manifest(tmp_path)
+    prior_acceptance = _prior_acceptance(tmp_path)
+    acceptance_sha = mod.sha256_file(prior_acceptance)
     pre = tmp_path / "pre.json"
     post = tmp_path / "post.json"
-    pre.write_text(json.dumps(_state_check_payload()), encoding="utf-8")
+    pre.write_text(json.dumps(_state_check_payload(acceptance_sha=acceptance_sha)), encoding="utf-8")
     post.write_text(json.dumps(_state_check_payload(
+        acceptance_sha=acceptance_sha,
         expected_commit="b" * 40,
         expected_build="target-build",
     )), encoding="utf-8")
@@ -624,9 +643,11 @@ def test_offline_update_rejects_missing_required_migration(tmp_path: Path, monke
         mod.sha256_file(pre),
         mod.sha256_file(post),
         mod.sha256_file(prior),
+        acceptance_sha,
         migration_policy="required",
     )), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     monkeypatch.setattr(
         mod,
         "_validate_supported_prior",
@@ -644,6 +665,7 @@ def test_offline_update_rejects_missing_required_migration(tmp_path: Path, monke
             application_manifest_sha256="4" * 64,
             supported_updates_policy_sha256="5" * 64,
             prior_application_manifest=prior,
+            prior_acceptance_evidence=prior_acceptance,
             pre_update_state_check=pre,
             post_update_state_check=post,
         )
@@ -651,10 +673,13 @@ def test_offline_update_rejects_missing_required_migration(tmp_path: Path, monke
 
 def test_offline_update_rejects_cross_spliced_retained_state(tmp_path: Path, monkeypatch):
     prior = _prior_manifest(tmp_path)
+    prior_acceptance = _prior_acceptance(tmp_path)
+    acceptance_sha = mod.sha256_file(prior_acceptance)
     pre = tmp_path / "pre.json"
     post = tmp_path / "post.json"
-    pre.write_text(json.dumps(_state_check_payload()), encoding="utf-8")
+    pre.write_text(json.dumps(_state_check_payload(acceptance_sha=acceptance_sha)), encoding="utf-8")
     post.write_text(json.dumps(_state_check_payload(
+        acceptance_sha=acceptance_sha,
         expected_commit="b" * 40,
         expected_build="target-build",
         camera_id="other-camera",
@@ -664,8 +689,10 @@ def test_offline_update_rejects_cross_spliced_retained_state(tmp_path: Path, mon
         mod.sha256_file(pre),
         mod.sha256_file(post),
         mod.sha256_file(prior),
+        acceptance_sha,
     )), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: {})
     with pytest.raises(
         mod.ProductionAcceptanceError,
@@ -679,6 +706,7 @@ def test_offline_update_rejects_cross_spliced_retained_state(tmp_path: Path, mon
             application_manifest_sha256="4" * 64,
             supported_updates_policy_sha256="5" * 64,
             prior_application_manifest=prior,
+            prior_acceptance_evidence=prior_acceptance,
             pre_update_state_check=pre,
             post_update_state_check=post,
         )
@@ -686,12 +714,16 @@ def test_offline_update_rejects_cross_spliced_retained_state(tmp_path: Path, mon
 
 def test_offline_update_rejects_wrong_prior_running_build(tmp_path: Path, monkeypatch):
     prior = _prior_manifest(tmp_path)
+    prior_acceptance = _prior_acceptance(tmp_path)
+    acceptance_sha = mod.sha256_file(prior_acceptance)
     pre = tmp_path / "pre.json"
     post = tmp_path / "post.json"
     pre.write_text(json.dumps(_state_check_payload(
+        acceptance_sha=acceptance_sha,
         expected_build="wrong-prior-build",
     )), encoding="utf-8")
     post.write_text(json.dumps(_state_check_payload(
+        acceptance_sha=acceptance_sha,
         expected_commit="b" * 40,
         expected_build="target-build",
     )), encoding="utf-8")
@@ -700,8 +732,10 @@ def test_offline_update_rejects_wrong_prior_running_build(tmp_path: Path, monkey
         mod.sha256_file(pre),
         mod.sha256_file(post),
         mod.sha256_file(prior),
+        acceptance_sha,
     )), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     monkeypatch.setattr(mod, "_validate_supported_prior", lambda *_: {})
     with pytest.raises(
         mod.ProductionAcceptanceError,
@@ -715,6 +749,7 @@ def test_offline_update_rejects_wrong_prior_running_build(tmp_path: Path, monkey
             application_manifest_sha256="4" * 64,
             supported_updates_policy_sha256="5" * 64,
             prior_application_manifest=prior,
+            prior_acceptance_evidence=prior_acceptance,
             pre_update_state_check=pre,
             post_update_state_check=post,
         )
@@ -722,13 +757,17 @@ def test_offline_update_rejects_wrong_prior_running_build(tmp_path: Path, monkey
 
 def test_offline_update_rejects_missing_state_proofs(tmp_path: Path, monkeypatch):
     prior = _prior_manifest(tmp_path)
+    prior_acceptance = _prior_acceptance(tmp_path)
+    acceptance_sha = mod.sha256_file(prior_acceptance)
     lifecycle = tmp_path / "update.json"
     lifecycle.write_text(json.dumps(_offline_update_value(
         "8" * 64,
         "9" * 64,
         mod.sha256_file(prior),
+        acceptance_sha,
     )), encoding="utf-8")
     monkeypatch.setattr(mod, "validate_schema", lambda *_: None)
+    monkeypatch.setattr(mod.evidence_verifier, "verify_acceptance", lambda *_, **__: None)
     with pytest.raises(mod.ProductionAcceptanceError, match="production_offline_update_invalid"):
         mod.validate_lifecycle(
             lifecycle,
@@ -738,4 +777,5 @@ def test_offline_update_rejects_missing_state_proofs(tmp_path: Path, monkeypatch
             application_manifest_sha256="4" * 64,
             supported_updates_policy_sha256="5" * 64,
             prior_application_manifest=prior,
+            prior_acceptance_evidence=prior_acceptance,
         )
