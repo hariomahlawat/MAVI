@@ -69,6 +69,17 @@ try {
         throw "Generated database password does not satisfy the connection-string-safe setup contract."
     }
 
+    # PostgreSQL's standard Windows version text includes parentheses:
+    #   postgres (PostgreSQL) 18.6
+    # Keep this as a regression contract so setup/staging scripts do not
+    # reintroduce the earlier overly strict "PostgreSQL 18.x" match.
+    if (-not (Test-MaviPostgreSqlMajorVersionOutput -VersionOutput "postgres (PostgreSQL) 18.6" -Major 18)) {
+        throw "PostgreSQL version parser rejected standard PostgreSQL 18 version output."
+    }
+    if (Test-MaviPostgreSqlMajorVersionOutput -VersionOutput "postgres (PostgreSQL) 17.9" -Major 18) {
+        throw "PostgreSQL version parser accepted the wrong major version."
+    }
+
     $planBundle = Join-Path $tempRoot "plan-bundle"
     $runtimeRoot = Join-Path $planBundle "prerequisites\postgresql\pg18\win-x64"
     New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
