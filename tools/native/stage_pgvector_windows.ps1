@@ -59,5 +59,7 @@ $manifest = [ordered]@{
 }
 $manifestPath = Join-Path $destinationRoot "manifest.json"
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+$manifestHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $manifestPath).Hash.ToLowerInvariant()
 Write-Host "Staged pgvector offline prerequisite pack at $destinationRoot"
+Write-Host "Manifest SHA-256: $manifestHash"
 Get-Content -LiteralPath $manifestPath
