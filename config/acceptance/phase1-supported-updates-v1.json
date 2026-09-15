@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "mavi-phase1-supported-updates-v1",
+  "priorReleases": [
+    {
+      "sourceCommit": "fef04c18c80d83730a448136e325ce1022166758",
+      "label": "accepted-task16-post-planning-baseline",
+      "migrationPolicy": "none",
+      "applicationManifestSha256": null,
+      "migrationScriptSha256": null
+    }
+  ]
+}

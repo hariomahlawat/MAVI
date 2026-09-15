@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/production-prerequisite-evidence-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion","acceptanceExecutionId","acceptanceContextSha256","sourceCommit","maviBuild","policySha256",
+    "windowsObservationSha256","databaseObservationSha256",
+    "linuxObservationSha256","topologyIdentities","windowsOperationalPlane","database",
+    "linuxVisionWorker","result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-production-prerequisite-evidence-v1" },
+    "acceptanceExecutionId": { "type": "string", "format": "uuid" },
+    "acceptanceContextSha256": { "$ref": "#/$defs/sha256" },
+    "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "maviBuild": { "type": "string", "minLength": 1 },
+    "policySha256": { "$ref": "#/$defs/sha256" },
+    "windowsObservationSha256": { "$ref": "#/$defs/sha256" },
+    "databaseObservationSha256": { "$ref": "#/$defs/sha256" },
+    "linuxObservationSha256": { "$ref": "#/$defs/sha256" },
+    "topologyIdentities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["windowsOperationalPlane","database","linuxVisionWorker"],
+      "properties": {
+        "windowsOperationalPlane": { "$ref": "#/$defs/sha256" },
+        "database": { "$ref": "#/$defs/sha256" },
+        "linuxVisionWorker": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "windowsOperationalPlane": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+    "database": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+    "linuxVisionWorker": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed","failureCodes"],
+      "properties": {
+        "passed": { "const": true },
+        "failureCodes": { "type": "array", "maxItems": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

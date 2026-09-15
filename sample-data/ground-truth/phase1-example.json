@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "mavi-phase1-ground-truth-v1",
+  "videoSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "durationMs": 10000,
+  "cameraCode": "QUAL-CAM-01",
+  "evaluationWindows": [
+    { "startOffsetMs": 0, "endOffsetMs": 10000 }
+  ],
+  "events": [
+    {
+      "eventId": "person-001",
+      "objectClass": "Person",
+      "startOffsetMs": 1000,
+      "endOffsetMs": 4000,
+      "spatialSamples": [
+        { "offsetMs": 1000, "boundingBox": { "x": 0.10, "y": 0.20, "width": 0.10, "height": 0.30 } },
+        { "offsetMs": 2500, "boundingBox": { "x": 0.15, "y": 0.20, "width": 0.10, "height": 0.30 } },
+        { "offsetMs": 4000, "boundingBox": { "x": 0.20, "y": 0.20, "width": 0.10, "height": 0.30 } }
+      ]
+    },
+    {
+      "eventId": "vehicle-001",
+      "objectClass": "Vehicle",
+      "startOffsetMs": 5000,
+      "endOffsetMs": 8000,
+      "spatialSamples": [
+        { "offsetMs": 5000, "boundingBox": { "x": 0.45, "y": 0.45, "width": 0.25, "height": 0.20 } },
+        { "offsetMs": 6500, "boundingBox": { "x": 0.50, "y": 0.45, "width": 0.25, "height": 0.20 } },
+        { "offsetMs": 8000, "boundingBox": { "x": 0.55, "y": 0.45, "width": 0.25, "height": 0.20 } }
+      ]
+    }
+  ]
+}

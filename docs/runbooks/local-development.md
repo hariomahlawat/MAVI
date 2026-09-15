@@ -86,6 +86,7 @@ In Visual Studio, after restarting with `MAVI_TEST_DB_CONNECTION` available, run
 
 ```powershell
 python tools/verify_repo.py
+python -m pytest -q tools/phase1/tests
 
 cd src/vision
 python -m pytest -q
@@ -99,7 +100,7 @@ npm run build
 cd ../../..
 ```
 
-The target is parity with the hosted MAVI Quality Gate: repository verification, .NET tests, Python tests, frontend tests/typecheck/build, PostgreSQL/pgvector availability, and FFmpeg availability must all succeed.
+The target is parity with the hosted MAVI Quality Gate: repository verification, Task-17 deterministic acceptance-tool tests, .NET tests, Python tests, frontend tests/typecheck/build, PostgreSQL/pgvector availability, and FFmpeg availability must all succeed. Disconnected/hardware qualification is intentionally outside normal developer CI; follow `docs/runbooks/phase1-acceptance.md` for those proofs.
 
 ## Troubleshooting
 

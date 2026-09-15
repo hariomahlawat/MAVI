@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/phase1-ground-truth-v1.json",
+  "title": "MAVI Phase-1 Ground Truth",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "videoSha256", "durationMs", "cameraCode", "evaluationWindows", "events"],
+  "properties": {
+    "schemaVersion": { "const": "mavi-phase1-ground-truth-v1" },
+    "videoSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "durationMs": { "type": "integer", "minimum": 1 },
+    "cameraCode": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "evaluationWindows": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/window" }
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    }
+  },
+  "$defs": {
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startOffsetMs", "endOffsetMs"],
+      "properties": {
+        "startOffsetMs": { "type": "integer", "minimum": 0 },
+        "endOffsetMs": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "box": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 1 },
+        "y": { "type": "number", "minimum": 0, "maximum": 1 },
+        "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["offsetMs", "boundingBox"],
+      "properties": {
+        "offsetMs": { "type": "integer", "minimum": 0 },
+        "boundingBox": { "$ref": "#/$defs/box" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventId", "objectClass", "startOffsetMs", "endOffsetMs", "spatialSamples"],
+      "properties": {
+        "eventId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "objectClass": { "enum": ["Person", "Vehicle"] },
+        "startOffsetMs": { "type": "integer", "minimum": 0 },
+        "endOffsetMs": { "type": "integer", "minimum": 1 },
+        "spatialSamples": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/sample" }
+        }
+      }
+    }
+  }
+}

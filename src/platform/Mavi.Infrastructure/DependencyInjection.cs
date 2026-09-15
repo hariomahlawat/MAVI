@@ -42,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<TrackSearchService>();
         services.AddScoped<IContentCatalog, ContentCatalog>();
         services.AddScoped<ContentReadService>();
+        services.AddSingleton<VisionRuntimeProvenanceParser>();
         services.AddSingleton<VisionResultValidator>();
         services.AddSingleton<ILeaseCapabilityService, LeaseCapabilityService>();
         services.AddSingleton(TimeProvider.System);

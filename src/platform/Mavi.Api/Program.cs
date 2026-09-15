@@ -1,3 +1,4 @@
+using System.Reflection;
 using Mavi.Api.Endpoints;
 using Mavi.Api.Middleware;
 using Mavi.Application.Health;
@@ -34,13 +35,22 @@ app.UseStaticFiles();
 
 app.MapGet("/api/health", () =>
 {
-    var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.1.0";
-    return Results.Ok(GetPlatformHealth.Execute(version));
+    var assembly = typeof(Program).Assembly;
+    var version = assembly.GetName().Version?.ToString() ?? "0.1.0";
+    var metadata = assembly
+        .GetCustomAttributes<AssemblyMetadataAttribute>()
+        .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+
+    metadata.TryGetValue("MaviBuild", out var build);
+    metadata.TryGetValue("MaviCommit", out var commit);
+    return Results.Ok(GetPlatformHealth.Execute(version, build, commit));
 });
 
 app.MapHealthChecks("/health/live");
 app.MapCameraEndpoints();
 app.MapVideoEndpoints();
+app.MapProcessingEndpoints();
+app.MapStorageTopologyEndpoints();
 app.MapVisionJobEndpoints();
 app.MapTrackEndpoints();
 app.MapArtifactEndpoints();

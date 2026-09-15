@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/offline-variant-evidence-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion","sourceCommit","targetVerifiedManifestSha256","acceptanceProfileSha256","maviBuild","variant","bundleMode","bundleManifestSha256",
+    "releaseLockSha256","expectedHostCompatibility","observedHostCompatibility",
+    "installCommand","installExitCode","pipCheckPassed","runtimeStarted",
+    "realInferencePassed","workerFlowPassed","workerFlowEvidenceSha256","workerPythonSha256","workerEnvironmentSha256","workerVenvRootSha256","workerResolvedPythonSha256","hostIdentitySha256","workerCommandSha256","workerLogSha256",
+    "actualDevice","outboundNetworkUnavailable","networkIsolation","firstRunDownloadObserved","result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-offline-variant-evidence-v1" },
+    "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "targetVerifiedManifestSha256": { "$ref": "#/$defs/sha256" },
+    "acceptanceProfileSha256": { "$ref": "#/$defs/sha256" },
+    "maviBuild": { "type": "string", "minLength": 1 },
+    "variant": { "enum": ["windows-x86_64-cpu","windows-x86_64-cuda","linux-x86_64-cpu","linux-x86_64-cuda"] },
+    "bundleMode": { "enum": ["qualification-candidate","production"] },
+    "bundleManifestSha256": { "$ref": "#/$defs/sha256" },
+    "releaseLockSha256": { "$ref": "#/$defs/sha256" },
+    "expectedHostCompatibility": { "type": "object" },
+    "observedHostCompatibility": { "type": "object" },
+    "installCommand": { "type": "string", "minLength": 1 },
+    "installExitCode": { "type": "integer" },
+    "pipCheckPassed": { "type": "boolean" },
+    "runtimeStarted": { "type": "boolean" },
+    "realInferencePassed": { "type": "boolean" },
+    "workerFlowPassed": { "type": "boolean" },
+    "workerFlowEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "workerPythonSha256": { "$ref": "#/$defs/sha256" },
+    "workerEnvironmentSha256": { "$ref": "#/$defs/sha256" },
+    "workerVenvRootSha256": { "$ref": "#/$defs/sha256" },
+    "workerResolvedPythonSha256": { "$ref": "#/$defs/sha256" },
+    "hostIdentitySha256": { "$ref": "#/$defs/sha256" },
+    "workerCommandSha256": { "$ref": "#/$defs/sha256" },
+    "workerLogSha256": { "$ref": "#/$defs/sha256" },
+    "actualDevice": { "type": "string", "minLength": 1 },
+    "outboundNetworkUnavailable": { "const": true },
+    "networkIsolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proxyEnvironmentAbsent", "probes", "passed"],
+      "properties": {
+        "proxyEnvironmentAbsent": { "const": true },
+        "probes": {
+          "type": "array",
+          "minItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["host", "port", "reachable"],
+            "properties": {
+              "host": { "type": "string", "minLength": 1 },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "reachable": { "const": false }
+            }
+          }
+        },
+        "passed": { "const": true }
+      }
+    },
+    "firstRunDownloadObserved": { "type": "boolean" },
+    "result": { "enum": ["passed","failed"] }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

@@ -36,6 +36,43 @@ REQUIRED_PATHS = [
     "contracts/schemas/vision-job-lease-v2.schema.json",
     "contracts/schemas/vision-job-complete-v2.schema.json",
     "contracts/schemas/worker-health-v2.schema.json",
+    "config/acceptance/phase1-acceptance-v1.json",
+    "config/acceptance/phase1-supported-updates-v1.json",
+    "config/acceptance/phase1-production-prerequisites-v1.json",
+    "sample-data/ground-truth/phase1-ground-truth.schema.json",
+    "sample-data/ground-truth/phase1-corpus.schema.json",
+    "sample-data/ground-truth/phase1-example.json",
+    "tools/phase1/phase1-acceptance-evidence.schema.json",
+    "tools/phase1/phase1-evaluation-result.schema.json",
+    "tools/phase1/cctv-quality-corpus-evidence.schema.json",
+    "tools/phase1/quality_corpus.py",
+    "tools/phase1/assemble_quality_corpus_evidence.py",
+    "tools/phase1/offline-install-evidence.schema.json",
+    "tools/phase1/application-lifecycle-evidence.schema.json",
+    "tools/phase1/authoritative-state-check.schema.json",
+    "tools/phase1/backup-restore-evidence.schema.json",
+    "tools/phase1/offline-variant-evidence.schema.json",
+    "tools/phase1/recovery-performance-evidence.schema.json",
+    "tools/phase1/production-acceptance-evidence.schema.json",
+    "tools/phase1/production-prerequisite-policy.schema.json",
+    "tools/phase1/production-prerequisite-observation.schema.json",
+    "tools/phase1/production-prerequisite-evidence.schema.json",
+    "tools/phase1/production-scenario-evidence.schema.json",
+    "tools/phase1/production-failure-reprocess-evidence.schema.json",
+    "tools/phase1/production-log-inspection-evidence.schema.json",
+    "tools/phase1/production-acceptance-context.schema.json",
+    "tools/phase1/production-log-checkpoint.schema.json",
+    "tools/phase1/collect_production_prerequisites.py",
+    "tools/phase1/validate_production_prerequisites.py",
+    "tools/phase1/run_production_scenario.py",
+    "tools/phase1/qualify_failure_reprocess.py",
+    "tools/phase1/inspect_production_logs.py",
+    "tools/phase1/create_production_acceptance_context.py",
+    "tools/phase1/capture_production_log_checkpoints.py",
+    "tools/phase1/production_acceptance_context.py",
+    "tools/phase1/topology_identity.py",
+    "tools/phase1/environment_fingerprint.py",
+    "tools/phase1/assemble_production_acceptance.py",
 ]
 
 ALLOWED_REFERENCES = {
@@ -144,6 +181,213 @@ def check_contracts(errors: list[str]) -> None:
             continue
         fail(f"Invalid contract vector was accepted: {vector['name']}", errors)
 
+
+def check_phase1_acceptance_assets(errors: list[str]) -> None:
+    if jsonschema is None:
+        fail("Python package 'jsonschema' is required to validate Task-17 assets.", errors)
+        return
+
+    schema_paths = [
+        ROOT / "sample-data/ground-truth/phase1-ground-truth.schema.json",
+        ROOT / "sample-data/ground-truth/phase1-corpus.schema.json",
+        ROOT / "tools/phase1/phase1-acceptance-evidence.schema.json",
+        ROOT / "tools/phase1/phase1-evaluation-result.schema.json",
+        ROOT / "tools/phase1/cctv-quality-corpus-evidence.schema.json",
+        ROOT / "tools/phase1/offline-install-evidence.schema.json",
+        ROOT / "tools/phase1/application-lifecycle-evidence.schema.json",
+        ROOT / "tools/phase1/authoritative-state-check.schema.json",
+        ROOT / "tools/phase1/backup-restore-evidence.schema.json",
+        ROOT / "tools/phase1/offline-variant-evidence.schema.json",
+        ROOT / "tools/phase1/recovery-performance-evidence.schema.json",
+        ROOT / "tools/phase1/production-acceptance-evidence.schema.json",
+        ROOT / "tools/phase1/production-acceptance-context.schema.json",
+        ROOT / "tools/phase1/production-log-checkpoint.schema.json",
+        ROOT / "tools/phase1/production-prerequisite-policy.schema.json",
+        ROOT / "tools/phase1/production-prerequisite-observation.schema.json",
+        ROOT / "tools/phase1/production-prerequisite-evidence.schema.json",
+        ROOT / "tools/phase1/production-scenario-evidence.schema.json",
+        ROOT / "tools/phase1/production-failure-reprocess-evidence.schema.json",
+        ROOT / "tools/phase1/production-log-inspection-evidence.schema.json",
+    ]
+    schemas = {}
+    for path in schema_paths:
+        try:
+            schema = json.loads(path.read_text(encoding="utf-8"))
+            jsonschema.Draft202012Validator.check_schema(schema)
+            schemas[path.name] = schema
+        except (OSError, json.JSONDecodeError, jsonschema.SchemaError) as exc:
+            fail(f"Task-17 schema invalid: {path.relative_to(ROOT)} ({exc})", errors)
+
+    ground_truth_schema = schemas.get("phase1-ground-truth.schema.json")
+    if ground_truth_schema is not None:
+        try:
+            example = json.loads(
+                (ROOT / "sample-data/ground-truth/phase1-example.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            jsonschema.validate(
+                instance=example,
+                schema=ground_truth_schema,
+                format_checker=jsonschema.FormatChecker(),
+            )
+        except (OSError, json.JSONDecodeError, jsonschema.ValidationError) as exc:
+            message = getattr(exc, "message", str(exc))
+            fail(f"Task-17 ground-truth example invalid: {message}", errors)
+
+    try:
+        profile = json.loads(
+            (ROOT / "config/acceptance/phase1-acceptance-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if profile.get("schemaVersion") != "mavi-phase1-acceptance-profile-v1":
+            fail("Task-17 acceptance profile schemaVersion is invalid.", errors)
+        if profile.get("requiredClasses") != ["Person", "Vehicle"]:
+            fail("Task-17 acceptance profile must require Person and Vehicle.", errors)
+        corpus_sha = profile.get("qualificationCorpusManifestSha256")
+        if profile.get("mode") == "qualification":
+            if (
+                not isinstance(corpus_sha, str)
+                or len(corpus_sha) != 64
+                or any(ch not in "0123456789abcdef" for ch in corpus_sha)
+            ):
+                fail("Task-17 qualification corpus identity is not approved.", errors)
+        elif corpus_sha is not None and (
+            not isinstance(corpus_sha, str)
+            or len(corpus_sha) != 64
+            or any(ch not in "0123456789abcdef" for ch in corpus_sha)
+        ):
+            fail("Task-17 qualification corpus identity is invalid.", errors)
+
+        thresholds = profile.get("classThresholds")
+        if not isinstance(thresholds, dict) or set(thresholds) != {"Person", "Vehicle"}:
+            fail("Task-17 acceptance profile class thresholds are incomplete.", errors)
+        if profile.get("mode") == "qualification":
+            for object_class in ("Person", "Vehicle"):
+                if not isinstance(thresholds.get(object_class), dict):
+                    fail(
+                        f"Task-17 qualification threshold missing for {object_class}.",
+                        errors,
+                    )
+        performance = profile.get("performanceThresholds")
+        if performance is not None and set(performance) != {
+            "minimumProcessingFps",
+            "maximumP95LatencyMs",
+            "maximumSoakGrowthBytes",
+        }:
+            fail("Task-17 performance threshold policy is incomplete.", errors)
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"Task-17 acceptance profile is invalid JSON: {exc}", errors)
+
+    try:
+        updates = json.loads(
+            (ROOT / "config/acceptance/phase1-supported-updates-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if updates.get("schemaVersion") != "mavi-phase1-supported-updates-v1":
+            fail("Task-17 supported update policy schemaVersion is invalid.", errors)
+        releases = updates.get("priorReleases")
+        if not isinstance(releases, list) or not releases:
+            fail("Task-17 supported update policy must name at least one prior release.", errors)
+        else:
+            seen = set()
+            for release in releases:
+                commit = release.get("sourceCommit") if isinstance(release, dict) else None
+                policy = release.get("migrationPolicy") if isinstance(release, dict) else None
+                has_application_manifest_sha = (
+                    isinstance(release, dict)
+                    and "applicationManifestSha256" in release
+                )
+                application_manifest_sha = (
+                    release.get("applicationManifestSha256")
+                    if isinstance(release, dict)
+                    else None
+                )
+                if (
+                    not isinstance(commit, str)
+                    or len(commit) not in {40, 64}
+                    or any(ch not in "0123456789abcdef" for ch in commit)
+                    or commit in seen
+                ):
+                    fail("Task-17 supported update release identity is invalid.", errors)
+                    continue
+                seen.add(commit)
+                if policy not in {"none", "required"}:
+                    fail(
+                        f"Task-17 migration policy is invalid for prior release {commit}.",
+                        errors,
+                    )
+                migration_script_sha = (
+                    release.get("migrationScriptSha256")
+                    if isinstance(release, dict)
+                    else None
+                )
+                if policy == "required":
+                    if (
+                        not isinstance(migration_script_sha, str)
+                        or len(migration_script_sha) != 64
+                        or any(ch not in "0123456789abcdef" for ch in migration_script_sha)
+                    ):
+                        fail(
+                            f"Task-17 migration script hash is not frozen for prior release {commit}.",
+                            errors,
+                        )
+                elif migration_script_sha is not None:
+                    fail(
+                        f"Task-17 migration script hash must be null when migration is not required for {commit}.",
+                        errors,
+                    )
+                if not has_application_manifest_sha:
+                    fail(
+                        f"Task-17 prior application manifest hash field is missing for {commit}.",
+                        errors,
+                    )
+                elif application_manifest_sha is not None and (
+                    not isinstance(application_manifest_sha, str)
+                    or len(application_manifest_sha) != 64
+                    or any(ch not in "0123456789abcdef" for ch in application_manifest_sha)
+                ):
+                    fail(
+                        f"Task-17 prior application manifest hash is invalid for {commit}.",
+                        errors,
+                    )
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"Task-17 supported update policy is invalid JSON: {exc}", errors)
+
+
+    try:
+        prerequisites = json.loads(
+            (ROOT / "config/acceptance/phase1-production-prerequisites-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        schema = schemas.get("production-prerequisite-policy.schema.json")
+        if schema is not None:
+            jsonschema.validate(
+                instance=prerequisites,
+                schema=schema,
+                format_checker=jsonschema.FormatChecker(),
+            )
+        if prerequisites.get("approvalStatus") == "approved":
+            for section in (
+                "windowsOperationalPlane",
+                "database",
+                "linuxVisionWorker",
+            ):
+                values = prerequisites.get(section)
+                if (
+                    not isinstance(values, dict)
+                    or any(not isinstance(value, str) or not value for value in values.values())
+                ):
+                    fail(
+                        "Task-17 approved production prerequisite baseline is not fully frozen.",
+                        errors,
+                    )
+    except (OSError, json.JSONDecodeError, jsonschema.ValidationError) as exc:
+        message = getattr(exc, "message", str(exc))
+        fail(f"Task-17 production prerequisite policy is invalid: {message}", errors)
 
 def check_production_urls(errors: list[str]) -> None:
     files = [
@@ -545,6 +789,7 @@ def main() -> int:
     check_required_paths(errors)
     check_project_references(errors)
     check_contracts(errors)
+    check_phase1_acceptance_assets(errors)
     check_production_urls(errors)
     check_tracked_binaries_and_secrets(errors)
     check_vision_release_metadata(errors)
@@ -559,6 +804,7 @@ def main() -> int:
     print(f" - required paths: {len(REQUIRED_PATHS)}")
     print(f" - project boundaries: {len(ALLOWED_REFERENCES)}")
     print(" - contract examples: 7")
+    print(" - Task-17 acceptance schemas/configuration: validated")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret/wheel scan: clean")
     print(" - Task-10 release metadata: every tracked record and relationship validated")

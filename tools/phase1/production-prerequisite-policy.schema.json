@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/production-prerequisite-policy-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion","approvalStatus","windowsOperationalPlane","database","linuxVisionWorker"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-phase1-production-prerequisite-policy-v1" },
+    "approvalStatus": { "enum": ["pending","approved"] },
+    "windowsOperationalPlane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["windowsProductName","windowsVersion","windowsBuild","architecture","iisVersion","dotnetRuntimeVersion"],
+      "properties": {
+        "windowsProductName": { "type": ["string","null"], "minLength": 1 },
+        "windowsVersion": { "type": ["string","null"], "minLength": 1 },
+        "windowsBuild": { "type": ["string","null"], "minLength": 1 },
+        "architecture": { "type": ["string","null"], "minLength": 1 },
+        "iisVersion": { "type": ["string","null"], "minLength": 1 },
+        "dotnetRuntimeVersion": { "type": ["string","null"], "minLength": 1 }
+      }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["postgresVersion","pgvectorVersion"],
+      "properties": {
+        "postgresVersion": { "type": ["string","null"], "minLength": 1 },
+        "pgvectorVersion": { "type": ["string","null"], "minLength": 1 }
+      }
+    },
+    "linuxVisionWorker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distribution","release","architecture","pythonVersion","pythonImplementation","nvidiaDriverVersion","cudaRuntimeVersion"],
+      "properties": {
+        "distribution": { "type": ["string","null"], "minLength": 1 },
+        "release": { "type": ["string","null"], "minLength": 1 },
+        "architecture": { "type": ["string","null"], "minLength": 1 },
+        "pythonVersion": { "type": ["string","null"], "minLength": 1 },
+        "pythonImplementation": { "type": ["string","null"], "minLength": 1 },
+        "nvidiaDriverVersion": { "type": ["string","null"], "minLength": 1 },
+        "cudaRuntimeVersion": { "type": ["string","null"], "minLength": 1 }
+      }
+    }
+  }
+}

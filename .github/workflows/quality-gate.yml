@@ -97,6 +97,9 @@ jobs:
         working-directory: src/vision
         run: python -m pytest -q
 
+      - name: Test Task 17 acceptance tooling
+        run: python -m pytest -q tools/phase1/tests
+
       - name: Install frontend dependencies
         working-directory: src/web/mavi-web
         run: npm ci
@@ -118,6 +121,8 @@ jobs:
           dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj
           --configuration Release
           --no-restore
+          -p:MaviBuild=github-${{ github.run_id }}-${{ github.run_attempt }}
+          -p:MaviCommit=${{ github.sha }}
           --output .artifacts/task15-host
 
       - name: Verify production web host composition

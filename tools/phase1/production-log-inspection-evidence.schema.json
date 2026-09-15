@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/production-log-inspection-evidence-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion","acceptanceExecutionId","acceptanceContextSha256",
+    "serverLogCheckpointSha256","acceptanceStartedAtUtc","inspectionCompletedAtUtc",
+    "sourceCommit","maviBuild","formalScenarioSha256","formalE2eSha256",
+    "emptySceneScenarioSha256","emptySceneDiagnosticSha256",
+    "failureReprocessSha256","allowedHosts","logs","result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-production-log-inspection-evidence-v1" },
+    "acceptanceExecutionId": { "type": "string", "format": "uuid" },
+    "acceptanceContextSha256": { "$ref": "#/$defs/sha256" },
+    "serverLogCheckpointSha256": { "$ref": "#/$defs/sha256" },
+    "acceptanceStartedAtUtc": { "type": "string", "format": "date-time" },
+    "inspectionCompletedAtUtc": { "type": "string", "format": "date-time" },
+    "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "maviBuild": { "type": "string", "minLength": 1 },
+    "formalScenarioSha256": { "$ref": "#/$defs/sha256" },
+    "formalE2eSha256": { "$ref": "#/$defs/sha256" },
+    "emptySceneScenarioSha256": { "$ref": "#/$defs/sha256" },
+    "emptySceneDiagnosticSha256": { "$ref": "#/$defs/sha256" },
+    "failureReprocessSha256": { "$ref": "#/$defs/sha256" },
+    "allowedHosts": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "logs": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role","path","startOffset","endOffset","segmentSizeBytes","segmentSha256"],
+        "properties": {
+          "role": { "enum": ["api","iis","postgres","formal-worker","empty-worker","failure-worker"] },
+          "path": { "type": "string", "minLength": 1 },
+          "startOffset": { "type": "integer", "minimum": 0 },
+          "endOffset": { "type": "integer", "minimum": 1 },
+          "segmentSizeBytes": { "type": "integer", "minimum": 1 },
+          "segmentSha256": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed","externalUrlHits","telemetryOrLicenceHits","failureCodes"],
+      "properties": {
+        "passed": { "const": true },
+        "externalUrlHits": { "type": "array", "maxItems": 0 },
+        "telemetryOrLicenceHits": { "type": "array", "maxItems": 0 },
+        "failureCodes": { "type": "array", "maxItems": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
