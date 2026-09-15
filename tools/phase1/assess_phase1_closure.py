@@ -28,6 +28,7 @@ from mavi_vision.runtime.qualification import (  # noqa: E402
 )
 
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
+import quality_corpus  # noqa: E402
 import assemble_production_acceptance as production_acceptance  # noqa: E402
 from production_acceptance_context import (  # noqa: E402
     AcceptanceContextError,
@@ -237,39 +238,32 @@ def validate_backup_restore(
 
 def validate_quality(
     path: Path,
+    *,
     source_commit: str,
     acceptance_profile_sha256: str,
-    expected_corpus_sha256: str | None,
-    expected_mavi_build: str | None,
+    acceptance_profile: dict[str, Any],
+    expected_mavi_build: str,
+    target_verified_manifest_sha256: str,
+    corpus_manifest: Path,
+    case_evidence: dict[str, Path],
+    ground_truth: dict[str, Path],
 ) -> dict[str, Any]:
     value = load_json(path)
-    validate_schema(value, Path(__file__).with_name("phase1-acceptance-evidence.schema.json"))
-    require_source_commit(value, source_commit, "quality")
-    evidence_verifier.verify_acceptance(
-        value,
-        expected_source_commit=source_commit,
-        expected_acceptance_profile_sha256=acceptance_profile_sha256,
-        expected_qualification_corpus_sha256=expected_corpus_sha256,
-    )
-    if value.get("mode") != "formal":
-        raise ClosureError("quality_formal_mode_required")
-    if expected_mavi_build is not None and value.get("attestation", {}).get("maviBuild") != expected_mavi_build:
-        raise ClosureError("quality_mavi_build_mismatch")
-    metrics = value.get("metrics")
-    if (
-        not isinstance(metrics, dict)
-        or metrics.get("mode") != "qualification"
-        or metrics.get("qualification", {}).get("passed") is not True
-    ):
-        raise ClosureError("quality_qualification_not_passed")
-    per_class = metrics.get("perClass")
-    if not isinstance(per_class, dict):
-        raise ClosureError("quality_per_class_missing")
-    for object_class in ("Person", "Vehicle"):
-        row = per_class.get(object_class)
-        if not isinstance(row, dict) or row.get("groundTruthEventCount", 0) <= 0:
-            raise ClosureError("quality_class_coverage_missing:" + object_class)
-    return value
+    try:
+        return quality_corpus.validate_quality_corpus_evidence(
+            value,
+            source_commit=source_commit,
+            mavi_build=expected_mavi_build,
+            target_verified_manifest_sha256=target_verified_manifest_sha256,
+            acceptance_profile_sha256=acceptance_profile_sha256,
+            corpus_manifest=corpus_manifest,
+            profile=acceptance_profile,
+            case_evidence=case_evidence,
+            ground_truth=ground_truth,
+            require_passed=True,
+        )
+    except quality_corpus.QualityCorpusError as exc:
+        raise ClosureError("quality_corpus_invalid:" + exc.code) from exc
 
 
 def validate_performance(
@@ -407,6 +401,14 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
     acceptance_profile = load_json(canonical_profile_path)
     corpus_sha = acceptance_profile.get("qualificationCorpusManifestSha256")
     expected_corpus_sha = corpus_sha if isinstance(corpus_sha, str) else None
+    quality_case_paths = quality_corpus.parse_named_paths(
+        args.quality_case_evidence,
+        "quality_case_argument_invalid",
+    )
+    quality_ground_truth_paths = quality_corpus.parse_named_paths(
+        args.quality_ground_truth,
+        "quality_ground_truth_argument_invalid",
+    )
     supported_updates_policy_sha256 = policy_sha256_file(CANONICAL_SUPPORTED_UPDATES)
 
     application_manifest_sha256 = None
@@ -472,6 +474,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         "windows-offline-install": args.windows_offline,
         "linux-offline-install": args.linux_offline,
         "cctv-quality-baseline": args.quality,
+        "cctv-quality-corpus-manifest": args.quality_corpus_manifest,
         "linux-nvidia-recovery-performance": args.performance,
         "application-manifest": args.application_manifest,
         "acceptance-context": args.acceptance_context,
@@ -495,6 +498,10 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
     for name, path in optional_inputs.items():
         if path is None:
             pending.append("acceptance:" + name)
+    if not args.quality_case_evidence:
+        pending.append("acceptance:cctv-quality-case-evidence-set")
+    if not args.quality_ground_truth:
+        pending.append("acceptance:cctv-quality-ground-truth-set")
     if not args.production_log:
         pending.append("acceptance:production-log-set")
 
@@ -591,16 +598,40 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             if not isinstance(observed, str):
                 raise ClosureError("linux_offline_variant_evidence_hash_missing:" + gate)
             qualification_evidence_hashes[gate] = observed
-    if args.quality is not None:
+    if (
+        args.quality is not None
+        and args.quality_corpus_manifest is not None
+        and quality_case_paths
+        and quality_ground_truth_paths
+        and expected_mavi_build is not None
+        and isinstance(expected_corpus_sha, str)
+    ):
+        if sha256_file(args.quality_corpus_manifest) != expected_corpus_sha:
+            raise ClosureError("quality_corpus_manifest_hash_mismatch")
         validate_quality(
             args.quality,
-            args.source_commit,
-            acceptance_profile_sha256,
-            expected_corpus_sha,
-            expected_mavi_build,
+            source_commit=args.source_commit,
+            acceptance_profile_sha256=acceptance_profile_sha256,
+            acceptance_profile=acceptance_profile,
+            expected_mavi_build=expected_mavi_build,
+            target_verified_manifest_sha256=sha256_file(args.manifest),
+            corpus_manifest=args.quality_corpus_manifest,
+            case_evidence=quality_case_paths,
+            ground_truth=quality_ground_truth_paths,
         )
         quality_sha = sha256_file(args.quality)
         evidence_hashes["cctv-quality-baseline"] = quality_sha
+        evidence_hashes["cctv-quality-corpus-manifest"] = sha256_file(
+            args.quality_corpus_manifest
+        )
+        for case_id, case_path in sorted(quality_case_paths.items()):
+            evidence_hashes["cctv-quality-case:" + case_id] = sha256_file(
+                case_path
+            )
+        for case_id, gt_path in sorted(quality_ground_truth_paths.items()):
+            evidence_hashes["cctv-quality-ground-truth:" + case_id] = sha256_file(
+                gt_path
+            )
         qualification_evidence_hashes["cctv-quality-baseline"] = quality_sha
     if args.performance is not None:
         validate_performance(
@@ -1074,6 +1105,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--windows-offline", type=Path)
     parser.add_argument("--linux-offline", type=Path)
     parser.add_argument("--quality", type=Path)
+    parser.add_argument("--quality-corpus-manifest", type=Path)
+    parser.add_argument("--quality-case-evidence", action="append", default=[])
+    parser.add_argument("--quality-ground-truth", action="append", default=[])
     parser.add_argument("--performance", type=Path)
     parser.add_argument("--production-windows-cpu", type=Path)
     parser.add_argument("--production-windows-cuda", type=Path)
@@ -1105,7 +1139,16 @@ def main() -> int:
             encoding="utf-8",
             newline="\n",
         )
-    except (ClosureError, OSError, json.JSONDecodeError, ReleaseMetadataError, evidence_verifier.EvidenceError, PolicyIdentityError, AcceptanceContextError) as exc:
+    except (
+        ClosureError,
+        OSError,
+        json.JSONDecodeError,
+        ReleaseMetadataError,
+        evidence_verifier.EvidenceError,
+        quality_corpus.QualityCorpusError,
+        PolicyIdentityError,
+        AcceptanceContextError,
+    ) as exc:
         code = getattr(exc, "code", str(exc))
         print(json.dumps({"ok": False, "code": code}, sort_keys=True))
         return 2
