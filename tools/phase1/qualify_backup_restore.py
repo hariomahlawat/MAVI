@@ -24,6 +24,7 @@ import verify_phase1_evidence as evidence_verifier  # noqa: E402
 from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
 from topology_identity import (  # noqa: E402
     TopologyIdentityError,
+    database_identity_sha256,
     storage_root_identity_sha256,
 )
 
@@ -119,7 +120,12 @@ def fetch_live_storage_topology(base_url: str) -> dict[str, Any]:
         not isinstance(value, dict)
         or value.get("schemaVersion") != "mavi-storage-topology-attestation-v1"
         or not isinstance(value.get("operationalHostIdentitySha256"), str)
-        or not isinstance(value.get("databaseIdentity"), str)
+        or not isinstance(value.get("databaseIdentitySha256"), str)
+        or len(value["databaseIdentitySha256"]) != 64
+        or any(
+            ch not in "0123456789abcdef"
+            for ch in value["databaseIdentitySha256"]
+        )
         or not isinstance(value.get("managedMediaRootIdentitySha256"), str)
         or not isinstance(value.get("acceptedEvidenceRootIdentitySha256"), str)
         or not isinstance(value.get("maviBuild"), str)
@@ -145,7 +151,7 @@ def validate_live_storage_topology(
         or live.get("maviBuild") != expected_mavi_build
         or not isinstance(live.get("operationalHostIdentitySha256"), str)
         or len(live["operationalHostIdentitySha256"]) != 64
-        or live.get("databaseIdentity") != source_database_identity
+        or live.get("databaseIdentitySha256") != source_database_identity
         or live.get("managedMediaRootIdentitySha256") != media_identity
         or live.get("acceptedEvidenceRootIdentitySha256") != evidence_identity
     ):
@@ -155,7 +161,7 @@ def validate_live_storage_topology(
         "maviBuild": expected_mavi_build,
         "maviCommit": source_commit,
         "operationalHostIdentitySha256": live["operationalHostIdentitySha256"],
-        "databaseIdentity": source_database_identity,
+        "databaseIdentitySha256": source_database_identity,
         "managedMediaRootIdentitySha256": media_identity,
         "acceptedEvidenceRootIdentitySha256": evidence_identity,
     }
@@ -169,9 +175,12 @@ def database_identity(psql: str, service: str) -> str:
         "coalesce(inet_server_addr()::text, 'local-socket') || '|' || "
         "coalesce(inet_server_port()::text, 'local');",
     )
-    if not value or value.count("|") != 2:
-        raise BackupRestoreError("backup_restore_database_identity_invalid")
-    return value
+    try:
+        return database_identity_sha256(value)
+    except TopologyIdentityError as exc:
+        raise BackupRestoreError(
+            "backup_restore_database_identity_invalid"
+        ) from exc
 
 
 def assert_database_targets_distinct(source_identity: str, restore_identity: str) -> None:
@@ -367,8 +376,8 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "sourceCommit": args.source_commit,
         "acceptanceEvidenceSha256": acceptance_sha,
         "acceptanceProfileSha256": acceptance_profile_sha,
-        "sourceDatabaseIdentity": source_database_identity,
-        "restoreDatabaseIdentity": restore_database_identity,
+        "sourceDatabaseIdentitySha256": source_database_identity,
+        "restoreDatabaseIdentitySha256": restore_database_identity,
         "liveStorageTopology": live_storage_topology,
         "databaseManifestSha256": database_manifest_sha,
         "managedSourceManifestSha256": media_manifest_sha,
@@ -400,7 +409,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "maviBuild": args.expected_mavi_build,
         "maviCommit": args.source_commit,
         "operationalHostIdentitySha256": live_storage_topology["operationalHostIdentitySha256"],
-        "databaseIdentity": restore_database_identity,
+        "databaseIdentitySha256": restore_database_identity,
         "managedMediaRootIdentitySha256": storage_root_identity_sha256(args.restore_media_root),
         "acceptedEvidenceRootIdentitySha256": storage_root_identity_sha256(args.restore_evidence_root),
     }
@@ -410,8 +419,8 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "sourceCommit": args.source_commit,
         "acceptanceEvidenceSha256": acceptance_sha,
         "acceptanceProfileSha256": acceptance_profile_sha,
-        "sourceDatabaseIdentity": source_database_identity,
-        "restoreDatabaseIdentity": restore_database_identity,
+        "sourceDatabaseIdentitySha256": source_database_identity,
+        "restoreDatabaseIdentitySha256": restore_database_identity,
         "liveStorageTopology": live_storage_topology,
         "restoreStorageTopology": restore_storage_topology,
         "tooling": tooling,
@@ -476,8 +485,8 @@ def finalize(execution_path: Path, post_restore_path: Path) -> dict[str, Any]:
         "acceptanceEvidenceSha256": execution["acceptanceEvidenceSha256"],
         "acceptanceProfileSha256": execution["acceptanceProfileSha256"],
         "executionEvidenceSha256": hashlib.sha256(execution_bytes).hexdigest(),
-        "sourceDatabaseIdentity": execution["sourceDatabaseIdentity"],
-        "restoreDatabaseIdentity": execution["restoreDatabaseIdentity"],
+        "sourceDatabaseIdentitySha256": execution["sourceDatabaseIdentitySha256"],
+        "restoreDatabaseIdentitySha256": execution["restoreDatabaseIdentitySha256"],
         "liveStorageTopology": execution["liveStorageTopology"],
         "restoreStorageTopology": execution["restoreStorageTopology"],
         "database": execution["database"],
