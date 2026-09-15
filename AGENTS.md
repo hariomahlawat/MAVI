@@ -46,8 +46,8 @@ A library/runtime prerequisite is part of the feature that introduces it; do not
 Before adding or changing any NuGet, npm, Python, native, model/runtime or OS dependency:
 
 1. justify the dependency and prefer existing framework/platform capability when reasonable;
-2. update `config/dependencies/offline-dependency-policy-v1.json`;
-3. define its disconnected Development and Production strategy;
+2. update `config/dependencies/offline-dependency-policy-v1.json` and, for external/native/toolchain payloads, `config/dependencies/offline-binary-catalog-v1.json`;
+3. define its disconnected Development and Production strategy and whether it belongs in the companion MAVI Offline Binary Kit;
 4. integrate machine prerequisites into MAVI Setup, or make the dependency application-local;
 5. add deterministic version/hash/viability checks for native/external payloads;
 6. retain required licences/notices;
@@ -56,7 +56,7 @@ Before adding or changing any NuGet, npm, Python, native, model/runtime or OS de
 
 `python tools/verify_repo.py` must remain green. It intentionally fails when direct .NET/npm/Python dependency surfaces drift from the declared offline dependency policy.
 
-Do not make normal operator setup depend on manual PATH edits, package-manager commands, pgAdmin steps or first-run downloads. See `docs/architecture/dependency-and-offline-packaging-policy.md`.
+Do not make normal operator setup depend on manual PATH edits, package-manager commands, pgAdmin steps or first-run downloads. Do not commit third-party/generated EXE/DLL/MSI/ZIP/7z/WHL/SO/PYD payloads to ordinary Git; retain them through the manifest-verified binary kit instead. See `docs/architecture/dependency-and-offline-packaging-policy.md` and `docs/architecture/offline-binary-inventory.md`.
 
 ## Data and security
 
