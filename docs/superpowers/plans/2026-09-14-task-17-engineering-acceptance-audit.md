@@ -184,3 +184,42 @@ The remediation makes the update proof fail closed at execution, production asse
 9. Regression coverage explicitly rejects forged supported releases, missing required migration, cross-spliced retained state, same-commit/wrong-build prior deployments, missing state proofs, altered prior acceptance evidence and wrong restored build identity.
 
 This strengthens the internal review standard further: evidence producers are not considered sufficient merely because they are correct. Every material summary claim must either be independently reproducible or be cryptographically bound to the underlying retained evidence object and canonical policy at the final acceptance boundary.
+
+
+## 10. Cold independent review after offline-update hardening
+
+A further review was conducted deliberately as if PR #38 had not been seen previously. The reviewer reconstructed the Task-17 contracts from the normative plan/addendum and inspected the complete acceptance chain from a clean perspective rather than validating only the recent fixes.
+
+That review identified five remaining issues:
+
+1. OS-level offline-install aggregates copied CPU/CUDA qualification facts but did not retain the exact source variant evidence SHA-256 values, allowing cross-execution evidence splicing.
+2. Application lifecycle evidence did not retain the normative installation/update mechanism, tool version, invocation configuration and exit result.
+3. Retained prior acceptance was source-commit checked but its completed-run attestation was not independently required to carry the exact approved prior MAVI build/commit.
+4. Final closure omitted `prior_acceptance_evidence` from one near-complete production-acceptance guard and could dereference a missing path.
+5. The authoritative-state verifier did not schema/semantic-validate transferred acceptance evidence before direct field access.
+
+The remediation closes these gaps as follows:
+
+- every `mavi-offline-install-evidence-v1` object now records `variantEvidenceSha256` for its exact CPU and CUDA source evidence;
+- release promotion recomputes those exact hashes from the four separately supplied platform-gate files and rejects cross-spliced aggregates;
+- final closure reconstructs all eight mandatory qualification-gate evidence hashes and requires them to equal the SHA-256 references embedded in the promoted qualification record;
+- lifecycle qualification retains a structured deployment audit containing mechanism, tool, tool version, exact arguments, exit code and pass state, with schema and independent production-assembly validation;
+- generic acceptance verification requires `attestation.maviCommit == sourceCommit`;
+- offline-update assembly additionally requires the retained prior acceptance attestation build/commit to equal the canonical supported prior release;
+- authoritative-state verification now schema-validates and semantically verifies the retained acceptance object before API access, then requires both the retained and live completed-run attestations to match the expected prior build/commit;
+- the final closure guard requires the retained prior acceptance evidence explicitly;
+- malformed transferred authoritative-state evidence is converted into a deterministic fail-closed result rather than relying on unchecked dictionary access.
+
+Regression coverage now includes cross-spliced offline aggregates, incomplete aggregate hash coverage, mismatched attested source commit, prior acceptance from another build, missing deployment audit, malformed retained acceptance evidence, exact promoted-evidence hash mismatch and the near-complete final-closure guard.
+
+### Internal disposition after this remediation
+
+The implementation must again pass all deterministic gates on one frozen exact head. No final external review is requested until:
+
+- Task 17 Acceptance Validation is green;
+- MAVI Quality Gate is green;
+- Task 12 Offline Bundle is green;
+- this remediation introduces no new integration failure;
+- a final static/internal inspection finds no known Critical/P1/P2 defect.
+
+Real CUDA, disconnected, quality, performance and production-topology evidence remains pending until actually executed and is not manufactured by this remediation.
