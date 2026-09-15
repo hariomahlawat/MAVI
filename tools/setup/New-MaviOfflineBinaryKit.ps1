@@ -26,6 +26,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
+Assert-MaviWindows
 
 $destination = [IO.Path]::GetFullPath($Destination)
 $postgreSqlRuntimePack = (Resolve-Path -LiteralPath $PostgreSqlRuntimePack).Path
@@ -149,6 +150,68 @@ function Get-CatalogBaseline {
     }
     throw "Binary catalog does not contain required component '$Id'."
 }
+function Get-MaviExecutableVersionRecord {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $item = Get-Item -LiteralPath $Path
+    $info = $item.VersionInfo
+    $fileVersion = if ($info.FileVersion) { [string]$info.FileVersion } else { "" }
+    $productVersion = if ($info.ProductVersion) { [string]$info.ProductVersion } else { "" }
+    if ([string]::IsNullOrWhiteSpace($fileVersion) -and
+        [string]::IsNullOrWhiteSpace($productVersion)) {
+        throw "Installer has no readable Windows version metadata: $Path"
+    }
+
+    return [ordered]@{
+        fileName = $item.Name
+        fileVersion = $fileVersion
+        productVersion = $productVersion
+        sha256 = Get-MaviSha256 -Path $item.FullName
+        sizeBytes = [long]$item.Length
+    }
+}
+
+function Get-MaviMsiVersionRecord {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $item = Get-Item -LiteralPath $Path
+    $installer = $null
+    $database = $null
+    $view = $null
+    $record = $null
+    try {
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $database = $installer.GetType().InvokeMember(
+            "OpenDatabase", "InvokeMethod", $null, $installer, @($item.FullName, 0))
+        $view = $database.GetType().InvokeMember(
+            "OpenView", "InvokeMethod", $null, $database,
+            @("SELECT `Value` FROM `Property` WHERE `Property`='ProductVersion'"))
+        [void]$view.GetType().InvokeMember("Execute", "InvokeMethod", $null, $view, $null)
+        $record = $view.GetType().InvokeMember("Fetch", "InvokeMethod", $null, $view, $null)
+        if (-not $record) {
+            throw "MSI ProductVersion was not found: $Path"
+        }
+        $productVersion = [string]$record.GetType().InvokeMember(
+            "StringData", "GetProperty", $null, $record, @(1))
+        if ([string]::IsNullOrWhiteSpace($productVersion)) {
+            throw "MSI ProductVersion is empty: $Path"
+        }
+
+        return [ordered]@{
+            fileName = $item.Name
+            productVersion = $productVersion
+            sha256 = Get-MaviSha256 -Path $item.FullName
+            sizeBytes = [long]$item.Length
+        }
+    }
+    finally {
+        foreach ($comObject in @($record, $view, $database, $installer)) {
+            if ($null -ne $comObject -and [Runtime.InteropServices.Marshal]::IsComObject($comObject)) {
+                [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject)
+            }
+        }
+    }
+}
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $sourceInputPaths = [ordered]@{
@@ -180,6 +243,13 @@ foreach ($entry in $cacheInputMap.GetEnumerator()) {
     }
 }
 
+$installerVersions = [ordered]@{
+    dotnetHosting = Get-MaviExecutableVersionRecord -Path $HostingBundle
+    dotnetSdk = Get-MaviExecutableVersionRecord -Path $DotNetSdkInstaller
+    node = Get-MaviMsiVersionRecord -Path $NodeInstaller
+    pythonDevelopment = Get-MaviExecutableVersionRecord -Path $PythonInstaller
+}
+
 $manifest = [ordered]@{
     schemaVersion = "mavi-offline-binary-kit-v1"
     sourceCatalogSha256 = (Get-MaviSha256 -Path $catalogPath)
@@ -192,6 +262,7 @@ $manifest = [ordered]@{
         dotnetSdkBaseline = Get-CatalogBaseline -Id "dotnet-sdk-win-x64"
         nodeBaseline = Get-CatalogBaseline -Id "node-win-x64"
         pythonDevelopmentBaseline = Get-CatalogBaseline -Id "python-development-win-x64"
+        observedInstallers = $installerVersions
         developerCacheManifestSha256 = Get-MaviSha256 -Path $developerCacheManifestPath
     }
     payload = [ordered]@{
