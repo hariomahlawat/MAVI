@@ -31,7 +31,7 @@ if not %errorlevel%==0 (
   exit /b
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\setup\Setup-MAVI.ps1" -Profile Development -BundleRoot "%MAVI_BUNDLE_ROOT%" -RepositoryRoot "%~dp0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\setup\Setup-MAVI.ps1" -Profile Development -BundleRoot "%MAVI_BUNDLE_ROOT%" -RepositoryRoot "%~dp0."
 set "MAVI_SETUP_EXIT=%errorlevel%"
 
 if not "%MAVI_SETUP_EXIT%"=="0" (
