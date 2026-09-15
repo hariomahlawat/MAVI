@@ -31,6 +31,24 @@ $BinaryKitRoot = (Resolve-Path -LiteralPath $BinaryKitRoot).Path
 $kitManifestPath = Join-Path $BinaryKitRoot "mavi-offline-binary-kit.json"
 & (Join-Path $PSScriptRoot "Test-MaviOfflineBinaryKit.ps1") -KitRoot $BinaryKitRoot
 
+$kitManifest = Read-MaviJson -Path $kitManifestPath
+$repositoryInputs = [ordered]@{
+    offlineDependencyPolicy = (Join-Path $repoRoot "config\dependencies\offline-dependency-policy-v1.json")
+    offlineBinaryCatalog = (Join-Path $repoRoot "config\dependencies\offline-binary-catalog-v1.json")
+    globalJson = (Join-Path $repoRoot "global.json")
+    webPackageLock = (Join-Path $repoRoot "src\web\mavi-web\package-lock.json")
+    visionPyproject = (Join-Path $repoRoot "src\vision\pyproject.toml")
+    toolsRequirements = (Join-Path $repoRoot "tools\requirements.txt")
+}
+foreach ($entry in $repositoryInputs.GetEnumerator()) {
+    $expectedProperty = $kitManifest.sourceInputs.PSObject.Properties[$entry.Key]
+    $expected = if ($expectedProperty) { [string]$expectedProperty.Value } else { "" }
+    $actual = Get-MaviSha256 -Path $entry.Value
+    if ($expected -ne $actual) {
+        throw "MAVI-Offline-Binary-Kit is stale for this source repository: $($entry.Key) does not match. Rebuild the kit before assembling setup media."
+    }
+}
+
 $kitCatalogPath = Join-Path $BinaryKitRoot "catalog\offline-binary-catalog-v1.json"
 $binaryKitManifestHash = Get-MaviSha256 -Path $kitManifestPath
 $binaryCatalogHash = Get-MaviSha256 -Path $kitCatalogPath
