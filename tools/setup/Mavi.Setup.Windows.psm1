@@ -164,8 +164,8 @@ function Initialize-MaviDatabase {
 }
 
 function Refresh-MaviProcessPath {
-    $machine = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine)
-    $user = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::User)
+    $machine = [Environment]::GetEnvironmentVariable("Path", [System.EnvironmentVariableTarget]::Machine)
+    $user = [Environment]::GetEnvironmentVariable("Path", [System.EnvironmentVariableTarget]::User)
     $env:Path = (($machine, $user) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ";"
 }
 
@@ -317,6 +317,17 @@ function Copy-MaviApplication {
     ) -AllowedExitCodes @(0,1,2,3,4,5,6,7)
 }
 
+function Ensure-MaviIisAppPool {
+    param([Parameter(Mandatory = $true)][string]$AppPoolName)
+
+    $appCmd = Join-Path $env:windir "System32\inetsrv\appcmd.exe"
+    $pool = Invoke-MaviCommand -FilePath $appCmd -Arguments @("list", "apppool", "/name:$AppPoolName") -CaptureOutput
+    if ([string]::IsNullOrWhiteSpace($pool.StandardOutput)) {
+        Invoke-MaviCommand -FilePath $appCmd -Arguments @("add", "apppool", "/name:$AppPoolName")
+    }
+    Invoke-MaviCommand -FilePath $appCmd -Arguments @("set", "apppool", "/apppool.name:$AppPoolName", "/managedRuntimeVersion:", "/startMode:AlwaysRunning")
+}
+
 function Set-MaviIisSite {
     param(
         [Parameter(Mandatory = $true)][string]$SiteName,
@@ -326,18 +337,28 @@ function Set-MaviIisSite {
     )
 
     $appCmd = Join-Path $env:windir "System32\inetsrv\appcmd.exe"
-    $pool = Invoke-MaviCommand -FilePath $appCmd -Arguments @("list", "apppool", "/name:$AppPoolName") -CaptureOutput
-    if ([string]::IsNullOrWhiteSpace($pool.StandardOutput)) {
-        Invoke-MaviCommand -FilePath $appCmd -Arguments @("add", "apppool", "/name:$AppPoolName")
-    }
-    Invoke-MaviCommand -FilePath $appCmd -Arguments @("set", "apppool", "/apppool.name:$AppPoolName", "/managedRuntimeVersion:", "/startMode:AlwaysRunning")
+    Ensure-MaviIisAppPool -AppPoolName $AppPoolName
 
     $site = Invoke-MaviCommand -FilePath $appCmd -Arguments @("list", "site", "/name:$SiteName") -CaptureOutput
     if ([string]::IsNullOrWhiteSpace($site.StandardOutput)) {
         Invoke-MaviCommand -FilePath $appCmd -Arguments @("add", "site", "/name:$SiteName", "/bindings:http/*:$HttpPort:", "/physicalPath:$PhysicalPath")
     }
     else {
-        Invoke-MaviCommand -FilePath $appCmd -Arguments @("set", "vdir", "$SiteName/", "/physicalPath:$PhysicalPath")
+        $existingPath = Invoke-MaviCommand -FilePath $appCmd -Arguments @("list", "vdir", "$SiteName/", "/text:physicalPath") -CaptureOutput
+        $observed = [Environment]::ExpandEnvironmentVariables($existingPath.StandardOutput.Trim())
+        if ([string]::IsNullOrWhiteSpace($observed)) {
+            throw "Existing IIS site '$SiteName' has no readable physical path."
+        }
+        $observedFull = [IO.Path]::GetFullPath($observed).TrimEnd("\")
+        $expectedFull = [IO.Path]::GetFullPath($PhysicalPath).TrimEnd("\")
+        if (-not [string]::Equals($observedFull, $expectedFull, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "IIS site '$SiteName' already exists and is not owned by this MAVI installation."
+        }
+
+        $bindings = Invoke-MaviCommand -FilePath $appCmd -Arguments @("list", "site", "/name:$SiteName", "/text:bindings") -CaptureOutput
+        if ($bindings.StandardOutput -notmatch [regex]::Escape("http/*:$HttpPort:")) {
+            throw "IIS site '$SiteName' exists with a different binding. Refusing to rewrite an existing site implicitly."
+        }
     }
 
     Invoke-MaviCommand -FilePath $appCmd -Arguments @("set", "app", "$SiteName/", "/applicationPool:$AppPoolName")
