@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/authoritative-state-check-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion","acceptanceEvidenceSha256","acceptanceSourceCommit",
+    "expectedApplicationCommit","observedApplicationCommit",
+    "expectedApplicationBuild","observedApplicationBuild",
+    "cameraId","videoAssetId","processingRunId","trackIds","representativeArtifactId",
+    "sourceSha256","sourceEtagSha256","artifactSha256","artifactEtagSha256","result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-authoritative-state-check-v1" },
+    "acceptanceEvidenceSha256": { "$ref": "#/$defs/sha256" },
+    "acceptanceSourceCommit": { "$ref": "#/$defs/commit" },
+    "expectedApplicationCommit": { "$ref": "#/$defs/commit" },
+    "observedApplicationCommit": { "$ref": "#/$defs/commit" },
+    "expectedApplicationBuild": { "type": "string", "minLength": 1 },
+    "observedApplicationBuild": { "type": "string", "minLength": 1 },
+    "cameraId": { "type": "string", "minLength": 1 },
+    "videoAssetId": { "type": "string", "minLength": 1 },
+    "processingRunId": { "type": "string", "minLength": 1 },
+    "trackIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "representativeArtifactId": { "type": ["string","null"] },
+    "sourceSha256": { "$ref": "#/$defs/sha256" },
+    "sourceEtagSha256": { "$ref": "#/$defs/sha256" },
+    "artifactSha256": { "anyOf": [{"$ref":"#/$defs/sha256"},{"type":"null"}] },
+    "artifactEtagSha256": { "anyOf": [{"$ref":"#/$defs/sha256"},{"type":"null"}] },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed","failureCodes"],
+      "properties": {
+        "passed": { "const": true },
+        "failureCodes": { "type": "array", "maxItems": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "commit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }
+  }
+}
