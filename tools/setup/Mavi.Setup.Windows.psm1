@@ -248,6 +248,118 @@ function Ensure-MaviDeveloperToolchain {
     }
 }
 
+function Initialize-MaviDeveloperWorkspace {
+    param(
+        [Parameter(Mandatory = $true)][string]$BundleRoot,
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot
+    )
+
+    $solutionPath = Join-Path $RepositoryRoot "MAVI.sln"
+    $webRoot = Join-Path $RepositoryRoot "src\web\mavi-web"
+    $visionRoot = Join-Path $RepositoryRoot "src\vision"
+    foreach ($required in @($solutionPath, (Join-Path $webRoot "package-lock.json"), (Join-Path $visionRoot "pyproject.toml"))) {
+        if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+            throw "MAVI repository is incomplete for Development setup: $required"
+        }
+    }
+
+    $bundleCacheRoot = Join-Path $BundleRoot "prerequisites\developer\win-x64"
+    $localCacheRoot = Join-Path $env:LOCALAPPDATA "MAVI\developer-cache"
+    $nugetSource = Join-Path $bundleCacheRoot "nuget-packages"
+    $npmSource = Join-Path $bundleCacheRoot "npm-cache"
+    $pythonSource = Join-Path $bundleCacheRoot "python-wheelhouse"
+
+    foreach ($required in @($nugetSource, $npmSource, $pythonSource)) {
+        if (-not (Test-Path -LiteralPath $required -PathType Container)) {
+            throw "Canonical Development bundle is missing offline dependency cache: $required"
+        }
+    }
+
+    $nugetLocal = Join-Path $localCacheRoot "nuget-packages"
+    $npmLocal = Join-Path $localCacheRoot "npm-cache"
+    $pythonLocal = Join-Path $localCacheRoot "python-wheelhouse"
+    foreach ($copy in @(
+        @{ Source = $nugetSource; Target = $nugetLocal },
+        @{ Source = $npmSource; Target = $npmLocal },
+        @{ Source = $pythonSource; Target = $pythonLocal }
+    )) {
+        New-Item -ItemType Directory -Path $copy.Target -Force | Out-Null
+        Invoke-MaviCommand -FilePath "robocopy.exe" -Arguments @(
+            [string]$copy.Source,
+            [string]$copy.Target,
+            "/MIR",
+            "/COPY:DAT",
+            "/DCOPY:DAT",
+            "/R:2",
+            "/W:1",
+            "/NFL",
+            "/NDL",
+            "/NP"
+        ) -AllowedExitCodes @(0,1,2,3,4,5,6,7)
+    }
+
+    [Environment]::SetEnvironmentVariable("NUGET_PACKAGES", $nugetLocal, [System.EnvironmentVariableTarget]::User)
+    $env:NUGET_PACKAGES = $nugetLocal
+
+    Invoke-MaviCommand -FilePath "dotnet.exe" -Arguments @(
+        "restore",
+        $solutionPath,
+        "--packages",
+        $nugetLocal,
+        "--ignore-failed-sources"
+    )
+
+    Push-Location $webRoot
+    try {
+        Invoke-MaviCommand -FilePath "npm.cmd" -Arguments @(
+            "ci",
+            "--offline",
+            "--cache",
+            $npmLocal
+        )
+        Invoke-MaviCommand -FilePath "npm.cmd" -Arguments @("run", "build")
+    }
+    finally {
+        Pop-Location
+    }
+
+    $systemPython = (Get-Command python.exe -ErrorAction Stop).Source
+    $venvRoot = Join-Path $RepositoryRoot ".venv"
+    $venvPython = Join-Path $venvRoot "Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
+        Invoke-MaviCommand -FilePath $systemPython -Arguments @("-m", "venv", $venvRoot)
+    }
+
+    Invoke-MaviCommand -FilePath $venvPython -Arguments @(
+        "-m", "pip", "install",
+        "--no-index",
+        "--find-links", $pythonLocal,
+        "setuptools>=75"
+    )
+
+    Push-Location $visionRoot
+    try {
+        Invoke-MaviCommand -FilePath $venvPython -Arguments @(
+            "-m", "pip", "install",
+            "--no-index",
+            "--find-links", $pythonLocal,
+            "--no-build-isolation",
+            "-e", ".[dev]"
+        )
+        Invoke-MaviCommand -FilePath $venvPython -Arguments @("-m", "pytest", "-q")
+    }
+    finally {
+        Pop-Location
+    }
+
+    Invoke-MaviCommand -FilePath "dotnet.exe" -Arguments @(
+        "build",
+        $solutionPath,
+        "-c", "Debug",
+        "--no-restore"
+    )
+}
+
 function Enable-MaviIis {
     $appCmd = Join-Path $env:windir "System32\inetsrv\appcmd.exe"
     if (Test-Path -LiteralPath $appCmd -PathType Leaf) {
