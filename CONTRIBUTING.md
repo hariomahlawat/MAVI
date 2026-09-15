@@ -21,7 +21,8 @@ The same PR must update all applicable items:
 
 - package/lock files;
 - `config/dependencies/offline-dependency-policy-v1.json`;
-- Development offline cache preparation;
+- `config/dependencies/offline-binary-catalog-v1.json` when an external/native/toolchain payload changes;
+- Development offline cache/binary-kit preparation;
 - Production/offline bundle composition;
 - MAVI Setup/repair when machine installation is required;
 - version/hash/viability checks for native/external payloads;
@@ -60,6 +61,8 @@ Hosted CI proves implementation correctness. It does not substitute for disconne
 
 Small deterministic source, configuration, manifests and scripts belong in Git.
 
-Large third-party installers/runtime payloads are staged under the canonical `vendor/...` paths and assembled into the SHA-256-manifested offline setup bundle. They are not normally committed to ordinary Git history. Git LFS or an approved internal binary repository may be adopted later without changing the target-machine setup contract.
+Large third-party installers/runtime payloads are staged under the canonical `vendor/...` paths and assembled into a separately retained SHA-256-manifested **MAVI Offline Binary Kit**. The final Production setup media is assembled from that verified kit plus the qualified application artifact.
+
+Third-party/generated EXE/DLL/MSI/ZIP/7z/WHL/SO/PYD payloads are not committed to ordinary Git, even when individually small. Git LFS or an approved internal binary repository may later retain the companion kit without changing the target-machine setup contract.
 
 Never commit credentials, private keys, CCTV recordings, biometric datasets or model weights.
