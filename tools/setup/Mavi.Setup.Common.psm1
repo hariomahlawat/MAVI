@@ -7,7 +7,7 @@ function Assert-MaviWindows {
 
 function Test-MaviAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    $principal = New-Object Security.Principal.WindowsPrincipal -ArgumentList $identity
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
@@ -38,7 +38,7 @@ function Write-MaviJson {
     $directory = Split-Path $Path -Parent
     if ($directory) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
     $json = $Value | ConvertTo-Json -Depth $Depth
-    $utf8 = New-Object Text.UTF8Encoding($false)
+    $utf8 = New-Object Text.UTF8Encoding -ArgumentList $false
     [IO.File]::WriteAllText($Path, $json + [Environment]::NewLine, $utf8)
 }
 
@@ -117,7 +117,7 @@ function Test-MaviTcpPortInUse {
     param([Parameter(Mandatory = $true)][int]$Port)
     $listener = $null
     try {
-        $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, $Port)
+        $listener = New-Object Net.Sockets.TcpListener -ArgumentList ([Net.IPAddress]::Loopback, $Port)
         $listener.Start()
         return $false
     }
