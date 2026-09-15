@@ -340,6 +340,30 @@ try {
             Write-MaviSetupStatus -Name "Workspace validation" -Status "WARN" -Detail "developer dependency cache not present in this non-canonical setup source"
         }
 
+        if ($RepositoryRoot) {
+            $visionBundleRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_BUNDLE_ROOT", "Process")
+            if ([string]::IsNullOrWhiteSpace($visionBundleRoot)) {
+                $visionBundleRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_BUNDLE_ROOT", "Machine")
+            }
+            if ([string]::IsNullOrWhiteSpace($visionBundleRoot)) {
+                $visionBundleRoot = Join-Path (Split-Path $RepositoryRoot -Parent) "MAVI-Vision-Runtime-Bundle"
+            }
+
+            $visionManifest = Join-Path $visionBundleRoot "bundle-manifest.json"
+            $nestedVisionManifest = Join-Path $visionBundleRoot "windows-x86_64-cpu\bundle-manifest.json"
+            if ((Test-Path -LiteralPath $visionManifest -PathType Leaf) -or
+                (Test-Path -LiteralPath $nestedVisionManifest -PathType Leaf)) {
+                & (Join-Path $PSScriptRoot "Install-MaviVisionRuntime.ps1") -BundleRoot $visionBundleRoot -RepositoryRoot $RepositoryRoot
+                if ($LASTEXITCODE -ne 0) {
+                    throw "MAVI Vision Runtime installation failed."
+                }
+                Write-MaviSetupStatus -Name "Vision runtime" -Status "OK" -Detail "qualified Windows CPU bundle installed"
+            }
+            else {
+                Write-MaviSetupStatus -Name "Vision runtime" -Status "INFO" -Detail "bundle not present; UI/API remain usable but vision jobs stay queued until runtime is installed"
+            }
+        }
+
         Write-MaviSetupStatus -Name "Machine config" -Status "OK" -Detail $machineConfigPath
         Write-MaviSetupStatus -Name "Test connection" -Status "OK" -Detail "MAVI_TEST_DB_CONNECTION configured for this PC"
         Write-Host ""
