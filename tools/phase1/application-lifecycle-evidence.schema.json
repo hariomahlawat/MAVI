@@ -11,6 +11,7 @@
     "applicationManifestSha256",
     "supportedUpdatesPolicySha256",
     "destination",
+    "deployment",
     "hosting",
     "internetUnavailable",
     "networkIsolation",
@@ -50,6 +51,30 @@
     "destination": {
       "type": "string",
       "minLength": 1
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism",
+        "tool",
+        "toolVersion",
+        "arguments",
+        "exitCode",
+        "passed"
+      ],
+      "properties": {
+        "mechanism": { "const": "robocopy-mirror" },
+        "tool": { "const": "robocopy.exe" },
+        "toolVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "arguments": {
+          "type": "array",
+          "minItems": 4,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "exitCode": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "passed": { "const": true }
+      }
     },
     "hosting": {
       "type": "object",
