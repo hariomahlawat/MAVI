@@ -11,6 +11,7 @@ on:
       - 'tools/native/**'
       - 'tools/setup/**'
       - 'config/setup/**'
+      - 'config/dependencies/**'
       - 'Setup-MAVI-Development.cmd'
       - 'src/platform/**'
       - 'src/vision/**'
