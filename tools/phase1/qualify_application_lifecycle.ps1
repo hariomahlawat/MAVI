@@ -226,6 +226,9 @@ if ($Mode -eq "fresh-install") {
 Invoke-AppCmd @("stop", "apppool", "/apppool.name:$AppPoolName")
 
 try {
+    $robocopyCommand = Get-Command robocopy.exe -ErrorAction Stop
+    $robocopyVersion = [string]$robocopyCommand.FileVersionInfo.FileVersion
+    if ([string]::IsNullOrWhiteSpace($robocopyVersion)) { throw "application_copy_tool_version_missing" }
     $robocopyArgs = @($ArtifactDirectory, $Destination, "/MIR", "/COPY:DAT", "/DCOPY:DAT", "/R:2", "/W:1", "/NFL", "/NDL", "/NP")
     & robocopy.exe @robocopyArgs | Out-Null
     $robocopyCode = $LASTEXITCODE
@@ -288,6 +291,14 @@ try {
         applicationManifestSha256 = Get-Sha256 $ApplicationManifestPath
         supportedUpdatesPolicySha256 = $supportedUpdatesPolicySha256
         destination = (Resolve-Path -LiteralPath $Destination).Path
+        deployment = [ordered]@{
+            mechanism = "robocopy-mirror"
+            tool = [IO.Path]::GetFileName($robocopyCommand.Source)
+            toolVersion = $robocopyVersion
+            arguments = @($robocopyArgs)
+            exitCode = [int]$robocopyCode
+            passed = $true
+        }
         hosting = $hosting
         internetUnavailable = $true
         networkIsolation = $networkIsolation
