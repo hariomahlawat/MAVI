@@ -597,3 +597,48 @@ def test_recovery_warmup_hang_is_bounded_by_process_watchdog() -> None:
             _ = harness.supervisor.runtime
 
     asyncio.run(scenario())
+
+
+
+def test_watchdog_snapshot_is_one_coherent_runtime_observation() -> None:
+    observation = [129.5]
+    activity = InferenceActivity(monotonic_clock=lambda: 100.0)
+    activity.mark_started()
+    harness = _Harness(
+        activity=activity,
+        monotonic_clock=lambda: observation[0],
+        inference_watchdog_seconds=30.0,
+    )
+
+    before = harness.supervisor.watchdog_snapshot()
+
+    assert before.observed_monotonic == 129.5
+    assert before.active is True
+    assert before.started_monotonic == 100.0
+    assert before.elapsed_seconds == pytest.approx(29.5)
+    assert before.completed_count == 0
+    assert before.threshold_seconds == 30.0
+    assert before.expired is False
+    assert before.device is None
+
+    observation[0] = 130.0
+    expired = harness.supervisor.watchdog_snapshot()
+
+    assert expired.elapsed_seconds == pytest.approx(30.0)
+    assert expired.expired is True
+    assert harness.supervisor.watchdog_expired() is True
+
+
+def test_watchdog_snapshot_has_no_elapsed_duration_while_inactive() -> None:
+    harness = _Harness(
+        activity=InferenceActivity(monotonic_clock=lambda: 100.0),
+        monotonic_clock=lambda: 1_000.0,
+        inference_watchdog_seconds=30.0,
+    )
+
+    snapshot = harness.supervisor.watchdog_snapshot()
+
+    assert snapshot.active is False
+    assert snapshot.started_monotonic is None
+    assert snapshot.elapsed_seconds is None
+    assert snapshot.expired is False
