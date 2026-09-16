@@ -479,12 +479,9 @@ jobs:
             throw "CPython installer Authenticode signature is not valid: $($signature.Status)"
           }
           $version = (Get-Item $out).VersionInfo.ProductVersion
-          # python.org's Windows installer ProductVersion encodes the
-          # maintenance/build component (3.12.10 is reported as 3.12.10150.0).
-          # Authenticode is authoritative; require the expected release prefix.
-          if ($version -notmatch '^3\.12\.10(?:\d+)?(?:\.\d+)?$') {
-            throw "Unexpected CPython installer product version: $version"
-          }
+          # python.org reports CPython 3.12.10 as ProductVersion 3.12.10150.0.
+          # Authenticode is verified above; require the expected 3.12.10 release prefix.
+          if ($version -notmatch '^3\.12\.10(?:\d+)?(?:\.\d+)?
           Get-FileHash -Algorithm SHA256 -Path $out | Format-List
 
       - name: Build deterministic qualification-candidate bundle
