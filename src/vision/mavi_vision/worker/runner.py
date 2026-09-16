@@ -4,6 +4,7 @@ import os
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
+from math import isfinite
 from pathlib import Path
 from typing import Final, NoReturn, Protocol
 from uuid import UUID
@@ -14,6 +15,12 @@ from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.process_video import VideoProcessingError
 from mavi_vision.runtime.errors import ProcessingDependencyError
 from mavi_vision.runtime.execution_lane import ProcessExecutor
+from mavi_vision.runtime.progress import (
+    RUNNING_MAX_PERCENT,
+    ProcessingProgress,
+    ProcessingProgressReader,
+    ProcessingProgressSink,
+)
 from mavi_vision.runtime.provenance import RuntimeProvenance
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import MediaStoreError
@@ -79,6 +86,7 @@ class VisionProcessor(Protocol):
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink: ProcessingProgressSink | None = None,
     ) -> VisionProcessingResult: ...
 
 
@@ -144,9 +152,16 @@ class WorkerRunner:
         if lease is None:
             return False
 
+        progress = ProcessingProgress(source_duration_ms=lease.duration_ms)
+        progress_reader = progress.reader
+        progress_sink = progress.sink
+
         try:
             source_path = self._media_store.resolve_file(lease.source_storage_key)
-            heartbeat = await self._api_client.heartbeat(lease, 5.0)
+            heartbeat = await self._api_client.heartbeat(
+                lease,
+                self._running_progress_percent(progress_reader),
+            )
         except MediaStoreError:
             await self._best_effort_fail(
                 lease,
@@ -183,6 +198,8 @@ class WorkerRunner:
                 lease,
                 source_path,
                 heartbeat,
+                progress_reader,
+                progress_sink,
             )
         except LeaseLostError as exc:
             # Ownership loss is not a processing failure. A stale attempt must not
@@ -293,6 +310,8 @@ class WorkerRunner:
         lease: VisionJobLease,
         source_path: Path,
         heartbeat: VisionJobHeartbeatResponse,
+        progress_reader: ProcessingProgressReader,
+        progress_sink: ProcessingProgressSink,
     ) -> tuple[VisionProcessingResult, LeaseGuard]:
         if self._processor is None:
             raise RuntimeError("processor_missing")
@@ -312,6 +331,7 @@ class WorkerRunner:
                     expected_source_size_bytes=lease.source_size_bytes,
                     expected_source_sha256=lease.source_sha256,
                     lease_guard=lease_guard,
+                    progress_sink=progress_sink,
                 )
             )
 
@@ -361,6 +381,7 @@ class WorkerRunner:
                                 lease,
                                 current_deadline,
                                 process_task,
+                                progress_reader,
                             )
                         )
                     except _WatchdogExpiredDuringHeartbeat:
@@ -497,11 +518,13 @@ class WorkerRunner:
         lease: VisionJobLease,
         lease_deadline_utc: datetime,
         process_task: asyncio.Task[VisionProcessingResult],
+        progress_reader: ProcessingProgressReader,
     ) -> VisionJobHeartbeatResponse | None:
         if self._watchdog_expired is None:
             return await self._heartbeat_before_deadline(
                 lease,
                 lease_deadline_utc,
+                progress_reader,
             )
 
         remaining = (
@@ -517,7 +540,10 @@ class WorkerRunner:
             )
 
         heartbeat_task = asyncio.create_task(
-            self._api_client.heartbeat(lease, 5.0),
+            self._api_client.heartbeat(
+                lease,
+                self._running_progress_percent(progress_reader),
+            ),
             name="mavi-worker-heartbeat",
         )
         try:
@@ -562,6 +588,7 @@ class WorkerRunner:
         self,
         lease: VisionJobLease,
         lease_deadline_utc: datetime,
+        progress_reader: ProcessingProgressReader,
     ) -> VisionJobHeartbeatResponse:
         remaining = (lease_deadline_utc - datetime.now(timezone.utc)).total_seconds()
         if remaining <= 0:
@@ -569,7 +596,10 @@ class WorkerRunner:
 
         try:
             heartbeat = await asyncio.wait_for(
-                self._api_client.heartbeat(lease, 5.0),
+                self._api_client.heartbeat(
+                    lease,
+                    self._running_progress_percent(progress_reader),
+                ),
                 timeout=remaining,
             )
         except asyncio.TimeoutError as exc:
@@ -581,6 +611,19 @@ class WorkerRunner:
         if datetime.now(timezone.utc) >= lease_deadline_utc:
             raise WorkerApiError("heartbeat deadline exceeded")
         return heartbeat
+
+    @staticmethod
+    def _running_progress_percent(
+        progress_reader: ProcessingProgressReader,
+    ) -> float:
+        progress_percent = progress_reader.snapshot().progress_percent
+        if (
+            not isfinite(progress_percent)
+            or progress_percent < 0.0
+            or progress_percent > RUNNING_MAX_PERCENT
+        ):
+            raise WorkerApiError("worker progress invalid")
+        return progress_percent
 
     def _heartbeat_wait_seconds(
         self,
