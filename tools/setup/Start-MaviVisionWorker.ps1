@@ -11,6 +11,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
 
 $RepositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot.Trim().Trim('"'))
 $runtimeRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_RUNTIME_ROOT", "Machine")
@@ -32,7 +33,7 @@ if ($LASTEXITCODE -ne 0 -or -not $head) {
     throw "Unable to determine repository HEAD."
 }
 if ($head -ne [string]$state.sourceCommit) {
-    throw "Installed vision runtime is bound to source '$($state.sourceCommit)' but repository HEAD is '$head'. Reinstall the matching vision runtime bundle."
+    Assert-MaviVisionRuntimeSourceCompatible -RepositoryRoot $RepositoryRoot -BundleSourceCommit ([string]$state.sourceCommit) -HeadCommit $head | Out-Null
 }
 
 $python = Join-Path $runtimeRoot "venv\Scripts\python.exe"
