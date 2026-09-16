@@ -177,6 +177,7 @@ class WorkerRunner:
                 lease,
                 self._running_progress_percent(progress_reader),
             )
+            self._log_progress(lease, progress_reader)
         except MediaStoreError:
             await self._best_effort_fail(
                 lease,
@@ -423,6 +424,7 @@ class WorkerRunner:
 
                     current_deadline = current_heartbeat.lease_expires_at_utc
                     lease_guard.update_deadline(current_deadline)
+                    self._log_progress(lease, progress_reader)
                     next_heartbeat_due = (
                         self._monotonic_clock()
                         + self._heartbeat_wait_seconds(current_heartbeat)
@@ -693,6 +695,23 @@ class WorkerRunner:
         if datetime.now(timezone.utc) >= lease_deadline_utc:
             raise WorkerApiError("heartbeat deadline exceeded")
         return heartbeat
+
+    @staticmethod
+    def _log_progress(
+        lease: VisionJobLease,
+        progress_reader: ProcessingProgressReader,
+    ) -> None:
+        snapshot = progress_reader.snapshot()
+        _LOGGER.info(
+            "Vision job %s attempt %s progress stage=%s percent=%.2f "
+            "frames=%s source_offset_ms=%s",
+            lease.job_id,
+            lease.attempt_count,
+            snapshot.stage,
+            snapshot.progress_percent,
+            snapshot.frames_processed,
+            snapshot.source_offset_ms,
+        )
 
     @staticmethod
     def _running_progress_percent(
