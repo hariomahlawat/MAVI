@@ -128,3 +128,24 @@ def test_reader_and_sink_are_narrow_views() -> None:
     assert not hasattr(progress.reader, "mark_frame_completed")
     assert hasattr(progress.sink, "mark_frame_completed")
     assert not hasattr(progress.sink, "snapshot")
+
+
+
+def test_frame_progress_remains_atomic_when_clock_fails() -> None:
+    readings = iter((100.0, 101.0, float("nan")))
+
+    progress = ProcessingProgress(
+        source_duration_ms=1_000,
+        monotonic_clock=lambda: next(readings),
+    )
+    progress.sink.mark_processing_started()
+    before = progress.reader.snapshot()
+
+    with pytest.raises(ValueError, match="processing_progress_clock_invalid"):
+        progress.sink.mark_frame_completed(source_offset_ms=500)
+
+    after = progress.reader.snapshot()
+    assert after == before
+    assert after.frames_processed == 0
+    assert after.source_offset_ms is None
+    assert after.progress_percent == PROCESSING_START_PERCENT
