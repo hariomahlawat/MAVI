@@ -1,6 +1,6 @@
 # Task 17 Runtime Progress, Watchdog and Device-Qualification Hardening — 16 September 2026
 
-**Status:** Authoritative implementation addendum for the active Task-17 acceptance work. Documentation only; implementation has not started from this document. Cold independent review completed on 16 September 2026 and incorporated below; the architecture and implementation sequence in this revision are the implementation baseline.
+**Status:** Authoritative implementation addendum for the active Task-17 acceptance work. Documentation only; implementation has not started from this document. Final independent cold review completed on 16 September 2026 and incorporated below. The architecture, boundary contracts and implementation sequence in this revision are now implementation-locked unless RED tests expose a concrete contradiction.
 
 **Applies to:** `feature/task-10-rtmdet-bytetrack` and the future Task-17 implementation branch.
 
@@ -41,7 +41,13 @@ The next acceptance work shall resolve this observability ambiguity before perfo
 
 `ProcessingOrchestrator.HeartbeatAsync(... progressPercent ...)` already accepts and persists a worker-supplied progress percentage.
 
-The control-plane storage model therefore does **not** need a redesign merely to display truthful processing progress.
+The current server/domain contract already provides the invariants needed by this hardening work:
+
+- `VisionJob.Lease(...)` resets `ProgressPercent` to `0` for each newly leased attempt;
+- `VisionJob.Heartbeat(...)` rejects non-finite progress, enforces the `0..100` range and rejects progress regression;
+- `VisionJob.Complete(...)` is the authoritative transition that sets progress to `100`.
+
+The control-plane storage/domain model therefore does **not** need a redesign merely to display truthful processing progress. No database/schema migration is planned for this work unless implementation evidence proves the existing contract insufficient.
 
 ### 2.2 Worker currently publishes a constant progress value
 
@@ -175,13 +181,17 @@ last_progress_monotonic
 
 Rules:
 
+- the progress object is created by `WorkerRunner` before the first attempt heartbeat;
+- the first heartbeat for a newly leased attempt reports **1%** to mean “leased and validation started”; it must not claim frame processing has begun;
 - writers run on the vision execution lane;
 - readers run on the asyncio/control-plane thread;
 - no network call is made from the writer;
 - snapshots are lock-protected and cheap;
 - progress for one attempt can only move forward;
 - all values are attempt-local and reset for every leased attempt;
-- once lease authority is lost or a watchdog incident is declared, the event-loop side captures one immutable incident snapshot; later native-thread writes may complete locally but cannot change the evidence already associated with that incident.
+- progress may enter the **5% frame-processing floor only after the source has been successfully opened/verified and the pipeline is about to process decoded frames**;
+- once lease authority is lost or a watchdog incident is declared, the event-loop side captures one immutable incident snapshot; later native-thread writes may complete locally but cannot change the evidence already associated with that incident;
+- no hard-coded `5.0` heartbeat remains in `WorkerRunner`; every heartbeat after attempt creation reads from the attempt-local progress source.
 
 ### 4.2 Derive progress from authoritative media time, not guessed FPS totals
 
@@ -203,10 +213,11 @@ Freeze the computation semantics before implementation:
 - a running attempt never reports 100%;
 - if authoritative duration is zero/invalid, remain at the current stage floor, continue only if the media contract otherwise permits it, and emit a diagnostic rather than inventing a guessed frame-count percentage.
 
-Reserve explicit phase ranges so that terminal completion remains authoritative. A proposed mapping is:
+Reserve explicit phase ranges so that terminal completion remains authoritative. The frozen mapping is:
 
-- lease/source validation: 0–4%;
-- entry into frame processing: 5%;
+- server-created/queued state: 0%;
+- leased and source validation started: 1–4% (first worker heartbeat = 1%);
+- entry into frame processing after verified source open: 5%;
 - frame processing: 5–89%;
 - deterministic finalization/artifact publication: 90–95%;
 - accepted platform completion: 100%.
@@ -230,7 +241,9 @@ WorkerRunner
 
 Do not add progress concepts to `Detector`, `Tracker`, `DetectorRuntime`, or persisted analytical result contracts.
 
-A frame-level progress update occurs only after all work attributable to that frame has succeeded: detector inference, tracker update, and analytical accumulator mutation. The existing `VisionProcessingResult.frames_processed` contract is not changed implicitly by this work; if its historical increment point differs, keep that semantic stable unless a separate contract change is deliberately approved and tested.
+A frame-level progress update occurs only after all work attributable to that frame has succeeded: detector inference, tracker update, and analytical accumulator mutation.
+
+For Task 17, align the internal `frames_processed` increment with that same successful-frame boundary. The final successful-run meaning of `VisionProcessingResult.frames_processed` remains unchanged (number of successfully processed frames), but there must not be two competing in-flight definitions of “processed frame”. Add regression tests so detector/tracker failure before the boundary cannot advance either observable progress or the processed-frame counter.
 
 ### 4.4 Preserve separate inference-watchdog semantics
 
@@ -261,9 +274,20 @@ A job-level no-progress policy may be introduced only after the state distinctio
 
 ### 4.6 Make watchdog termination diagnosable and assign incident ownership explicitly
 
-`WorkerRunner`, not `RuntimeSupervisor`, owns the lease/job/attempt context. Therefore the watchdog path shall use an immutable worker-assembled incident value, for example `WatchdogIncidentSnapshot`, containing only reviewed operational fields. `RuntimeSupervisor` may supply runtime-local facts such as inference activity, resolved device and runtime provenance, but it must not reach back into mutable runner state to discover job context.
+`WorkerRunner`, not `RuntimeSupervisor`, owns the lease/job/attempt context. Therefore the watchdog path shall use an immutable worker-assembled incident value, for example `WatchdogIncidentSnapshot`, containing only reviewed operational fields. `RuntimeSupervisor` must not reach back into mutable runner state to discover job context.
 
-At watchdog declaration, the event-loop side shall atomically capture the latest progress snapshot plus the runtime activity snapshot. That captured value is the incident evidence even if the native thread later unwinds during grace.
+Freeze one explicit runtime-side read interface, for example `RuntimeWatchdogSnapshotProvider`, returning an immutable `RuntimeWatchdogSnapshot` containing only runtime-local facts required for diagnosis, such as:
+
+- inference active/inactive state;
+- current inference start monotonic timestamp and/or elapsed duration;
+- completed-inference count and bounded timing aggregates if implemented;
+- configured watchdog threshold;
+- resolved device;
+- stable runtime/model/profile identities required for incident correlation.
+
+Replace the current conceptual zero-argument watchdog-expiry reporting seam for incident assembly with this read-only snapshot provider. `watchdog_expired()` may remain as a convenience predicate, but expiry decision and incident evidence must be derived from one coherent runtime snapshot so the worker cannot combine time-of-check data from one runtime state with diagnostic data from another.
+
+At watchdog declaration, the event-loop side atomically captures the latest attempt progress snapshot and one runtime watchdog snapshot, then assembles the immutable `WatchdogIncidentSnapshot`. That captured value is the incident evidence even if the native thread later unwinds during grace.
 
 Before fatal exit 70, emit a structured local diagnostic containing only safe operational data:
 
@@ -281,6 +305,17 @@ Before fatal exit 70, emit a structured local diagnostic containing only safe op
 - runtime/model/profile identity hashes or IDs.
 
 Do not log lease capabilities, private filesystem secrets or arbitrary exception payloads.
+
+The fatal-path persistence contract must be explicit. Add a bounded local `WatchdogIncidentRecorder` (or bind to an existing equally durable reviewed sink) with these requirements:
+
+- local only; no network I/O;
+- synchronous commit/flush semantics before `os._exit(70)`;
+- bounded record size and bounded retention/rotation;
+- approved structured fields only;
+- no lease token/capability, arbitrary exception text, raw frame data or private path leakage;
+- recorder failure is itself logged best-effort but must not permit an unhealthy native process to remain alive indefinitely.
+
+A normal buffered logger alone is not sufficient evidence of durable incident capture unless its flush/durability behavior at the fatal boundary is explicitly proven.
 
 Treat watchdog expiry as an **attempt/runtime containment incident by default, not an immediate terminal job failure**. The dying worker must not call the existing terminal `/fail` path merely to record the watchdog event because that would bypass normal lease-expiry/retry semantics.
 
@@ -411,10 +446,12 @@ Windows CUDA may be a supported qualified variant, but it does not replace the f
 
 Before code changes:
 
-- capture the exact topic-head SHA;
-- run current Python/.NET/frontend focused gates;
+- capture the exact current `feature/task-10-rtmdet-bytetrack` head SHA and record it as the Task-17 parent baseline;
+- run current Python/.NET/frontend focused gates against that exact SHA;
 - retain the live reproduction evidence;
 - record the currently installed runtime-bundle identity;
+- create a dedicated implementation branch from that exact green/frozen parent, preferred name `feature/task-17-runtime-progress-watchdog-hardening`;
+- perform all Task-17 production-code changes on the dedicated branch rather than continuing to accumulate unrelated work directly on the Task-10 branch;
 - do not regenerate runtime bundles merely because documentation or non-runtime files changed.
 
 ### Step 2 — Freeze the progress and watchdog contracts in code-facing terms
@@ -424,21 +461,26 @@ Before writing production behavior, define the narrow interfaces and immutable v
 - `ProcessingProgressReader`;
 - `ProcessingProgressSink`;
 - immutable `ProcessingProgressSnapshot`;
+- immutable `RuntimeWatchdogSnapshot` plus a read-only runtime snapshot provider;
 - immutable `WatchdogIncidentSnapshot` or equivalent;
+- bounded local `WatchdogIncidentRecorder` contract with synchronous fatal-boundary flush semantics;
 - the exact `VisionProcessor.process(..., progress_sink=...)` seam;
 - source duration supplied from `VisionJobLease.duration_ms`;
-- stage constants and running maximum of 95%.
+- frozen stage constants including first heartbeat = 1%, frame-processing floor = 5% and running maximum = 95%.
 
-The watchdog incident value is assembled by `WorkerRunner`; the supervisor contributes runtime-local facts only.
+The watchdog incident value is assembled by `WorkerRunner`; the supervisor contributes runtime-local facts only through the immutable runtime snapshot provider.
 
 ### Step 3 — Add RED tests for truthful attempt-local progress
 
 Add focused tests proving:
 
-- validation progress remains in the validation band;
-- frame processing enters at 5%;
+- a new lease starts server-side at 0%;
+- the first worker heartbeat reports 1% while validation is in progress;
+- validation progress remains in the 1–4% validation band;
+- frame processing cannot enter 5% before verified source open succeeds;
+- frame processing enters at 5% only at the frozen successful validation/processing boundary;
 - progress increases from authoritative source offsets;
-- a frame does not advance progress until detector, tracker and analytical accumulation for that frame succeed;
+- a frame does not advance progress or `frames_processed` until detector, tracker and analytical accumulation for that frame succeed;
 - repeated heartbeats without a newly completed frame retain the same progress;
 - progress never regresses;
 - a running attempt never reports more than 95%;
@@ -479,11 +521,11 @@ Modify:
 
 Use the frozen injected attempt-local sink. Do not add progress to detector/tracker/runtime analytical interfaces.
 
-Do not alter final `VisionProcessingResult.frames_processed` semantics as a side effect of this work.
+Move the internal `frames_processed` increment to the same successful-frame boundary used by the progress sink. Preserve the final successful-run meaning of `VisionProcessingResult.frames_processed`; add failure-path regression tests to prove incomplete frames are not counted.
 
 ### Step 6 — Replace constant 5% heartbeat behavior and harden the wire path
 
-`WorkerRunner` shall read the latest attempt snapshot for every heartbeat.
+`WorkerRunner` shall create the attempt progress source before the first heartbeat, send the frozen 1% validation-start value, and read the latest attempt snapshot for every subsequent heartbeat. Remove every hard-coded `heartbeat(..., 5.0)` path from `WorkerRunner`.
 
 Add tests proving:
 
@@ -510,7 +552,7 @@ Use monotonic timing. Keep per-frame INFO logging off by default. Production run
 
 ### Step 8 — Implement explicit watchdog incident evidence and containment tests
 
-Add RED tests and then implementation proving:
+Add the immutable runtime watchdog snapshot provider and bounded local incident recorder first as narrow contracts. Then add RED tests and implementation proving:
 
 - a genuinely hung inference -> watchdog -> immutable incident capture -> bounded fatal path;
 - a slow but completing inference below the qualified threshold -> no fatal path;
@@ -519,6 +561,10 @@ Add RED tests and then implementation proving:
 - stale frame-level progress while no inference is active is diagnostically distinguishable from a hung inference;
 - watchdog expiry while recent frame progress exists is still governed by current native-call elapsed time;
 - the incident contains reviewed job/attempt/progress/runtime facts but no lease capability, token, arbitrary exception payload or private path;
+- expiry decision and incident assembly use one coherent immutable runtime watchdog snapshot;
+- the local incident record is synchronously committed/flushed before fatal exit 70;
+- incident recording performs no network I/O and uses bounded size/retention;
+- recorder failure cannot suppress the fatal containment decision;
 - the dying worker does not call terminal `/fail` merely to report watchdog expiry;
 - the fatal path never waits for poisoned native-lane teardown.
 
@@ -680,7 +726,7 @@ This addendum is complete only when all applicable criteria are proven:
 3. Progress is derived from actual frame/media advancement.
 4. A single stuck native inference is still bounded by the watchdog.
 5. A valid slow inference is not killed by an unqualified guessed threshold.
-6. Exit 70 leaves a safe, actionable local diagnostic.
+6. Exit 70 leaves a safe, actionable **durably flushed local** diagnostic assembled from one immutable attempt snapshot plus one coherent immutable runtime-watchdog snapshot.
 7. Watchdog expiry does not force terminal job failure merely to record the incident; lease expiry/retry remains platform-authoritative unless retry exhaustion or a deterministic job failure is proven.
 8. Production/service supervision proves worker restart after exit 70 and stale-attempt publication remains impossible.
 9. No lease/token secret is logged.
@@ -689,9 +735,11 @@ This addendum is complete only when all applicable criteria are proven:
 12. All existing Task-9 through Task-16 authority, evidence and offline invariants remain green.
 13. Release metadata remains truthful throughout the process.
 14. Watchdog incident evidence is immutable once declared and is assembled without supervisor-to-runner backreferences.
-15. A frame advances observable progress only after detector, tracker and analytical accumulation for that frame succeed.
-16. Dynamic progress preserves all existing lease-deadline and terminal-authority invariants.
-17. Production progress/timing instrumentation remains bounded and never attempts native-call cancellation.
+15. A frame advances observable progress and the in-flight processed-frame count only after detector, tracker and analytical accumulation for that frame succeed.
+16. The first worker heartbeat is 1%, 5% is not reported before successful source verification/entry to frame processing, and no hard-coded 5% renewal path remains.
+17. Dynamic progress preserves all existing lease-deadline and terminal-authority invariants.
+18. Production progress/timing instrumentation remains bounded and never attempts native-call cancellation.
+19. Fatal watchdog incident persistence is local, bounded, secret-safe, non-networked and synchronously flushed before exit 70.
 
 ---
 
@@ -704,8 +752,9 @@ Likely production/test files:
 - `src/vision/mavi_vision/pipeline/production_processor.py`;
 - `src/vision/mavi_vision/pipeline/process_video.py`;
 - `src/vision/mavi_vision/runtime/activity.py` — diagnostics only if required;
-- `src/vision/mavi_vision/runtime/supervisor.py` — runtime-local watchdog facts/policy seam only; no backreference into mutable worker attempt state;
-- `src/vision/mavi_vision/common/settings.py` — only if measured policy needs explicit configuration;
+- `src/vision/mavi_vision/runtime/supervisor.py` — immutable runtime-watchdog snapshot provider/policy seam only; no backreference into mutable worker attempt state;
+- a small local watchdog-incident persistence module if no existing durable sink satisfies the frozen recorder contract;
+- `src/vision/mavi_vision/common/settings.py` — only if measured policy or bounded incident-retention configuration needs explicit settings;
 - worker/progress/process/supervisor tests;
 - Task-17 performance/qualification tooling;
 - tests for dynamic-heartbeat boundaries, immutable watchdog incidents and checkpoint/config compatibility.
@@ -731,6 +780,9 @@ Do not:
 - regenerate large offline bundles unless runtime-affecting inputs actually changed;
 - make progress reporting responsible for cancelling or interrupting native inference;
 - let runtime supervision discover job/attempt context by reaching into `WorkerRunner` state;
+- perform watchdog-incident persistence through a remote/network API on the fatal path;
+- rely on an unproven buffered logger as the sole fatal incident record;
+- report the 5% frame-processing floor before verified source validation has succeeded;
 - count a frame as observable forward progress before its detector/tracker/analytical work has succeeded;
 - retain unbounded per-frame timing samples in the production worker.
 
