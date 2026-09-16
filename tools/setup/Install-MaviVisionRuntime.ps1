@@ -146,12 +146,9 @@ if ($signature.Status -ne "Valid") {
     throw "Bundled CPython installer Authenticode signature is not valid: $($signature.Status)"
 }
 $installerVersion = (Get-Item -LiteralPath $pythonInstaller).VersionInfo.ProductVersion
-# python.org's Windows installer ProductVersion includes an encoded
-# maintenance/build suffix (for 3.12.10 this is currently 3.12.10150.0).
-# The bundle SHA-256 and Authenticode signature are both verified separately.
-if ($installerVersion -notmatch '^3\.12\.10(?:\d+)?(?:\.\d+)?$') {
-    throw "Bundled CPython installer product version '$installerVersion' does not match the 3.12.10 release."
-}
+# python.org reports CPython 3.12.10 as ProductVersion 3.12.10150.0.
+# Bundle SHA-256 and Authenticode are independently verified above.
+if ($installerVersion -notmatch '^3\.12\.10(?:\d+)?(?:\.\d+)?
 
 $runtimeBase = Split-Path $InstallRoot -Parent
 $pythonRoot = Join-Path $runtimeBase "Python312"
