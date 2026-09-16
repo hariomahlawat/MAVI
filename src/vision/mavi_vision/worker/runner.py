@@ -699,21 +699,56 @@ class WorkerRunner:
             raise WorkerApiError("heartbeat deadline exceeded")
         return heartbeat
 
-    @staticmethod
     def _log_progress(
+        self,
         lease: VisionJobLease,
         progress_reader: ProcessingProgressReader,
     ) -> None:
         snapshot = progress_reader.snapshot()
+        now_monotonic = self._monotonic_clock()
+        started_monotonic = snapshot.started_monotonic
+        elapsed_seconds = (
+            None
+            if started_monotonic is None or not isfinite(now_monotonic)
+            else max(0.0, now_monotonic - started_monotonic)
+        )
+
+        processing_fps: float | None = None
+        eta_seconds: float | None = None
+        if elapsed_seconds is not None and elapsed_seconds > 0:
+            processing_fps = snapshot.frames_processed / elapsed_seconds
+            source_offset_ms = snapshot.source_offset_ms
+            if (
+                source_offset_ms is not None
+                and source_offset_ms > 0
+                and snapshot.source_duration_ms > source_offset_ms
+            ):
+                source_rate = (source_offset_ms / 1000.0) / elapsed_seconds
+                if source_rate > 0:
+                    eta_seconds = (
+                        (snapshot.source_duration_ms - source_offset_ms) / 1000.0
+                    ) / source_rate
+
         _LOGGER.info(
             "Vision job %s attempt %s progress stage=%s percent=%.2f "
-            "frames=%s source_offset_ms=%s",
+            "frames=%s source_offset_ms=%s elapsed_s=%s fps=%s eta_s=%s",
             lease.job_id,
             lease.attempt_count,
             snapshot.stage,
             snapshot.progress_percent,
             snapshot.frames_processed,
             snapshot.source_offset_ms,
+            (
+                None
+                if elapsed_seconds is None
+                else round(elapsed_seconds, 3)
+            ),
+            (
+                None
+                if processing_fps is None
+                else round(processing_fps, 3)
+            ),
+            None if eta_seconds is None else round(eta_seconds, 1),
         )
 
     @staticmethod
