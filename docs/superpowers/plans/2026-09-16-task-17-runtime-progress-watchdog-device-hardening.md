@@ -89,7 +89,24 @@ Both CUDA variants remain `pending-hardware-qualification`.
 
 In development, `device_policy=auto` deliberately resolves to CPU. Therefore the present Windows runtime should show no material NVIDIA CUDA utilization. That is consistent with the code and metadata, not a GPU-selection bug.
 
-### 2.7 Release truth remains unchanged
+### 2.7 Checkpoint/config warning requires explicit closure
+
+The live runtime currently emits an MMDetection load warning that the model and loaded state dict do not match exactly, including unexpected `data_preprocessor.mean` and `data_preprocessor.std` keys.
+
+The runtime still reaches READY, so this warning is not presently proven to be the cause of the long-running attempt. Nevertheless, Task 17 must not normalize it away without evidence.
+
+Before qualification, verify:
+
+- the exact checkpoint is the intended OpenMMLab RTMDet-M artifact identified by the current SHA-256;
+- the resolved deployment config is derived from the intended upstream model configuration;
+- the extra keys are understood and expected for this checkpoint/MMDetection version combination;
+- detector outputs are numerically sane on the controlled smoke corpus;
+- no relevant model weights are missing;
+- qualification records the exact checkpoint/config pair that was actually tested.
+
+If the warning indicates a genuine incompatibility, stop qualification and correct the release pair before changing performance/watchdog policy.
+
+### 2.8 Release truth remains unchanged
 
 The current model/runtime selection is still a qualification candidate:
 
@@ -393,13 +410,21 @@ Add RED tests for:
 - expired lease cannot produce stale terminal mutation;
 - watchdog diagnostics contain no capability/token/path secret.
 
-### Step 8 — Add performance probe tooling
+### Step 8 — Close checkpoint/config compatibility warning
+
+Add a focused release-compatibility check or qualification assertion for the exact checkpoint/resolved-config pair.
+
+The goal is not to require byte-for-byte state-dict key equality when the pinned upstream combination legitimately contains reviewed non-model preprocessor state. The goal is to make the accepted mismatch explicit, testable and evidence-backed rather than an unexplained console warning.
+
+If required, capture the reviewed allowed key difference in release metadata/tests with an exact allowlist. Do not introduce a broad warning suppression.
+
+### Step 9 — Add performance probe tooling
 
 Create a non-production qualification tool under `tools/phase1/` that can process designated local media and emit machine-readable timing metrics without storing raw frames.
 
 The tool must be explicitly separated from production runtime behavior.
 
-### Step 9 — Measure the Windows CPU candidate
+### Step 10 — Measure the Windows CPU candidate
 
 Run the 2-minute acceptance clip and at least one short controlled clip.
 
@@ -412,7 +437,7 @@ Record real:
 
 Use these measurements to decide whether the current 120-second native-call threshold is valid for the CPU candidate.
 
-### Step 10 — Freeze watchdog policy
+### Step 11 — Freeze watchdog policy
 
 Only after Step 9:
 
@@ -421,7 +446,7 @@ Only after Step 9:
 
 Any policy change gets focused tests and documentation.
 
-### Step 11 — Re-run CPU acceptance before CUDA work
+### Step 12 — Re-run CPU acceptance before CUDA work
 
 Required outcome:
 
@@ -431,11 +456,11 @@ Required outcome:
 - a deliberately injected hung call still terminates within the bounded watchdog envelope;
 - result completion/search/evidence flow remains unchanged.
 
-### Step 12 — Implement qualified CUDA candidate work separately
+### Step 13 — Implement qualified CUDA candidate work separately
 
 Only after CPU observability is trustworthy, execute the GPU phases in Section 5.
 
-### Step 13 — Update runtime/release metadata only from evidence
+### Step 14 — Update runtime/release metadata only from evidence
 
 Do not change:
 
@@ -446,7 +471,7 @@ Do not change:
 
 until the corresponding exact evidence exists.
 
-### Step 14 — Full regression
+### Step 15 — Full regression
 
 Run at least:
 
@@ -460,7 +485,7 @@ Task-12 offline bundle gates when runtime-affecting files changed
 Task-17 deterministic acceptance checks
 ```
 
-### Step 15 — Independent cold review
+### Step 16 — Independent cold review
 
 Review specifically for:
 
