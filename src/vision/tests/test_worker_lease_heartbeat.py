@@ -554,3 +554,67 @@ def test_completed_heartbeat_lease_loss_outranks_simultaneous_processing_success
         assert client.failures == []
 
     asyncio.run(scenario())
+
+
+
+def test_lease_renewal_reports_attempt_local_progress_not_server_echo(
+    tmp_path: Path,
+) -> None:
+    class ProgressingProcessor:
+        def __init__(self, lease: VisionJobLease) -> None:
+            self.lease = lease
+
+        def process(
+            self,
+            *,
+            job_id,
+            attempt_count: int,
+            source_path: Path,
+            expected_source_size_bytes: int,
+            expected_source_sha256: str,
+            lease_guard: LeaseGuard,
+            progress_sink=None,
+        ) -> VisionProcessingResult:
+            del (
+                attempt_count,
+                source_path,
+                expected_source_size_bytes,
+                expected_source_sha256,
+            )
+            assert progress_sink is not None
+            lease_guard.check_owned()
+            progress_sink.mark_processing_started()
+            progress_sink.mark_frame_completed(
+                source_offset_ms=max(1, self.lease.duration_ms // 2),
+            )
+            time.sleep(0.05)
+            lease_guard.check_owned()
+            return VisionProcessingResult(
+                job_id=job_id,
+                frames_processed=1,
+                tracks=(),
+            )
+
+    lease = make_lease()
+    _materialize_source(tmp_path, lease)
+    client = HeartbeatCountingApi(lease)
+
+    result = asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            ProgressingProcessor(lease),
+            heartbeat_interval_seconds=0.01,
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+        ).run_once()
+    )
+
+    assert result is True
+    assert len(client.heartbeats) >= 2
+    assert client.heartbeats[0] == 1.0
+    assert any(progress > 5.0 for progress in client.heartbeats[1:])
+    assert all(
+        later >= earlier
+        for earlier, later in zip(client.heartbeats, client.heartbeats[1:])
+    )
