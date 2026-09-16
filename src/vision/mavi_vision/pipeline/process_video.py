@@ -18,6 +18,7 @@ from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.detection.interfaces import Detector
 from mavi_vision.pipeline.finalization import prepare_track
 from mavi_vision.runtime.errors import ProcessingDependencyError
+from mavi_vision.runtime.progress import ProcessingProgressSink
 from mavi_vision.quality.scoring import representative_quality
 from mavi_vision.storage.artifact_publisher import ArtifactPublisher
 from mavi_vision.storage.artifact_store import StagingArtifactStore
@@ -76,6 +77,7 @@ class VideoProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink: ProcessingProgressSink | None = None,
     ) -> VisionProcessingResult:
         if (
             self._artifact_store.job_id != job_id
@@ -102,9 +104,11 @@ class VideoProcessor:
                 if verified.stream is None:
                     raise SourceIntegrityError("source_read_failed")
 
+                if progress_sink is not None:
+                    progress_sink.mark_processing_started()
+
                 for frame in iter_frames(verified.stream):
                     lease_guard.check_owned()
-                    frames_processed += 1
 
                     detections = self._detector.detect(frame)
                     lease_guard.check_owned()
@@ -154,6 +158,14 @@ class VideoProcessor:
                                 observation=observation,
                                 crop=self._crop_rgb(frame, bbox),
                             )
+
+                    # A frame becomes observable forward progress only after its
+                    # detector, tracker, and analytical accumulator work succeeds.
+                    frames_processed += 1
+                    if progress_sink is not None:
+                        progress_sink.mark_frame_completed(
+                            source_offset_ms=frame.offset_ms,
+                        )
         except SourceSnapshotCancelled as exc:
             raise LeaseLostError() from exc
         except LeaseLostError:
@@ -176,6 +188,9 @@ class VideoProcessor:
         except Exception as exc:
             self._cleanup_best_effort(lease_guard)
             raise VideoProcessingError("pipeline_processing_failed") from exc
+
+        if progress_sink is not None:
+            progress_sink.mark_finalization_started()
 
         publisher = ArtifactPublisher(self._artifact_store, lease_guard)
         try:
@@ -205,6 +220,8 @@ class VideoProcessor:
                 lease_guard.check_owned()
 
             lease_guard.check_owned()
+            if progress_sink is not None:
+                progress_sink.mark_finalization_ready()
             return VisionProcessingResult(
                 job_id=job_id,
                 frames_processed=frames_processed,
