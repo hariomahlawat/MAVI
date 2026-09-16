@@ -8,7 +8,7 @@
   "pipelineProfileId": "phase1-detection-tracking-v1",
   "pipelineProfileSha256": "1d109f4dd666f18d1a234bf89d13ff3347cff09f48ce0f3c1c6c95714e4c530f",
   "runtimeProfileId": "mmdetection-phase1-v1",
-  "runtimeProfileSha256": "9bb01438660b631396253c69a9452fb8fa9f2b5761c04ac0867408fa8838ea7f",
+  "runtimeProfileSha256": "5bff438288708cbb11d01b3acc7b685d7c6b6db23cdcfa67160bbbc227e3df46",
   "requiredGates": {
     "windows-x86_64-cpu": "passed",
     "windows-x86_64-cuda": "pending",
