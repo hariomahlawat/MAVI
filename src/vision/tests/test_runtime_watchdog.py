@@ -14,6 +14,7 @@ from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJ
 from mavi_vision.common.lease import LeaseGuard
 from mavi_vision.runtime.activity import InferenceActivity
 from mavi_vision.runtime.execution_lane import VisionExecutionLane
+from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshot
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiError
 from mavi_vision.worker.runner import WorkerRunner
@@ -469,6 +470,86 @@ def test_watchdog_keeps_polling_while_heartbeat_request_is_in_flight(
         assert watchdog_polls >= 2
         assert expiry_reports == ["expired"]
         assert client.heartbeats == [1.0, 1.0]
+        assert client.failures == []
+
+    asyncio.run(scenario())
+
+
+
+def test_watchdog_incident_captures_one_coherent_runtime_and_attempt_snapshot(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        lease = _watchdog_lease()
+        _materialize_watchdog_source(tmp_path, lease)
+        started = threading.Event()
+        release = threading.Event()
+        client = _WatchdogApi(lease)
+        processor = _BlockingProcessor(started, release)
+        lane = VisionExecutionLane()
+        records = []
+        fatal_codes: list[int] = []
+
+        class Recorder:
+            def record(self, incident) -> None:
+                records.append(incident)
+
+        def runtime_snapshot() -> RuntimeWatchdogSnapshot:
+            active = started.is_set()
+            return RuntimeWatchdogSnapshot(
+                observed_monotonic=221.0 if active else 100.0,
+                active=active,
+                started_monotonic=100.0 if active else None,
+                elapsed_seconds=121.0 if active else None,
+                completed_count=7,
+                threshold_seconds=120.0,
+                expired=active,
+                device="cpu",
+                model_id="rtmdet-m-coco",
+                runtime_variant="windows-x86_64-cpu",
+                pipeline_profile_id="phase1-detection-tracking-v1",
+                model_manifest_sha256="a" * 64,
+                checkpoint_sha256="b" * 64,
+                resolved_config_sha256="c" * 64,
+                pipeline_profile_sha256="d" * 64,
+                runtime_profile_sha256="e" * 64,
+            )
+
+        def terminator(code: int) -> None:
+            fatal_codes.append(code)
+            raise _FatalTerminatorSentinel("fatal-watchdog")
+
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            process_executor=lane,
+            watchdog_snapshot_provider=runtime_snapshot,
+            watchdog_expiry_sink=lambda: None,
+            watchdog_incident_recorder=Recorder(),
+            watchdog_grace_seconds=0.01,
+            watchdog_poll_seconds=0.001,
+            fatal_terminator=terminator,
+        )
+
+        try:
+            with pytest.raises(_FatalTerminatorSentinel, match="fatal-watchdog"):
+                await runner.run_once()
+        finally:
+            release.set()
+            await lane.close()
+
+        assert fatal_codes == [70]
+        assert len(records) == 1
+        incident = records[0]
+        assert incident.worker_id == str(lease.worker_id)
+        assert incident.job_id == lease.job_id
+        assert incident.attempt_count == lease.attempt_count
+        assert incident.progress.progress_percent == 1.0
+        assert incident.progress.frames_processed == 0
+        assert incident.runtime.expired is True
+        assert incident.runtime.elapsed_seconds == 121.0
         assert client.failures == []
 
     asyncio.run(scenario())
