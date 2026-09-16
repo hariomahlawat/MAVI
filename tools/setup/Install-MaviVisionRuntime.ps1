@@ -11,6 +11,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
 
 function Get-Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -90,7 +91,11 @@ if ($LASTEXITCODE -ne 0 -or -not $head) {
     throw "Unable to determine the attached repository HEAD."
 }
 if ($head -ne [string]$manifest.sourceCommit) {
-    throw "Vision runtime bundle source commit '$($manifest.sourceCommit)' does not match repository HEAD '$head'."
+    Assert-MaviVisionRuntimeSourceCompatible -RepositoryRoot $RepositoryRoot -BundleSourceCommit ([string]$manifest.sourceCommit) -HeadCommit $head | Out-Null
+    Write-Host "Vision runtime source compatibility: OK" -ForegroundColor Green
+    Write-Host "  Bundle source : $($manifest.sourceCommit)"
+    Write-Host "  Repository    : $head"
+    Write-Host "  Reason        : no runtime-relevant source changes"
 }
 
 $declared = New-Object "System.Collections.Generic.HashSet[string]" ([StringComparer]::Ordinal)
