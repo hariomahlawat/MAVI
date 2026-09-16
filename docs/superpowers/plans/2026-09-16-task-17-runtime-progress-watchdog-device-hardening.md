@@ -99,9 +99,9 @@ Before qualification, verify:
 
 - the exact checkpoint is the intended OpenMMLab RTMDet-M artifact identified by the current SHA-256;
 - the resolved deployment config is derived from the intended upstream model configuration;
-- the extra keys are understood and expected for this checkpoint/MMDetection version combination;
+- missing model keys equal an explicitly reviewed expected set, ideally empty;
+- unexpected checkpoint keys equal an exact reviewed allowlist (for example only the known preprocessor keys if evidence confirms that exact pair); any additional missing/unexpected key fails the compatibility probe;
 - detector outputs are numerically sane on the controlled smoke corpus;
-- no relevant model weights are missing;
 - qualification records the exact checkpoint/config pair that was actually tested.
 
 If the warning indicates a genuine incompatibility, stop qualification and correct the release pair before changing performance/watchdog policy.
@@ -140,6 +140,8 @@ The implementation shall preserve these boundaries:
 
 ### 4.1 Add an attempt-scoped thread-safe progress source
 
+`WorkerRunner` shall own the lifecycle of one attempt-local progress object and expose it through two narrow interfaces: a read-only `ProcessingProgressReader` for the asyncio/heartbeat side and a write-only `ProcessingProgressSink` for the synchronous vision lane. Do not pass a mutable progress object broadly through the stack and do not use process-global progress state.
+
 Create a model-neutral progress component, for example:
 
 `mavi_vision.runtime.progress.ProcessingProgress`
@@ -176,6 +178,14 @@ over multiplying a nominal frame rate by duration.
 
 This is robust for variable-frame-rate media and matches the existing Task-9 media timeline contract.
 
+Freeze the computation semantics before implementation:
+
+- clamp media fraction to `[0, 1]`;
+- reject/guard invalid numeric states;
+- progress for one attempt is `max(previous, newly_derived)`;
+- a running attempt never reports 100%;
+- if authoritative duration is zero/invalid, remain at the current stage floor, continue only if the media contract otherwise permits it, and emit a diagnostic rather than inventing a guessed frame-count percentage.
+
 Reserve explicit phase ranges so that terminal completion remains authoritative. A proposed mapping is:
 
 - lease/source validation: 0–5%;
@@ -183,7 +193,7 @@ Reserve explicit phase ranges so that terminal completion remains authoritative.
 - deterministic finalization/artifact publication: 90–95%;
 - accepted platform completion: 100%.
 
-The exact constants shall be centralized and tested. A running worker must never claim 100%.
+The exact constants shall be centralized and tested. A running worker must never claim 100%. Internal stage bands are semantic ranges, not a guarantee that every band will be externally observed on a heartbeat; a fast finalization may legitimately jump from a high frame-processing percentage directly to terminal completion.
 
 ### 4.3 Thread the progress seam through composition without contaminating detector/tracker contracts
 
@@ -248,11 +258,25 @@ Before fatal exit 70, emit a structured local diagnostic containing only safe op
 
 Do not log lease capabilities, private filesystem secrets or arbitrary exception payloads.
 
-Where lease authority still exists, design a **bounded best-effort terminal failure report** using an allowlisted code such as `vision_inference_watchdog_expired` or `vision_processing_stalled`. The API call must have a strict timeout and fatal containment must not wait indefinitely for it.
+Treat watchdog expiry as an **attempt/runtime containment incident by default, not an immediate terminal job failure**. The dying worker must not call the existing terminal `/fail` path merely to record the watchdog event because that would bypass normal lease-expiry/retry semantics.
 
-If the lease has already expired or the fail request is rejected, preserve the current fail-closed process termination and allow normal lease recovery/retry semantics.
+The default watchdog path shall be:
 
-### 4.7 Make watchdog policy variant-aware only after measurement
+- mark the local attempt/lease guard as lost;
+- emit and persist a safe local watchdog incident record;
+- terminate the unhealthy worker process with exit code 70;
+- allow the authoritative lease to expire naturally;
+- let the platform's existing retry/attempt policy decide whether the job is reclaimed or ultimately exhausted.
+
+A bounded remote incident-reporting endpoint may be added later only if it is explicitly **non-terminal** and cannot mutate the job to Failed. Terminal `/fail` remains appropriate only for deterministic job failures or retry exhaustion already governed by platform policy.
+
+### 4.7 Define the qualified Phase-1 input envelope before freezing watchdog policy
+
+A fixed per-inference watchdog cannot be called qualified without a bounded supported media envelope. Before performance qualification, explicitly freeze the Phase-1 acceptance envelope for the media characteristics that materially affect processing cost, including at minimum container/codec set, stream count, maximum width/height or pixel count, frame-rate bounds and any applicable duration bounds.
+
+The exact values shall come from the product/import contract and qualification objectives rather than being guessed in this document. Watchdog evidence collected outside that envelope must not be used to justify the production threshold.
+
+### 4.8 Make watchdog policy variant-aware only after measurement
 
 Do not simply increase 120 seconds to an arbitrary larger number.
 
@@ -281,19 +305,30 @@ Then freeze a watchdog policy with a documented safety margin. Runtime variant m
 
 GPU support is a separate qualification workstream and must not be mixed into the progress fix.
 
-### Phase G1 — local capability probe
+### Phase G1 — host capability probe
 
-Add/retain an explicit operator command that reports:
+Add/retain an explicit operator command that reports host-level facts without assuming the current CPU-only Python runtime can use CUDA:
 
-- NVIDIA driver visibility;
+- NVIDIA adapter presence;
+- driver visibility/version;
+- device identity;
+- compatible MAVI CUDA runtime variant availability.
+
+The existing CPU-only PyTorch bundle must not be used to conclude that the host is CUDA-incapable.
+
+### Phase G2 — candidate-runtime capability probe
+
+For a CUDA-enabled candidate runtime, report and verify:
+
 - PyTorch build CUDA identity;
 - `torch.cuda.is_available()`;
 - device count/name;
-- compatible runtime variant availability.
+- an actual CUDA tensor/inference execution path;
+- no silent CPU fallback.
 
-It must not mutate release metadata.
+Neither probe may mutate release metadata.
 
-### Phase G2 — Windows CUDA candidate bundle
+### Phase G3 — Windows CUDA candidate bundle
 
 Build a distinct:
 
@@ -303,7 +338,7 @@ runtime bundle only from exact pinned dependencies compatible with the intended 
 
 Never modify the existing CPU bundle to opportunistically use CUDA.
 
-### Phase G3 — CUDA runtime qualification
+### Phase G4 — CUDA runtime qualification
 
 Run the existing runtime qualification architecture against the exact candidate and hardware.
 
@@ -319,7 +354,7 @@ Required evidence includes:
 - watchdog/restart path;
 - no silent CPU fallback.
 
-### Phase G4 — Linux NVIDIA production qualification
+### Phase G5 — Linux NVIDIA production qualification
 
 The final production-worker gate remains Linux/NVIDIA as already defined by Task 17.
 
@@ -418,35 +453,59 @@ The goal is not to require byte-for-byte state-dict key equality when the pinned
 
 If required, capture the reviewed allowed key difference in release metadata/tests with an exact allowlist. Do not introduce a broad warning suppression.
 
-### Step 9 — Add performance probe tooling
+### Step 9 — Prove watchdog containment plus external recovery semantics
+
+Qualify the operational contract around exit code 70, not only the in-process exception path.
+
+Development launchers may stop and surface exit 70 to the developer, but production/service supervision must prove restart behavior. Acceptance shall demonstrate:
+
+- hung native inference triggers exit 70;
+- the old worker PID disappears;
+- the configured service supervisor starts a fresh worker process/PID;
+- runtime initialization succeeds after restart;
+- the old attempt cannot publish stale completion/artifacts;
+- the lease expires and is reclaimable according to platform retry policy;
+- a subsequent healthy job can be processed.
+
+Windows and Linux supervision behavior must be documented separately where they differ.
+
+### Step 10 — Define/freeze the Phase-1 qualified input envelope
+
+Record the exact media envelope used to qualify the fixed watchdog policy. Do not freeze a threshold from one representative clip alone.
+
+### Step 11 — Add performance probe tooling
 
 Create a non-production qualification tool under `tools/phase1/` that can process designated local media and emit machine-readable timing metrics without storing raw frames.
 
 The tool must be explicitly separated from production runtime behavior.
 
-### Step 10 — Measure the Windows CPU candidate
+### Step 12 — Measure the Windows CPU candidate
 
-Run the 2-minute acceptance clip and at least one short controlled clip.
+Run the 2-minute acceptance clip plus a controlled corpus covering the qualified input envelope, including at minimum a short simple clip, a representative 1080p clip, a dense scene, a low-detection/empty scene, the highest qualified resolution, and a sustained run long enough to expose thermal/resource behavior. Capture cold-runtime and warmed-runtime observations where relevant.
 
 Record real:
 
 - frame count;
-- per-frame inference distribution;
+- per-frame decode duration;
+- per-frame detector duration;
+- per-frame tracker duration;
+- total per-frame duration;
+- min/mean/median/p95/p99/max inference distribution;
 - processing/source ratio;
 - memory high-water mark.
 
 Use these measurements to decide whether the current 120-second native-call threshold is valid for the CPU candidate.
 
-### Step 11 — Freeze watchdog policy
+### Step 13 — Freeze watchdog policy
 
-Only after Step 9:
+Only after Step 12:
 
 - retain 120s if evidence supports it; or
 - change deployment/runtime policy to a measured threshold.
 
 Any policy change gets focused tests and documentation.
 
-### Step 12 — Re-run CPU acceptance before CUDA work
+### Step 14 — Re-run CPU acceptance before CUDA work
 
 Required outcome:
 
@@ -456,11 +515,11 @@ Required outcome:
 - a deliberately injected hung call still terminates within the bounded watchdog envelope;
 - result completion/search/evidence flow remains unchanged.
 
-### Step 13 — Implement qualified CUDA candidate work separately
+### Step 15 — Implement qualified CUDA candidate work separately
 
 Only after CPU observability is trustworthy, execute the GPU phases in Section 5.
 
-### Step 14 — Update runtime/release metadata only from evidence
+### Step 16 — Update runtime/release metadata only from evidence
 
 Do not change:
 
@@ -471,7 +530,7 @@ Do not change:
 
 until the corresponding exact evidence exists.
 
-### Step 15 — Full regression
+### Step 17 — Full regression
 
 Run at least:
 
@@ -485,7 +544,7 @@ Task-12 offline bundle gates when runtime-affecting files changed
 Task-17 deterministic acceptance checks
 ```
 
-### Step 16 — Independent cold review
+### Step 18 — Independent cold review
 
 Review specifically for:
 
@@ -513,12 +572,13 @@ This addendum is complete only when all applicable criteria are proven:
 4. A single stuck native inference is still bounded by the watchdog.
 5. A valid slow inference is not killed by an unqualified guessed threshold.
 6. Exit 70 leaves a safe, actionable local diagnostic.
-7. The control plane reaches a correct terminal state or safe retry path after watchdog containment.
-8. No lease/token secret is logged.
-9. CPU and CUDA runtime identities remain explicit and separate.
-10. NVIDIA utilization is claimed only when a CUDA runtime variant is explicitly selected and qualified.
-11. All existing Task-9 through Task-16 authority, evidence and offline invariants remain green.
-12. Release metadata remains truthful throughout the process.
+7. Watchdog expiry does not force terminal job failure merely to record the incident; lease expiry/retry remains platform-authoritative unless retry exhaustion or a deterministic job failure is proven.
+8. Production/service supervision proves worker restart after exit 70 and stale-attempt publication remains impossible.
+9. No lease/token secret is logged.
+10. CPU and CUDA runtime identities remain explicit and separate.
+11. NVIDIA utilization is claimed only when a CUDA runtime variant is explicitly selected and qualified.
+12. All existing Task-9 through Task-16 authority, evidence and offline invariants remain green.
+13. Release metadata remains truthful throughout the process.
 
 ---
 
