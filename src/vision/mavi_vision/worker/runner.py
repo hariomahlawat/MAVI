@@ -201,12 +201,16 @@ class WorkerRunner:
             )
             return True
         except ProcessingDependencyError as exc:
-            _LOGGER.exception(
-                "Vision job %s attempt %s failed in processing dependency: code=%s detail=%s",
+            # ProcessingDependencyError detail is local diagnostic data and may
+            # contain paths, tokens, model locations, or other sensitive runtime
+            # context. Keep the wire/log contract to the reviewed failure code only.
+            # Do not use logger.exception here: traceback rendering includes the
+            # exception message and would re-expose the diagnostic.
+            _LOGGER.error(
+                "Vision job %s attempt %s failed in processing dependency: code=%s",
                 lease.job_id,
                 lease.attempt_count,
                 exc.failure_code,
-                str(exc),
             )
             # The runtime-health sink has already observed this model-neutral error.
             # This layer owns only the leased-job terminal mapping. Never trust a
