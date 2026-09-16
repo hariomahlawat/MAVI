@@ -10,6 +10,7 @@ import pytest
 from mavi_vision.runtime.supervisor import RuntimeState
 from mavi_vision.worker.client import WorkerApiError
 from mavi_vision.worker import main as worker_main
+from mavi_vision.worker.watchdog_incident import JsonlWatchdogIncidentRecorder
 
 
 class _LoopSupervisor:
@@ -245,6 +246,9 @@ class _CompositionSupervisor:
     def report_processing_failure(self, error) -> None:
         del error
 
+    def watchdog_snapshot(self):
+        return object()
+
     def watchdog_expired(self) -> bool:
         return False
 
@@ -364,12 +368,20 @@ def test_run_worker_composes_ready_processor_runner_and_single_owner_shutdown(
         assert store.attempt_count == 1
 
         assert runner_kwargs["process_executor"] is lane
+        assert (
+            runner_kwargs["watchdog_snapshot_provider"]
+            == supervisor.watchdog_snapshot
+        )
         assert runner_kwargs["watchdog_expired"] == supervisor.watchdog_expired
         assert (
             runner_kwargs["watchdog_expiry_sink"]
             == supervisor.report_watchdog_expiry
         )
         assert runner_kwargs["watchdog_grace_seconds"] == settings.watchdog_grace_seconds
+        assert isinstance(
+            runner_kwargs["watchdog_incident_recorder"],
+            JsonlWatchdogIncidentRecorder,
+        )
         assert callable(runner_kwargs["runtime_provenance_provider"])
 
         assert events[-3:] == ["supervisor-close", "lane-close", "client-close"]
