@@ -5,13 +5,18 @@ on:
     branches:
       - feature/task-10-rtmdet-bytetrack
     paths:
-      - 'tools/vision/**'
-      - 'src/vision/**'
-      - 'models/**'
-      - 'config/dependencies/offline-binary-catalog-v1.json'
+      - 'tools/vision/build_offline_bundle.py'
+      - 'tools/vision/freeze_offline_lock.py'
+      - 'tools/vision/resolve_mmdet_config.py'
+      - 'tools/verify_repo.py'
+      - 'src/vision/mavi_vision/**'
+      - 'src/vision/pyproject.toml'
+      - 'src/vision/config/pipelines/phase1-detection-tracking-v1.json'
+      - 'src/vision/runtime/mmdetection-phase1-v1/**'
+      - 'models/manifests/rtmdet-m-coco-phase1-v1.json'
+      - 'models/qualifications/rtmdet-m-coco-phase1-v1.json'
+      - 'contracts/**'
       - '.github/workflows/task12-offline-bundle.yml'
-      - 'tools/setup/**'
-      - 'Start-MAVI-Vision-Worker.cmd'
   pull_request:
     branches:
       - feature/task-10-rtmdet-bytetrack
