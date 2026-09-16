@@ -37,6 +37,69 @@ function Test-MaviPostgreSqlMajorVersionOutput {
     return $VersionOutput -match ("(?i)\bPostgreSQL\b.*\b{0}(?:\.|\b)" -f $majorText)
 }
 
+function Get-MaviVisionRuntimeRelevantChanges {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$BaselineCommit,
+        [string]$HeadCommit = "HEAD"
+    )
+
+    $git = Get-Command git.exe -ErrorAction SilentlyContinue
+    if (-not $git) { throw "git.exe is required to verify vision runtime source compatibility." }
+
+    $repo = [IO.Path]::GetFullPath($RepositoryRoot.Trim().Trim('"'))
+    $baseline = $BaselineCommit.Trim()
+    $head = $HeadCommit.Trim()
+    if ([string]::IsNullOrWhiteSpace($baseline) -or [string]::IsNullOrWhiteSpace($head)) {
+        throw "Vision runtime source compatibility requires non-empty commit identifiers."
+    }
+
+    & $git.Source -C $repo cat-file -e ("{0}^{commit}" -f $baseline) 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Vision runtime baseline commit '$baseline' is not available in the local repository."
+    }
+
+    & $git.Source -C $repo cat-file -e ("{0}^{commit}" -f $head) 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Vision runtime comparison commit '$head' is not available in the local repository."
+    }
+
+    $runtimePaths = @(
+        "src/vision/mavi_vision",
+        "src/vision/pyproject.toml",
+        "src/vision/config/pipelines/phase1-detection-tracking-v1.json",
+        "src/vision/runtime/mmdetection-phase1-v1",
+        "models/manifests/rtmdet-m-coco-phase1-v1.json",
+        "models/qualifications/rtmdet-m-coco-phase1-v1.json",
+        "contracts"
+    )
+
+    $arguments = @("-C", $repo, "diff", "--name-only", "--diff-filter=ACDMRTUXB", $baseline, $head, "--") + $runtimePaths
+    $changes = & $git.Source @arguments 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to compare repository runtime inputs between '$baseline' and '$head'."
+    }
+
+    return @($changes | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+}
+
+function Assert-MaviVisionRuntimeSourceCompatible {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$BundleSourceCommit,
+        [string]$HeadCommit = "HEAD"
+    )
+
+    $changes = @(Get-MaviVisionRuntimeRelevantChanges -RepositoryRoot $RepositoryRoot -BaselineCommit $BundleSourceCommit -HeadCommit $HeadCommit)
+    if ($changes.Count -gt 0) {
+        $preview = ($changes | Select-Object -First 12) -join ", "
+        if ($changes.Count -gt 12) { $preview += ", ..." }
+        throw "Vision runtime bundle source '$BundleSourceCommit' is incompatible with repository '$HeadCommit'. Runtime-relevant files changed: $preview"
+    }
+
+    return $true
+}
+
 function Read-MaviJson {
     param([Parameter(Mandatory = $true)][string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required file not found: $Path" }
