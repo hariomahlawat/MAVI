@@ -149,12 +149,16 @@ class ProcessingProgress:
                     PROCESSING_END_PERCENT - PROCESSING_START_PERCENT
                 ) * media_fraction
 
+            next_progress = max(self._progress_percent, progress)
+            observed = self._validated_now()
+
+            # Commit the frame observation as one mutation so a clock/provider
+            # failure cannot leave frame count and percentage out of sync.
             self._frames_processed += 1
             self._source_offset_ms = source_offset_ms
-            self._advance(
-                stage="processing",
-                progress_percent=max(self._progress_percent, progress),
-            )
+            self._stage = "processing"
+            self._progress_percent = next_progress
+            self._last_progress_monotonic = observed
 
     def mark_finalization_started(self) -> None:
         with self._lock:
@@ -187,10 +191,14 @@ class ProcessingProgress:
         ):
             raise ValueError("processing_progress_value_invalid")
 
-        observed = self._monotonic_clock()
-        if not isfinite(observed):
-            raise ValueError("processing_progress_clock_invalid")
+        observed = self._validated_now()
 
         self._stage = stage
         self._progress_percent = progress_percent
         self._last_progress_monotonic = observed
+
+    def _validated_now(self) -> float:
+        observed = self._monotonic_clock()
+        if not isfinite(observed):
+            raise ValueError("processing_progress_clock_invalid")
+        return observed
