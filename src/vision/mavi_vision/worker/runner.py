@@ -22,9 +22,18 @@ from mavi_vision.runtime.progress import (
     ProcessingProgressSink,
 )
 from mavi_vision.runtime.provenance import RuntimeProvenance
+from mavi_vision.runtime.watchdog import (
+    RuntimeWatchdogSnapshot,
+    RuntimeWatchdogSnapshotProvider,
+)
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import MediaStoreError
 from mavi_vision.worker.client import WorkerApiError
+from mavi_vision.worker.watchdog_incident import (
+    WATCHDOG_FAILURE_CODE,
+    WatchdogIncidentRecorder,
+    WatchdogIncidentSnapshot,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,7 +52,9 @@ _FATAL_SERVICE_RESTART_CODE: Final = 70
 
 
 class _WatchdogExpiredDuringHeartbeat(RuntimeError):
-    pass
+    def __init__(self, runtime_snapshot: RuntimeWatchdogSnapshot | None) -> None:
+        super().__init__(WATCHDOG_FAILURE_CODE)
+        self.runtime_snapshot = runtime_snapshot
 
 
 # Worker collaborators
@@ -108,8 +119,10 @@ class WorkerRunner:
         heartbeat_interval_seconds: float = 30.0,
         heartbeat_request_timeout_seconds: float = 30.0,
         process_executor: ProcessExecutor | None = None,
+        watchdog_snapshot_provider: RuntimeWatchdogSnapshotProvider | None = None,
         watchdog_expired: Callable[[], bool] | None = None,
         watchdog_expiry_sink: Callable[[], None] | None = None,
+        watchdog_incident_recorder: WatchdogIncidentRecorder | None = None,
         watchdog_grace_seconds: float = 10.0,
         watchdog_poll_seconds: float = 1.0,
         fatal_terminator: Callable[[int], NoReturn] = os._exit,
@@ -132,8 +145,10 @@ class WorkerRunner:
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._heartbeat_request_timeout_seconds = heartbeat_request_timeout_seconds
         self._process_executor = process_executor or _AsyncioThreadProcessExecutor()
+        self._watchdog_snapshot_provider = watchdog_snapshot_provider
         self._watchdog_expired = watchdog_expired
         self._watchdog_expiry_sink = watchdog_expiry_sink
+        self._watchdog_incident_recorder = watchdog_incident_recorder
         self._watchdog_grace_seconds = watchdog_grace_seconds
         self._watchdog_poll_seconds = watchdog_poll_seconds
         self._fatal_terminator = fatal_terminator
@@ -346,7 +361,7 @@ class WorkerRunner:
                 now_monotonic = self._monotonic_clock()
                 heartbeat_wait = max(0.0, next_heartbeat_due - now_monotonic)
                 wait_seconds = heartbeat_wait
-                if self._watchdog_expired is not None:
+                if self._watchdog_enabled():
                     wait_seconds = min(wait_seconds, self._watchdog_poll_seconds)
 
                 done, _ = await asyncio.wait(
@@ -367,10 +382,14 @@ class WorkerRunner:
                     lease_guard.check_owned()
                     return result, lease_guard
 
-                if self._watchdog_is_expired():
+                watchdog_snapshot = self._expired_watchdog_snapshot()
+                if watchdog_snapshot is not False:
                     await self._handle_watchdog_expiry(
                         process_task,
                         lease_guard,
+                        lease,
+                        progress_reader,
+                        watchdog_snapshot,
                     )
 
                 now_monotonic = self._monotonic_clock()
@@ -384,10 +403,13 @@ class WorkerRunner:
                                 progress_reader,
                             )
                         )
-                    except _WatchdogExpiredDuringHeartbeat:
+                    except _WatchdogExpiredDuringHeartbeat as exc:
                         await self._handle_watchdog_expiry(
                             process_task,
                             lease_guard,
+                            lease,
+                            progress_reader,
+                            exc.runtime_snapshot,
                         )
                         raise AssertionError(
                             "watchdog containment unexpectedly returned"
@@ -415,6 +437,8 @@ class WorkerRunner:
                 await self._await_unwound_after_loss(
                     process_task,
                     lease_guard,
+                    lease,
+                    progress_reader,
                 )
             raise
         finally:
@@ -425,8 +449,16 @@ class WorkerRunner:
         self,
         process_task: asyncio.Task[VisionProcessingResult],
         lease_guard: LeaseGuard,
+        lease: VisionJobLease,
+        progress_reader: ProcessingProgressReader,
+        runtime_snapshot: RuntimeWatchdogSnapshot | None,
     ) -> None:
         lease_guard.mark_lost()
+        self._record_watchdog_incident(
+            lease,
+            progress_reader,
+            runtime_snapshot,
+        )
         self._report_watchdog_expiry()
         still_stuck = await self._watchdog_grace_wait(
             process_task,
@@ -443,9 +475,11 @@ class WorkerRunner:
         self,
         process_task: asyncio.Task[VisionProcessingResult],
         lease_guard: LeaseGuard,
+        lease: VisionJobLease,
+        progress_reader: ProcessingProgressReader,
     ) -> None:
         """Keep watchdog containment active while ordinary cleanup unwinds."""
-        if self._watchdog_expired is None:
+        if not self._watchdog_enabled():
             try:
                 await process_task
             except BaseException:
@@ -453,7 +487,13 @@ class WorkerRunner:
             return
 
         while not process_task.done():
-            if self._watchdog_is_expired():
+            watchdog_snapshot = self._expired_watchdog_snapshot()
+            if watchdog_snapshot is not False:
+                self._record_watchdog_incident(
+                    lease,
+                    progress_reader,
+                    watchdog_snapshot,
+                )
                 self._report_watchdog_expiry()
                 still_stuck = await self._watchdog_grace_wait(
                     process_task,
@@ -494,15 +534,59 @@ class WorkerRunner:
 
         return True
 
-    def _watchdog_is_expired(self) -> bool:
+    def _watchdog_enabled(self) -> bool:
+        return (
+            self._watchdog_snapshot_provider is not None
+            or self._watchdog_expired is not None
+        )
+
+    def _expired_watchdog_snapshot(
+        self,
+    ) -> RuntimeWatchdogSnapshot | None | bool:
+        provider = self._watchdog_snapshot_provider
+        if provider is not None:
+            try:
+                snapshot = provider()
+            except Exception:
+                _LOGGER.exception(
+                    "Watchdog snapshot provider failed; containing as expired"
+                )
+                return None
+            return snapshot if snapshot.expired else False
+
         callback = self._watchdog_expired
         if callback is None:
             return False
         try:
-            return bool(callback())
+            return None if bool(callback()) else False
         except Exception:
             _LOGGER.exception("Watchdog callback failed; containing as expired")
-            return True
+            return None
+
+    def _record_watchdog_incident(
+        self,
+        lease: VisionJobLease,
+        progress_reader: ProcessingProgressReader,
+        runtime_snapshot: RuntimeWatchdogSnapshot | None,
+    ) -> None:
+        recorder = self._watchdog_incident_recorder
+        if recorder is None or runtime_snapshot is None:
+            return
+        try:
+            recorder.record(
+                WatchdogIncidentSnapshot(
+                    worker_id=str(lease.worker_id),
+                    job_id=lease.job_id,
+                    attempt_count=lease.attempt_count,
+                    failure_code=WATCHDOG_FAILURE_CODE,
+                    progress=progress_reader.snapshot(),
+                    runtime=runtime_snapshot,
+                )
+            )
+        except Exception:
+            # Incident persistence is best effort with respect to evidence only.
+            # It must never prevent process-level containment of a poisoned lane.
+            _LOGGER.exception("Watchdog incident persistence failed")
 
     def _report_watchdog_expiry(self) -> None:
         sink = self._watchdog_expiry_sink
@@ -520,7 +604,7 @@ class WorkerRunner:
         process_task: asyncio.Task[VisionProcessingResult],
         progress_reader: ProcessingProgressReader,
     ) -> VisionJobHeartbeatResponse | None:
-        if self._watchdog_expired is None:
+        if not self._watchdog_enabled():
             return await self._heartbeat_before_deadline(
                 lease,
                 lease_deadline_utc,
@@ -534,10 +618,9 @@ class WorkerRunner:
             raise WorkerApiError("heartbeat deadline exceeded")
         if process_task.done():
             return None
-        if self._watchdog_is_expired():
-            raise _WatchdogExpiredDuringHeartbeat(
-                "vision_inference_watchdog_expired"
-            )
+        watchdog_snapshot = self._expired_watchdog_snapshot()
+        if watchdog_snapshot is not False:
+            raise _WatchdogExpiredDuringHeartbeat(watchdog_snapshot)
 
         heartbeat_task = asyncio.create_task(
             self._api_client.heartbeat(
@@ -573,10 +656,9 @@ class WorkerRunner:
                 if process_task in done:
                     return None
 
-                if self._watchdog_is_expired():
-                    raise _WatchdogExpiredDuringHeartbeat(
-                        "vision_inference_watchdog_expired"
-                    )
+                watchdog_snapshot = self._expired_watchdog_snapshot()
+                if watchdog_snapshot is not False:
+                    raise _WatchdogExpiredDuringHeartbeat(watchdog_snapshot)
         finally:
             if not heartbeat_task.done():
                 # Heartbeat/network work is asyncio-owned and safe to cancel.
