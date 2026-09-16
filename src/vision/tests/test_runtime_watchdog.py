@@ -225,6 +225,7 @@ class _BlockingProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink=None,
     ) -> VisionProcessingResult:
         del attempt_count, source_path, expected_source_size_bytes, expected_source_sha256
         self.started.set()
@@ -329,7 +330,7 @@ def test_watchdog_expiry_with_unwind_in_grace_surfaces_only_lease_loss(
 
     assert expiry_reports == ["expired"]
     assert fatal_codes == []
-    assert client.heartbeats == [5.0]
+    assert client.heartbeats == [1.0]
     assert client.failures == []
 
 
@@ -374,7 +375,7 @@ def test_stuck_watchdog_invokes_fatal_terminator_once_without_stale_fail(
         assert expiry_reports == ["expired"]
         assert fatal_codes == [70]
         assert runner.fatal_termination_active is True
-        assert client.heartbeats == [5.0]
+        assert client.heartbeats == [1.0]
         assert client.failures == []
 
     asyncio.run(scenario())
@@ -467,7 +468,7 @@ def test_watchdog_keeps_polling_while_heartbeat_request_is_in_flight(
         assert client.renewal_cancelled is True
         assert watchdog_polls >= 2
         assert expiry_reports == ["expired"]
-        assert client.heartbeats == [5.0, 5.0]
+        assert client.heartbeats == [1.0, 1.0]
         assert client.failures == []
 
     asyncio.run(scenario())
