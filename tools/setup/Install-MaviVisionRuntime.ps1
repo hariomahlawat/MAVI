@@ -149,7 +149,9 @@ $installerVersion = (Get-Item -LiteralPath $pythonInstaller).VersionInfo.Product
 # python.org's Windows installer ProductVersion includes an encoded
 # maintenance/build suffix (for 3.12.10 this is currently 3.12.10150.0).
 # The bundle SHA-256 and Authenticode signature are both verified separately.
-if ($installerVersion -notmatch '^3\.12\.10(?:\d+)?(?:\.\d+)?
+if ($installerVersion -notmatch '^3\.12\.10(?:\d+)?(?:\.\d+)?$') {
+    throw "Bundled CPython installer product version '$installerVersion' does not match the 3.12.10 release."
+}
 
 $runtimeBase = Split-Path $InstallRoot -Parent
 $pythonRoot = Join-Path $runtimeBase "Python312"
