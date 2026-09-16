@@ -70,12 +70,16 @@ _UTF16_TERMINATOR_BYTES = 2
 _OPEN_EXISTING = 3
 _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
+# Directory handles are namespace anchors for handle-relative I/O.
+# Do not request FILE_DELETE_CHILD here: a Development media root grants
+# authenticated users Modify, which intentionally does not imply the advanced
+# "Delete subfolders and files" right. Cleanup deletes the scoped attempt tree
+# through DELETE access on each child handle, so DELETE_CHILD is unnecessary.
 _DIR_ACCESS = (
     _FILE_LIST_DIRECTORY
     | _FILE_ADD_FILE
     | _FILE_ADD_SUBDIRECTORY
     | _FILE_TRAVERSE
-    | _FILE_DELETE_CHILD
     | _FILE_READ_ATTRIBUTES
     | _SYNCHRONIZE
 )
@@ -267,9 +271,17 @@ def _status_code(status: int) -> int:
     return ctypes.c_ulong(status).value
 
 
+def _win32_error(error: int, path: str | None = None) -> OSError:
+    # ctypes last-error values are Win32 error codes, not POSIX errno values.
+    # os.strerror(5), for example, misleadingly reports "Input/output error"
+    # instead of the actual Windows message "Access is denied."
+    message = ctypes.FormatError(error).strip() or f"Win32 error {error}"
+    return OSError(error, message, path) if path is not None else OSError(error, message)
+
+
 def _raise_last_error(code: str) -> None:
     error = ctypes.get_last_error()
-    raise StagingArtifactError(code) from OSError(error, os.strerror(error))
+    raise StagingArtifactError(code) from _win32_error(error)
 
 
 def _encode_native_name(name: str) -> bytes:
@@ -398,12 +410,11 @@ def _open_directory_no_reparse(path: Path) -> _WindowsHandle:
         if error in {2, 3}:
             raise StagingArtifactError("media_root_missing") from FileNotFoundError(
                 error,
-                os.strerror(error),
+                ctypes.FormatError(error).strip() or f"Win32 error {error}",
                 str(path),
             )
-        raise StagingArtifactError("staging_write_failed") from OSError(
+        raise StagingArtifactError("staging_write_failed") from _win32_error(
             error,
-            os.strerror(error),
             str(path),
         )
 
