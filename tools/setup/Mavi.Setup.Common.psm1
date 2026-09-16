@@ -54,12 +54,12 @@ function Get-MaviVisionRuntimeRelevantChanges {
         throw "Vision runtime source compatibility requires non-empty commit identifiers."
     }
 
-    & $git.Source -C $repo cat-file -e ("{0}^{commit}" -f $baseline) 2>$null
+    & $git.Source -C $repo cat-file -e ($baseline + "^{commit}") 2>$null
     if ($LASTEXITCODE -ne 0) {
         throw "Vision runtime baseline commit '$baseline' is not available in the local repository."
     }
 
-    & $git.Source -C $repo cat-file -e ("{0}^{commit}" -f $head) 2>$null
+    & $git.Source -C $repo cat-file -e ($head + "^{commit}") 2>$null
     if ($LASTEXITCODE -ne 0) {
         throw "Vision runtime comparison commit '$head' is not available in the local repository."
     }
