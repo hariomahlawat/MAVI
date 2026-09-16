@@ -189,6 +189,11 @@ class WorkerRunner:
             # emit any terminal lifecycle request after its guard rejects work.
             raise WorkerApiError("lease ownership lost") from exc
         except SourceIntegrityError:
+            _LOGGER.exception(
+                "Vision job %s attempt %s failed source-integrity verification",
+                lease.job_id,
+                lease.attempt_count,
+            )
             await self._best_effort_fail(
                 lease,
                 "source_media_integrity_failed",
@@ -196,6 +201,13 @@ class WorkerRunner:
             )
             return True
         except ProcessingDependencyError as exc:
+            _LOGGER.exception(
+                "Vision job %s attempt %s failed in processing dependency: code=%s detail=%s",
+                lease.job_id,
+                lease.attempt_count,
+                exc.failure_code,
+                str(exc),
+            )
             # The runtime-health sink has already observed this model-neutral error.
             # This layer owns only the leased-job terminal mapping. Never trust a
             # future/custom typed code as a wire contract without explicit review.
@@ -213,6 +225,12 @@ class WorkerRunner:
             )
             return True
         except VideoProcessingError as exc:
+            _LOGGER.exception(
+                "Vision job %s attempt %s failed in video pipeline: internal_code=%s",
+                lease.job_id,
+                lease.attempt_count,
+                exc.code,
+            )
             # Preserve compatibility with processors that still surface the stable
             # Task-9 lease_lost processing code while the structural LeaseGuard path
             # uses LeaseLostError directly.
@@ -227,6 +245,11 @@ class WorkerRunner:
         except WorkerApiError:
             raise
         except Exception:
+            _LOGGER.exception(
+                "Vision job %s attempt %s failed with an unhandled worker error",
+                lease.job_id,
+                lease.attempt_count,
+            )
             # Test terminators may raise a sentinel instead of terminating the
             # process. Never turn that sentinel into a stale leased-job /fail.
             if self._fatal_termination_active:
