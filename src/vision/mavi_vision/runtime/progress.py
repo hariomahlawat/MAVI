@@ -28,6 +28,7 @@ class ProcessingProgressSnapshot:
     source_duration_ms: int
     progress_percent: float
     last_progress_monotonic: float
+    started_monotonic: float | None = None
 
 
 class ProcessingProgressReader(Protocol):
@@ -97,6 +98,7 @@ class ProcessingProgress:
         self._frames_processed = 0
         self._source_offset_ms: int | None = None
         self._progress_percent = VALIDATION_START_PERCENT
+        self._started_monotonic = observed
         self._last_progress_monotonic = observed
         self._reader = _Reader(self)
         self._sink = _Sink(self)
@@ -118,6 +120,7 @@ class ProcessingProgress:
                 source_duration_ms=self._source_duration_ms,
                 progress_percent=self._progress_percent,
                 last_progress_monotonic=self._last_progress_monotonic,
+                started_monotonic=self._started_monotonic,
             )
 
     def mark_processing_started(self) -> None:
