@@ -479,7 +479,78 @@ jobs:
             throw "CPython installer Authenticode signature is not valid: $($signature.Status)"
           }
           $version = (Get-Item $out).VersionInfo.ProductVersion
-          if ($version -notmatch '^3\.12\.10(?:\D|$)') {
+          # python.org's Windows installer ProductVersion encodes the
+          # maintenance/build component (3.12.10 is reported as 3.12.10150.0).
+          # Authenticode is authoritative; require the expected release prefix.
+          if ($version -notmatch '^3\.12\.10(?:\d+)?(?:\.\d+)?
+          Get-FileHash -Algorithm SHA256 -Path $out | Format-List
+
+      - name: Build deterministic qualification-candidate bundle
+        if: env.MAVI_TASK12_STRICT_BUNDLE == '1'
+        shell: bash
+        env:
+          PIP_NO_INDEX: '1'
+          HTTP_PROXY: http://127.0.0.1:9
+          HTTPS_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: ''
+        run: |
+          set -euo pipefail
+          if test "${RUNNER_OS}" = "Windows"; then
+            PY=".task12-offline-venv/Scripts/python.exe"
+          else
+            PY=".task12-offline-venv/bin/python"
+          fi
+          EXTRA_ARGS=()
+          if test "${RUNNER_OS}" = "Windows"; then
+            EXTRA_ARGS+=(--python-installer .task12-prerequisites/python-3.12.10-amd64.exe)
+          fi
+          "$PY" tools/vision/build_offline_bundle.py \
+            --source-commit "$MAVI_EXPECTED_SOURCE_SHA" \
+            --release-status qualification-candidate \
+            --platform-variant "$MAVI_RUNTIME_VARIANT" \
+            --model-root .task12-model-root \
+            --manifest models/manifests/rtmdet-m-coco-phase1-v1.json \
+            --qualification models/qualifications/rtmdet-m-coco-phase1-v1.json \
+            --pipeline-profile src/vision/config/pipelines/phase1-detection-tracking-v1.json \
+            --runtime-profile src/vision/runtime/mmdetection-phase1-v1/runtime.json \
+            --wheelhouse .task12-wheelhouse \
+            "${EXTRA_ARGS[@]}" \
+            --output ".task12-bundle/$MAVI_RUNTIME_VARIANT"
+
+      - name: Run real local RTMDet smoke from bundle
+        if: env.MAVI_TASK12_STRICT_BUNDLE == '1'
+        shell: bash
+        env:
+          HTTP_PROXY: http://127.0.0.1:9
+          HTTPS_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          NO_PROXY: ''
+        run: |
+          set -euo pipefail
+          if test "${RUNNER_OS}" = "Windows"; then
+            PY=".task12-offline-venv/Scripts/python.exe"
+          else
+            PY=".task12-offline-venv/bin/python"
+          fi
+          root=".task12-bundle/$MAVI_RUNTIME_VARIANT/release/models/rtmdet-m-coco-phase1-v1"
+          "$PY" tools/vision/probe_runtime.py \
+            --config "$root/rtmdet_m_resolved.py" \
+            --checkpoint "$root/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth" \
+            --checkpoint-sha256 "$RTMDET_CHECKPOINT_SHA256" \
+            --device cpu > .task12-runtime-probe.json
+          cat .task12-runtime-probe.json
+
+      - name: Upload final candidate bundle
+        if: env.MAVI_TASK12_STRICT_BUNDLE == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: task12-bundle-${{ matrix.variant }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .task12-bundle/${{ matrix.variant }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+) {
             throw "Unexpected CPython installer product version: $version"
           }
           Get-FileHash -Algorithm SHA256 -Path $out | Format-List
