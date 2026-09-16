@@ -279,7 +279,9 @@ Invoke-Checked $venvPython @(
 Invoke-Checked $venvPython @("-m", "pip", "check")
 
 $identityScript = @'
-import json, platform, sys
+import json
+import platform
+
 print(json.dumps({
     "version": platform.python_version(),
     "implementation": platform.python_implementation(),
@@ -287,9 +289,17 @@ print(json.dumps({
     "compiler": platform.python_compiler(),
 }, sort_keys=True))
 '@
-$observedIdentity = (& $venvPython -c $identityScript | Out-String).Trim()
-if ($LASTEXITCODE -ne 0) {
-    throw "Unable to read installed vision runtime Python identity."
+$identityProbePath = Join-Path $stageRoot "verify-python-identity.py"
+$utf8NoBom = New-Object Text.UTF8Encoding($false)
+[IO.File]::WriteAllText($identityProbePath, $identityScript, $utf8NoBom)
+try {
+    $observedIdentity = (& $venvPython $identityProbePath 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to read installed vision runtime Python identity: $observedIdentity"
+    }
+}
+finally {
+    Remove-Item -LiteralPath $identityProbePath -Force -ErrorAction SilentlyContinue
 }
 $identity = $observedIdentity | ConvertFrom-Json
 if ([string]$identity.version -ne "3.12.10" -or [string]$identity.implementation -ne "CPython") {
