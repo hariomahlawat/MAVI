@@ -372,6 +372,25 @@ function Initialize-MaviDeveloperWorkspace {
         [Parameter(Mandatory = $true)][string]$RepositoryRoot
     )
 
+    # Development validation performs a real Debug build. If Mavi.Api is already
+    # running from this checkout, Windows holds the output assemblies open and
+    # MSBuild will eventually fail after repeated MSB3026/MSB3027 copy retries.
+    # Fail early with an actionable message instead of spending ~20 seconds
+    # retrying files that cannot be replaced.
+    $repositoryPrefix = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd("\") + "\"
+    $runningApi = @(Get-Process -Name "Mavi.Api" -ErrorAction SilentlyContinue | Where-Object {
+        try {
+            $_.Path -and $_.Path.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)
+        }
+        catch {
+            $false
+        }
+    })
+    if ($runningApi.Count -gt 0) {
+        $pids = ($runningApi | ForEach-Object { $_.Id }) -join ", "
+        throw "Mavi.Api is running from this repository (PID(s): $pids) and is locking Debug build outputs. Stop debugging in Visual Studio (Shift+F5), then rerun Setup-MAVI-Development.cmd."
+    }
+
     $solutionPath = Join-Path $RepositoryRoot "MAVI.sln"
     $webRoot = Join-Path $RepositoryRoot "src\web\mavi-web"
     $visionRoot = Join-Path $RepositoryRoot "src\vision"
