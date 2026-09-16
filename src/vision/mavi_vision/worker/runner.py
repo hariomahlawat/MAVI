@@ -167,7 +167,10 @@ class WorkerRunner:
         if lease is None:
             return False
 
-        progress = ProcessingProgress(source_duration_ms=lease.duration_ms)
+        progress = ProcessingProgress(
+            source_duration_ms=lease.duration_ms,
+            monotonic_clock=self._monotonic_clock,
+        )
         progress_reader = progress.reader
         progress_sink = progress.sink
 
