@@ -154,19 +154,69 @@ if (-not $installerVersion.StartsWith("3.12.10")) {
 
 $runtimeBase = Split-Path $InstallRoot -Parent
 $pythonRoot = Join-Path $runtimeBase "Python312"
-$pythonExe = Join-Path $pythonRoot "python.exe"
 
-$pythonReady = $false
-if (Test-Path -LiteralPath $pythonExe -PathType Leaf) {
-    $pythonVersion = (& $pythonExe --version 2>&1 | Out-String).Trim()
-    $pythonReady = $LASTEXITCODE -eq 0 -and $pythonVersion -eq "Python 3.12.10"
+function Resolve-QualifiedPython31210 {
+    param([string]$PreferredRoot)
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+
+    function Add-Candidate {
+        param([string]$Path)
+        if ([string]::IsNullOrWhiteSpace($Path)) { return }
+        try {
+            $full = [IO.Path]::GetFullPath($Path)
+            if (-not $candidates.Contains($full)) {
+                [void]$candidates.Add($full)
+            }
+        }
+        catch {
+            # Ignore malformed discovery candidates.
+        }
+    }
+
+    Add-Candidate (Join-Path $PreferredRoot "python.exe")
+    Add-Candidate (Join-Path $env:ProgramFiles "Python312\python.exe")
+    Add-Candidate (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe")
+
+    $py = Get-Command py.exe -ErrorAction SilentlyContinue
+    if ($py -and $py.Source) {
+        try {
+            $resolved = (& $py.Source -3.12 -c "import sys; print(sys.executable)" 2>$null | Out-String).Trim()
+            if ($resolved) { Add-Candidate $resolved }
+        }
+        catch {
+            # Continue with direct candidates.
+        }
+    }
+
+    foreach ($candidate in $candidates) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        try {
+            $version = (& $candidate --version 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -eq 0 -and $version -eq "Python 3.12.10") {
+                return $candidate
+            }
+        }
+        catch {
+            # Continue discovery.
+        }
+    }
+
+    return $null
 }
 
-if (-not $pythonReady) {
+$pythonExe = Resolve-QualifiedPython31210 -PreferredRoot $pythonRoot
+
+if ([string]::IsNullOrWhiteSpace($pythonExe)) {
     Write-Host "Installing qualified CPython 3.12.10 runtime..."
     New-Item -ItemType Directory -Path $runtimeBase -Force | Out-Null
+
+    $installerLog = Join-Path $runtimeBase "python-3.12.10-install.log"
+    Remove-Item -LiteralPath $installerLog -Force -ErrorAction SilentlyContinue
+
     $arguments = @(
         "/quiet",
+        "/log", $installerLog,
         "InstallAllUsers=1",
         "TargetDir=$pythonRoot",
         "PrependPath=0",
@@ -175,19 +225,29 @@ if (-not $pythonReady) {
         "Include_pip=1",
         "Shortcuts=0"
     )
+
     $process = Start-Process -FilePath $pythonInstaller -ArgumentList $arguments -Wait -PassThru
     if ($process.ExitCode -notin @(0, 3010)) {
-        throw "CPython 3.12.10 installer failed with exit code $($process.ExitCode)."
+        throw "CPython 3.12.10 installer failed with exit code $($process.ExitCode). Review '$installerLog'."
     }
+
+    # The python.org bootstrapper may reuse an already-registered 3.12
+    # installation instead of materialising the requested TargetDir. Resolve
+    # the actual interpreter after installation rather than assuming location.
+    $pythonExe = Resolve-QualifiedPython31210 -PreferredRoot $pythonRoot
 }
 
-if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
-    throw "Qualified CPython interpreter was not installed at '$pythonExe'."
+if ([string]::IsNullOrWhiteSpace($pythonExe)) {
+    $installerLog = Join-Path $runtimeBase "python-3.12.10-install.log"
+    throw "CPython installer completed, but no exact Python 3.12.10 interpreter could be resolved. Review '$installerLog'."
 }
+
 $pythonVersion = (& $pythonExe --version 2>&1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or $pythonVersion -ne "Python 3.12.10") {
     throw "Installed vision runtime Python identity is '$pythonVersion'; expected Python 3.12.10."
 }
+
+Write-Host "Qualified CPython resolved at: $pythonExe"
 
 $stageRoot = "$InstallRoot.stage"
 if (Test-Path -LiteralPath $stageRoot) {
