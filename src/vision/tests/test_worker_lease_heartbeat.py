@@ -132,6 +132,7 @@ class SlowProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink=None,
     ) -> VisionProcessingResult:
         self.guard_seen = lease_guard
         self.attempt_count_seen = attempt_count
@@ -156,6 +157,7 @@ class EventLoopStallProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink=None,
     ) -> VisionProcessingResult:
         self.started.set()
         time.sleep(self.delay_seconds)
@@ -183,6 +185,7 @@ class EventLoopStallFailingProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink=None,
     ) -> VisionProcessingResult:
         self.started.set()
         time.sleep(self.delay_seconds)
@@ -203,6 +206,7 @@ class EventLoopStallTypedFailingProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink=None,
     ) -> VisionProcessingResult:
         self.started.set()
         time.sleep(self.delay_seconds)
@@ -222,6 +226,7 @@ class TypedFailureAfterLeaseLossProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink=None,
     ) -> VisionProcessingResult:
         deadline = time.monotonic() + 1.0
         while not lease_guard.is_lost():
@@ -245,6 +250,7 @@ class CancellationWaitingProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink=None,
     ) -> VisionProcessingResult:
         deadline = time.monotonic() + 1.0
         while not lease_guard.is_lost():
@@ -282,7 +288,7 @@ def test_long_processing_renews_lease_periodically(tmp_path: Path) -> None:
     assert isinstance(processor.guard_seen, LeaseGuard)
     assert processor.attempt_count_seen == lease.attempt_count
     assert len(client.heartbeats) >= 2
-    assert client.heartbeats[0] == 5.0
+    assert client.heartbeats[0] == 1.0
     assert client.failures == []
     assert len(client.completions) == 1
     assert client.completions[0][1] is PROVENANCE_SENTINEL
@@ -423,7 +429,7 @@ def test_heartbeat_lease_loss_outranks_concurrent_typed_processing_failure(
         )
 
     assert processor.lease_loss_observed is True
-    assert client.heartbeats == [5.0, 5.0]
+    assert client.heartbeats == [1.0, 1.0]
     assert client.failures == []
 
 
@@ -471,7 +477,7 @@ def test_lease_loss_cancels_processing_and_does_not_submit_terminal_failure(
         )
 
     assert processor.cancellation_observed is True
-    assert client.heartbeats == [5.0, 5.0]
+    assert client.heartbeats == [1.0, 1.0]
     assert client.failures == []
 
 
@@ -544,7 +550,7 @@ def test_completed_heartbeat_lease_loss_outranks_simultaneous_processing_success
         finally:
             await coordinator
 
-        assert client.heartbeats == [5.0, 5.0]
+        assert client.heartbeats == [1.0, 1.0]
         assert client.failures == []
 
     asyncio.run(scenario())
