@@ -55,6 +55,31 @@ $env:MAVI_QUALIFICATION_RECORD_PATH = Join-Path $runtimeRoot "release\models\qua
 $env:MAVI_BUILD_ID = "development"
 $env:MAVI_COMMIT_SHA = $head
 
+# Development source overlay: use the current checkout's Python application code
+# with the pinned, qualified binary/model runtime installed under ProgramData.
+# This avoids rebuilding/downloading the heavy runtime bundle for source-only edits.
+$visionSourceRoot = Join-Path $RepositoryRoot "src\vision"
+if (-not (Test-Path -LiteralPath (Join-Path $visionSourceRoot "mavi_vision") -PathType Container)) {
+    throw "MAVI vision source tree is missing: $visionSourceRoot"
+}
+$existingPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+$env:PYTHONPATH = if ([string]::IsNullOrWhiteSpace($existingPythonPath)) {
+    $visionSourceRoot
+}
+else {
+    $visionSourceRoot + [IO.Path]::PathSeparator + $existingPythonPath
+}
+
+$sourceProbe = (& $python -c "import pathlib, mavi_vision; print(pathlib.Path(mavi_vision.__file__).resolve())" 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $sourceProbe) {
+    throw "Unable to verify MAVI vision development source overlay: $sourceProbe"
+}
+$expectedSourcePrefix = [IO.Path]::GetFullPath($visionSourceRoot).TrimEnd("\") + "\"
+$resolvedSource = [IO.Path]::GetFullPath($sourceProbe)
+if (-not $resolvedSource.StartsWith($expectedSourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Vision worker resolved MAVI source from '$resolvedSource' instead of repository '$visionSourceRoot'."
+}
+
 Push-Location $RepositoryRoot
 try {
     Write-Host "Starting MAVI Vision Worker..." -ForegroundColor Cyan
