@@ -64,8 +64,14 @@ function Get-MaviVisionRuntimeRelevantChanges {
         throw "Vision runtime comparison commit '$head' is not available in the local repository."
     }
 
+    # The Development runtime bundle is a pinned binary/model dependency pack.
+    # Current Python application source is intentionally overlaid from the checkout
+    # by Start-MaviVisionWorker.ps1. Therefore source-only edits under
+    # src/vision/mavi_vision do not require a ~600 MB runtime rebuild.
+    #
+    # Changes that can alter the dependency ABI, model selection, runtime profile,
+    # pipeline contract, or wire contracts still invalidate the installed bundle.
     $runtimePaths = @(
-        "src/vision/mavi_vision",
         "src/vision/pyproject.toml",
         "src/vision/config/pipelines/phase1-detection-tracking-v1.json",
         "src/vision/runtime/mmdetection-phase1-v1",
