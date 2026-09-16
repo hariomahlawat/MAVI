@@ -62,6 +62,25 @@ The engineering work is not discarded:
 
 Unless a focused earlier gate requires them, these items are now consolidated into **Task 17 Phase-1 hardening and qualification closure**. Tasks 15–16 must preserve all existing runtime and offline-bundle qualification gates but must not make new GPU/CCTV/performance qualification claims.
 
+## Live Task-17 runtime finding — 16 September 2026
+
+Live Windows acceptance against the qualified CPU runtime exposed an observability and policy gap that must be closed before GPU/performance qualification continues:
+
+- the worker heartbeat path currently reports a constant 5% while synchronous vision processing is active;
+- the processing pipeline has real frame/media-offset forward progress internally, but that progress is not exposed to the heartbeat loop;
+- the existing inference watchdog measures one active native inference call, not whole-job progress;
+- the current 120-second inference watchdog default has not yet been justified as a qualified full-resolution RTMDet-M CPU threshold;
+- the installed Windows runtime is explicitly `windows-x86_64-cpu`; NVIDIA utilization is therefore neither expected nor claimed;
+- Windows/Linux CUDA variants remain pending hardware qualification.
+
+Task 17 shall therefore execute the focused hardening addendum in `2026-09-16-task-17-runtime-progress-watchdog-device-hardening.md` **before** using long CPU/CUDA runs as performance or release evidence.
+
+The controlled order is now:
+
+**truthful processing progress + watchdog observability → CPU timing evidence → watchdog-policy freeze → CUDA candidate qualification → Linux NVIDIA recovery/performance evidence → formal offline/topology acceptance → release-metadata promotion**
+
+This is not a new product-feature task. It is a prerequisite for making the existing Task-17 qualification evidence trustworthy.
+
 ## Release-process rule learned from Task 12
 
 All future runtime/release-affecting work shall use this controlled sequence:
@@ -118,4 +137,5 @@ For remaining Phase-1 sequencing:
 4. `2026-09-14-task-15-react-foundation-import-processing.md` records the completed Task-15 implementation baseline and closure evidence;
 5. `2026-09-14-task-16-react-visual-search-evidence-review.md` records the completed Task-16 implementation and acceptance evidence;
 6. `2026-09-14-task-17-phase1-hardening-qualification-acceptance.md` is the authoritative Task-17 plan, prepared from accepted integration head `e877dcac9efaefe4f935fa50b2913e806b197d27`; Task-17 implementation shall branch only from the integration head produced after the accepted planning PR is merged;
-7. older task plans remain historical design/evidence records unless explicitly updated to reference this re-baseline.
+7. `2026-09-16-task-17-runtime-progress-watchdog-device-hardening.md` is the authoritative focused addendum for the live runtime progress/watchdog/device-qualification finding and must be completed before performance/CUDA acceptance claims are promoted;
+8. older task plans remain historical design/evidence records unless explicitly updated to reference this re-baseline.
