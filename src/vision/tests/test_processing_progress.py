@@ -35,6 +35,7 @@ def test_progress_starts_in_validation_at_one_percent() -> None:
     assert snapshot.source_offset_ms is None
     assert snapshot.source_duration_ms == 1_000
     assert snapshot.progress_percent == VALIDATION_START_PERCENT
+    assert snapshot.started_monotonic == 100.0
     assert snapshot.last_progress_monotonic == 100.0
 
 
