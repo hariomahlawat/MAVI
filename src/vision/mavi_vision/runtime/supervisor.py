@@ -23,6 +23,7 @@ from mavi_vision.runtime.qualification import (
     VerifiedReleaseSelection,
     verify_release_selection,
 )
+from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshot
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -272,11 +273,57 @@ class RuntimeSupervisor:
         except Exception:
             return
 
-    def watchdog_expired(self) -> bool:
-        return self._activity.is_hung(
-            now_monotonic=self._monotonic_clock(),
+    def watchdog_snapshot(self) -> RuntimeWatchdogSnapshot:
+        observed = self._monotonic_clock()
+        activity = self._activity.snapshot()
+        elapsed_seconds: float | None = None
+        expired = False
+
+        if activity.active:
+            started = activity.started_monotonic
+            if started is None:
+                raise RuntimeError("inference_activity_state_invalid")
+            elapsed_seconds = max(0.0, observed - started)
+            expired = elapsed_seconds >= self._inference_watchdog_seconds
+
+        provenance = self.provenance
+        return RuntimeWatchdogSnapshot(
+            observed_monotonic=observed,
+            active=activity.active,
+            started_monotonic=activity.started_monotonic,
+            elapsed_seconds=elapsed_seconds,
+            completed_count=activity.completed_count,
             threshold_seconds=self._inference_watchdog_seconds,
+            expired=expired,
+            device=(
+                provenance.actual_device
+                if provenance is not None
+                else self._resolved_device
+            ),
+            model_id=None if provenance is None else provenance.model_id,
+            runtime_variant=None if provenance is None else provenance.runtime_variant,
+            pipeline_profile_id=(
+                None if provenance is None else provenance.pipeline_profile_id
+            ),
+            model_manifest_sha256=(
+                None if provenance is None else provenance.model_manifest_sha256
+            ),
+            checkpoint_sha256=(
+                None if provenance is None else provenance.checkpoint_sha256
+            ),
+            resolved_config_sha256=(
+                None if provenance is None else provenance.resolved_config_sha256
+            ),
+            pipeline_profile_sha256=(
+                None if provenance is None else provenance.pipeline_profile_sha256
+            ),
+            runtime_profile_sha256=(
+                None if provenance is None else provenance.runtime_profile_sha256
+            ),
         )
+
+    def watchdog_expired(self) -> bool:
+        return self.watchdog_snapshot().expired
 
     async def recover_if_required(self) -> None:
         incident = self._consume_incident()
