@@ -74,6 +74,7 @@ class IntegrityCheckingProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink=None,
     ) -> VisionProcessingResult:
         self.guard_seen = lease_guard
         lease_guard.check_owned()
