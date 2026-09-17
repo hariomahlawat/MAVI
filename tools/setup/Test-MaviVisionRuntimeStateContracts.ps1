@@ -47,15 +47,38 @@ if (Test-MaviVisionRuntimePackReuse -InstalledState $v1 -Manifest $manifest -Run
 Assert-Throws -MessageFragment "runtime manifest schema" -Script { $bad=$manifest.PSObject.Copy(); $bad.schemaVersion="1.0"; Assert-MaviVisionRuntimePackManifest -Manifest $bad }
 Assert-Throws -MessageFragment "third-party lock SHA-256" -Script { $bad=$manifest.PSObject.Copy(); $bad.thirdPartyLockSha256="not-a-sha"; Assert-MaviVisionRuntimePackManifest -Manifest $bad }
 
-# CR-01 regression contract: reuse and startup must revalidate the live installed
-# third-party closure, not merely manifest/state/Python identity.
+# CR-01 architecture contract. Callers own invocation; the shared integrity
+# module owns the fail-closed implementation. Do not duplicate integrity logic
+# into callers merely to satisfy source-text tests.
 $installerText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Install-MaviVisionRuntime.ps1") -Raw
 $launcherText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviVisionWorker.ps1") -Raw
-foreach ($text in @($installerText, $launcherText)) {
-    foreach ($required in @("Assert-MaviVisionInstalledRuntimeClosure", "third-party-runtime-lock", "--no-index", "--require-hashes", "pip", "check")) {
-        if ($text -notmatch [regex]::Escape($required)) { throw "CR-01 runtime closure verification contract is missing: $required" }
+$integrityText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Mavi.VisionRuntime.Integrity.psm1") -Raw
+
+foreach ($caller in @(
+    @{ Name = "runtime installer"; Text = $installerText },
+    @{ Name = "worker launcher"; Text = $launcherText }
+)) {
+    if ($caller.Text -notmatch [regex]::Escape("Assert-MaviVisionInstalledRuntimeClosure")) {
+        throw "CR-01 $($caller.Name) does not invoke the shared installed-runtime closure verifier."
     }
 }
+
+foreach ($required in @(
+    "function Assert-MaviVisionInstalledRuntimeClosure",
+    "third-party-runtime-lock",
+    "thirdPartyLockSha256",
+    "Get-MaviVisionIntegritySha256",
+    "--no-index",
+    "--no-deps",
+    "--require-hashes",
+    "pip",
+    "check"
+)) {
+    if ($integrityText -notmatch [regex]::Escape($required)) {
+        throw "CR-01 shared runtime integrity implementation is missing: $required"
+    }
+}
+
 foreach ($required in @("runtime-pack-manifest.json","mavi-vision-runtime-pack-v2","mavi-vision-runtime-install-v2","Test-MaviVisionRuntimePackReuse","New-MaviVisionRuntimeInstallState","thirdPartyLockSha256","runtimeRequirementsSha256")) {
     if ($installerText -notmatch [regex]::Escape($required)) { throw "Vision runtime installer is missing v2 contract fragment: $required" }
 }
