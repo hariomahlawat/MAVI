@@ -7,6 +7,7 @@ import pytest
 from mavi_vision.runtime.requirements_projection import (
     RuntimeRequirementsError,
     build_runtime_requirements_projection,
+    parse_runtime_requirements_projection,
     runtime_requirements_sha256,
     serialize_runtime_requirements_projection,
 )
@@ -110,6 +111,50 @@ def test_projection_serialization_and_hash_are_deterministic(tmp_path: Path) -> 
     assert runtime_requirements_sha256(projection_a) == runtime_requirements_sha256(projection_b)
     assert serialize_runtime_requirements_projection(projection_a).endswith(b"\n")
     assert b"\r" not in serialize_runtime_requirements_projection(projection_a)
+
+
+def test_persisted_projection_round_trips_exact_bytes(tmp_path: Path) -> None:
+    pyproject = _write_pyproject(
+        tmp_path / "pyproject.toml",
+        dependencies='"httpx>=0.28,<0.29"',
+        vision_runtime='"torch==2.6.0"',
+    )
+    projection = build_runtime_requirements_projection(
+        pyproject,
+        platform_variant="windows-x86_64-cpu",
+        python_version="3.12.10",
+    )
+    encoded = serialize_runtime_requirements_projection(projection)
+
+    parsed = parse_runtime_requirements_projection(encoded)
+
+    assert parsed == projection
+    assert serialize_runtime_requirements_projection(parsed) == encoded
+
+
+def test_persisted_projection_rejects_noncanonical_order() -> None:
+    payload = (
+        b"# schema: mavi-vision-runtime-requirements-v1\n"
+        b"# platform-variant: windows-x86_64-cpu\n"
+        b"# python-version: 3.12.10\n"
+        b"torch==2.6.0\n"
+        b"httpx<0.29,>=0.28\n"
+    )
+
+    with pytest.raises(RuntimeRequirementsError, match="runtime_requirement_projection_not_sorted"):
+        parse_runtime_requirements_projection(payload)
+
+
+def test_persisted_projection_rejects_direct_url() -> None:
+    payload = (
+        b"# schema: mavi-vision-runtime-requirements-v1\n"
+        b"# platform-variant: windows-x86_64-cpu\n"
+        b"# python-version: 3.12.10\n"
+        b"unsafe @ https://example.invalid/unsafe.whl\n"
+    )
+
+    with pytest.raises(RuntimeRequirementsError, match="runtime_requirement_direct_url_forbidden"):
+        parse_runtime_requirements_projection(payload)
 
 
 def test_projection_rejects_direct_url_runtime_root(tmp_path: Path) -> None:
