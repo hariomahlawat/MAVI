@@ -11,6 +11,7 @@ from mavi_vision.runtime.progress import ProcessingProgressSnapshot
 from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshot
 from mavi_vision.worker.watchdog_incident import (
     WATCHDOG_FAILURE_CODE,
+    WATCHDOG_OBSERVATION_FAILURE_CODE,
     JsonlWatchdogIncidentRecorder,
     WatchdogIncidentSnapshot,
 )
@@ -124,3 +125,28 @@ def test_incident_recorder_rejects_symlink_target(tmp_path: Path) -> None:
         JsonlWatchdogIncidentRecorder(target).record(_incident())
 
     assert destination.read_text(encoding="utf-8") == "keep"
+
+
+
+def test_incident_recorder_persists_observation_failure_without_runtime_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(os, "fsync", lambda fd: None)
+    base = _incident()
+    incident = WatchdogIncidentSnapshot(
+        worker_id=base.worker_id,
+        job_id=base.job_id,
+        attempt_count=base.attempt_count,
+        failure_code=WATCHDOG_OBSERVATION_FAILURE_CODE,
+        progress=base.progress,
+        runtime=None,
+    )
+    target = tmp_path / "watchdog-incidents.jsonl"
+
+    JsonlWatchdogIncidentRecorder(target).record(incident)
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload["failureCode"] == WATCHDOG_OBSERVATION_FAILURE_CODE
+    assert payload["runtimeSnapshotAvailable"] is False
+    assert payload["runtime"] is None
