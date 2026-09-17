@@ -13,6 +13,13 @@ from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshot
 
 
 WATCHDOG_FAILURE_CODE = "vision_inference_watchdog_expired"
+WATCHDOG_OBSERVATION_FAILURE_CODE = "vision_watchdog_observation_failed"
+_ALLOWED_FAILURE_CODES = frozenset(
+    {
+        WATCHDOG_FAILURE_CODE,
+        WATCHDOG_OBSERVATION_FAILURE_CODE,
+    }
+)
 _MAX_INCIDENT_RECORD_BYTES = 64 * 1024
 
 
@@ -25,14 +32,14 @@ class WatchdogIncidentSnapshot:
     attempt_count: int
     failure_code: str
     progress: ProcessingProgressSnapshot
-    runtime: RuntimeWatchdogSnapshot
+    runtime: RuntimeWatchdogSnapshot | None
 
     def __post_init__(self) -> None:
         if not self.worker_id or len(self.worker_id) > 128:
             raise ValueError("watchdog_incident_worker_id_invalid")
         if self.attempt_count < 1:
             raise ValueError("watchdog_incident_attempt_invalid")
-        if self.failure_code != WATCHDOG_FAILURE_CODE:
+        if self.failure_code not in _ALLOWED_FAILURE_CODES:
             raise ValueError("watchdog_incident_failure_code_invalid")
 
 
@@ -66,7 +73,12 @@ class JsonlWatchdogIncidentRecorder:
             "attemptCount": incident.attempt_count,
             "failureCode": incident.failure_code,
             "progress": asdict(incident.progress),
-            "runtime": asdict(incident.runtime),
+            "runtimeSnapshotAvailable": incident.runtime is not None,
+            "runtime": (
+                None
+                if incident.runtime is None
+                else asdict(incident.runtime)
+            ),
         }
         encoded = (
             json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
