@@ -22,6 +22,29 @@ def test_runtime_requirements_projection_is_forced_to_lf_on_checkout() -> None:
     assert "*.requirements.txt text eol=lf" in attributes.splitlines()
 
 
+def test_task12_heavy_trigger_excludes_ordinary_first_party_source() -> None:
+    repository_root = Path(__file__).parents[3]
+    workflow = (repository_root / ".github/workflows/task12-offline-bundle.yml").read_text(
+        encoding="utf-8"
+    )
+    forbidden = {
+        "src/vision/mavi_vision/**",
+        "src/vision/**",
+        "src/vision/tests/**",
+    }
+    for path in forbidden:
+        assert f"- '{path}'" not in workflow
+    # Only runtime-boundary implementation files may directly trigger Task 12.
+    for required in (
+        "src/vision/mavi_vision/runtime/offline_lock.py",
+        "src/vision/mavi_vision/runtime/requirements_projection.py",
+        "src/vision/mavi_vision/runtime/component_identity.py",
+        "src/vision/pyproject.toml",
+        "src/vision/runtime/mmdetection-phase1-v1/**",
+    ):
+        assert f"- '{required}'" in workflow
+
+
 def test_component_requirements_bind_current_runtime_and_model_inputs() -> None:
     repository_root = Path(__file__).parents[3]
     runtime_root = repository_root / "src/vision/runtime/mmdetection-phase1-v1"
