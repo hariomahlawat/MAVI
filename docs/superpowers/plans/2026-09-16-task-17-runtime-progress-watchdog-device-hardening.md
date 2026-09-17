@@ -827,7 +827,7 @@ A final independent implementation review was performed against draft PR #43 aft
 2. **Watchdog diagnostic failures must not reintroduce sensitive-data leakage.** Snapshot-provider, incident-recorder and expiry-sink exception payloads/tracebacks are not rendered into operator logs because those exception strings may contain local paths or other private diagnostics.
 3. **Progress commits remain lease-authoritative.** The processing lane rechecks `LeaseGuard` at the successful-frame commit boundary and before entering finalization so an expired/stale attempt cannot advance observable progress after authority is lost.
 
-The review also strengthens `RuntimeWatchdogSnapshot` coherence validation so inactive/active/expired state combinations cannot contradict their timing fields.
+The review also strengthens `RuntimeWatchdogSnapshot` coherence validation so inactive/active/expired state combinations cannot contradict their timing fields. Fatal-path incident persistence is latency-bounded as well as size/retention-bounded: the worker waits only for the configured short local-write window, then preserves process containment even if the diagnostics filesystem itself is blocked.
 
 These corrections are implementation hardening only. They do not alter the approved progress bands, watchdog threshold, runtime/device qualification status, analytical model behavior, or release-verification truth state.
 
