@@ -21,34 +21,18 @@ function Get-Sha256 {
 
 function Resolve-RuntimePackRoot {
     param([Parameter(Mandatory = $true)][string]$Root)
-
     $candidate = [IO.Path]::GetFullPath($Root.Trim().Trim('"'))
-    if (Test-Path -LiteralPath (Join-Path $candidate "runtime-pack-manifest.json") -PathType Leaf) {
-        return $candidate
-    }
-
+    if (Test-Path -LiteralPath (Join-Path $candidate "runtime-pack-manifest.json") -PathType Leaf) { return $candidate }
     $nested = Join-Path $candidate "windows-x86_64-cpu"
-    if (Test-Path -LiteralPath (Join-Path $nested "runtime-pack-manifest.json") -PathType Leaf) {
-        return $nested
-    }
-
+    if (Test-Path -LiteralPath (Join-Path $nested "runtime-pack-manifest.json") -PathType Leaf) { return $nested }
     throw "MAVI Vision Runtime Pack manifest was not found under '$candidate'."
 }
 
 function Test-SafeRelativePath {
     param([Parameter(Mandatory = $true)][string]$Value)
-
-    if ([string]::IsNullOrWhiteSpace($Value) -or
-        [IO.Path]::IsPathRooted($Value) -or
-        $Value.Contains("\") -or
-        $Value.Contains([char]0)) {
-        return $false
-    }
-
+    if ([string]::IsNullOrWhiteSpace($Value) -or [IO.Path]::IsPathRooted($Value) -or $Value.Contains("\") -or $Value.Contains([char]0)) { return $false }
     foreach ($part in $Value.Split('/')) {
-        if ([string]::IsNullOrWhiteSpace($part) -or $part -eq "." -or $part -eq "..") {
-            return $false
-        }
+        if ([string]::IsNullOrWhiteSpace($part) -or $part -eq "." -or $part -eq "..") { return $false }
     }
     return $true
 }
@@ -58,16 +42,12 @@ function Invoke-Checked {
         [Parameter(Mandatory = $true)][string]$FilePath,
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
-
     & $FilePath @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command failed ($LASTEXITCODE): $FilePath $($Arguments -join ' ')"
-    }
+    if ($LASTEXITCODE -ne 0) { throw "Command failed ($LASTEXITCODE): $FilePath $($Arguments -join ' ')" }
 }
 
 function Get-PythonIdentity {
     param([Parameter(Mandatory = $true)][string]$PythonPath)
-
     $script = @'
 import json
 import platform
@@ -83,19 +63,14 @@ print(json.dumps({
     [IO.File]::WriteAllText($probe, $script, $utf8NoBom)
     try {
         $output = (& $PythonPath $probe 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($output)) {
-            throw "Unable to read vision runtime Python identity: $output"
-        }
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($output)) { throw "Unable to read vision runtime Python identity: $output" }
         return $output | ConvertFrom-Json
     }
-    finally {
-        Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
-    }
+    finally { Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue }
 }
 
 function Resolve-QualifiedPython31210 {
     param([string]$PreferredRoot)
-
     $candidates = New-Object System.Collections.Generic.List[string]
     function Add-Candidate {
         param([string]$Path)
@@ -106,11 +81,9 @@ function Resolve-QualifiedPython31210 {
         }
         catch { }
     }
-
     Add-Candidate (Join-Path $PreferredRoot "python.exe")
     Add-Candidate (Join-Path $env:ProgramFiles "Python312\python.exe")
     Add-Candidate (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe")
-
     $py = Get-Command py.exe -ErrorAction SilentlyContinue
     if ($py -and $py.Source) {
         try {
@@ -119,7 +92,6 @@ function Resolve-QualifiedPython31210 {
         }
         catch { }
     }
-
     foreach ($candidate in $candidates) {
         if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
         try {
@@ -138,55 +110,33 @@ $InstallRoot = [IO.Path]::GetFullPath($InstallRoot.Trim().Trim('"'))
 $manifestPath = Join-Path $BundleRoot "runtime-pack-manifest.json"
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 [void](Assert-MaviVisionRuntimePackManifest -Manifest $manifest)
-if ([string]$manifest.schemaVersion -ne "mavi-vision-runtime-pack-v2") {
-    throw "Unsupported MAVI Vision Runtime Pack schema '$($manifest.schemaVersion)'."
-}
-if ([string]$manifest.platformVariant -ne "windows-x86_64-cpu") {
-    throw "Expected windows-x86_64-cpu Runtime Pack, found '$($manifest.platformVariant)'."
-}
-if ([string]$manifest.pythonVersion -ne "3.12.10") {
-    throw "Expected qualified CPython 3.12.10 runtime, found '$($manifest.pythonVersion)'."
-}
+if ([string]$manifest.schemaVersion -ne "mavi-vision-runtime-pack-v2") { throw "Unsupported MAVI Vision Runtime Pack schema '$($manifest.schemaVersion)'." }
+if ([string]$manifest.platformVariant -ne "windows-x86_64-cpu") { throw "Expected windows-x86_64-cpu Runtime Pack, found '$($manifest.platformVariant)'." }
+if ([string]$manifest.pythonVersion -ne "3.12.10") { throw "Expected qualified CPython 3.12.10 runtime, found '$($manifest.pythonVersion)'." }
 $manifestSha = Get-Sha256 $manifestPath
 
 # Verify the complete supplied Runtime Pack before either reuse or installation.
 $declared = New-Object "System.Collections.Generic.HashSet[string]" ([StringComparer]::Ordinal)
 foreach ($artifact in @($manifest.artifacts)) {
     $relative = [string]$artifact.relativePath
-    if (-not (Test-SafeRelativePath $relative)) {
-        throw "Unsafe artifact path in vision Runtime Pack manifest: '$relative'."
-    }
-    if (-not $declared.Add($relative)) {
-        throw "Duplicate artifact path in vision Runtime Pack manifest: '$relative'."
-    }
+    if (-not (Test-SafeRelativePath $relative)) { throw "Unsafe artifact path in vision Runtime Pack manifest: '$relative'." }
+    if (-not $declared.Add($relative)) { throw "Duplicate artifact path in vision Runtime Pack manifest: '$relative'." }
     $path = Join-Path $BundleRoot ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        throw "Vision Runtime Pack artifact is missing: '$relative'."
-    }
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Vision Runtime Pack artifact is missing: '$relative'." }
     $item = Get-Item -LiteralPath $path
-    if ([int64]$item.Length -ne [int64]$artifact.sizeBytes) {
-        throw "Vision Runtime Pack artifact size mismatch: '$relative'."
-    }
-    if ((Get-Sha256 $path) -ne ([string]$artifact.sha256).ToLowerInvariant()) {
-        throw "Vision Runtime Pack artifact SHA-256 mismatch: '$relative'."
-    }
+    if ([int64]$item.Length -ne [int64]$artifact.sizeBytes) { throw "Vision Runtime Pack artifact size mismatch: '$relative'." }
+    if ((Get-Sha256 $path) -ne ([string]$artifact.sha256).ToLowerInvariant()) { throw "Vision Runtime Pack artifact SHA-256 mismatch: '$relative'." }
 }
 
 $bundlePrefix = $BundleRoot.TrimEnd("\") + "\"
 $actualFiles = @(Get-ChildItem -LiteralPath $BundleRoot -Recurse -File | ForEach-Object {
-    if (-not $_.FullName.StartsWith($bundlePrefix, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Vision Runtime Pack enumeration escaped its root."
-    }
+    if (-not $_.FullName.StartsWith($bundlePrefix, [StringComparison]::OrdinalIgnoreCase)) { throw "Vision Runtime Pack enumeration escaped its root." }
     $_.FullName.Substring($bundlePrefix.Length).Replace("\", "/")
 } | Where-Object { $_ -ne "runtime-pack-manifest.json" })
 foreach ($relative in $actualFiles) {
-    if (-not $declared.Contains($relative)) {
-        throw "Undeclared file exists in vision Runtime Pack: '$relative'."
-    }
+    if (-not $declared.Contains($relative)) { throw "Undeclared file exists in vision Runtime Pack: '$relative'." }
 }
-if ($actualFiles.Count -ne $declared.Count) {
-    throw "Vision Runtime Pack artifact set does not match its manifest."
-}
+if ($actualFiles.Count -ne $declared.Count) { throw "Vision Runtime Pack artifact set does not match its manifest." }
 
 $lockArtifact = @($manifest.artifacts | Where-Object { [string]$_.purpose -eq "third-party-runtime-lock" })
 $requirementsArtifact = @($manifest.artifacts | Where-Object { [string]$_.purpose -eq "application-runtime-requirements" })
@@ -197,35 +147,27 @@ if ($lockArtifact.Count -ne 1 -or $requirementsArtifact.Count -ne 1 -or $install
 if (([string]$lockArtifact[0].sha256).ToLowerInvariant() -ne ([string]$manifest.thirdPartyLockSha256).ToLowerInvariant()) {
     throw "Vision Runtime Pack third-party lock SHA-256 binding is invalid."
 }
+if (([string]$requirementsArtifact[0].sha256).ToLowerInvariant() -ne ([string]$manifest.runtimeRequirementsSha256).ToLowerInvariant()) {
+    throw "Vision Runtime Pack runtimeRequirementsSha256 binding is invalid."
+}
 
 $pythonInstaller = Join-Path $BundleRoot (([string]$installerArtifact[0].relativePath).Replace('/', [IO.Path]::DirectorySeparatorChar))
 $signature = Get-AuthenticodeSignature -FilePath $pythonInstaller
-if ($signature.Status -ne "Valid") {
-    throw "Bundled CPython installer Authenticode signature is not valid: $($signature.Status)"
-}
+if ($signature.Status -ne "Valid") { throw "Bundled CPython installer Authenticode signature is not valid: $($signature.Status)" }
 $installerVersion = (Get-Item -LiteralPath $pythonInstaller).VersionInfo.ProductVersion
-if (-not $installerVersion.StartsWith("3.12.10")) {
-    throw "Bundled CPython installer product version '$installerVersion' does not match the 3.12.10 release."
-}
+if (-not $installerVersion.StartsWith("3.12.10")) { throw "Bundled CPython installer product version '$installerVersion' does not match the 3.12.10 release." }
 
 # A valid identical v2 installation is a no-op. Git commit provenance is not a
 # compatibility input; assembledFromCommit is informational only.
 $statePath = Join-Path $InstallRoot "runtime-install.json"
 $installedPython = Join-Path $InstallRoot "venv\Scripts\python.exe"
 $installedManifest = Join-Path $InstallRoot "runtime-pack-manifest.json"
-if ((Test-Path -LiteralPath $statePath -PathType Leaf) -and
-    (Test-Path -LiteralPath $installedPython -PathType Leaf) -and
-    (Test-Path -LiteralPath $installedManifest -PathType Leaf)) {
+if ((Test-Path -LiteralPath $statePath -PathType Leaf) -and (Test-Path -LiteralPath $installedPython -PathType Leaf) -and (Test-Path -LiteralPath $installedManifest -PathType Leaf)) {
     try {
         $installedState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
         $installedIdentity = Get-PythonIdentity -PythonPath $installedPython
         $installedManifestHash = Get-Sha256 $installedManifest
-        if ($installedManifestHash -eq $manifestSha -and
-            (Test-MaviVisionRuntimePackReuse `
-                -InstalledState $installedState `
-                -Manifest $manifest `
-                -RuntimePackManifestSha256 $manifestSha `
-                -PythonIdentity $installedIdentity)) {
+        if ($installedManifestHash -eq $manifestSha -and (Test-MaviVisionRuntimePackReuse -InstalledState $installedState -Manifest $manifest -RuntimePackManifestSha256 $manifestSha -PythonIdentity $installedIdentity)) {
             [Environment]::SetEnvironmentVariable("MAVI_VISION_RUNTIME_ROOT", $InstallRoot, "Machine")
             Write-Host "MAVI Vision Runtime Pack already installed and verified; reusing existing runtime." -ForegroundColor Green
             Write-Host "  Runtime Pack : $($manifest.runtimePackId)"
@@ -234,9 +176,7 @@ if ((Test-Path -LiteralPath $statePath -PathType Leaf) -and
             return
         }
     }
-    catch {
-        Write-Host "Existing Vision Runtime cannot be reused and will be replaced: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
+    catch { Write-Host "Existing Vision Runtime cannot be reused and will be replaced: $($_.Exception.Message)" -ForegroundColor Yellow }
 }
 
 $runtimeBase = Split-Path $InstallRoot -Parent
@@ -247,20 +187,12 @@ if ([string]::IsNullOrWhiteSpace($pythonExe)) {
     New-Item -ItemType Directory -Path $runtimeBase -Force | Out-Null
     $installerLog = Join-Path $runtimeBase "python-3.12.10-install.log"
     Remove-Item -LiteralPath $installerLog -Force -ErrorAction SilentlyContinue
-    $arguments = @(
-        "/quiet", "/log", $installerLog,
-        "InstallAllUsers=1", "TargetDir=$pythonRoot", "PrependPath=0",
-        "Include_launcher=0", "Include_test=0", "Include_pip=1", "Shortcuts=0"
-    )
+    $arguments = @("/quiet", "/log", $installerLog, "InstallAllUsers=1", "TargetDir=$pythonRoot", "PrependPath=0", "Include_launcher=0", "Include_test=0", "Include_pip=1", "Shortcuts=0")
     $process = Start-Process -FilePath $pythonInstaller -ArgumentList $arguments -Wait -PassThru
-    if ($process.ExitCode -notin @(0, 3010)) {
-        throw "CPython 3.12.10 installer failed with exit code $($process.ExitCode). Review '$installerLog'."
-    }
+    if ($process.ExitCode -notin @(0, 3010)) { throw "CPython 3.12.10 installer failed with exit code $($process.ExitCode). Review '$installerLog'." }
     $pythonExe = Resolve-QualifiedPython31210 -PreferredRoot $pythonRoot
 }
-if ([string]::IsNullOrWhiteSpace($pythonExe)) {
-    throw "CPython installer completed, but no exact Python 3.12.10 interpreter could be resolved."
-}
+if ([string]::IsNullOrWhiteSpace($pythonExe)) { throw "CPython installer completed, but no exact Python 3.12.10 interpreter could be resolved." }
 
 $stageRoot = "$InstallRoot.stage"
 if (Test-Path -LiteralPath $stageRoot) { Remove-Item -LiteralPath $stageRoot -Recurse -Force }
@@ -268,30 +200,16 @@ New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 try {
     Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $stageRoot "runtime-pack-manifest.json") -Force
     Copy-Item -LiteralPath (Join-Path $BundleRoot "runtime") -Destination (Join-Path $stageRoot "runtime") -Recurse -Force
-
     $venvRoot = Join-Path $stageRoot "venv"
     Invoke-Checked $pythonExe @("-m", "venv", $venvRoot)
     $venvPython = Join-Path $venvRoot "Scripts\python.exe"
     $lockPath = Join-Path $BundleRoot (([string]$lockArtifact[0].relativePath).Replace('/', [IO.Path]::DirectorySeparatorChar))
     $wheelhouse = Join-Path $BundleRoot "wheels"
-    Invoke-Checked $venvPython @(
-        "-m", "pip", "install",
-        "--no-index", "--only-binary=:all:", "--require-hashes",
-        "--find-links", $wheelhouse,
-        "-r", $lockPath
-    )
+    Invoke-Checked $venvPython @("-m", "pip", "install", "--no-index", "--only-binary=:all:", "--require-hashes", "--find-links", $wheelhouse, "-r", $lockPath)
     Invoke-Checked $venvPython @("-m", "pip", "check")
-
     $identity = Get-PythonIdentity -PythonPath $venvPython
-    if ([string]$identity.version -ne "3.12.10" -or [string]$identity.implementation -ne "CPython") {
-        throw "Installed vision runtime Python identity does not match the qualified Windows CPU baseline."
-    }
-
-    $state = New-MaviVisionRuntimeInstallState `
-        -Manifest $manifest `
-        -RuntimePackManifestSha256 $manifestSha `
-        -RuntimeRoot $InstallRoot `
-        -PythonIdentity $identity
+    if ([string]$identity.version -ne "3.12.10" -or [string]$identity.implementation -ne "CPython") { throw "Installed vision runtime Python identity does not match the qualified Windows CPU baseline." }
+    $state = New-MaviVisionRuntimeInstallState -Manifest $manifest -RuntimePackManifestSha256 $manifestSha -RuntimeRoot $InstallRoot -PythonIdentity $identity
     Write-MaviJson -Value $state -Path (Join-Path $stageRoot "runtime-install.json") -Depth 8
 
     if (Test-Path -LiteralPath $InstallRoot) {
@@ -308,9 +226,7 @@ try {
             throw
         }
     }
-    else {
-        Move-Item -LiteralPath $stageRoot -Destination $InstallRoot
-    }
+    else { Move-Item -LiteralPath $stageRoot -Destination $InstallRoot }
 }
 catch {
     if (Test-Path -LiteralPath $stageRoot) { Remove-Item -LiteralPath $stageRoot -Recurse -Force -ErrorAction SilentlyContinue }
