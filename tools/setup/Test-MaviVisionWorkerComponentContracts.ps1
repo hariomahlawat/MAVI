@@ -143,11 +143,11 @@ foreach ($required in @(
     "mavi-vision-runtime-install-v2",
     "mavi-vision-model-install-v1",
     "mavi-vision-component-requirements-v1",
-    "config\\components",
+    "mmdetection-phase1-v1.json",
     "MAVI_COMMIT_SHA",
-    "src\\vision",
-    "models\\qualifications",
-    "config\\pipelines"
+    "src\vision",
+    "models\qualifications",
+    "config\pipelines"
 )) {
     if ($launcherText -notmatch [regex]::Escape($required)) {
         throw "Vision worker launcher is missing component contract fragment: $required"
@@ -156,8 +156,8 @@ foreach ($required in @(
 foreach ($forbidden in @(
     "Assert-MaviVisionRuntimeSourceCompatible",
     "state.sourceCommit",
-    "release\\models",
-    "release\\runtime"
+    "release\models",
+    "release\runtime"
 )) {
     if ($launcherText -match [regex]::Escape($forbidden)) {
         throw "Vision worker launcher still contains obsolete monolithic binding: $forbidden"
