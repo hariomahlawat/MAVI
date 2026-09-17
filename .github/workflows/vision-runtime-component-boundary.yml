@@ -53,7 +53,7 @@ jobs:
           MAVI_TARGET_PYTHON: ${{ matrix.python-version }}
         run: |
           set -euo pipefail
-          mkdir -p .runtime-boundary
+          mkdir -p runtime-boundary
           python - <<'PY'
           import hashlib
           import importlib.util
@@ -93,7 +93,7 @@ jobs:
               ),
           )
           candidate_bytes = offline_lock.serialize_offline_runtime_lock(filtered)
-          candidate = Path(".runtime-boundary") / f"{variant}.lock"
+          candidate = Path("runtime-boundary") / f"{variant}.lock"
           candidate.write_bytes(candidate_bytes)
 
           projection = requirements_projection.build_runtime_requirements_projection(
@@ -106,7 +106,7 @@ jobs:
                   encoding="utf-8"
               )
           )
-          platform = runtime["platforms"][variant]
+          platform = runtime["platformVariants"][variant]
           offline_lock.validate_offline_runtime_lock_for_runtime(
               filtered,
               expected_variant=variant,
@@ -116,7 +116,7 @@ jobs:
               platform_status=platform.get("status"),
               root_requirements=projection.requirements,
           )
-          projection_path = Path(".runtime-boundary") / f"{variant}.requirements.txt"
+          projection_path = Path("runtime-boundary") / f"{variant}.requirements.txt"
           projection_path.write_bytes(
               requirements_projection.serialize_runtime_requirements_projection(projection)
           )
@@ -133,7 +133,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: runtime-boundary-${{ matrix.variant }}-${{ github.sha }}
-          path: .runtime-boundary/
+          path: runtime-boundary/
           if-no-files-found: warn
           retention-days: 14
           compression-level: 0
@@ -148,4 +148,4 @@ jobs:
             echo "Tracked runtime lock still contains first-party mavi-vision; use the uploaded canonical migration candidate." >&2
             exit 1
           fi
-          cmp ".runtime-boundary/$MAVI_VARIANT.lock" "src/vision/runtime/mmdetection-phase1-v1/$MAVI_VARIANT.lock"
+          cmp "runtime-boundary/$MAVI_VARIANT.lock" "src/vision/runtime/mmdetection-phase1-v1/$MAVI_VARIANT.lock"
