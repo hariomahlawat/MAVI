@@ -157,17 +157,24 @@ if ($signature.Status -ne "Valid") { throw "Bundled CPython installer Authentico
 $installerVersion = (Get-Item -LiteralPath $pythonInstaller).VersionInfo.ProductVersion
 if (-not $installerVersion.StartsWith("3.12.10")) { throw "Bundled CPython installer product version '$installerVersion' does not match the 3.12.10 release." }
 
-# A valid identical v2 installation is a no-op. Git commit provenance is not a
-# compatibility input; assembledFromCommit is informational only.
+# A valid identical v2 component is a no-op. Candidate manifests may carry a
+# different assembledFromCommit provenance while identifying the same material
+# Runtime Pack. Installed-state integrity is checked against the installed
+# manifest; reuse then compares material component identity with the candidate.
 $statePath = Join-Path $InstallRoot "runtime-install.json"
 $installedPython = Join-Path $InstallRoot "venv\Scripts\python.exe"
-$installedManifest = Join-Path $InstallRoot "runtime-pack-manifest.json"
-if ((Test-Path -LiteralPath $statePath -PathType Leaf) -and (Test-Path -LiteralPath $installedPython -PathType Leaf) -and (Test-Path -LiteralPath $installedManifest -PathType Leaf)) {
+$installedManifestPath = Join-Path $InstallRoot "runtime-pack-manifest.json"
+if ((Test-Path -LiteralPath $statePath -PathType Leaf) -and (Test-Path -LiteralPath $installedPython -PathType Leaf) -and (Test-Path -LiteralPath $installedManifestPath -PathType Leaf)) {
     try {
         $installedState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+        $installedManifestObject = Get-Content -LiteralPath $installedManifestPath -Raw | ConvertFrom-Json
+        [void](Assert-MaviVisionRuntimePackManifest -Manifest $installedManifestObject)
         $installedIdentity = Get-PythonIdentity -PythonPath $installedPython
-        $installedManifestHash = Get-Sha256 $installedManifest
-        if ($installedManifestHash -eq $manifestSha -and (Test-MaviVisionRuntimePackReuse -InstalledState $installedState -Manifest $manifest -RuntimePackManifestSha256 $manifestSha -PythonIdentity $installedIdentity)) {
+        $installedManifestHash = Get-Sha256 $installedManifestPath
+        if ([string]$installedState.runtimePackManifestSha256 -ne $installedManifestHash) {
+            throw "Installed Vision Runtime Pack state does not bind the installed manifest."
+        }
+        if (Test-MaviVisionRuntimePackReuse -InstalledState $installedState -Manifest $manifest -RuntimePackManifestSha256 $installedManifestHash -PythonIdentity $installedIdentity) {
             [Environment]::SetEnvironmentVariable("MAVI_VISION_RUNTIME_ROOT", $InstallRoot, "Machine")
             Write-Host "MAVI Vision Runtime Pack already installed and verified; reusing existing runtime." -ForegroundColor Green
             Write-Host "  Runtime Pack : $($manifest.runtimePackId)"
