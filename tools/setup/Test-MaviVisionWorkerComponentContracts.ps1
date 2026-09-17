@@ -136,10 +136,21 @@ Assert-Throws -MessageFragment "model manifest schema" -Script {
     Assert-MaviVisionModelPackManifest -Manifest $badModel
 }
 
+# The worker must validate the live interpreter, not trust runtime-install.json alone.
+$changedIdentity = $runtimeState.pythonIdentity.PSObject.Copy()
+$changedIdentity.compiler = "tampered compiler identity"
+if (Test-MaviVisionPythonIdentityEqual -Left $runtimeState.pythonIdentity -Right $changedIdentity) {
+    throw "Changed Python identity was incorrectly accepted."
+}
+
 $launcherText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviVisionWorker.ps1") -Raw
 foreach ($required in @(
     "Mavi.VisionRuntime.Common.psm1",
     "Assert-MaviVisionWorkerComponentCompatibility",
+    "Test-MaviVisionPythonIdentityEqual",
+    "sys.version_info",
+    "platform.python_implementation",
+    "platform.python_compiler",
     "mavi-vision-runtime-install-v2",
     "mavi-vision-model-install-v1",
     "mavi-vision-component-requirements-v1",
