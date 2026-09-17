@@ -25,7 +25,11 @@ def test_runtime_requirements_projection_is_forced_to_lf_on_checkout() -> None:
 def test_component_requirements_bind_current_runtime_and_model_inputs() -> None:
     repository_root = Path(__file__).parents[3]
     runtime_root = repository_root / "src/vision/runtime/mmdetection-phase1-v1"
-    components = json.loads((runtime_root / "components.json").read_text(encoding="utf-8"))
+    component_path = (
+        repository_root
+        / "src/vision/config/components/mmdetection-phase1-v1.json"
+    )
+    components = json.loads(component_path.read_text(encoding="utf-8"))
     assert components["schemaVersion"] == "mavi-vision-component-requirements-v1"
     assert components["runtimeProfileId"] == "mmdetection-phase1-v1"
 
