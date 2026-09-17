@@ -86,7 +86,14 @@ if ((Test-Path -LiteralPath $statePath -PathType Leaf) -and (Test-Path -LiteralP
         $installedManifestSha = Get-Sha256 $installedManifestPath
         [void](Assert-MaviVisionModelPackManifest -Manifest $installedManifest)
         Assert-ModelPackFiles -Root $InstallRoot -Manifest $installedManifest
-        if ($installedManifestSha -eq $manifestSha -and (Test-MaviVisionModelPackReuse -InstalledState $installedState -Manifest $manifest -ModelPackManifestSha256 $manifestSha)) {
+        if ([string]$installedState.modelPackManifestSha256 -ne $installedManifestSha) {
+            throw "Installed Vision Model Pack state does not bind the installed manifest."
+        }
+        # The manifest may carry different assembledFromCommit provenance while
+        # representing the same content-addressed Model Pack. Reuse is decided
+        # from the verified installed manifest plus material component identity,
+        # not candidate provenance bytes.
+        if (Test-MaviVisionModelPackReuse -InstalledState $installedState -Manifest $manifest -ModelPackManifestSha256 $installedManifestSha) {
             [Environment]::SetEnvironmentVariable("MAVI_VISION_MODEL_ROOT", $InstallRoot, "Machine")
             Write-Host "MAVI Vision Model Pack already installed and verified; reusing existing model assets." -ForegroundColor Green
             Write-Host "  Model Pack : $($manifest.modelPackId)"
