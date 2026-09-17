@@ -8,7 +8,7 @@ on:
       - 'tools/vision/build_model_pack.py'
       - 'tools/vision/resolve_mmdet_config.py'
       - 'src/vision/mavi_vision/runtime/component_identity.py'
-      - 'src/vision/runtime/mmdetection-phase1-v1/components.json'
+      - 'src/vision/config/components/mmdetection-phase1-v1.json'
       - 'models/manifests/rtmdet-m-coco-phase1-v1.json'
       - '.github/workflows/vision-model-pack.yml'
   pull_request:
@@ -18,7 +18,7 @@ on:
       - 'tools/vision/build_model_pack.py'
       - 'tools/vision/resolve_mmdet_config.py'
       - 'src/vision/mavi_vision/runtime/component_identity.py'
-      - 'src/vision/runtime/mmdetection-phase1-v1/components.json'
+      - 'src/vision/config/components/mmdetection-phase1-v1.json'
       - 'models/manifests/rtmdet-m-coco-phase1-v1.json'
       - '.github/workflows/vision-model-pack.yml'
   workflow_dispatch:
@@ -55,7 +55,11 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
 
       - name: Install model-pack tooling dependencies
-        run: python -m pip install 'pydantic>=2.11,<3' 'packaging>=26,<27'
+        run: >-
+          python -m pip install
+          'pydantic>=2.11,<3'
+          'packaging>=26,<27'
+          'mmengine==0.10.7'
 
       - name: Checkout immutable MMDetection source
         shell: bash
@@ -108,7 +112,9 @@ jobs:
           import json
           from pathlib import Path
           actual = json.loads(Path('.modelpack-output/model-pack-manifest.json').read_text())
-          required = json.loads(Path('src/vision/runtime/mmdetection-phase1-v1/components.json').read_text())['modelPack']
+          required = json.loads(
+              Path('src/vision/config/components/mmdetection-phase1-v1.json').read_text()
+          )['modelPack']
           for key in ('modelPackId', 'modelId', 'checkpointSha256', 'resolvedConfigSha256'):
               if actual[key] != required[key]:
                   raise SystemExit(f'model_pack_binding_mismatch:{key}')
