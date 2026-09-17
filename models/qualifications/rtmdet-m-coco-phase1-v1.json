@@ -5,27 +5,6 @@
   "modelManifestSha256": "0049875d8190af7f268b4613cba99afef8a9f0d39a64471fd84f9ab0bc8d8d7d",
   "checkpointSha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
   "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
-  "modelPack": {
-    "schemaVersion": "mavi-vision-model-pack-v1",
-    "modelPackId": "mavi-model-v1-2abf67800cec8a9c63d735bf50e44ac695e8b8ccf01397e2cfd884305a5638b4",
-    "modelId": "rtmdet-m-coco-phase1",
-    "checkpointSha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
-    "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
-  },
-  "runtimePacks": {
-    "windows-x86_64-cpu": {
-      "runtimePackId": "mavi-runtime-v2-5d6229da58554bc951ddc8bd719574c1b33109a7916afdf717339d8847e39e61",
-      "thirdPartyLockSha256": "66517c8ff1de06d30093b497cbc1eddbeb6f0a879c920849b8a2f91eafaebb33",
-      "runtimeRequirementsSha256": "555ecfd8e8ef433e83375a54b05e4e6249fa242425c1b19952ffcb2e1bc446f4",
-      "nativeAbi": "win_amd64-msvc-14.44-sdk-10.0.26100.0"
-    },
-    "linux-x86_64-cpu": {
-      "runtimePackId": "mavi-runtime-v2-bd94fded938183dce8dc50390d48e97d913d9dad9dc98b528a962ad32314ff61",
-      "thirdPartyLockSha256": "b1d0970df273538feceff678bb27a3722140c7c3c7317aadfbf83a88103b3a6b",
-      "runtimeRequirementsSha256": "991d07a5d2b6d04aae387c1d5c029c3f3407f460447f1a1477adb7cf410f0094",
-      "nativeAbi": "glibc-2.39-libstdcxx-GLIBCXX_3.4.33-gcc-14.2.0-linux_x86_64"
-    }
-  },
   "pipelineProfileId": "phase1-detection-tracking-v1",
   "pipelineProfileSha256": "1d109f4dd666f18d1a234bf89d13ff3347cff09f48ce0f3c1c6c95714e4c530f",
   "runtimeProfileId": "mmdetection-phase1-v1",
