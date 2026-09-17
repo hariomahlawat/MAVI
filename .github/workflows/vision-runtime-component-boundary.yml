@@ -54,29 +54,37 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .runtime-boundary
-          PYTHONPATH=src/vision python - <<'PY'
+          python - <<'PY'
           import hashlib
+          import importlib.util
           import json
           import os
+          import sys
           from pathlib import Path
 
-          from mavi_vision.runtime.offline_lock import (
-              OfflineRuntimeLock,
-              load_offline_runtime_lock,
-              serialize_offline_runtime_lock,
-              validate_offline_runtime_lock_for_runtime,
+          def load_module(name: str, path: str):
+              spec = importlib.util.spec_from_file_location(name, path)
+              if spec is None or spec.loader is None:
+                  raise SystemExit(f"runtime_boundary_module_unloadable:{path}")
+              module = importlib.util.module_from_spec(spec)
+              sys.modules[name] = module
+              spec.loader.exec_module(module)
+              return module
+
+          offline_lock = load_module(
+              "_mavi_offline_lock",
+              "src/vision/mavi_vision/runtime/offline_lock.py",
           )
-          from mavi_vision.runtime.requirements_projection import (
-              build_runtime_requirements_projection,
-              runtime_requirements_sha256,
-              serialize_runtime_requirements_projection,
+          requirements_projection = load_module(
+              "_mavi_requirements_projection",
+              "src/vision/mavi_vision/runtime/requirements_projection.py",
           )
 
           variant = os.environ["MAVI_VARIANT"]
           python_version = os.environ["MAVI_TARGET_PYTHON"]
           tracked = Path("src/vision/runtime/mmdetection-phase1-v1") / f"{variant}.lock"
-          current = load_offline_runtime_lock(tracked)
-          filtered = OfflineRuntimeLock(
+          current = offline_lock.load_offline_runtime_lock(tracked)
+          filtered = offline_lock.OfflineRuntimeLock(
               schema_version=current.schema_version,
               platform_variant=current.platform_variant,
               python_version=current.python_version,
@@ -84,11 +92,11 @@ jobs:
                   item for item in current.distributions if item.name != "mavi-vision"
               ),
           )
-          candidate_bytes = serialize_offline_runtime_lock(filtered)
+          candidate_bytes = offline_lock.serialize_offline_runtime_lock(filtered)
           candidate = Path(".runtime-boundary") / f"{variant}.lock"
           candidate.write_bytes(candidate_bytes)
 
-          projection = build_runtime_requirements_projection(
+          projection = requirements_projection.build_runtime_requirements_projection(
               Path("src/vision/pyproject.toml"),
               platform_variant=variant,
               python_version=python_version,
@@ -99,7 +107,7 @@ jobs:
               )
           )
           platform = runtime["platforms"][variant]
-          validate_offline_runtime_lock_for_runtime(
+          offline_lock.validate_offline_runtime_lock_for_runtime(
               filtered,
               expected_variant=variant,
               expected_python_version=python_version,
@@ -109,18 +117,24 @@ jobs:
               root_requirements=projection.requirements,
           )
           projection_path = Path(".runtime-boundary") / f"{variant}.requirements.txt"
-          projection_path.write_bytes(serialize_runtime_requirements_projection(projection))
+          projection_path.write_bytes(
+              requirements_projection.serialize_runtime_requirements_projection(projection)
+          )
 
           print("third-party-lock-sha256=" + hashlib.sha256(candidate_bytes).hexdigest())
-          print("runtime-requirements-sha256=" + runtime_requirements_sha256(projection))
+          print(
+              "runtime-requirements-sha256="
+              + requirements_projection.runtime_requirements_sha256(projection)
+          )
           PY
 
       - name: Upload migration evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: runtime-boundary-${{ matrix.variant }}-${{ github.sha }}
           path: .runtime-boundary/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
           compression-level: 0
 
