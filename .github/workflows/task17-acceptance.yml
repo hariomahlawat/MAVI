@@ -120,6 +120,8 @@ jobs:
             "tools/setup/Start-MaviVisionWorker.ps1",
             "tools/setup/Test-MaviEnvironment.ps1",
             "tools/setup/Test-MaviSetupContracts.ps1",
+            "tools/setup/Test-MaviVisionRuntimeStateContracts.ps1",
+            "tools/setup/Mavi.VisionRuntime.Common.psm1",
             "tools/setup/Mavi.Setup.Common.psm1",
             "tools/setup/Mavi.Setup.Windows.psm1",
             "Prepare-MAVI-Offline-Binary-Kit.ps1"
@@ -146,3 +148,4 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           .\tools\setup\Test-MaviSetupContracts.ps1
+          .\tools\setup\Test-MaviVisionRuntimeStateContracts.ps1
