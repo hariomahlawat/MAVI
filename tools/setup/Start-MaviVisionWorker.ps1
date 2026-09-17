@@ -42,6 +42,20 @@ if ((Get-Sha256 $runtimeManifestPath) -ne ([string]$runtimeState.runtimePackMani
 $python = Join-Path $runtimeRoot "venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "Vision Runtime Pack interpreter is missing: $python" }
 
+# Verify the live interpreter identity. runtime-install.json is evidence from
+# installation time; worker startup must not trust it if the interpreter has
+# subsequently been replaced or modified.
+$identityJson = (& $python -c "import json,platform,sys; print(json.dumps({'version':'.'.join(map(str,sys.version_info[:3])),'implementation':platform.python_implementation(),'build':list(platform.python_build()),'compiler':platform.python_compiler()},sort_keys=True))" 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($identityJson)) { throw "Unable to verify live Vision Runtime Pack Python identity: $identityJson" }
+try { $livePythonIdentity = $identityJson | ConvertFrom-Json }
+catch { throw "Live Vision Runtime Pack Python identity probe returned malformed data." }
+if (-not $runtimeState.PSObject.Properties["pythonIdentity"] -or -not (Test-MaviVisionPythonIdentityEqual -Left $runtimeState.pythonIdentity -Right $livePythonIdentity)) {
+    throw "Live Vision Runtime Pack Python identity does not match runtime-install.json; reinstall the qualified Runtime Pack."
+}
+if ([string]$livePythonIdentity.version -ne [string]$runtimeManifest.pythonVersion -or [string]$livePythonIdentity.implementation -ne "CPython") {
+    throw "Live Vision Runtime Pack Python identity does not match the Runtime Pack manifest."
+}
+
 # Independently reusable Model Pack.
 $modelRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_MODEL_ROOT", "Machine")
 if ([string]::IsNullOrWhiteSpace($modelRoot)) { $modelRoot = "C:\ProgramData\MAVI\Development\VisionModels\rtmdet-m-coco-phase1" }
@@ -57,8 +71,8 @@ $modelPackManifest = Get-Content -LiteralPath $modelPackManifestPath -Raw | Conv
 if ([string]$modelState.schemaVersion -ne "mavi-vision-model-install-v1") { throw "Vision model installed state schema is unsupported; reinstall the Model Pack." }
 if ((Get-Sha256 $modelPackManifestPath) -ne ([string]$modelState.modelPackManifestSha256).ToLowerInvariant()) { throw "Installed Vision Model Pack manifest fingerprint does not match model-install.json." }
 
-# Application/Release Overlay requirements are authoritative for the current
-# checkout. Repository HEAD is provenance only; compatibility is component-based.
+# Application/Release Overlay requirements are authoritative for the current checkout.
+# Repository HEAD is provenance only; compatibility is component-based.
 $modelManifestPath = Join-Path $RepositoryRoot "models\manifests\rtmdet-m-coco-phase1-v1.json"
 $qualificationPath = Join-Path $RepositoryRoot "models\qualifications\rtmdet-m-coco-phase1-v1.json"
 $pipelinePath = Join-Path $RepositoryRoot "src\vision\config\pipelines\phase1-detection-tracking-v1.json"
