@@ -18,6 +18,7 @@ from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshot
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiError
 from mavi_vision.worker.runner import WorkerRunner
+from mavi_vision.worker.watchdog_incident import WATCHDOG_OBSERVATION_FAILURE_CODE
 
 
 class ManualMonotonicClock:
@@ -553,3 +554,67 @@ def test_watchdog_incident_captures_one_coherent_runtime_and_attempt_snapshot(
         assert client.failures == []
 
     asyncio.run(scenario())
+
+
+
+def test_watchdog_snapshot_provider_failure_is_durable_and_secret_safe(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def scenario() -> None:
+        lease = _watchdog_lease()
+        _materialize_watchdog_source(tmp_path, lease)
+        started = threading.Event()
+        release = threading.Event()
+        client = _WatchdogApi(lease)
+        processor = _BlockingProcessor(started, release)
+        lane = VisionExecutionLane()
+        records = []
+        fatal_codes: list[int] = []
+
+        class Recorder:
+            def record(self, incident) -> None:
+                records.append(incident)
+
+        def failing_snapshot() -> RuntimeWatchdogSnapshot:
+            raise RuntimeError(r"C:\secret\runtime token=do-not-send")
+
+        def terminator(code: int) -> None:
+            fatal_codes.append(code)
+            raise _FatalTerminatorSentinel("fatal-watchdog")
+
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            process_executor=lane,
+            watchdog_snapshot_provider=failing_snapshot,
+            watchdog_incident_recorder=Recorder(),
+            watchdog_grace_seconds=0.01,
+            watchdog_poll_seconds=0.001,
+            fatal_terminator=terminator,
+        )
+
+        try:
+            with pytest.raises(_FatalTerminatorSentinel, match="fatal-watchdog"):
+                await runner.run_once()
+        finally:
+            release.set()
+            await lane.close()
+
+        assert fatal_codes == [70]
+        assert len(records) == 1
+        incident = records[0]
+        assert incident.failure_code == WATCHDOG_OBSERVATION_FAILURE_CODE
+        assert incident.runtime is None
+        assert incident.progress.progress_percent == 1.0
+        assert client.failures == []
+
+    awaitable = scenario()
+    asyncio.run(awaitable)
+
+    rendered = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Watchdog snapshot provider failed" in rendered
+    assert "do-not-send" not in rendered
+    assert r"C:\secret\runtime" not in rendered
