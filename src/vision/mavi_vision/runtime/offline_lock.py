@@ -11,6 +11,7 @@ from packaging.version import InvalidVersion, Version
 
 
 _SCHEMA = "mavi-offline-lock-v1"
+_REQUIREMENTS_SCHEMA = "mavi-vision-runtime-requirements-v1"
 _SUPPORTED_VARIANTS = frozenset(
     {
         "linux-x86_64-cpu",
@@ -58,6 +59,7 @@ class OfflineRuntimeLock:
     platform_variant: str
     python_version: str
     distributions: tuple[LockedDistribution, ...]
+    root_requirements: tuple[str, ...] | None = None
 
 
 def canonicalize_distribution_name(name: str) -> str:
@@ -69,7 +71,22 @@ def load_offline_runtime_lock(path: Path) -> OfflineRuntimeLock:
         payload = path.read_bytes()
     except OSError as exc:
         raise OfflineLockError("offline_lock_unreadable") from exc
-    return parse_offline_runtime_lock(payload)
+    lock = parse_offline_runtime_lock(payload)
+    companion = path.with_suffix(".requirements.txt")
+    if not companion.exists():
+        return lock
+    roots = _load_companion_root_requirements(
+        companion,
+        expected_variant=lock.platform_variant,
+        expected_python_version=lock.python_version,
+    )
+    return OfflineRuntimeLock(
+        schema_version=lock.schema_version,
+        platform_variant=lock.platform_variant,
+        python_version=lock.python_version,
+        distributions=lock.distributions,
+        root_requirements=roots,
+    )
 
 
 def parse_offline_runtime_lock(payload: bytes) -> OfflineRuntimeLock:
@@ -178,19 +195,20 @@ def validate_offline_runtime_lock_for_runtime(
             raise OfflineLockError("offline_lock_platform_not_qualified")
 
     by_name = {item.name: item for item in lock.distributions}
+    effective_roots = root_requirements if root_requirements is not None else lock.root_requirements
 
-    # Legacy callers retain the v1 invariant during the staged migration. New
-    # v2 callers provide the deterministic application runtime roots explicitly;
-    # in that mode first-party mavi-vision is forbidden from the heavy lock.
-    if root_requirements is None:
+    # During migration, old locks without a companion requirements projection keep
+    # the legacy first-party-wheel invariant. New third-party-only locks MUST carry
+    # explicit application roots either in the companion projection or by caller.
+    if effective_roots is None:
         if "mavi-vision" not in by_name:
             raise OfflineLockError("offline_lock_mavi_missing")
     else:
-        if not root_requirements:
+        if not effective_roots:
             raise OfflineLockError("offline_lock_root_requirements_empty")
         if "mavi-vision" in by_name:
             raise OfflineLockError("offline_lock_first_party_distribution_forbidden")
-        _validate_root_requirements(by_name, root_requirements)
+        _validate_root_requirements(by_name, effective_roots)
 
     normalized_semantic = {
         canonicalize_distribution_name(name): version
@@ -214,6 +232,52 @@ def validate_offline_runtime_lock_for_runtime(
                 raise OfflineLockError("offline_lock_semantic_distribution_missing")
             if item.version != expected_version:
                 raise OfflineLockError("offline_lock_binary_version_mismatch")
+
+
+def _load_companion_root_requirements(
+    path: Path,
+    *,
+    expected_variant: str,
+    expected_python_version: str,
+) -> tuple[str, ...]:
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise OfflineLockError("offline_lock_root_projection_unreadable") from exc
+    if payload.startswith(codecs.BOM_UTF8) or b"\r" in payload:
+        raise OfflineLockError("offline_lock_root_projection_invalid")
+    try:
+        text = payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise OfflineLockError("offline_lock_root_projection_invalid") from exc
+    if not text.endswith("\n"):
+        raise OfflineLockError("offline_lock_root_projection_invalid")
+    lines = text.splitlines()
+    if len(lines) < 4:
+        raise OfflineLockError("offline_lock_root_projection_invalid")
+    schema = _parse_projection_header(lines[0], "# schema: ")
+    variant = _parse_projection_header(lines[1], "# platform-variant: ")
+    python_version = _parse_projection_header(lines[2], "# python-version: ")
+    if schema != _REQUIREMENTS_SCHEMA:
+        raise OfflineLockError("offline_lock_root_projection_schema_invalid")
+    if variant != expected_variant:
+        raise OfflineLockError("offline_lock_root_projection_variant_mismatch")
+    if python_version != expected_python_version:
+        raise OfflineLockError("offline_lock_root_projection_python_mismatch")
+
+    roots = tuple(lines[3:])
+    if not roots or roots != tuple(sorted(roots)) or any(not row or row != row.strip() for row in roots):
+        raise OfflineLockError("offline_lock_root_projection_invalid")
+    for row in roots:
+        try:
+            requirement = Requirement(row)
+        except InvalidRequirement as exc:
+            raise OfflineLockError("offline_lock_root_requirement_invalid") from exc
+        if requirement.url is not None or requirement.marker is not None:
+            raise OfflineLockError("offline_lock_root_requirement_invalid")
+        if canonicalize_distribution_name(requirement.name) == "mavi-vision":
+            raise OfflineLockError("offline_lock_root_requirement_invalid")
+    return roots
 
 
 def _validate_root_requirements(
@@ -247,6 +311,15 @@ def _parse_header(line: str, prefix: str) -> str:
     value = line[len(prefix) :]
     if not value or value != value.strip():
         raise OfflineLockError("offline_lock_header_invalid")
+    return value
+
+
+def _parse_projection_header(line: str, prefix: str) -> str:
+    if not line.startswith(prefix):
+        raise OfflineLockError("offline_lock_root_projection_invalid")
+    value = line[len(prefix) :]
+    if not value or value != value.strip():
+        raise OfflineLockError("offline_lock_root_projection_invalid")
     return value
 
 
