@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 
 
@@ -160,6 +161,7 @@ def validate_offline_runtime_lock_for_runtime(
     semantic_graph: Mapping[str, str],
     binary_versions: Mapping[str, str] | None,
     platform_status: str | None = None,
+    root_requirements: tuple[str, ...] | None = None,
 ) -> None:
     if lock.platform_variant != expected_variant:
         raise OfflineLockError("offline_lock_variant_mismatch")
@@ -176,8 +178,19 @@ def validate_offline_runtime_lock_for_runtime(
             raise OfflineLockError("offline_lock_platform_not_qualified")
 
     by_name = {item.name: item for item in lock.distributions}
-    if "mavi-vision" not in by_name:
-        raise OfflineLockError("offline_lock_mavi_missing")
+
+    # Legacy callers retain the v1 invariant during the staged migration. New
+    # v2 callers provide the deterministic application runtime roots explicitly;
+    # in that mode first-party mavi-vision is forbidden from the heavy lock.
+    if root_requirements is None:
+        if "mavi-vision" not in by_name:
+            raise OfflineLockError("offline_lock_mavi_missing")
+    else:
+        if not root_requirements:
+            raise OfflineLockError("offline_lock_root_requirements_empty")
+        if "mavi-vision" in by_name:
+            raise OfflineLockError("offline_lock_first_party_distribution_forbidden")
+        _validate_root_requirements(by_name, root_requirements)
 
     normalized_semantic = {
         canonicalize_distribution_name(name): version
@@ -201,6 +214,31 @@ def validate_offline_runtime_lock_for_runtime(
                 raise OfflineLockError("offline_lock_semantic_distribution_missing")
             if item.version != expected_version:
                 raise OfflineLockError("offline_lock_binary_version_mismatch")
+
+
+def _validate_root_requirements(
+    by_name: Mapping[str, LockedDistribution],
+    root_requirements: tuple[str, ...],
+) -> None:
+    for raw in root_requirements:
+        try:
+            requirement = Requirement(raw)
+        except InvalidRequirement as exc:
+            raise OfflineLockError("offline_lock_root_requirement_invalid") from exc
+        if requirement.url is not None or requirement.marker is not None:
+            raise OfflineLockError("offline_lock_root_requirement_invalid")
+        name = canonicalize_distribution_name(requirement.name)
+        if name == "mavi-vision":
+            raise OfflineLockError("offline_lock_root_requirement_invalid")
+        item = by_name.get(name)
+        if item is None:
+            raise OfflineLockError("offline_lock_root_distribution_missing")
+        try:
+            locked_version = Version(item.version)
+        except InvalidVersion as exc:
+            raise OfflineLockError("offline_lock_requirement_invalid") from exc
+        if requirement.specifier and locked_version not in requirement.specifier:
+            raise OfflineLockError("offline_lock_root_version_mismatch")
 
 
 def _parse_header(line: str, prefix: str) -> str:
