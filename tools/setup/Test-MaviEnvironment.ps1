@@ -99,7 +99,7 @@ if ($Profile -eq "Development") {
         $modelStateValid = ([string]$modelState.schemaVersion -eq "mavi-vision-model-install-v1") -and ((Get-Sha256 $modelManifestPath) -eq ([string]$modelState.modelPackManifestSha256).ToLowerInvariant())
         Add-Check -Name "Vision Model Pack state" -Passed $modelStateValid -Detail ([string]$modelManifest.modelPackId)
 
-        $componentPath = Join-Path $repoRoot "src\vision\runtime\mmdetection-phase1-v1\components.json"
+        $componentPath = Join-Path $repoRoot "src\vision\config\components\mmdetection-phase1-v1.json"
         $component = Read-MaviJson -Path $componentPath
         if ([string]$component.schemaVersion -ne "mavi-vision-component-requirements-v1") { throw "unsupported component requirements schema" }
         $requiredRuntime = $component.runtimePacks."windows-x86_64-cpu"
