@@ -32,7 +32,7 @@ function Assert-MaviVisionRuntimePackManifest {
     }
 
     $packId = [string](Get-MaviVisionRequiredProperty -Value $Manifest -Name "runtimePackId" -Description "manifest")
-    if ($packId -notmatch '^mavi-runtime-[0-9a-f]{64}$' -and $packId -notmatch '^runtime-pack-[A-Za-z0-9._-]+$') {
+    if ($packId -notmatch '^mavi-runtime-v2-[0-9a-f]{64}$') {
         throw "Vision runtime manifest Runtime Pack ID is invalid."
     }
 
