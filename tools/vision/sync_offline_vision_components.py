@@ -50,16 +50,28 @@ def _load_json(path: Path) -> dict[str, object]:
 
 
 def _safe_relative(value: object) -> PurePosixPath:
-    if not isinstance(value, str) or not value or value != value.strip() or "\\" in value or "\x00" in value:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or "\\" in value
+        or "\x00" in value
+    ):
         raise VisionComponentStoreError("component_artifact_path_invalid")
     logical = PurePosixPath(value)
     parts = value.split("/")
-    if logical.is_absolute() or any(part in {"", ".", ".."} for part in parts) or ":" in parts[0]:
+    if (
+        logical.is_absolute()
+        or any(part in {"", ".", ".."} for part in parts)
+        or ":" in parts[0]
+    ):
         raise VisionComponentStoreError("component_artifact_path_invalid")
     return logical
 
 
-def _material_fingerprint(manifest: dict[str, object], *, kind: str) -> dict[str, object]:
+def _material_fingerprint(
+    manifest: dict[str, object], *, kind: str
+) -> dict[str, object]:
     if kind == "runtime":
         keys = (
             "runtimePackId",
@@ -77,36 +89,46 @@ def _material_fingerprint(manifest: dict[str, object], *, kind: str) -> dict[str
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list):
         raise VisionComponentStoreError("component_artifacts_missing")
-    result["artifacts"] = sorted(
-        (
+    normalized = []
+    for item in artifacts:
+        if not isinstance(item, dict):
+            raise VisionComponentStoreError("component_artifact_invalid")
+        normalized.append(
             {
                 "relativePath": item.get("relativePath"),
                 "sizeBytes": item.get("sizeBytes"),
                 "sha256": item.get("sha256"),
             }
-            for item in artifacts
-            if isinstance(item, dict)
-        ),
-        key=lambda item: str(item["relativePath"]),
+        )
+    result["artifacts"] = sorted(
+        normalized, key=lambda item: str(item["relativePath"])
     )
-    if len(result["artifacts"]) != len(artifacts):
-        raise VisionComponentStoreError("component_artifact_invalid")
     return result
 
 
-def _validate_component(root: Path, manifest_name: str, *, kind: str) -> dict[str, object]:
+def _validate_component(
+    root: Path, manifest_name: str, *, kind: str
+) -> dict[str, object]:
     if not root.is_dir() or root.is_symlink():
         raise VisionComponentStoreError("component_root_invalid")
+    for entry in root.rglob("*"):
+        if entry.is_symlink():
+            raise VisionComponentStoreError("component_symlink_forbidden")
+
     manifest_path = root / manifest_name
     if not manifest_path.is_file() or manifest_path.is_symlink():
         raise VisionComponentStoreError("component_manifest_missing")
     manifest = _load_json(manifest_path)
     schema = manifest.get("schemaVersion")
     if kind == "runtime":
-        if schema != RUNTIME_SCHEMA or not RUNTIME_ID_RE.fullmatch(str(manifest.get("runtimePackId", ""))):
+        if schema != RUNTIME_SCHEMA or not RUNTIME_ID_RE.fullmatch(
+            str(manifest.get("runtimePackId", ""))
+        ):
             raise VisionComponentStoreError("runtime_manifest_invalid")
     else:
-        if schema != MODEL_SCHEMA or not MODEL_ID_RE.fullmatch(str(manifest.get("modelPackId", ""))):
+        if schema != MODEL_SCHEMA or not MODEL_ID_RE.fullmatch(
+            str(manifest.get("modelPackId", ""))
+        ):
             raise VisionComponentStoreError("model_manifest_invalid")
 
     declared: set[str] = set()
@@ -123,7 +145,13 @@ def _validate_component(root: Path, manifest_name: str, *, kind: str) -> dict[st
         declared.add(relative)
         sha = item.get("sha256")
         size = item.get("sizeBytes")
-        if not isinstance(sha, str) or not SHA256_RE.fullmatch(sha) or not isinstance(size, int) or size < 0:
+        if (
+            not isinstance(sha, str)
+            or not SHA256_RE.fullmatch(sha)
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size < 0
+        ):
             raise VisionComponentStoreError("component_artifact_invalid")
         path = root.joinpath(*logical.parts)
         if not path.is_file() or path.is_symlink():
@@ -141,11 +169,15 @@ def _validate_component(root: Path, manifest_name: str, *, kind: str) -> dict[st
     return manifest
 
 
-def _sync_component(source: Path, target: Path, manifest_name: str, *, kind: str) -> tuple[dict[str, object], bool]:
+def _sync_component(
+    source: Path, target: Path, manifest_name: str, *, kind: str
+) -> tuple[dict[str, object], bool]:
     source_manifest = _validate_component(source, manifest_name, kind=kind)
     if target.exists():
         target_manifest = _validate_component(target, manifest_name, kind=kind)
-        if _material_fingerprint(target_manifest, kind=kind) != _material_fingerprint(source_manifest, kind=kind):
+        if _material_fingerprint(target_manifest, kind=kind) != _material_fingerprint(
+            source_manifest, kind=kind
+        ):
             raise VisionComponentStoreError("component_id_collision")
         return target_manifest, True
 
@@ -158,13 +190,15 @@ def _sync_component(source: Path, target: Path, manifest_name: str, *, kind: str
             if child.is_symlink():
                 raise VisionComponentStoreError("component_symlink_forbidden")
             if child.is_dir():
-                shutil.copytree(child, destination)
+                shutil.copytree(child, destination, symlinks=False)
             elif child.is_file():
                 shutil.copy2(child, destination)
             else:
                 raise VisionComponentStoreError("component_entry_invalid")
         copied_manifest = _validate_component(stage, manifest_name, kind=kind)
-        if _material_fingerprint(copied_manifest, kind=kind) != _material_fingerprint(source_manifest, kind=kind):
+        if _material_fingerprint(copied_manifest, kind=kind) != _material_fingerprint(
+            source_manifest, kind=kind
+        ):
             raise VisionComponentStoreError("component_copy_mismatch")
         os.replace(stage, target)
         published = True
@@ -184,21 +218,41 @@ def sync_vision_components(
 ) -> dict[str, object]:
     if not re.fullmatch(r"[0-9a-f]{40}", application_revision):
         raise VisionComponentStoreError("application_revision_invalid")
+    if kit_root.exists() and (not kit_root.is_dir() or kit_root.is_symlink()):
+        raise VisionComponentStoreError("kit_root_invalid")
     kit_root.mkdir(parents=True, exist_ok=True)
+
     requirements = _load_json(component_requirements_path)
     if requirements.get("schemaVersion") != REQUIREMENTS_SCHEMA:
         raise VisionComponentStoreError("component_requirements_schema_invalid")
-    runtime_required = requirements.get("runtimePacks", {}).get("windows-x86_64-cpu")  # type: ignore[union-attr]
+    runtime_packs = requirements.get("runtimePacks")
     model_required = requirements.get("modelPack")
-    if not isinstance(runtime_required, dict) or not isinstance(model_required, dict):
+    if not isinstance(runtime_packs, dict) or not isinstance(model_required, dict):
+        raise VisionComponentStoreError("component_requirements_incomplete")
+    runtime_required = runtime_packs.get("windows-x86_64-cpu")
+    if not isinstance(runtime_required, dict):
         raise VisionComponentStoreError("component_requirements_incomplete")
 
-    source_runtime = _validate_component(runtime_pack_root, "runtime-pack-manifest.json", kind="runtime")
-    source_model = _validate_component(model_pack_root, "model-pack-manifest.json", kind="model")
-    for key in ("runtimePackId", "thirdPartyLockSha256", "runtimeRequirementsSha256", "nativeAbi"):
+    source_runtime = _validate_component(
+        runtime_pack_root, "runtime-pack-manifest.json", kind="runtime"
+    )
+    source_model = _validate_component(
+        model_pack_root, "model-pack-manifest.json", kind="model"
+    )
+    for key in (
+        "runtimePackId",
+        "thirdPartyLockSha256",
+        "runtimeRequirementsSha256",
+        "nativeAbi",
+    ):
         if source_runtime.get(key) != runtime_required.get(key):
             raise VisionComponentStoreError(f"runtime_requirement_mismatch:{key}")
-    for key in ("modelPackId", "modelId", "checkpointSha256", "resolvedConfigSha256"):
+    for key in (
+        "modelPackId",
+        "modelId",
+        "checkpointSha256",
+        "resolvedConfigSha256",
+    ):
         if source_model.get(key) != model_required.get(key):
             raise VisionComponentStoreError(f"model_requirement_mismatch:{key}")
 
@@ -207,7 +261,10 @@ def sync_vision_components(
     runtime_target = kit_root / "vision" / "runtime" / runtime_id
     model_target = kit_root / "vision" / "models" / model_id
     stored_runtime, runtime_reused = _sync_component(
-        runtime_pack_root, runtime_target, "runtime-pack-manifest.json", kind="runtime"
+        runtime_pack_root,
+        runtime_target,
+        "runtime-pack-manifest.json",
+        kind="runtime",
     )
     stored_model, model_reused = _sync_component(
         model_pack_root, model_target, "model-pack-manifest.json", kind="model"
@@ -233,31 +290,59 @@ def sync_vision_components(
     }
     inventory_path = kit_root / "vision" / "component-inventory.json"
     inventory_path.parent.mkdir(parents=True, exist_ok=True)
-    inventory_path.write_text(
-        json.dumps(inventory, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n",
+    stage_inventory = inventory_path.with_name(
+        f".{inventory_path.name}.{os.getpid()}.tmp"
+    )
+    stage_inventory.write_text(
+        json.dumps(inventory, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        + "\n",
         encoding="utf-8",
         newline="\n",
     )
-    return {**inventory, "runtimeReused": runtime_reused, "modelReused": model_reused}
+    os.replace(stage_inventory, inventory_path)
+    return {
+        **inventory,
+        "runtimeReused": runtime_reused,
+        "modelReused": model_reused,
+    }
 
 
 def verify_vision_component_store(kit_root: Path) -> dict[str, object]:
+    if not kit_root.is_dir() or kit_root.is_symlink():
+        raise VisionComponentStoreError("kit_root_invalid")
     inventory_path = kit_root / "vision" / "component-inventory.json"
+    if inventory_path.is_symlink():
+        raise VisionComponentStoreError("component_inventory_symlink_forbidden")
     inventory = _load_json(inventory_path)
     if inventory.get("schemaVersion") != INVENTORY_SCHEMA:
         raise VisionComponentStoreError("component_inventory_schema_invalid")
     runtime = inventory.get("runtimePack")
     model = inventory.get("modelPack")
     overlay = inventory.get("applicationOverlay")
-    if not isinstance(runtime, dict) or not isinstance(model, dict) or not isinstance(overlay, dict):
+    if (
+        not isinstance(runtime, dict)
+        or not isinstance(model, dict)
+        or not isinstance(overlay, dict)
+    ):
         raise VisionComponentStoreError("component_inventory_incomplete")
-    runtime_root = kit_root / str(runtime.get("relativePath", ""))
-    model_root = kit_root / str(model.get("relativePath", ""))
-    runtime_manifest = _validate_component(runtime_root, "runtime-pack-manifest.json", kind="runtime")
-    model_manifest = _validate_component(model_root, "model-pack-manifest.json", kind="model")
-    if _material_fingerprint(runtime_manifest, kind="runtime") != runtime.get("materialIdentity"):
+
+    runtime_relative = _safe_relative(runtime.get("relativePath"))
+    model_relative = _safe_relative(model.get("relativePath"))
+    runtime_root = kit_root.joinpath(*runtime_relative.parts)
+    model_root = kit_root.joinpath(*model_relative.parts)
+    runtime_manifest = _validate_component(
+        runtime_root, "runtime-pack-manifest.json", kind="runtime"
+    )
+    model_manifest = _validate_component(
+        model_root, "model-pack-manifest.json", kind="model"
+    )
+    if _material_fingerprint(runtime_manifest, kind="runtime") != runtime.get(
+        "materialIdentity"
+    ):
         raise VisionComponentStoreError("runtime_inventory_mismatch")
-    if _material_fingerprint(model_manifest, kind="model") != model.get("materialIdentity"):
+    if _material_fingerprint(model_manifest, kind="model") != model.get(
+        "materialIdentity"
+    ):
         raise VisionComponentStoreError("model_inventory_mismatch")
     if runtime_manifest.get("runtimePackId") != runtime.get("runtimePackId"):
         raise VisionComponentStoreError("runtime_inventory_id_mismatch")
