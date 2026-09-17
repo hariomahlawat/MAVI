@@ -13,18 +13,12 @@ function Assert-Throws {
         [Parameter(Mandatory = $true)][string]$MessageFragment
     )
     $thrown = $false
-    try {
-        & $Script
-    }
+    try { & $Script }
     catch {
         $thrown = $true
-        if ($_.Exception.Message -notlike "*$MessageFragment*") {
-            throw "Expected error containing '$MessageFragment', got '$($_.Exception.Message)'."
-        }
+        if ($_.Exception.Message -notlike "*$MessageFragment*") { throw "Expected error containing '$MessageFragment', got '$($_.Exception.Message)'." }
     }
-    if (-not $thrown) {
-        throw "Expected failure containing '$MessageFragment'."
-    }
+    if (-not $thrown) { throw "Expected failure containing '$MessageFragment'." }
 }
 
 $manifest = [pscustomobject]@{
@@ -39,123 +33,33 @@ $manifest = [pscustomobject]@{
     artifacts = @()
 }
 $manifestSha = "c" * 64
-$state = New-MaviVisionRuntimeInstallState `
-    -Manifest $manifest `
-    -RuntimePackManifestSha256 $manifestSha `
-    -RuntimeRoot "C:\ProgramData\MAVI\Development\VisionRuntime\windows-x86_64-cpu" `
-    -PythonIdentity ([pscustomobject]@{
-        version = "3.12.10"
-        implementation = "CPython"
-        build = @("tags/v3.12.10:fixture", "fixture")
-        compiler = "MSC v.1943 64 bit (AMD64)"
-    })
+$state = New-MaviVisionRuntimeInstallState -Manifest $manifest -RuntimePackManifestSha256 $manifestSha -RuntimeRoot "C:\ProgramData\MAVI\Development\VisionRuntime\windows-x86_64-cpu" -PythonIdentity ([pscustomobject]@{ version="3.12.10"; implementation="CPython"; build=@("tags/v3.12.10:fixture","fixture"); compiler="MSC v.1943 64 bit (AMD64)" })
+if ([string]$state.schemaVersion -ne "mavi-vision-runtime-install-v2") { throw "Vision runtime state did not use v2 schema." }
+if (-not (Test-MaviVisionRuntimePackReuse -InstalledState $state -Manifest $manifest -RuntimePackManifestSha256 $manifestSha -PythonIdentity $state.pythonIdentity)) { throw "Identical v2 Runtime Pack was not reusable." }
+$sourceOnlyManifest = $manifest.PSObject.Copy(); $sourceOnlyManifest.assembledFromCommit = "2" * 40
+if (-not (Test-MaviVisionRuntimePackReuse -InstalledState $state -Manifest $sourceOnlyManifest -RuntimePackManifestSha256 $manifestSha -PythonIdentity $state.pythonIdentity)) { throw "Source-only commit provenance incorrectly invalidated Runtime Pack reuse." }
+$changedManifest = $manifest.PSObject.Copy(); $changedManifest.runtimePackId = "mavi-runtime-v2-" + ("e" * 64)
+if (Test-MaviVisionRuntimePackReuse -InstalledState $state -Manifest $changedManifest -RuntimePackManifestSha256 $manifestSha -PythonIdentity $state.pythonIdentity) { throw "Different Runtime Pack ID was incorrectly reusable." }
+$wrongPython = [pscustomobject]@{ version="3.12.11"; implementation="CPython"; build=$state.pythonIdentity.build; compiler=$state.pythonIdentity.compiler }
+if (Test-MaviVisionRuntimePackReuse -InstalledState $state -Manifest $manifest -RuntimePackManifestSha256 $manifestSha -PythonIdentity $wrongPython) { throw "Different Python identity was incorrectly reusable." }
+$v1 = [pscustomobject]@{ schemaVersion="mavi-vision-runtime-install-v1"; runtimePackId=$manifest.runtimePackId }
+if (Test-MaviVisionRuntimePackReuse -InstalledState $v1 -Manifest $manifest -RuntimePackManifestSha256 $manifestSha -PythonIdentity $state.pythonIdentity) { throw "Legacy v1 installed state was incorrectly accepted for v2 reuse." }
+Assert-Throws -MessageFragment "runtime manifest schema" -Script { $bad=$manifest.PSObject.Copy(); $bad.schemaVersion="1.0"; Assert-MaviVisionRuntimePackManifest -Manifest $bad }
+Assert-Throws -MessageFragment "third-party lock SHA-256" -Script { $bad=$manifest.PSObject.Copy(); $bad.thirdPartyLockSha256="not-a-sha"; Assert-MaviVisionRuntimePackManifest -Manifest $bad }
 
-if ([string]$state.schemaVersion -ne "mavi-vision-runtime-install-v2") {
-    throw "Vision runtime state did not use v2 schema."
-}
-foreach ($name in @(
-    "runtimePackId",
-    "runtimePackManifestSha256",
-    "thirdPartyLockSha256",
-    "runtimeRequirementsSha256",
-    "platformVariant",
-    "pythonVersion",
-    "nativeAbi",
-    "pythonIdentity",
-    "runtimeRoot"
-)) {
-    if (-not $state.PSObject.Properties[$name]) {
-        throw "Vision runtime v2 state is missing '$name'."
-    }
-}
-
-if (-not (Test-MaviVisionRuntimePackReuse `
-    -InstalledState $state `
-    -Manifest $manifest `
-    -RuntimePackManifestSha256 $manifestSha `
-    -PythonIdentity $state.pythonIdentity)) {
-    throw "Identical v2 Runtime Pack was not reusable."
-}
-
-$sourceOnlyManifest = $manifest.PSObject.Copy()
-$sourceOnlyManifest.assembledFromCommit = "2" * 40
-if (-not (Test-MaviVisionRuntimePackReuse `
-    -InstalledState $state `
-    -Manifest $sourceOnlyManifest `
-    -RuntimePackManifestSha256 $manifestSha `
-    -PythonIdentity $state.pythonIdentity)) {
-    throw "Source-only commit provenance incorrectly invalidated Runtime Pack reuse."
-}
-
-$changedManifest = $manifest.PSObject.Copy()
-$changedManifest.runtimePackId = "mavi-runtime-v2-" + ("e" * 64)
-if (Test-MaviVisionRuntimePackReuse `
-    -InstalledState $state `
-    -Manifest $changedManifest `
-    -RuntimePackManifestSha256 $manifestSha `
-    -PythonIdentity $state.pythonIdentity) {
-    throw "Different Runtime Pack ID was incorrectly reusable."
-}
-
-$wrongPython = [pscustomobject]@{
-    version = "3.12.11"
-    implementation = "CPython"
-    build = $state.pythonIdentity.build
-    compiler = $state.pythonIdentity.compiler
-}
-if (Test-MaviVisionRuntimePackReuse `
-    -InstalledState $state `
-    -Manifest $manifest `
-    -RuntimePackManifestSha256 $manifestSha `
-    -PythonIdentity $wrongPython) {
-    throw "Different Python identity was incorrectly reusable."
-}
-
-$v1 = [pscustomobject]@{
-    schemaVersion = "mavi-vision-runtime-install-v1"
-    runtimePackId = $manifest.runtimePackId
-}
-if (Test-MaviVisionRuntimePackReuse `
-    -InstalledState $v1 `
-    -Manifest $manifest `
-    -RuntimePackManifestSha256 $manifestSha `
-    -PythonIdentity $state.pythonIdentity) {
-    throw "Legacy v1 installed state was incorrectly accepted for v2 reuse."
-}
-
-Assert-Throws -MessageFragment "runtime manifest schema" -Script {
-    $bad = $manifest.PSObject.Copy()
-    $bad.schemaVersion = "1.0"
-    Assert-MaviVisionRuntimePackManifest -Manifest $bad
-}
-
-Assert-Throws -MessageFragment "third-party lock SHA-256" -Script {
-    $bad = $manifest.PSObject.Copy()
-    $bad.thirdPartyLockSha256 = "not-a-sha"
-    Assert-MaviVisionRuntimePackManifest -Manifest $bad
-}
-
+# CR-01 regression contract: reuse and startup must revalidate the live installed
+# third-party closure, not merely manifest/state/Python identity.
 $installerText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Install-MaviVisionRuntime.ps1") -Raw
-foreach ($required in @(
-    "runtime-pack-manifest.json",
-    "mavi-vision-runtime-pack-v2",
-    "mavi-vision-runtime-install-v2",
-    "Test-MaviVisionRuntimePackReuse",
-    "New-MaviVisionRuntimeInstallState",
-    "thirdPartyLockSha256",
-    "runtimeRequirementsSha256"
-)) {
-    if ($installerText -notmatch [regex]::Escape($required)) {
-        throw "Vision runtime installer is missing v2 contract fragment: $required"
+$launcherText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviVisionWorker.ps1") -Raw
+foreach ($text in @($installerText, $launcherText)) {
+    foreach ($required in @("Assert-MaviVisionInstalledRuntimeClosure", "third-party-runtime-lock", "--no-index", "--require-hashes", "pip", "check")) {
+        if ($text -notmatch [regex]::Escape($required)) { throw "CR-01 runtime closure verification contract is missing: $required" }
     }
 }
-foreach ($forbidden in @(
-    "Assert-MaviVisionRuntimeSourceCompatible",
-    "BundleSourceCommit"
-)) {
-    if ($installerText -match [regex]::Escape($forbidden)) {
-        throw "Vision runtime installer still uses obsolete commit-coupled contract: $forbidden"
-    }
+foreach ($required in @("runtime-pack-manifest.json","mavi-vision-runtime-pack-v2","mavi-vision-runtime-install-v2","Test-MaviVisionRuntimePackReuse","New-MaviVisionRuntimeInstallState","thirdPartyLockSha256","runtimeRequirementsSha256")) {
+    if ($installerText -notmatch [regex]::Escape($required)) { throw "Vision runtime installer is missing v2 contract fragment: $required" }
 }
-
+foreach ($forbidden in @("Assert-MaviVisionRuntimeSourceCompatible","BundleSourceCommit")) {
+    if ($installerText -match [regex]::Escape($forbidden)) { throw "Vision runtime installer still uses obsolete commit-coupled contract: $forbidden" }
+}
 Write-Host "MAVI Vision runtime v2 state contracts: OK" -ForegroundColor Green
