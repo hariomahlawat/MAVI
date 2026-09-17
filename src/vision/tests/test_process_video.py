@@ -553,3 +553,47 @@ def test_source_integrity_failure_never_claims_frame_processing_started(
     assert snapshot.stage == "validating"
     assert snapshot.frames_processed == 0
     assert snapshot.progress_percent == 1.0
+
+
+
+def test_lease_expiry_during_frame_analytics_does_not_advance_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "progress-lease-expiry.mp4"
+    _write_tiny_mp4(source, frame_count=1)
+    size, digest = _source_facts(source)
+    detections = {0: (_person(),)}
+    processor = _processor(tmp_path, detections)
+    progress = ProcessingProgress(source_duration_ms=100)
+    now = BASE
+    guard = LeaseGuard(BASE + timedelta(seconds=1), now_utc=lambda: now)
+    real_quality = process_video_module.representative_quality
+
+    def quality_then_expire(frame, bbox):
+        nonlocal now
+        quality = real_quality(frame, bbox)
+        now = BASE + timedelta(seconds=2)
+        return quality
+
+    monkeypatch.setattr(
+        process_video_module,
+        "representative_quality",
+        quality_then_expire,
+    )
+
+    with pytest.raises(LeaseLostError, match="lease_lost"):
+        _run(
+            processor,
+            source,
+            size,
+            digest,
+            lease_guard=guard,
+            progress_sink=progress.sink,
+        )
+
+    snapshot = progress.reader.snapshot()
+    assert snapshot.stage == "processing"
+    assert snapshot.frames_processed == 0
+    assert snapshot.source_offset_ms is None
+    assert snapshot.progress_percent == 5.0
