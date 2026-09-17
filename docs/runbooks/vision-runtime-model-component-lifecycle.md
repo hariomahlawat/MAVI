@@ -58,6 +58,25 @@ A new Runtime Binary Pack is required when its **material identity** changes: ro
 
 Heavy-component reuse does not waive qualification. Every release/current application head must still pass the applicable Quality, runtime qualification, acceptance and component-boundary checks against explicitly identified Runtime and Model Pack IDs. Hardware/CUDA qualification is separate and must not be inferred from CPU CI success.
 
+## Functional qualification — PR #44
+
+The final exact implementation/documentation head before functional testing was `fea8820a95f00121ee04e735f3e4b53a08d074bc`. All six required GitHub qualification workflows completed successfully on that exact head before the local functional run was accepted:
+
+- MAVI Quality Gate
+- Task 10 Runtime Qualification
+- Task 12 Offline Runtime Pack
+- Task 17 Acceptance Validation
+- Vision Runtime Component Boundary
+- Vision Model Pack
+
+On 17 Sep 2026, the Development Windows CPU installation reused the already-installed v2 Runtime Binary Pack and v1 Model Pack without replacing their heavy payloads. `Test-MaviEnvironment.ps1 -Profile Development` passed and the worker loaded the locally installed RTMDet checkpoint.
+
+A 1920x1080 source video (`2min.mp4`, duration 2m 28s) was then processed through `phase1-detection-tracking` / `phase1-v1`. During Attempt 2 the host entered sleep/standby at approximately 70 percent progress, interrupting the worker. After worker restart, the existing processing job was automatically recovered as Attempt 3; recovery was job-level retry rather than frame-level continuation. Attempt 3 subsequently reached 100 percent and the authoritative UI recorded both the processing run as `Completed` and the video state as `Processed` at 17 Sep 2026 23:28:14 Asia/Kolkata, with no failure code.
+
+This qualifies the CPU end-to-end path exercised by the test: existing heavy-component reuse, environment verification, worker/model startup, job lease and heartbeat, RTMDet inference/tracking execution, progress reporting, worker-loss retry/recovery, and persisted successful completion. It does **not** qualify CUDA/GPU execution and does not claim frame-level resume after interruption.
+
+The PyTorch/MMDetection deprecation warnings and the non-fatal `data_preprocessor.mean` / `data_preprocessor.std` checkpoint-key warning observed during startup are recorded as technical debt; they did not prevent model readiness or completion of this qualification run. The launcher exit-code-70 semantics observed after the sleep interruption should be reviewed separately and must not be inferred from this run alone.
+
 ## Functional testing gate
 
-Do not resume the 2-minute video functional test merely because the component files install. Resume it only after PR #44's final exact-head qualification and independent cold review are complete, then perform the one-time local v2 Runtime/Model Pack installation and environment verification.
+The 2-minute functional test may be performed only after the target application head has completed exact-head qualification and independent cold review. Preserve the exact Runtime Pack ID, Model Pack ID, application head and final processing result in the qualification record. Do not repeat the expensive CPU video run merely for documentation-only changes unless a subsequent change affects the runtime/model/application execution path or invalidates the evidence.
