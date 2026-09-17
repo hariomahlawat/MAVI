@@ -11,6 +11,7 @@ from mavi_vision.runtime.activity import InferenceActivity
 from mavi_vision.runtime.execution_lane import ProcessExecutor, VisionExecutionLane
 from mavi_vision.runtime.provenance import RuntimeProvenance
 from mavi_vision.runtime.supervisor import RuntimeState, RuntimeSupervisor
+from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshotProvider
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiClient, WorkerApiError
@@ -34,7 +35,7 @@ def build_runner(
     processor: VisionProcessor | None = None,
     *,
     process_executor: ProcessExecutor | None = None,
-    watchdog_snapshot_provider: Callable[[], Any] | None = None,
+    watchdog_snapshot_provider: RuntimeWatchdogSnapshotProvider | None = None,
     watchdog_expired: Callable[[], bool] | None = None,
     watchdog_expiry_sink: Callable[[], None] | None = None,
     watchdog_incident_recorder: WatchdogIncidentRecorder | None = None,
@@ -197,11 +198,7 @@ async def _run_worker(
             client,
             processor,
             process_executor=lane,
-            watchdog_snapshot_provider=getattr(
-                supervisor,
-                "watchdog_snapshot",
-                None,
-            ),
+            watchdog_snapshot_provider=supervisor.watchdog_snapshot,
             watchdog_expired=supervisor.watchdog_expired,
             watchdog_expiry_sink=supervisor.report_watchdog_expiry,
             watchdog_incident_recorder=incident_recorder,
