@@ -4,9 +4,9 @@ Date: 2026-09-17
 PR: #44 `feature/runtime-pack-decoupling`
 Base: `feature/task-10-rtmdet-bytetrack`
 
-## Qualified checkpoint entering review
+## Final reviewed implementation checkpoint
 
-Exact head `b2cd65be2fbc5b94b6d73f59b16e85b5b3389c51` completed all six qualification workflows successfully:
+Exact head `269025c79aecbd1e45c996071684e2c4461c2267` completed all six qualification workflows successfully:
 
 - MAVI Quality Gate
 - Task 10 Runtime Qualification
@@ -15,49 +15,56 @@ Exact head `b2cd65be2fbc5b94b6d73f59b16e85b5b3389c51` completed all six qualific
 - Vision Runtime Component Boundary
 - Vision Model Pack
 
-This checkpoint is retained as historical evidence only after any later review-fix or documentation commit moves the PR head.
+The final documentation commit that records this result necessarily moves the branch head. The six-green checkpoint above therefore remains implementation evidence; the resulting documentation-only head must re-establish exact-head CI before merge-readiness is declared.
 
 ## Architecture reviewed
 
-The cold review treats the PR as unseen code and checks the following trust boundaries:
+The final cold review treated the PR as unseen code and rechecked the following trust boundaries:
 
-1. Runtime Binary Pack is third-party-only and content-derived from runtime dependency/lock/platform inputs.
+1. Runtime Binary Pack is third-party-only and content-derived from runtime dependency, lock, Python/platform and native ABI inputs.
 2. Model Pack is independently content-addressed from model checkpoint/config identity.
-3. Application/Release Overlay owns first-party source, qualification/release metadata and component requirements, without owning heavy binary payloads.
-4. Ordinary first-party source changes do not invalidate the heavy Runtime Binary Pack.
-5. Dependency, lock, Python/platform or native ABI changes do invalidate the Runtime Binary Pack.
-6. Candidate packs are fail-closed on manifest, path, size and SHA-256 integrity.
-7. Component-store publication is staged/content-addressed and conflicting component IDs are rejected.
-8. Runtime/Model ownership is explicit and cross-component duplicate heavy artifacts are rejected.
-9. Worker startup binds the current application overlay to the required Runtime Pack and Model Pack and independently probes the live CPython identity.
-10. Legacy runtime-install-v1 state is not silently accepted as v2.
+3. Application/Release Overlay owns first-party source, qualification/release metadata and component requirements without owning heavy binary payloads.
+4. Ordinary first-party source changes do not invalidate or trigger rebuild of the heavy Runtime Binary Pack.
+5. Dependency-root, lock, Python/platform, native ABI or other material runtime changes invalidate Runtime Pack identity.
+6. Candidate Runtime and Model packs remain fail-closed on manifest, path, size and SHA-256 integrity.
+7. Component-store publication is staged/content-addressed; conflicting component IDs and cross-component duplicate heavy ownership are rejected.
+8. Worker startup binds the current Application Overlay to required Runtime and Model component fingerprints and probes live CPython identity.
+9. Runtime reuse and worker startup revalidate the installed third-party closure against the installed reviewed lock and run `pip check`.
+10. Worker startup revalidates installed Model Pack artifacts for path safety, presence, size, SHA-256 and undeclared files before accepting the pack.
+11. Legacy `runtime-install-v1` state is not silently accepted as v2.
+12. Runtime integrity implementation is centralized in `Mavi.VisionRuntime.Integrity.psm1`; callers are required to invoke the shared boundary rather than duplicate verification logic.
 
-## Cold-review finding CR-01 — installed Runtime closure revalidation
+## Findings and disposition
 
-**Severity:** blocking for final architecture qualification.
+### CR-01 — installed Runtime closure revalidation
 
-The cold review identified that fresh installation verified the complete third-party lock, while the reuse/startup path previously relied on installed state, manifest and live CPython identity without revalidating the installed package closure.
+**Severity:** blocking when found.  
+**Disposition:** resolved and qualified.
 
-### Remediation implemented
+A shared fail-closed integrity boundary now resolves exactly one installed `third-party-runtime-lock`, verifies its path and SHA-256 against the manifest, validates the installed environment with `pip install --no-index --no-deps --require-hashes -r <installed-lock>`, and runs `python -m pip check`. The boundary is called before no-op Runtime Pack reuse and before worker startup. Fresh installation remains `--no-index --only-binary=:all: --require-hashes`.
 
-CR-01 has been remediated fail-closed. A shared `Mavi.VisionRuntime.Integrity.psm1` verification boundary now:
+### CR-02 — installed Model Pack live artifact revalidation
 
-- resolves exactly one installed `third-party-runtime-lock` artifact from the installed Runtime Pack manifest;
-- validates its relative path, presence and SHA-256 against both the artifact entry and `thirdPartyLockSha256`;
-- invokes the installed interpreter with `pip install --no-index --no-deps --require-hashes -r <installed-lock>` and no package source, so a missing or wrong-version locked distribution cannot be repaired or downloaded and causes verification failure;
-- runs `python -m pip check` after the exact-lock verification;
-- is called before an installed Runtime Pack is accepted for no-op reuse;
-- is called again before worker startup;
-- has repository contract coverage requiring both trust boundaries to retain the closure verification.
+**Severity:** blocking when found.  
+**Disposition:** resolved and qualified.
 
-Fresh installation remains `--no-index --only-binary=:all: --require-hashes`; no existing integrity control was relaxed.
+The post-CR-01 cold pass identified that worker startup previously trusted Model Pack state/manifest identity without re-hashing installed checkpoint/config payloads. Startup now revalidates every declared Model Pack artifact for safe path, presence, size and SHA-256 and rejects undeclared files before accepting the pack.
 
-**CR-01 status:** implementation complete; final status remains pending exact-head CI qualification and the post-fix cold-review pass.
+### CR-03 — over-specified CR-01 source-text contract
 
-## Non-findings confirmed
+**Severity:** CI correctness defect, not an implementation integrity defect.  
+**Disposition:** resolved and qualified.
 
-No unresolved PR review threads or PR discussion comments were present at the start of the cold-review pass. The PR was open, mergeable and draft. Runtime/Model/Application component separation, content-addressed Binary Kit storage, duplicate ownership rejection, exact-head checkout checks and source-only heavy-trigger exclusion were present in the reviewed implementation.
+Task 17 exposed a stale contract test that required implementation literals such as `third-party-runtime-lock` to appear directly in both callers after integrity logic had been centralized. The contract now checks the correct architectural split: callers must invoke `Assert-MaviVisionInstalledRuntimeClosure`, while the shared integrity module must retain the lock/hash/no-index/require-hashes/pip-check controls. Task 17 subsequently passed on exact head `269025c79aecbd1e45c996071684e2c4461c2267`.
+
+## Repository / PR state at final cold review
+
+- PR #44 remained open, mergeable and draft.
+- No unresolved inline review threads were present.
+- No submitted PR reviews were present.
+- All six qualification workflows were green on implementation head `269025c79aecbd1e45c996071684e2c4461c2267`.
+- No additional blocking architectural finding was identified in the final post-fix pass.
 
 ## Finalization rule
 
-PR #44 is not final until the resulting exact head re-establishes the applicable qualification workflows and the post-fix cold-review pass confirms no remaining blocking finding. Only then should the 2-minute functional video test resume.
+The architecture may be considered qualified only after the documentation-only head produced by this record also completes the required exact-head gates successfully. If that head is green and no new review finding appears, PR #44 can move to merge-readiness assessment. The 2-minute functional video test remains on hold until that exact-head confirmation is complete.
