@@ -63,7 +63,7 @@ $modelManifestPath = Join-Path $RepositoryRoot "models\manifests\rtmdet-m-coco-p
 $qualificationPath = Join-Path $RepositoryRoot "models\qualifications\rtmdet-m-coco-phase1-v1.json"
 $pipelinePath = Join-Path $RepositoryRoot "src\vision\config\pipelines\phase1-detection-tracking-v1.json"
 $runtimeProfilePath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\runtime.json"
-$componentRequirementsPath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\components.json"
+$componentRequirementsPath = Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json"
 $runtimeLockPath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cpu.lock"
 $runtimeRequirementsPath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cpu.requirements.txt"
 foreach ($path in @($modelManifestPath, $qualificationPath, $pipelinePath, $runtimeProfilePath, $componentRequirementsPath, $runtimeLockPath, $runtimeRequirementsPath)) {
