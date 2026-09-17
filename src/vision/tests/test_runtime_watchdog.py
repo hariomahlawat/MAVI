@@ -618,3 +618,97 @@ def test_watchdog_snapshot_provider_failure_is_durable_and_secret_safe(
     assert "Watchdog snapshot provider failed" in rendered
     assert "do-not-send" not in rendered
     assert r"C:\secret\runtime" not in rendered
+
+
+
+def test_blocked_watchdog_incident_recorder_cannot_block_fatal_containment(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def scenario() -> None:
+        lease = _watchdog_lease()
+        _materialize_watchdog_source(tmp_path, lease)
+        started = threading.Event()
+        release = threading.Event()
+        recorder_release = threading.Event()
+        client = _WatchdogApi(lease)
+        processor = _BlockingProcessor(started, release)
+        lane = VisionExecutionLane()
+        fatal_codes: list[int] = []
+
+        class BlockingRecorder:
+            def record(self, incident) -> None:
+                del incident
+                recorder_release.wait(timeout=2.0)
+
+        def runtime_snapshot() -> RuntimeWatchdogSnapshot:
+            active = started.is_set()
+            return RuntimeWatchdogSnapshot(
+                observed_monotonic=221.0 if active else 100.0,
+                active=active,
+                started_monotonic=100.0 if active else None,
+                elapsed_seconds=121.0 if active else None,
+                completed_count=0,
+                threshold_seconds=120.0,
+                expired=active,
+                device="cpu",
+                model_id=None,
+                runtime_variant=None,
+                pipeline_profile_id=None,
+                model_manifest_sha256=None,
+                checkpoint_sha256=None,
+                resolved_config_sha256=None,
+                pipeline_profile_sha256=None,
+                runtime_profile_sha256=None,
+            )
+
+        def terminator(code: int) -> None:
+            fatal_codes.append(code)
+            raise _FatalTerminatorSentinel("fatal-watchdog")
+
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            process_executor=lane,
+            watchdog_snapshot_provider=runtime_snapshot,
+            watchdog_incident_recorder=BlockingRecorder(),
+            watchdog_incident_write_timeout_seconds=0.01,
+            watchdog_grace_seconds=0.01,
+            watchdog_poll_seconds=0.001,
+            fatal_terminator=terminator,
+        )
+
+        try:
+            with pytest.raises(_FatalTerminatorSentinel, match="fatal-watchdog"):
+                await runner.run_once()
+        finally:
+            recorder_release.set()
+            release.set()
+            await lane.close()
+
+        assert fatal_codes == [70]
+        assert client.failures == []
+
+    asyncio.run(scenario())
+
+    rendered = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Watchdog incident persistence timed out" in rendered
+
+
+def test_worker_rejects_non_positive_watchdog_incident_write_timeout(
+    tmp_path: Path,
+) -> None:
+    lease = _watchdog_lease()
+
+    with pytest.raises(
+        ValueError,
+        match="watchdog_incident_write_timeout_seconds",
+    ):
+        WorkerRunner(
+            _WatchdogApi(lease),
+            LocalMediaStore(tmp_path),
+            2.0,
+            watchdog_incident_write_timeout_seconds=0.0,
+        )
