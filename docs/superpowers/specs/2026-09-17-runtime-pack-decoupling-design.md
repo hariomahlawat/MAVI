@@ -1,115 +1,158 @@
 # MAVI Vision Runtime Pack Decoupling Design
 
 **Date:** 17 September 2026  
-**Status:** Approved design for implementation planning  
+**Status:** Cold-reviewed and approved for implementation  
 **Branch:** `feature/runtime-pack-decoupling`  
 **Base:** `feature/task-10-rtmdet-bytetrack`
 
 ## 1. Problem Statement
 
-MAVI currently has a development source-overlay model intended to let the Vision Worker execute the current checkout's `src/vision/mavi_vision` code against a pinned, qualified runtime installed under `ProgramData`. `Start-MaviVisionWorker.ps1` explicitly documents this objective: source-only changes should not require rebuilding or downloading the heavy runtime bundle.
+MAVI Development intentionally executes the current checkout's `src/vision/mavi_vision` code against a pinned, qualified runtime installed under `ProgramData`. `Start-MaviVisionWorker.ps1` already overlays repository source through `PYTHONPATH` so ordinary first-party source changes should not require rebuilding or downloading the heavy runtime.
 
-The current Task-12 packaging implementation violates that boundary. The offline runtime lock contains `mavi-vision==0.1.0` with the SHA-256 of the first-party wheel. Task 12 rebuilds the `mavi-vision` wheel into the same wheelhouse as PyTorch, MMCV, MMDetection and other external dependencies, regenerates the lock, and publishes a new approximately 600 MB bundle whenever first-party Vision application code changes. The startup compatibility gate then sees the changed runtime lock/profile/qualification metadata and rejects the previously installed bundle.
+The current Task-12 architecture violates that boundary. The offline runtime lock contains `mavi-vision==0.1.0` with the hash of the first-party wheel. Task 12 therefore rebuilds the first-party wheel, regenerates the runtime lock/profile, and republishes an approximately 600 MB bundle whenever `mavi_vision` source changes. Startup then sees changed runtime metadata and rejects an otherwise compatible installed runtime.
 
-The resulting failure mode is operationally expensive but logically unnecessary: a small application-code change causes a large binary runtime artifact to be rebuilt, uploaded, downloaded and reinstalled even when no third-party dependency, native ABI, Python runtime, model checkpoint or native extension has changed.
+The fix must correct artifact boundaries and compatibility fingerprints. It must not weaken integrity checks, special-case commits, or merely cache the oversized artifact more aggressively.
 
-This is not to be fixed by weakening integrity checks or by adding exceptions for particular commits. The artifact boundaries and fingerprints must be corrected so that every integrity check describes the component it actually protects.
+## 2. Architectural Decision
 
-## 2. Design Goals
+MAVI Vision distribution shall use three independently identifiable layers.
 
-The implementation shall:
+### 2.1 Runtime Binary Pack
 
-1. Decouple first-party `mavi_vision` application changes from the large third-party/native runtime pack.
-2. Preserve fail-closed integrity and qualification semantics.
-3. Make heavyweight artifacts content-addressed or content-derived rather than repository-commit-addressed.
-4. Reuse an unchanged runtime pack across arbitrary application commits when their declared dependency/runtime requirements remain compatible.
-5. Preserve the current development source overlay and verify that it really resolves `mavi_vision` from the checkout.
-6. Keep offline installation deterministic and fully usable without internet access.
-7. Ensure a genuine dependency, Python ABI, native build, model, runtime-profile or pipeline-contract change invalidates exactly the component that must be replaced.
-8. Prevent CI from uploading hundreds of megabytes for ordinary first-party Python source changes.
-9. Add regression tests that prove both non-invalidation and required invalidation cases.
-10. Update ADRs, setup/offline-kit documentation and version/inventory records so future work does not reintroduce the coupling.
+The Runtime Binary Pack contains only the heavy platform-specific execution substrate:
 
-## 3. Non-Goals
-
-This change shall not:
-
-- change RTMDet, ByteTrack or analytical behaviour;
-- qualify CUDA hardware or a CUDA runtime;
-- change the currently qualified Windows CPU Python version (`3.12.10`) or Linux CPU Python version (`3.12.14`);
-- relax model/checkpoint integrity;
-- silently resolve dependencies from the internet during installation;
-- remove exact hash checking for third-party wheels;
-- make the runtime accept undeclared dependency changes;
-- treat application tests as a substitute for runtime qualification;
-- introduce a new general-purpose package manager or update service.
-
-## 4. Architectural Decision
-
-MAVI Vision distribution will use three independently identifiable layers.
-
-### 4.1 Runtime Binary Pack
-
-The Runtime Binary Pack contains the heavy, platform-specific execution substrate:
-
-- qualified CPython installer/runtime identity;
+- qualified CPython runtime/installer identity;
 - PyTorch and torchvision;
 - MMCV native wheel;
 - MMDetection and MMEngine;
-- OpenCV, AV, NumPy, SciPy, supervision, trackers and other third-party runtime distributions;
-- any other external wheel required by the Vision Worker;
-- platform/native ABI metadata;
-- a third-party-only lock with exact versions and SHA-256 hashes.
+- OpenCV, AV, NumPy, SciPy, supervision, trackers and all other third-party runtime distributions;
+- platform/native ABI and toolchain identity;
+- a third-party-only exact-hash lock;
+- a deterministic application-runtime-requirements projection used to prove that the lock satisfies the current application's declared dependency roots.
 
-It shall **not** contain the `mavi-vision` first-party wheel as a locked runtime distribution.
+It shall **not** contain or lock the `mavi-vision` first-party wheel.
 
-Its identity is derived from the actual runtime inputs: platform variant, Python identity, external dependency lock, native build identity/toolchain where applicable, and any other byte-affecting runtime input. It is not derived from the current application commit SHA.
+Its identity shall be content-derived from runtime inputs, not from an application commit SHA. A first-party `.py` edit must not change this identity.
 
-A first-party Python source edit must not change the Runtime Binary Pack identity.
+### 2.2 Model Pack
 
-### 4.2 Model Pack
-
-The Model Pack contains model-specific immutable assets and the metadata required to identify them:
+The Model Pack contains immutable model assets:
 
 - RTMDet checkpoint;
 - resolved MMDetection model configuration;
-- model manifest or a model-pack manifest containing their hashes;
-- model identity/version.
+- a model-pack manifest with content hashes and model identity.
 
-The Model Pack identity is derived from model/config content, not from the application commit. Qualification records may refer to a Model Pack identity, but changing qualification bookkeeping without changing model bytes shall not force retransmission of the checkpoint.
+Its identity is content-derived. Qualification metadata may bind to a Model Pack identity, but bookkeeping-only qualification changes shall not force retransmission of unchanged model bytes.
 
-### 4.3 MAVI Application / Release Overlay
+### 2.3 MAVI Application / Release Overlay
 
-The Application / Release Overlay contains the small and frequently changing first-party layer:
+The small, frequently changing first-party layer contains:
 
-- `mavi_vision` application code or wheel for packaged deployments;
-- pipeline profile and first-party release configuration as appropriate;
-- release/qualification records that bind a tested application revision to compatible Runtime Binary Pack and Model Pack identities;
-- first-party contracts or schema fingerprints where required for compatibility.
+- `mavi_vision` source/wheel for packaged deployments;
+- pipeline and first-party release configuration;
+- release/qualification records binding the exact application revision to compatible Runtime Binary Pack and Model Pack identities;
+- first-party contract/schema fingerprints where required.
 
-In development, the current checkout's `src/vision` remains the application layer through the existing verified `PYTHONPATH` overlay. A packaged offline release may carry a small first-party wheel or equivalent immutable application artifact separately from the heavy Runtime Binary Pack.
+Development mode continues to use the current checkout through the existing verified `PYTHONPATH` overlay.
 
-## 5. Dependency and Lock Semantics
+## 3. Non-Negotiable Integrity Boundary
 
-The current `pyproject.toml` remains the authoritative declaration of the application's Python requirements, but Task-12 runtime locking must no longer treat the local `mavi-vision` wheel as a member of the external runtime closure.
+Decoupling must not mean weakening qualification.
 
-A dedicated runtime-lock generation boundary shall produce a lock containing only third-party distributions. The lock must remain hash-complete and installable with:
+Every exact application head must still be tested against an explicitly identified Runtime Binary Pack and Model Pack. Reusing an immutable heavy component is permitted only when its deterministic fingerprint is identical to the fingerprint required by the current application head.
+
+The following remain fail-closed:
+
+- unsupported/malformed component manifests;
+- changed runtime dependency requirements;
+- changed Python/platform/native ABI requirements;
+- changed third-party lock or runtime profile identity;
+- changed checkpoint/resolved config/model identity;
+- missing or hash-mismatched artifacts;
+- undeclared files, unsafe paths or symlinks;
+- CUDA/CPU variant mismatch;
+- unknown installed-state schema.
+
+## 4. Application Runtime Requirements Projection
+
+### 4.1 Why it is required
+
+Today the `mavi-vision` wheel's `Requires-Dist` metadata acts as a root for dependency-closure validation. Removing that wheel from the Runtime Binary Pack without replacing this root would be unsafe: the remaining third-party wheelhouse could be internally closed while omitting an application-required distribution such as `httpx` or `msgpack`.
+
+Therefore the implementation shall introduce a deterministic **Application Runtime Requirements Projection** derived directly from `src/vision/pyproject.toml`.
+
+### 4.2 Projection contents
+
+For the current Vision Worker the projection shall include the union of:
+
+- `[project].dependencies`;
+- `[project.optional-dependencies].vision-runtime`.
+
+Development-only dependencies such as `pytest` are excluded.
+
+Each requirement shall be parsed with `packaging.Requirement`, canonicalized, marker-evaluated for the target platform/Python identity, and serialized deterministically. Direct URLs and unsupported environment-dependent markers shall fail closed.
+
+The projection shall carry a schema version and SHA-256 fingerprint, for example:
 
 ```text
---no-index
---only-binary=:all:
---require-hashes
+# schema: mavi-vision-runtime-requirements-v1
+# platform-variant: windows-x86_64-cpu
+# python-version: 3.12.10
+av>=15,<17
+httpx>=0.28,<0.29
+...
+torch==2.6.0
+...
 ```
 
-The runtime environment may still install a first-party application wheel for a packaged release, but that wheel is installed and verified as an application artifact after the third-party runtime environment is established. In Development mode, it is not required because the checkout source overlay is authoritative.
+The exact serialization format is an implementation detail, but ordering and bytes must be deterministic.
 
-Dependency compatibility must be explicit. If `pyproject.toml` changes a dependency requirement in a way that alters the resolved runtime closure, Runtime Binary Pack qualification must rerun and produce a new pack. If application source changes without changing dependency/runtime requirements, the existing Runtime Binary Pack remains valid.
+### 4.3 Lock validation against projection
 
-## 6. Component Identities and Installed State
+The third-party lock validator shall prove all of the following:
 
-The current `runtime-install.json` schema binds the installed runtime to `sourceCommit`. This is too coarse and shall be replaced by a component-oriented schema.
+1. every applicable root requirement in the projection has a corresponding locked distribution;
+2. the locked version satisfies that root requirement;
+3. every transitive `Requires-Dist` edge of every locked wheel is present and version-compatible;
+4. there are no direct-URL/source-build requirements;
+5. platform/Python tags and `Requires-Python` remain compatible;
+6. `mavi-vision` itself is absent from the third-party lock.
 
-The new installed runtime state shall record at minimum:
+This replaces the current `offline_lock_mavi_missing` invariant with a stronger and correctly scoped runtime-root invariant.
+
+## 5. Runtime Binary Pack Identity
+
+The Runtime Binary Pack ID shall be derived from the bytes/identities that make the runtime materially different, including at minimum:
+
+- platform variant;
+- exact qualified Python identity;
+- third-party lock SHA-256;
+- Application Runtime Requirements Projection SHA-256;
+- native ABI/toolchain identity where applicable;
+- runtime-pack schema version.
+
+The pack ID shall not contain or depend upon repository HEAD/source commit.
+
+The build manifest may retain `assembledFromCommit` as informational provenance, but startup compatibility must never compare it to the current application HEAD.
+
+## 6. Model Pack Identity
+
+The Model Pack ID shall derive from:
+
+- model ID;
+- checkpoint SHA-256;
+- resolved config SHA-256;
+- model-pack schema version.
+
+A change to qualification prose, workflow run IDs or application source alone must not change Model Pack identity.
+
+The Model Pack manifest shall enumerate every included file with size and SHA-256. The application/release record shall refer to `modelPackId` rather than assuming that model assets belong to a specific application commit.
+
+## 7. Installed State v2
+
+`runtime-install.json` shall migrate from commit binding to component binding.
+
+Minimum Runtime Binary Pack state:
 
 ```json
 {
@@ -118,230 +161,205 @@ The new installed runtime state shall record at minimum:
   "runtimePackId": "...",
   "runtimePackManifestSha256": "...",
   "thirdPartyLockSha256": "...",
+  "runtimeRequirementsSha256": "...",
   "pythonVersion": "3.12.10",
   "installedAtUtc": "...",
   "runtimeRoot": "..."
 }
 ```
 
-If Model Pack installation remains colocated under the runtime root during the first implementation, its independently derived `modelPackId` and manifest SHA-256 shall also be recorded. The logical identity must remain separate even if physical directories are temporarily colocated for deployment simplicity.
+If Model Pack assets remain physically colocated during migration, their `modelPackId` and manifest hash shall still be recorded separately. Logical identities must not be collapsed merely because directories are colocated.
 
-`sourceCommit` may be retained only as informational provenance for an artifact assembly event; it must not be the compatibility key that invalidates an otherwise identical Runtime Binary Pack.
+Existing `mavi-vision-runtime-install-v1` state shall not be silently interpreted as v2. A one-time runtime migration/reinstallation is acceptable. After that migration, ordinary application changes shall not require heavy runtime replacement.
 
-## 7. Compatibility Model
+## 8. Development Startup Compatibility
 
-Startup compatibility shall change from "was this heavy bundle built from the current repository commit?" to "are the installed component fingerprints compatible with the current application requirements?"
+Development startup shall verify component compatibility rather than repository ancestry.
 
-For Development mode, startup shall verify:
+It shall verify:
 
-1. required runtime pack schema and platform variant are supported;
-2. the installed third-party lock/runtime profile fingerprint matches the checkout's expected runtime dependency fingerprint;
-3. required model assets and their content hashes match the expected Model Pack identity/fingerprint;
-4. pipeline/contract/runtime profile inputs that genuinely affect compatibility are consistent;
-5. the Python interpreter identity is qualified;
-6. `mavi_vision` resolves from the current checkout, not from an old installed wheel.
+1. installed-state schema is v2;
+2. platform/runtime variant matches;
+3. installed Runtime Binary Pack ID/fingerprints match the current checkout's required runtime fingerprint;
+4. Model Pack ID/content fingerprints match the current application's model requirement;
+5. required release/pipeline/contract fingerprints match;
+6. exact qualified Python identity is present;
+7. `mavi_vision` resolves from the current repository source overlay.
 
-A changed application `.py` file alone shall not fail runtime compatibility.
+A `.py` source edit alone shall be accepted against an unchanged compatible Runtime Binary Pack.
 
-A changed dependency declaration, tracked third-party lock, Python/runtime ABI requirement, model checkpoint, resolved model configuration, or other explicitly classified runtime-critical input shall fail closed until the corresponding component is rebuilt/qualified/installed.
+A dependency declaration, runtime requirements projection, third-party lock, ABI, Python identity, model asset or explicitly classified compatibility input change shall fail closed.
 
-The old broad `git diff` check in `Assert-MaviVisionRuntimeSourceCompatible` shall be retired or narrowed to component fingerprints. Compatibility decisions must not depend on repository ancestry when content fingerprints provide the actual invariant.
+The broad commit-diff compatibility function `Assert-MaviVisionRuntimeSourceCompatible` shall be removed from the decision path or narrowed to diagnostic use only; repository ancestry is not a component compatibility invariant.
 
-## 8. CI / Task-12 Behaviour
+## 9. CI Architecture
 
-Task 12 currently triggers on `src/vision/mavi_vision/**` and builds/uploads complete Runtime Binary Packs for ordinary first-party source edits. This must stop.
+### 9.1 Lightweight application path
 
-The CI design shall separate lightweight validation from heavyweight runtime artifact publication.
+Ordinary first-party source/test changes shall run:
 
-### 8.1 Application changes
+- MAVI Quality Gate;
+- Vision unit/integration tests;
+- contract/source-overlay/component-compatibility tests;
+- task-specific acceptance gates.
 
-Changes limited to first-party application source/tests shall run:
+They shall not build or upload a new Runtime Binary Pack merely because `mavi_vision` changed.
 
-- Quality Gate;
-- relevant Vision unit/integration tests;
-- runtime/API contract tests;
-- source-overlay compatibility tests;
-- Task-specific acceptance gates where applicable.
+### 9.2 Heavy runtime path
 
-They shall not cause a new Runtime Binary Pack upload merely because the first-party wheel hash changed.
+Runtime Binary Pack build/qualification shall run when any runtime identity input changes, including:
 
-### 8.2 Runtime changes
-
-Heavy Runtime Binary Pack build/qualification shall run when inputs such as the following change:
-
-- Python runtime version/platform identity;
-- external dependency declarations or resolved pins;
-- runtime lock generation logic;
-- MMCV source pin/build toolchain/native ABI inputs;
+- `pyproject.toml` runtime dependency declarations;
+- third-party lock generation/validation semantics;
+- Python version/platform identity;
 - PyTorch/torchvision selection;
-- files that define the third-party runtime profile or its platform lock identities;
-- Runtime Binary Pack builder/manifest semantics.
+- MMCV source pin/build toolchain/native ABI inputs;
+- runtime profile/lock identity inputs;
+- Runtime Binary Pack builder or manifest schema.
 
-### 8.3 Model changes
+### 9.3 Model path
 
-Model Pack build or model qualification shall run when checkpoint/config/model-manifest inputs change. An unchanged checkpoint shall not be republished solely because application code or qualification prose changes.
+Model Pack build/qualification shall run when checkpoint, resolved config or model identity changes. Unchanged model bytes shall not be republished solely because first-party source or qualification bookkeeping changes.
 
-### 8.4 PR release gate
+### 9.4 Exact-head qualification when heavy packs are reused
 
-A PR that changes only application code may reuse a previously qualified Runtime Binary Pack. The PR's exact-head release evidence must explicitly record which Runtime Binary Pack and Model Pack identities were used for qualification/testing. This preserves exact-head application qualification without rebuilding immutable heavy dependencies.
+A source-only PR must still prove the exact application head against named immutable components. Its release evidence shall record:
 
-## 9. Offline Binary Kit and Deployment
-
-`MAVI-Offline-Binary-Kit` shall store heavy reusable component artifacts by stable component identity/version rather than by application commit.
-
-At minimum the kit inventory shall distinguish:
-
-- Runtime Binary Pack(s) by platform variant and runtime pack ID;
-- Model Pack(s) by model pack ID;
-- small Application / Release Overlay artifacts by application revision/release ID.
-
-The setup flow shall be idempotent:
-
-- if the required Runtime Binary Pack is already installed and its manifest/hash is valid, do not reinstall it;
-- if only the Application / Release Overlay changed, update only that layer;
-- if only the Model Pack changed, update only the model layer;
-- if Runtime Binary Pack identity changed, perform the existing staged/atomic runtime replacement.
-
-No setup path may silently reuse a component whose fingerprint does not match the application's declared requirement.
-
-## 10. Qualification and Evidence
-
-Runtime qualification and application qualification are related but distinct.
-
-The Runtime Binary Pack qualification proves that a specific third-party/native execution substrate is installable, reproducible where required, offline-complete and functionally able to execute the runtime probe.
-
-Application exact-head qualification proves that the current `mavi_vision` source/release overlay functions correctly against a named, previously qualified Runtime Binary Pack and Model Pack.
-
-Qualification records shall therefore bind:
-
-- application/release revision;
-- Runtime Binary Pack ID and manifest/lock fingerprint;
+- application HEAD/release ID;
+- Runtime Binary Pack ID and relevant manifest/lock fingerprints;
 - Model Pack ID and asset fingerprints;
-- pipeline/profile fingerprints;
+- pipeline/profile/contract fingerprints;
 - gate results.
 
-This prevents a stale runtime from being treated as valid while avoiding needless artifact regeneration.
+The CI implementation may restore/cache or otherwise reuse immutable qualified heavy components, but it must not claim qualification without actually executing the required application/runtime probes for the exact head.
 
-## 11. Security and Integrity Requirements
+## 10. Offline Installation and Reuse
 
-The decoupling must not weaken security properties introduced by Tasks 10–17.
+Offline installation remains deterministic and network-independent:
 
-The implementation shall preserve:
+```text
+--no-index
+--only-binary=:all:
+--require-hashes
+```
 
-- SHA-256 verification of every distributed artifact;
+The Runtime Binary Pack installer shall install only third-party distributions from the third-party lock. A packaged `mavi-vision` wheel, when used, is a separately verified Application Overlay artifact installed after the runtime environment is established. Development mode uses the repository source overlay and does not require that wheel to be installed.
+
+Setup shall be idempotent:
+
+- identical valid Runtime Binary Pack already installed -> reuse, no reinstall;
+- application-only update -> update/rebind application layer only;
+- model-only update -> update Model Pack only;
+- Runtime Binary Pack ID change -> staged/atomic heavy runtime replacement.
+
+No path may silently reuse a component whose fingerprint differs from the application's declared requirement.
+
+## 11. Offline Binary Kit
+
+`MAVI-Offline-Binary-Kit` shall inventory reusable artifacts by component identity, not application commit:
+
+- Runtime Binary Pack by platform variant + `runtimePackId`;
+- Model Pack by `modelPackId`;
+- Application / Release Overlay by application revision/release ID.
+
+The inventory shall record SHA-256, size, schema/version and source provenance. Re-running kit preparation must not duplicate an unchanged heavy component.
+
+## 12. Security Properties to Preserve
+
+The implementation shall preserve all existing relevant controls:
+
+- SHA-256 verification for distributed artifacts;
 - exact third-party wheel hashes;
-- offline-only installation with network disabled/unavailable;
+- no network during offline installation;
 - no source builds during offline installation;
-- trusted CPython installer verification on Windows;
-- native ABI/toolchain qualification for MMCV;
-- checkpoint/config integrity and exact checkpoint/model-key compatibility probe;
-- fail-closed handling of missing/unknown component identities;
-- path traversal/symlink/undeclared-artifact protections already present in bundle/install code;
+- trusted Windows CPython installer signature/version verification;
+- qualified native ABI/toolchain for MMCV;
+- checkpoint/resolved-config integrity;
+- exact checkpoint/model-key compatibility probe;
+- path traversal/symlink/undeclared-artifact protections;
+- fail-closed unknown schemas/identities;
 - no silent CPU/CUDA fallback.
 
-## 12. Migration Strategy
+## 13. Migration Sequence
 
-The migration shall be deliberate and one-way.
+1. Add deterministic runtime-requirements projection and tests.
+2. Change offline-lock validation to third-party-only + explicit application roots.
+3. Regenerate reviewed third-party-only Windows/Linux CPU locks.
+4. Introduce Runtime Binary Pack component manifest/ID independent of source commit.
+5. Introduce Model Pack manifest/ID independent of source commit.
+6. Update Task-12 trigger/build publication boundaries.
+7. Update installer state to v2 and implement idempotent component reuse.
+8. Replace commit-based Development startup compatibility with component fingerprints while retaining verified source overlay.
+9. Update offline-kit tooling and inventory.
+10. Update runtime/application exact-head qualification evidence.
+11. Run all repository gates and dedicated non-invalidation/invalidation tests.
+12. Perform one final cold review.
+13. Generate/install one canonical Windows CPU Runtime Binary Pack under the corrected architecture.
+14. Only then resume the two-minute functional video test.
 
-1. Introduce component fingerprint/manifest logic and tests without weakening the existing gate.
-2. Generate third-party-only locks and prove that application-source changes leave them byte-identical.
-3. Update Task-12 build logic to stop including `mavi-vision` in the heavy runtime closure.
-4. Update installer state to v2 component identities.
-5. Update Development startup compatibility to use component fingerprints and retain verified source overlay.
-6. Update offline-kit tooling/inventory and documentation.
-7. Add CI negative/positive invalidation tests.
-8. Qualify one new canonical Windows CPU Runtime Binary Pack under the corrected architecture.
-9. Install it once on the development machine.
-10. Resume the 2-minute video test only after the new architecture's own gates are green.
+## 14. Required Regression Tests
 
-Existing v1 installed runtime state shall not be silently interpreted as v2. Setup may detect v1 and require a one-time migration/reinstallation to establish the new component identity. After that one-time migration, ordinary application changes must no longer require the heavy bundle to be replaced.
+### Must NOT invalidate Runtime Binary Pack
 
-## 13. Required Regression Tests
+Representative changes to ordinary `src/vision/mavi_vision/*.py`, Vision tests, or application-only documentation must leave the Runtime Binary Pack fingerprint and third-party lock byte-identical.
 
-The implementation is incomplete unless automated tests prove all of the following:
+### Must invalidate Runtime Binary Pack
 
-### 13.1 Must not invalidate Runtime Binary Pack
+Representative changes to Python identity, pinned PyTorch/torchvision, MMCV build identity, a root runtime dependency requirement, runtime lock generation semantics, or native ABI inputs must change the required Runtime Binary Pack fingerprint or fail qualification until rebuilt.
 
-Representative changes to:
+### Dependency-root safety
 
-- `src/vision/mavi_vision/worker/runner.py`;
-- another ordinary `mavi_vision` Python module;
-- first-party tests;
-- application-only documentation;
+Tests must prove that after `mavi-vision` is removed from the lock:
 
-must leave the third-party runtime fingerprint/lock unchanged and must not require a Runtime Binary Pack rebuild.
+- omitting an application-required package is rejected;
+- a locked version outside the declared requirement is rejected;
+- transitive dependency omission is rejected;
+- `mavi-vision` appearing in the third-party lock is rejected.
 
-### 13.2 Must invalidate Runtime Binary Pack
+### Model independence
 
-Representative changes to:
+Checkpoint/resolved-config changes must change Model Pack identity; application-code and qualification-bookkeeping-only changes must not.
 
-- pinned PyTorch/torchvision versions;
-- MMCV source/build identity;
-- Python version/platform ABI;
-- a third-party dependency requirement that changes the resolved closure;
-- runtime lock generation semantics;
+### Startup
 
-must produce a different Runtime Binary Pack fingerprint or fail qualification until the pack is regenerated.
+Tests must prove:
 
-### 13.3 Must invalidate Model Pack or model qualification
+- newer source-only checkout starts against unchanged compatible v2 runtime;
+- checkout requiring a different runtime fingerprint is rejected;
+- wrong Model Pack is rejected;
+- source overlay resolves from checkout;
+- malformed/unknown state fails closed;
+- v1 state is not silently accepted.
 
-Representative changes to checkpoint/config/model identity must fail closed or produce a new Model Pack identity as appropriate.
+### Offline install/reuse
 
-### 13.4 Startup behaviour
+Tests must prove:
 
-Tests shall prove that:
-
-- Development startup accepts a newer application checkout against an unchanged compatible runtime pack;
-- Development startup rejects a checkout requiring a different runtime fingerprint;
-- `mavi_vision` imports from the checkout source overlay;
-- unknown/malformed installed state fails closed;
-- v1 installed state is not silently accepted as v2.
-
-### 13.5 Offline install behaviour
-
-Tests shall prove that:
-
-- the runtime pack installs with no network and exact hashes;
-- an already valid identical Runtime Binary Pack is reusable without reinstall;
-- first-party application update does not trigger heavy runtime replacement;
-- changed heavy runtime identity does trigger staged replacement.
-
-## 14. Files/Areas Expected to Change
-
-Implementation planning shall inspect and likely modify at least:
-
-- `.github/workflows/task12-offline-bundle.yml`;
-- `.github/workflows/task10-runtime-qualification.yml` where release/runtime bindings are asserted;
-- `tools/vision/build_offline_bundle.py`;
-- `tools/vision/freeze_offline_lock.py`;
-- runtime lock/profile logic under `src/vision/mavi_vision/runtime/`;
-- `src/vision/runtime/mmdetection-phase1-v1/*.lock` and `runtime.json`;
-- `tools/setup/Mavi.Setup.Common.psm1`;
-- `tools/setup/Install-MaviVisionRuntime.ps1`;
-- `tools/setup/Start-MaviVisionWorker.ps1`;
-- `tools/setup/New-MaviOfflineBinaryKit.ps1` and its verification tooling;
-- tests for the above;
-- `docs/decisions/ADR-005-qualified-vision-runtime.md` and relevant setup/offline documentation.
-
-Exact file-level changes belong in the implementation plan after the existing helpers/tests are mapped in detail.
+- runtime installs with no network and exact hashes;
+- identical installed Runtime Binary Pack is reusable without staged replacement;
+- application-only update does not trigger heavy runtime replacement;
+- changed runtime pack identity does trigger staged replacement.
 
 ## 15. Acceptance Criteria
 
-This architectural correction is accepted only when all of the following are true:
+The correction is complete only when:
 
-1. A normal `mavi_vision` source-only commit does not change the third-party runtime lock or Runtime Binary Pack identity.
-2. CI does not build/upload the approximately 600 MB Runtime Binary Pack for such a source-only change.
-3. The Vision Worker starts from the newer checkout using an already installed compatible Runtime Binary Pack and proves import resolution from the checkout.
-4. A genuine third-party/runtime dependency change still fails closed until a newly qualified Runtime Binary Pack is installed.
-5. Model/checkpoint changes are independently detected and do not depend on application commit equality.
-6. Offline installation remains deterministic, hash-verified and network-independent.
-7. The offline binary kit records component versions/identities separately and can reuse unchanged heavy components.
-8. All affected Quality, runtime qualification, offline installation and new component-boundary tests are green.
-9. Documentation accurately describes the component lifecycle and the one-time v1-to-v2 migration.
-10. Only after these conditions are met do we resume functional video processing tests.
+1. a normal `mavi_vision` source-only commit does not change the third-party runtime lock or Runtime Binary Pack ID;
+2. CI does not rebuild/upload the approximately 600 MB Runtime Binary Pack for such a source-only change;
+3. exact-head application qualification still runs and records the reused component identities;
+4. Development startup accepts the newer checkout against the compatible installed v2 Runtime Binary Pack and verifies source overlay resolution;
+5. genuine runtime/dependency changes still fail closed until a newly qualified Runtime Binary Pack is installed;
+6. Model Pack identity is independent of application commit and qualification bookkeeping;
+7. offline installation remains deterministic, hash-verified and network-independent;
+8. the Offline Binary Kit reuses unchanged heavy components by stable identity;
+9. all affected Quality, runtime qualification, offline installation and component-boundary tests are green;
+10. documentation describes the three component lifecycles and one-time v1 -> v2 migration;
+11. only after these conditions are green is functional video testing resumed.
 
-## 16. Design Rationale
+## 16. Cold Review Closure — 17 September 2026
 
-The essential rule is simple: **large immutable dependencies must be versioned by the content and compatibility properties that make them different, not by unrelated application commits.**
+An independent cold review of this design identified one material omission in the first draft: removing the `mavi-vision` wheel from the heavy lock also removes the wheel metadata that currently anchors the application's root dependencies. The design was therefore strengthened with the deterministic Application Runtime Requirements Projection and explicit root-to-lock validation above.
 
-This gives MAVI a reproducible offline deployment model without trading away integrity. It also makes qualification evidence clearer: application code can evolve rapidly, while the expensive native/runtime substrate and model assets change only when their own inputs actually change.
+The review also made exact-head qualification semantics explicit: heavy-component reuse reduces artifact churn but never waives testing of the current application head against the named component identities.
+
+With those corrections, no unresolved architectural blocker remains. The design preserves fail-closed integrity while eliminating repository-commit coupling from large immutable artifacts.
