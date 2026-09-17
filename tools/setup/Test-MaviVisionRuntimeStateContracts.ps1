@@ -135,4 +135,27 @@ Assert-Throws -MessageFragment "third-party lock SHA-256" -Script {
     Assert-MaviVisionRuntimePackManifest -Manifest $bad
 }
 
+$installerText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Install-MaviVisionRuntime.ps1") -Raw
+foreach ($required in @(
+    "runtime-pack-manifest.json",
+    "mavi-vision-runtime-pack-v2",
+    "mavi-vision-runtime-install-v2",
+    "Test-MaviVisionRuntimePackReuse",
+    "New-MaviVisionRuntimeInstallState",
+    "thirdPartyLockSha256",
+    "runtimeRequirementsSha256"
+)) {
+    if ($installerText -notmatch [regex]::Escape($required)) {
+        throw "Vision runtime installer is missing v2 contract fragment: $required"
+    }
+}
+foreach ($forbidden in @(
+    "Assert-MaviVisionRuntimeSourceCompatible",
+    "BundleSourceCommit"
+)) {
+    if ($installerText -match [regex]::Escape($forbidden)) {
+        throw "Vision runtime installer still uses obsolete commit-coupled contract: $forbidden"
+    }
+}
+
 Write-Host "MAVI Vision runtime v2 state contracts: OK" -ForegroundColor Green
