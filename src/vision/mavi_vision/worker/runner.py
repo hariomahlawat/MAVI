@@ -3,6 +3,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import isfinite
 from pathlib import Path
@@ -31,6 +32,7 @@ from mavi_vision.storage.local_media_store import MediaStoreError
 from mavi_vision.worker.client import WorkerApiError
 from mavi_vision.worker.watchdog_incident import (
     WATCHDOG_FAILURE_CODE,
+    WATCHDOG_OBSERVATION_FAILURE_CODE,
     WatchdogIncidentRecorder,
     WatchdogIncidentSnapshot,
 )
@@ -51,10 +53,16 @@ _PROCESSING_FAILURE_MESSAGE: Final = "Vision processing failed."
 _FATAL_SERVICE_RESTART_CODE: Final = 70
 
 
+@dataclass(frozen=True, slots=True)
+class _WatchdogTrigger:
+    failure_code: str
+    runtime_snapshot: RuntimeWatchdogSnapshot | None
+
+
 class _WatchdogExpiredDuringHeartbeat(RuntimeError):
-    def __init__(self, runtime_snapshot: RuntimeWatchdogSnapshot | None) -> None:
-        super().__init__(WATCHDOG_FAILURE_CODE)
-        self.runtime_snapshot = runtime_snapshot
+    def __init__(self, trigger: _WatchdogTrigger) -> None:
+        super().__init__(trigger.failure_code)
+        self.trigger = trigger
 
 
 # Worker collaborators
@@ -386,14 +394,14 @@ class WorkerRunner:
                     lease_guard.check_owned()
                     return result, lease_guard
 
-                watchdog_snapshot = self._expired_watchdog_snapshot()
-                if watchdog_snapshot is not False:
+                watchdog_trigger = self._watchdog_trigger()
+                if watchdog_trigger is not None:
                     await self._handle_watchdog_expiry(
                         process_task,
                         lease_guard,
                         lease,
                         progress_reader,
-                        watchdog_snapshot,
+                        watchdog_trigger,
                     )
 
                 now_monotonic = self._monotonic_clock()
@@ -413,7 +421,7 @@ class WorkerRunner:
                             lease_guard,
                             lease,
                             progress_reader,
-                            exc.runtime_snapshot,
+                            exc.trigger,
                         )
                         raise AssertionError(
                             "watchdog containment unexpectedly returned"
@@ -456,13 +464,13 @@ class WorkerRunner:
         lease_guard: LeaseGuard,
         lease: VisionJobLease,
         progress_reader: ProcessingProgressReader,
-        runtime_snapshot: RuntimeWatchdogSnapshot | None,
+        watchdog_trigger: _WatchdogTrigger,
     ) -> None:
         lease_guard.mark_lost()
         self._record_watchdog_incident(
             lease,
             progress_reader,
-            runtime_snapshot,
+            watchdog_trigger,
         )
         self._report_watchdog_expiry()
         still_stuck = await self._watchdog_grace_wait(
@@ -492,12 +500,12 @@ class WorkerRunner:
             return
 
         while not process_task.done():
-            watchdog_snapshot = self._expired_watchdog_snapshot()
-            if watchdog_snapshot is not False:
+            watchdog_trigger = self._watchdog_trigger()
+            if watchdog_trigger is not None:
                 self._record_watchdog_incident(
                     lease,
                     progress_reader,
-                    watchdog_snapshot,
+                    watchdog_trigger,
                 )
                 self._report_watchdog_expiry()
                 still_stuck = await self._watchdog_grace_wait(
@@ -545,37 +553,50 @@ class WorkerRunner:
             or self._watchdog_expired is not None
         )
 
-    def _expired_watchdog_snapshot(
-        self,
-    ) -> RuntimeWatchdogSnapshot | None | bool:
+    def _watchdog_trigger(self) -> _WatchdogTrigger | None:
         provider = self._watchdog_snapshot_provider
         if provider is not None:
             try:
                 snapshot = provider()
             except Exception:
-                _LOGGER.exception(
-                    "Watchdog snapshot provider failed; containing as expired"
+                # Runtime/provider exceptions may contain paths or other private
+                # diagnostics. Preserve fail-closed containment without rendering
+                # the exception or traceback into operator logs.
+                _LOGGER.error(
+                    "Watchdog snapshot provider failed; containing as unhealthy"
                 )
-                return None
-            return snapshot if snapshot.expired else False
+                return _WatchdogTrigger(
+                    WATCHDOG_OBSERVATION_FAILURE_CODE,
+                    None,
+                )
+            if snapshot.expired:
+                return _WatchdogTrigger(WATCHDOG_FAILURE_CODE, snapshot)
+            return None
 
         callback = self._watchdog_expired
         if callback is None:
-            return False
-        try:
-            return None if bool(callback()) else False
-        except Exception:
-            _LOGGER.exception("Watchdog callback failed; containing as expired")
             return None
+        try:
+            if bool(callback()):
+                return _WatchdogTrigger(WATCHDOG_FAILURE_CODE, None)
+            return None
+        except Exception:
+            _LOGGER.error(
+                "Watchdog callback failed; containing as unhealthy"
+            )
+            return _WatchdogTrigger(
+                WATCHDOG_OBSERVATION_FAILURE_CODE,
+                None,
+            )
 
     def _record_watchdog_incident(
         self,
         lease: VisionJobLease,
         progress_reader: ProcessingProgressReader,
-        runtime_snapshot: RuntimeWatchdogSnapshot | None,
+        watchdog_trigger: _WatchdogTrigger,
     ) -> None:
         recorder = self._watchdog_incident_recorder
-        if recorder is None or runtime_snapshot is None:
+        if recorder is None:
             return
         try:
             recorder.record(
@@ -583,15 +604,15 @@ class WorkerRunner:
                     worker_id=str(lease.worker_id),
                     job_id=lease.job_id,
                     attempt_count=lease.attempt_count,
-                    failure_code=WATCHDOG_FAILURE_CODE,
+                    failure_code=watchdog_trigger.failure_code,
                     progress=progress_reader.snapshot(),
-                    runtime=runtime_snapshot,
+                    runtime=watchdog_trigger.runtime_snapshot,
                 )
             )
         except Exception:
-            # Incident persistence is best effort with respect to evidence only.
-            # It must never prevent process-level containment of a poisoned lane.
-            _LOGGER.exception("Watchdog incident persistence failed")
+            # Persistence errors can include a private diagnostics path. Do not
+            # render the exception/traceback; containment must still proceed.
+            _LOGGER.error("Watchdog incident persistence failed")
 
     def _report_watchdog_expiry(self) -> None:
         sink = self._watchdog_expiry_sink
@@ -600,7 +621,7 @@ class WorkerRunner:
         try:
             sink()
         except Exception:
-            _LOGGER.exception("Watchdog expiry sink failed")
+            _LOGGER.error("Watchdog expiry sink failed")
 
     async def _heartbeat_before_deadline_while_processing(
         self,
@@ -623,9 +644,9 @@ class WorkerRunner:
             raise WorkerApiError("heartbeat deadline exceeded")
         if process_task.done():
             return None
-        watchdog_snapshot = self._expired_watchdog_snapshot()
-        if watchdog_snapshot is not False:
-            raise _WatchdogExpiredDuringHeartbeat(watchdog_snapshot)
+        watchdog_trigger = self._watchdog_trigger()
+        if watchdog_trigger is not None:
+            raise _WatchdogExpiredDuringHeartbeat(watchdog_trigger)
 
         heartbeat_task = asyncio.create_task(
             self._api_client.heartbeat(
@@ -661,9 +682,9 @@ class WorkerRunner:
                 if process_task in done:
                     return None
 
-                watchdog_snapshot = self._expired_watchdog_snapshot()
-                if watchdog_snapshot is not False:
-                    raise _WatchdogExpiredDuringHeartbeat(watchdog_snapshot)
+                watchdog_trigger = self._watchdog_trigger()
+                if watchdog_trigger is not None:
+                    raise _WatchdogExpiredDuringHeartbeat(watchdog_trigger)
         finally:
             if not heartbeat_task.done():
                 # Heartbeat/network work is asyncio-owned and safe to cancel.
