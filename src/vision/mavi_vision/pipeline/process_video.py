@@ -159,6 +159,11 @@ class VideoProcessor:
                                 crop=self._crop_rgb(frame, bbox),
                             )
 
+                    # Re-check lease authority at the exact successful-frame
+                    # commit boundary. A frame completed after lease expiry must
+                    # never advance observable attempt progress.
+                    lease_guard.check_owned()
+
                     # A frame becomes observable forward progress only after its
                     # detector, tracker, and analytical accumulator work succeeds.
                     frames_processed += 1
@@ -189,6 +194,7 @@ class VideoProcessor:
             self._cleanup_best_effort(lease_guard)
             raise VideoProcessingError("pipeline_processing_failed") from exc
 
+        lease_guard.check_owned()
         if progress_sink is not None:
             progress_sink.mark_finalization_started()
 
