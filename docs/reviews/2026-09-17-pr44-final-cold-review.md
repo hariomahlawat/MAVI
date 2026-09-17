@@ -6,16 +6,16 @@ Base: `feature/task-10-rtmdet-bytetrack`
 
 ## Final reviewed implementation checkpoint
 
-Exact head `269025c79aecbd1e45c996071684e2c4461c2267` completed all six qualification workflows successfully:
+Exact head `fea8820a95f00121ee04e735f3e4b53a08d074bc` completed all six required qualification workflows successfully immediately before functional testing:
 
-- MAVI Quality Gate
-- Task 10 Runtime Qualification
-- Task 12 Offline Runtime Pack
-- Task 17 Acceptance Validation
-- Vision Runtime Component Boundary
-- Vision Model Pack
+- MAVI Quality Gate — run 1593
+- Task 10 Runtime Qualification — run 528
+- Task 12 Offline Runtime Pack — run 870
+- Task 17 Acceptance Validation — run 737
+- Vision Runtime Component Boundary — run 77
+- Vision Model Pack — run 35
 
-The final documentation commit that records this result necessarily moves the branch head. The six-green checkpoint above therefore remains implementation evidence; the resulting documentation-only head must re-establish exact-head CI before merge-readiness is declared.
+The functional test was therefore executed only after the exact target application head had re-established the complete six-green gate set.
 
 ## Architecture reviewed
 
@@ -55,16 +55,26 @@ The post-CR-01 cold pass identified that worker startup previously trusted Model
 **Severity:** CI correctness defect, not an implementation integrity defect.  
 **Disposition:** resolved and qualified.
 
-Task 17 exposed a stale contract test that required implementation literals such as `third-party-runtime-lock` to appear directly in both callers after integrity logic had been centralized. The contract now checks the correct architectural split: callers must invoke `Assert-MaviVisionInstalledRuntimeClosure`, while the shared integrity module must retain the lock/hash/no-index/require-hashes/pip-check controls. Task 17 subsequently passed on exact head `269025c79aecbd1e45c996071684e2c4461c2267`.
+Task 17 exposed a stale contract test that required implementation literals such as `third-party-runtime-lock` to appear directly in both callers after integrity logic had been centralized. The contract now checks the correct architectural split: callers must invoke `Assert-MaviVisionInstalledRuntimeClosure`, while the shared integrity module retains the lock/hash/no-index/require-hashes/pip-check controls. Task 17 is green on the final pre-functional-test exact head.
 
-## Repository / PR state at final cold review
+## Functional qualification
 
-- PR #44 remained open, mergeable and draft.
+The Development Windows CPU environment reused the existing v2 Runtime Binary Pack and v1 Model Pack without heavy-component replacement. Environment verification passed and the worker loaded the local RTMDet checkpoint.
+
+A 1920x1080 video (`2min.mp4`, duration 2m 28s) was processed using `phase1-detection-tracking` / `phase1-v1`. Attempt 2 progressed to approximately 70 percent before the host entered sleep/standby and the worker stopped. After restart, the same authoritative processing job was recovered automatically as Attempt 3. Recovery was a job-level retry, not frame-level continuation. Attempt 3 reached 100 percent; the UI recorded the processing run as `Completed` and the video as `Processed` at 17 Sep 2026 23:28:14 Asia/Kolkata, with no failure code.
+
+This supplies end-to-end CPU functional evidence for heavy-component reuse, environment/startup validation, local model loading, lease/heartbeat operation, RTMDet inference/tracking execution, progress reporting, unexpected-worker-loss recovery, retry and persisted successful completion. CUDA/GPU execution is not qualified by this result.
+
+Observed non-blocking startup warnings (`data_preprocessor.mean` / `data_preprocessor.std` checkpoint keys and PyTorch/MMDetection deprecations) are technical debt. Exit code 70 observed after the sleep interruption requires separate semantic review; this record does not assign a cause to that code beyond the observed temporal association with host sleep.
+
+## Repository / PR state before documentation close-out
+
+- PR #44 was open, mergeable and draft.
 - No unresolved inline review threads were present.
-- No submitted PR reviews were present.
-- All six qualification workflows were green on implementation head `269025c79aecbd1e45c996071684e2c4461c2267`.
-- No additional blocking architectural finding was identified in the final post-fix pass.
+- All six required qualification workflows were green on exact head `fea8820a95f00121ee04e735f3e4b53a08d074bc`.
+- No additional blocking architectural finding was identified in the final post-fix cold pass.
+- The functional CPU qualification completed successfully on that implementation head.
 
 ## Finalization rule
 
-The architecture may be considered qualified only after the documentation-only head produced by this record also completes the required exact-head gates successfully. If that head is green and no new review finding appears, PR #44 can move to merge-readiness assessment. The 2-minute functional video test remains on hold until that exact-head confirmation is complete.
+This record and the runbook update are documentation-only commits and therefore move the branch head without changing executable/runtime material. The resulting documentation head must nevertheless re-establish the required exact-head CI evidence before merge-readiness is declared. The expensive 2-minute CPU video run does not need to be repeated solely because of these documentation-only changes. Any later executable/runtime/model/component-boundary change invalidates that functional-test assumption and requires impact-based requalification.
