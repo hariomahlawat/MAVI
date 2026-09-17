@@ -93,7 +93,6 @@ jobs:
                   for item in runtime["platformVariants"].values()
               )
 
-
   windows-script-validation:
     runs-on: windows-latest
     steps:
@@ -121,6 +120,7 @@ jobs:
             "tools/setup/Test-MaviEnvironment.ps1",
             "tools/setup/Test-MaviSetupContracts.ps1",
             "tools/setup/Test-MaviVisionRuntimeStateContracts.ps1",
+            "tools/setup/Test-MaviVisionWorkerComponentContracts.ps1",
             "tools/setup/Mavi.VisionRuntime.Common.psm1",
             "tools/setup/Mavi.Setup.Common.psm1",
             "tools/setup/Mavi.Setup.Windows.psm1",
@@ -149,3 +149,4 @@ jobs:
           $ErrorActionPreference = "Stop"
           .\tools\setup\Test-MaviSetupContracts.ps1
           .\tools\setup\Test-MaviVisionRuntimeStateContracts.ps1
+          .\tools\setup\Test-MaviVisionWorkerComponentContracts.ps1
