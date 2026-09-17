@@ -37,12 +37,8 @@ if (-not (Test-Path -LiteralPath $runtimeStatePath -PathType Leaf) -or -not (Tes
 $runtimeState = Get-Content -LiteralPath $runtimeStatePath -Raw | ConvertFrom-Json
 $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw | ConvertFrom-Json
 [void](Assert-MaviVisionRuntimePackManifest -Manifest $runtimeManifest)
-if ([string]$runtimeState.schemaVersion -ne "mavi-vision-runtime-install-v2") {
-    throw "Vision runtime installed state schema is unsupported; reinstall the v2 Runtime Pack."
-}
-if ((Get-Sha256 $runtimeManifestPath) -ne ([string]$runtimeState.runtimePackManifestSha256).ToLowerInvariant()) {
-    throw "Installed Vision Runtime Pack manifest fingerprint does not match runtime-install.json."
-}
+if ([string]$runtimeState.schemaVersion -ne "mavi-vision-runtime-install-v2") { throw "Vision runtime installed state schema is unsupported; reinstall the v2 Runtime Pack." }
+if ((Get-Sha256 $runtimeManifestPath) -ne ([string]$runtimeState.runtimePackManifestSha256).ToLowerInvariant()) { throw "Installed Vision Runtime Pack manifest fingerprint does not match runtime-install.json." }
 $python = Join-Path $runtimeRoot "venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "Vision Runtime Pack interpreter is missing: $python" }
 
@@ -58,12 +54,8 @@ if (-not (Test-Path -LiteralPath $modelStatePath -PathType Leaf) -or -not (Test-
 $modelState = Get-Content -LiteralPath $modelStatePath -Raw | ConvertFrom-Json
 $modelPackManifest = Get-Content -LiteralPath $modelPackManifestPath -Raw | ConvertFrom-Json
 [void](Assert-MaviVisionModelPackManifest -Manifest $modelPackManifest)
-if ([string]$modelState.schemaVersion -ne "mavi-vision-model-install-v1") {
-    throw "Vision model installed state schema is unsupported; reinstall the Model Pack."
-}
-if ((Get-Sha256 $modelPackManifestPath) -ne ([string]$modelState.modelPackManifestSha256).ToLowerInvariant()) {
-    throw "Installed Vision Model Pack manifest fingerprint does not match model-install.json."
-}
+if ([string]$modelState.schemaVersion -ne "mavi-vision-model-install-v1") { throw "Vision model installed state schema is unsupported; reinstall the Model Pack." }
+if ((Get-Sha256 $modelPackManifestPath) -ne ([string]$modelState.modelPackManifestSha256).ToLowerInvariant()) { throw "Installed Vision Model Pack manifest fingerprint does not match model-install.json." }
 
 # Application/Release Overlay requirements are authoritative for the current
 # checkout. Repository HEAD is provenance only; compatibility is component-based.
@@ -71,25 +63,28 @@ $modelManifestPath = Join-Path $RepositoryRoot "models\manifests\rtmdet-m-coco-p
 $qualificationPath = Join-Path $RepositoryRoot "models\qualifications\rtmdet-m-coco-phase1-v1.json"
 $pipelinePath = Join-Path $RepositoryRoot "src\vision\config\pipelines\phase1-detection-tracking-v1.json"
 $runtimeProfilePath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\runtime.json"
+$componentRequirementsPath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\components.json"
 $runtimeLockPath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cpu.lock"
 $runtimeRequirementsPath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cpu.requirements.txt"
-foreach ($path in @($modelManifestPath, $qualificationPath, $pipelinePath, $runtimeProfilePath, $runtimeLockPath, $runtimeRequirementsPath)) {
+foreach ($path in @($modelManifestPath, $qualificationPath, $pipelinePath, $runtimeProfilePath, $componentRequirementsPath, $runtimeLockPath, $runtimeRequirementsPath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required Vision application overlay file is missing: $path" }
 }
 $modelSourceManifest = Get-Content -LiteralPath $modelManifestPath -Raw | ConvertFrom-Json
 $qualification = Get-Content -LiteralPath $qualificationPath -Raw | ConvertFrom-Json
-$runtimeRequirement = $qualification.runtimePacks."windows-x86_64-cpu"
-$modelRequirement = $qualification.modelPack
-if (-not $runtimeRequirement -or -not $modelRequirement) { throw "Vision qualification record does not declare required reusable components." }
+$components = Get-Content -LiteralPath $componentRequirementsPath -Raw | ConvertFrom-Json
+if ([string]$components.schemaVersion -ne "mavi-vision-component-requirements-v1") { throw "Unsupported Vision component-requirements schema '$($components.schemaVersion)'." }
+if ([string]$components.runtimeProfileId -ne [string]$qualification.runtimeProfileId) { throw "Vision component requirements target the wrong runtime profile." }
+$runtimeRequirement = $components.runtimePacks."windows-x86_64-cpu"
+$modelRequirement = $components.modelPack
+if (-not $runtimeRequirement -or -not $modelRequirement) { throw "Vision component requirements do not declare the required Windows CPU Runtime Pack and Model Pack." }
 
 if ((Get-Sha256 $modelManifestPath) -ne ([string]$qualification.modelManifestSha256).ToLowerInvariant()) { throw "Vision application model-manifest fingerprint does not match qualification metadata." }
 if ((Get-Sha256 $pipelinePath) -ne ([string]$qualification.pipelineProfileSha256).ToLowerInvariant()) { throw "Vision application pipeline fingerprint does not match qualification metadata." }
 if ((Get-Sha256 $runtimeProfilePath) -ne ([string]$qualification.runtimeProfileSha256).ToLowerInvariant()) { throw "Vision application runtime-profile fingerprint does not match qualification metadata." }
 if ((Get-Sha256 $runtimeLockPath) -ne ([string]$runtimeRequirement.thirdPartyLockSha256).ToLowerInvariant()) { throw "Vision application Runtime Pack lock binding is stale." }
 if ((Get-Sha256 $runtimeRequirementsPath) -ne ([string]$runtimeRequirement.runtimeRequirementsSha256).ToLowerInvariant()) { throw "Vision application runtime-requirements binding is stale." }
-if ([string]$modelSourceManifest.modelId -ne [string]$modelRequirement.modelId -or [string]$modelSourceManifest.checkpoint.sha256 -ne [string]$modelRequirement.checkpointSha256 -or [string]$modelSourceManifest.resolvedConfig.sha256 -ne [string]$modelRequirement.resolvedConfigSha256) {
-    throw "Vision application Model Pack binding is stale."
-}
+if ([string]$runtimeRequirement.nativeAbi -ne [string]$runtimeManifest.nativeAbi) { throw "Vision application Runtime Pack native ABI binding is stale." }
+if ([string]$modelSourceManifest.modelId -ne [string]$modelRequirement.modelId -or [string]$modelSourceManifest.checkpoint.sha256 -ne [string]$modelRequirement.checkpointSha256 -or [string]$modelSourceManifest.resolvedConfig.sha256 -ne [string]$modelRequirement.resolvedConfigSha256) { throw "Vision application Model Pack binding is stale." }
 
 [void](Assert-MaviVisionWorkerComponentCompatibility `
     -RuntimeState $runtimeState `
