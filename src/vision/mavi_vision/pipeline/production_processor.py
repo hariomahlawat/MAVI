@@ -10,6 +10,7 @@ from mavi_vision.detection.rtmdet import RTMDetDetector
 from mavi_vision.pipeline.process_video import VideoProcessor
 from mavi_vision.runtime.errors import ProcessingDependencyError
 from mavi_vision.runtime.interfaces import DetectorRuntime
+from mavi_vision.runtime.progress import ProcessingProgressSink
 from mavi_vision.runtime.profile import PipelineProfile
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.tracking.bytetrack import ByteTrackTracker
@@ -56,6 +57,7 @@ class ProductionVisionProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink: ProcessingProgressSink | None = None,
     ) -> VisionProcessingResult:
         # Attempt-local construction itself must not start after authority is
         # already known to be lost. VideoProcessor continues to own all later
@@ -76,6 +78,7 @@ class ProductionVisionProcessor:
                 expected_source_size_bytes=expected_source_size_bytes,
                 expected_source_sha256=expected_source_sha256,
                 lease_guard=lease_guard,
+                progress_sink=progress_sink,
             )
         except ProcessingDependencyError as exc:
             # Runtime health is independent of lease authority. Preserve the local

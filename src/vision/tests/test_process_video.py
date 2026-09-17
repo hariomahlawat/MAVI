@@ -16,6 +16,7 @@ from mavi_vision.detection.fixture import FixtureDetector
 from mavi_vision.detection.interfaces import DetectionCandidate
 from mavi_vision.pipeline.process_video import VideoProcessingError, VideoProcessor
 from mavi_vision.runtime.errors import GpuOutOfMemoryError, TrackerError
+from mavi_vision.runtime.progress import ProcessingProgress
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.tracking.fixture import FixtureTracker
@@ -86,6 +87,7 @@ def _run(
     *,
     attempt: int = ATTEMPT,
     lease_guard: LeaseGuard | None = None,
+    progress_sink=None,
 ):
     return processor.process(
         job_id=JOB_ID,
@@ -94,6 +96,7 @@ def _run(
         expected_source_size_bytes=size,
         expected_source_sha256=digest,
         lease_guard=lease_guard or _owned_guard(),
+        progress_sink=progress_sink,
     )
 
 
@@ -472,3 +475,125 @@ def test_unsafe_tracker_id_is_rejected_before_artifact_creation(tmp_path: Path) 
 
     assert exc_info.value.code == "pipeline_processing_failed"
     assert not _attempt_path(tmp_path).exists()
+
+
+
+def test_progress_reaches_finalization_only_after_successful_frames(tmp_path: Path) -> None:
+    source = tmp_path / "progress.mp4"
+    _write_tiny_mp4(source, frame_count=3)
+    size, digest = _source_facts(source)
+    progress = ProcessingProgress(source_duration_ms=300)
+    detections = {0: (_person(),), 1: (_person(),), 2: (_person(),)}
+
+    result = _run(
+        _processor(tmp_path, detections),
+        source,
+        size,
+        digest,
+        progress_sink=progress.sink,
+    )
+
+    snapshot = progress.reader.snapshot()
+    assert result.frames_processed == 3
+    assert snapshot.frames_processed == 3
+    assert snapshot.stage == "finalizing"
+    assert snapshot.progress_percent == 95.0
+
+
+def test_detector_failure_does_not_count_incomplete_frame_as_progress(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "progress-detector-failure.mp4"
+    _write_tiny_mp4(source, frame_count=1)
+    size, digest = _source_facts(source)
+    progress = ProcessingProgress(source_duration_ms=100)
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
+
+    class FailingDetector:
+        def detect(self, frame):
+            raise RuntimeError("fixture failure")
+
+    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store)
+
+    with pytest.raises(VideoProcessingError, match="pipeline_processing_failed"):
+        _run(
+            processor,
+            source,
+            size,
+            digest,
+            progress_sink=progress.sink,
+        )
+
+    snapshot = progress.reader.snapshot()
+    assert snapshot.stage == "processing"
+    assert snapshot.frames_processed == 0
+    assert snapshot.source_offset_ms is None
+    assert snapshot.progress_percent == 5.0
+
+
+def test_source_integrity_failure_never_claims_frame_processing_started(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "progress-integrity-failure.mp4"
+    _write_tiny_mp4(source, frame_count=1)
+    size, _ = _source_facts(source)
+    progress = ProcessingProgress(source_duration_ms=100)
+    processor = _processor(tmp_path, {})
+
+    with pytest.raises(SourceIntegrityError, match="source_sha256_mismatch"):
+        _run(
+            processor,
+            source,
+            size,
+            "0" * 64,
+            progress_sink=progress.sink,
+        )
+
+    snapshot = progress.reader.snapshot()
+    assert snapshot.stage == "validating"
+    assert snapshot.frames_processed == 0
+    assert snapshot.progress_percent == 1.0
+
+
+
+def test_lease_expiry_during_frame_analytics_does_not_advance_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "progress-lease-expiry.mp4"
+    _write_tiny_mp4(source, frame_count=1)
+    size, digest = _source_facts(source)
+    detections = {0: (_person(),)}
+    processor = _processor(tmp_path, detections)
+    progress = ProcessingProgress(source_duration_ms=100)
+    now = BASE
+    guard = LeaseGuard(BASE + timedelta(seconds=1), now_utc=lambda: now)
+    real_quality = process_video_module.representative_quality
+
+    def quality_then_expire(frame, bbox):
+        nonlocal now
+        quality = real_quality(frame, bbox)
+        now = BASE + timedelta(seconds=2)
+        return quality
+
+    monkeypatch.setattr(
+        process_video_module,
+        "representative_quality",
+        quality_then_expire,
+    )
+
+    with pytest.raises(LeaseLostError, match="lease_lost"):
+        _run(
+            processor,
+            source,
+            size,
+            digest,
+            lease_guard=guard,
+            progress_sink=progress.sink,
+        )
+
+    snapshot = progress.reader.snapshot()
+    assert snapshot.stage == "processing"
+    assert snapshot.frames_processed == 0
+    assert snapshot.source_offset_ms is None
+    assert snapshot.progress_percent == 5.0

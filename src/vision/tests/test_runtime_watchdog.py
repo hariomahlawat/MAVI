@@ -14,9 +14,11 @@ from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJ
 from mavi_vision.common.lease import LeaseGuard
 from mavi_vision.runtime.activity import InferenceActivity
 from mavi_vision.runtime.execution_lane import VisionExecutionLane
+from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshot
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiError
 from mavi_vision.worker.runner import WorkerRunner
+from mavi_vision.worker.watchdog_incident import WATCHDOG_OBSERVATION_FAILURE_CODE
 
 
 class ManualMonotonicClock:
@@ -225,6 +227,7 @@ class _BlockingProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink=None,
     ) -> VisionProcessingResult:
         del attempt_count, source_path, expected_source_size_bytes, expected_source_sha256
         self.started.set()
@@ -329,7 +332,7 @@ def test_watchdog_expiry_with_unwind_in_grace_surfaces_only_lease_loss(
 
     assert expiry_reports == ["expired"]
     assert fatal_codes == []
-    assert client.heartbeats == [5.0]
+    assert client.heartbeats == [1.0]
     assert client.failures == []
 
 
@@ -374,7 +377,7 @@ def test_stuck_watchdog_invokes_fatal_terminator_once_without_stale_fail(
         assert expiry_reports == ["expired"]
         assert fatal_codes == [70]
         assert runner.fatal_termination_active is True
-        assert client.heartbeats == [5.0]
+        assert client.heartbeats == [1.0]
         assert client.failures == []
 
     asyncio.run(scenario())
@@ -467,7 +470,245 @@ def test_watchdog_keeps_polling_while_heartbeat_request_is_in_flight(
         assert client.renewal_cancelled is True
         assert watchdog_polls >= 2
         assert expiry_reports == ["expired"]
-        assert client.heartbeats == [5.0, 5.0]
+        assert client.heartbeats == [1.0, 1.0]
         assert client.failures == []
 
     asyncio.run(scenario())
+
+
+
+def test_watchdog_incident_captures_one_coherent_runtime_and_attempt_snapshot(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        lease = _watchdog_lease()
+        _materialize_watchdog_source(tmp_path, lease)
+        started = threading.Event()
+        release = threading.Event()
+        client = _WatchdogApi(lease)
+        processor = _BlockingProcessor(started, release)
+        lane = VisionExecutionLane()
+        records = []
+        fatal_codes: list[int] = []
+
+        class Recorder:
+            def record(self, incident) -> None:
+                records.append(incident)
+
+        def runtime_snapshot() -> RuntimeWatchdogSnapshot:
+            active = started.is_set()
+            return RuntimeWatchdogSnapshot(
+                observed_monotonic=221.0 if active else 100.0,
+                active=active,
+                started_monotonic=100.0 if active else None,
+                elapsed_seconds=121.0 if active else None,
+                completed_count=7,
+                threshold_seconds=120.0,
+                expired=active,
+                device="cpu",
+                model_id="rtmdet-m-coco",
+                runtime_variant="windows-x86_64-cpu",
+                pipeline_profile_id="phase1-detection-tracking-v1",
+                model_manifest_sha256="a" * 64,
+                checkpoint_sha256="b" * 64,
+                resolved_config_sha256="c" * 64,
+                pipeline_profile_sha256="d" * 64,
+                runtime_profile_sha256="e" * 64,
+            )
+
+        def terminator(code: int) -> None:
+            fatal_codes.append(code)
+            raise _FatalTerminatorSentinel("fatal-watchdog")
+
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            process_executor=lane,
+            watchdog_snapshot_provider=runtime_snapshot,
+            watchdog_expiry_sink=lambda: None,
+            watchdog_incident_recorder=Recorder(),
+            watchdog_grace_seconds=0.01,
+            watchdog_poll_seconds=0.001,
+            fatal_terminator=terminator,
+        )
+
+        try:
+            with pytest.raises(_FatalTerminatorSentinel, match="fatal-watchdog"):
+                await runner.run_once()
+        finally:
+            release.set()
+            await lane.close()
+
+        assert fatal_codes == [70]
+        assert len(records) == 1
+        incident = records[0]
+        assert incident.worker_id == str(lease.worker_id)
+        assert incident.job_id == lease.job_id
+        assert incident.attempt_count == lease.attempt_count
+        assert incident.progress.progress_percent == 1.0
+        assert incident.progress.frames_processed == 0
+        assert incident.runtime.expired is True
+        assert incident.runtime.elapsed_seconds == 121.0
+        assert client.failures == []
+
+    asyncio.run(scenario())
+
+
+
+def test_watchdog_snapshot_provider_failure_is_durable_and_secret_safe(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def scenario() -> None:
+        lease = _watchdog_lease()
+        _materialize_watchdog_source(tmp_path, lease)
+        started = threading.Event()
+        release = threading.Event()
+        client = _WatchdogApi(lease)
+        processor = _BlockingProcessor(started, release)
+        lane = VisionExecutionLane()
+        records = []
+        fatal_codes: list[int] = []
+
+        class Recorder:
+            def record(self, incident) -> None:
+                records.append(incident)
+
+        def failing_snapshot() -> RuntimeWatchdogSnapshot:
+            raise RuntimeError(r"C:\secret\runtime token=do-not-send")
+
+        def terminator(code: int) -> None:
+            fatal_codes.append(code)
+            raise _FatalTerminatorSentinel("fatal-watchdog")
+
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            process_executor=lane,
+            watchdog_snapshot_provider=failing_snapshot,
+            watchdog_incident_recorder=Recorder(),
+            watchdog_grace_seconds=0.01,
+            watchdog_poll_seconds=0.001,
+            fatal_terminator=terminator,
+        )
+
+        try:
+            with pytest.raises(_FatalTerminatorSentinel, match="fatal-watchdog"):
+                await runner.run_once()
+        finally:
+            release.set()
+            await lane.close()
+
+        assert fatal_codes == [70]
+        assert len(records) == 1
+        incident = records[0]
+        assert incident.failure_code == WATCHDOG_OBSERVATION_FAILURE_CODE
+        assert incident.runtime is None
+        assert incident.progress.progress_percent == 1.0
+        assert client.failures == []
+
+    awaitable = scenario()
+    asyncio.run(awaitable)
+
+    rendered = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Watchdog snapshot provider failed" in rendered
+    assert "do-not-send" not in rendered
+    assert r"C:\secret\runtime" not in rendered
+
+
+
+def test_blocked_watchdog_incident_recorder_cannot_block_fatal_containment(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def scenario() -> None:
+        lease = _watchdog_lease()
+        _materialize_watchdog_source(tmp_path, lease)
+        started = threading.Event()
+        release = threading.Event()
+        recorder_release = threading.Event()
+        client = _WatchdogApi(lease)
+        processor = _BlockingProcessor(started, release)
+        lane = VisionExecutionLane()
+        fatal_codes: list[int] = []
+
+        class BlockingRecorder:
+            def record(self, incident) -> None:
+                del incident
+                recorder_release.wait(timeout=2.0)
+
+        def runtime_snapshot() -> RuntimeWatchdogSnapshot:
+            active = started.is_set()
+            return RuntimeWatchdogSnapshot(
+                observed_monotonic=221.0 if active else 100.0,
+                active=active,
+                started_monotonic=100.0 if active else None,
+                elapsed_seconds=121.0 if active else None,
+                completed_count=0,
+                threshold_seconds=120.0,
+                expired=active,
+                device="cpu",
+                model_id=None,
+                runtime_variant=None,
+                pipeline_profile_id=None,
+                model_manifest_sha256=None,
+                checkpoint_sha256=None,
+                resolved_config_sha256=None,
+                pipeline_profile_sha256=None,
+                runtime_profile_sha256=None,
+            )
+
+        def terminator(code: int) -> None:
+            fatal_codes.append(code)
+            raise _FatalTerminatorSentinel("fatal-watchdog")
+
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            process_executor=lane,
+            watchdog_snapshot_provider=runtime_snapshot,
+            watchdog_incident_recorder=BlockingRecorder(),
+            watchdog_incident_write_timeout_seconds=0.01,
+            watchdog_grace_seconds=0.01,
+            watchdog_poll_seconds=0.001,
+            fatal_terminator=terminator,
+        )
+
+        try:
+            with pytest.raises(_FatalTerminatorSentinel, match="fatal-watchdog"):
+                await runner.run_once()
+        finally:
+            recorder_release.set()
+            release.set()
+            await lane.close()
+
+        assert fatal_codes == [70]
+        assert client.failures == []
+
+    asyncio.run(scenario())
+
+    rendered = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Watchdog incident persistence timed out" in rendered
+
+
+def test_worker_rejects_non_positive_watchdog_incident_write_timeout(
+    tmp_path: Path,
+) -> None:
+    lease = _watchdog_lease()
+
+    with pytest.raises(
+        ValueError,
+        match="watchdog_incident_write_timeout_seconds",
+    ):
+        WorkerRunner(
+            _WatchdogApi(lease),
+            LocalMediaStore(tmp_path),
+            2.0,
+            watchdog_incident_write_timeout_seconds=0.0,
+        )

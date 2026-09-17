@@ -11,10 +11,15 @@ from mavi_vision.runtime.activity import InferenceActivity
 from mavi_vision.runtime.execution_lane import ProcessExecutor, VisionExecutionLane
 from mavi_vision.runtime.provenance import RuntimeProvenance
 from mavi_vision.runtime.supervisor import RuntimeState, RuntimeSupervisor
+from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshotProvider
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiClient, WorkerApiError
 from mavi_vision.worker.runner import VisionProcessor, WorkerRunner
+from mavi_vision.worker.watchdog_incident import (
+    JsonlWatchdogIncidentRecorder,
+    WatchdogIncidentRecorder,
+)
 
 
 # Process logging
@@ -30,8 +35,10 @@ def build_runner(
     processor: VisionProcessor | None = None,
     *,
     process_executor: ProcessExecutor | None = None,
+    watchdog_snapshot_provider: RuntimeWatchdogSnapshotProvider | None = None,
     watchdog_expired: Callable[[], bool] | None = None,
     watchdog_expiry_sink: Callable[[], None] | None = None,
+    watchdog_incident_recorder: WatchdogIncidentRecorder | None = None,
     watchdog_grace_seconds: float | None = None,
     runtime_provenance_provider: Callable[[], RuntimeProvenance | None] | None = None,
 ) -> WorkerRunner:
@@ -44,8 +51,10 @@ def build_runner(
         heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
         heartbeat_request_timeout_seconds=settings.request_timeout_seconds,
         process_executor=process_executor,
+        watchdog_snapshot_provider=watchdog_snapshot_provider,
         watchdog_expired=watchdog_expired,
         watchdog_expiry_sink=watchdog_expiry_sink,
+        watchdog_incident_recorder=watchdog_incident_recorder,
         watchdog_grace_seconds=(
             settings.watchdog_grace_seconds
             if watchdog_grace_seconds is None
@@ -181,13 +190,18 @@ async def _run_worker(
                 runtime_failure_sink=supervisor.report_processing_failure,
             )
 
+        incident_recorder = JsonlWatchdogIncidentRecorder(
+            settings.media_root / "diagnostics" / "watchdog-incidents.jsonl"
+        )
         runner = runner_builder(
             settings,
             client,
             processor,
             process_executor=lane,
+            watchdog_snapshot_provider=supervisor.watchdog_snapshot,
             watchdog_expired=supervisor.watchdog_expired,
             watchdog_expiry_sink=supervisor.report_watchdog_expiry,
+            watchdog_incident_recorder=incident_recorder,
             watchdog_grace_seconds=settings.watchdog_grace_seconds,
             runtime_provenance_provider=lambda: supervisor.provenance,
         )

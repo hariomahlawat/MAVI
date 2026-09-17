@@ -364,3 +364,76 @@ def test_python_runtime_identity_captures_exact_interpreter_build() -> None:
         "pythonCompiler": platform.python_compiler(),
     }
 
+
+
+
+def test_checkpoint_compatibility_accepts_only_exact_reviewed_preprocessor_delta() -> None:
+    probe = _load_probe()
+
+    result = probe.evaluate_checkpoint_model_key_compatibility(
+        model_keys=("backbone.weight", "neck.bias"),
+        checkpoint_keys=(
+            "backbone.weight",
+            "neck.bias",
+            "data_preprocessor.mean",
+            "data_preprocessor.std",
+        ),
+    )
+
+    assert result == {
+        "status": "passed",
+        "missingKeys": [],
+        "unexpectedKeys": [
+            "data_preprocessor.mean",
+            "data_preprocessor.std",
+        ],
+        "reviewedUnexpectedKeys": [
+            "data_preprocessor.mean",
+            "data_preprocessor.std",
+        ],
+    }
+
+
+def test_checkpoint_compatibility_fails_on_missing_model_weight() -> None:
+    probe = _load_probe()
+
+    with pytest.raises(RuntimeError, match="checkpoint_model_missing_keys:neck.bias"):
+        probe.evaluate_checkpoint_model_key_compatibility(
+            model_keys=("backbone.weight", "neck.bias"),
+            checkpoint_keys=(
+                "backbone.weight",
+                "data_preprocessor.mean",
+                "data_preprocessor.std",
+            ),
+        )
+
+
+def test_checkpoint_compatibility_fails_on_any_additional_unexpected_key() -> None:
+    probe = _load_probe()
+
+    with pytest.raises(
+        RuntimeError,
+        match="checkpoint_model_unexpected_keys",
+    ):
+        probe.evaluate_checkpoint_model_key_compatibility(
+            model_keys=("backbone.weight",),
+            checkpoint_keys=(
+                "backbone.weight",
+                "data_preprocessor.mean",
+                "data_preprocessor.std",
+                "future.unreviewed.key",
+            ),
+        )
+
+
+def test_checkpoint_compatibility_fails_if_reviewed_delta_disappears() -> None:
+    probe = _load_probe()
+
+    with pytest.raises(
+        RuntimeError,
+        match="checkpoint_model_unexpected_keys",
+    ):
+        probe.evaluate_checkpoint_model_key_compatibility(
+            model_keys=("backbone.weight",),
+            checkpoint_keys=("backbone.weight",),
+        )

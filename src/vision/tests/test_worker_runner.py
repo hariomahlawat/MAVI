@@ -18,6 +18,7 @@ from mavi_vision.runtime.errors import (
     RuntimeDisposition,
     TrackerError,
 )
+from mavi_vision.runtime.progress import ProcessingProgressSink
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiError
@@ -47,9 +48,10 @@ class FakeWorkerApiClient:
     ) -> VisionJobHeartbeatResponse:
         self.events.append("heartbeat")
         self.heartbeats.append(progress_percent)
-        return VisionJobHeartbeatResponse.model_validate_json(
-            '{"schemaVersion":"2.0","progressPercent":5.0,'
-            '"leaseExpiresAtUtc":"2099-09-09T03:00:00Z"}'
+        return VisionJobHeartbeatResponse(
+            schemaVersion="2.0",
+            progressPercent=progress_percent,
+            leaseExpiresAtUtc=datetime(2099, 9, 9, 3, 0, tzinfo=timezone.utc),
         )
 
     async def fail(
@@ -114,7 +116,7 @@ class ExpiringAtCompletionPublicationApi(FakeWorkerApiClient):
         self.heartbeats.append(progress_percent)
         return VisionJobHeartbeatResponse(
             schemaVersion="2.0",
-            progressPercent=5.0,
+            progressPercent=progress_percent,
             leaseExpiresAtUtc=datetime.now(timezone.utc) + timedelta(seconds=0.03),
         )
 
@@ -178,6 +180,7 @@ class RecordingProcessor:
         expected_source_size_bytes: int,
         expected_source_sha256: str,
         lease_guard: LeaseGuard,
+        progress_sink: ProcessingProgressSink | None = None,
     ) -> VisionProcessingResult:
         self.events.append("process")
         self.calls.append(
@@ -188,6 +191,7 @@ class RecordingProcessor:
                 "expected_source_size_bytes": expected_source_size_bytes,
                 "expected_source_sha256": expected_source_sha256,
                 "lease_guard": lease_guard,
+                "progress_sink": progress_sink,
             }
         )
         if self.error is not None:
@@ -243,7 +247,7 @@ def test_task9_pipeline_heartbeats_then_processes_with_shared_attempt_guard(
     )
 
     assert result is True
-    assert client.heartbeats == [5.0]
+    assert client.heartbeats == [1.0]
     assert len(processor.calls) == 1
     call = processor.calls[0]
     assert call["job_id"] == lease.job_id
@@ -308,7 +312,7 @@ def test_unconfigured_task9_processor_reports_controlled_failure(tmp_path: Path)
     result = asyncio.run(WorkerRunner(client, LocalMediaStore(tmp_path), 2.0).run_once())
 
     assert result is True
-    assert client.heartbeats == [5.0]
+    assert client.heartbeats == [1.0]
     assert client.failures == [
         ("task9_processor_not_configured", "Task 9 processor is not configured.")
     ]
@@ -378,7 +382,7 @@ def test_processing_dependency_failure_uses_approved_stable_code(
     )
 
     assert result is True
-    assert client.heartbeats == [5.0]
+    assert client.heartbeats == [1.0]
     assert len(processor.calls) == 1
     assert client.failures == [(expected_code, "Vision processing failed.")]
     assert local_diagnostic not in (client.failures[0][1] or "")
@@ -433,7 +437,7 @@ def test_processing_dependency_terminal_fail_error_is_not_retried(
             WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
         )
 
-    assert client.heartbeats == [5.0]
+    assert client.heartbeats == [1.0]
     assert len(processor.calls) == 1
     assert client.failures == [
         ("vision_gpu_out_of_memory", "Vision processing failed.")
@@ -458,7 +462,7 @@ def test_processor_lease_loss_is_api_error_without_terminal_failure(tmp_path: Pa
             WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
         )
 
-    assert client.heartbeats == [5.0]
+    assert client.heartbeats == [1.0]
     assert len(processor.calls) == 1
     assert client.failures == []
 
@@ -485,7 +489,7 @@ def test_completion_publication_rechecks_lease_after_payload_projection(
             ).run_once()
         )
 
-    assert client.heartbeats == [5.0]
+    assert client.heartbeats == [1.0]
     assert client.failures == []
     assert client.completions == []
     assert client.events == ["lease", "heartbeat"]
@@ -510,7 +514,7 @@ def test_completion_transport_error_is_not_followed_by_failure(tmp_path: Path) -
             ).run_once()
         )
 
-    assert client.heartbeats == [5.0]
+    assert client.heartbeats == [1.0]
     assert len(processor.calls) == 1
     assert client.failures == []
     assert len(client.completions) == 1
@@ -532,7 +536,7 @@ def test_heartbeat_api_error_propagates_without_processing_for_polling_backoff(
             WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
         )
 
-    assert client.heartbeats == [5.0]
+    assert client.heartbeats == [1.0]
     assert client.failures == []
     assert processor.calls == []
 

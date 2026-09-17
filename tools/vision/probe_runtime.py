@@ -16,6 +16,7 @@ import os
 import platform
 import sys
 import traceback
+from collections.abc import Iterable, Mapping
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path, PureWindowsPath
 from typing import Any, Iterator
@@ -98,6 +99,73 @@ def restricted_checkpoint_loading_scope() -> Iterator[None]:
 
     with torch.serialization.safe_globals(reviewed_checkpoint_globals()):
         yield
+
+
+
+
+
+_REVIEWED_CHECKPOINT_ONLY_KEYS = frozenset(
+    {
+        "data_preprocessor.mean",
+        "data_preprocessor.std",
+    }
+)
+
+
+def evaluate_checkpoint_model_key_compatibility(
+    *,
+    model_keys: Iterable[str],
+    checkpoint_keys: Iterable[str],
+) -> dict[str, Any]:
+    """Fail closed unless the pinned checkpoint/model key delta is exactly reviewed."""
+    model = set(model_keys)
+    checkpoint = set(checkpoint_keys)
+    if not model or not checkpoint:
+        raise RuntimeError("checkpoint_model_state_dict_empty")
+    if any(not isinstance(key, str) or not key for key in model | checkpoint):
+        raise RuntimeError("checkpoint_model_state_dict_key_invalid")
+
+    missing = sorted(model - checkpoint)
+    unexpected = sorted(checkpoint - model)
+    if missing:
+        raise RuntimeError(
+            "checkpoint_model_missing_keys:" + ",".join(missing)
+        )
+    if set(unexpected) != _REVIEWED_CHECKPOINT_ONLY_KEYS:
+        raise RuntimeError(
+            "checkpoint_model_unexpected_keys:"
+            + ",".join(unexpected)
+        )
+
+    return {
+        "status": "passed",
+        "missingKeys": missing,
+        "unexpectedKeys": unexpected,
+        "reviewedUnexpectedKeys": sorted(_REVIEWED_CHECKPOINT_ONLY_KEYS),
+    }
+
+
+def checkpoint_state_dict_keys(checkpoint: Path) -> tuple[str, ...]:
+    """Read only the reviewed local checkpoint and return its model state keys."""
+    import torch
+
+    with restricted_checkpoint_loading_scope():
+        payload = torch.load(
+            str(checkpoint),
+            map_location="cpu",
+            weights_only=True,
+        )
+    if not isinstance(payload, Mapping):
+        raise RuntimeError("checkpoint_payload_invalid")
+
+    state_dict = payload.get("state_dict")
+    if not isinstance(state_dict, Mapping):
+        raise RuntimeError("checkpoint_state_dict_missing")
+
+    keys = tuple(state_dict.keys())
+    if any(not isinstance(key, str) or not key for key in keys):
+        raise RuntimeError("checkpoint_state_dict_key_invalid")
+    return keys
 
 
 def _distribution_version(name: str) -> str:
@@ -212,8 +280,14 @@ def run_probe(
     elif device != "cpu":
         raise ProbeConfigurationError("device_invalid")
 
+    checkpoint_keys = checkpoint_state_dict_keys(checkpoint)
     with restricted_checkpoint_loading_scope():
         model = init_detector(str(config), str(checkpoint), device=device)
+
+    compatibility = evaluate_checkpoint_model_key_compatibility(
+        model_keys=model.state_dict().keys(),
+        checkpoint_keys=checkpoint_keys,
+    )
 
     # MAVI frames are RGB. MMDetection ndarray inference expects backend BGR input,
     # so qualification exercises the exact production boundary rather than a gray
@@ -239,6 +313,7 @@ def run_probe(
     result = _version_record(device=device)
     result["predictionType"] = type(prediction).__name__
     result["predictionCount"] = int(scores.shape[0])
+    result["checkpointCompatibility"] = compatibility
     result["checkpoint"] = {
         "path": str(checkpoint.resolve()),
         "sha256": expected_checkpoint_sha256.lower(),

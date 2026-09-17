@@ -815,3 +815,20 @@ release metadata promotion
 ```
 
 This ordering prevents faster hardware from masking an observability or pipeline-control defect and prevents CPU slowness from being misclassified as a native hang.
+
+
+---
+
+## 11. Final implementation cold-review closure — 17 September 2026
+
+A final independent implementation review was performed against draft PR #43 after the first exact-head Quality, Task-10, Task-12 and Task-17 gates were green. The review did not change the architecture, but it identified three boundary-hardening issues that must be closed before the PR leaves draft:
+
+1. **Watchdog observation failure must remain durable and accurately classified.** If the runtime watchdog snapshot provider itself fails, containment remains fail-closed, but the incident is recorded as `vision_watchdog_observation_failed` with an explicitly unavailable runtime snapshot rather than being silently treated as an ordinary inference-timeout incident.
+2. **Watchdog diagnostic failures must not reintroduce sensitive-data leakage.** Snapshot-provider, incident-recorder and expiry-sink exception payloads/tracebacks are not rendered into operator logs because those exception strings may contain local paths or other private diagnostics.
+3. **Progress commits remain lease-authoritative.** The processing lane rechecks `LeaseGuard` at the successful-frame commit boundary and before entering finalization so an expired/stale attempt cannot advance observable progress after authority is lost.
+
+The review also strengthens `RuntimeWatchdogSnapshot` coherence validation so inactive/active/expired state combinations cannot contradict their timing fields. Fatal-path incident persistence is latency-bounded as well as size/retention-bounded: the worker waits only for the configured short local-write window, then preserves process containment even if the diagnostics filesystem itself is blocked.
+
+These corrections are implementation hardening only. They do not alter the approved progress bands, watchdog threshold, runtime/device qualification status, analytical model behavior, or release-verification truth state.
+
+After these fixes, the exact-head Quality Gate, Task-10 Runtime Qualification, Task-12 Offline Bundle and Task-17 Acceptance Validation must all be green again before the PR is considered review-complete.
