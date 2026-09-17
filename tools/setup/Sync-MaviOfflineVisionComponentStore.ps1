@@ -27,8 +27,10 @@ foreach ($path in @($KitRoot, $RuntimePackRoot, $ModelPackRoot, $RepositoryRoot)
 }
 
 $tool = Join-Path $RepositoryRoot "tools\vision\sync_offline_vision_components.py"
+$ownershipTool = Join-Path $RepositoryRoot "tools\vision\verify_offline_component_ownership.py"
 $requirements = Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json"
 if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) { throw "Vision component-store tool is missing: $tool" }
+if (-not (Test-Path -LiteralPath $ownershipTool -PathType Leaf)) { throw "Vision component ownership verifier is missing: $ownershipTool" }
 if (-not (Test-Path -LiteralPath $requirements -PathType Leaf)) { throw "Vision component requirements are missing: $requirements" }
 
 $git = Get-Command git.exe -ErrorAction SilentlyContinue
@@ -63,6 +65,12 @@ if ($LASTEXITCODE -ne 0) { throw "Vision component-store synchronization failed 
 
 & $python $tool verify --kit-root $KitRoot
 if ($LASTEXITCODE -ne 0) { throw "Vision component-store verification failed with exit code $LASTEXITCODE." }
+
+# Component ownership is a separate fail-closed boundary: Runtime Pack and
+# Model Pack may not silently carry the same heavy artifact, and the
+# Application Overlay inventory may contain binding metadata only.
+& $python $ownershipTool --kit-root $KitRoot
+if ($LASTEXITCODE -ne 0) { throw "Vision component ownership verification failed with exit code $LASTEXITCODE." }
 
 Write-Host ""
 Write-Host "MAVI offline Vision component store synchronized and verified." -ForegroundColor Green
