@@ -105,12 +105,12 @@ jobs:
             --checkpoint .modelpack-input/rtmdet.pth \
             --resolved-config .modelpack-input/rtmdet_m_resolved.py \
             --assembled-from-commit "$EXPECTED_HEAD" \
-            --output .modelpack-output
+            --output modelpack-output
           python - <<'PY'
           import json
           import os
           from pathlib import Path
-          manifest = json.loads(Path('.modelpack-output/model-pack-manifest.json').read_text())
+          manifest = json.loads(Path('modelpack-output/model-pack-manifest.json').read_text())
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:
               stream.write(f"model_pack_id={manifest['modelPackId']}\n")
           print('vision-model-pack-id=' + manifest['modelPackId'])
@@ -121,7 +121,7 @@ jobs:
         run: |
           import json
           from pathlib import Path
-          actual = json.loads(Path('.modelpack-output/model-pack-manifest.json').read_text())
+          actual = json.loads(Path('modelpack-output/model-pack-manifest.json').read_text())
           required = json.loads(
               Path('src/vision/config/components/mmdetection-phase1-v1.json').read_text()
           )['modelPack']
@@ -133,7 +133,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vision-model-pack-${{ steps.pack.outputs.model_pack_id }}
-          path: .modelpack-output
+          path: modelpack-output
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
