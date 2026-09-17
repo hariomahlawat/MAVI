@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import re
 import tomllib
@@ -86,6 +87,10 @@ def _target_marker_environment(
 
 
 def _normalized_requirement(requirement: Requirement) -> str:
+    if requirement.url is not None:
+        raise RuntimeRequirementsError("runtime_requirement_direct_url_forbidden")
+    if requirement.marker is not None:
+        raise RuntimeRequirementsError("runtime_requirement_projection_marker_forbidden")
     name = canonicalize_name(requirement.name)
     extras = sorted(canonicalize_name(extra) for extra in requirement.extras)
     rendered_extras = f"[{','.join(extras)}]" if extras else ""
@@ -156,6 +161,15 @@ def build_runtime_requirements_projection(
                 ) from exc
             if not applies:
                 continue
+            requirement = Requirement(
+                f"{requirement.name}"
+                + (
+                    f"[{','.join(sorted(requirement.extras))}]"
+                    if requirement.extras
+                    else ""
+                )
+                + str(requirement.specifier)
+            )
         rendered.append(_normalized_requirement(requirement))
 
     requirements = tuple(sorted(rendered))
@@ -164,6 +178,68 @@ def build_runtime_requirements_projection(
     return RuntimeRequirementsProjection(
         schema_version=_SCHEMA,
         platform_variant=platform_variant,
+        python_version=python_version,
+        requirements=requirements,
+    )
+
+
+def parse_runtime_requirements_projection(
+    payload: bytes,
+) -> RuntimeRequirementsProjection:
+    if payload.startswith(codecs.BOM_UTF8):
+        raise RuntimeRequirementsError("runtime_requirement_projection_bom_forbidden")
+    if b"\r" in payload:
+        raise RuntimeRequirementsError("runtime_requirement_projection_cr_forbidden")
+    try:
+        text = payload.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise RuntimeRequirementsError("runtime_requirement_projection_utf8_invalid") from exc
+    if not text.endswith("\n"):
+        raise RuntimeRequirementsError("runtime_requirement_projection_newline_required")
+    lines = text.splitlines()
+    if len(lines) < 4:
+        raise RuntimeRequirementsError("runtime_requirement_projection_header_invalid")
+
+    def header(index: int, prefix: str) -> str:
+        line = lines[index]
+        if not line.startswith(prefix):
+            raise RuntimeRequirementsError("runtime_requirement_projection_header_invalid")
+        value = line[len(prefix) :]
+        if not value or value != value.strip():
+            raise RuntimeRequirementsError("runtime_requirement_projection_header_invalid")
+        return value
+
+    schema = header(0, "# schema: ")
+    variant = header(1, "# platform-variant: ")
+    python_version = header(2, "# python-version: ")
+    if schema != _SCHEMA:
+        raise RuntimeRequirementsError("runtime_requirement_schema_invalid")
+    _target_marker_environment(
+        platform_variant=variant,
+        python_version=python_version,
+    )
+
+    normalized: list[str] = []
+    for raw in lines[3:]:
+        if not raw or raw != raw.strip():
+            raise RuntimeRequirementsError("runtime_requirement_projection_invalid")
+        try:
+            requirement = Requirement(raw)
+        except InvalidRequirement as exc:
+            raise RuntimeRequirementsError("runtime_requirement_invalid") from exc
+        normalized_row = _normalized_requirement(requirement)
+        if normalized_row != raw:
+            raise RuntimeRequirementsError("runtime_requirement_projection_noncanonical")
+        normalized.append(raw)
+
+    requirements = tuple(normalized)
+    if not requirements:
+        raise RuntimeRequirementsError("runtime_requirement_projection_empty")
+    if requirements != tuple(sorted(requirements)):
+        raise RuntimeRequirementsError("runtime_requirement_projection_not_sorted")
+    return RuntimeRequirementsProjection(
+        schema_version=schema,
+        platform_variant=variant,
         python_version=python_version,
         requirements=requirements,
     )
@@ -187,6 +263,13 @@ def serialize_runtime_requirements_projection(
         for item in projection.requirements
     ):
         raise RuntimeRequirementsError("runtime_requirement_projection_invalid")
+    for item in projection.requirements:
+        try:
+            requirement = Requirement(item)
+        except InvalidRequirement as exc:
+            raise RuntimeRequirementsError("runtime_requirement_invalid") from exc
+        if _normalized_requirement(requirement) != item:
+            raise RuntimeRequirementsError("runtime_requirement_projection_noncanonical")
 
     rows = [
         f"# schema: {projection.schema_version}",
@@ -209,6 +292,7 @@ __all__ = [
     "RuntimeRequirementsError",
     "RuntimeRequirementsProjection",
     "build_runtime_requirements_projection",
+    "parse_runtime_requirements_projection",
     "runtime_requirements_sha256",
     "serialize_runtime_requirements_projection",
 ]
