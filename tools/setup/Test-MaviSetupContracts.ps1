@@ -96,17 +96,30 @@ try {
 
     $visionInstallerText = Get-Content -LiteralPath (Join-Path $repoRoot "tools\setup\Install-MaviVisionRuntime.ps1") -Raw
     foreach ($requiredFragment in @(
-        "bundle-manifest.json",
+        "runtime-pack-manifest.json",
+        "mavi-vision-runtime-pack-v2",
+        "mavi-vision-runtime-install-v2",
         "windows-x86_64-cpu",
         "Python 3.12.10",
         "--no-index",
         "--only-binary=:all:",
         "--require-hashes",
-        "sourceCommit",
+        "runtimePackId",
+        "thirdPartyLockSha256",
+        "runtimeRequirementsSha256",
+        "Test-MaviVisionRuntimePackReuse",
         "Get-AuthenticodeSignature"
     )) {
         if ($visionInstallerText -notmatch [regex]::Escape($requiredFragment)) {
             throw "Vision runtime installer is missing required contract fragment: $requiredFragment"
+        }
+    }
+    foreach ($forbiddenFragment in @(
+        "Assert-MaviVisionRuntimeSourceCompatible",
+        "BundleSourceCommit"
+    )) {
+        if ($visionInstallerText -match [regex]::Escape($forbiddenFragment)) {
+            throw "Vision runtime installer still uses obsolete commit-coupled contract: $forbiddenFragment"
         }
     }
 
