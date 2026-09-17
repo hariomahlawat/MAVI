@@ -1,0 +1,189 @@
+name: Vision Runtime Component Boundary
+
+on:
+  pull_request:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'src/vision/pyproject.toml'
+      - 'src/vision/mavi_vision/runtime/requirements_projection.py'
+      - 'src/vision/mavi_vision/runtime/offline_lock.py'
+      - 'src/vision/mavi_vision/runtime/component_identity.py'
+      - 'src/vision/config/components/mmdetection-phase1-v1.json'
+      - 'src/vision/runtime/mmdetection-phase1-v1/*.lock'
+      - 'src/vision/runtime/mmdetection-phase1-v1/*.requirements.txt'
+      - 'src/vision/runtime/mmdetection-phase1-v1/runtime.json'
+      - '.github/workflows/vision-runtime-component-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mavi-runtime-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  boundary:
+    name: ${{ matrix.variant }}
+    runs-on: ubuntu-24.04
+    env:
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: windows-x86_64-cpu
+            python-version: '3.12.10'
+            native-abi: win_amd64-msvc-14.44-sdk-10.0.26100.0
+          - variant: linux-x86_64-cpu
+            python-version: '3.12.14'
+            native-abi: glibc-2.39-libstdcxx-GLIBCXX_3.4.33-gcc-14.2.0-linux_x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact checked-out source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install boundary verification dependency
+        run: python -m pip install 'packaging==26.3'
+
+      - name: Verify Runtime Pack boundary and application binding
+        shell: bash
+        env:
+          MAVI_VARIANT: ${{ matrix.variant }}
+          MAVI_TARGET_PYTHON: ${{ matrix.python-version }}
+          MAVI_NATIVE_ABI: ${{ matrix.native-abi }}
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-boundary
+          python - <<'PY'
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          def load_module(name: str, path: str):
+              spec = importlib.util.spec_from_file_location(name, path)
+              if spec is None or spec.loader is None:
+                  raise SystemExit(f"runtime_boundary_module_unloadable:{path}")
+              module = importlib.util.module_from_spec(spec)
+              sys.modules[name] = module
+              spec.loader.exec_module(module)
+              return module
+
+          offline_lock = load_module(
+              "_mavi_offline_lock",
+              "src/vision/mavi_vision/runtime/offline_lock.py",
+          )
+          requirements_projection = load_module(
+              "_mavi_requirements_projection",
+              "src/vision/mavi_vision/runtime/requirements_projection.py",
+          )
+          component_identity = load_module(
+              "_mavi_component_identity",
+              "src/vision/mavi_vision/runtime/component_identity.py",
+          )
+
+          variant = os.environ["MAVI_VARIANT"]
+          python_version = os.environ["MAVI_TARGET_PYTHON"]
+          native_abi = os.environ["MAVI_NATIVE_ABI"]
+          runtime_root = Path("src/vision/runtime/mmdetection-phase1-v1")
+          tracked = runtime_root / f"{variant}.lock"
+          current = offline_lock.load_offline_runtime_lock(tracked)
+          if any(item.name == "mavi-vision" for item in current.distributions):
+              raise SystemExit("runtime_boundary_first_party_distribution_forbidden")
+
+          candidate_bytes = offline_lock.serialize_offline_runtime_lock(current)
+          candidate = Path("runtime-boundary") / f"{variant}.lock"
+          candidate.write_bytes(candidate_bytes)
+          if candidate_bytes != tracked.read_bytes():
+              raise SystemExit("runtime_boundary_lock_not_canonical")
+
+          projection = requirements_projection.build_runtime_requirements_projection(
+              Path("src/vision/pyproject.toml"),
+              platform_variant=variant,
+              python_version=python_version,
+          )
+          projection_bytes = requirements_projection.serialize_runtime_requirements_projection(projection)
+          projection_path = Path("runtime-boundary") / f"{variant}.requirements.txt"
+          projection_path.write_bytes(projection_bytes)
+          tracked_projection = runtime_root / f"{variant}.requirements.txt"
+          if projection_bytes != tracked_projection.read_bytes():
+              raise SystemExit("runtime_boundary_requirements_not_canonical")
+
+          runtime = json.loads((runtime_root / "runtime.json").read_text(encoding="utf-8"))
+          platform = runtime["platformVariants"][variant]
+          semantic_graph = dict(runtime["semanticGraph"])
+          semantic_graph["opencv-python"] = semantic_graph.pop("opencvPython")
+          offline_lock.validate_offline_runtime_lock_for_runtime(
+              current,
+              expected_variant=variant,
+              expected_python_version=python_version,
+              semantic_graph=semantic_graph,
+              binary_versions=platform.get("binaryVersions"),
+              platform_status=platform.get("status"),
+              root_requirements=projection.requirements,
+          )
+
+          lock_sha = hashlib.sha256(candidate_bytes).hexdigest()
+          requirements_sha = hashlib.sha256(projection_bytes).hexdigest()
+          expected_pack_id = component_identity.runtime_pack_id(
+              component_identity.RuntimePackIdentityInputs(
+                  platform_variant=variant,
+                  python_version=python_version,
+                  third_party_lock_sha256=lock_sha,
+                  runtime_requirements_sha256=requirements_sha,
+                  native_abi=native_abi,
+              )
+          )
+          components = json.loads(
+              Path("src/vision/config/components/mmdetection-phase1-v1.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          if components.get("schemaVersion") != "mavi-vision-component-requirements-v1":
+              raise SystemExit("runtime_boundary_component_schema_invalid")
+          required = components["runtimePacks"].get(variant)
+          if not isinstance(required, dict):
+              raise SystemExit("runtime_boundary_component_binding_missing")
+          expected = {
+              "runtimePackId": expected_pack_id,
+              "thirdPartyLockSha256": lock_sha,
+              "runtimeRequirementsSha256": requirements_sha,
+              "nativeAbi": native_abi,
+          }
+          if required != expected:
+              raise SystemExit(
+                  "runtime_boundary_component_binding_mismatch:"
+                  + json.dumps({"actual": required, "expected": expected}, sort_keys=True)
+              )
+
+          print("runtime-pack-id=" + expected_pack_id)
+          print("third-party-lock-sha256=" + lock_sha)
+          print("runtime-requirements-sha256=" + requirements_sha)
+          PY
+
+      - name: Upload boundary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-boundary-${{ matrix.variant }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: runtime-boundary/
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0

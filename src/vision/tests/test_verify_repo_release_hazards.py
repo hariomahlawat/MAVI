@@ -109,20 +109,28 @@ def test_release_metadata_scan_is_scoped_by_caller_not_docs_or_workflows() -> No
     assert "docs" not in [root.name for root in verifier.RELEASE_TEXT_ROOTS]
     assert ".github" not in [root.name for root in verifier.RELEASE_TEXT_ROOTS]
 
-def test_task12_workflow_covers_wheel_inputs_and_uses_pinned_reproduction() -> None:
+
+def test_task12_workflow_builds_reusable_third_party_pack_reproducibly() -> None:
     workflow = (
         Path(__file__).parents[3] / ".github" / "workflows" / "task12-offline-bundle.yml"
     ).read_text(encoding="utf-8")
 
-    assert "'src/vision/**'" in workflow
+    # Application source must not invalidate or enter the expensive runtime pack.
+    assert "'src/vision/**'" not in workflow
+    assert "'src/vision/mavi_vision/**'" not in workflow
+    assert "./src/vision" not in workflow
+    assert "Build MAVI Vision wheel" not in workflow
+    assert "task12_first_party_distribution_forbidden" in workflow
+    assert "mavi-vision must not be installed in the reusable runtime pack" in workflow
+
+    # Heavy third-party materialization remains pinned, hashed, and reproducible.
+    assert "tools/vision/build_runtime_pack.py" in workflow
     assert "python -m pip wheel" in workflow
     assert "--no-build-isolation" in workflow
     assert "--no-deps" in workflow
-    assert "./src/vision" in workflow
-    assert '"mavi-vision[vision-runtime]==0.1.0"' not in workflow
-    assert "Materialize reviewed locked runtime closure" in workflow
+    assert "Materialize reviewed third-party runtime closure" in workflow
     assert "--require-hashes" in workflow
-    assert "Stabilize Linux native extension environment" in workflow
+    assert "Verify qualified Linux native build identity" in workflow
     assert "-frandom-seed=mavi-task12" in workflow
     assert "Prove clean MMCV wheel reproducibility" in workflow
     assert 'test "$first_hash" = "$second_hash"' in workflow
@@ -134,7 +142,6 @@ def test_task12_workflow_covers_wheel_inputs_and_uses_pinned_reproduction() -> N
     assert "CXX=g++-14" in workflow
     assert "gcc-14 -dumpfullversion -dumpversion" in workflow
     assert "14.44." in workflow
-
 
 
 def test_offline_bundle_contract_retains_all_qualified_runtime_locks() -> None:

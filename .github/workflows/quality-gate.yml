@@ -39,9 +39,20 @@ jobs:
 
     env:
       MAVI_TEST_DB_CONNECTION: Host=localhost;Port=5432;Database=mavi_test;Username=postgres;Password=postgres
+      MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact checked-out source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -124,7 +135,7 @@ jobs:
           --no-restore
           -p:RequireMaviBundledMediaTools=false
           -p:MaviBuild=github-${{ github.run_id }}-${{ github.run_attempt }}
-          -p:MaviCommit=${{ github.sha }}
+          -p:MaviCommit=${{ github.event.pull_request.head.sha || github.sha }}
           --output .artifacts/task15-host
 
       - name: Verify production web host composition

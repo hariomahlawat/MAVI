@@ -76,6 +76,7 @@ def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -
         "pending-hardware-qualification"
     )
 
+
 def test_pyproject_qualified_runtime_extra_matches_frozen_semantic_graph() -> None:
     runtime = json.loads(RUNTIME_PATH.read_text(encoding="utf-8"))
     pyproject_path = Path(__file__).parents[1] / "pyproject.toml"
@@ -106,7 +107,6 @@ def test_pyproject_qualified_runtime_extra_matches_frozen_semantic_graph() -> No
         "av": semantic["av"],
         "Pillow": semantic["pillow"],
     }
-
 
 
 def test_runtime_qualification_binds_evidence_to_exact_checked_out_source() -> None:
@@ -145,7 +145,7 @@ def test_task12_linux_native_bundle_is_bound_to_qualified_host_abi() -> None:
     assert 'test "$max_glibcxx" = "GLIBCXX_3.4.33"' in workflow
 
 
-def test_task12_gate_covers_complete_vision_project_tree() -> None:
+def test_task12_gate_is_scoped_to_runtime_pack_inputs() -> None:
     workflow_path = (
         Path(__file__).parents[3]
         / ".github"
@@ -154,7 +154,18 @@ def test_task12_gate_covers_complete_vision_project_tree() -> None:
     )
     workflow = workflow_path.read_text(encoding="utf-8")
 
-    assert "      - 'src/vision/**'" in workflow
+    assert "'src/vision/**'" not in workflow
+    assert "'src/vision/mavi_vision/**'" not in workflow
+    for required_trigger in (
+        "'tools/vision/build_runtime_pack.py'",
+        "'tools/vision/freeze_offline_lock.py'",
+        "'src/vision/mavi_vision/runtime/offline_lock.py'",
+        "'src/vision/mavi_vision/runtime/requirements_projection.py'",
+        "'src/vision/mavi_vision/runtime/component_identity.py'",
+        "'src/vision/pyproject.toml'",
+        "'src/vision/runtime/mmdetection-phase1-v1/**'",
+    ):
+        assert required_trigger in workflow
 
 
 def test_pyproject_declares_packaging_runtime_dependency() -> None:

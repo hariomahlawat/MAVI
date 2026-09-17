@@ -33,11 +33,24 @@ on:
 permissions:
   contents: read
 
+env:
+  MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   deterministic-validation:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact checked-out source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
 
       - uses: actions/setup-python@v5
         with:
@@ -93,11 +106,22 @@ jobs:
                   for item in runtime["platformVariants"].values()
               )
 
-
   windows-script-validation:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact checked-out source head
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:MAVI_EXPECTED_SOURCE_SHA) {
+            throw "Task 17 checkout mismatch: actual=$actual expected=$env:MAVI_EXPECTED_SOURCE_SHA"
+          }
 
       - name: Parse Task 17 PowerShell qualification scripts
         shell: pwsh
@@ -117,9 +141,15 @@ jobs:
             "tools/setup/Prepare-MaviDeveloperOfflineCache.ps1",
             "tools/setup/Prepare-MaviFfmpegWindows.ps1",
             "tools/setup/Install-MaviVisionRuntime.ps1",
+            "tools/setup/Install-MaviVisionModelPack.ps1",
+            "tools/setup/Sync-MaviOfflineVisionComponentStore.ps1",
             "tools/setup/Start-MaviVisionWorker.ps1",
             "tools/setup/Test-MaviEnvironment.ps1",
             "tools/setup/Test-MaviSetupContracts.ps1",
+            "tools/setup/Test-MaviVisionRuntimeStateContracts.ps1",
+            "tools/setup/Test-MaviVisionModelPackStateContracts.ps1",
+            "tools/setup/Test-MaviVisionWorkerComponentContracts.ps1",
+            "tools/setup/Mavi.VisionRuntime.Common.psm1",
             "tools/setup/Mavi.Setup.Common.psm1",
             "tools/setup/Mavi.Setup.Windows.psm1",
             "Prepare-MAVI-Offline-Binary-Kit.ps1"
@@ -146,3 +176,6 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           .\tools\setup\Test-MaviSetupContracts.ps1
+          .\tools\setup\Test-MaviVisionRuntimeStateContracts.ps1
+          .\tools\setup\Test-MaviVisionModelPackStateContracts.ps1
+          .\tools\setup\Test-MaviVisionWorkerComponentContracts.ps1
