@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -131,6 +132,7 @@ class WorkerRunner:
         watchdog_expired: Callable[[], bool] | None = None,
         watchdog_expiry_sink: Callable[[], None] | None = None,
         watchdog_incident_recorder: WatchdogIncidentRecorder | None = None,
+        watchdog_incident_write_timeout_seconds: float = 1.0,
         watchdog_grace_seconds: float = 10.0,
         watchdog_poll_seconds: float = 1.0,
         fatal_terminator: Callable[[int], NoReturn] = os._exit,
@@ -142,6 +144,10 @@ class WorkerRunner:
             raise ValueError("heartbeat_interval_seconds must be positive")
         if heartbeat_request_timeout_seconds <= 0:
             raise ValueError("heartbeat_request_timeout_seconds must be positive")
+        if watchdog_incident_write_timeout_seconds <= 0:
+            raise ValueError(
+                "watchdog_incident_write_timeout_seconds must be positive"
+            )
         if watchdog_grace_seconds <= 0:
             raise ValueError("watchdog_grace_seconds must be positive")
         if watchdog_poll_seconds <= 0 or watchdog_poll_seconds > 1.0:
@@ -157,6 +163,9 @@ class WorkerRunner:
         self._watchdog_expired = watchdog_expired
         self._watchdog_expiry_sink = watchdog_expiry_sink
         self._watchdog_incident_recorder = watchdog_incident_recorder
+        self._watchdog_incident_write_timeout_seconds = (
+            watchdog_incident_write_timeout_seconds
+        )
         self._watchdog_grace_seconds = watchdog_grace_seconds
         self._watchdog_poll_seconds = watchdog_poll_seconds
         self._fatal_terminator = fatal_terminator
@@ -598,20 +607,41 @@ class WorkerRunner:
         recorder = self._watchdog_incident_recorder
         if recorder is None:
             return
-        try:
-            recorder.record(
-                WatchdogIncidentSnapshot(
-                    worker_id=str(lease.worker_id),
-                    job_id=lease.job_id,
-                    attempt_count=lease.attempt_count,
-                    failure_code=watchdog_trigger.failure_code,
-                    progress=progress_reader.snapshot(),
-                    runtime=watchdog_trigger.runtime_snapshot,
-                )
-            )
-        except Exception:
-            # Persistence errors can include a private diagnostics path. Do not
-            # render the exception/traceback; containment must still proceed.
+
+        incident = WatchdogIncidentSnapshot(
+            worker_id=str(lease.worker_id),
+            job_id=lease.job_id,
+            attempt_count=lease.attempt_count,
+            failure_code=watchdog_trigger.failure_code,
+            progress=progress_reader.snapshot(),
+            runtime=watchdog_trigger.runtime_snapshot,
+        )
+        completed = threading.Event()
+        failed = threading.Event()
+
+        def persist() -> None:
+            try:
+                recorder.record(incident)
+            except BaseException:
+                # Never retain or render the exception payload: filesystem errors
+                # can contain private local paths and other diagnostics.
+                failed.set()
+            finally:
+                completed.set()
+
+        # Fatal containment must never wait indefinitely on a degraded filesystem.
+        # A daemon thread permits bounded waiting while still allowing os._exit(70)
+        # (or normal service restart after grace) to terminate the process cleanly.
+        writer = threading.Thread(
+            target=persist,
+            name="mavi-watchdog-incident-writer",
+            daemon=True,
+        )
+        writer.start()
+        if not completed.wait(self._watchdog_incident_write_timeout_seconds):
+            _LOGGER.error("Watchdog incident persistence timed out")
+            return
+        if failed.is_set():
             _LOGGER.error("Watchdog incident persistence failed")
 
     def _report_watchdog_expiry(self) -> None:
