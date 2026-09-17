@@ -29,7 +29,7 @@ function Assert-Throws {
 
 $manifest = [pscustomobject]@{
     schemaVersion = "mavi-vision-runtime-pack-v2"
-    runtimePackId = "runtime-pack-abc123"
+    runtimePackId = ("mavi-runtime-v2-" + ("d" * 64))
     platformVariant = "windows-x86_64-cpu"
     pythonVersion = "3.12.10"
     nativeAbi = "win_amd64-msvc-14.44-sdk-10.0.26100.0"
@@ -88,7 +88,7 @@ if (-not (Test-MaviVisionRuntimePackReuse `
 }
 
 $changedManifest = $manifest.PSObject.Copy()
-$changedManifest.runtimePackId = "runtime-pack-different"
+$changedManifest.runtimePackId = "mavi-runtime-v2-" + ("e" * 64)
 if (Test-MaviVisionRuntimePackReuse `
     -InstalledState $state `
     -Manifest $changedManifest `
