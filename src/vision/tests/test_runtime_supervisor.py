@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from mavi_vision.runtime.activity import InferenceActivity
+from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshot
 from mavi_vision.runtime.errors import GpuOutOfMemoryError, GpuRuntimeError, TrackerError
 from mavi_vision.runtime.execution_lane import VisionExecutionLane
 from mavi_vision.runtime.interfaces import RuntimeMetadata
@@ -642,3 +643,48 @@ def test_watchdog_snapshot_has_no_elapsed_duration_while_inactive() -> None:
     assert snapshot.started_monotonic is None
     assert snapshot.elapsed_seconds is None
     assert snapshot.expired is False
+
+
+
+def test_runtime_watchdog_snapshot_rejects_incoherent_inactive_state() -> None:
+    with pytest.raises(ValueError, match="runtime_watchdog_inactive_expired_invalid"):
+        RuntimeWatchdogSnapshot(
+            observed_monotonic=10.0,
+            active=False,
+            started_monotonic=None,
+            elapsed_seconds=None,
+            completed_count=0,
+            threshold_seconds=5.0,
+            expired=True,
+            device=None,
+            model_id=None,
+            runtime_variant=None,
+            pipeline_profile_id=None,
+            model_manifest_sha256=None,
+            checkpoint_sha256=None,
+            resolved_config_sha256=None,
+            pipeline_profile_sha256=None,
+            runtime_profile_sha256=None,
+        )
+
+
+def test_runtime_watchdog_snapshot_rejects_expiry_flag_mismatch() -> None:
+    with pytest.raises(ValueError, match="runtime_watchdog_expiry_state_invalid"):
+        RuntimeWatchdogSnapshot(
+            observed_monotonic=20.0,
+            active=True,
+            started_monotonic=10.0,
+            elapsed_seconds=10.0,
+            completed_count=0,
+            threshold_seconds=5.0,
+            expired=False,
+            device="cpu",
+            model_id=None,
+            runtime_variant=None,
+            pipeline_profile_id=None,
+            model_manifest_sha256=None,
+            checkpoint_sha256=None,
+            resolved_config_sha256=None,
+            pipeline_profile_sha256=None,
+            runtime_profile_sha256=None,
+        )
