@@ -3,6 +3,8 @@ $ErrorActionPreference = "Stop"
 
 $script:VisionRuntimePackSchema = "mavi-vision-runtime-pack-v2"
 $script:VisionRuntimeInstallSchema = "mavi-vision-runtime-install-v2"
+$script:VisionModelPackSchema = "mavi-vision-model-pack-v1"
+$script:VisionModelInstallSchema = "mavi-vision-model-install-v1"
 
 function Test-MaviVisionSha256Text {
     param([AllowNull()][object]$Value)
@@ -61,9 +63,36 @@ function Assert-MaviVisionRuntimePackManifest {
         throw "Vision runtime manifest assembled-from commit is invalid."
     }
 
-    $artifactsProperty = $Manifest.PSObject.Properties["artifacts"]
-    if (-not $artifactsProperty) {
+    if (-not $Manifest.PSObject.Properties["artifacts"]) {
         throw "Vision runtime manifest is missing 'artifacts'."
+    }
+    return $true
+}
+
+function Assert-MaviVisionModelPackManifest {
+    param([Parameter(Mandatory = $true)][object]$Manifest)
+
+    $schema = [string](Get-MaviVisionRequiredProperty -Value $Manifest -Name "schemaVersion" -Description "model manifest")
+    if ($schema -ne $script:VisionModelPackSchema) {
+        throw "Unsupported vision model manifest schema '$schema'; expected '$script:VisionModelPackSchema'."
+    }
+    $packId = [string](Get-MaviVisionRequiredProperty -Value $Manifest -Name "modelPackId" -Description "model manifest")
+    if ($packId -notmatch '^mavi-model-v1-[0-9a-f]{64}$') {
+        throw "Vision model manifest Model Pack ID is invalid."
+    }
+    [void](Get-MaviVisionRequiredProperty -Value $Manifest -Name "modelId" -Description "model manifest")
+    foreach ($name in @("checkpointSha256", "resolvedConfigSha256")) {
+        $value = Get-MaviVisionRequiredProperty -Value $Manifest -Name $name -Description "model manifest"
+        if (-not (Test-MaviVisionSha256Text $value)) {
+            throw "Vision model manifest '$name' is invalid."
+        }
+    }
+    $assembled = [string](Get-MaviVisionRequiredProperty -Value $Manifest -Name "assembledFromCommit" -Description "model manifest")
+    if ($assembled -notmatch '^[0-9a-f]{40}$') {
+        throw "Vision model manifest assembled-from commit is invalid."
+    }
+    if (-not $Manifest.PSObject.Properties["artifacts"]) {
+        throw "Vision model manifest is missing 'artifacts'."
     }
     return $true
 }
@@ -117,18 +146,39 @@ function New-MaviVisionRuntimeInstallState {
     }
 }
 
-function Test-MaviVisionPythonIdentityEqual {
+function New-MaviVisionModelInstallState {
     param(
-        [AllowNull()][object]$Left,
-        [AllowNull()][object]$Right
+        [Parameter(Mandatory = $true)][object]$Manifest,
+        [Parameter(Mandatory = $true)][string]$ModelPackManifestSha256,
+        [Parameter(Mandatory = $true)][string]$ModelRoot
     )
+    [void](Assert-MaviVisionModelPackManifest -Manifest $Manifest)
+    if (-not (Test-MaviVisionSha256Text $ModelPackManifestSha256)) {
+        throw "Vision model pack manifest SHA-256 is invalid."
+    }
+    if ([string]::IsNullOrWhiteSpace($ModelRoot)) {
+        throw "Vision model installation root is required."
+    }
+    return [pscustomobject][ordered]@{
+        schemaVersion = $script:VisionModelInstallSchema
+        modelPackId = [string]$Manifest.modelPackId
+        modelPackManifestSha256 = $ModelPackManifestSha256.ToLowerInvariant()
+        modelId = [string]$Manifest.modelId
+        checkpointSha256 = ([string]$Manifest.checkpointSha256).ToLowerInvariant()
+        resolvedConfigSha256 = ([string]$Manifest.resolvedConfigSha256).ToLowerInvariant()
+        assembledFromCommit = [string]$Manifest.assembledFromCommit
+        installedAtUtc = [DateTime]::UtcNow.ToString("O")
+        modelRoot = [string]$ModelRoot
+    }
+}
+
+function Test-MaviVisionPythonIdentityEqual {
+    param([AllowNull()][object]$Left, [AllowNull()][object]$Right)
     if ($null -eq $Left -or $null -eq $Right) { return $false }
     foreach ($name in @("version", "implementation", "compiler")) {
         $leftProperty = $Left.PSObject.Properties[$name]
         $rightProperty = $Right.PSObject.Properties[$name]
-        if (-not $leftProperty -or -not $rightProperty -or [string]$leftProperty.Value -ne [string]$rightProperty.Value) {
-            return $false
-        }
+        if (-not $leftProperty -or -not $rightProperty -or [string]$leftProperty.Value -ne [string]$rightProperty.Value) { return $false }
     }
     $leftBuildProperty = $Left.PSObject.Properties["build"]
     $rightBuildProperty = $Right.PSObject.Properties["build"]
@@ -151,9 +201,7 @@ function Test-MaviVisionRuntimePackReuse {
     if (-not (Test-MaviVisionSha256Text $RuntimePackManifestSha256)) { return $false }
     if ($null -eq $InstalledState) { return $false }
     $schemaProperty = $InstalledState.PSObject.Properties["schemaVersion"]
-    if (-not $schemaProperty -or [string]$schemaProperty.Value -ne $script:VisionRuntimeInstallSchema) {
-        return $false
-    }
+    if (-not $schemaProperty -or [string]$schemaProperty.Value -ne $script:VisionRuntimeInstallSchema) { return $false }
 
     $comparisons = [ordered]@{
         runtimePackId = [string]$Manifest.runtimePackId
@@ -166,14 +214,88 @@ function Test-MaviVisionRuntimePackReuse {
     }
     foreach ($name in $comparisons.Keys) {
         $property = $InstalledState.PSObject.Properties[$name]
-        if (-not $property -or [string]$property.Value -ne [string]$comparisons[$name]) {
-            return $false
-        }
+        if (-not $property -or [string]$property.Value -ne [string]$comparisons[$name]) { return $false }
     }
 
     $identityProperty = $InstalledState.PSObject.Properties["pythonIdentity"]
-    if (-not $identityProperty -or -not (Test-MaviVisionPythonIdentityEqual -Left $identityProperty.Value -Right $PythonIdentity)) {
-        return $false
+    if (-not $identityProperty -or -not (Test-MaviVisionPythonIdentityEqual -Left $identityProperty.Value -Right $PythonIdentity)) { return $false }
+    return $true
+}
+
+function Test-MaviVisionModelPackReuse {
+    param(
+        [AllowNull()][object]$InstalledState,
+        [Parameter(Mandatory = $true)][object]$Manifest,
+        [Parameter(Mandatory = $true)][string]$ModelPackManifestSha256
+    )
+    [void](Assert-MaviVisionModelPackManifest -Manifest $Manifest)
+    if (-not (Test-MaviVisionSha256Text $ModelPackManifestSha256)) { return $false }
+    if ($null -eq $InstalledState) { return $false }
+    $schemaProperty = $InstalledState.PSObject.Properties["schemaVersion"]
+    if (-not $schemaProperty -or [string]$schemaProperty.Value -ne $script:VisionModelInstallSchema) { return $false }
+    $comparisons = [ordered]@{
+        modelPackId = [string]$Manifest.modelPackId
+        modelPackManifestSha256 = $ModelPackManifestSha256.ToLowerInvariant()
+        modelId = [string]$Manifest.modelId
+        checkpointSha256 = ([string]$Manifest.checkpointSha256).ToLowerInvariant()
+        resolvedConfigSha256 = ([string]$Manifest.resolvedConfigSha256).ToLowerInvariant()
+    }
+    foreach ($name in $comparisons.Keys) {
+        $property = $InstalledState.PSObject.Properties[$name]
+        if (-not $property -or [string]$property.Value -ne [string]$comparisons[$name]) { return $false }
+    }
+    return $true
+}
+
+function Assert-MaviVisionWorkerComponentCompatibility {
+    param(
+        [Parameter(Mandatory = $true)][object]$RuntimeState,
+        [Parameter(Mandatory = $true)][object]$RuntimeManifest,
+        [Parameter(Mandatory = $true)][string]$RequiredRuntimePackId,
+        [Parameter(Mandatory = $true)][string]$RequiredThirdPartyLockSha256,
+        [Parameter(Mandatory = $true)][string]$RequiredRuntimeRequirementsSha256,
+        [Parameter(Mandatory = $true)][object]$ModelState,
+        [Parameter(Mandatory = $true)][object]$ModelManifest,
+        [Parameter(Mandatory = $true)][string]$RequiredModelPackId,
+        [Parameter(Mandatory = $true)][string]$RequiredModelId,
+        [Parameter(Mandatory = $true)][string]$RequiredCheckpointSha256,
+        [Parameter(Mandatory = $true)][string]$RequiredResolvedConfigSha256
+    )
+
+    [void](Assert-MaviVisionRuntimePackManifest -Manifest $RuntimeManifest)
+    [void](Assert-MaviVisionModelPackManifest -Manifest $ModelManifest)
+
+    if (-not $RuntimeState.PSObject.Properties["schemaVersion"] -or [string]$RuntimeState.schemaVersion -ne $script:VisionRuntimeInstallSchema) {
+        throw "Vision runtime installed state schema is unsupported; reinstall the v2 Runtime Pack."
+    }
+    if (-not $ModelState.PSObject.Properties["schemaVersion"] -or [string]$ModelState.schemaVersion -ne $script:VisionModelInstallSchema) {
+        throw "Vision model installed state schema is unsupported; reinstall the Model Pack."
+    }
+
+    if ([string]$RuntimeState.runtimePackId -ne $RequiredRuntimePackId -or [string]$RuntimeManifest.runtimePackId -ne $RequiredRuntimePackId) {
+        throw "Vision Runtime Pack ID mismatch. Required '$RequiredRuntimePackId'."
+    }
+    if ([string]$RuntimeState.thirdPartyLockSha256 -ne $RequiredThirdPartyLockSha256 -or [string]$RuntimeManifest.thirdPartyLockSha256 -ne $RequiredThirdPartyLockSha256) {
+        throw "Vision Runtime Pack third-party lock fingerprint mismatch."
+    }
+    if ([string]$RuntimeState.runtimeRequirementsSha256 -ne $RequiredRuntimeRequirementsSha256 -or [string]$RuntimeManifest.runtimeRequirementsSha256 -ne $RequiredRuntimeRequirementsSha256) {
+        throw "Vision Runtime Pack application requirements fingerprint mismatch."
+    }
+    if ([string]$RuntimeState.platformVariant -ne [string]$RuntimeManifest.platformVariant -or [string]$RuntimeState.pythonVersion -ne [string]$RuntimeManifest.pythonVersion -or [string]$RuntimeState.nativeAbi -ne [string]$RuntimeManifest.nativeAbi) {
+        throw "Vision Runtime Pack installed state does not match its manifest."
+    }
+
+    if ([string]$ModelState.modelPackId -ne $RequiredModelPackId -or [string]$ModelManifest.modelPackId -ne $RequiredModelPackId) {
+        throw "Vision Model Pack ID mismatch. Required '$RequiredModelPackId'."
+    }
+    if ([string]$ModelState.modelId -ne $RequiredModelId -or [string]$ModelManifest.modelId -ne $RequiredModelId) {
+        throw "Vision Model ID mismatch. Required '$RequiredModelId'."
+    }
+    if ([string]$ModelState.checkpointSha256 -ne $RequiredCheckpointSha256 -or [string]$ModelManifest.checkpointSha256 -ne $RequiredCheckpointSha256) {
+        throw "Vision Model Pack checkpoint fingerprint mismatch."
+    }
+    if ([string]$ModelState.resolvedConfigSha256 -ne $RequiredResolvedConfigSha256 -or [string]$ModelManifest.resolvedConfigSha256 -ne $RequiredResolvedConfigSha256) {
+        throw "Vision Model Pack resolved-config fingerprint mismatch."
     }
     return $true
 }
