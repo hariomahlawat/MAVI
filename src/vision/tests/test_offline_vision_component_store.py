@@ -105,15 +105,21 @@ def test_reuses_heavy_components_when_only_provenance_changes(tmp_path: Path) ->
     assert first["runtimeReused"] is False
     assert first["modelReused"] is False
 
-    runtime_copy = kit / "vision/runtime" / str(first_runtime["runtimePackId"]) / "payload.bin"
-    model_copy = kit / "vision/models" / str(first_model["modelPackId"]) / "payload.bin"
-    runtime_stat = runtime_copy.stat()
-    model_stat = model_copy.stat()
+    runtime_root = kit / "vision/runtime" / str(first_runtime["runtimePackId"])
+    model_root = kit / "vision/models" / str(first_model["modelPackId"])
+    runtime_manifest_before = json.loads(
+        (runtime_root / "runtime-pack-manifest.json").read_text(encoding="utf-8")
+    )
+    model_manifest_before = json.loads(
+        (model_root / "model-pack-manifest.json").read_text(encoding="utf-8")
+    )
+    assert runtime_manifest_before["assembledFromCommit"] == "1" * 40
+    assert model_manifest_before["assembledFromCommit"] == "1" * 40
 
-    second_runtime = _write_pack(
+    _write_pack(
         tmp_path / "runtime-b", kind="runtime", provenance="2" * 40, payload=b"runtime"
     )
-    second_model = _write_pack(
+    _write_pack(
         tmp_path / "model-b", kind="model", provenance="2" * 40, payload=b"model"
     )
     second = sync_vision_components(
@@ -125,8 +131,16 @@ def test_reuses_heavy_components_when_only_provenance_changes(tmp_path: Path) ->
     )
     assert second["runtimeReused"] is True
     assert second["modelReused"] is True
-    assert runtime_copy.stat().st_ino == runtime_stat.st_ino
-    assert model_copy.stat().st_ino == model_stat.st_ino
+    # Reuse means the stored heavy component is not replaced by the later
+    # provenance manifest; only the small application inventory advances.
+    assert json.loads(
+        (runtime_root / "runtime-pack-manifest.json").read_text(encoding="utf-8")
+    )["assembledFromCommit"] == "1" * 40
+    assert json.loads(
+        (model_root / "model-pack-manifest.json").read_text(encoding="utf-8")
+    )["assembledFromCommit"] == "1" * 40
+    assert (runtime_root / "payload.bin").read_bytes() == b"runtime"
+    assert (model_root / "payload.bin").read_bytes() == b"model"
     inventory = verify_vision_component_store(kit)
     assert inventory["applicationOverlay"]["revision"] == "2" * 40
 
@@ -171,9 +185,60 @@ def test_rejects_pack_not_required_by_application_overlay(tmp_path: Path) -> Non
     requirements = tmp_path / "components.json"
     _requirements(requirements, runtime, model)
     value = json.loads(requirements.read_text())
-    value["runtimePacks"]["windows-x86_64-cpu"]["runtimePackId"] = "mavi-runtime-v2-" + "9" * 64
+    value["runtimePacks"]["windows-x86_64-cpu"]["runtimePackId"] = (
+        "mavi-runtime-v2-" + "9" * 64
+    )
     requirements.write_text(json.dumps(value), encoding="utf-8")
-    with pytest.raises(VisionComponentStoreError, match="runtime_requirement_mismatch:runtimePackId"):
+    with pytest.raises(
+        VisionComponentStoreError,
+        match="runtime_requirement_mismatch:runtimePackId",
+    ):
+        sync_vision_components(
+            kit_root=tmp_path / "kit",
+            runtime_pack_root=tmp_path / "runtime",
+            model_pack_root=tmp_path / "model",
+            component_requirements_path=requirements,
+            application_revision="1" * 40,
+        )
+
+
+def test_rejects_symlink_inside_component(tmp_path: Path) -> None:
+    runtime = _write_pack(
+        tmp_path / "runtime", kind="runtime", provenance="1" * 40, payload=b"runtime"
+    )
+    model = _write_pack(
+        tmp_path / "model", kind="model", provenance="1" * 40, payload=b"model"
+    )
+    requirements = tmp_path / "components.json"
+    _requirements(requirements, runtime, model)
+    link = tmp_path / "runtime" / "unexpected-link"
+    try:
+        link.symlink_to(tmp_path / "runtime" / "payload.bin")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable on this test host")
+    with pytest.raises(VisionComponentStoreError, match="component_symlink_forbidden"):
+        sync_vision_components(
+            kit_root=tmp_path / "kit",
+            runtime_pack_root=tmp_path / "runtime",
+            model_pack_root=tmp_path / "model",
+            component_requirements_path=requirements,
+            application_revision="1" * 40,
+        )
+
+
+def test_rejects_malformed_runtime_pack_map(tmp_path: Path) -> None:
+    runtime = _write_pack(
+        tmp_path / "runtime", kind="runtime", provenance="1" * 40, payload=b"runtime"
+    )
+    model = _write_pack(
+        tmp_path / "model", kind="model", provenance="1" * 40, payload=b"model"
+    )
+    requirements = tmp_path / "components.json"
+    _requirements(requirements, runtime, model)
+    value = json.loads(requirements.read_text())
+    value["runtimePacks"] = []
+    requirements.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(VisionComponentStoreError, match="component_requirements_incomplete"):
         sync_vision_components(
             kit_root=tmp_path / "kit",
             runtime_pack_root=tmp_path / "runtime",
