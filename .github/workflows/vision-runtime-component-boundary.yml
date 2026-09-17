@@ -107,11 +107,13 @@ jobs:
               )
           )
           platform = runtime["platformVariants"][variant]
+          semantic_graph = dict(runtime["semanticGraph"])
+          semantic_graph["opencv-python"] = semantic_graph.pop("opencvPython")
           offline_lock.validate_offline_runtime_lock_for_runtime(
               filtered,
               expected_variant=variant,
               expected_python_version=python_version,
-              semantic_graph=runtime["semanticGraph"],
+              semantic_graph=semantic_graph,
               binary_versions=platform.get("binaryVersions"),
               platform_status=platform.get("status"),
               root_requirements=projection.requirements,
