@@ -68,6 +68,12 @@ $manifestPath = Join-Path $PackRoot "model-pack-manifest.json"
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 [void](Assert-MaviVisionModelPackManifest -Manifest $manifest)
 if ([string]$manifest.schemaVersion -ne "mavi-vision-model-pack-v1") { throw "Unsupported MAVI Vision Model Pack schema '$($manifest.schemaVersion)'." }
+foreach ($fingerprintName in @("checkpointSha256", "resolvedConfigSha256")) {
+    $fingerprint = [string]$manifest.$fingerprintName
+    if ($fingerprint -notmatch '^[0-9a-f]{64}$') {
+        throw "Vision Model Pack manifest has invalid $fingerprintName."
+    }
+}
 Assert-ModelPackFiles -Root $PackRoot -Manifest $manifest -AllowedMetadata @("model-pack-manifest.json")
 $manifestSha = Get-Sha256 $manifestPath
 
