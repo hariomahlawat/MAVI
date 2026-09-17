@@ -1,0 +1,137 @@
+name: Vision Runtime Component Boundary
+
+on:
+  pull_request:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'src/vision/pyproject.toml'
+      - 'src/vision/mavi_vision/runtime/requirements_projection.py'
+      - 'src/vision/mavi_vision/runtime/offline_lock.py'
+      - 'src/vision/mavi_vision/runtime/component_identity.py'
+      - 'src/vision/runtime/mmdetection-phase1-v1/*.lock'
+      - 'src/vision/runtime/mmdetection-phase1-v1/runtime.json'
+      - '.github/workflows/vision-runtime-component-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mavi-runtime-boundary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  boundary:
+    name: ${{ matrix.variant }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: windows-x86_64-cpu
+            python-version: '3.12.10'
+          - variant: linux-x86_64-cpu
+            python-version: '3.12.14'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install boundary verification dependency
+        run: python -m pip install 'packaging==26.3'
+
+      - name: Generate canonical third-party lock candidate
+        shell: bash
+        env:
+          MAVI_VARIANT: ${{ matrix.variant }}
+          MAVI_TARGET_PYTHON: ${{ matrix.python-version }}
+        run: |
+          set -euo pipefail
+          mkdir -p .runtime-boundary
+          PYTHONPATH=src/vision python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          from mavi_vision.runtime.offline_lock import (
+              OfflineRuntimeLock,
+              load_offline_runtime_lock,
+              serialize_offline_runtime_lock,
+              validate_offline_runtime_lock_for_runtime,
+          )
+          from mavi_vision.runtime.requirements_projection import (
+              build_runtime_requirements_projection,
+              runtime_requirements_sha256,
+              serialize_runtime_requirements_projection,
+          )
+
+          variant = os.environ["MAVI_VARIANT"]
+          python_version = os.environ["MAVI_TARGET_PYTHON"]
+          tracked = Path("src/vision/runtime/mmdetection-phase1-v1") / f"{variant}.lock"
+          current = load_offline_runtime_lock(tracked)
+          filtered = OfflineRuntimeLock(
+              schema_version=current.schema_version,
+              platform_variant=current.platform_variant,
+              python_version=current.python_version,
+              distributions=tuple(
+                  item for item in current.distributions if item.name != "mavi-vision"
+              ),
+          )
+          candidate_bytes = serialize_offline_runtime_lock(filtered)
+          candidate = Path(".runtime-boundary") / f"{variant}.lock"
+          candidate.write_bytes(candidate_bytes)
+
+          projection = build_runtime_requirements_projection(
+              Path("src/vision/pyproject.toml"),
+              platform_variant=variant,
+              python_version=python_version,
+          )
+          runtime = json.loads(
+              Path("src/vision/runtime/mmdetection-phase1-v1/runtime.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          platform = runtime["platforms"][variant]
+          validate_offline_runtime_lock_for_runtime(
+              filtered,
+              expected_variant=variant,
+              expected_python_version=python_version,
+              semantic_graph=runtime["semanticGraph"],
+              binary_versions=platform.get("binaryVersions"),
+              platform_status=platform.get("status"),
+              root_requirements=projection.requirements,
+          )
+          projection_path = Path(".runtime-boundary") / f"{variant}.requirements.txt"
+          projection_path.write_bytes(serialize_runtime_requirements_projection(projection))
+
+          print("third-party-lock-sha256=" + hashlib.sha256(candidate_bytes).hexdigest())
+          print("runtime-requirements-sha256=" + runtime_requirements_sha256(projection))
+          PY
+
+      - name: Upload migration evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-boundary-${{ matrix.variant }}-${{ github.sha }}
+          path: .runtime-boundary/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Enforce tracked third-party-only lock
+        shell: bash
+        env:
+          MAVI_VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          if grep -q '^mavi-vision==' "src/vision/runtime/mmdetection-phase1-v1/$MAVI_VARIANT.lock"; then
+            echo "Tracked runtime lock still contains first-party mavi-vision; use the uploaded canonical migration candidate." >&2
+            exit 1
+          fi
+          cmp ".runtime-boundary/$MAVI_VARIANT.lock" "src/vision/runtime/mmdetection-phase1-v1/$MAVI_VARIANT.lock"
