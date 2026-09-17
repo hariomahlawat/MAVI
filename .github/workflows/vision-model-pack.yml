@@ -1,0 +1,123 @@
+name: Vision Model Pack
+
+on:
+  push:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'tools/vision/build_model_pack.py'
+      - 'tools/vision/resolve_mmdet_config.py'
+      - 'src/vision/mavi_vision/runtime/component_identity.py'
+      - 'src/vision/runtime/mmdetection-phase1-v1/components.json'
+      - 'models/manifests/rtmdet-m-coco-phase1-v1.json'
+      - '.github/workflows/vision-model-pack.yml'
+  pull_request:
+    branches:
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'tools/vision/build_model_pack.py'
+      - 'tools/vision/resolve_mmdet_config.py'
+      - 'src/vision/mavi_vision/runtime/component_identity.py'
+      - 'src/vision/runtime/mmdetection-phase1-v1/components.json'
+      - 'models/manifests/rtmdet-m-coco-phase1-v1.json'
+      - '.github/workflows/vision-model-pack.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mavi-vision-model-pack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-model-pack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Verify exact checked-out source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Install model-pack tooling dependencies
+        run: python -m pip install 'pydantic>=2.11,<3' 'packaging>=26,<27'
+
+      - name: Checkout immutable MMDetection source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .modelpack-mmdet
+          git -C .modelpack-mmdet remote add origin https://github.com/open-mmlab/mmdetection.git
+          git -C .modelpack-mmdet fetch --depth 1 origin 44ebd17b145c2372c4b700bfb9cb20dbd28ab64a
+          git -C .modelpack-mmdet checkout --detach FETCH_HEAD
+          test "$(git -C .modelpack-mmdet rev-parse HEAD)" = "44ebd17b145c2372c4b700bfb9cb20dbd28ab64a"
+
+      - name: Resolve deterministic RTMDet config
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .modelpack-input
+          python tools/vision/resolve_mmdet_config.py \
+            --input .modelpack-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
+            --output .modelpack-input/rtmdet_m_resolved.py
+
+      - name: Download and verify immutable RTMDet checkpoint
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import urllib.request
+          from pathlib import Path
+
+          source = Path('.modelpack-input/rtmdet.pth')
+          urllib.request.urlretrieve('${{ env.CHECKPOINT_URL }}', source)
+          manifest = json.loads(Path('models/manifests/rtmdet-m-coco-phase1-v1.json').read_text())
+          actual = hashlib.sha256(source.read_bytes()).hexdigest()
+          if actual != manifest['checkpoint']['sha256']:
+              raise SystemExit('model_pack_checkpoint_hash_mismatch')
+
+      - name: Build content-addressed Model Pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/vision/build_model_pack.py \
+            --source-manifest models/manifests/rtmdet-m-coco-phase1-v1.json \
+            --checkpoint .modelpack-input/rtmdet.pth \
+            --resolved-config .modelpack-input/rtmdet_m_resolved.py \
+            --assembled-from-commit "$EXPECTED_HEAD" \
+            --output .modelpack-output
+
+      - name: Verify required Model Pack identity
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          actual = json.loads(Path('.modelpack-output/model-pack-manifest.json').read_text())
+          required = json.loads(Path('src/vision/runtime/mmdetection-phase1-v1/components.json').read_text())['modelPack']
+          for key in ('modelPackId', 'modelId', 'checkpointSha256', 'resolvedConfigSha256'):
+              if actual[key] != required[key]:
+                  raise SystemExit(f'model_pack_binding_mismatch:{key}')
+
+      - name: Upload reusable Model Pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: vision-model-pack-rtmdet-m-coco-phase1-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .modelpack-output
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
