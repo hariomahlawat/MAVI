@@ -36,12 +36,22 @@ class RuntimeWatchdogSnapshot:
         if self.active:
             if self.started_monotonic is None or not isfinite(self.started_monotonic):
                 raise ValueError("runtime_watchdog_started_invalid")
+            if self.observed_monotonic < self.started_monotonic:
+                raise ValueError("runtime_watchdog_observation_precedes_start")
             if self.elapsed_seconds is None or not isfinite(self.elapsed_seconds):
                 raise ValueError("runtime_watchdog_elapsed_invalid")
             if self.elapsed_seconds < 0:
                 raise ValueError("runtime_watchdog_elapsed_invalid")
-        elif self.elapsed_seconds is not None:
-            raise ValueError("runtime_watchdog_inactive_elapsed_invalid")
+            expected_expired = self.elapsed_seconds >= self.threshold_seconds
+            if self.expired is not expected_expired:
+                raise ValueError("runtime_watchdog_expiry_state_invalid")
+        else:
+            if self.started_monotonic is not None:
+                raise ValueError("runtime_watchdog_inactive_start_invalid")
+            if self.elapsed_seconds is not None:
+                raise ValueError("runtime_watchdog_inactive_elapsed_invalid")
+            if self.expired:
+                raise ValueError("runtime_watchdog_inactive_expired_invalid")
 
 
 class RuntimeWatchdogSnapshotProvider(Protocol):
