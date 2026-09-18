@@ -28,10 +28,10 @@ This is not a product-failure result. It is a controlled readiness result.
 | Windows CPU functional subsystem evidence | **READY — inherited evidence** | PR #44 completed real 1080p RTMDet/ByteTrack processing and job-level recovery | Do not repeat Development run solely for chronology |
 | Linux CPU hosted runtime evidence | **READY — hosted only** | Qualification metadata marks Linux CPU passed | Still requires intended Production/offline topology evidence if Linux is in final topology |
 | Deployment-profile model | **READY** | ADR-008 defines Development Auto/CUDA/CPU policy and Production profiles P1 Windows GPU, P2 Windows+Linux GPU, P3 Windows CPU | Qualify only the profile(s) claimed as supported; never inherit qualification across profiles |
-| Development GPU policy | **READY** | Windows Development may use `Auto`, `CUDA` or `CPU`; GPU should be used when compatible/available | Implement/verify explicit device selection and visible provenance; no silent fallback |
+| Development GPU policy | **READY** | Development `Auto` now selects a declared, qualified and available Windows CUDA Runtime Pack when possible and otherwise uses CPU visibly; explicit CUDA never silently falls back | Retain CPU regression path and qualify Windows CUDA before treating it as qualified evidence |
 | GPU scope | **READY — PROFILE-SPECIFIC** | GPU is required only for Production profiles that claim GPU support; P1 uses Windows CUDA, P2 uses Linux CUDA | Produce CUDA evidence for each GPU profile actually claimed as supported |
-| CUDA/GPU evidence | **BLOCKED** | Windows CUDA and Linux CUDA remain unqualified | Qualify Windows CUDA for P1 and Linux CUDA for P2 independently; neither blocks an unrelated profile unless that profile is claimed |
-| Acceptance tooling/profile reconciliation | **BLOCKED** | Existing closure tooling still assumes four platform variants and final Linux-CUDA scenarios | Refactor/review tooling so evidence requirements are derived from the Production profile(s) claimed as supported |
+| CUDA/GPU evidence | **CONDITIONAL** | Windows CUDA and Linux CUDA remain independently unqualified | Required only for the corresponding claimed profile: Windows CUDA for P1, Linux CUDA for P2; neither blocks CPU-only P3 |
+| Acceptance tooling/profile reconciliation | **READY — IMPLEMENTED** | PR #46 implements profile-scoped prerequisites, offline evidence, performance, scenarios, additive promotion, production acceptance and closure; cold review also removed legacy cross-profile evidence lookup and stale bundle verification paths | Preserve exact profile/policy/runtime/evidence binding through final CI and merge |
 | Model release qualification | **BLOCKED** | Model manifest remains `verificationStatus=unverified`; qualification `overallResult=pending` | Complete mandatory gates before promotion |
 | Acceptance corpus | **BLOCKED** | `qualificationCorpusManifestSha256=null` | Freeze approved held-out corpus + manifest |
 | Person threshold | **BLOCKED** | `classThresholds.Person=null` | Approve before final evaluation |
@@ -43,7 +43,8 @@ This is not a product-failure result. It is a controlled readiness result.
 | Application release artifact | **BLOCKED** | No Task-18 frozen application artifact/manifest yet | Build only after qualification candidate is frozen |
 | Offline Binary Kit identity | **BLOCKED** | Kit is intentionally external to Git; no Task-18 candidate manifest has been captured | Select retained kit and record manifest SHA-256 |
 | Production setup bundle | **BLOCKED** | No Task-18 final bundle identity yet | Assemble from frozen app + verified binary kit after readiness inputs are approved |
-| Production deployment profiles | **READY** | ADR-008 approves P1 single-host Windows GPU, P2 split Windows+Linux GPU, and P3 single-host Windows CPU | Select the first Task-18 profile(s) to qualify, then freeze profile-specific prerequisites/host identities |
+| Production deployment profiles | **READY** | ADR-008 approves P1 single-host Windows GPU, P2 split Windows+Linux GPU, and P3 single-host Windows CPU | Preserve the approved profile contracts |
+| Production profile selection | **BLOCKED** | No first Task-18 Production profile has yet been selected for authoritative qualification | Select P1, P2, P3, or an explicitly reviewed set; subsequent readiness/evidence is conditional on that selection |
 | Clean disconnected Production install | **NOT STARTED** | Task-18 evidence not yet run | Execute only after readiness becomes READY |
 | Production E2E | **NOT STARTED** | Task-18 evidence not yet run | Execute after clean install |
 | Failure/reprocess | **NOT STARTED** | Task-18 evidence not yet run | Execute after formal E2E environment is qualified |
@@ -164,7 +165,18 @@ A second machine is not required for normal development. See `docs/decisions/ADR
 
 **Status: READY — PROFILE-SPECIFIC.** GPU support is not a universal Phase-1 prerequisite. It is mandatory for any Production profile advertised as GPU-capable. Windows CUDA qualifies P1; Linux CUDA qualifies P2; P3 is CPU-only. No profile inherits qualification from another, and no CUDA path may silently fall back to CPU.
 
-### R3 — freeze acceptance policy before final testing
+### R3 — select the first Production profile(s)
+
+**Status: BLOCKED — decision required.** Select P1, P2, P3, or an explicitly reviewed set before freezing profile-specific prerequisites and hardware evidence.
+
+This selection determines:
+- required Runtime variant;
+- whether CUDA evidence is mandatory;
+- required prerequisite roles/host identities;
+- disconnected offline qualifier;
+- final Production scenario/device contract.
+
+### R4 — freeze acceptance policy before final testing
 
 Approve:
 - held-out corpus;
@@ -173,32 +185,32 @@ Approve:
 - empty-scene threshold;
 - performance thresholds or an explicit performance-gate deferral.
 
-### R4 — freeze production prerequisite versions
+### R5 — freeze production prerequisite versions
 
-Use the intended acceptance hosts and the existing prerequisite collector to obtain observations. Review them, then populate and approve the canonical policy. Do not fabricate version values from developer machines.
+Use the selected Production topology and the existing prerequisite collector to obtain observations. Review them, then populate and approve the canonical policy. Do not fabricate version values from developer machines.
 
-### R5 — resolve update-proof scope
+### R6 — resolve update-proof scope
 
 Retain the exact prior application artifact and manifest, or approve a formal deferral.
 
-### R6 — freeze the executable candidate
+### R7 — freeze the executable candidate
 
-Only after R1–R5:
+Only after R1–R6:
 - create/freeze application artifact;
 - capture application artifact manifest SHA-256;
 - select/capture exact Offline Binary Kit manifest SHA-256;
-- re-confirm component requirements, Runtime Pack ID and Model Pack ID;
+- re-confirm component requirements, selected Runtime Pack ID and Model Pack ID;
 - assemble candidate Production setup media;
 - establish fresh exact-head CI;
 - generate the final machine-readable candidate-freeze record.
 
-### R7 — run rehearsal
+### R8 — run rehearsal
 
-Run one non-authoritative Production rehearsal.
+Run one non-authoritative Production rehearsal against the selected profile.
 
-### R8 — begin authoritative evidence
+### R9 — begin authoritative evidence
 
-Only when all mandatory readiness rows are READY.
+Only when all mandatory readiness rows applicable to the selected profile are READY.
 
 ---
 
@@ -231,4 +243,4 @@ The Git repository should retain schemas, policy, runbooks, hashes and compact q
 
 It becomes authorized only when the machine-readable readiness record has no mandatory `BLOCKED` item and the reviewed candidate freeze identifies the exact application, Runtime Pack, Model Pack, Offline Binary Kit, topology and acceptance-policy inputs.
 
-R1 and R2 are now resolved. Before authoritative qualification, the acceptance toolchain must also be reconciled with ADR-008 because it still contains legacy four-variant/Linux-CUDA-centric closure assumptions. The next professional actions are: select the first Production profile(s) to qualify, complete the profile-tooling reconciliation, then resolve **R3–R5** — acceptance policy, exact profile-specific Production prerequisites, and supported-update artifact/scope.
+R1 and R2 are resolved, and the profile-aware acceptance toolchain is implemented in PR #46. The remaining immediate governance decision is **R3: select the first Production profile(s)**. After that, resolve the acceptance policy, exact profile-specific Production prerequisites and supported-update artifact/scope before freezing the executable candidate. CUDA evidence is mandatory only when P1 or P2 is selected; it is not a blocker for CPU-only P3.
