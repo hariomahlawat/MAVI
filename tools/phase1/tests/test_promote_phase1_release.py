@@ -234,7 +234,10 @@ def test_offline_aggregate_rejects_cross_spliced_variant_evidence(tmp_path: Path
         mod.PromotionError,
         match="promotion_offline_variant_evidence_binding_mismatch",
     ):
-        mod._validate_offline_aggregate_bindings(gates)
+        mod._validate_offline_aggregate_bindings(
+            gates,
+            frozenset({"windows-x86_64-cuda"}),
+        )
 
 
 def test_profile_promotion_does_not_require_unclaimed_linux_cuda(tmp_path: Path, monkeypatch):
