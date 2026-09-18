@@ -402,6 +402,75 @@ The C2 build environment must set:
 
 The authoritative C2 wheel build occurs on a controlled Windows build host. The Development laptop is the C4/C6 hardware-execution target, not the authoritative wheel build host.
 
+### C2 tooling and execution order
+
+The tooling below exists and is tested; the artefacts it operates on cannot be
+produced from a hosted Linux session, so C2 execution belongs on the controlled
+Windows build host. Run the reproducibility experiment **early** -- before
+investing in the rest of the closure -- because a negative result changes C3's
+identity contract rather than just delaying it.
+
+1. **Acquire Torch and torchvision** from the dedicated cu124 index, never
+   `--extra-index-url` and never a PyPI fallback: a bare `2.6.0` is a different
+   artefact from `2.6.0+cu124`. Record each download's index URL.
+2. **Build MMCV twice, from clean trees**, at commit
+   `57c4e25e06e2d4f8a9357c84bcd24089a284dc88`, under `MMCV_WITH_OPS=1`,
+   `FORCE_CUDA=1`, `TORCH_CUDA_ARCH_LIST=7.5+PTX`, `MAX_JOBS=2`, with the R1
+   toolchain. Then compare them:
+
+   ```
+   python tools/vision/compare_wheel_reproducibility.py \
+       --left build-a/mmcv-....whl --right build-b/mmcv-....whl \
+       --output mmcv-reproducibility.json --require semantically-identical
+   ```
+
+   The verdict decides C3's identity contract:
+   - `byte-identical` -- C3 may enforce exact hash identity on rebuild;
+   - `semantically-identical` -- the installed members are equal and only the
+     container varies; C3 enforces the documented deterministic member
+     identity, and the variance source must be recorded;
+   - `divergent-*` -- stop. Identify the variance source before proceeding;
+     an ADR is required if it proves irreducible.
+
+   Note the tool reports absolute build paths embedded in **both** wheels.
+   Identical embedded paths still defeat relocatable reproduction: two builds
+   from the same directory will be byte-identical and still not reproducible
+   elsewhere.
+3. **Assemble the wheelhouse** and record what each artefact is and where it
+   came from:
+
+   ```
+   python tools/vision/build_wheelhouse_manifest.py \
+       --wheelhouse wheelhouse --platform-variant windows-x86_64-cuda \
+       --python-version 3.12.10 --origins origins.json \
+       --output wheelhouse-manifest.json
+   ```
+
+   `origins.json` maps each wheel filename to `{"kind": "index", "indexUrl": ...}`
+   or `{"kind": "local-build", "sourceRepository": ..., "sourceCommit": ...,
+   "buildToolchain": ...}`. The manifest refuses a wheelhouse it cannot fully
+   account for: an undeclared wheel, an origin naming an absent wheel, a stray
+   file, a nested directory, a symlink, a duplicate distribution, or CPU Torch
+   under a CUDA variant.
+4. **Freeze the lock** with `freeze_offline_lock.py`, which owns the transitive
+   dependency closure check, then regenerate and compare to prove determinism.
+5. **Prove the offline install** in a clean venv with
+   `--no-index --only-binary=:all: --require-hashes`, network blackholed, then
+   `pip check`, then import `torch`, `torchvision`, `mmengine`, `mmdet`, `mmcv`
+   and `mmcv.ops`.
+6. **Prove the native ops are real.** A successful `pip wheel` is not evidence
+   that CUDA ops were compiled. `tools/vision/verify_windows_cuda_runtime.py`
+   executes `mmcv.ops.nms` on device and asserts the result is on CUDA. If the
+   build host has no GPU, record the build/native proof as complete and the
+   hardware execution as still pending -- do not conflate them.
+
+The Runtime Pack's `--native-abi` is **not** hand-typed. It is the `nativeAbi`
+field of `config/vision/windows-cuda-development-build-v1.json`, derived from
+the verified toolchain by `build_runtime_pack.derive_native_abi` and pinned by
+test:
+
+`win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75`
+
 ### Gate C2
 
 A clean Windows venv must install the entire closure with:
