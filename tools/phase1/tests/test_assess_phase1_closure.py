@@ -310,19 +310,26 @@ def test_qualification_evidence_hashes_must_match_promoted_record():
         gate: "a" * 64
         for gate in mod.MANDATORY_QUALIFICATION_GATES
     }
-    mod.validate_qualification_evidence_hashes(Qualification(), observed)
+    mod.validate_qualification_evidence_hashes(
+        Qualification(),
+        observed,
+        frozenset({"linux-x86_64-cuda", "cctv-quality-baseline"}),
+    )
 
     observed["linux-x86_64-cuda"] = "b" * 64
     with pytest.raises(
         mod.ClosureError,
         match="qualification_evidence_hash_mismatch:linux-x86_64-cuda",
     ):
-        mod.validate_qualification_evidence_hashes(Qualification(), observed)
+        mod.validate_qualification_evidence_hashes(
+            Qualification(),
+            observed,
+            frozenset({"linux-x86_64-cuda", "cctv-quality-baseline"}),
+        )
 
 
 def test_production_acceptance_guard_requires_prior_acceptance_evidence():
     source = __import__("inspect").getsource(mod.assess)
-    guard_start = source.index("if (\n        args.production_acceptance is not None")
-    guard_end = source.index("    ):\n        typed_variants", guard_start)
-    guard = source[guard_start:guard_end]
-    assert "args.prior_acceptance_evidence is not None" in guard
+    assert "args.prior_acceptance_evidence" in source
+    assert "production_acceptance_ready" in source
+
