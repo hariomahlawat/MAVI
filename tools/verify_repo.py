@@ -395,6 +395,90 @@ def check_dependency_policy(errors: list[str]) -> None:
                     errors,
                 )
 
+    required_cuda_policy_ids = {
+        "nvidia-driver-win-x64",
+        "cuda-toolkit-12.4-win-x64-build",
+        "msvc-cuda-build-toolchain-win-x64",
+        "vcredist-win-x64",
+    }
+    declared_native_ids = {
+        entry.get("id")
+        for entry in native
+        if isinstance(entry, dict)
+        and isinstance(entry.get("id"), str)
+    } if isinstance(native, list) else set()
+    missing_cuda_policy = required_cuda_policy_ids - declared_native_ids
+    if missing_cuda_policy:
+        fail(
+            "Windows CUDA dependency policy is incomplete: "
+            + str(sorted(missing_cuda_policy)),
+            errors,
+        )
+
+    python_strategy = (
+        strategies.get("python")
+        if isinstance(strategies, dict)
+        else None
+    )
+    cuda_acquisition = (
+        python_strategy.get("cudaAcquisition")
+        if isinstance(python_strategy, dict)
+        else None
+    )
+    if not isinstance(cuda_acquisition, dict):
+        fail(
+            "Python dependency strategy has no Windows CUDA acquisition policy.",
+            errors,
+        )
+    else:
+        if cuda_acquisition.get("connectedPreparationOnly") is not True:
+            fail(
+                "Windows CUDA wheel acquisition must be connected-preparation-only.",
+                errors,
+            )
+        if cuda_acquisition.get("pytorchIndex") != (
+            "https://download.pytorch.org/whl/cu124"
+        ):
+            fail(
+                "Windows CUDA PyTorch index is not the frozen cu124 candidate.",
+                errors,
+            )
+
+    cuda_lock = (
+        ROOT
+        / "src/vision/runtime/mmdetection-phase1-v1"
+        / "windows-x86_64-cuda.lock"
+    )
+    if cuda_lock.exists():
+        catalog_path = (
+            ROOT
+            / "config/dependencies/offline-binary-catalog-v1.json"
+        )
+        try:
+            catalog = json.loads(
+                catalog_path.read_text(encoding="utf-8")
+            )
+            candidate = (
+                catalog.get("visionRuntime", {})
+                .get("windowsCudaDevelopmentCandidate")
+            )
+        except (OSError, json.JSONDecodeError):
+            candidate = None
+        if not isinstance(candidate, dict):
+            fail(
+                "A Windows CUDA lock requires the catalogued CUDA candidate.",
+                errors,
+            )
+        elif (
+            candidate.get("buildToolchain", {}).get("msvcToolset")
+            == "pending-r1-preflight"
+        ):
+            fail(
+                "A Windows CUDA lock cannot be committed before the MSVC/CUDA "
+                "toolchain preflight is frozen.",
+                errors,
+            )
+
     review = policy.get("requiredChangeReview")
     if not isinstance(review, list) or len(review) < 8 or any(
         not isinstance(item, str) or not item.strip() for item in review
