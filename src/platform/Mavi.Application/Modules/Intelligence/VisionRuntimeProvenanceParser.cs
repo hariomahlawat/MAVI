@@ -111,6 +111,17 @@ public sealed class VisionRuntimeProvenanceParser
         if (value.ConfiguredDevicePolicy is not ("cpu" or "cuda" or "auto") ||
             value.ConfiguredDeviceIndex is not >= 0)
             throw Invalid("provenance_device_invalid");
+        OptionalBounded(
+            value.DeviceResolutionReason,
+            64,
+            "provenance_device_resolution_reason_invalid");
+        if (value.DeviceResolutionReason is not null &&
+            (!char.IsAsciiLetterLower(value.DeviceResolutionReason[0]) ||
+             value.DeviceResolutionReason.Any(character =>
+                 !(char.IsAsciiLetterLower(character) ||
+                   char.IsAsciiDigit(character) ||
+                   character == '_'))))
+            throw Invalid("provenance_device_resolution_reason_invalid");
         RequiredBounded(value.ActualDevice, 128, "provenance_device_invalid");
         if (value.FramePolicy != "every-frame" || value.InputColourSpace != "RGB")
             throw Invalid("provenance_pipeline_semantics_invalid");
@@ -132,6 +143,16 @@ public sealed class VisionRuntimeProvenanceParser
             RequiredBounded(value.Gpu.Name, 256, "provenance_gpu_invalid");
             RequiredBounded(value.Gpu.DriverVersion, 256, "provenance_gpu_invalid");
             RequiredBounded(value.Gpu.CudaRuntimeVersion, 256, "provenance_gpu_invalid");
+            RequiredBounded(value.Gpu.Uuid, 256, "provenance_gpu_invalid");
+            RequiredBounded(value.Gpu.PciBusId, 128, "provenance_gpu_invalid");
+            var computeCapability = RequiredBounded(
+                value.Gpu.ComputeCapability,
+                16,
+                "provenance_gpu_invalid");
+            var computeParts = computeCapability.Split('.');
+            if (computeParts.Length != 2 ||
+                computeParts.Any(part => !int.TryParse(part, out _)))
+                throw Invalid("provenance_gpu_invalid");
         }
 
         return new ParsedVisionRuntimeProvenance(
