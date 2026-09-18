@@ -1,29 +1,51 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mavi.local/schemas/offline-install-evidence-v1.json",
-  "title": "MAVI Offline Install Evidence",
+  "$id": "https://mavi.local/schemas/offline-install-evidence-v2.json",
+  "title": "MAVI Profile-Scoped Offline Install Evidence",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "sourceCommit", "targetVerifiedManifestSha256", "acceptanceProfileSha256", "maviBuild", "os", "bundleMode", "isolationMethod", "variantEvidenceSha256", "variants", "result"],
+  "required": [
+    "schemaVersion",
+    "sourceCommit",
+    "targetVerifiedManifestSha256",
+    "acceptanceProfileSha256",
+    "maviBuild",
+    "deploymentProfile",
+    "deploymentProfilePolicySha256",
+    "os",
+    "bundleMode",
+    "isolationMethod",
+    "variantEvidenceSha256",
+    "variants",
+    "result"
+  ],
   "properties": {
-    "schemaVersion": { "const": "mavi-offline-install-evidence-v1" },
+    "schemaVersion": { "const": "mavi-offline-install-evidence-v2" },
     "sourceCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "targetVerifiedManifestSha256": { "$ref": "#/$defs/sha256" },
     "acceptanceProfileSha256": { "$ref": "#/$defs/sha256" },
     "maviBuild": { "type": "string", "minLength": 1 },
+    "deploymentProfile": { "enum": ["P1", "P2", "P3"] },
+    "deploymentProfilePolicySha256": { "$ref": "#/$defs/sha256" },
     "os": { "enum": ["windows", "linux"] },
     "bundleMode": { "enum": ["qualification-candidate", "production"] },
     "isolationMethod": { "type": "string", "minLength": 1, "maxLength": 256 },
     "variantEvidenceSha256": {
       "type": "object",
-      "minProperties": 2,
-      "maxProperties": 2,
-      "additionalProperties": { "$ref": "#/$defs/sha256" }
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "windows-x86_64-cpu": { "$ref": "#/$defs/sha256" },
+        "windows-x86_64-cuda": { "$ref": "#/$defs/sha256" },
+        "linux-x86_64-cpu": { "$ref": "#/$defs/sha256" },
+        "linux-x86_64-cuda": { "$ref": "#/$defs/sha256" }
+      }
     },
     "variants": {
       "type": "array",
-      "minItems": 2,
-      "maxItems": 2,
+      "minItems": 1,
+      "maxItems": 1,
       "items": { "$ref": "#/$defs/variant" }
     },
     "result": { "enum": ["passed", "failed"] }
@@ -38,13 +60,26 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "variant", "bundleManifestSha256", "releaseLockSha256", "expectedHostCompatibility",
-        "observedHostCompatibility", "installCommand", "installExitCode", "pipCheckPassed",
-        "runtimeStarted", "realInferencePassed", "workerFlowPassed", "workerFlowEvidenceSha256", "workerPythonSha256", "workerEnvironmentSha256", "workerVenvRootSha256", "workerResolvedPythonSha256", "hostIdentitySha256", "workerCommandSha256", "workerLogSha256", "actualDevice",
-        "outboundNetworkUnavailable", "networkIsolation", "firstRunDownloadObserved", "result"
+        "variant", "bundleManifestSha256", "releaseLockSha256",
+        "expectedHostCompatibility", "observedHostCompatibility",
+        "installCommand", "installExitCode", "pipCheckPassed",
+        "runtimeStarted", "realInferencePassed", "workerFlowPassed",
+        "workerFlowEvidenceSha256", "workerPythonSha256",
+        "workerEnvironmentSha256", "workerVenvRootSha256",
+        "workerResolvedPythonSha256", "hostIdentitySha256",
+        "workerCommandSha256", "workerLogSha256", "actualDevice",
+        "outboundNetworkUnavailable", "networkIsolation",
+        "firstRunDownloadObserved", "result"
       ],
       "properties": {
-        "variant": { "enum": ["windows-x86_64-cpu", "windows-x86_64-cuda", "linux-x86_64-cpu", "linux-x86_64-cuda"] },
+        "variant": {
+          "enum": [
+            "windows-x86_64-cpu",
+            "windows-x86_64-cuda",
+            "linux-x86_64-cpu",
+            "linux-x86_64-cuda"
+          ]
+        },
         "bundleManifestSha256": { "$ref": "#/$defs/sha256" },
         "releaseLockSha256": { "$ref": "#/$defs/sha256" },
         "expectedHostCompatibility": { "$ref": "#/$defs/hostCompatibility" },
