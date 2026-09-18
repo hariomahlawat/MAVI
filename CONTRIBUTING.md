@@ -13,6 +13,14 @@ Read:
 
 Use an ADR first when changing an architectural boundary, datastore, deployment topology or other accepted platform decision.
 
+## Branch and integration policy
+
+`main` is the stable engineering baseline. Normal feature and fix work must branch from the current `main` and return through a pull request with exact-head CI.
+
+Do not use a long-lived feature branch as a permanent substitute for `main`. For substantial programmes, integrate stable milestones back to `main` regularly instead of allowing hundreds of commits of avoidable divergence.
+
+Formal Production qualification is separate from engineering-baseline integration. A change may be suitable for `main` while disconnected/CUDA/performance/update/backup evidence remains explicitly pending, provided the product does not advertise an unqualified Production profile as supported.
+
 ## Dependencies
 
 If the feature adds or changes any library, SDK, native executable, runtime, model, database extension or OS prerequisite, treat that work as part of the feature.
