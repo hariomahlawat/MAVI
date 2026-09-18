@@ -38,9 +38,17 @@ _COMPLETION_EVIDENCE_MAX_BYTES = 512 * 1024 * 1024
 _COMPLETION_DEPENDENCY_VERSION_MAX_COUNT = 128
 _TRACKER_POSITIVE_MIN = 1e-9
 _TRACKER_POSITIVE_MAX = 1e9
-_COMPLETION_INTEGER_WIRE_NAMES = frozenset(
+_COMPLETION_INT32_WIRE_NAMES = frozenset(
     {
         "attemptCount",
+        "detectionCount",
+        "configuredDeviceIndex",
+        "index",
+        "minimumConsecutiveFrames",
+    }
+)
+_COMPLETION_INT64_WIRE_NAMES = frozenset(
+    {
         "framesProcessed",
         "processingDurationMs",
         "sizeBytes",
@@ -48,12 +56,12 @@ _COMPLETION_INTEGER_WIRE_NAMES = frozenset(
         "sourceFrameNumber",
         "startOffsetMs",
         "endOffsetMs",
-        "detectionCount",
-        "configuredDeviceIndex",
-        "index",
         "vramBytes",
-        "minimumConsecutiveFrames",
     }
+)
+_COMPLETION_INTEGER_WIRE_NAMES = (
+    _COMPLETION_INT32_WIRE_NAMES
+    | _COMPLETION_INT64_WIRE_NAMES
 )
 _CONTRACT_EDGE_WHITESPACE = frozenset(
     chr(code)
@@ -160,12 +168,28 @@ def _normalize_completion_json_numbers(value, field_name: str | None = None):
     if isinstance(value, _CompletionJsonNumber):
         if field_name in _COMPLETION_INTEGER_WIRE_NAMES:
             try:
-                return _completion_integer_token(value)
+                parsed = _completion_integer_token(value)
+                if field_name in _COMPLETION_INT32_WIRE_NAMES:
+                    return _completion_int32(parsed)
+                return _completion_int64(parsed)
             except ValueError:
                 # Preserve invalidity through JSON re-serialization. Strict integer
                 # validation rejects the string rather than accepting a rounded float.
                 return str(value)
         return float(value)
+    if (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and field_name in _COMPLETION_INTEGER_WIRE_NAMES
+    ):
+        try:
+            if field_name in _COMPLETION_INT32_WIRE_NAMES:
+                return _completion_int32(value)
+            return _completion_int64(value)
+        except ValueError:
+            # Preserve invalidity as a string so strict model validation cannot
+            # reinterpret a Python bigint outside the published wire envelope.
+            return str(value)
     if isinstance(value, list):
         return [_normalize_completion_json_numbers(item) for item in value]
     if isinstance(value, dict):
