@@ -275,6 +275,8 @@ def _settings(tmp_path: Path):
         model_manifest_path=tmp_path / "manifest.json",
         pipeline_profile_path=tmp_path / "profile.json",
         runtime_profile_path=tmp_path / "runtime.json",
+        deployment_profile_policy_path=tmp_path / "profiles.json",
+        deployment_profile=None,
         qualification_record_path=tmp_path / "qualification.json",
         build_id="build-a",
         commit_sha="a" * 40,
@@ -306,6 +308,11 @@ def test_run_worker_composes_ready_processor_runner_and_single_owner_shutdown(
             assert kwargs["manifest_path"] == settings.model_manifest_path
             assert kwargs["profile_path"] == settings.pipeline_profile_path
             assert kwargs["runtime_profile_path"] == settings.runtime_profile_path
+            assert (
+                kwargs["deployment_profile_policy_path"]
+                == settings.deployment_profile_policy_path
+            )
+            assert kwargs["deployment_profile"] == settings.deployment_profile
             assert kwargs["qualification_path"] == settings.qualification_record_path
             assert kwargs["device_policy"] == settings.device_policy
             assert kwargs["device_index"] == settings.device_index
