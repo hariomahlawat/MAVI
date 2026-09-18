@@ -500,6 +500,7 @@ class VisionRuntimeProvenance(ControlPlaneModel):
     platform: VisionPlatformIdentity
     configured_device_policy: Literal["cpu", "cuda", "auto"]
     configured_device_index: CompletionInt32 = Field(ge=0, le=2_147_483_647)
+    device_resolution_reason: ProvenanceIdentity | None = None
     actual_device: ProvenanceIdentity
     gpu: VisionGpuIdentity | None = None
     mavi_build: ProvenanceIdentity
