@@ -120,7 +120,10 @@ function Test-CudaRuntimeUsable {
 }
 
 $resolvedDevicePolicy = $DevicePolicy
-$deviceResolutionReason = "explicit_$DevicePolicy"
+# Reason codes are a closed contract shared with
+# src/vision/mavi_vision/runtime/provenance.py; the worker rejects any code it
+# does not recognise, so every literal below must exist in that vocabulary.
+$deviceResolutionReason = $null
 if ($DevicePolicy -eq "auto") {
     $cudaResolution = Test-CudaRuntimeUsable -Root $runtimeCudaRoot
     if ($cudaResolution.Usable) {
@@ -137,9 +140,11 @@ if ($DevicePolicy -eq "auto") {
 }
 elseif ($DevicePolicy -eq "cuda") {
     $runtimeRoot = $runtimeCudaRoot
+    $deviceResolutionReason = "explicit_cuda"
 }
 else {
     $runtimeRoot = $runtimeCpuRoot
+    $deviceResolutionReason = "explicit_cpu"
 }
 
 $runtimeRoot = [IO.Path]::GetFullPath($runtimeRoot.Trim().Trim('"'))

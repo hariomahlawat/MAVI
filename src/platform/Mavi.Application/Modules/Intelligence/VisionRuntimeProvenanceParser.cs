@@ -149,9 +149,14 @@ public sealed class VisionRuntimeProvenanceParser
                 value.Gpu.ComputeCapability,
                 16,
                 "provenance_gpu_invalid");
+            // Must stay identical to the published schema pattern
+            // ^[0-9]+\.[0-9]+$; int.TryParse would also accept signs and
+            // surrounding whitespace, which the contract does not.
             var computeParts = computeCapability.Split('.');
             if (computeParts.Length != 2 ||
-                computeParts.Any(part => !int.TryParse(part, out _)))
+                computeParts.Any(part =>
+                    part.Length == 0 ||
+                    part.Any(character => !char.IsAsciiDigit(character))))
                 throw Invalid("provenance_gpu_invalid");
         }
 

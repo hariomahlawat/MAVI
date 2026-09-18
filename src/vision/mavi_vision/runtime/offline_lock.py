@@ -239,6 +239,14 @@ def validate_offline_runtime_lock_for_runtime(
         if platform_status not in allowed_statuses:
             raise OfflineLockError("offline_lock_platform_not_qualified")
 
+    # The accelerator binary identity is bound to the variant unconditionally:
+    # a CUDA-labelled lock must prove CUDA wheels even when no binary version
+    # map is supplied, otherwise CPU Torch could pass as a CUDA runtime.
+    validate_accelerator_distribution_versions(
+        lock,
+        expected_variant=expected_variant,
+    )
+
     by_name = {item.name: item for item in lock.distributions}
     effective_roots = root_requirements if root_requirements is not None else lock.root_requirements
 
@@ -279,10 +287,6 @@ def validate_offline_runtime_lock_for_runtime(
             raise OfflineLockError("offline_lock_semantic_version_mismatch")
 
     if binary_versions is not None:
-        validate_accelerator_distribution_versions(
-            lock,
-            expected_variant=expected_variant,
-        )
         for raw_name, expected_version in binary_versions.items():
             name = canonicalize_distribution_name(raw_name)
             item = by_name.get(name)

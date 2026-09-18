@@ -64,6 +64,10 @@ _COMPLETION_INTEGER_WIRE_NAMES = (
     _COMPLETION_INT32_WIRE_NAMES
     | _COMPLETION_INT64_WIRE_NAMES
 )
+# Completion objects have fixed schemas, so a wire name identifies a field.
+# These maps do not: their keys are caller-supplied, so a key that happens to
+# collide with a wire integer name says nothing about its value's wire type.
+_COMPLETION_FREE_FORM_MAP_WIRE_NAMES = frozenset({"dependencyVersions"})
 _CONTRACT_EDGE_WHITESPACE = frozenset(
     chr(code)
     for code in (
@@ -194,6 +198,8 @@ def _normalize_completion_json_numbers(value, field_name: str | None = None):
     if isinstance(value, list):
         return [_normalize_completion_json_numbers(item) for item in value]
     if isinstance(value, dict):
+        if field_name in _COMPLETION_FREE_FORM_MAP_WIRE_NAMES:
+            return dict(value)
         return {
             key: _normalize_completion_json_numbers(item, key)
             for key, item in value.items()
@@ -217,6 +223,8 @@ def _validate_completion_integer_wire_tree(
         return
     if isinstance(value, dict):
         for key, item in value.items():
+            if key in _COMPLETION_FREE_FORM_MAP_WIRE_NAMES:
+                continue
             _validate_completion_integer_wire_tree(item, key)
 
 

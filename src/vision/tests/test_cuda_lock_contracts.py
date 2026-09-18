@@ -189,3 +189,28 @@ def test_cpu_runtime_pack_rejects_cuda_native_abi() -> None:
             "win_amd64-msvc-14.44-sdk-10.0.26100.0-cuda12.4-sm75",
             "windows-x86_64-cpu",
         )
+
+
+def test_cuda_lock_without_binary_versions_still_requires_cuda_wheels() -> None:
+    """A CUDA-labelled lock must prove CUDA wheels with or without a binary map."""
+    lock = OfflineRuntimeLock(
+        schema_version="mavi-offline-lock-v1",
+        platform_variant="windows-x86_64-cuda",
+        python_version="3.12.10",
+        distributions=(
+            LockedDistribution("torch", "2.6.0+cpu", "a" * 64),
+            LockedDistribution("torchvision", "0.21.0+cpu", "b" * 64),
+        ),
+    )
+
+    with pytest.raises(
+        OfflineLockError,
+        match="offline_lock_cuda_binary_build_required",
+    ):
+        validate_offline_runtime_lock_for_runtime(
+            lock,
+            expected_variant="windows-x86_64-cuda",
+            expected_python_version="3.12.10",
+            semantic_graph={},
+            binary_versions=None,
+        )

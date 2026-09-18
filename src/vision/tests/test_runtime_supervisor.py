@@ -107,6 +107,7 @@ class _Harness:
         verifier_error: BaseException | None = None,
         provenance_error: BaseException | None = None,
         device_policy: str = "cpu",
+        device_resolution_reason: str | None = None,
         production_mode: bool = False,
         deployment_profile: str | None = None,
         cuda_available: bool = False,
@@ -243,6 +244,7 @@ class _Harness:
             deployment_profile_policy_path=Path("profiles.json"),
             deployment_profile=effective_profile,
             device_policy=device_policy,
+            device_resolution_reason=device_resolution_reason,
             device_index=2,
             production_mode=production_mode,
             inference_watchdog_seconds=inference_watchdog_seconds,
@@ -900,5 +902,122 @@ def test_split_linux_profile_cannot_run_on_windows_cuda_host(
             == "production_deployment_profile_runtime_variant_mismatch"
         )
         assert harness.factory_calls == []
+
+    asyncio.run(scenario())
+
+
+def test_development_auto_records_cuda_selection_reason(monkeypatch) -> None:
+    """An Auto selection must be explainable from provenance alone."""
+
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        runtime = _Runtime("cuda", device="cuda:2")
+        harness = _Harness(
+            runtimes=[runtime],
+            device_policy="auto",
+            cuda_available=True,
+        )
+
+        await harness.supervisor.start()
+
+        assert harness.provenance_calls[0][
+            "device_resolution_reason"
+        ] == "cuda_selected"
+
+    asyncio.run(scenario())
+
+
+def test_development_auto_records_cpu_fallback_reason(monkeypatch) -> None:
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        harness = _Harness(
+            device_policy="auto",
+            cuda_available=False,
+        )
+
+        await harness.supervisor.start()
+
+        assert harness.provenance_calls[0][
+            "device_resolution_reason"
+        ] == "cuda_device_unavailable"
+
+    asyncio.run(scenario())
+
+
+def test_development_auto_records_undeclared_cuda_runtime_reason(
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        harness = _Harness(
+            device_policy="auto",
+            cuda_available=True,
+        )
+        harness.selection.runtime_platform_variants[
+            "windows-x86_64-cuda"
+        ].status = "pending-hardware-qualification"
+
+        await harness.supervisor.start()
+
+        assert harness.provenance_calls[0][
+            "device_resolution_reason"
+        ] == "cuda_pack_not_declared"
+
+    asyncio.run(scenario())
+
+
+def test_development_auto_records_probe_failure_reason(monkeypatch) -> None:
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        def _explode(_index: int) -> bool:
+            raise RuntimeError("probe exploded")
+
+        harness = _Harness(
+            device_policy="auto",
+            cuda_available=False,
+        )
+        harness.supervisor._cuda_availability_provider = _explode
+
+        await harness.supervisor.start()
+
+        assert harness.provenance_calls[0][
+            "device_resolution_reason"
+        ] == "cuda_driver_probe_failed"
+
+    asyncio.run(scenario())
+
+
+def test_explicit_policy_preserves_launcher_resolution_reason(
+    monkeypatch,
+) -> None:
+    """A reason resolved before Python started must survive unchanged."""
+
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        harness = _Harness(
+            device_policy="cpu",
+            device_resolution_reason="cuda_pack_absent",
+        )
+
+        await harness.supervisor.start()
+
+        assert harness.provenance_calls[0][
+            "device_resolution_reason"
+        ] == "cuda_pack_absent"
 
     asyncio.run(scenario())

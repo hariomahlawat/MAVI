@@ -333,6 +333,15 @@ public sealed class VisionResultValidatorTests
     [InlineData("7")]
     [InlineData("7.x")]
     [InlineData("7.5.0")]
+    // The published schema pattern is ^[0-9]+\.[0-9]+$; signs, whitespace and
+    // digit separators must be rejected here exactly as Python rejects them.
+    [InlineData("+7.5")]
+    [InlineData("7.+5")]
+    [InlineData("-7.5")]
+    [InlineData("7. 5")]
+    [InlineData("7 .5")]
+    [InlineData("7.")]
+    [InlineData(".5")]
     public void InvalidGpuComputeCapabilityIsRejected(string value)
     {
         var validator = new VisionResultValidator();
