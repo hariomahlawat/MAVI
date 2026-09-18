@@ -790,6 +790,151 @@ def _verify_bundled_release_selection(
         raise OfflineBundleError(exc.code) from exc
 
 
+def verify_bundled_release_manifest(
+    stage: Path,
+    manifest: Mapping[str, Any],
+) -> None:
+    release_status = manifest.get("releaseStatus")
+    platform_variant = manifest.get("platformVariant")
+    deployment_profile_id = manifest.get("deploymentProfile")
+    expected_policy_sha = manifest.get(
+        "deploymentProfilePolicySha256"
+    )
+    if release_status not in {
+        "qualification-candidate",
+        "production",
+    }:
+        raise OfflineBundleError(
+            "bundle_release_status_invalid"
+        )
+    if not isinstance(platform_variant, str):
+        raise OfflineBundleError(
+            "bundle_platform_variant_invalid"
+        )
+    if (
+        not isinstance(expected_policy_sha, str)
+        or len(expected_policy_sha) != 64
+    ):
+        raise OfflineBundleError(
+            "bundle_deployment_profile_policy_identity_invalid"
+        )
+
+    staged_policy = (
+        stage
+        / "release"
+        / "config"
+        / "acceptance"
+        / "phase1-deployment-profiles-v1.json"
+    )
+    try:
+        profiles, policy_sha = (
+            load_deployment_profile_policy(staged_policy)
+        )
+    except DeploymentProfileError as exc:
+        raise OfflineBundleError(exc.code) from exc
+    if policy_sha != expected_policy_sha:
+        raise OfflineBundleError(
+            "bundle_staged_profile_policy_mismatch"
+        )
+
+    verify_kwargs: dict[str, object] = {}
+    if release_status == "production":
+        if not isinstance(deployment_profile_id, str):
+            raise OfflineBundleError(
+                "production_deployment_profile_required"
+            )
+        profile = profiles.get(deployment_profile_id)
+        if profile is None:
+            raise OfflineBundleError(
+                "bundle_deployment_profile_unknown"
+            )
+        if profile.runtime_variant != platform_variant:
+            raise OfflineBundleError(
+                "bundle_deployment_profile_variant_mismatch"
+            )
+        verify_kwargs = {
+            "required_profile": profile.profile_id,
+            "required_gates": profile.qualification_gates,
+            "required_runtime_variant": profile.runtime_variant,
+            "required_deployment_profile_policy_sha256":
+                policy_sha,
+        }
+    elif deployment_profile_id is not None:
+        if (
+            not isinstance(deployment_profile_id, str)
+            or deployment_profile_id not in profiles
+            or profiles[
+                deployment_profile_id
+            ].runtime_variant
+            != platform_variant
+        ):
+            raise OfflineBundleError(
+                "bundle_deployment_profile_variant_mismatch"
+            )
+
+    try:
+        selection = verify_release_selection(
+            model_root=stage / "release" / "models",
+            manifest_path=(
+                stage
+                / "release"
+                / "models"
+                / "manifests"
+                / "rtmdet-m-coco-phase1-v1.json"
+            ),
+            profile_path=(
+                stage
+                / "release"
+                / "config"
+                / "pipelines"
+                / "phase1-detection-tracking-v1.json"
+            ),
+            runtime_profile_path=(
+                stage
+                / "release"
+                / "runtime"
+                / "mmdetection-phase1-v1"
+                / "runtime.json"
+            ),
+            qualification_path=(
+                stage
+                / "release"
+                / "models"
+                / "qualifications"
+                / "rtmdet-m-coco-phase1-v1.json"
+            ),
+            allow_unverified=(
+                release_status == "qualification-candidate"
+            ),
+            **verify_kwargs,
+        )
+    except ReleaseMetadataError as exc:
+        raise OfflineBundleError(exc.code) from exc
+
+    if selection.manifest.model_id != manifest.get("modelId"):
+        raise OfflineBundleError(
+            "bundle_model_identity_mismatch"
+        )
+    if (
+        selection.runtime_profile_id
+        != manifest.get("runtimeProfileId")
+    ):
+        raise OfflineBundleError(
+            "bundle_runtime_profile_identity_mismatch"
+        )
+    lock = selection.runtime_release_locks.get(
+        platform_variant
+    )
+    if (
+        lock is None
+        or lock.status != "qualified-offline-lock"
+        or lock.sha256 != manifest.get("lockSha256")
+    ):
+        raise OfflineBundleError(
+            "bundle_runtime_lock_identity_mismatch"
+        )
+
+
 def build_offline_bundle(
     *,
     source_commit: str,
