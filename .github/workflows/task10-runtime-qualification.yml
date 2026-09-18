@@ -3,6 +3,7 @@ name: Task 10 Runtime Qualification
 on:
   pull_request:
     branches:
+      - main
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'tools/vision/probe_runtime.py'
@@ -31,6 +32,7 @@ on:
       - 'docs/superpowers/plans/2026-09-11-task-10-rtmdet-bytetrack.md'
   push:
     branches:
+      - main
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'tools/vision/probe_runtime.py'
