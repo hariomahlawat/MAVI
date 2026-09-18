@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import platform
 import threading
 import time
 from collections.abc import Callable
@@ -11,6 +12,11 @@ from pathlib import Path
 from typing import Any, NoReturn, Protocol, TypeVar
 
 from mavi_vision.runtime.activity import InferenceActivity
+from mavi_vision.runtime.deployment_profiles import (
+    DeploymentProfile,
+    DeploymentProfileError,
+    select_profile,
+)
 from mavi_vision.runtime.errors import ProcessingDependencyError, RuntimeDisposition
 from mavi_vision.runtime.interfaces import DetectorRuntime, RuntimeMetadata
 from mavi_vision.runtime.profile import PipelineProfile
@@ -66,6 +72,11 @@ ReleaseVerifier = Callable[..., VerifiedReleaseSelection]
 RuntimeFactory = Callable[..., DetectorRuntime]
 ProvenanceBuilder = Callable[..., RuntimeProvenance]
 GpuIdentityProvider = Callable[[str], GpuIdentity | None]
+CudaAvailabilityProvider = Callable[[int], bool]
+DeploymentProfileLoader = Callable[
+    [str, Path],
+    tuple[DeploymentProfile, str],
+]
 
 
 _DISPOSITION_SEVERITY = {
@@ -93,6 +104,8 @@ class RuntimeSupervisor:
         profile_path: Path,
         runtime_profile_path: Path,
         qualification_path: Path | None,
+        deployment_profile_policy_path: Path | None = None,
+        deployment_profile: str | None = None,
         device_policy: str,
         device_index: int,
         production_mode: bool,
@@ -105,6 +118,8 @@ class RuntimeSupervisor:
         runtime_factory: RuntimeFactory | None = None,
         provenance_builder: ProvenanceBuilder = build_runtime_provenance,
         gpu_identity_provider: GpuIdentityProvider | None = None,
+        cuda_availability_provider: CudaAvailabilityProvider | None = None,
+        deployment_profile_loader: DeploymentProfileLoader = select_profile,
         monotonic_clock: Callable[[], float] = time.monotonic,
         fatal_terminator: Callable[[int], NoReturn] = os._exit,
     ) -> None:
@@ -128,6 +143,10 @@ class RuntimeSupervisor:
         self._profile_path = profile_path
         self._runtime_profile_path = runtime_profile_path
         self._qualification_path = qualification_path
+        self._deployment_profile_policy_path = (
+            deployment_profile_policy_path
+        )
+        self._deployment_profile = deployment_profile
         self._device_policy = device_policy
         self._device_index = device_index
         self._production_mode = production_mode
@@ -141,6 +160,11 @@ class RuntimeSupervisor:
         self._runtime_factory = runtime_factory or _default_runtime_factory
         self._provenance_builder = provenance_builder
         self._gpu_identity_provider = gpu_identity_provider or _no_gpu_identity
+        self._cuda_availability_provider = (
+            cuda_availability_provider
+            or _default_cuda_availability
+        )
+        self._deployment_profile_loader = deployment_profile_loader
         self._monotonic_clock = monotonic_clock
 
         self._state = RuntimeState.STARTING
@@ -206,15 +230,70 @@ class RuntimeSupervisor:
 
         candidate: DetectorRuntime | None = None
         try:
+            profile_requirement: DeploymentProfile | None = None
+            profile_policy_sha256: str | None = None
+            verifier_kwargs: dict[str, Any] = {
+                "model_root": self._model_root,
+                "manifest_path": self._manifest_path,
+                "profile_path": self._profile_path,
+                "runtime_profile_path": self._runtime_profile_path,
+                "qualification_path": self._qualification_path,
+                "allow_unverified": not self._production_mode,
+            }
+
+            if self._production_mode:
+                if self._deployment_profile is None:
+                    raise ValueError(
+                        "production_deployment_profile_required"
+                    )
+                if self._deployment_profile_policy_path is None:
+                    raise ValueError(
+                        "production_deployment_profile_policy_required"
+                    )
+                (
+                    profile_requirement,
+                    profile_policy_sha256,
+                ) = self._deployment_profile_loader(
+                    self._deployment_profile,
+                    self._deployment_profile_policy_path,
+                )
+                expected_policy = (
+                    "cuda"
+                    if profile_requirement.requires_cuda
+                    else "cpu"
+                )
+                if self._device_policy != expected_policy:
+                    raise ValueError(
+                        "production_device_policy_profile_mismatch"
+                    )
+                verifier_kwargs.update({
+                    "required_profile":
+                        profile_requirement.profile_id,
+                    "required_gates":
+                        profile_requirement.qualification_gates,
+                    "required_runtime_variant":
+                        profile_requirement.runtime_variant,
+                    "required_deployment_profile_policy_sha256":
+                        profile_policy_sha256,
+                })
+
             selection = self._release_verifier(
-                model_root=self._model_root,
-                manifest_path=self._manifest_path,
-                profile_path=self._profile_path,
-                runtime_profile_path=self._runtime_profile_path,
-                qualification_path=self._qualification_path,
-                allow_unverified=not self._production_mode,
+                **verifier_kwargs
             )
-            resolved_device = self._resolve_device()
+            resolved_device = self._resolve_device(selection)
+
+            if profile_requirement is not None:
+                observed_variant = _runtime_variant_name(
+                    resolved_device
+                )
+                if (
+                    observed_variant
+                    != profile_requirement.runtime_variant
+                ):
+                    raise ValueError(
+                        "production_deployment_profile_runtime_variant_mismatch"
+                    )
+
             candidate = await self._lane.run(
                 self._runtime_factory,
                 selection,
@@ -472,7 +551,10 @@ class RuntimeSupervisor:
         finally:
             await self._lane.close()
 
-    def _resolve_device(self) -> str:
+    def _resolve_device(
+        self,
+        selection: VerifiedReleaseSelection,
+    ) -> str:
         if self._device_policy == "cpu":
             return "cpu"
         if self._device_policy == "cuda":
@@ -480,9 +562,45 @@ class RuntimeSupervisor:
         if self._device_policy == "auto":
             if self._production_mode:
                 raise ValueError("production_auto_device_forbidden")
-            _LOGGER.warning(
-                "MAVI_DEVICE_POLICY=auto resolves to CPU in the Task-11 "
-                "development baseline"
+
+            cuda_device = f"cuda:{self._device_index}"
+            cuda_variant = _runtime_variant_name(cuda_device)
+            variant = selection.runtime_platform_variants.get(
+                cuda_variant
+            )
+            lock = selection.runtime_release_locks.get(
+                cuda_variant
+            )
+            cuda_runtime_ready = (
+                variant is not None
+                and variant.status == "qualified-hardware"
+                and lock is not None
+                and lock.status == "qualified-offline-lock"
+            )
+            cuda_available = False
+            if cuda_runtime_ready:
+                try:
+                    cuda_available = (
+                        self._cuda_availability_provider(
+                            self._device_index
+                        )
+                    )
+                except Exception:
+                    _LOGGER.exception(
+                        "CUDA availability probe failed; "
+                        "falling back to CPU in Development"
+                    )
+            if cuda_available:
+                _LOGGER.info(
+                    "MAVI_DEVICE_POLICY=auto selected %s",
+                    cuda_device,
+                )
+                return cuda_device
+
+            _LOGGER.info(
+                "MAVI_DEVICE_POLICY=auto selected CPU because a "
+                "qualified compatible CUDA runtime/device was not "
+                "available"
             )
             return "cpu"
         raise ValueError("device_policy_invalid")
@@ -606,6 +724,34 @@ class RuntimeSupervisor:
             isinstance(error, ProcessingDependencyError)
             and error.runtime_disposition is RuntimeDisposition.UNAVAILABLE
         )
+
+
+def _runtime_variant_name(device: str) -> str:
+    system = platform.system().casefold()
+    machine = platform.machine().casefold()
+    if system == "windows":
+        os_name = "windows"
+    elif system == "linux":
+        os_name = "linux"
+    else:
+        raise ValueError("runtime_platform_unsupported")
+    if machine not in {"x86_64", "amd64"}:
+        raise ValueError("runtime_architecture_unsupported")
+    accelerator = (
+        "cuda" if device.startswith("cuda:") else "cpu"
+    )
+    return f"{os_name}-x86_64-{accelerator}"
+
+
+def _default_cuda_availability(device_index: int) -> bool:
+    try:
+        import torch
+    except Exception:
+        return False
+    return bool(
+        torch.cuda.is_available()
+        and torch.cuda.device_count() > device_index
+    )
 
 
 def _default_runtime_factory(
