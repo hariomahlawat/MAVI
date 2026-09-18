@@ -1237,26 +1237,44 @@ def validate_topology_binding(
 
 
 def assemble(args: argparse.Namespace) -> dict[str, Any]:
-    canonical_profile, profile_sha = canonical_acceptance_profile(args.acceptance_profile)
-    profile = load_json(canonical_profile, "production_acceptance_profile_invalid")
+    canonical_profile, profile_sha = canonical_acceptance_profile(
+        args.acceptance_profile
+    )
+    profile = load_json(
+        canonical_profile,
+        "production_acceptance_profile_invalid",
+    )
     corpus_sha = profile.get("qualificationCorpusManifestSha256")
     if (
         profile.get("mode") != "qualification"
         or not isinstance(corpus_sha, str)
         or len(corpus_sha) != 64
     ):
-        raise ProductionAcceptanceError("production_acceptance_profile_not_frozen")
+        raise ProductionAcceptanceError(
+            "production_acceptance_profile_not_frozen"
+        )
+
+    selected_profile, deployment_policy_sha = (
+        deployment_profiles.select_profile(
+            args.deployment_profile,
+            args.deployment_profile_policy,
+        )
+    )
 
     verified_manifest = load_json(
         args.verified_model_manifest,
         "production_verified_manifest_invalid",
     )
-    target_manifest_sha = sha256_file(args.verified_model_manifest)
+    target_manifest_sha = sha256_file(
+        args.verified_model_manifest
+    )
     if (
         verified_manifest.get("verificationStatus") != "verified"
         or not verified_manifest.get("qualificationId")
     ):
-        raise ProductionAcceptanceError("production_verified_manifest_not_promoted")
+        raise ProductionAcceptanceError(
+            "production_verified_manifest_not_promoted"
+        )
 
     application_manifest = load_json(
         args.application_manifest,
@@ -1271,6 +1289,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         raise ProductionAcceptanceError(
             "production_application_artifact_invalid"
         ) from exc
+
     source_commit = application_manifest.get("sourceCommit")
     mavi_build = application_manifest.get("build")
     if (
@@ -1279,23 +1298,37 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         or not mavi_build
         or mavi_build == "unknown-development"
     ):
-        raise ProductionAcceptanceError("production_application_identity_mismatch")
-    application_manifest_sha = sha256_file(args.application_manifest)
-    acceptance_context, acceptance_context_sha = load_acceptance_context(
-        args.acceptance_context,
-        schema_path=PHASE1_ROOT / "production-acceptance-context.schema.json",
-        expected_source_commit=args.source_commit,
-        expected_mavi_build=mavi_build,
+        raise ProductionAcceptanceError(
+            "production_application_identity_mismatch"
+        )
+
+    application_manifest_sha = sha256_file(
+        args.application_manifest
+    )
+    acceptance_context, acceptance_context_sha = (
+        load_acceptance_context(
+            args.acceptance_context,
+            schema_path=PHASE1_ROOT
+            / "production-acceptance-context.schema.json",
+            expected_source_commit=args.source_commit,
+            expected_mavi_build=mavi_build,
+        )
     )
 
+    observation_paths = parse_prerequisite_observation_arguments(
+        args.prerequisite_observation,
+        selected_profile.required_prerequisite_roles,
+    )
     prerequisite_sha = validate_prerequisites(
         args.prerequisite_evidence,
-        windows_observation=args.windows_prerequisite_observation,
-        database_observation=args.database_prerequisite_observation,
-        linux_observation=args.linux_prerequisite_observation,
+        observation_paths=observation_paths,
+        selected_profile=selected_profile,
+        deployment_policy_sha256=deployment_policy_sha,
         source_commit=args.source_commit,
         mavi_build=mavi_build,
-        acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
+        acceptance_execution_id=acceptance_context[
+            "acceptanceExecutionId"
+        ],
         acceptance_context_sha256=acceptance_context_sha,
         context_started_at=acceptance_context["startedAtUtc"],
     )
@@ -1306,11 +1339,15 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
     )
     windows_operational_identity = prerequisite_value.get(
         "topologyIdentities", {}
-    ).get("windowsOperationalPlane")
+    ).get("windows-operational-plane")
     if not isinstance(windows_operational_identity, str):
-        raise ProductionAcceptanceError("production_windows_topology_missing")
+        raise ProductionAcceptanceError(
+            "production_windows_topology_missing"
+        )
 
-    supported_policy_sha = policy_sha256_file(CANONICAL_SUPPORTED_UPDATES)
+    supported_policy_sha = policy_sha256_file(
+        CANONICAL_SUPPORTED_UPDATES
+    )
     fresh_sha = validate_lifecycle(
         args.fresh_install,
         mode="fresh-install",
@@ -1332,95 +1369,126 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         post_update_state_check=args.post_update_state_check,
     )
 
-    variant_paths = parse_variant_arguments(args.production_variant)
-    variant_evidence: dict[str, str] = {}
-    bundle_hashes: dict[str, str] = {}
-    lock_hashes: dict[str, str] = {}
-    variant_values: dict[str, dict[str, Any]] = {}
-    for variant in VARIANTS:
-        evidence_sha, bundle_sha, lock_sha, value = validate_variant(
-            variant_paths[variant],
-            variant=variant,
+    variant_paths = parse_variant_arguments(
+        args.production_variant,
+        selected_profile.required_runtime_variants,
+    )
+    runtime_variant = selected_profile.runtime_variant
+    variant_path = variant_paths[runtime_variant]
+    evidence_sha, bundle_sha, lock_sha, worker_variant = (
+        validate_variant(
+            variant_path,
+            variant=runtime_variant,
             source_commit=args.source_commit,
             target_manifest_sha256=target_manifest_sha,
             acceptance_profile_sha256=profile_sha,
             mavi_build=mavi_build,
         )
-        variant_evidence[variant] = evidence_sha
-        bundle_hashes[variant] = bundle_sha
-        lock_hashes[variant] = lock_sha
-        variant_values[variant] = value
-
-    linux_variant_path = variant_paths["linux-x86_64-cuda"]
-    linux_variant = variant_values["linux-x86_64-cuda"]
-    formal_scenario_sha, formal_e2e_sha, formal_log_sha = validate_scenario(
-        args.formal_scenario,
-        args.final_e2e,
-        mode="formal",
-        source_commit=args.source_commit,
-        target_manifest_sha256=target_manifest_sha,
-        acceptance_profile_sha256=profile_sha,
-        expected_corpus_sha256=corpus_sha,
-        mavi_build=mavi_build,
-        linux_cuda_variant_path=linux_variant_path,
-        linux_cuda_variant=linux_variant,
-        linux_cuda_bundle_sha256=bundle_hashes["linux-x86_64-cuda"],
-        linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
-        acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
-        acceptance_context_sha256=acceptance_context_sha,
-        expected_operational_host_identity_sha256=windows_operational_identity,
     )
-    empty_scenario_sha, empty_e2e_sha, empty_log_sha = validate_scenario(
-        args.empty_scene_scenario,
-        args.empty_scene_e2e,
-        mode="empty-scene-diagnostic",
-        source_commit=args.source_commit,
-        target_manifest_sha256=target_manifest_sha,
-        acceptance_profile_sha256=profile_sha,
-        expected_corpus_sha256=None,
-        mavi_build=mavi_build,
-        linux_cuda_variant_path=linux_variant_path,
-        linux_cuda_variant=linux_variant,
-        linux_cuda_bundle_sha256=bundle_hashes["linux-x86_64-cuda"],
-        linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
-        acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
-        acceptance_context_sha256=acceptance_context_sha,
-        expected_operational_host_identity_sha256=windows_operational_identity,
+    variant_evidence = {runtime_variant: evidence_sha}
+    bundle_hashes = {runtime_variant: bundle_sha}
+    lock_hashes = {runtime_variant: lock_sha}
+
+    formal_scenario_sha, formal_e2e_sha, formal_log_sha = (
+        validate_scenario(
+            args.formal_scenario,
+            args.final_e2e,
+            mode="formal",
+            source_commit=args.source_commit,
+            target_manifest_sha256=target_manifest_sha,
+            acceptance_profile_sha256=profile_sha,
+            expected_corpus_sha256=corpus_sha,
+            mavi_build=mavi_build,
+            deployment_profile=selected_profile,
+            deployment_profile_policy_sha256=deployment_policy_sha,
+            variant_path=variant_path,
+            variant=worker_variant,
+            bundle_sha256=bundle_sha,
+            lock_sha256=lock_sha,
+            acceptance_execution_id=acceptance_context[
+                "acceptanceExecutionId"
+            ],
+            acceptance_context_sha256=acceptance_context_sha,
+            expected_operational_host_identity_sha256=(
+                windows_operational_identity
+            ),
+        )
+    )
+    empty_scenario_sha, empty_e2e_sha, empty_log_sha = (
+        validate_scenario(
+            args.empty_scene_scenario,
+            args.empty_scene_e2e,
+            mode="empty-scene-diagnostic",
+            source_commit=args.source_commit,
+            target_manifest_sha256=target_manifest_sha,
+            acceptance_profile_sha256=profile_sha,
+            expected_corpus_sha256=None,
+            mavi_build=mavi_build,
+            deployment_profile=selected_profile,
+            deployment_profile_policy_sha256=deployment_policy_sha,
+            variant_path=variant_path,
+            variant=worker_variant,
+            bundle_sha256=bundle_sha,
+            lock_sha256=lock_sha,
+            acceptance_execution_id=acceptance_context[
+                "acceptanceExecutionId"
+            ],
+            acceptance_context_sha256=acceptance_context_sha,
+            expected_operational_host_identity_sha256=(
+                windows_operational_identity
+            ),
+        )
     )
     if formal_e2e_sha == empty_e2e_sha:
-        raise ProductionAcceptanceError("production_scenarios_not_distinct")
+        raise ProductionAcceptanceError(
+            "production_scenarios_not_distinct"
+        )
 
     failure_sha, failure_log_sha = validate_failure_reprocess(
         args.failure_reprocess,
         source_commit=args.source_commit,
         mavi_build=mavi_build,
         target_manifest_sha256=target_manifest_sha,
-        linux_cuda_variant_path=linux_variant_path,
-        linux_cuda_variant=linux_variant,
-        linux_cuda_bundle_sha256=bundle_hashes["linux-x86_64-cuda"],
-        linux_cuda_lock_sha256=lock_hashes["linux-x86_64-cuda"],
-        acceptance_execution_id=acceptance_context["acceptanceExecutionId"],
+        deployment_profile=selected_profile,
+        deployment_profile_policy_sha256=deployment_policy_sha,
+        variant_path=variant_path,
+        variant=worker_variant,
+        bundle_sha256=bundle_sha,
+        lock_sha256=lock_sha,
+        acceptance_execution_id=acceptance_context[
+            "acceptanceExecutionId"
+        ],
         acceptance_context_sha256=acceptance_context_sha,
-        expected_operational_host_identity_sha256=windows_operational_identity,
+        expected_operational_host_identity_sha256=(
+            windows_operational_identity
+        ),
     )
 
-    formal_scenario_value = load_json(args.formal_scenario, "production_formal_scenario_invalid")
-    empty_scenario_value = load_json(args.empty_scene_scenario, "production_empty_scenario_invalid")
-    failure_value = load_json(args.failure_reprocess, "production_failure_reprocess_invalid")
+    formal_scenario_value = load_json(
+        args.formal_scenario,
+        "production_formal_scenario_invalid",
+    )
+    empty_scenario_value = load_json(
+        args.empty_scene_scenario,
+        "production_empty_scenario_invalid",
+    )
+    failure_value = load_json(
+        args.failure_reprocess,
+        "production_failure_reprocess_invalid",
+    )
     first_scenario_started_at = min(
         formal_scenario_value["scenarioStartedAtUtc"],
         empty_scenario_value["scenarioStartedAtUtc"],
         failure_value["scenarioStartedAtUtc"],
     )
     validate_prerequisite_observation_window(
-        (
-            args.windows_prerequisite_observation,
-            args.database_prerequisite_observation,
-            args.linux_prerequisite_observation,
-        ),
+        tuple(observation_paths.values()),
         first_scenario_started_at=first_scenario_started_at,
     )
-    production_log_paths = parse_log_arguments(args.production_log)
+
+    production_log_paths = parse_log_arguments(
+        args.production_log
+    )
     log_inspection_sha = validate_log_inspection(
         args.log_inspection,
         context_path=args.acceptance_context,
@@ -1455,94 +1523,268 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         accepted_evidence_manifest=args.backup_accepted_evidence_manifest,
     )
 
-    fresh_value = load_json(args.fresh_install, "production_fresh_install_invalid")
-    update_value = load_json(args.offline_update, "production_offline_update_invalid")
-    backup_value = load_json(args.backup_restore, "production_backup_restore_invalid")
+    fresh_value = load_json(
+        args.fresh_install,
+        "production_fresh_install_invalid",
+    )
+    update_value = load_json(
+        args.offline_update,
+        "production_offline_update_invalid",
+    )
+    backup_value = load_json(
+        args.backup_restore,
+        "production_backup_restore_invalid",
+    )
     validate_topology_binding(
         prerequisite_value,
         fresh_value,
         update_value,
         backup_value,
-        linux_variant,
+        worker_variant,
+        selected_profile,
     )
 
     return {
-        "schemaVersion": "mavi-phase1-production-acceptance-evidence-v1",
-        "acceptanceExecutionId": acceptance_context["acceptanceExecutionId"],
-        "acceptanceContextSha256": acceptance_context_sha,
-        "serverLogCheckpointSha256": sha256_file(args.server_log_checkpoint),
+        "schemaVersion":
+            "mavi-phase1-production-acceptance-evidence-v2",
+        "acceptanceExecutionId":
+            acceptance_context["acceptanceExecutionId"],
+        "acceptanceContextSha256":
+            acceptance_context_sha,
+        "serverLogCheckpointSha256":
+            sha256_file(args.server_log_checkpoint),
         "sourceCommit": args.source_commit,
         "maviBuild": mavi_build,
-        "verifiedModelManifestSha256": target_manifest_sha,
-        "acceptanceProfileSha256": profile_sha,
-        "applicationManifestSha256": application_manifest_sha,
-        "prerequisiteEvidenceSha256": prerequisite_sha,
-        "freshInstallEvidenceSha256": fresh_sha,
-        "offlineUpdateEvidenceSha256": update_sha,
-        "priorApplicationManifestSha256": sha256_file(args.prior_application_manifest),
-        "priorAcceptanceEvidenceSha256": sha256_file(args.prior_acceptance_evidence),
-        "preUpdateStateCheckSha256": sha256_file(args.pre_update_state_check),
-        "postUpdateStateCheckSha256": sha256_file(args.post_update_state_check),
-        "backupRestoreEvidenceSha256": backup_sha,
-        "backupExecutionEvidenceSha256": sha256_file(args.backup_execution),
-        "postRestoreCheckSha256": sha256_file(args.post_restore_check),
-        "backupSetManifestSha256": sha256_file(args.backup_set_manifest),
-        "backupDatabaseManifestSha256": sha256_file(args.backup_database_manifest),
-        "backupManagedSourceManifestSha256": sha256_file(args.backup_managed_source_manifest),
-        "backupAcceptedEvidenceManifestSha256": sha256_file(args.backup_accepted_evidence_manifest),
-        "productionVariantEvidenceSha256": variant_evidence,
-        "productionBundleManifestSha256": bundle_hashes,
-        "productionReleaseLockSha256": lock_hashes,
-        "formalScenarioEvidenceSha256": formal_scenario_sha,
-        "finalE2eEvidenceSha256": formal_e2e_sha,
-        "emptySceneScenarioEvidenceSha256": empty_scenario_sha,
-        "emptySceneE2eEvidenceSha256": empty_e2e_sha,
-        "failureReprocessEvidenceSha256": failure_sha,
-        "logInspectionEvidenceSha256": log_inspection_sha,
-        "result": {"passed": True, "failureCodes": []},
+        "deploymentProfile":
+            selected_profile.profile_id,
+        "deploymentProfilePolicySha256":
+            deployment_policy_sha,
+        "runtimeVariant": runtime_variant,
+        "verifiedModelManifestSha256":
+            target_manifest_sha,
+        "acceptanceProfileSha256":
+            profile_sha,
+        "applicationManifestSha256":
+            application_manifest_sha,
+        "prerequisiteEvidenceSha256":
+            prerequisite_sha,
+        "freshInstallEvidenceSha256":
+            fresh_sha,
+        "offlineUpdateEvidenceSha256":
+            update_sha,
+        "priorApplicationManifestSha256":
+            sha256_file(args.prior_application_manifest),
+        "priorAcceptanceEvidenceSha256":
+            sha256_file(args.prior_acceptance_evidence),
+        "preUpdateStateCheckSha256":
+            sha256_file(args.pre_update_state_check),
+        "postUpdateStateCheckSha256":
+            sha256_file(args.post_update_state_check),
+        "backupRestoreEvidenceSha256":
+            backup_sha,
+        "backupExecutionEvidenceSha256":
+            sha256_file(args.backup_execution),
+        "postRestoreCheckSha256":
+            sha256_file(args.post_restore_check),
+        "backupSetManifestSha256":
+            sha256_file(args.backup_set_manifest),
+        "backupDatabaseManifestSha256":
+            sha256_file(args.backup_database_manifest),
+        "backupManagedSourceManifestSha256":
+            sha256_file(args.backup_managed_source_manifest),
+        "backupAcceptedEvidenceManifestSha256":
+            sha256_file(args.backup_accepted_evidence_manifest),
+        "productionVariantEvidenceSha256":
+            variant_evidence,
+        "productionBundleManifestSha256":
+            bundle_hashes,
+        "productionReleaseLockSha256":
+            lock_hashes,
+        "formalScenarioEvidenceSha256":
+            formal_scenario_sha,
+        "finalE2eEvidenceSha256":
+            formal_e2e_sha,
+        "emptySceneScenarioEvidenceSha256":
+            empty_scenario_sha,
+        "emptySceneE2eEvidenceSha256":
+            empty_e2e_sha,
+        "failureReprocessEvidenceSha256":
+            failure_sha,
+        "logInspectionEvidenceSha256":
+            log_inspection_sha,
+        "result": {
+            "passed": True,
+            "failureCodes": [],
+        },
     }
-
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-commit", required=True)
-    parser.add_argument("--acceptance-context", type=Path, required=True)
-    parser.add_argument("--server-log-checkpoint", type=Path, required=True)
-    parser.add_argument("--verified-model-manifest", type=Path, required=True)
-    parser.add_argument("--acceptance-profile", type=Path, required=True)
-    parser.add_argument("--application-artifact-root", type=Path, required=True)
-    parser.add_argument("--application-manifest", type=Path, required=True)
-    parser.add_argument("--prerequisite-evidence", type=Path, required=True)
-    parser.add_argument("--windows-prerequisite-observation", type=Path, required=True)
-    parser.add_argument("--database-prerequisite-observation", type=Path, required=True)
-    parser.add_argument("--linux-prerequisite-observation", type=Path, required=True)
-    parser.add_argument("--fresh-install", type=Path, required=True)
-    parser.add_argument("--offline-update", type=Path, required=True)
-    parser.add_argument("--prior-application-manifest", type=Path, required=True)
-    parser.add_argument("--prior-acceptance-evidence", type=Path, required=True)
-    parser.add_argument("--pre-update-state-check", type=Path, required=True)
-    parser.add_argument("--post-update-state-check", type=Path, required=True)
-    parser.add_argument("--production-variant", action="append", default=[])
-    parser.add_argument("--formal-scenario", type=Path, required=True)
-    parser.add_argument("--final-e2e", type=Path, required=True)
-    parser.add_argument("--empty-scene-scenario", type=Path, required=True)
-    parser.add_argument("--empty-scene-e2e", type=Path, required=True)
-    parser.add_argument("--failure-reprocess", type=Path, required=True)
-    parser.add_argument("--log-inspection", type=Path, required=True)
-    parser.add_argument("--production-log", action="append", default=[])
-    parser.add_argument("--backup-restore", type=Path, required=True)
-    parser.add_argument("--backup-execution", type=Path, required=True)
-    parser.add_argument("--post-restore-check", type=Path, required=True)
-    parser.add_argument("--backup-set-manifest", type=Path, required=True)
-    parser.add_argument("--backup-database-manifest", type=Path, required=True)
-    parser.add_argument("--backup-managed-source-manifest", type=Path, required=True)
-    parser.add_argument("--backup-accepted-evidence-manifest", type=Path, required=True)
+    parser.add_argument(
+        "--deployment-profile-policy",
+        type=Path,
+        default=deployment_profiles.CANONICAL_DEPLOYMENT_PROFILES,
+    )
+    parser.add_argument(
+        "--deployment-profile",
+        choices=("P1", "P2", "P3"),
+        required=True,
+    )
+    parser.add_argument(
+        "--acceptance-context",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--server-log-checkpoint",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--verified-model-manifest",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--acceptance-profile",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--application-artifact-root",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--application-manifest",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--prerequisite-evidence",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--prerequisite-observation",
+        action="append",
+        default=[],
+        help="ROLE=PATH; exactly the roles required by the selected profile",
+    )
+    parser.add_argument(
+        "--fresh-install",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--offline-update",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--prior-application-manifest",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--prior-acceptance-evidence",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--pre-update-state-check",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--post-update-state-check",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--production-variant",
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--formal-scenario",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--final-e2e",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--empty-scene-scenario",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--empty-scene-e2e",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--failure-reprocess",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--log-inspection",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--production-log",
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--backup-restore",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--backup-execution",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--post-restore-check",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--backup-set-manifest",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--backup-database-manifest",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--backup-managed-source-manifest",
+        type=Path,
+        required=True,
+    )
+    parser.add_argument(
+        "--backup-accepted-evidence-manifest",
+        type=Path,
+        required=True,
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
     try:
         if args.output.exists():
-            raise ProductionAcceptanceError("production_acceptance_output_exists")
+            raise ProductionAcceptanceError(
+                "production_acceptance_output_exists"
+            )
         value = assemble(args)
         validate_schema(
             value,
@@ -1550,7 +1792,12 @@ def main() -> int:
             "production_acceptance",
         )
         args.output.write_text(
-            json.dumps(value, indent=2, sort_keys=True) + "\n",
+            json.dumps(
+                value,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
             encoding="utf-8",
             newline="\n",
         )
@@ -1558,15 +1805,28 @@ def main() -> int:
         ProductionAcceptanceError,
         PolicyIdentityError,
         AcceptanceContextError,
+        deployment_profiles.DeploymentProfileError,
         OSError,
         json.JSONDecodeError,
     ) as exc:
-        print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
+        code = getattr(exc, "code", str(exc))
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "code": code,
+                },
+                sort_keys=True,
+            )
+        )
         return 2
 
     print(
         json.dumps(
-            {"ok": True, "sha256": sha256_file(args.output)},
+            {
+                "ok": True,
+                "sha256": sha256_file(args.output),
+            },
             sort_keys=True,
         )
     )
