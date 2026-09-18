@@ -21,6 +21,10 @@ All future dependency-bearing features must follow `docs/architecture/dependency
 
 Large third-party binary payloads are staged through canonical `vendor/...` locations and assembled into manifest-verified offline media rather than being assumed from PATH or downloaded on first run.
 
+## Deployment profiles
+
+ADR-008 separates Development convenience from Production qualification. Development is supported on one Windows laptop/workstation and may use CPU or a compatible Windows GPU. Production is profile-based: P1 single-host Windows GPU, P2 split-host Windows + Linux GPU, and P3 single-host Windows CPU. Each Production profile is qualified independently; no profile inherits another profile's evidence.
+
 ## Current maturity
 
 Phase-1 implementation includes the operational API/UI, PostgreSQL/pgvector persistence, media processing integration, qualified-runtime/acceptance tooling, one-click Development/Production setup infrastructure and disconnected-release qualification machinery.
@@ -31,7 +35,7 @@ Implementation completion remains distinct from release verification: CUDA, disc
 
 - `AGENTS.md` — binding engineering rules.
 - `docs/architecture/dependency-and-offline-packaging-policy.md` — dependency/change methodology.
-- `docs/architecture/phase1-production-topology.md` — approved Phase-1 Production host/plane topology (ADR-008).
+- `docs/architecture/phase1-production-topology.md` — Development device policy and Production deployment profiles (ADR-008).
 - `docs/runbooks/local-development.md` — supported Development workflow.
 - `docs/runbooks/mavi-offline-setup.md` — offline media preparation and installation.
 - `docs/runbooks/offline-readiness.md` — milestone/release offline-readiness checks.
