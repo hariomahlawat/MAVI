@@ -220,13 +220,16 @@ For a repository-based Development workstation, keep the extracted `MAVI-Offline
 
 ADR-008 defines three Production profiles over the same application architecture:
 
-- **P1 — Single-host Windows GPU:** IIS/API/UI + MAVI PostgreSQL/pgvector + Windows CUDA Vision worker on one capable Windows NVIDIA machine.
-- **P2 — Split-host Windows + Linux GPU:** Windows operational/data host plus a separate Linux NVIDIA Vision worker.
-- **P3 — Single-host Windows CPU:** complete stack on one Windows machine using the qualified Windows CPU Runtime Pack.
+| Profile | Physical topology | Worker runtime | Required worker environment |
+|---|---|---|---|
+| **P1** | Single Windows host | Windows CUDA | `MAVI_DEPLOYMENT_PROFILE=P1`, `MAVI_DEVICE_POLICY=cuda` |
+| **P2** | Windows Operational/Data + separate Linux Vision host | Linux CUDA | `MAVI_DEPLOYMENT_PROFILE=P2`, `MAVI_DEVICE_POLICY=cuda` |
+| **P3** | Single Windows host | Windows CPU | `MAVI_DEPLOYMENT_PROFILE=P3`, `MAVI_DEVICE_POLICY=cpu` |
 
-The offline setup media for the Windows operational/data plane remains common. Vision Runtime/Model media are profile-specific.
+Production workers **must** set `MAVI_DEPLOYMENT_PROFILE`. Production rejects `MAVI_DEVICE_POLICY=auto`. At worker startup the selected profile is loaded from the exact deployment-profile policy, the release qualification record is checked for that profile/policy/runtime variant, and the actual host OS/device is required to match the profile. Thus P2 cannot accidentally run on a Windows CUDA host and P1/P3 cannot silently use another runtime variant.
 
-A profile is supported only after its exact Production qualification passes. The presence of a GPU on a machine does not by itself authorize CUDA execution; the corresponding Runtime Pack/device combination must be qualified.
+The Windows operational/data setup media remains common. The Vision Runtime Pack and worker installation are profile-specific. A profile is supported only after its exact Production qualification passes.
+
 
 ## Production workstation
 
