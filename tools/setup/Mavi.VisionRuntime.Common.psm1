@@ -189,6 +189,183 @@ function Test-MaviVisionPythonIdentityEqual {
     return ([string]$leftBuild[0] -eq [string]$rightBuild[0] -and [string]$leftBuild[1] -eq [string]$rightBuild[1])
 }
 
+function Assert-MaviVisionRuntimeInstalledStatePreflight {
+    param(
+        [Parameter(Mandatory = $true)][string]$RuntimeRoot,
+        [Parameter(Mandatory = $true)][object]$InstalledState,
+        [Parameter(Mandatory = $true)][object]$Manifest,
+        [Parameter(Mandatory = $true)][string]$RuntimePackManifestPath
+    )
+
+    [void](Assert-MaviVisionRuntimePackManifest -Manifest $Manifest)
+    if (-not $InstalledState.PSObject.Properties["schemaVersion"] -or
+        [string]$InstalledState.schemaVersion -ne $script:VisionRuntimeInstallSchema) {
+        throw "Vision runtime installed state schema is unsupported."
+    }
+
+    $manifestSha = (Get-FileHash -LiteralPath $RuntimePackManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ([string]$InstalledState.runtimePackManifestSha256 -ne $manifestSha) {
+        throw "Installed Vision Runtime Pack state does not bind the installed manifest."
+    }
+
+    $comparisons = [ordered]@{
+        runtimePackId = [string]$Manifest.runtimePackId
+        thirdPartyLockSha256 = ([string]$Manifest.thirdPartyLockSha256).ToLowerInvariant()
+        runtimeRequirementsSha256 = ([string]$Manifest.runtimeRequirementsSha256).ToLowerInvariant()
+        platformVariant = [string]$Manifest.platformVariant
+        pythonVersion = [string]$Manifest.pythonVersion
+        nativeAbi = [string]$Manifest.nativeAbi
+    }
+    foreach ($name in $comparisons.Keys) {
+        $property = $InstalledState.PSObject.Properties[$name]
+        if (-not $property -or [string]$property.Value -ne [string]$comparisons[$name]) {
+            throw "Installed Vision Runtime Pack state does not match manifest field '$name'."
+        }
+    }
+
+    $root = [IO.Path]::GetFullPath($RuntimeRoot.Trim().Trim('"'))
+    foreach ($purpose in @("third-party-runtime-lock", "application-runtime-requirements")) {
+        $artifacts = @($Manifest.artifacts | Where-Object { [string]$_.purpose -eq $purpose })
+        if ($artifacts.Count -ne 1) {
+            throw "Installed Vision Runtime Pack must declare exactly one '$purpose' artifact."
+        }
+        $relative = [string]$artifacts[0].relativePath
+        if ($relative -notmatch '^runtime/[A-Za-z0-9._-]+    param(
+        [AllowNull()][object]$InstalledState,
+        [Parameter(Mandatory = $true)][object]$Manifest,
+        [Parameter(Mandatory = $true)][string]$RuntimePackManifestSha256,
+        [Parameter(Mandatory = $true)][object]$PythonIdentity
+    )
+
+    [void](Assert-MaviVisionRuntimePackManifest -Manifest $Manifest)
+    if (-not (Test-MaviVisionSha256Text $RuntimePackManifestSha256)) { return $false }
+    if ($null -eq $InstalledState) { return $false }
+    $schemaProperty = $InstalledState.PSObject.Properties["schemaVersion"]
+    if (-not $schemaProperty -or [string]$schemaProperty.Value -ne $script:VisionRuntimeInstallSchema) { return $false }
+
+    $comparisons = [ordered]@{
+        runtimePackId = [string]$Manifest.runtimePackId
+        runtimePackManifestSha256 = $RuntimePackManifestSha256.ToLowerInvariant()
+        thirdPartyLockSha256 = ([string]$Manifest.thirdPartyLockSha256).ToLowerInvariant()
+        runtimeRequirementsSha256 = ([string]$Manifest.runtimeRequirementsSha256).ToLowerInvariant()
+        platformVariant = [string]$Manifest.platformVariant
+        pythonVersion = [string]$Manifest.pythonVersion
+        nativeAbi = [string]$Manifest.nativeAbi
+    }
+    foreach ($name in $comparisons.Keys) {
+        $property = $InstalledState.PSObject.Properties[$name]
+        if (-not $property -or [string]$property.Value -ne [string]$comparisons[$name]) { return $false }
+    }
+
+    $identityProperty = $InstalledState.PSObject.Properties["pythonIdentity"]
+    if (-not $identityProperty -or -not (Test-MaviVisionPythonIdentityEqual -Left $identityProperty.Value -Right $PythonIdentity)) { return $false }
+    return $true
+}
+
+function Test-MaviVisionModelPackReuse {
+    param(
+        [AllowNull()][object]$InstalledState,
+        [Parameter(Mandatory = $true)][object]$Manifest,
+        [Parameter(Mandatory = $true)][string]$ModelPackManifestSha256
+    )
+    [void](Assert-MaviVisionModelPackManifest -Manifest $Manifest)
+    if (-not (Test-MaviVisionSha256Text $ModelPackManifestSha256)) { return $false }
+    if ($null -eq $InstalledState) { return $false }
+    $schemaProperty = $InstalledState.PSObject.Properties["schemaVersion"]
+    if (-not $schemaProperty -or [string]$schemaProperty.Value -ne $script:VisionModelInstallSchema) { return $false }
+    $comparisons = [ordered]@{
+        modelPackId = [string]$Manifest.modelPackId
+        modelPackManifestSha256 = $ModelPackManifestSha256.ToLowerInvariant()
+        modelId = [string]$Manifest.modelId
+        checkpointSha256 = ([string]$Manifest.checkpointSha256).ToLowerInvariant()
+        resolvedConfigSha256 = ([string]$Manifest.resolvedConfigSha256).ToLowerInvariant()
+    }
+    foreach ($name in $comparisons.Keys) {
+        $property = $InstalledState.PSObject.Properties[$name]
+        if (-not $property -or [string]$property.Value -ne [string]$comparisons[$name]) { return $false }
+    }
+    return $true
+}
+
+function Assert-MaviVisionWorkerComponentCompatibility {
+    param(
+        [Parameter(Mandatory = $true)][object]$RuntimeState,
+        [Parameter(Mandatory = $true)][object]$RuntimeManifest,
+        [Parameter(Mandatory = $true)][string]$RequiredRuntimePackId,
+        [Parameter(Mandatory = $true)][string]$RequiredThirdPartyLockSha256,
+        [Parameter(Mandatory = $true)][string]$RequiredRuntimeRequirementsSha256,
+        [Parameter(Mandatory = $true)][object]$ModelState,
+        [Parameter(Mandatory = $true)][object]$ModelManifest,
+        [Parameter(Mandatory = $true)][string]$RequiredModelPackId,
+        [Parameter(Mandatory = $true)][string]$RequiredModelId,
+        [Parameter(Mandatory = $true)][string]$RequiredCheckpointSha256,
+        [Parameter(Mandatory = $true)][string]$RequiredResolvedConfigSha256
+    )
+
+    [void](Assert-MaviVisionRuntimePackManifest -Manifest $RuntimeManifest)
+    [void](Assert-MaviVisionModelPackManifest -Manifest $ModelManifest)
+
+    if (-not $RuntimeState.PSObject.Properties["schemaVersion"] -or [string]$RuntimeState.schemaVersion -ne $script:VisionRuntimeInstallSchema) {
+        throw "Vision runtime installed state schema is unsupported; reinstall the v2 Runtime Pack."
+    }
+    if (-not $ModelState.PSObject.Properties["schemaVersion"] -or [string]$ModelState.schemaVersion -ne $script:VisionModelInstallSchema) {
+        throw "Vision model installed state schema is unsupported; reinstall the Model Pack."
+    }
+
+    if ([string]$RuntimeState.runtimePackId -ne $RequiredRuntimePackId -or [string]$RuntimeManifest.runtimePackId -ne $RequiredRuntimePackId) {
+        throw "Vision Runtime Pack ID mismatch. Required '$RequiredRuntimePackId'."
+    }
+    if ([string]$RuntimeState.thirdPartyLockSha256 -ne $RequiredThirdPartyLockSha256 -or [string]$RuntimeManifest.thirdPartyLockSha256 -ne $RequiredThirdPartyLockSha256) {
+        throw "Vision Runtime Pack third-party lock fingerprint mismatch."
+    }
+    if ([string]$RuntimeState.runtimeRequirementsSha256 -ne $RequiredRuntimeRequirementsSha256 -or [string]$RuntimeManifest.runtimeRequirementsSha256 -ne $RequiredRuntimeRequirementsSha256) {
+        throw "Vision Runtime Pack application requirements fingerprint mismatch."
+    }
+    if ([string]$RuntimeState.platformVariant -ne [string]$RuntimeManifest.platformVariant -or [string]$RuntimeState.pythonVersion -ne [string]$RuntimeManifest.pythonVersion -or [string]$RuntimeState.nativeAbi -ne [string]$RuntimeManifest.nativeAbi) {
+        throw "Vision Runtime Pack installed state does not match its manifest."
+    }
+
+    if ([string]$ModelState.modelPackId -ne $RequiredModelPackId -or [string]$ModelManifest.modelPackId -ne $RequiredModelPackId) {
+        throw "Vision Model Pack ID mismatch. Required '$RequiredModelPackId'."
+    }
+    if ([string]$ModelState.modelId -ne $RequiredModelId -or [string]$ModelManifest.modelId -ne $RequiredModelId) {
+        throw "Vision Model ID mismatch. Required '$RequiredModelId'."
+    }
+    if ([string]$ModelState.checkpointSha256 -ne $RequiredCheckpointSha256 -or [string]$ModelManifest.checkpointSha256 -ne $RequiredCheckpointSha256) {
+        throw "Vision Model Pack checkpoint fingerprint mismatch."
+    }
+    if ([string]$ModelState.resolvedConfigSha256 -ne $RequiredResolvedConfigSha256 -or [string]$ModelManifest.resolvedConfigSha256 -ne $RequiredResolvedConfigSha256) {
+        throw "Vision Model Pack resolved-config fingerprint mismatch."
+    }
+    return $true
+}
+
+Export-ModuleMember -Function *
+) {
+            throw "Installed Vision Runtime Pack retained artifact path is invalid: '$relative'."
+        }
+        $path = Join-Path $root ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Installed Vision Runtime Pack retained artifact is missing: '$relative'."
+        }
+        $actualSha = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualSha -ne ([string]$artifacts[0].sha256).ToLowerInvariant()) {
+            throw "Installed Vision Runtime Pack retained artifact SHA-256 mismatch: '$relative'."
+        }
+    }
+
+    $pythonPath = Join-Path $root "venv\Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
+        throw "Installed Vision Runtime Pack interpreter is missing."
+    }
+    $pyvenv = Join-Path $root "venv\pyvenv.cfg"
+    if (-not (Test-Path -LiteralPath $pyvenv -PathType Leaf)) {
+        throw "Installed Vision Runtime Pack virtual-environment metadata is missing."
+    }
+
+    return $true
+}
+
 function Test-MaviVisionRuntimePackReuse {
     param(
         [AllowNull()][object]$InstalledState,
