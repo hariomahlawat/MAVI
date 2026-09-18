@@ -698,7 +698,7 @@ def _revalidate_assembly_boundary(
             "bundle_verified_inputs_mismatch"
         )
 
-    return verified_locks
+    return {inputs.platform_variant: lock_path}
 
 
 def _verify_bundled_release_selection(
