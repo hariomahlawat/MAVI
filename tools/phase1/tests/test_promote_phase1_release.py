@@ -107,12 +107,19 @@ def qualified_runtime() -> dict:
     }
 
 
-def test_runtime_ready_requires_all_four_qualified_variants_and_locks():
+def test_runtime_ready_checks_only_selected_profile_variant():
     value = qualified_runtime()
-    mod._assert_runtime_ready(value)
     value["platformVariants"]["linux-x86_64-cuda"]["status"] = "pending-hardware-qualification"
-    with pytest.raises(mod.PromotionError, match="promotion_runtime_variant_not_qualified"):
-        mod._assert_runtime_ready(value)
+
+    # P1 does not inherit or depend on P2 Linux-CUDA qualification.
+    mod._assert_runtime_ready(value, frozenset({"windows-x86_64-cuda"}))
+
+    value["platformVariants"]["windows-x86_64-cuda"]["status"] = "pending-hardware-qualification"
+    with pytest.raises(
+        mod.PromotionError,
+        match="promotion_runtime_variant_not_qualified:windows-x86_64-cuda",
+    ):
+        mod._assert_runtime_ready(value, frozenset({"windows-x86_64-cuda"}))
 
 
 def test_promotion_reopens_every_gate_even_if_qualification_record_already_says_passed(tmp_path: Path):
@@ -136,6 +143,13 @@ def test_promotion_reopens_every_gate_even_if_qualification_record_already_says_
             quality_case_evidence={},
             quality_ground_truth={},
             expected_mavi_build="build-a",
+            deployment_profile_id="P1",
+            required_gates=frozenset({
+                "windows-x86_64-cuda",
+                "windows-offline-install",
+                "cctv-quality-baseline",
+            }),
+            required_variants=frozenset({"windows-x86_64-cuda"}),
         )
 
 
@@ -221,3 +235,72 @@ def test_offline_aggregate_rejects_cross_spliced_variant_evidence(tmp_path: Path
         match="promotion_offline_variant_evidence_binding_mismatch",
     ):
         mod._validate_offline_aggregate_bindings(gates)
+
+
+def test_profile_promotion_does_not_require_unclaimed_linux_cuda(tmp_path: Path, monkeypatch):
+    runtime = qualified_runtime()
+    runtime["qualificationStatus"] = "partial"
+    runtime["platformVariants"]["linux-x86_64-cuda"]["status"] = "pending-hardware-qualification"
+    runtime["releaseLocks"]["linux-x86_64-cuda"]["status"] = "pending-hardware-qualification"
+
+    required = frozenset({
+        "windows-x86_64-cuda",
+        "windows-offline-install",
+        "cctv-quality-baseline",
+    })
+    qualification = {
+        "qualificationId": "q1",
+        "overallResult": "pending",
+        "requiredGates": {gate: "pending" for gate in mod.MANDATORY_QUALIFICATION_GATES},
+        "evidence": {},
+    }
+
+    gate_files = {}
+    for gate in required:
+        path = tmp_path / (gate + ".json")
+        path.write_text("{}", encoding="utf-8")
+        gate_files[gate] = path
+
+    monkeypatch.setattr(
+        mod,
+        "load_gate_evidence",
+        lambda path, **kwargs: {
+            "kind": "file",
+            "reference": path.name,
+            "sha256": "a" * 64,
+        },
+    )
+    monkeypatch.setattr(mod, "_validate_offline_aggregate_bindings", lambda *_: None)
+    monkeypatch.setattr(
+        mod,
+        "build_target_manifest",
+        lambda manifest, qualification_id: (
+            json.dumps({
+                **manifest,
+                "verificationStatus": "verified",
+                "qualificationId": qualification_id,
+            }).encode("utf-8")
+        ),
+    )
+    monkeypatch.setattr(mod, "target_sha256_bytes", lambda *_: "b" * 64)
+
+    _, qualification_bytes = mod.build_promoted_metadata(
+        manifest_raw={"verificationStatus": "unverified", "qualificationId": None},
+        qualification_raw=qualification,
+        runtime_raw=runtime,
+        gate_evidence=gate_files,
+        expected_source_commit="a" * 40,
+        acceptance_profile_sha256="c" * 64,
+        acceptance_profile=policy(),
+        quality_corpus_manifest=tmp_path / "corpus.json",
+        quality_case_evidence={},
+        quality_ground_truth={},
+        expected_mavi_build="build-a",
+        deployment_profile_id="P1",
+        required_gates=required,
+        required_variants=frozenset({"windows-x86_64-cuda"}),
+    )
+    promoted = json.loads(qualification_bytes)
+    assert promoted["qualifiedProfiles"] == ["P1"]
+    assert promoted["requiredGates"]["linux-x86_64-cuda"] == "pending"
+    assert promoted["overallResult"] == "pending"
