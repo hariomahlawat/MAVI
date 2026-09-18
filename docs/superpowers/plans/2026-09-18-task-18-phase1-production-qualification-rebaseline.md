@@ -84,20 +84,21 @@ Create a machine-readable readiness record containing at least:
 
 **Exit criterion:** every behavior-bearing component used by the candidate is uniquely identifiable.
 
-## Task 1.2 — Freeze the intended Production topology — COMPLETE
+## Task 1.2 — Freeze Development device policy and Production deployment profiles — COMPLETE
 
-ADR-008 now controls Phase-1 Production topology:
+ADR-008 now controls environment topology:
 
-- [x] Host A Windows operational role: IIS / ASP.NET Core / React + application-local FFmpeg.
-- [x] Host A data role: MAVI-owned PostgreSQL 18 + pgvector, logically distinct but canonically co-located for Phase 1.
-- [x] Host B Vision role: separate Linux x86_64 NVIDIA worker.
-- [x] Production Vision execution target: CUDA; no silent CPU fallback in final acceptance.
-- [x] CPU runtime evidence retained as subsystem/variant evidence, not final Production-worker proof.
-- [x] managed-media and accepted-evidence stores remain MAVI-owned and separately identified.
-- [x] controlled disconnected LAN boundary; no runtime Internet dependency.
-- [x] backup/restore must restore to a distinct clean target/topology.
+- [x] Development reference topology: one Windows laptop/workstation.
+- [x] Development device modes: Auto, CUDA, CPU.
+- [x] Auto may use a compatible Windows GPU when available and otherwise fall back visibly to CPU.
+- [x] CUDA must fail if CUDA is unavailable; silent CPU fallback is prohibited.
+- [x] P1 Production: single-host Windows GPU.
+- [x] P2 Production: split Windows operational/data host + Linux NVIDIA worker.
+- [x] P3 Production: single-host Windows CPU.
+- [x] logical Operational/Data/Vision evidence boundaries remain distinct even when co-located.
+- [x] all Production profiles remain disconnected/offline-by-design.
 
-Exact OS/IIS/.NET/PostgreSQL/pgvector/Linux/NVIDIA/CUDA versions remain Task 1.4 prerequisite-freeze work, not topology design.
+Exact OS/runtime/driver versions remain Task 1.4 prerequisite-freeze work.
 
 Authority: `docs/decisions/ADR-008-phase1-production-topology.md`.
 
@@ -152,7 +153,7 @@ No “best available prior build” may be invented during acceptance.
 - [x] READY / BLOCKED assessment completed against current repository state.
 - [x] Authoritative qualification explicitly withheld while mandatory blockers remain.
 
-Current result: **BLOCKED**. Production topology and GPU scope are now resolved by ADR-008. Remaining mandatory blockers are CUDA qualification evidence, acceptance corpus/thresholds, Production prerequisite approval, supported-update artifact/scope, final application artifact, Offline Binary Kit identity and final candidate freeze.
+Current result: **BLOCKED**. Development/Production profile architecture is resolved by ADR-008. Remaining mandatory blockers include profile-aware acceptance-tool reconciliation, selection of the first Production profile(s) to qualify, applicable CUDA evidence for any GPU profile claimed, acceptance corpus/thresholds, profile-specific Production prerequisites, supported-update artifact/scope, final application artifact, Offline Binary Kit identity and final candidate freeze.
 
 **Readiness exit criterion:** all mandatory items are READY. A BLOCKED mandatory item prevents authoritative evidence capture.
 
@@ -289,25 +290,27 @@ If thresholds remain undefined, status is `QUALIFICATION INCOMPLETE`, not pass.
 
 ---
 
-# Phase 7 — CUDA/GPU decision and qualification
+# Phase 7 — Deployment-profile qualification
 
-## Task 7.1 — Resolve release scope
+## Task 7.1 — Select profiles claimed by the release
 
-Before any release claim, record explicitly:
+Before qualification, explicitly declare which Production profile(s) the release intends to support:
 
-### If GPU is required for Phase 1
-- [ ] qualify the required OS/GPU topology;
-- [ ] freeze NVIDIA driver/CUDA/Python/runtime identities;
-- [ ] prove actual CUDA device execution;
-- [ ] prove no silent CPU fallback;
-- [ ] run required production smoke/E2E/performance evidence on that topology.
+- [ ] P1 — single-host Windows GPU;
+- [ ] P2 — split-host Windows + Linux GPU;
+- [ ] P3 — single-host Windows CPU.
 
-### If GPU is deferred
-- [ ] approve a Phase-1 scope/ADR change;
-- [ ] remove GPU claims from release metadata and operator docs;
-- [ ] retain GPU work as a future qualification task.
+A profile not selected remains unqualified/pending and must not be advertised as supported.
 
-**Rule:** absence of GPU hardware is not itself an approval to change scope.
+## Task 7.2 — Qualify each selected profile independently
+
+For P1: qualify Windows CUDA, freeze Windows/NVIDIA/CUDA/Python/runtime identities, prove actual CUDA execution/no silent fallback, and execute P1 Production smoke/E2E/performance evidence.
+
+For P2: qualify Linux CUDA, freeze Linux/NVIDIA/CUDA/Python/runtime identities, prove actual CUDA execution/no silent fallback, and execute P2 split-host Production smoke/E2E/performance evidence.
+
+For P3: qualify the Windows CPU Production performance envelope and execute P3 Production smoke/E2E/performance evidence.
+
+**Rule:** one profile never qualifies another.
 
 ---
 
@@ -427,6 +430,6 @@ Do **not** start with CUDA runs, CCTV metrics or final release promotion.
 
 The immediate next action after this plan is accepted is:
 
-> **Resolve readiness actions R3–R5 in `docs/qualification/2026-09-18-task-18-readiness-pack.md`: freeze acceptance policy, approve exact Production prerequisites from the approved topology, and resolve supported-update scope/artifact.**
+> **First reconcile the current Phase-1 acceptance/promotion/closure tooling with ADR-008's profile-based model and select the first Production profile(s) to qualify. Then resolve R3–R5: freeze acceptance policy, approve exact prerequisites for the selected profile(s), and resolve supported-update scope/artifact.**
 
 Only after R1–R5 are resolved should the final application artifact, Offline Binary Kit and Production setup bundle be frozen and authoritative qualification begin. This sequencing prevents expensive runs against an unfrozen policy, topology or artifact identity.
