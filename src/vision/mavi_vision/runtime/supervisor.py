@@ -110,6 +110,7 @@ class RuntimeSupervisor:
         device_index: int,
         production_mode: bool,
         inference_watchdog_seconds: float,
+        device_resolution_reason: str | None = None,
         watchdog_grace_seconds: float = 10.0,
         watchdog_poll_seconds: float = 1.0,
         build_id: str | None = None,
@@ -149,6 +150,7 @@ class RuntimeSupervisor:
         self._deployment_profile = deployment_profile
         self._device_policy = device_policy
         self._device_index = device_index
+        self._device_resolution_reason = device_resolution_reason
         self._production_mode = production_mode
         self._inference_watchdog_seconds = inference_watchdog_seconds
         self._watchdog_grace_seconds = watchdog_grace_seconds
@@ -621,6 +623,7 @@ class RuntimeSupervisor:
             configured_device_policy=self._device_policy,
             configured_device_index=self._device_index,
             production_mode=self._production_mode,
+            device_resolution_reason=self._device_resolution_reason,
             mavi_build=self._build_id,
             mavi_commit=self._commit_sha,
             gpu=gpu,
