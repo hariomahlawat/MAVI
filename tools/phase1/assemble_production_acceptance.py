@@ -21,6 +21,7 @@ if str(PHASE1_ROOT) not in sys.path:
 
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
 import inspect_production_logs as log_inspector  # noqa: E402
+import deployment_profiles  # noqa: E402
 from production_acceptance_context import (  # noqa: E402
     AcceptanceContextError,
     load_context as load_acceptance_context,
