@@ -83,11 +83,11 @@ def windows_values() -> dict[str, str]:
         if (
             len(parts) >= 2
             and parts[0] == "Microsoft.AspNetCore.App"
-            and parts[1].startswith("8.")
+            and parts[1].startswith("10.")
         ):
             aspnet.append(parts[1])
     if not aspnet:
-        raise PrerequisiteObservationError("prerequisite_dotnet8_runtime_unavailable")
+        raise PrerequisiteObservationError("prerequisite_dotnet10_runtime_unavailable")
 
     def version_key(value: str) -> tuple[int, ...]:
         numbers = re.findall(r"\d+", value)
@@ -101,6 +101,45 @@ def windows_values() -> dict[str, str]:
         "iisVersion": iis_version,
         "dotnetRuntimeVersion": max(aspnet, key=version_key),
     }
+
+def windows_vision_values(*, require_cuda: bool) -> dict[str, str]:
+    if platform.system() != "Windows":
+        raise PrerequisiteObservationError("prerequisite_windows_host_required")
+
+    values = {
+        "architecture": platform.machine(),
+        "pythonVersion": platform.python_version(),
+        "pythonImplementation": platform.python_implementation(),
+    }
+    if not require_cuda:
+        return values
+
+    driver_lines = [
+        item.strip()
+        for item in run_text([
+            "nvidia-smi",
+            "--query-gpu=driver_version",
+            "--format=csv,noheader",
+        ]).splitlines()
+        if item.strip()
+    ]
+    if not driver_lines or len(set(driver_lines)) != 1:
+        raise PrerequisiteObservationError(
+            "prerequisite_nvidia_driver_ambiguous"
+        )
+    cuda = run_text([
+        sys.executable,
+        "-c",
+        "import torch; print(torch.version.cuda or '')",
+    ])
+    if not cuda:
+        raise PrerequisiteObservationError(
+            "prerequisite_cuda_runtime_unavailable"
+        )
+    values["nvidiaDriverVersion"] = driver_lines[0]
+    values["cudaRuntimeVersion"] = cuda
+    return values
+
 
 def database_values(psql: str, pg_service: str) -> dict[str, str]:
     def scalar(sql: str) -> str:
@@ -192,6 +231,8 @@ def main() -> int:
         choices=(
             "windows-operational-plane",
             "database",
+            "windows-cuda-vision-worker",
+            "windows-cpu-vision-worker",
             "linux-vision-worker",
         ),
         required=True,
@@ -222,6 +263,12 @@ def main() -> int:
                 )
             values = database_values(args.psql, args.pg_service)
             topology_identity = database_identity(args.psql, args.pg_service)
+        elif args.role == "windows-cuda-vision-worker":
+            values = windows_vision_values(require_cuda=True)
+            topology_identity = host_identity_sha256()
+        elif args.role == "windows-cpu-vision-worker":
+            values = windows_vision_values(require_cuda=False)
+            topology_identity = host_identity_sha256()
         else:
             values = linux_values()
             topology_identity = host_identity_sha256()
