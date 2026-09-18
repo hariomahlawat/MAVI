@@ -132,6 +132,9 @@ def _validate_platform_variant_evidence(
     value: dict[str, Any],
     acceptance_profile_sha256: str,
     expected_mavi_build: str,
+    deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
+    runtime_variant: str,
 ) -> None:
     _validate_schema(value, "offline-variant-evidence.schema.json")
     if value.get("variant") != gate:
@@ -253,12 +256,25 @@ def _validate_performance_evidence(
     acceptance_profile_sha256: str,
     acceptance_profile: dict[str, Any],
     expected_mavi_build: str,
+    *,
+    deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
+    runtime_variant: str,
 ) -> None:
     _validate_schema(value, "recovery-performance-evidence.schema.json")
     if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
         raise PromotionError("promotion_performance_profile_mismatch")
     if value.get("maviBuild") != expected_mavi_build:
         raise PromotionError("promotion_performance_build_mismatch")
+    if (
+        value.get("schemaVersion")
+        != "mavi-profile-recovery-performance-evidence-v2"
+        or value.get("deploymentProfile") != deployment_profile_id
+        or value.get("deploymentProfilePolicySha256")
+        != deployment_profile_policy_sha256
+        or value.get("runtimeVariant") != runtime_variant
+    ):
+        raise PromotionError("promotion_performance_profile_binding_mismatch")
     expected = acceptance_profile.get("performanceThresholds")
     if not isinstance(expected, dict) or value.get("thresholds") != expected:
         raise PromotionError("promotion_performance_thresholds_mismatch")
@@ -318,7 +334,13 @@ def validate_gate_evidence(
         return
     if gate == "linux-nvidia-recovery-performance":
         _validate_performance_evidence(
-            value, acceptance_profile_sha256, acceptance_profile, expected_mavi_build
+            value,
+            acceptance_profile_sha256,
+            acceptance_profile,
+            expected_mavi_build,
+            deployment_profile_id=deployment_profile_id,
+            deployment_profile_policy_sha256=deployment_profile_policy_sha256,
+            runtime_variant=runtime_variant,
         )
         return
     raise PromotionError("promotion_gate_unknown:" + gate)
@@ -336,6 +358,9 @@ def load_gate_evidence(
     quality_case_evidence: dict[str, Path],
     quality_ground_truth: dict[str, Path],
     expected_mavi_build: str,
+    deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
+    runtime_variant: str,
 ) -> dict[str, str]:
     try:
         payload = path.read_bytes()
@@ -356,6 +381,9 @@ def load_gate_evidence(
         quality_case_evidence=quality_case_evidence,
         quality_ground_truth=quality_ground_truth,
         expected_mavi_build=expected_mavi_build,
+        deployment_profile_id=deployment_profile_id,
+        deployment_profile_policy_sha256=deployment_profile_policy_sha256,
+        runtime_variant=runtime_variant,
     )
 
     return {
@@ -474,6 +502,9 @@ def build_promoted_metadata(
             quality_case_evidence=quality_case_evidence,
             quality_ground_truth=quality_ground_truth,
             expected_mavi_build=expected_mavi_build,
+            deployment_profile_id=deployment_profile_id,
+            deployment_profile_policy_sha256=deployment_profile_policy_sha256,
+            runtime_variant=next(iter(required_variants)),
         )
         gates[gate] = "passed"
 
