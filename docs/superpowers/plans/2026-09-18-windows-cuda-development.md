@@ -159,19 +159,83 @@ The following cannot be truthfully frozen from repository code alone and remain 
 
 Merging this foundation is **not** a CUDA qualification of any kind.
 
-### Gate R1 / pre-C2 — empirical — NEXT ACTIVE GATE
+### Gate R1 / pre-C2 — empirical — PASSED
 
-C2 may not begin until all of the following are collected on the controlled
-Windows CUDA build host and reviewed:
+All three items are collected, and the build contract has left
+`pending-r1-preflight`:
 
-- the exact CUDA 12.4 + MSVC toolset + Windows SDK proven by compiling a trivial
-  `.cu` file, and frozen into both the build contract and the offline catalogue;
-- the real v2 host observation, with its evidence SHA-256 retained;
-- the real `torch 2.6.0+cu124` cp312 win_amd64 wheel inspection.
+- the exact CUDA 12.4 + MSVC 14.44.35207 + SDK 10.0.26100.0 toolchain, proven by
+  compiling a trivial `.cu` file and frozen into both the build contract and the
+  offline catalogue — **collected**;
+- the real v2 host observation with its evidence SHA-256 retained — **collected**;
+- the real `torch 2.6.0+cu124` cp312 win_amd64 wheel inspection — **collected**.
 
-Until the build contract leaves `pending-r1-preflight`, `tools/verify_repo.py`
-refuses any Windows CUDA lock. That refusal is the intended behaviour, not an
-obstacle to work around.
+`tools/verify_repo.py` therefore no longer refuses a Windows CUDA lock on
+toolchain grounds. C2 remains gated on independent review of this evidence, not
+on the verifier.
+
+### R1 — 2026-09-18 — PASSED on the controlled Windows CUDA host
+
+R1 was executed manually on the actual Windows CUDA machine, the two hosted
+attempts below having established that it could not be run from a Linux
+session. All three pre-C2 evidence items are now collected.
+
+**Toolchain — the empirical result matters.** CUDA 12.4 compiled successfully
+with MSVC 14.44.35207. The standing R1 risk — that CUDA 12.4's host-compiler
+allowlist would reject the 14.44 toolset this repository standardises on — is
+**disproven for this controlled host/toolchain combination**. MSVC 14.39 was
+therefore never required, was not tested, and is not adopted.
+
+| CUDA Toolkit | MSVC toolset | Compiler | Windows SDK | Arch | Result |
+| --- | --- | --- | --- | --- | --- |
+| 12.4 (`V12.4.99`) | 14.44.35207 | 19.44.35222 | 10.0.26100.0 | `-arch=sm_75` | **passed**, exit code 0, object produced (39957 bytes) |
+
+The probe compiled a real translation unit containing
+`extern "C" __global__ void mavi_probe() {}` under
+`MMCV_WITH_OPS=1`, `FORCE_CUDA=1`, `TORCH_CUDA_ARCH_LIST=7.5+PTX`, against
+source head `426195ddf72ae18b31f8d0faa7bb1a50ea906720`. CUDA Toolkit home:
+`C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4`. Observation
+schema `mavi-windows-cuda-toolchain-observation-v1`.
+`--allow-unsupported-compiler` was not used.
+
+**Fresh v2 host observation** — schema `mavi-windows-cuda-host-observation-v2`,
+raw evidence SHA-256
+`cb7031911e2e71c4990b72260a2f2df974e68d44725d9702b07401a6e43132d4`.
+Sanitized facts: Windows 11 x64; NVIDIA GeForce GTX 1650 Ti; PCI bus ID
+`00000000:01:00.0`; VRAM 4096 MiB total, ~3935 MiB free, 0 MiB used at
+observation; driver `576.83`; driver-advertised CUDA compatibility `12.9`;
+driver mode WDDM; MSVC 14.44.35207 / compiler 19.44.35222 / SDK 10.0.26100.0;
+Ninja 1.12.1. The record keeps `qualification.status = observation-only` and
+`windowsCudaRuntimePackQualified = false`. The raw observation carries
+workstation-specific GPU identity and remains local; the GPU UUID is not in Git.
+
+**Real Windows cu124 Torch wheel** —
+`torch-2.6.0+cu124-cp312-cp312-win_amd64.whl`, 2,532,302,369 bytes, SHA-256
+`3313061c1fec4c7310cf47944e84513dcd27b6173b72a349bb7ca68d0ee6e9c0`, acquired
+from the intended cu124 index. `inspect_windows_cuda_torch_wheel.py` returned
+`passed`: version `2.6.0+cu124`; every `nvidia-*` requirement and Triton are
+guarded by Linux-only markers, so none applies on Windows;
+`suspiciousWindowsCudaDependencies` empty; and `torch/lib` carries the expected
+CUDA runtime families (`cudart64_12`, `cublas64_12`, `cublasLt64_12`, cuDNN 9,
+`cufft64_11`, `curand64_10`, `cusolver64_11`, `cusparse64_12`, NVRTC).
+
+That last point is the one the offline design rests on, and it is now evidence
+rather than assumption: the Windows cu124 wheel does carry its own CUDA runtime
+libraries, so no CUDA Toolkit is required on a runtime host. The wheel is not
+committed and no wheelhouse was assembled.
+
+**Contract frozen.** `config/vision/windows-cuda-development-build-v1.json`
+moves from `pending-r1-preflight` to `verified`, recording the exact observed
+identities and the evidence that produced them; the offline catalogue's
+placeholder values are replaced with the same identities, which `verify_repo`
+requires to agree.
+
+**Consequence to understand before C2.** The CUDA-lock gate was blocking on the
+toolchain being unverified. That condition is now satisfied, so the gate no
+longer refuses a Windows CUDA lock. Nothing else opened: no lock, Runtime Pack
+or wheelhouse exists, `windows-x86_64-cuda` remains
+`pending-hardware-qualification` and the runtime profile remains `partial`.
+**C2 has not started and requires independent review of this evidence first.**
 
 ### R1 attempt 1 — 2026-09-18 — NOT EXECUTED (no controlled build host reachable)
 
@@ -433,18 +497,15 @@ Merge the milestone back to `main` promptly rather than allowing another long-li
 C0, C1 and C1R are complete. C1R is merged to `main`; the merge commit is
 recorded in this plan's header.
 
-The next active gate is **R1 — empirical CUDA 12.4 / MSVC host-toolchain
-preflight**. Work continues on `feature/windows-cuda-pre-c2`, which exists only
-to collect that evidence. Creating that branch does not start C2.
+**R1 has passed** and the pre-C2 empirical gate is complete. The verified
+toolchain is CUDA 12.4 + MSVC 14.44.35207 + Windows SDK 10.0.26100.0; MSVC 14.39
+is not required. The evidence is recorded above and frozen in the build
+contract.
 
-**Do not begin C2 wheel acquisition, build MMCV CUDA, or freeze a CUDA lock
-until R1 toolchain preflight, the fresh v2 host observation and the real Torch
-wheel inspection are reviewed.**
-
-R1 must try the currently available/preferred MSVC toolset first and select an
-older one only if CUDA 12.4 empirically rejects it. `--allow-unsupported-compiler`
-is never acceptable: the purpose is to qualify a supportable toolchain, not to
-force a build through.
+The next step is **independent review of the R1/pre-C2 evidence**, on Draft
+PR #49. C2 must not begin until that review completes. Nothing in this branch
+acquires wheels, builds MMCV CUDA, freezes a lock or promotes any
+qualification state.
 
 Two known items remain scheduled beyond this gate and must not be pulled
 forward:
