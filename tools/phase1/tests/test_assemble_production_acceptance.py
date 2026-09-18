@@ -396,7 +396,7 @@ def test_final_scenario_cannot_reuse_variant_smoke_e2e(tmp_path: Path, monkeypat
     scenario = scenario_payload(e2e_sha)
     variant_path = tmp_path / "variant.json"
     variant_path.write_text("{}", encoding="utf-8")
-    scenario["linuxCudaVariantEvidenceSha256"] = mod.sha256_file(variant_path)
+    scenario["variantEvidenceSha256"] = mod.sha256_file(variant_path)
     scenario_path = tmp_path / "scenario.json"
     scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
 
