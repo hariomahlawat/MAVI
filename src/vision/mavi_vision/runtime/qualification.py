@@ -52,6 +52,20 @@ class QualificationEvidence:
 
 
 @dataclass(frozen=True, slots=True)
+class ProfileQualification:
+    deployment_profile_policy_sha256: str
+    runtime_variant: str
+    evidence: Mapping[str, QualificationEvidence]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "evidence",
+            MappingProxyType(dict(self.evidence)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class QualificationRecord:
     schema_version: str
     qualification_id: str
@@ -67,6 +81,16 @@ class QualificationRecord:
     evidence: Mapping[str, QualificationEvidence]
     overall_result: Literal["passed", "pending"]
     qualified_profiles: tuple[str, ...] = ()
+    profile_qualifications: Mapping[str, ProfileQualification] = field(
+        default_factory=dict
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "profile_qualifications",
+            MappingProxyType(dict(self.profile_qualifications)),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +194,37 @@ class _QualificationEvidenceSchema(_StrictModel):
     @classmethod
     def validate_evidence_sha256(cls, value: str) -> str:
         validate_sha256_hex(value)
+        return value
+
+
+class _ProfileQualificationSchema(_StrictModel):
+    deployment_profile_policy_sha256: str = Field(
+        alias="deploymentProfilePolicySha256"
+    )
+    runtime_variant: Literal[
+        "windows-x86_64-cpu",
+        "windows-x86_64-cuda",
+        "linux-x86_64-cpu",
+        "linux-x86_64-cuda",
+    ] = Field(alias="runtimeVariant")
+    evidence: dict[str, _QualificationEvidenceSchema]
+
+    @field_validator("deployment_profile_policy_sha256")
+    @classmethod
+    def validate_policy_sha256(cls, value: str) -> str:
+        validate_sha256_hex(value)
+        return value
+
+    @field_validator("evidence")
+    @classmethod
+    def validate_profile_evidence(
+        cls,
+        value: dict[str, _QualificationEvidenceSchema],
+    ) -> dict[str, _QualificationEvidenceSchema]:
+        if not value:
+            raise ValueError("qualification_profile_evidence_empty")
+        if any(not key or key != key.strip() for key in value):
+            raise ValueError("qualification_profile_gate_name_invalid")
         return value
 
 
@@ -513,6 +568,10 @@ class _QualificationRecordSchema(_StrictModel):
     evidence: dict[str, _QualificationEvidenceSchema] = Field(default_factory=dict)
     overall_result: Literal["passed", "pending"] = Field(alias="overallResult")
     qualified_profiles: tuple[str, ...] = Field(default=(), alias="qualifiedProfiles")
+    profile_qualifications: dict[str, _ProfileQualificationSchema] = Field(
+        default_factory=dict,
+        alias="profileQualifications",
+    )
 
     @field_validator(
         "qualification_id",
@@ -579,6 +638,17 @@ class _QualificationRecordSchema(_StrictModel):
         expected_result = "passed" if all_passed else "pending"
         if self.overall_result != expected_result:
             raise ValueError("qualification_overall_result_mismatch")
+
+        if set(self.qualified_profiles) != set(self.profile_qualifications):
+            raise ValueError("qualification_profile_index_mismatch")
+        for profile_id, profile_qualification in self.profile_qualifications.items():
+            if not profile_id or profile_id != profile_id.strip():
+                raise ValueError("qualification_profile_invalid")
+            if any(
+                gate_name not in self.required_gates
+                for gate_name in profile_qualification.evidence
+            ):
+                raise ValueError("qualification_profile_evidence_gate_unknown")
         return self
 
 
@@ -597,6 +667,25 @@ def load_qualification_record(path: Path) -> QualificationRecord:
         )
         for gate_name, item in parsed.evidence.items()
     }
+    profile_qualifications = {
+        profile_id: ProfileQualification(
+            deployment_profile_policy_sha256=(
+                profile_item.deployment_profile_policy_sha256
+            ),
+            runtime_variant=profile_item.runtime_variant,
+            evidence=MappingProxyType(
+                {
+                    gate_name: QualificationEvidence(
+                        kind=item.kind,
+                        reference=item.reference,
+                        sha256=item.sha256,
+                    )
+                    for gate_name, item in profile_item.evidence.items()
+                }
+            ),
+        )
+        for profile_id, profile_item in parsed.profile_qualifications.items()
+    }
     return QualificationRecord(
         schema_version=parsed.schema_version,
         qualification_id=parsed.qualification_id,
@@ -612,6 +701,7 @@ def load_qualification_record(path: Path) -> QualificationRecord:
         evidence=MappingProxyType(evidence),
         overall_result=parsed.overall_result,
         qualified_profiles=tuple(parsed.qualified_profiles),
+        profile_qualifications=MappingProxyType(profile_qualifications),
     )
 
 
@@ -770,6 +860,8 @@ def verify_qualification_relationships(
     require_passed: bool,
     required_profile: str | None = None,
     required_gates: Collection[str] | None = None,
+    required_deployment_profile_policy_sha256: str | None = None,
+    required_runtime_variant: str | None = None,
 ) -> None:
     expected = {
         "qualification_id": manifest.qualification_id,
@@ -808,9 +900,37 @@ def verify_qualification_relationships(
         else:
             if required_profile is None or required_gates is None:
                 raise ReleaseMetadataError("qualification_profile_requirement_incomplete")
-            if required_profile not in qualification.qualified_profiles:
+            if (
+                required_deployment_profile_policy_sha256 is None
+                or required_runtime_variant is None
+            ):
+                raise ReleaseMetadataError(
+                    "qualification_profile_identity_requirement_incomplete"
+                )
+            profile_qualification = qualification.profile_qualifications.get(
+                required_profile
+            )
+            if profile_qualification is None:
                 raise ReleaseMetadataError("qualification_profile_not_qualified")
+            if (
+                profile_qualification.deployment_profile_policy_sha256
+                != required_deployment_profile_policy_sha256
+            ):
+                raise ReleaseMetadataError(
+                    "qualification_profile_policy_mismatch"
+                )
+            if profile_qualification.runtime_variant != required_runtime_variant:
+                raise ReleaseMetadataError(
+                    "qualification_profile_runtime_variant_mismatch"
+                )
             gates_to_require = required_gates
+            if any(
+                gate_name not in profile_qualification.evidence
+                for gate_name in gates_to_require
+            ):
+                raise ReleaseMetadataError(
+                    "qualification_profile_evidence_missing"
+                )
 
         if any(
             qualification.required_gates.get(gate_name) != "passed"
@@ -830,6 +950,7 @@ def verify_release_selection(
     required_profile: str | None = None,
     required_gates: Collection[str] | None = None,
     required_runtime_variant: str | None = None,
+    required_deployment_profile_policy_sha256: str | None = None,
 ) -> VerifiedReleaseSelection:
     """Verify one immutable local release selection before runtime construction."""
     manifest = load_model_manifest(manifest_path)
@@ -899,6 +1020,10 @@ def verify_release_selection(
             require_passed=True,
             required_profile=required_profile,
             required_gates=required_gates,
+            required_deployment_profile_policy_sha256=(
+                required_deployment_profile_policy_sha256
+            ),
+            required_runtime_variant=required_runtime_variant,
         )
     elif qualification_path is not None:
         qualification = load_qualification_record(qualification_path)
