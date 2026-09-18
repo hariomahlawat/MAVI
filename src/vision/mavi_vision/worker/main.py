@@ -167,6 +167,7 @@ async def _run_worker(
             device_index=settings.device_index,
             production_mode=settings.production_mode,
             inference_watchdog_seconds=settings.inference_watchdog_seconds,
+            device_resolution_reason=settings.device_resolution_reason,
             watchdog_grace_seconds=settings.watchdog_grace_seconds,
             build_id=settings.build_id,
             commit_sha=settings.commit_sha,
