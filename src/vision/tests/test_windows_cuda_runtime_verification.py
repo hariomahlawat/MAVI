@@ -42,6 +42,7 @@ _CONFIG_SHA = "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
 
 def _record(**overrides):
     values = {
+        "host_observation_sha256": "d" * 64,
         "device_index": 0,
         "device_name": "NVIDIA GeForce RTX 2080 Ti",
         "compute_capability": "7.5",
@@ -113,7 +114,7 @@ def test_a_failed_run_leaves_its_evidence_behind(tmp_path, monkeypatch, capsys):
     """The most interesting runs must not be the ones with no artefact."""
     output = tmp_path / "runtime-verification.json"
 
-    def _fail(device_index, resolved_config):
+    def _fail(device_index, resolved_config, host_observation):
         raise MODULE.CudaRuntimeVerificationError(
             "mmcv_cuda_op_executed_off_device", "nms returned a CPU tensor"
         )
@@ -126,6 +127,8 @@ def test_a_failed_run_leaves_its_evidence_behind(tmp_path, monkeypatch, capsys):
             "verify_windows_cuda_runtime.py",
             "--resolved-config",
             str(tmp_path / "config.py"),
+            "--host-observation",
+            str(tmp_path / "host.json"),
             "--output",
             str(output),
         ],
@@ -142,7 +145,7 @@ def test_a_failed_run_leaves_its_evidence_behind(tmp_path, monkeypatch, capsys):
 def test_an_unexpected_failure_is_still_recorded(tmp_path, monkeypatch, capsys):
     output = tmp_path / "runtime-verification.json"
 
-    def _fail(device_index, resolved_config):
+    def _fail(device_index, resolved_config, host_observation):
         raise RuntimeError("CUDA driver version is insufficient")
 
     monkeypatch.setattr(MODULE, "verify", _fail)
@@ -153,6 +156,8 @@ def test_an_unexpected_failure_is_still_recorded(tmp_path, monkeypatch, capsys):
             "verify_windows_cuda_runtime.py",
             "--resolved-config",
             str(tmp_path / "config.py"),
+            "--host-observation",
+            str(tmp_path / "host.json"),
             "--output",
             str(output),
         ],
@@ -169,7 +174,7 @@ def test_an_existing_output_is_never_overwritten(tmp_path, monkeypatch, capsys):
     output = tmp_path / "runtime-verification.json"
     output.write_text("{}\n", encoding="utf-8")
 
-    def _fail(device_index, resolved_config):
+    def _fail(device_index, resolved_config, host_observation):
         raise MODULE.CudaRuntimeVerificationError("cuda_unavailable")
 
     monkeypatch.setattr(MODULE, "verify", _fail)
@@ -180,6 +185,8 @@ def test_an_existing_output_is_never_overwritten(tmp_path, monkeypatch, capsys):
             "verify_windows_cuda_runtime.py",
             "--resolved-config",
             str(tmp_path / "config.py"),
+            "--host-observation",
+            str(tmp_path / "host.json"),
             "--output",
             str(output),
         ],
@@ -195,7 +202,7 @@ def test_verification_refuses_without_a_stable_device_order(tmp_path, monkeypatc
     monkeypatch.delenv("CUDA_DEVICE_ORDER", raising=False)
 
     with pytest.raises(MODULE.CudaRuntimeVerificationError) as excinfo:
-        MODULE.verify(0, tmp_path / "config.py")
+        MODULE.verify(0, tmp_path / "config.py", tmp_path / "host.json")
 
     assert excinfo.value.code == "cuda_device_order_not_pci_bus_id"
 
@@ -204,6 +211,68 @@ def test_verification_refuses_without_the_resolved_config(tmp_path, monkeypatch)
     monkeypatch.setenv("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
 
     with pytest.raises(MODULE.CudaRuntimeVerificationError) as excinfo:
-        MODULE.verify(0, tmp_path / "absent.py")
+        MODULE.verify(0, tmp_path / "absent.py", tmp_path / "host.json")
 
     assert excinfo.value.code == "cuda_runtime_resolved_config_missing"
+
+
+def test_verification_refuses_without_the_host_observation(tmp_path, monkeypatch):
+    monkeypatch.setenv("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+    config = tmp_path / "config.py"
+    config.write_text("model = dict()\n", encoding="utf-8")
+
+    with pytest.raises(MODULE.CudaRuntimeVerificationError) as excinfo:
+        MODULE.verify(0, config, tmp_path / "absent.json")
+
+    assert excinfo.value.code == "cuda_runtime_host_observation_missing"
+
+
+def test_a_failure_record_never_leaks_a_raw_gpu_uuid():
+    """A failure artefact is a file the operator is meant to hand over."""
+    record = MODULE.failure_record(
+        code="cuda_runtime_verification_failed",
+        detail=(
+            "RuntimeError: device GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee "
+            "is in an unrecoverable state"
+        ),
+        device_index=0,
+        resolved_config="rtmdet_m_resolved.py",
+    )
+
+    assert "GPU-aaaaaaaa" not in json.dumps(record)
+    assert "GPU-<redacted>" in record["failureDetail"]
+    assert "unrecoverable state" in record["failureDetail"]
+
+
+def test_a_successful_run_never_overwrites_an_existing_output(
+    tmp_path, monkeypatch, capsys
+):
+    output = tmp_path / "runtime-verification.json"
+    output.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        MODULE, "verify", lambda index, config, host: _record()
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify_windows_cuda_runtime.py",
+            "--resolved-config",
+            str(tmp_path / "config.py"),
+            "--host-observation",
+            str(tmp_path / "host.json"),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert MODULE.main() == 2
+
+    assert output.read_text(encoding="utf-8") == "{}\n"
+    assert json.loads(capsys.readouterr().out)["code"] == (
+        "cuda_runtime_verification_output_exists"
+    )
+
+
+def test_the_record_names_the_observation_it_was_produced_against():
+    assert _record()["hostObservationSha256"] == "d" * 64

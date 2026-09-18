@@ -48,7 +48,6 @@
             "required": [
               "index",
               "name",
-              "uuid",
               "uuidSha256",
               "pciBusId",
               "driverVersion",

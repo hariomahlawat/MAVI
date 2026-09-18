@@ -525,6 +525,7 @@ python tools/vision/verify_windows_cuda_toolchain.py \
     --output toolchain-observation.json
 python tools/vision/verify_windows_cuda_runtime.py --device-index 0 \
     --resolved-config src/vision/runtime/mmdetection-phase1-v1/rtmdet_m_resolved.py \
+    --host-observation host-observation.json \
     --output runtime-verification.json
 ```
 
@@ -565,11 +566,21 @@ What the builder requires, and why:
   `torchMatmulExecutedOnCuda` must both be `true`. A wheel that compiled is not
   a run, and no Development qualification exists without one.
 - **one physical card, named by identity.** The run and the host observation
-  must carry the same `gpuUuidSha256` and agree on total memory to within
-  64 MiB. Identity is never inferred from the CUDA ordinal's position in
-  nvidia-smi order, and never from the device's marketing name: the two
-  producers may spell one card's name differently, and `gpu_identity.py` binds
-  on UUID for the same reason.
+  must carry the same `gpuUuidSha256`, the same driver version, and agree on
+  total memory to within 64 MiB. Identity is never inferred from the CUDA
+  ordinal's position in nvidia-smi order, and never from the device's marketing
+  name: the two producers may spell one card's name differently, and
+  `gpu_identity.py` binds on UUID for the same reason.
+- **one set, produced in order.** The run records the SHA-256 of the host
+  observation it was produced against, and the builder requires it to be the
+  observation it was handed, so a stale or borrowed inventory is detectable.
+- **allocation consistent with execution.** Peak device allocation must be
+  above zero and reserved memory at least allocated: work done on the device
+  means the allocator saw it.
+- **a schema-valid observation.** The host observation is validated against
+  `tools/vision/windows-cuda-host-observation.schema.json`, whose
+  `additionalProperties: false` is what actually keeps workstation-specific
+  fields out of a record this tooling digests and vouches for.
 - **the same revision and the same target.** The toolchain observation's
   `sourceHeadSha` must equal `--source-head-sha` and its `targetArchitecture`
   must match the card's, so neither is the operator's unchecked word.
@@ -582,6 +593,19 @@ What the builder requires, and why:
 `gpuUuidSha256` is a **domain-salted** digest, not a plain SHA-256 of the UUID.
 The single definition lives in `tools/vision/host_gpu_digest.py`; a verifier
 computing a plain SHA-256 would wrongly conclude the evidence was forged.
+
+**What this tooling does and does not prove.** It proves the three artefacts
+are one consistent set, produced in order, and not detachable from the record
+that summarises them: a stale, borrowed or internally contradictory set is
+refused, and the bundle digest binds the artefacts to the revision, capture
+time and operator. It does **not** prove an artefact was not fabricated. Every
+producer runs offline on the operator's own machine with no signing root, and
+the identity digest the run must match is present in the sanitised observation
+the operator holds, so a determined operator can still hand-write a consistent
+set. Development hardware qualification therefore rests on the operator's
+integrity plus these consistency checks -- which is precisely why ADR-009 keeps
+it a separate state that can never satisfy Production, where the evidence is
+CI-produced and the operator is not in the loop.
 
 The output's `variantPatch` is the complete `qualified-development-hardware`
 entry for `platformVariants["windows-x86_64-cuda"]` in

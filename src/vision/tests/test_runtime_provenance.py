@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from dataclasses import replace
 from types import MappingProxyType
 
 import pytest
@@ -907,3 +908,57 @@ def test_resolution_reason_is_carried_into_runtime_provenance() -> None:
         provenance.device_resolution_reason
         == "cuda_pack_integrity_failed"
     )
+
+
+def test_development_cuda_execution_is_recorded_but_never_labelled_verified(
+    monkeypatch,
+) -> None:
+    """Where the supervisor's widened Auto check deliberately stops.
+
+    `RuntimeSupervisor` now lets Development `Auto` select a GPU whose variant
+    is `qualified-development-hardware` (ADR-009's Development state). Provenance
+    is not widened to match: its `-cuda` bar stays `qualified-hardware`, and a
+    profile carrying any Development-qualified variant is `partial` anyway, so
+    the record is `unverified`. That is the intended asymmetry -- Development may
+    run on the GPU, and the run is fully described, but it never inherits the
+    release's verified label. The C6 evidence is the description, not the label.
+    """
+    selection = _selection(verified=True)
+    variants = dict(selection.runtime_platform_variants)
+    variants["windows-x86_64-cuda"] = replace(
+        variants["windows-x86_64-cuda"],
+        status="qualified-development-hardware",
+    )
+    selection = replace(
+        selection,
+        runtime_platform_variants=MappingProxyType(variants),
+        runtime_qualification_status="partial",
+    )
+
+    provenance = build_runtime_provenance(
+        selection=selection,
+        runtime_metadata=_metadata(device="cuda:0"),
+        configured_device_policy="auto",
+        device_resolution_reason="cuda_selected",
+        configured_device_index=0,
+        production_mode=False,
+        platform_identity=_platform(),
+        gpu=GpuIdentity(
+            name="NVIDIA GeForce RTX 2080 Ti",
+            index=0,
+            vram_bytes=11 * 1024**3,
+            driver_version="560.94",
+            cuda_runtime_version="12.4",
+            uuid="GPU-3f2b1c4d-0000-0000-0000-000000000001",
+            pci_bus_id="00000000:01:00.0",
+            compute_capability="7.5",
+        ),
+    )
+
+    assert provenance.verification_status == "unverified"
+    assert provenance.platform_lock_sha256 is None
+    # The execution itself is still fully described.
+    assert provenance.actual_device == "cuda:0"
+    assert provenance.device_resolution_reason == "cuda_selected"
+    assert provenance.gpu is not None
+    assert provenance.gpu.compute_capability == "7.5"

@@ -7,8 +7,17 @@ Development hardware produces, and `developmentEvidence` is the record that
 backs it. The whole separation is worth nothing if that record can be written
 from a build that never touched a GPU.
 
-So this tool assembles the bundle only from artefacts that were produced by the
-real machine, and refuses on anything it cannot corroborate:
+What this tool can and cannot prove is worth stating plainly, because an
+overstated property is worse than an unstated one. Every producer in this set
+runs offline on the operator's own machine, with no signing root, so nothing
+here proves an artefact was not hand-written: the identity digest the run must
+match is present in the sanitised host observation the operator holds. What the
+tool does prove is that the three artefacts are one **consistent set, produced
+in order, and not detachable from the record that summarises them** -- a stale,
+borrowed or internally contradictory set is refused.
+
+So it assembles the bundle only from artefacts that corroborate each other, and
+refuses on anything it cannot check:
 
 - the host observation says which physical GPU is present;
 - the toolchain observation says the native build toolchain was verified;
@@ -41,6 +50,8 @@ import json
 import re
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 SCHEMA_VERSION = "mavi-windows-cuda-development-evidence-v2"
 
 _HOST_SCHEMA = "mavi-windows-cuda-host-observation-v2"
@@ -53,6 +64,9 @@ _CANONICAL_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", re.ASCII)
 _COMPUTE_CAPABILITY = re.compile(r"^\d+\.\d+$", re.ASCII)
 _OPERATOR_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._@/-]{0,127}$", re.ASCII)
 _MEMORY_TOLERANCE_BYTES = 64 * 1024 * 1024
+_HOST_OBSERVATION_SCHEMA_PATH = (
+    Path(__file__).resolve().parent / "windows-cuda-host-observation.schema.json"
+)
 
 
 class DevelopmentEvidenceError(ValueError):
@@ -66,7 +80,12 @@ def _sha256_bytes(data: bytes) -> str:
 
 
 def _canonical(value: object) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    # ensure_ascii=False so the documented recomputation recipe -- blank the
+    # field, re-serialise canonically as UTF-8, hash -- is exact for a record
+    # carrying a non-ASCII device name.
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
 
 
 def _required_text(value: object, code: str) -> str:
@@ -94,7 +113,12 @@ def _required_index(value: object, expected: int, code: str) -> int:
     return value
 
 
-def _load(path: Path, schema: str, code: str) -> tuple[dict, str]:
+def _load(
+    path: Path,
+    schema: str,
+    code: str,
+    json_schema: dict | None = None,
+) -> tuple[dict, str]:
     """Load one evidence artefact and return it with the SHA-256 of its bytes."""
     try:
         raw = path.read_bytes()
@@ -106,6 +130,15 @@ def _load(path: Path, schema: str, code: str) -> tuple[dict, str]:
         raise DevelopmentEvidenceError(code + "_invalid") from exc
     if not isinstance(value, dict) or value.get("schemaVersion") != schema:
         raise DevelopmentEvidenceError(code + "_schema_invalid")
+    if json_schema is not None:
+        # The published schema closes `additionalProperties`, which is what
+        # actually keeps a raw UUID -- or anything else workstation-specific --
+        # out of a record this tool is about to digest and vouch for. A
+        # hand-rolled key check only ever knows about the keys it was told.
+        try:
+            Draft202012Validator(json_schema).validate(value)
+        except Exception as exc:
+            raise DevelopmentEvidenceError(code + "_schema_invalid") from exc
     return value, _sha256_bytes(raw)
 
 
@@ -213,7 +246,10 @@ def build_evidence(
         raise DevelopmentEvidenceError("development_evidence_operator_invalid")
 
     host, host_sha = _load(
-        host_observation, _HOST_SCHEMA, "development_evidence_host_observation"
+        host_observation,
+        _HOST_SCHEMA,
+        "development_evidence_host_observation",
+        json.loads(_HOST_OBSERVATION_SCHEMA_PATH.read_text(encoding="utf-8")),
     )
     toolchain, toolchain_sha = _load(
         toolchain_observation, _TOOLCHAIN_SCHEMA, "development_evidence_toolchain"
@@ -284,6 +320,51 @@ def build_evidence(
     ):
         raise DevelopmentEvidenceError("development_evidence_gpu_memory_mismatch")
 
+    # The run must name the observation it was produced against, so a record
+    # cannot be paired with a different or later inventory of the same host.
+    if _required_digest(
+        runtime.get("hostObservationSha256"),
+        "development_evidence_host_observation_unchained",
+    ) != host_sha:
+        raise DevelopmentEvidenceError(
+            "development_evidence_host_observation_mismatch"
+        )
+
+    # Both readings of the driver come from nvidia-smi on the one host.
+    if _required_text(
+        gpu.get("driverVersion"), "development_evidence_host_driver_missing"
+    ) != _required_text(
+        runtime.get("driverVersion"),
+        "development_evidence_runtime_identity_missing",
+    ):
+        raise DevelopmentEvidenceError("development_evidence_driver_mismatch")
+
+    declared_count = host["nvidia"].get("gpuCount")
+    if declared_count != len(host["nvidia"]["gpus"]):
+        raise DevelopmentEvidenceError("development_evidence_gpu_count_mismatch")
+
+    # Work was done on the device, so the allocator must have seen it. Zero
+    # peak allocation alongside a claim of on-device execution is a
+    # contradiction, not a rounding artefact.
+    allocated = runtime.get("peakMemoryAllocatedBytes")
+    reserved = runtime.get("peakMemoryReservedBytes")
+    if (
+        not isinstance(allocated, int)
+        or isinstance(allocated, bool)
+        or allocated <= 0
+    ):
+        raise DevelopmentEvidenceError(
+            "development_evidence_no_device_allocation"
+        )
+    if (
+        not isinstance(reserved, int)
+        or isinstance(reserved, bool)
+        or reserved < allocated
+    ):
+        raise DevelopmentEvidenceError(
+            "development_evidence_device_allocation_invalid"
+        )
+
     architecture = f"sm_{host_capability.replace('.', '')}"
     arch_list = runtime.get("torchCudaArchList")
     if not isinstance(arch_list, list) or architecture not in arch_list:
@@ -351,6 +432,13 @@ def build_evidence(
     # the resolved-config, Python and binary identities alongside the evidence
     # block; typing those in by hand at the last step would reintroduce exactly
     # the fabrication this tool exists to prevent.
+    binary_versions = _runtime_binary_versions(runtime)
+    if _required_text(
+        runtime.get("torchVersion"),
+        "development_evidence_runtime_identity_missing",
+    ) != binary_versions["torch"]:
+        raise DevelopmentEvidenceError("development_evidence_torch_version_mismatch")
+
     variant_patch = {
         "status": "qualified-development-hardware",
         "resolvedConfigSha256": _required_digest(
@@ -358,7 +446,7 @@ def build_evidence(
             "development_evidence_resolved_config_missing",
         ),
         "pythonIdentity": _runtime_python_identity(runtime),
-        "binaryVersions": _runtime_binary_versions(runtime),
+        "binaryVersions": binary_versions,
     }
 
     evidence: dict[str, object] = {

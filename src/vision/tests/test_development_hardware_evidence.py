@@ -80,14 +80,26 @@ def _host(**overrides) -> dict:
         "driverVersion": "560.94",
         "memoryMiB": {"total": 11264, "free": 11000, "used": 264},
         "computeCapability": "7.5",
+        "driverModel": {"current": "WDDM", "pending": "WDDM"},
+        "display": {"active": "Enabled", "mode": "Enabled"},
     }
     value = {
         "schemaVersion": "mavi-windows-cuda-host-observation-v2",
-        "host": {"system": "Windows", "machine": "AMD64"},
+        "host": {
+            "system": "Windows",
+            "release": "11",
+            "version": "10.0.26100",
+            "machine": "AMD64",
+        },
         "nvidia": {
             "driverVersion": "560.94",
+            "driverSupportedCudaVersion": "12.6",
             "gpuCount": 1,
             "gpus": [gpu],
+        },
+        "qualification": {
+            "status": "observation-only",
+            "windowsCudaRuntimePackQualified": False,
         },
     }
     value.update(overrides)
@@ -131,6 +143,8 @@ def _runtime(**overrides) -> dict:
         "torchCudaRuntimeVersion": "12.4",
         "torchCudaArchList": ["sm_75"],
         "totalMemoryBytes": 11264 * 1024 * 1024,
+        "peakMemoryAllocatedBytes": 32768,
+        "peakMemoryReservedBytes": 2097152,
         "mmcvNmsExecutedOnCuda": True,
         "torchMatmulExecutedOnCuda": True,
         "result": "passed",
@@ -160,16 +174,22 @@ def _build(
     operator_reference: str = _OPERATOR,
     device_index: int = 0,
 ) -> dict:
+    host_path = _write(tmp_path, "host.json", _host() if host is None else host)
+    runtime_value = _runtime() if runtime is None else dict(runtime)
+    # The run names the observation it was produced against; a test that does
+    # not pin that chain explicitly gets the honest pairing.
+    runtime_value.setdefault(
+        "hostObservationSha256",
+        hashlib.sha256(host_path.read_bytes()).hexdigest(),
+    )
+    if runtime_value.get("hostObservationSha256") is None:
+        del runtime_value["hostObservationSha256"]
     return MODULE.build_evidence(
-        host_observation=_write(
-            tmp_path, "host.json", _host() if host is None else host
-        ),
+        host_observation=host_path,
         toolchain_observation=_write(
             tmp_path, "toolchain.json", _toolchain() if toolchain is None else toolchain
         ),
-        runtime_verification=_write(
-            tmp_path, "runtime.json", _runtime() if runtime is None else runtime
-        ),
+        runtime_verification=_write(tmp_path, "runtime.json", runtime_value),
         source_head_sha=source_head_sha,
         captured_at_utc=captured_at_utc,
         operator_reference=operator_reference,
@@ -513,6 +533,7 @@ def test_architecture_absent_from_the_torch_build_is_refused(tmp_path):
 
 @pytest.mark.parametrize("value", (None, "not-a-digest", 17))
 def test_host_entry_without_a_usable_identity_digest_is_refused(tmp_path, value):
+    """Caught by the published schema before anything reads the entry."""
     host = _host()
     if value is None:
         del host["nvidia"]["gpus"][0]["uuidSha256"]
@@ -522,7 +543,26 @@ def test_host_entry_without_a_usable_identity_digest_is_refused(tmp_path, value)
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, host=host)
 
-    assert _code(excinfo) == "development_evidence_gpu_mismatch"
+    assert _code(excinfo) == (
+        "development_evidence_host_observation_schema_invalid"
+    )
+
+
+def test_workstation_detail_smuggled_past_the_key_check_is_refused(tmp_path):
+    """`additionalProperties: false` is what actually keeps the record clean.
+
+    A hand-rolled scan for the `uuid` key only knows about the key it was told
+    about; the published schema knows about every field that is allowed.
+    """
+    host = _host()
+    host["nvidia"]["gpus"][0]["serial"] = "0321018012345"
+
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, host=host)
+
+    assert _code(excinfo) == (
+        "development_evidence_host_observation_schema_invalid"
+    )
 
 
 @pytest.mark.parametrize("value", (None, "2.6.0", {"torch": "x"}))
@@ -566,11 +606,15 @@ def test_missing_resolved_config_digest_is_refused(tmp_path):
 def test_host_observation_without_gpus_is_refused(tmp_path):
     host = _host()
     host["nvidia"]["gpus"] = []
+    host["nvidia"]["gpuCount"] = 0
 
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, host=host)
 
-    assert _code(excinfo) == "development_evidence_host_gpu_missing"
+    assert _code(excinfo) in {
+        "development_evidence_host_gpu_missing",
+        "development_evidence_host_observation_schema_invalid",
+    }
 
 
 @pytest.mark.parametrize(
@@ -694,3 +738,130 @@ def test_evidence_bundle_digest_changes_with_any_artefact(tmp_path):
         baseline["developmentEvidence"]["hostObservationSha256"]
         == altered["developmentEvidence"]["hostObservationSha256"]
     )
+
+
+def test_a_run_paired_with_a_different_observation_is_refused(tmp_path):
+    """The set must have been produced in order, not assembled afterwards."""
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=_runtime(hostObservationSha256="c" * 64))
+
+    assert _code(excinfo) == "development_evidence_host_observation_mismatch"
+
+
+def test_a_run_that_names_no_observation_is_refused(tmp_path):
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=_runtime(hostObservationSha256=None))
+
+    assert _code(excinfo) == "development_evidence_host_observation_unchained"
+
+
+@pytest.mark.parametrize("value", (0, -1, True))
+def test_execution_without_any_device_allocation_is_refused(tmp_path, value):
+    """Work on the device means the allocator saw it; zero is a contradiction."""
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=_runtime(peakMemoryAllocatedBytes=value))
+
+    assert _code(excinfo) == "development_evidence_no_device_allocation"
+
+
+def test_reserved_memory_below_allocated_memory_is_refused(tmp_path):
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(
+            tmp_path,
+            runtime=_runtime(
+                peakMemoryAllocatedBytes=2048, peakMemoryReservedBytes=1024
+            ),
+        )
+
+    assert _code(excinfo) == "development_evidence_device_allocation_invalid"
+
+
+def test_driver_disagreement_between_host_and_run_is_refused(tmp_path):
+    """Both readings come from nvidia-smi on the one host."""
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=_runtime(driverVersion="551.23"))
+
+    assert _code(excinfo) == "development_evidence_driver_mismatch"
+
+
+def test_a_host_observation_that_miscounts_its_own_gpus_is_refused(tmp_path):
+    host = _host()
+    host["nvidia"]["gpuCount"] = 2
+
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, host=host)
+
+    assert _code(excinfo) == "development_evidence_gpu_count_mismatch"
+
+
+def test_torch_version_disagreeing_with_its_binary_identity_is_refused(tmp_path):
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=_runtime(torchVersion="2.5.1+cu124"))
+
+    assert _code(excinfo) == "development_evidence_torch_version_mismatch"
+
+
+def test_bundle_digest_recomputation_holds_for_a_non_ascii_device_name(tmp_path):
+    """The documented recipe must be exact, not exact-for-ASCII."""
+    name = "NVIDIA GeForce RTX 2080 Ti — Büro"
+    host = _host()
+    host["nvidia"]["gpus"][0]["name"] = name
+
+    evidence = _build(tmp_path, host=host, runtime=_runtime(deviceName=name))
+
+    recomputed = json.loads(json.dumps(evidence))
+    recomputed["developmentEvidence"]["evidenceBundleSha256"] = ""
+    digest = hashlib.sha256(
+        json.dumps(
+            recomputed, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    ).hexdigest()
+
+    assert digest == evidence["developmentEvidence"]["evidenceBundleSha256"]
+
+
+def test_a_record_the_verifier_actually_produces_is_accepted(tmp_path):
+    """Bind the two tools, not two hand-written fixtures of each other.
+
+    Both suites would otherwise keep passing after a field was renamed on one
+    side, and the C4 pipeline would fail at its last step on the Windows host.
+    """
+    verifier = importlib.util.spec_from_file_location(
+        "verify_windows_cuda_runtime",
+        TOOL_PATH.parent / "verify_windows_cuda_runtime.py",
+    )
+    verify_module = importlib.util.module_from_spec(verifier)
+    sys.modules[verifier.name] = verify_module
+    verifier.loader.exec_module(verify_module)
+
+    host_path = _write(tmp_path, "host.json", _host())
+    record = verify_module.compose_record(
+        host_observation_sha256=hashlib.sha256(
+            host_path.read_bytes()
+        ).hexdigest(),
+        device_index=0,
+        device_name="NVIDIA GeForce RTX 2080 Ti",
+        compute_capability="7.5",
+        gpu_uuid=_RAW_UUID,
+        driver_version="560.94",
+        torch_version="2.6.0+cu124",
+        torchvision_version="0.21.0+cu124",
+        torch_cuda_runtime_version="12.4",
+        torch_cuda_arch_list=["sm_75"],
+        total_memory_bytes=11264 * 1024 * 1024,
+        peak_memory_allocated_bytes=32768,
+        peak_memory_reserved_bytes=2097152,
+        resolved_config_sha256=_RESOLVED_CONFIG_SHA,
+    )
+
+    evidence = MODULE.build_evidence(
+        host_observation=host_path,
+        toolchain_observation=_write(tmp_path, "toolchain.json", _toolchain()),
+        runtime_verification=_write(tmp_path, "runtime.json", record),
+        source_head_sha=_SOURCE_HEAD_SHA,
+        captured_at_utc=_CAPTURED_AT,
+        operator_reference=_OPERATOR,
+    )
+
+    assert evidence["variantPatch"]["status"] == "qualified-development-hardware"
+    assert evidence["corroboration"]["gpuUuidSha256"] == _UUID_DIGEST

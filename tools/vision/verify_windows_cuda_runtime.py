@@ -2,10 +2,16 @@
 """Positive CUDA runtime/native-op verification for C4/C6 evidence.
 
 This runs on the controlled Windows host and is the only artefact in the C4 set
-that can attest a GPU actually executed anything. That makes it the artefact
-worth forging, so it states which physical card it ran on rather than only that
-some card did: the record carries the same domain-salted GPU identity digest the
-host observation carries, so the two can be required to agree.
+that can attest a GPU actually executed anything. It states which physical card
+it ran on rather than only that some card did: the record carries the same
+domain-salted GPU identity digest the host observation carries, and the SHA-256
+of the observation it was produced against, so the evidence builder can require
+the two to be one consistent set produced in order.
+
+That is a consistency property, not an unforgeability one. Every producer in
+this set runs offline under the operator's control, with no signing root, so
+none of them can prove a record was not hand-written -- the digests and the
+chaining make an inconsistent or borrowed set detectable, nothing more.
 
 It also carries the runtime identity ADR-009 requires of a Development
 qualification -- exact Python identity, exact Torch and torchvision build
@@ -20,6 +26,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import sys
 from pathlib import Path
 
@@ -42,6 +49,19 @@ class CudaRuntimeVerificationError(ValueError):
         super().__init__(code)
 
 
+_RAW_GPU_UUID = re.compile(r"GPU-[0-9A-Fa-f][0-9A-Fa-f-]{7,}")
+
+
+def redact(detail: str) -> str:
+    """Remove any raw GPU UUID an exception message carried into the record.
+
+    The success path never sees a raw UUID, but a driver or NVML error can quote
+    one, and a failure artefact is a file the operator is meant to be able to
+    hand over.
+    """
+    return _RAW_GPU_UUID.sub("GPU-<redacted>", detail)
+
+
 def failure_record(
     *,
     code: str,
@@ -60,7 +80,7 @@ def failure_record(
         "schemaVersion": SCHEMA_VERSION,
         "result": "failed",
         "failureCode": code,
-        "failureDetail": detail,
+        "failureDetail": redact(detail),
         "deviceIndex": device_index,
         "resolvedConfigPath": resolved_config,
         "cudaDeviceOrder": os.environ.get("CUDA_DEVICE_ORDER"),
@@ -92,6 +112,7 @@ def _sha256_file(path: Path) -> str:
 
 def compose_record(
     *,
+    host_observation_sha256: str,
     device_index: int,
     device_name: str,
     compute_capability: str,
@@ -114,6 +135,9 @@ def compose_record(
     """
     return {
         "schemaVersion": SCHEMA_VERSION,
+        # Names the observation this run was produced against, so a record
+        # cannot be paired with a different or later inventory.
+        "hostObservationSha256": host_observation_sha256,
         "deviceIndex": device_index,
         "deviceName": device_name,
         "computeCapability": compute_capability,
@@ -144,7 +168,11 @@ def compose_record(
     }
 
 
-def verify(device_index: int, resolved_config: Path) -> dict[str, object]:
+def verify(
+    device_index: int,
+    resolved_config: Path,
+    host_observation: Path,
+) -> dict[str, object]:
     if os.environ.get("CUDA_DEVICE_ORDER") != "PCI_BUS_ID":
         raise CudaRuntimeVerificationError(
             "cuda_device_order_not_pci_bus_id"
@@ -152,6 +180,10 @@ def verify(device_index: int, resolved_config: Path) -> dict[str, object]:
     if not resolved_config.is_file():
         raise CudaRuntimeVerificationError(
             "cuda_runtime_resolved_config_missing"
+        )
+    if not host_observation.is_file():
+        raise CudaRuntimeVerificationError(
+            "cuda_runtime_host_observation_missing"
         )
 
     import torch
@@ -213,6 +245,7 @@ def verify(device_index: int, resolved_config: Path) -> dict[str, object]:
     torch.cuda.synchronize(device)
 
     return compose_record(
+        host_observation_sha256=_sha256_file(host_observation),
         device_index=device_index,
         device_name=str(props.name),
         compute_capability=capability,
@@ -237,11 +270,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--resolved-config", type=Path, required=True)
+    parser.add_argument("--host-observation", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
     try:
-        value = verify(args.device_index, args.resolved_config)
+        value = verify(
+            args.device_index, args.resolved_config, args.host_observation
+        )
     except Exception as exc:
         code = (
             exc.code

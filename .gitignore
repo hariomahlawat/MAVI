@@ -62,13 +62,13 @@ appsettings.*.Local.json
 # Generated evidence/data stores
 windows-cuda-host-observation.json
 windows-cuda-toolchain-observation.json
-windows-cuda-runtime-verification.json
-runtime-verification.json
-host-observation.json
-toolchain-observation.json
-development-evidence.json
-mmcv-reproducibility.json
-wheelhouse-manifest.json
+/windows-cuda-runtime-verification.json
+/runtime-verification.json
+/host-observation.json
+/toolchain-observation.json
+/development-evidence.json
+/mmcv-reproducibility.json
+/wheelhouse-manifest.json
 /data/
 /evidence/
 /media-store/

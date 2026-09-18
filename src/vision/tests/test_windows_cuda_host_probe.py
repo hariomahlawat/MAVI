@@ -221,3 +221,23 @@ def test_observation_writer_never_overwrites(tmp_path: Path) -> None:
         match="cuda_host_output_exists",
     ):
         module.write_observation(value, output)
+
+
+def test_the_sanitized_observation_is_what_the_schema_blesses():
+    """C4 delivers the sanitised form, so that is the form that must validate.
+
+    The schema originally required the raw `uuid`, while the C4 evidence builder
+    refuses any observation still carrying one -- so the only artefact C4 could
+    deliver was the one its own published schema rejected. Nothing caught it
+    because every schema test used the unsanitised form.
+    """
+    module = _load_tool()
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    observation = module.sanitize_observation(_observation())
+
+    Draft202012Validator(schema).validate(observation)
+
+    assert all(
+        "uuid" not in gpu and gpu["uuidSha256"]
+        for gpu in observation["nvidia"]["gpus"]
+    )
