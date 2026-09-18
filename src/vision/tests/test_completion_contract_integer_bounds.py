@@ -47,6 +47,9 @@ def _set_overflow(payload: dict, field: str, value: int) -> None:
             "vramBytes": value if field == "gpuVramBytes" else 1,
             "driverVersion": "1",
             "cudaRuntimeVersion": "1",
+            "uuid": "GPU-test",
+            "pciBusId": "00000000:01:00.0",
+            "computeCapability": "7.5",
         }
     else:
         raise AssertionError(f"unknown field: {field}")
