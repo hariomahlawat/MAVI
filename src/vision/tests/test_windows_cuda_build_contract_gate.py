@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,10 @@ CATALOG_RELATIVE = "config/dependencies/offline-binary-catalog-v1.json"
 LOCK_RELATIVE = (
     "src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.lock"
 )
+
+
+def CONTRACT_RELATIVE_TEXT() -> str:
+    return (ROOT / CONTRACT_RELATIVE).read_text(encoding="utf-8")
 
 
 def _load_verify_repo():
@@ -412,3 +417,112 @@ def test_descriptive_top_level_status_is_never_proof_of_verification(
     errors = _run(tmp_path, monkeypatch)
 
     assert any("Windows CUDA lock cannot be committed" in item for item in errors)
+
+
+def _runtime_pack_tool():
+    spec = importlib.util.spec_from_file_location(
+        "build_runtime_pack",
+        ROOT / "tools" / "vision" / "build_runtime_pack.py",
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("build_runtime_pack_unloadable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_native_abi_is_derived_from_the_verified_toolchain() -> None:
+    """Hand-typing the ABI is how it drifts from the toolchain R1 proved."""
+    module = _runtime_pack_tool()
+    contract = json.loads(CONTRACT_RELATIVE_TEXT())
+
+    assert module.derive_native_abi(contract) == (
+        "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75"
+    )
+
+
+def test_committed_native_abi_matches_the_derivation() -> None:
+    module = _runtime_pack_tool()
+    contract = json.loads(CONTRACT_RELATIVE_TEXT())
+
+    assert contract["nativeAbi"] == module.derive_native_abi(contract)
+
+
+def test_derived_native_abi_satisfies_the_runtime_pack_rule() -> None:
+    """The derived string must pass the same check any supplied one does."""
+    module = _runtime_pack_tool()
+    contract = json.loads(CONTRACT_RELATIVE_TEXT())
+
+    module._validate_native_abi_for_variant(
+        module.derive_native_abi(contract), "windows-x86_64-cuda"
+    )
+    with pytest.raises(module.RuntimePackError):
+        module._validate_native_abi_for_variant(
+            module.derive_native_abi(contract), "windows-x86_64-cpu"
+        )
+
+
+def test_native_abi_tracks_a_changed_toolchain() -> None:
+    module = _runtime_pack_tool()
+    contract = json.loads(CONTRACT_RELATIVE_TEXT())
+    contract["toolchain"] = {**contract["toolchain"], "msvcToolset": "14.39.33519"}
+
+    assert "msvc-14.39.33519" in module.derive_native_abi(contract)
+
+
+def test_native_abi_tracks_a_changed_target_architecture() -> None:
+    module = _runtime_pack_tool()
+    contract = json.loads(CONTRACT_RELATIVE_TEXT())
+    contract["targetGpu"] = {**contract["targetGpu"], "computeCapability": "8.6"}
+
+    assert module.derive_native_abi(contract).endswith("-sm86")
+
+
+def test_an_unverified_toolchain_has_no_native_abi() -> None:
+    """An unverified toolchain has no proven identity to name."""
+    module = _runtime_pack_tool()
+    contract = json.loads(CONTRACT_RELATIVE_TEXT())
+    contract["toolchain"] = {
+        **contract["toolchain"],
+        "verificationStatus": "pending-r1-preflight",
+    }
+
+    with pytest.raises(
+        module.NativeAbiDerivationError, match="native_abi_toolchain_not_verified"
+    ):
+        module.derive_native_abi(contract)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("msvcToolset", "14.44"),
+        ("msvcToolset", "TODO"),
+        ("windowsSdkVersion", "10.0.26100"),
+        ("cudaToolkitVersion", "12"),
+    ],
+)
+def test_a_malformed_toolchain_field_has_no_native_abi(
+    field: str, value: str
+) -> None:
+    module = _runtime_pack_tool()
+    contract = json.loads(CONTRACT_RELATIVE_TEXT())
+    contract["toolchain"] = {**contract["toolchain"], field: value}
+
+    with pytest.raises(
+        module.NativeAbiDerivationError, match="native_abi_contract_field_invalid"
+    ):
+        module.derive_native_abi(contract)
+
+
+def test_native_abi_derivation_refuses_a_non_cuda_variant() -> None:
+    module = _runtime_pack_tool()
+    contract = json.loads(CONTRACT_RELATIVE_TEXT())
+    contract["platformVariant"] = "windows-x86_64-cpu"
+
+    with pytest.raises(
+        module.NativeAbiDerivationError,
+        match="native_abi_platform_variant_unsupported",
+    ):
+        module.derive_native_abi(contract)

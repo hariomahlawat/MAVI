@@ -60,5 +60,7 @@
     "inductorEnabled": false,
     "explicitCudaMayFallbackToCpu": false
   },
-  "statusNote": "status is a human-readable phase label and is never proof of anything. The authoritative machine-checked proof is toolchain.verificationStatus together with the frozen toolchain identities, which tools/verify_repo.py validates by shape and cross-checks against the offline catalogue."
+  "statusNote": "status is a human-readable phase label and is never proof of anything. The authoritative machine-checked proof is toolchain.verificationStatus together with the frozen toolchain identities, which tools/verify_repo.py validates by shape and cross-checks against the offline catalogue.",
+  "nativeAbi": "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75",
+  "nativeAbiNote": "Derived from toolchain and targetGpu by tools/vision/build_runtime_pack.py:derive_native_abi, never hand-typed. C3 passes this value to --native-abi so the Runtime Pack's identity reflects the toolchain R1 actually verified."
 }
