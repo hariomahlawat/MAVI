@@ -552,6 +552,13 @@ must match `deviceIndex` in the runtime verification. Refusal prints
 `{"ok": false, "code": ...}` and exits 2, and an existing `--output` path is
 never overwritten (`development_evidence_output_exists`).
 
+A failed runtime verification also writes its record to `--output`, with
+`result: "failed"`, the failure code and its detail, and both execution flags
+`false`. C7's entire output is failures, so the tool that proves on-device
+execution has to be able to record one; the evidence builder refuses any record
+that is not `passed`, so a failure artefact can never be mistaken for a
+qualification. All of these filenames are gitignored.
+
 What the builder requires, and why:
 
 - **on-device execution.** `mmcvNmsExecutedOnCuda` and

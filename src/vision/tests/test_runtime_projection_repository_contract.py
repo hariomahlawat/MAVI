@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from mavi_vision.runtime.component_identity import (
@@ -106,3 +107,31 @@ def test_component_requirements_bind_current_runtime_and_model_inputs() -> None:
             resolved_config_sha256=model["resolvedConfigSha256"],
         )
     )
+
+
+def test_every_declared_runtime_pack_is_covered_by_the_boundary_gate():
+    """The gate that enforces Gate C5's identity contract is matrix-driven.
+
+    `vision-runtime-component-boundary.yml` recomputes each Runtime Pack ID from
+    the tracked lock, the regenerated requirements projection and a declared
+    native ABI, and requires exact equality with the component binding. It runs
+    one job per matrix row, so a variant declared in the component config but
+    absent from the matrix is simply never checked -- the gate would pass by
+    having nothing to say. C5 adds `windows-x86_64-cuda` to that config, and
+    this is what makes it add the matrix row too.
+    """
+    repository_root = Path(__file__).resolve().parents[3]
+    components = json.loads(
+        (
+            repository_root
+            / "src/vision/config/components/mmdetection-phase1-v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    workflow = (
+        repository_root
+        / ".github/workflows/vision-runtime-component-boundary.yml"
+    ).read_text(encoding="utf-8")
+
+    covered = set(re.findall(r"^\s*- variant:\s*(\S+)\s*$", workflow, re.MULTILINE))
+
+    assert covered == set(components["runtimePacks"])

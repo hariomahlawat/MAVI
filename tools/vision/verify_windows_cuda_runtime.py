@@ -36,9 +36,50 @@ SCHEMA_VERSION = "mavi-windows-cuda-runtime-verification-v2"
 
 
 class CudaRuntimeVerificationError(ValueError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, detail: str = "") -> None:
         self.code = code
+        self.detail = detail
         super().__init__(code)
+
+
+def failure_record(
+    *,
+    code: str,
+    detail: str,
+    device_index: int,
+    resolved_config: str,
+) -> dict[str, object]:
+    """The record a failed verification leaves behind.
+
+    C7 is a phase whose whole output is failures, so the tool that proves
+    on-device execution has to be able to record one. A refusal that only
+    printed to stdout would make the most interesting runs the ones with no
+    artefact -- the same defect already corrected for the R1 toolchain probe.
+    """
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "result": "failed",
+        "failureCode": code,
+        "failureDetail": detail,
+        "deviceIndex": device_index,
+        "resolvedConfigPath": resolved_config,
+        "cudaDeviceOrder": os.environ.get("CUDA_DEVICE_ORDER"),
+        "cudaVisibleDevices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "mmcvNmsExecutedOnCuda": False,
+        "torchMatmulExecutedOnCuda": False,
+    }
+
+
+def _write(path: Path, value: dict[str, object]) -> bool:
+    if path.exists():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return True
 
 
 def _sha256_file(path: Path) -> str:
@@ -196,8 +237,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--resolved-config", type=Path, required=True)
-    parser.add_argument("--output")
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+
     try:
         value = verify(args.device_index, args.resolved_config)
     except Exception as exc:
@@ -206,24 +248,41 @@ def main() -> int:
             if isinstance(exc, CudaRuntimeVerificationError)
             else "cuda_runtime_verification_failed"
         )
-        print(json.dumps({"ok": False, "code": code}, sort_keys=True))
-        return 2
-    if args.output:
-        path = Path(args.output)
-        if path.exists():
-            print(
-                json.dumps(
-                    {"ok": False, "code": "cuda_runtime_verification_output_exists"},
-                    sort_keys=True,
-                )
-            )
-            return 2
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(value, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-            newline="\n",
+        detail = (
+            exc.detail
+            if isinstance(exc, CudaRuntimeVerificationError) and exc.detail
+            else f"{type(exc).__name__}: {exc}"
         )
+        record = failure_record(
+            code=code,
+            detail=detail[-4000:],
+            device_index=args.device_index,
+            resolved_config=str(args.resolved_config),
+        )
+        written = (
+            _write(args.output, record) if args.output is not None else None
+        )
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "code": code,
+                    "evidence": record,
+                    "outputWritten": written,
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
+
+    if args.output is not None and not _write(args.output, value):
+        print(
+            json.dumps(
+                {"ok": False, "code": "cuda_runtime_verification_output_exists"},
+                sort_keys=True,
+            )
+        )
+        return 2
     print(json.dumps({"ok": True, "verification": value}, sort_keys=True))
     return 0
 
