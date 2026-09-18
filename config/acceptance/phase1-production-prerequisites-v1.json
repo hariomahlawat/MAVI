@@ -21,5 +21,17 @@
     "pythonImplementation": "CPython",
     "nvidiaDriverVersion": null,
     "cudaRuntimeVersion": null
+  },
+  "windowsCudaVisionWorker": {
+    "architecture": "AMD64",
+    "pythonVersion": null,
+    "pythonImplementation": "CPython",
+    "nvidiaDriverVersion": null,
+    "cudaRuntimeVersion": null
+  },
+  "windowsCpuVisionWorker": {
+    "architecture": "AMD64",
+    "pythonVersion": null,
+    "pythonImplementation": "CPython"
   }
 }
