@@ -34,6 +34,19 @@ _GIT_COMMIT_PATTERN = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", re.ASCII)
 _TRACKER_POSITIVE_MIN = 1e-9
 _TRACKER_POSITIVE_MAX = 1e9
 _MAX_DEPENDENCY_VERSIONS = 128
+_AUTO_CUDA_RESOLUTION_REASONS = frozenset({"cuda_selected"})
+_AUTO_CPU_RESOLUTION_REASONS = frozenset(
+    {
+        "cuda_pack_absent",
+        "cuda_pack_integrity_failed",
+        "cuda_pack_variant_mismatch",
+        "cuda_pack_not_declared",
+        "cuda_pack_id_mismatch",
+        "cuda_driver_probe_unavailable",
+        "cuda_device_unavailable",
+        "cuda_driver_probe_failed",
+    }
+)
 
 
 def _require_text(value: str, *, code: str) -> str:
@@ -276,6 +289,7 @@ def _validate_device_relationship(
     configured_device_policy: Literal["cpu", "cuda", "auto"],
     configured_device_index: int,
     actual_device: str,
+    device_resolution_reason: str | None,
     gpu: GpuIdentity | None,
     production_mode: bool,
 ) -> None:
@@ -286,6 +300,30 @@ def _validate_device_relationship(
     if production_mode and configured_device_policy == "auto":
         raise ValueError("production_auto_device_forbidden")
 
+    if device_resolution_reason is not None:
+        _require_text(
+            device_resolution_reason,
+            code="device_resolution_reason_invalid",
+        )
+        if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", device_resolution_reason, re.ASCII) is None:
+            raise ValueError("device_resolution_reason_invalid")
+
+        auto_reason = (
+            device_resolution_reason in _AUTO_CUDA_RESOLUTION_REASONS
+            or device_resolution_reason in _AUTO_CPU_RESOLUTION_REASONS
+        )
+        if production_mode and auto_reason:
+            raise ValueError("production_auto_resolution_reason_forbidden")
+        if device_resolution_reason == "explicit_cpu" and configured_device_policy != "cpu":
+            raise ValueError("device_resolution_reason_policy_mismatch")
+        if device_resolution_reason == "explicit_cuda" and configured_device_policy != "cuda":
+            raise ValueError("device_resolution_reason_policy_mismatch")
+        if device_resolution_reason.startswith("explicit_") and device_resolution_reason not in {
+            "explicit_cpu",
+            "explicit_cuda",
+        }:
+            raise ValueError("device_resolution_reason_invalid")
+
     cuda_match = _CUDA_DEVICE_PATTERN.fullmatch(actual_device)
     if actual_device != "cpu" and cuda_match is None:
         raise ValueError("actual_device_invalid")
@@ -294,6 +332,11 @@ def _validate_device_relationship(
         raise ValueError("actual_device_policy_mismatch")
     if configured_device_policy == "cuda" and cuda_match is None:
         raise ValueError("actual_device_policy_mismatch")
+
+    if device_resolution_reason in _AUTO_CUDA_RESOLUTION_REASONS and cuda_match is None:
+        raise ValueError("device_resolution_reason_device_mismatch")
+    if device_resolution_reason in _AUTO_CPU_RESOLUTION_REASONS and actual_device != "cpu":
+        raise ValueError("device_resolution_reason_device_mismatch")
 
     if cuda_match is not None:
         actual_index = int(cuda_match.group(1))
@@ -564,4 +607,5 @@ def build_runtime_provenance(
             minimum_consecutive_frames=tracker.minimum_consecutive_frames,
             lost_track_buffer_seconds=tracker.lost_track_buffer_seconds,
         ),
+        device_resolution_reason=device_resolution_reason,
     )
