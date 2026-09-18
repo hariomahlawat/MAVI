@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -16,8 +17,17 @@ from typing import Sequence
 
 
 class ToolchainVerificationError(ValueError):
-    def __init__(self, code: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        evidence: dict[str, object] | None = None,
+    ) -> None:
         self.code = code
+        # A failed R1 run is evidence too: the rejection of one toolset is what
+        # justifies testing another, so it must be recorded in full rather than
+        # summarised into an exception message.
+        self.evidence = evidence
         super().__init__(code)
 
 
@@ -157,6 +167,10 @@ def _first_version(text: str, pattern: str, code: str) -> str:
     return match.group(1)
 
 
+def _captured_at_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _resolve_source_head_sha(explicit: str | None) -> str:
     if explicit is not None:
         candidate = explicit.strip().casefold()
@@ -250,8 +264,9 @@ def verify_toolchain(
         root = Path(temp)
         source = root / "probe.cu"
         obj = root / "probe.obj"
+        source_text = "extern \"C\" __global__ void mavi_probe() {}\n"
         source.write_text(
-            "extern \"C\" __global__ void mavi_probe() {}\n",
+            source_text,
             encoding="utf-8",
             newline="\n",
         )
@@ -268,21 +283,50 @@ def verify_toolchain(
             cwd=root,
             missing_code="cuda_toolchain_nvcc_not_found",
         )
+        compile_evidence: dict[str, object] = {
+            "command": list(command),
+            "exitCode": compile_result.returncode,
+            "stdout": compile_result.stdout,
+            "stderr": compile_result.stderr,
+            "source": source_text,
+            "sourceSha256": hashlib.sha256(
+                source_text.encode("utf-8")
+            ).hexdigest(),
+            "objectProduced": obj.is_file(),
+        }
         if compile_result.returncode != 0 or not obj.is_file():
             detail = (
                 compile_result.stdout + "\n" + compile_result.stderr
             ).strip()
+            code = classify_compile_failure(detail)
             raise ToolchainVerificationError(
-                classify_compile_failure(detail) + ":" + detail[-1200:]
+                code + ":" + detail[-1200:],
+                evidence={
+                    "schemaVersion": (
+                        "mavi-windows-cuda-toolchain-observation-v1"
+                    ),
+                    "status": "failed",
+                    "failureCode": code,
+                    "capturedAtUtc": _captured_at_utc(),
+                    "sourceHeadSha": resolved_head_sha,
+                    "cudaToolkitVersion": cuda_release,
+                    "msvcCompilerVersion": msvc_compiler,
+                    "vcToolsVersion": vc_tools,
+                    "windowsSdkVersion": sdk,
+                    "nvccArchitectureFlag": architecture_flag,
+                    "buildEnvironment": required_env,
+                    "compile": compile_evidence,
+                },
             )
-        object_bytes = obj.stat().st_size
+        compile_evidence["objectBytes"] = obj.stat().st_size
+        compile_evidence["objectSha256"] = hashlib.sha256(
+            obj.read_bytes()
+        ).hexdigest()
 
     return {
         "schemaVersion": "mavi-windows-cuda-toolchain-observation-v1",
         "status": "passed",
-        "capturedAtUtc": datetime.now(timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        ),
+        "capturedAtUtc": _captured_at_utc(),
         "sourceHeadSha": resolved_head_sha,
         "cudaToolkitVersion": cuda_release,
         "msvcCompilerVersion": msvc_compiler,
@@ -290,8 +334,8 @@ def verify_toolchain(
         "windowsSdkVersion": sdk,
         "targetArchitecture": str(contract["targetGpu"]["architecture"]),
         "nvccArchitectureFlag": architecture_flag,
-        "probeObjectBytes": object_bytes,
         "buildEnvironment": required_env,
+        "compile": compile_evidence,
     }
 
 
@@ -314,12 +358,35 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    def _write(value: dict[str, object]) -> bool:
+        if args.output is None:
+            return True
+        if args.output.exists():
+            print(
+                json.dumps(
+                    {"ok": False, "code": "cuda_toolchain_output_exists"},
+                    sort_keys=True,
+                )
+            )
+            return False
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(value, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        return True
+
     try:
         result = verify_toolchain(
             args.contract,
             source_head_sha=args.source_head_sha,
         )
     except ToolchainVerificationError as exc:
+        # Persist the rejection as evidence: it is the record that justifies
+        # testing a different toolset.
+        if exc.evidence is not None:
+            _write(exc.evidence)
         print(
             json.dumps(
                 {"ok": False, "code": exc.code},
@@ -334,24 +401,8 @@ def main() -> int:
         separators=(",", ":"),
     )
     print(payload)
-    if args.output is not None:
-        if args.output.exists():
-            print(
-                json.dumps(
-                    {
-                        "ok": False,
-                        "code": "cuda_toolchain_output_exists",
-                    },
-                    sort_keys=True,
-                )
-            )
-            return 2
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(
-            json.dumps(result, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-            newline="\n",
-        )
+    if not _write(result):
+        return 2
     return 0
 
 

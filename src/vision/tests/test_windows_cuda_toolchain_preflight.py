@@ -235,3 +235,190 @@ def test_required_build_environment_fails_closed(
         match="cuda_build_contract_build_environment_invalid",
     ):
         module._required_build_environment(contract)
+
+
+class _FakeToolchain:
+    """A successful Windows CUDA build host, for exercising the evidence path."""
+
+    def __init__(self, *, compile_returncode: int = 0, compile_output: str = ""):
+        self.compile_returncode = compile_returncode
+        self.compile_output = compile_output
+        self.commands: list[list[str]] = []
+
+    def run(self, args, *, cwd=None, missing_code="cuda_toolchain_command_not_found"):
+        from types import SimpleNamespace
+
+        args = list(args)
+        self.commands.append(args)
+        if args[:2] == ["nvcc", "--version"]:
+            return SimpleNamespace(
+                stdout="Cuda compilation tools, release 12.4, V12.4.131\n",
+                stderr="",
+                returncode=0,
+            )
+        if args == ["cl"]:
+            return SimpleNamespace(
+                stdout=(
+                    "Microsoft (R) C/C++ Optimizing Compiler Version "
+                    "19.44.35207 for x64\n"
+                ),
+                stderr="",
+                returncode=0,
+            )
+        if args[0] == "nvcc" and "-c" in args:
+            if self.compile_returncode == 0:
+                Path(args[args.index("-o") + 1]).write_bytes(b"MAVI-PROBE-OBJECT")
+            return SimpleNamespace(
+                stdout="",
+                stderr=self.compile_output,
+                returncode=self.compile_returncode,
+            )
+        raise AssertionError(f"unexpected command: {args}")
+
+
+def _windows_host(
+    monkeypatch: pytest.MonkeyPatch,
+    module,
+    fake: _FakeToolchain,
+) -> None:
+    monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(module, "_run", fake.run)
+    monkeypatch.setenv("MMCV_WITH_OPS", "1")
+    monkeypatch.setenv("FORCE_CUDA", "1")
+    monkeypatch.setenv("TORCH_CUDA_ARCH_LIST", "7.5+PTX")
+    monkeypatch.setenv("VCToolsVersion", "14.44.35207\\")
+    monkeypatch.setenv("WindowsSDKVersion", "10.0.26100.0\\")
+
+
+def test_successful_preflight_records_full_compile_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The passing record must be auditable, not just a verdict."""
+    module = _load()
+    fake = _FakeToolchain()
+    _windows_host(monkeypatch, module, fake)
+
+    result = module.verify_toolchain(CONTRACT, source_head_sha="a" * 40)
+
+    assert result["status"] == "passed"
+    assert result["cudaToolkitVersion"] == "12.4"
+    assert result["msvcCompilerVersion"] == "19.44.35207"
+    assert result["vcToolsVersion"] == "14.44.35207"
+    assert result["windowsSdkVersion"] == "10.0.26100.0"
+    assert result["nvccArchitectureFlag"] == "-arch=sm_75"
+
+    compile_evidence = result["compile"]
+    assert compile_evidence["exitCode"] == 0
+    assert compile_evidence["objectProduced"] is True
+    assert compile_evidence["objectBytes"] == len(b"MAVI-PROBE-OBJECT")
+    assert "__global__" in compile_evidence["source"]
+    assert len(compile_evidence["sourceSha256"]) == 64
+    assert len(compile_evidence["objectSha256"]) == 64
+    assert compile_evidence["command"][0] == "nvcc"
+    assert "-arch=sm_75" in compile_evidence["command"]
+
+
+def test_rejected_host_compiler_is_recorded_as_structured_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rejection of one toolset is what justifies testing another."""
+    module = _load()
+    fake = _FakeToolchain(
+        compile_returncode=1,
+        compile_output=_HOST_COMPILER_REJECTION,
+    )
+    _windows_host(monkeypatch, module, fake)
+
+    with pytest.raises(module.ToolchainVerificationError) as raised:
+        module.verify_toolchain(CONTRACT, source_head_sha="b" * 40)
+
+    evidence = raised.value.evidence
+    assert evidence is not None
+    assert evidence["status"] == "failed"
+    assert evidence["failureCode"] == "cuda_toolchain_host_compiler_unsupported"
+    assert evidence["vcToolsVersion"] == "14.44.35207"
+    assert evidence["windowsSdkVersion"] == "10.0.26100.0"
+    assert evidence["sourceHeadSha"] == "b" * 40
+    assert evidence["compile"]["exitCode"] == 1
+    assert evidence["compile"]["objectProduced"] is False
+    # The full compiler output is retained, not truncated into a message.
+    assert _HOST_COMPILER_REJECTION in evidence["compile"]["stderr"]
+
+
+def test_unrelated_compile_failure_is_not_recorded_as_a_host_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load()
+    fake = _FakeToolchain(
+        compile_returncode=1,
+        compile_output="nvcc fatal   : Cannot find compiler 'cl.exe' in PATH",
+    )
+    _windows_host(monkeypatch, module, fake)
+
+    with pytest.raises(module.ToolchainVerificationError) as raised:
+        module.verify_toolchain(CONTRACT, source_head_sha="c" * 40)
+
+    assert (
+        raised.value.evidence["failureCode"]
+        == "cuda_toolchain_host_compiler_not_found"
+    )
+
+
+def test_failure_evidence_is_written_to_the_output_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A blocked R1 run must leave an artefact behind, not only an exit code."""
+    module = _load()
+    fake = _FakeToolchain(
+        compile_returncode=1,
+        compile_output=_HOST_COMPILER_REJECTION,
+    )
+    _windows_host(monkeypatch, module, fake)
+    output = tmp_path / "toolchain.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "verify_windows_cuda_toolchain.py",
+            "--contract",
+            str(CONTRACT),
+            "--output",
+            str(output),
+            "--source-head-sha",
+            "d" * 40,
+        ],
+    )
+
+    assert module.main() == 2
+
+    recorded = json.loads(output.read_text(encoding="utf-8"))
+    assert recorded["status"] == "failed"
+    assert recorded["failureCode"] == "cuda_toolchain_host_compiler_unsupported"
+    assert recorded["compile"]["exitCode"] == 1
+
+
+def test_preflight_refuses_to_overwrite_existing_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _load()
+    fake = _FakeToolchain()
+    _windows_host(monkeypatch, module, fake)
+    output = tmp_path / "toolchain.json"
+    output.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "verify_windows_cuda_toolchain.py",
+            "--contract",
+            str(CONTRACT),
+            "--output",
+            str(output),
+            "--source-head-sha",
+            "e" * 40,
+        ],
+    )
+
+    assert module.main() == 2
+    assert output.read_text(encoding="utf-8") == "{}\n"

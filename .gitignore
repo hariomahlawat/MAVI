@@ -61,6 +61,7 @@ appsettings.*.Local.json
 
 # Generated evidence/data stores
 windows-cuda-host-observation.json
+windows-cuda-toolchain-observation.json
 /data/
 /evidence/
 /media-store/
