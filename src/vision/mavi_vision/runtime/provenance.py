@@ -95,6 +95,9 @@ class GpuIdentity:
     vram_bytes: int
     driver_version: str
     cuda_runtime_version: str
+    uuid: str
+    pci_bus_id: str
+    compute_capability: str
 
     def __post_init__(self) -> None:
         _require_text(self.name, code="gpu_name_invalid")
@@ -103,6 +106,14 @@ class GpuIdentity:
             self.cuda_runtime_version,
             code="cuda_runtime_version_invalid",
         )
+        _require_text(self.uuid, code="gpu_uuid_invalid")
+        _require_text(self.pci_bus_id, code="gpu_pci_bus_id_invalid")
+        _require_text(
+            self.compute_capability,
+            code="gpu_compute_capability_invalid",
+        )
+        if re.fullmatch(r"\d+\.\d+", self.compute_capability) is None:
+            raise ValueError("gpu_compute_capability_invalid")
         if self.index < 0:
             raise ValueError("gpu_index_invalid")
         if self.vram_bytes <= 0:
