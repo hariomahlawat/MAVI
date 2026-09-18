@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, Mapping
+from typing import Collection, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -66,6 +66,7 @@ class QualificationRecord:
     required_gates: Mapping[str, Literal["passed", "pending"]]
     evidence: Mapping[str, QualificationEvidence]
     overall_result: Literal["passed", "pending"]
+    qualified_profiles: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -511,6 +512,7 @@ class _QualificationRecordSchema(_StrictModel):
     required_gates: dict[str, Literal["passed", "pending"]] = Field(alias="requiredGates")
     evidence: dict[str, _QualificationEvidenceSchema] = Field(default_factory=dict)
     overall_result: Literal["passed", "pending"] = Field(alias="overallResult")
+    qualified_profiles: tuple[str, ...] = Field(default=(), alias="qualifiedProfiles")
 
     @field_validator(
         "qualification_id",
@@ -546,6 +548,15 @@ class _QualificationRecordSchema(_StrictModel):
             raise ValueError("qualification_mandatory_gate_missing")
         if any(not key or key != key.strip() for key in value):
             raise ValueError("qualification_gate_name_invalid")
+        return value
+
+    @field_validator("qualified_profiles")
+    @classmethod
+    def validate_qualified_profiles(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("qualification_profile_duplicate")
+        if any(not item or item != item.strip() for item in value):
+            raise ValueError("qualification_profile_invalid")
         return value
 
     @model_validator(mode="after")
@@ -600,6 +611,7 @@ def load_qualification_record(path: Path) -> QualificationRecord:
         required_gates=MappingProxyType(dict(parsed.required_gates)),
         evidence=MappingProxyType(evidence),
         overall_result=parsed.overall_result,
+        qualified_profiles=tuple(parsed.qualified_profiles),
     )
 
 
@@ -756,6 +768,8 @@ def verify_qualification_relationships(
     runtime_profile_id: str,
     runtime_profile_sha256: str,
     require_passed: bool,
+    required_profile: str | None = None,
+    required_gates: Collection[str] | None = None,
 ) -> None:
     expected = {
         "qualification_id": manifest.qualification_id,
@@ -787,11 +801,20 @@ def verify_qualification_relationships(
         raise ReleaseMetadataError("qualification_identity_mismatch")
 
     if require_passed:
-        if qualification.overall_result != "passed":
-            raise ReleaseMetadataError("qualification_not_passed")
+        if required_profile is None and required_gates is None:
+            if qualification.overall_result != "passed":
+                raise ReleaseMetadataError("qualification_not_passed")
+            gates_to_require: Collection[str] = MANDATORY_QUALIFICATION_GATES
+        else:
+            if required_profile is None or required_gates is None:
+                raise ReleaseMetadataError("qualification_profile_requirement_incomplete")
+            if required_profile not in qualification.qualified_profiles:
+                raise ReleaseMetadataError("qualification_profile_not_qualified")
+            gates_to_require = required_gates
+
         if any(
             qualification.required_gates.get(gate_name) != "passed"
-            for gate_name in MANDATORY_QUALIFICATION_GATES
+            for gate_name in gates_to_require
         ):
             raise ReleaseMetadataError("qualification_gate_not_passed")
 
@@ -804,6 +827,9 @@ def verify_release_selection(
     runtime_profile_path: Path,
     qualification_path: Path | None = None,
     allow_unverified: bool = False,
+    required_profile: str | None = None,
+    required_gates: Collection[str] | None = None,
+    required_runtime_variant: str | None = None,
 ) -> VerifiedReleaseSelection:
     """Verify one immutable local release selection before runtime construction."""
     manifest = load_model_manifest(manifest_path)
@@ -822,10 +848,22 @@ def verify_release_selection(
     runtime_checkpoint_sha256 = runtime_profile.checkpoint.sha256
     runtime_config_sha256 = runtime_profile.resolved_config.sha256
 
-    if manifest.verification_status == "verified" and (
-        runtime_profile.qualification_status != "qualified"
-    ):
-        raise ReleaseMetadataError("runtime_profile_not_qualified")
+    if manifest.verification_status == "verified":
+        if required_runtime_variant is None:
+            if runtime_profile.qualification_status != "qualified":
+                raise ReleaseMetadataError("runtime_profile_not_qualified")
+        else:
+            variant = runtime_profile.platform_variants.get(required_runtime_variant)
+            lock = runtime_profile.release_locks.get(required_runtime_variant)
+            expected_status = (
+                "qualified-hardware"
+                if required_runtime_variant.endswith("-cuda")
+                else "qualified-hosted-cpu"
+            )
+            if variant is None or variant.status != expected_status:
+                raise ReleaseMetadataError("runtime_profile_variant_not_qualified")
+            if lock is None or lock.status != "qualified-offline-lock":
+                raise ReleaseMetadataError("runtime_profile_lock_not_qualified")
 
     if runtime_profile_id != manifest.runtime_profile_id:
         raise ReleaseMetadataError("runtime_profile_id_mismatch")
@@ -859,6 +897,8 @@ def verify_release_selection(
             runtime_profile_id=runtime_profile_id,
             runtime_profile_sha256=runtime_profile_sha256,
             require_passed=True,
+            required_profile=required_profile,
+            required_gates=required_gates,
         )
     elif qualification_path is not None:
         qualification = load_qualification_record(qualification_path)
