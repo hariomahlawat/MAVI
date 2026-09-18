@@ -240,6 +240,13 @@ def _completion_int64(value: object) -> int:
     return _completion_integral(value, minimum=-(2**63), maximum=2**63 - 1)
 
 
+def _json_array_to_tuple(value: object, info: ValidationInfo) -> object:
+    """Normalize a published JSON array to its immutable tuple-backed model shape."""
+    if info.mode == "json" and isinstance(value, list):
+        return tuple(value)
+    return value
+
+
 def _canonical_utc_wire(value: object, info: ValidationInfo) -> object:
     if info.mode == "json":
         if not isinstance(value, str) or _CANONICAL_UTC_PATTERN.fullmatch(value) is None:
@@ -504,6 +511,15 @@ class VisionPlatformIdentity(ControlPlaneModel):
     python_build: tuple[ProvenanceDetail, ProvenanceDetail]
     python_compiler: ProvenanceDetail
 
+    @field_validator("python_build", mode="before")
+    @classmethod
+    def normalize_python_build_json_array(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> object:
+        return _json_array_to_tuple(value, info)
+
 
 class VisionGpuIdentity(ControlPlaneModel):
     name: ProvenanceDetail
@@ -580,6 +596,15 @@ class VisionRuntimeProvenance(ControlPlaneModel):
 
 
 class VisionJobComplete(ControlPlaneModel):
+    @field_validator("tracks", mode="before")
+    @classmethod
+    def normalize_tracks_json_array(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> object:
+        return _json_array_to_tuple(value, info)
+
     @model_validator(mode="before")
     @classmethod
     def validate_completion_integer_wire_ranges(
