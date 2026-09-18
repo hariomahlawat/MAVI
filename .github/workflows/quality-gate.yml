@@ -3,10 +3,12 @@ name: MAVI Quality Gate
 on:
   pull_request:
     branches:
+      - main
       - feature/visual-intelligence-memory
       - feature/task-10-rtmdet-bytetrack
   push:
     branches:
+      - main
       - feature/visual-intelligence-memory
       - feature/task-10-rtmdet-bytetrack
 
