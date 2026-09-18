@@ -110,9 +110,11 @@ A profile is supported only when its exact evidence is complete.
 
 No profile inherits qualification from another.
 
-## Current tooling caveat
+## Tooling status
 
-The present Phase-1 acceptance toolchain still contains assumptions from the earlier four-variant/Linux-CUDA-centric model. Authoritative Task-18 qualification must wait until those tools are reconciled with ADR-008 so release closure can bind evidence to the profile(s) actually claimed as supported.
+The Task-18 implementation now carries the deployment profile through Runtime selection, prerequisite evidence, offline qualification, performance/recovery evidence, formal/failure scenarios, additive release promotion, Production acceptance and closure. Production startup requires an explicit profile and fails closed if its policy identity, runtime variant or host/device does not match. Development `Auto` prefers a qualified available Windows CUDA device and otherwise falls back visibly to CPU.
+
+Authoritative Task-18 qualification remains blocked until this implementation passes exact-head CI, independent cold review, and the remaining acceptance inputs are frozen.
 
 ## Offline boundary
 
