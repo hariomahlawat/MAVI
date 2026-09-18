@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from mavi_vision.runtime import qualification
 
@@ -276,3 +277,48 @@ def test_a_successful_run_never_overwrites_an_existing_output(
 
 def test_the_record_names_the_observation_it_was_produced_against():
     assert _record()["hostObservationSha256"] == "d" * 64
+
+
+def test_the_record_validates_against_its_published_schema():
+    """The producer and its published schema must not drift apart."""
+    schema = json.loads(
+        (TOOLS / "windows-cuda-runtime-verification.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    Draft202012Validator.check_schema(schema)
+
+    Draft202012Validator(schema).validate(_record())
+
+
+def test_the_failure_record_validates_against_its_published_schema():
+    schema = json.loads(
+        (TOOLS / "windows-cuda-runtime-verification.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    record = MODULE.failure_record(
+        code="cuda_unavailable",
+        detail="torch.cuda.is_available() returned False",
+        device_index=0,
+        resolved_config="rtmdet_m_resolved.py",
+    )
+
+    Draft202012Validator(schema).validate(record)
+
+
+def test_the_schema_refuses_a_failure_record_claiming_execution():
+    schema = json.loads(
+        (TOOLS / "windows-cuda-runtime-verification.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    record = MODULE.failure_record(
+        code="cuda_unavailable",
+        detail="no device",
+        device_index=0,
+        resolved_config="rtmdet_m_resolved.py",
+    )
+    record["mmcvNmsExecutedOnCuda"] = True
+
+    assert list(Draft202012Validator(schema).iter_errors(record))

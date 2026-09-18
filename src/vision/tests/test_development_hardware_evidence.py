@@ -107,14 +107,36 @@ def _host(**overrides) -> dict:
 
 
 def _toolchain(**overrides) -> dict:
+    # A faithful model of what verify_windows_cuda_toolchain.py emits. A
+    # thinner fixture would let the tool accept an artefact that tool never
+    # produces, which is how a schema and its only producer drift apart.
     value = {
         "schemaVersion": "mavi-windows-cuda-toolchain-observation-v1",
         "status": "passed",
+        "capturedAtUtc": "2026-09-18T03:58:07Z",
+        "sourceHeadSha": _SOURCE_HEAD_SHA,
         "cudaToolkitVersion": "12.4",
+        "msvcCompilerVersion": "19.44.35222",
         "vcToolsVersion": "14.44.35207",
         "windowsSdkVersion": "10.0.26100.0",
-        "sourceHeadSha": _SOURCE_HEAD_SHA,
         "targetArchitecture": "sm75",
+        "nvccArchitectureFlag": "-gencode=arch=compute_75,code=sm_75",
+        "buildEnvironment": {
+            "MMCV_WITH_OPS": "1",
+            "FORCE_CUDA": "1",
+            "TORCH_CUDA_ARCH_LIST": "7.5+PTX",
+        },
+        "compile": {
+            "command": ["nvcc", "-c", "probe.cu", "-o", "probe.obj"],
+            "exitCode": 0,
+            "stdout": "",
+            "stderr": "",
+            "source": "__global__ void probe() {}\n",
+            "sourceSha256": "1b" * 32,
+            "objectProduced": True,
+            "objectBytes": 39957,
+            "objectSha256": "2c" * 32,
+        },
     }
     value.update(overrides)
     return value
@@ -199,6 +221,16 @@ def _build(
 
 def _code(excinfo) -> str:
     return excinfo.value.code
+
+
+# Layering: the published schemas own each artefact's shape -- field presence,
+# types and syntax -- so a malformed artefact is refused as `*_schema_invalid`
+# with the offending JSON path in the cause. The builder owns policy the shape
+# cannot express: cross-artefact agreement, and whether the evidence actually
+# attests execution. Those keep their own specific, operator-actionable codes.
+_HOST_MALFORMED = "development_evidence_host_observation_schema_invalid"
+_TOOLCHAIN_MALFORMED = "development_evidence_toolchain_schema_invalid"
+_RUNTIME_MALFORMED = "development_evidence_runtime_schema_invalid"
 
 
 def test_complete_evidence_is_accepted_and_scoped_to_development(tmp_path):
@@ -324,26 +356,50 @@ def test_missing_native_op_flag_is_not_read_as_success(tmp_path):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, runtime=runtime)
 
-    assert _code(excinfo) == "development_evidence_native_ops_not_executed"
+    assert _code(excinfo) == _RUNTIME_MALFORMED
 
 
 def test_truthy_but_non_boolean_execution_flag_is_refused(tmp_path):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, runtime=_runtime(torchMatmulExecutedOnCuda="yes"))
 
-    assert _code(excinfo) == "development_evidence_torch_not_executed"
+    assert _code(excinfo) == _RUNTIME_MALFORMED
 
 
-def test_failed_runtime_verification_is_refused(tmp_path):
+def test_a_genuine_failure_record_is_never_read_as_a_qualification(tmp_path):
+    """The artefact a failed run leaves behind must not qualify anything."""
+    failed = {
+        "schemaVersion": "mavi-windows-cuda-runtime-verification-v2",
+        "result": "failed",
+        "failureCode": "mmcv_cuda_op_executed_off_device",
+        "failureDetail": "nms returned a CPU tensor",
+        "deviceIndex": 0,
+        "resolvedConfigPath": "rtmdet_m_resolved.py",
+        "cudaDeviceOrder": "PCI_BUS_ID",
+        "cudaVisibleDevices": None,
+        "mmcvNmsExecutedOnCuda": False,
+        "torchMatmulExecutedOnCuda": False,
+    }
+
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
-        _build(tmp_path, runtime=_runtime(result="failed"))
+        _build(tmp_path, runtime=failed)
 
     assert _code(excinfo) == "development_evidence_runtime_not_passed"
 
 
-def test_failed_toolchain_observation_is_refused(tmp_path):
+def test_a_failed_toolchain_observation_is_refused(tmp_path):
+    toolchain = _toolchain(
+        status="failed", failureCode="cuda_toolchain_host_compiler_unsupported"
+    )
+    del toolchain["targetArchitecture"]
+    toolchain["compile"].update(
+        exitCode=1, objectProduced=False, stderr="unsupported Microsoft Visual Studio version"
+    )
+    del toolchain["compile"]["objectBytes"]
+    del toolchain["compile"]["objectSha256"]
+
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
-        _build(tmp_path, toolchain=_toolchain(status="failed"))
+        _build(tmp_path, toolchain=toolchain)
 
     assert _code(excinfo) == "development_evidence_toolchain_not_passed"
 
@@ -378,7 +434,7 @@ def test_missing_gpu_identity_digest_on_the_run_is_refused(tmp_path):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, runtime=runtime)
 
-    assert _code(excinfo) == "development_evidence_gpu_identity_missing"
+    assert _code(excinfo) == _RUNTIME_MALFORMED
 
 
 def test_memory_disagreement_between_host_and_run_is_refused(tmp_path):
@@ -425,7 +481,7 @@ def test_unstated_toolchain_identity_is_refused(tmp_path, field, value):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, toolchain=toolchain)
 
-    assert _code(excinfo) == "development_evidence_toolchain_identity_missing"
+    assert _code(excinfo) == _TOOLCHAIN_MALFORMED
 
 
 @pytest.mark.parametrize("field", ("driverVersion", "torchCudaRuntimeVersion"))
@@ -436,17 +492,25 @@ def test_unstated_runtime_identity_is_refused(tmp_path, field):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, runtime=runtime)
 
-    assert _code(excinfo) == "development_evidence_runtime_identity_missing"
+    assert _code(excinfo) == _RUNTIME_MALFORMED
 
 
 @pytest.mark.parametrize("value", (True, False))
 def test_boolean_device_index_is_not_read_as_an_ordinal(tmp_path, value):
+    """`True == 1` in Python; JSON Schema's integer type does not agree."""
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(
             tmp_path,
             runtime=_runtime(deviceIndex=value),
             device_index=int(value),
         )
+
+    assert _code(excinfo) == _RUNTIME_MALFORMED
+
+
+def test_a_device_index_other_than_the_declared_one_is_refused(tmp_path):
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=_runtime(deviceIndex=1))
 
     assert _code(excinfo) == "development_evidence_device_index_mismatch"
 
@@ -543,9 +607,7 @@ def test_host_entry_without_a_usable_identity_digest_is_refused(tmp_path, value)
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, host=host)
 
-    assert _code(excinfo) == (
-        "development_evidence_host_observation_schema_invalid"
-    )
+    assert _code(excinfo) == _HOST_MALFORMED
 
 
 def test_workstation_detail_smuggled_past_the_key_check_is_refused(tmp_path):
@@ -560,9 +622,7 @@ def test_workstation_detail_smuggled_past_the_key_check_is_refused(tmp_path):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, host=host)
 
-    assert _code(excinfo) == (
-        "development_evidence_host_observation_schema_invalid"
-    )
+    assert _code(excinfo) == _HOST_MALFORMED
 
 
 @pytest.mark.parametrize("value", (None, "2.6.0", {"torch": "x"}))
@@ -577,7 +637,7 @@ def test_torch_without_an_accelerator_build_identity_is_refused(tmp_path, value)
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, runtime=runtime)
 
-    assert _code(excinfo).startswith("development_evidence_binary_")
+    assert _code(excinfo) == _RUNTIME_MALFORMED
 
 
 @pytest.mark.parametrize(
@@ -590,7 +650,7 @@ def test_incomplete_python_identity_is_refused(tmp_path, field):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, runtime=runtime)
 
-    assert _code(excinfo) == "development_evidence_python_identity_missing"
+    assert _code(excinfo) == _RUNTIME_MALFORMED
 
 
 def test_missing_resolved_config_digest_is_refused(tmp_path):
@@ -600,7 +660,7 @@ def test_missing_resolved_config_digest_is_refused(tmp_path):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, runtime=runtime)
 
-    assert _code(excinfo) == "development_evidence_resolved_config_missing"
+    assert _code(excinfo) == _RUNTIME_MALFORMED
 
 
 def test_host_observation_without_gpus_is_refused(tmp_path):
@@ -752,16 +812,27 @@ def test_a_run_that_names_no_observation_is_refused(tmp_path):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, runtime=_runtime(hostObservationSha256=None))
 
-    assert _code(excinfo) == "development_evidence_host_observation_unchained"
+    assert _code(excinfo) == _RUNTIME_MALFORMED
 
 
-@pytest.mark.parametrize("value", (0, -1, True))
-def test_execution_without_any_device_allocation_is_refused(tmp_path, value):
-    """Work on the device means the allocator saw it; zero is a contradiction."""
+def test_execution_without_any_device_allocation_is_refused(tmp_path):
+    """Work on the device means the allocator saw it; zero is a contradiction.
+
+    Zero is well-formed, so the schema accepts it and the builder refuses it
+    with the code that says why.
+    """
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=_runtime(peakMemoryAllocatedBytes=0))
+
+    assert _code(excinfo) == "development_evidence_no_device_allocation"
+
+
+@pytest.mark.parametrize("value", (-1, True, "lots"))
+def test_a_malformed_allocation_figure_is_refused(tmp_path, value):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, runtime=_runtime(peakMemoryAllocatedBytes=value))
 
-    assert _code(excinfo) == "development_evidence_no_device_allocation"
+    assert _code(excinfo) == _RUNTIME_MALFORMED
 
 
 def test_reserved_memory_below_allocated_memory_is_refused(tmp_path):

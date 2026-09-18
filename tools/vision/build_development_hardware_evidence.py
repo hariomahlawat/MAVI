@@ -64,9 +64,20 @@ _CANONICAL_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", re.ASCII)
 _COMPUTE_CAPABILITY = re.compile(r"^\d+\.\d+$", re.ASCII)
 _OPERATOR_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._@/-]{0,127}$", re.ASCII)
 _MEMORY_TOLERANCE_BYTES = 64 * 1024 * 1024
+_SCHEMA_DIR = Path(__file__).resolve().parent
 _HOST_OBSERVATION_SCHEMA_PATH = (
-    Path(__file__).resolve().parent / "windows-cuda-host-observation.schema.json"
+    _SCHEMA_DIR / "windows-cuda-host-observation.schema.json"
 )
+_TOOLCHAIN_SCHEMA_PATH = (
+    _SCHEMA_DIR / "windows-cuda-toolchain-observation.schema.json"
+)
+_RUNTIME_SCHEMA_PATH = (
+    _SCHEMA_DIR / "windows-cuda-runtime-verification.schema.json"
+)
+
+
+def _published_schema(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class DevelopmentEvidenceError(ValueError):
@@ -249,13 +260,19 @@ def build_evidence(
         host_observation,
         _HOST_SCHEMA,
         "development_evidence_host_observation",
-        json.loads(_HOST_OBSERVATION_SCHEMA_PATH.read_text(encoding="utf-8")),
+        _published_schema(_HOST_OBSERVATION_SCHEMA_PATH),
     )
     toolchain, toolchain_sha = _load(
-        toolchain_observation, _TOOLCHAIN_SCHEMA, "development_evidence_toolchain"
+        toolchain_observation,
+        _TOOLCHAIN_SCHEMA,
+        "development_evidence_toolchain",
+        _published_schema(_TOOLCHAIN_SCHEMA_PATH),
     )
     runtime, runtime_sha = _load(
-        runtime_verification, _RUNTIME_SCHEMA, "development_evidence_runtime"
+        runtime_verification,
+        _RUNTIME_SCHEMA,
+        "development_evidence_runtime",
+        _published_schema(_RUNTIME_SCHEMA_PATH),
     )
 
     if toolchain.get("status") != "passed":
