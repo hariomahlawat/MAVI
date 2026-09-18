@@ -100,6 +100,7 @@ try {
         "mavi-vision-runtime-pack-v2",
         "mavi-vision-runtime-install-v2",
         "windows-x86_64-cpu",
+        "windows-x86_64-cuda",
         "Python 3.12.10",
         "--no-index",
         "--only-binary=:all:",
@@ -126,6 +127,9 @@ try {
     $visionLauncherText = Get-Content -LiteralPath (Join-Path $repoRoot "tools\setup\Start-MaviVisionWorker.ps1") -Raw
     foreach ($requiredFragment in @(
         "MAVI_VISION_RUNTIME_ROOT",
+        "MAVI_VISION_RUNTIME_WINDOWS_CPU_ROOT",
+        "MAVI_VISION_RUNTIME_WINDOWS_CUDA_ROOT",
+        "DevicePolicy = \"auto\"",
         "MAVI_MODEL_ROOT",
         "MAVI_RUNTIME_PROFILE_PATH",
         "MAVI_QUALIFICATION_RECORD_PATH",
