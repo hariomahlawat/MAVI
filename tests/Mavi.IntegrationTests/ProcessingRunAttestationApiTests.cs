@@ -141,6 +141,35 @@ public sealed class ProcessingRunAttestationApiTests
         return run.Id;
     }
 
+    private static string ValidCudaProvenanceJson()
+    {
+        var contract = JsonSerializer.Deserialize<VisionRuntimeProvenanceContract>(
+            ValidProvenanceJson(),
+            WebJsonOptions)
+            ?? throw new InvalidOperationException(
+                "Valid provenance fixture failed to deserialize.");
+
+        contract = contract with
+        {
+            RuntimeVariant = "windows-x86_64-cuda",
+            ConfiguredDevicePolicy = "cuda",
+            ConfiguredDeviceIndex = 0,
+            ActualDevice = "cuda:0",
+            DeviceResolutionReason = "explicit_cuda",
+            Gpu = new VisionGpuIdentityContract(
+                "NVIDIA GeForce GTX 1650 Ti",
+                0,
+                4L * 1024 * 1024 * 1024,
+                "576.83",
+                "12.4",
+                "GPU-test",
+                "00000000:01:00.0",
+                "7.5"),
+        };
+
+        return JsonSerializer.Serialize(contract, WebJsonOptions);
+    }
+
     private static string ValidProvenanceJson()
     {
         var contract = new VisionRuntimeProvenanceContract(
