@@ -1435,6 +1435,9 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             ),
             required_gates=required_gates,
             required_runtime_variant=runtime_variant,
+            required_deployment_profile_policy_sha256=(
+                deployment_policy_sha
+            ),
         )
         promoted = (
             selection.verification_status
