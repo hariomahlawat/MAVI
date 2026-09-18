@@ -9,7 +9,7 @@
 >
 > Development is a single Windows workstation/laptop with intended Auto / CUDA / CPU device modes.
 >
-> Parts of this runbook and the current Phase-1 tools were written for the earlier four-platform-variant / Linux-CUDA-centric closure model. Those commands remain useful implementation/history references, but **must not be used to claim authoritative Task-18 release acceptance until the acceptance/promotion/closure tooling is reconciled with ADR-008**. The reconciled tooling must require every gate applicable to each Production profile actually claimed as supported and must not allow evidence from one profile to qualify another.
+> The Task-18 implementation now uses profile-scoped qualification, promotion, Production scenario, prerequisite, performance and closure contracts. Until the implementation PR has passed exact-head gates and final independent review, **no authoritative Task-18 release acceptance may be claimed**. Evidence from one Production profile never qualifies another.
 
 Task 17 closes Phase 1 by proving the existing Camera → Import → Processing → Visual Search → Evidence Review system against explicit release, provenance, offline and recovery contracts. Hosted CI is not a substitute for disconnected or hardware qualification.
 
@@ -160,9 +160,9 @@ The assessor must never be weakened merely to remove a pending item.
 
 Do not hand-edit pending release metadata to verified.
 
-After every mandatory qualification gate has real evidence and the runtime is fully qualified, use `tools/phase1/promote_phase1_release.py`.
+After every gate required by the **selected Production profile** has real evidence and that profile's runtime variant/lock is qualified, use `tools/phase1/promote_phase1_release.py --deployment-profile P1|P2|P3`. Promotion is additive: qualifying a later profile preserves the exact evidence and qualification identity of profiles already qualified.
 
-Promotion requires **all eight mandatory gate evidence files again**, even if the pending qualification record already contains an older `passed` entry. It never grandfathers prior evidence references. The two OS offline-install aggregates must cryptographically reference the exact CPU/CUDA variant files supplied in the same promotion operation. For CCTV quality, supply the canonical acceptance profile, exact approved corpus manifest, the corpus-level quality evidence, and repeated `--quality-case-evidence caseId=path` / `--quality-ground-truth caseId=path` arguments covering **every** corpus case. Promotion independently reopens every case, requires exact corpus case-set equality, recomputes per-case and aggregate quality metrics/threshold decisions, recomputes the performance threshold decision, verifies cross-gate source/build/profile/target-manifest identities, reconstructs deterministic final manifest/qualification bytes and re-runs canonical release selection.
+Promotion requires the **complete gate set for the selected profile again**, even if a top-level legacy gate already says `passed`. It never lets another profile's evidence satisfy the selected profile. The profile qualification stores the exact deployment-profile policy SHA-256, runtime variant and per-profile evidence map. Requalifying the same profile refreshes that profile without duplicating it; qualifying another profile adds it without reverting the verified model manifest. For CCTV quality, supply the canonical acceptance profile, exact approved corpus manifest, the corpus-level quality evidence, and repeated `--quality-case-evidence caseId=path` / `--quality-ground-truth caseId=path` arguments covering **every** corpus case. Promotion independently reopens every case, requires exact corpus case-set equality, recomputes per-case and aggregate quality metrics/threshold decisions, recomputes the performance threshold decision, verifies cross-gate source/build/profile/target-manifest identities, reconstructs deterministic final manifest/qualification bytes and re-runs canonical release selection.
 
 Promotion must be status/evidence-only. Any model/config/profile/runtime/application-build behavior change invalidates earlier evidence.
 
@@ -198,11 +198,15 @@ python tools/phase1/validate_production_prerequisites.py \
 
 The validator fails if the policy is still pending, any approved field is unfrozen, or an observed Windows/IIS, PostgreSQL/pgvector, CPython, NVIDIA-driver or CUDA-runtime identity differs from the approved baseline.
 
-### 2. Build and execute all four exact production bundles
+### 2. Build and execute the exact bundle for the selected profile
 
-Build **production** bundles for Windows/Linux CPU/CUDA. Run the disconnected variant qualifiers on every exact bundle. Each qualifier installs into a clean venv and launches the real worker from that venv; detached prior worker evidence is not accepted.
+Build and qualify only the runtime variant required by the Production profile being claimed:
 
-Retain all four `mavi-offline-variant-evidence-v1` files. They must bind the same source commit, MAVI build, promoted model-manifest hash and canonical acceptance-profile hash.
+- P1 -> `windows-x86_64-cuda`
+- P2 -> `linux-x86_64-cuda`
+- P3 -> `windows-x86_64-cpu`
+
+Each disconnected qualifier installs into a clean venv and launches the real worker from that venv; detached prior worker evidence is not accepted. A release may support more than one profile, but every claimed profile is qualified independently and retains its own evidence identity.
 
 ### 3. Create one immutable final-acceptance execution and checkpoint server logs
 
@@ -230,7 +234,7 @@ The checkpoint records the exact file path, pre-run byte offset and prefix SHA-2
 
 ### 4. Run independent final formal and empty-scene scenarios
 
-The final formal product E2E must be a new execution, separate from the Linux-CUDA per-variant smoke. Use `tools/phase1/run_production_scenario.py --mode formal --acceptance-context <acceptance-context.json>` with the exact qualified Linux-CUDA production venv/bundle, controlled target-containing media, canonical corpus and ground truth. The scenario record binds the exact worker Python, production bundle/lock, generated E2E file and worker log.
+The final formal product E2E must be a new execution, separate from the selected profile's per-variant smoke. Use `tools/phase1/run_production_scenario.py --deployment-profile <P1|P2|P3> --mode formal --acceptance-context <acceptance-context.json>` with the exact qualified profile runtime/bundle, controlled target-containing media, canonical corpus and ground truth. The scenario record binds the exact worker Python, production bundle/lock, generated E2E file and worker log.
 
 Run a second independent `--mode empty-scene-diagnostic` scenario with the same `--acceptance-context` using reviewed empty-scene media. This diagnostic passes only with **zero Tracks, zero resolved Track details and zero representative evidence reads**. Any detection is a false-positive acceptance failure.
 
@@ -246,8 +250,8 @@ With the normal production worker stopped initially, run `tools/phase1/qualify_f
 4. fails it through the public worker control-plane API with `task17_controlled_failure`;
 5. proves the managed source bytes/ETag remain unchanged;
 6. queues a new ProcessingRun;
-7. launches `mavi_vision.worker.main` from the exact qualified Linux-CUDA production venv/bundle;
-8. requires verified CUDA completion, a new ProcessingRun ID, retained source integrity and at least one Track.
+7. launches `mavi_vision.worker.main` from the exact qualified runtime/bundle for the selected Production profile;
+8. requires the declared profile device (CUDA for P1/P2, CPU for P3), a new ProcessingRun ID, retained source integrity and at least one Track.
 
 A connected integration test is not a substitute for this final production-topology execution.
 
@@ -284,7 +288,7 @@ Use `tools/phase1/assemble_production_acceptance.py` with:
 - the retained policy-approved prior application manifest;
 - the pre-update and post-update authoritative-state evidence files produced by the lifecycle qualifier;
 - the retained prior application manifest, retained prior acceptance evidence, and the exact pre-update and post-update authoritative-state check files emitted by the update qualifier;
-- all four production variant evidence files;
+- the exact production variant evidence file required by the selected profile;
 - formal scenario record + formal E2E;
 - empty-scene scenario record + empty-scene E2E;
 - failure/reprocess evidence;
@@ -299,7 +303,7 @@ The resulting `mavi-phase1-production-acceptance-evidence-v1` is an immutable ag
 
 Pass the aggregate record **and every underlying evidence file**, including `--prior-application-manifest`, `--prior-acceptance-evidence`, `--pre-update-state-check`, `--post-update-state-check`, all six backup proof inputs (`--backup-execution`, `--post-restore-check`, `--backup-set-manifest`, `--backup-database-manifest`, `--backup-managed-source-manifest`, `--backup-accepted-evidence-manifest`), the full quality corpus inputs, and the same six raw `--production-log role=path` files, to `tools/phase1/assess_phase1_closure.py`. Closure reopens, re-hashes and revalidates them against the canonical supported-update policy before allowing `release-verified`. It also compares the exact mandatory-gate evidence SHA-256 values against the evidence hashes embedded in the promoted qualification record; a semantically valid but different evidence set cannot be substituted at closure.
 
-`release-verified` is impossible if the prerequisite policy is pending, any production variant is missing, the formal/empty scenarios are reused or mismatched, failure/reprocess is absent, required topology logs are absent/dirty, backup/restore references another case, or the aggregate record contains hashes from another acceptance execution.
+`release-verified` is impossible if the prerequisite policy is pending, the selected profile's production variant is missing, the formal/empty scenarios are reused or mismatched, failure/reprocess is absent, required topology logs are absent/dirty, backup/restore references another case, or the aggregate record contains hashes from another acceptance execution.
 
 Candidate-bundle evidence, promotion alone, connected CI, or a deterministic failure-recovery test never substitute for this final production-topology evidence.
 
@@ -318,6 +322,6 @@ Formal Task-17 evidence is not interchangeable merely because it names the same 
 
 ### Topology and exact-environment continuity
 
-Final acceptance binds approved prerequisite **versions** to the concrete systems actually exercised. The three prerequisite observations are part of one immutable acceptance context: they must be captured after that context starts and before the first production scenario. Windows prerequisite evidence must match the lifecycle/API operational host identity, the database prerequisite identity must equal the backup source database topology hash, and the Linux prerequisite host identity must equal the Linux-CUDA production variant host identity.
+Final acceptance binds approved prerequisite **versions** to the concrete systems actually exercised. The three prerequisite observations are part of one immutable acceptance context: they must be captured after that context starts and before the first production scenario. Windows prerequisite evidence must match the lifecycle/API operational host identity and the database prerequisite identity must equal the backup source database topology hash. The profile-specific Vision prerequisite identity must match the selected Production variant host: Windows CUDA for P1, Linux CUDA for P2, or Windows CPU for P3.
 
-Each qualified variant records an exact virtual-environment fingerprint derived from the venv root, `pyvenv.cfg`, resolved interpreter and installed-distribution metadata. Final formal, empty-scene and failure/reprocess scenarios recompute this fingerprint and must match the Linux-CUDA production qualification; sharing the same base Python executable is insufficient.
+Each qualified variant records an exact virtual-environment fingerprint derived from the venv root, `pyvenv.cfg`, resolved interpreter and installed-distribution metadata. Final formal, empty-scene and failure/reprocess scenarios recompute this fingerprint and must match the selected profile's Production qualification; sharing the same base Python executable is insufficient.
