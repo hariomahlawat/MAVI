@@ -738,6 +738,61 @@ Exercise:
 
 Explicit `CUDA` must always fail closed.
 
+### C7 tooling and execution order
+
+The matrix is declared as data in `tools/vision/build_failure_matrix_evidence.py`
+-- 33 cases, each naming the invariant it defends, the expected outcome, whether
+retry is permitted and whether fallback is permitted. Print it before the
+session to prepare the run sheet:
+
+```
+python tools/vision/build_failure_matrix_evidence.py --print-matrix \
+    --scope hardware --source-head-sha x --captured-at-utc x \
+    --operator-reference x
+```
+
+Record each case as a `mavi-windows-cuda-failure-case-v1` document, then
+assemble:
+
+```
+python tools/vision/build_failure_matrix_evidence.py --scope hardware \
+    --case auto-pack-absent=case-auto-pack-absent.json \
+    ... one --case per declared case ... \
+    --source-head-sha <40-hex head of the source tree under test> \
+    --captured-at-utc <YYYY-MM-DDTHH:MM:SSZ> \
+    --operator-reference <workstation or operator label> \
+    --output failure-matrix-evidence.json
+```
+
+**Scope is explicit and never implied.** `--scope linux-observable` covers the
+23 cases that need no GPU and may not carry a hardware case; `--scope hardware`
+requires all 33. Neither is hardware qualification: the bundle says so in its
+own note, and a linux-observable bundle asserts nothing about any GPU.
+
+The distinction the matrix exists to protect is between a **permitted** fallback
+and a **silent** one:
+
+- the eight `auto-*` cases are exactly the closed vocabulary's Auto-CPU reasons,
+  one case each, so no reason the runtime can emit goes unexercised. Each must
+  land on `cpu`, carry its declared reason, and be both logged and persisted in
+  provenance -- an unlogged fallback is a silent one whatever its reason;
+- every `explicit-cuda-*` case is fail-closed. An observation reporting any
+  device, any resolution reason, or completed processing is the defect the case
+  exists to detect, not the evidence;
+- the two `*-recovered` cases must show more than one attempt and a real
+  recovery, and no fail-closed case may claim recovery.
+
+The reason vocabulary is imported from `mavi_vision.common.control_plane`, never
+restated, so the matrix cannot certify against codes the runtime no longer
+emits. A test asserts the eight fallback cases are exactly
+`AUTO_CPU_DEVICE_RESOLUTION_REASONS`.
+
+Ten cases require the real host: the four that need a present or absent physical
+device, the driver and architecture refusals, the physical-GPU identity refusal,
+`mmcv.ops` failing on device, and the two recovery cases. The other 23 are
+exercisable on any machine and should be recorded before the host session, so
+the session spends its time on what only it can do.
+
 ## Phase C8 — review and merge
 
 Before merge to `main`:
