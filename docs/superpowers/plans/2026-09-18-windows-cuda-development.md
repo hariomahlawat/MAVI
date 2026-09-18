@@ -2,7 +2,8 @@
 
 **Date:** 2026-09-18  
 **Base:** `main@9b0b88f5c9d20ddfa8c4e835e454d24c69921b84`  
-**Branch:** `feature/windows-cuda-development`  
+**C1R merged to `main`:** PR #48 head `c80ce10b823443230e316fc2978116c73d703c8f`, merge commit `02257793556026a37238f06c13755c87da35f141`  
+**Active branch:** `feature/windows-cuda-pre-c2` (from `main@0225779`)  
 **Objective:** make the Windows laptop GPU a first-class MAVI Development execution path without weakening the qualified Windows CPU path or prematurely claiming P1 Production acceptance.
 
 ## Decision boundary
@@ -103,13 +104,20 @@ A change to semantic versions requires an explicit compatibility review rather t
 
 The final MSVC/Windows SDK native ABI identity remains intentionally unfrozen until C2 observes the actual native build/validation toolchain.
 
-## Phase C1R — external review remediation — IN PROGRESS
+## Phase C1R — external review remediation — COMPLETE AND MERGED
 
 Claude's independent cold review of PR #48 concluded:
 
 `C1 ACCEPTABLE WITH REQUIRED CORRECTIONS BEFORE C2`
 
-Accepted pre-C2 corrections are now binding. C2 is **not authorized** until C1R closes.
+Two further independent cold reviews audited those corrections rather than
+assuming them complete, and found residual fail-open boundaries in them. Their
+findings and dispositions are recorded in
+`docs/reviews/2026-09-18-pr48-claude-c1r-adjudication.md`.
+
+Repository-side C1R is now closed and merged to `main` as the merge commit
+recorded in this plan's header. C2 remains **not authorized** until the
+empirical pre-C2 evidence below is collected.
 
 ### C1R implemented controls
 
@@ -123,7 +131,12 @@ Accepted pre-C2 corrections are now binding. C2 is **not authorized** until C1R 
 - Development CUDA may use `qualified-development-hardware`, which Production profiles explicitly reject;
 - physical GPU provenance includes UUID, PCI bus ID and compute capability;
 - `CUDA_DEVICE_ORDER=PCI_BUS_ID` is enforced before worker CUDA imports;
-- Development `Auto` performs a non-executing installed-state preflight before probing the CUDA runtime and emits a stable selection/fallback reason.
+- Development `Auto` performs a non-executing installed-state preflight before probing the CUDA runtime and emits a stable selection/fallback reason;
+- the device-resolution reason vocabulary is closed and authoritative in the contract layer, mirrored by JSON Schema, Pydantic and .NET, with the Production prohibition on Auto results applied by the worker where deployment context exists;
+- Development `Auto` resolved inside `RuntimeSupervisor` records its reason, not only the launcher path;
+- the CUDA ordinal is bound to a physical GPU through the driver's queried inventory (UUID and PCI bus ID) rather than an assumed ordinal coincidence, and fails closed when the mapping cannot be proven;
+- a CUDA-labelled offline lock proves CUDA wheel identity whether or not a binary version map is supplied;
+- the CUDA-lock gate is an allow-list over a verified and frozen toolchain in both the build contract and the offline catalogue, which must agree.
 
 ADR-009 governs Development-vs-Production qualification separation.
 
@@ -136,15 +149,29 @@ The following cannot be truthfully frozen from repository code alone and remain 
 3. **Torch cu124 wheel inspection:** confirm Windows wheel metadata/dependency markers and enumerate/hash the CUDA DLL inventory.
 4. **MMCV reproducibility experiment:** build the CUDA MMCV wheel twice from a clean controlled build environment before C3; if byte reproducibility is not achievable, an ADR must define a controlled hash-pinned binary-input model.
 
-### Gate C1R
+### Gate C1R — repository side — PASSED AND MERGED
 
-C1R passes only when:
+- all five exact-head workflows green on `c80ce10`;
+- Windows CPU lock, `runtime.json` and the component declaration byte-identical to `main`;
+- no `windows-x86_64-cuda.lock`, Runtime Pack or CUDA component requirement introduced;
+- no runtime variant promoted; `windows-x86_64-cuda` remains `pending-hardware-qualification`;
+- the build contract remains fail-closed at `pending-r1-preflight`.
 
-- the exact CUDA 12.4 + MSVC + SDK toolchain is empirically frozen;
-- the build contract is updated from `pending-r1-preflight`;
-- the real v2 host observation is reviewed;
-- hosted CI is green;
-- no Windows CPU lock/Runtime Pack bytes changed.
+Merging this foundation is **not** a CUDA qualification of any kind.
+
+### Gate R1 / pre-C2 — empirical — NEXT ACTIVE GATE
+
+C2 may not begin until all of the following are collected on the controlled
+Windows CUDA build host and reviewed:
+
+- the exact CUDA 12.4 + MSVC toolset + Windows SDK proven by compiling a trivial
+  `.cu` file, and frozen into both the build contract and the offline catalogue;
+- the real v2 host observation, with its evidence SHA-256 retained;
+- the real `torch 2.6.0+cu124` cp312 win_amd64 wheel inspection.
+
+Until the build contract leaves `pending-r1-preflight`, `tools/verify_repo.py`
+refuses any Windows CUDA lock. That refusal is the intended behaviour, not an
+obstacle to work around.
 
 ## Phase C2 — reproducible Windows CUDA wheelhouse and lock
 
@@ -290,9 +317,38 @@ Merge the milestone back to `main` promptly rather than allowing another long-li
 
 ## Current execution point
 
-C0 and the semantic C1 candidate are complete, but Claude's independent review inserted a mandatory **C1R remediation gate**.
+C0, C1 and C1R are complete. C1R is merged to `main`; the merge commit is
+recorded in this plan's header.
 
-Repository-side C1R remediation is being implemented now. **Do not begin C2 wheel acquisition or freeze a CUDA lock until R1 toolchain preflight and the fresh v2 host observation are reviewed.**
+The next active gate is **R1 — empirical CUDA 12.4 / MSVC host-toolchain
+preflight**. Work continues on `feature/windows-cuda-pre-c2`, which exists only
+to collect that evidence. Creating that branch does not start C2.
+
+**Do not begin C2 wheel acquisition, build MMCV CUDA, or freeze a CUDA lock
+until R1 toolchain preflight, the fresh v2 host observation and the real Torch
+wheel inspection are reviewed.**
+
+R1 must try the currently available/preferred MSVC toolset first and select an
+older one only if CUDA 12.4 empirically rejects it. `--allow-unsupported-compiler`
+is never acceptable: the purpose is to qualify a supportable toolchain, not to
+force a build through.
+
+Two known items remain scheduled beyond this gate and must not be pulled
+forward:
+
+- the Development `Auto` Torch-runtime smoke probe (**C3/C4**). The launcher's
+  Auto check deliberately does not execute code from a candidate pack, so it
+  cannot yet detect a pack whose Torch CUDA runtime installs but fails to
+  initialise. That path is unreachable while no CUDA Runtime Pack exists, and
+  closing it needs a real pack to validate against. See the runbook's "Known
+  gap" note.
+- `nativeAbi` remains a declared string. Proving the packed MMCV actually
+  carries CUDA ops is the on-device `mmcv.ops.nms` check in
+  `tools/vision/verify_windows_cuda_runtime.py`, and belongs to C2/C4 evidence.
+
+Production CUDA qualification remains a separate concern throughout. No
+Development evidence, on this laptop or any other Development host, may promote
+a Production profile or satisfy a P1/P2 runtime gate.
 
 The existing Windows CPU lock and Runtime Pack must remain byte-for-byte unchanged.
 
