@@ -164,6 +164,17 @@ def validate_production_inputs(
         raise FailureReprocessError(
             "failure_reprocess_production_bundle_required"
         )
+    if (
+        bundle.get("deploymentProfile")
+        != selected_profile.profile_id
+        or bundle.get("deploymentProfilePolicySha256")
+        != deployment_policy_sha
+        or bundle.get("platformVariant")
+        != selected_profile.runtime_variant
+    ):
+        raise FailureReprocessError(
+            "failure_reprocess_bundle_profile_mismatch"
+        )
     environment_identity = environment_fingerprint(args.worker_python)
     if (
         variant.get("schemaVersion")
