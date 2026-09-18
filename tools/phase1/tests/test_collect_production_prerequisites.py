@@ -48,7 +48,7 @@ def test_windows_values_use_native_registry_api(monkeypatch):
     monkeypatch.setattr(
         mod,
         "run_text",
-        lambda args: "Microsoft.AspNetCore.App 8.0.20 [C:\\Program Files\\dotnet\\shared\\Microsoft.AspNetCore.App]",
+        lambda args: "Microsoft.AspNetCore.App 10.0.11 [C:\\Program Files\\dotnet\\shared\\Microsoft.AspNetCore.App]",
     )
 
     assert mod.windows_values() == {
@@ -57,5 +57,39 @@ def test_windows_values_use_native_registry_api(monkeypatch):
         "windowsBuild": "26100",
         "architecture": "AMD64",
         "iisVersion": "Version 10.0",
-        "dotnetRuntimeVersion": "8.0.20",
+        "dotnetRuntimeVersion": "10.0.11",
+    }
+
+
+def test_windows_cpu_vision_values(monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(mod.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(mod.platform, "python_version", lambda: "3.12.10")
+    monkeypatch.setattr(mod.platform, "python_implementation", lambda: "CPython")
+
+    assert mod.windows_vision_values(require_cuda=False) == {
+        "architecture": "AMD64",
+        "pythonVersion": "3.12.10",
+        "pythonImplementation": "CPython",
+    }
+
+
+def test_windows_cuda_vision_values_capture_driver_and_cuda(monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(mod.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(mod.platform, "python_version", lambda: "3.12.10")
+    monkeypatch.setattr(mod.platform, "python_implementation", lambda: "CPython")
+
+    def fake_run(args):
+        if args[0] == "nvidia-smi":
+            return "580.82"
+        return "12.4"
+
+    monkeypatch.setattr(mod, "run_text", fake_run)
+    assert mod.windows_vision_values(require_cuda=True) == {
+        "architecture": "AMD64",
+        "pythonVersion": "3.12.10",
+        "pythonImplementation": "CPython",
+        "nvidiaDriverVersion": "580.82",
+        "cudaRuntimeVersion": "12.4",
     }
