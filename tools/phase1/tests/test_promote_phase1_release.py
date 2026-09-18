@@ -208,8 +208,12 @@ def test_performance_gate_rejects_wrong_frozen_profile_hash(monkeypatch):
 
 def test_performance_gate_rejects_forged_easier_thresholds(monkeypatch):
     value = {
+        "schemaVersion": "mavi-profile-recovery-performance-evidence-v2",
         "acceptanceProfileSha256": "a" * 64,
         "maviBuild": "build-a",
+        "deploymentProfile": "P2",
+        "deploymentProfilePolicySha256": "f" * 64,
+        "runtimeVariant": "linux-x86_64-cuda",
         "thresholds": {
             "minimumProcessingFps": 1.0,
             "maximumP95LatencyMs": 99999.0,
@@ -610,9 +614,14 @@ def test_verified_manifest_cannot_change_qualification_identity(
 
 
 def test_existing_profile_index_cannot_be_dropped(tmp_path: Path):
+    manifest = {
+        "verificationStatus": "verified",
+        "qualificationId": "q1",
+    }
+    manifest_bytes = mod.canonical_json(manifest)
     qualification = {
         "qualificationId": "q1",
-        "modelManifestSha256": "a" * 64,
+        "modelManifestSha256": mod.sha256_bytes(manifest_bytes),
         "overallResult": "pending",
         "requiredGates": {
             gate: "pending"
@@ -627,10 +636,7 @@ def test_existing_profile_index_cannot_be_dropped(tmp_path: Path):
         match="promotion_existing_profile_index_invalid",
     ):
         mod.build_promoted_metadata(
-            manifest_raw={
-                "verificationStatus": "verified",
-                "qualificationId": "q1",
-            },
+            manifest_raw=manifest,
             qualification_raw=qualification,
             runtime_raw=qualified_runtime(),
             gate_evidence={},
@@ -645,8 +651,5 @@ def test_existing_profile_index_cannot_be_dropped(tmp_path: Path):
             deployment_profile_policy_sha256="f" * 64,
             required_gates=frozenset(),
             required_variants=frozenset({"windows-x86_64-cuda"}),
-            current_manifest_bytes=mod.canonical_json({
-                "verificationStatus": "verified",
-                "qualificationId": "q1",
-            }),
+            current_manifest_bytes=manifest_bytes,
         )
