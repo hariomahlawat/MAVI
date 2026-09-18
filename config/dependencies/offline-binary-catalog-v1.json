@@ -194,6 +194,37 @@
       "pillow": "11.3.0"
     },
     "storagePolicy": "Qualified platform/model bundles are retained outside ordinary Git and remain separately manifest/hash qualified; the Windows application binary kit does not silently substitute for vision qualification.",
-    "dependencyPolicyId": "vision-model-runtime-bundles"
+    "dependencyPolicyId": "vision-model-runtime-bundles",
+    "windowsCudaDevelopmentCandidate": {
+      "status": "pre-c2-remediation",
+      "platformVariant": "windows-x86_64-cuda",
+      "pythonVersion": "3.12.10",
+      "torchBinary": "2.6.0+cu124",
+      "torchvisionBinary": "0.21.0+cu124",
+      "pytorchIndex": "https://download.pytorch.org/whl/cu124",
+      "cudaRuntimeFamily": "12.4",
+      "targetComputeCapability": "7.5",
+      "targetArchitecture": "sm75",
+      "mmcvBuildFlags": {
+        "MMCV_WITH_OPS": "1",
+        "FORCE_CUDA": "1",
+        "TORCH_CUDA_ARCH_LIST": "7.5+PTX"
+      },
+      "buildToolchain": {
+        "cudaToolkit": "12.4",
+        "msvcToolset": "pending-r1-preflight",
+        "windowsSdk": "pending-c2-freeze",
+        "policyId": "msvc-cuda-build-toolchain-win-x64"
+      },
+      "runtimePrerequisites": [
+        "nvidia-driver-win-x64",
+        "vcredist-win-x64"
+      ],
+      "buildOnlyPrerequisites": [
+        "cuda-toolkit-12.4-win-x64-build",
+        "msvc-cuda-build-toolchain-win-x64"
+      ],
+      "qualificationBoundary": "Development engineering candidate only; not a Production-supported runtime."
+    }
   }
 }
