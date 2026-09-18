@@ -59,6 +59,7 @@ appsettings.*.Local.json
 *.webm
 
 # Generated evidence/data stores
+windows-cuda-host-observation.json
 /data/
 /evidence/
 /media-store/
