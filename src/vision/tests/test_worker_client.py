@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 import json
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from mavi_vision.common.analytical import VisionProcessingResult
 from mavi_vision.common.control_plane import VisionJobCompleteResponse, VisionJobLease
 from mavi_vision.common.lease import LeaseLostError
 from mavi_vision.common.settings import WorkerSettings
-from mavi_vision.runtime.provenance import PlatformIdentity, RuntimeProvenance, TrackerParameters
+from mavi_vision.runtime.provenance import GpuIdentity, PlatformIdentity, RuntimeProvenance, TrackerParameters
 from mavi_vision.worker.client import WorkerApiClient, WorkerApiError
 
 
@@ -65,6 +66,7 @@ def provenance() -> RuntimeProvenance:
         ),
         configured_device_policy="cpu",
         configured_device_index=0,
+        device_resolution_reason="explicit_cpu",
         actual_device="cpu",
         gpu=None,
         mavi_build="test-build",
@@ -77,6 +79,27 @@ def provenance() -> RuntimeProvenance:
             minimum_iou_threshold=.2,
             minimum_consecutive_frames=2,
             lost_track_buffer_seconds=1,
+        ),
+    )
+
+
+
+def cuda_provenance() -> RuntimeProvenance:
+    return replace(
+        provenance(),
+        configured_device_policy="cuda",
+        configured_device_index=0,
+        device_resolution_reason="explicit_cuda",
+        actual_device="cuda:0",
+        gpu=GpuIdentity(
+            name="NVIDIA GeForce GTX 1650 Ti",
+            index=0,
+            vram_bytes=4 * 1024**3,
+            driver_version="576.83",
+            cuda_runtime_version="12.4",
+            uuid="GPU-test",
+            pci_bus_id="00000000:01:00.0",
+            compute_capability="7.5",
         ),
     )
 
@@ -225,6 +248,63 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
 
     assert isinstance(response, VisionJobCompleteResponse)
     assert response.processing_run_id == expected.processing_run_id
+
+
+
+def test_complete_projects_physical_gpu_identity_and_resolution_reason(
+    tmp_path: Path,
+) -> None:
+    expected = lease()
+
+    async def invoke() -> None:
+        observed: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content)
+            observed.update(payload["provenance"])
+            return httpx.Response(
+                200,
+                json={
+                    "schemaVersion": "2.0",
+                    "jobId": str(expected.job_id),
+                    "processingRunId": str(expected.processing_run_id),
+                    "tracksAccepted": 0,
+                    "completedAtUtc": "2026-09-13T08:00:00Z",
+                },
+            )
+
+        injected = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        )
+        client = WorkerApiClient(settings(tmp_path), injected)
+        try:
+            await client.complete(
+                expected,
+                VisionProcessingResult(
+                    job_id=expected.job_id,
+                    frames_processed=1,
+                    tracks=(),
+                ),
+                125,
+                cuda_provenance(),
+            )
+        finally:
+            await client.aclose()
+
+        assert observed["deviceResolutionReason"] == "explicit_cuda"
+        assert observed["actualDevice"] == "cuda:0"
+        assert observed["gpu"] == {
+            "name": "NVIDIA GeForce GTX 1650 Ti",
+            "index": 0,
+            "vramBytes": 4 * 1024**3,
+            "driverVersion": "576.83",
+            "cudaRuntimeVersion": "12.4",
+            "uuid": "GPU-test",
+            "pciBusId": "00000000:01:00.0",
+            "computeCapability": "7.5",
+        }
+
+    asyncio.run(invoke())
 
 
 def test_complete_rechecks_authority_after_payload_projection_before_http(

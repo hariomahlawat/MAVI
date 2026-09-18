@@ -282,6 +282,7 @@ def _settings(tmp_path: Path):
         commit_sha="a" * 40,
         device_policy="cpu",
         device_index=0,
+        device_resolution_reason="explicit_cpu",
         production_mode=False,
         inference_watchdog_seconds=120.0,
         watchdog_grace_seconds=15.0,
@@ -316,6 +317,10 @@ def test_run_worker_composes_ready_processor_runner_and_single_owner_shutdown(
             assert kwargs["qualification_path"] == settings.qualification_record_path
             assert kwargs["device_policy"] == settings.device_policy
             assert kwargs["device_index"] == settings.device_index
+            assert (
+                kwargs["device_resolution_reason"]
+                == settings.device_resolution_reason
+            )
             assert kwargs["production_mode"] is settings.production_mode
             assert kwargs["watchdog_grace_seconds"] == settings.watchdog_grace_seconds
             assert kwargs["build_id"] == settings.build_id

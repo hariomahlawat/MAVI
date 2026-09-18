@@ -37,7 +37,7 @@ def _validate(lock: OfflineRuntimeLock, roots: tuple[str, ...]) -> None:
 
 def test_v2_runtime_roots_accept_third_party_only_lock() -> None:
     _validate(
-        _lock(("httpx", "0.28.1"), ("torch", "2.6.0")),
+        _lock(("httpx", "0.28.1"), ("torch", "2.6.0+cpu")),
         ("httpx<0.29,>=0.28", "torch==2.6.0"),
     )
 
@@ -51,7 +51,7 @@ def test_v2_runtime_roots_reject_first_party_wheel_in_lock() -> None:
             _lock(
                 ("httpx", "0.28.1"),
                 ("mavi-vision", "0.1.0"),
-                ("torch", "2.6.0"),
+                ("torch", "2.6.0+cpu"),
             ),
             ("httpx<0.29,>=0.28", "torch==2.6.0"),
         )
@@ -63,7 +63,7 @@ def test_v2_runtime_roots_reject_missing_application_root() -> None:
         match="offline_lock_root_distribution_missing",
     ):
         _validate(
-            _lock(("torch", "2.6.0")),
+            _lock(("torch", "2.6.0+cpu")),
             ("httpx<0.29,>=0.28", "torch==2.6.0"),
         )
 
@@ -74,7 +74,7 @@ def test_v2_runtime_roots_reject_incompatible_locked_version() -> None:
         match="offline_lock_root_version_mismatch",
     ):
         _validate(
-            _lock(("httpx", "0.27.2"), ("torch", "2.6.0")),
+            _lock(("httpx", "0.27.2"), ("torch", "2.6.0+cpu")),
             ("httpx<0.29,>=0.28", "torch==2.6.0"),
         )
 

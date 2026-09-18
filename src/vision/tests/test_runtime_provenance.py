@@ -10,9 +10,11 @@ from mavi_vision.common.analytical import ObjectClass
 from mavi_vision.runtime.interfaces import RuntimeMetadata
 from mavi_vision.runtime.manifest import ArtifactRef, ModelManifest
 from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
+from mavi_vision.common.control_plane import DEVICE_RESOLUTION_REASONS
 from mavi_vision.runtime.provenance import (
     GpuIdentity,
     PlatformIdentity,
+    _validate_device_relationship,
     build_runtime_provenance,
 )
 from mavi_vision.runtime.qualification import (
@@ -254,6 +256,7 @@ def test_development_provenance_is_complete_immutable_and_explicitly_unknown() -
         selection=_selection(),
         runtime_metadata=_metadata(),
         configured_device_policy="auto",
+        device_resolution_reason="cuda_pack_not_declared",
         configured_device_index=0,
         production_mode=False,
         platform_identity=_platform(),
@@ -426,6 +429,9 @@ def test_cuda_provenance_requires_matching_gpu_identity() -> None:
         vram_bytes=12 * 1024**3,
         driver_version="580.1",
         cuda_runtime_version="12.4",
+        uuid="GPU-test-uuid",
+        pci_bus_id="00000000:01:00.0",
+        compute_capability="8.9",
     )
 
     provenance = build_runtime_provenance(
@@ -593,6 +599,7 @@ def test_verified_release_retains_verified_label_in_development_only_when_bindin
         selection=_selection(verified=True),
         runtime_metadata=_metadata(),
         configured_device_policy="auto",
+        device_resolution_reason="cuda_pack_not_declared",
         configured_device_index=0,
         production_mode=False,
         platform_identity=_platform(),
@@ -611,6 +618,7 @@ def test_verified_release_downgrades_dependency_drift_in_development() -> None:
         selection=_selection(verified=True),
         runtime_metadata=_metadata(versions=versions),
         configured_device_policy="auto",
+        device_resolution_reason="cuda_pack_not_declared",
         configured_device_index=0,
         production_mode=False,
         platform_identity=_platform(),
@@ -639,6 +647,7 @@ def test_verified_release_downgrades_python_drift_in_development() -> None:
         selection=_selection(verified=True),
         runtime_metadata=_metadata(),
         configured_device_policy="auto",
+        device_resolution_reason="cuda_pack_not_declared",
         configured_device_index=0,
         production_mode=False,
         platform_identity=drifted_platform,
@@ -653,6 +662,7 @@ def test_verified_release_downgrades_pending_lock_in_development() -> None:
         selection=_selection(verified=True, lock_qualified=False),
         runtime_metadata=_metadata(),
         configured_device_policy="auto",
+        device_resolution_reason="cuda_pack_not_declared",
         configured_device_index=0,
         production_mode=False,
         platform_identity=_platform(),
@@ -661,3 +671,239 @@ def test_verified_release_downgrades_pending_lock_in_development() -> None:
     assert provenance.verification_status == "unverified"
     assert provenance.platform_lock_sha256 is None
 
+
+
+_REASON_GPU = GpuIdentity(
+    name="NVIDIA GeForce GTX 1650 Ti",
+    index=0,
+    vram_bytes=4 * 1024 * 1024 * 1024,
+    driver_version="576.83",
+    cuda_runtime_version="12.4",
+    uuid="GPU-3f2b1c4d-0000-0000-0000-000000000001",
+    pci_bus_id="00000000:01:00.0",
+    compute_capability="7.5",
+)
+
+
+def _device_relationship(**overrides) -> None:
+    arguments = {
+        "configured_device_policy": "cpu",
+        "configured_device_index": 0,
+        "actual_device": "cpu",
+        "device_resolution_reason": "explicit_cpu",
+        "gpu": None,
+        "production_mode": False,
+    }
+    arguments.update(overrides)
+    _validate_device_relationship(**arguments)
+
+
+def test_device_resolution_reason_vocabulary_is_closed() -> None:
+    """The reason vocabulary is a contract, not an open string field."""
+    assert DEVICE_RESOLUTION_REASONS == frozenset(
+        {
+            "explicit_cpu",
+            "explicit_cuda",
+            "cuda_selected",
+            "cuda_pack_absent",
+            "cuda_pack_integrity_failed",
+            "cuda_pack_variant_mismatch",
+            "cuda_pack_not_declared",
+            "cuda_pack_id_mismatch",
+            "cuda_driver_probe_unavailable",
+            "cuda_device_unavailable",
+            "cuda_driver_probe_failed",
+        }
+    )
+
+
+def test_windows_launcher_emits_only_contracted_resolution_reasons() -> None:
+    """PowerShell and Python must not silently diverge on reason codes."""
+    launcher = (
+        Path(__file__).resolve().parents[3]
+        / "tools/setup/Start-MaviVisionWorker.ps1"
+    )
+    text = launcher.read_text(encoding="utf-8")
+    emitted = {
+        line.split('Reason = "', 1)[1].split('"', 1)[0]
+        for line in text.splitlines()
+        if 'Reason = "' in line
+    }
+
+    # An interpolated literal such as "explicit_$DevicePolicy" cannot be
+    # verified against the vocabulary, so it fails this assertion too.
+    assert emitted >= {"explicit_cpu", "explicit_cuda", "cuda_selected"}
+    assert emitted <= DEVICE_RESOLUTION_REASONS
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["cuda_pack_stale", "fell_back_to_cpu", "explicit_auto", "unknown"],
+)
+def test_unknown_device_resolution_reason_is_rejected(reason: str) -> None:
+    """An unrecognised code cannot be correlated with the executed device."""
+    with pytest.raises(ValueError, match="device_resolution_reason_unknown"):
+        _device_relationship(device_resolution_reason=reason)
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["cuda_pack_stale", "fell_back_to_cpu"],
+)
+def test_unknown_reason_cannot_smuggle_auto_result_into_production(
+    reason: str,
+) -> None:
+    """Production must not carry an Auto result under an unknown code."""
+    with pytest.raises(ValueError, match="device_resolution_reason_unknown"):
+        _device_relationship(
+            device_resolution_reason=reason,
+            production_mode=True,
+        )
+
+
+def test_auto_policy_requires_a_resolution_reason() -> None:
+    with pytest.raises(
+        ValueError,
+        match="auto_device_resolution_reason_required",
+    ):
+        _device_relationship(
+            configured_device_policy="auto",
+            device_resolution_reason=None,
+        )
+
+
+def test_explicit_policies_may_omit_a_resolution_reason() -> None:
+    _device_relationship(device_resolution_reason=None)
+    _device_relationship(
+        configured_device_policy="cuda",
+        actual_device="cuda:0",
+        gpu=_REASON_GPU,
+        device_resolution_reason=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "reason",
+    sorted(
+        {
+            "cuda_pack_absent",
+            "cuda_pack_integrity_failed",
+            "cuda_pack_variant_mismatch",
+            "cuda_pack_not_declared",
+            "cuda_pack_id_mismatch",
+            "cuda_driver_probe_unavailable",
+            "cuda_device_unavailable",
+            "cuda_driver_probe_failed",
+        }
+    ),
+)
+def test_auto_cpu_fallback_reasons_are_forbidden_in_production(
+    reason: str,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="production_auto_resolution_reason_forbidden",
+    ):
+        _device_relationship(
+            device_resolution_reason=reason,
+            production_mode=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "reason",
+    sorted(
+        {
+            "cuda_pack_absent",
+            "cuda_pack_integrity_failed",
+            "cuda_pack_variant_mismatch",
+            "cuda_pack_not_declared",
+            "cuda_pack_id_mismatch",
+            "cuda_driver_probe_unavailable",
+            "cuda_device_unavailable",
+            "cuda_driver_probe_failed",
+        }
+    ),
+)
+def test_auto_cpu_fallback_reasons_require_cpu_execution(reason: str) -> None:
+    with pytest.raises(
+        ValueError,
+        match="device_resolution_reason_device_mismatch",
+    ):
+        _device_relationship(
+            configured_device_policy="cuda",
+            actual_device="cuda:0",
+            gpu=_REASON_GPU,
+            device_resolution_reason=reason,
+        )
+
+
+def test_cuda_selection_reason_requires_cuda_execution() -> None:
+    with pytest.raises(
+        ValueError,
+        match="device_resolution_reason_device_mismatch",
+    ):
+        _device_relationship(device_resolution_reason="cuda_selected")
+
+
+def test_cuda_selection_reason_is_forbidden_in_production() -> None:
+    with pytest.raises(
+        ValueError,
+        match="production_auto_resolution_reason_forbidden",
+    ):
+        _device_relationship(
+            configured_device_policy="cuda",
+            actual_device="cuda:0",
+            gpu=_REASON_GPU,
+            device_resolution_reason="cuda_selected",
+            production_mode=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("reason", "policy"),
+    [("explicit_cpu", "cuda"), ("explicit_cuda", "cpu")],
+)
+def test_explicit_reasons_must_match_the_configured_policy(
+    reason: str,
+    policy: str,
+) -> None:
+    arguments = {"configured_device_policy": policy}
+    if policy == "cuda":
+        arguments["actual_device"] = "cuda:0"
+        arguments["gpu"] = _REASON_GPU
+    with pytest.raises(
+        ValueError,
+        match="device_resolution_reason_policy_mismatch",
+    ):
+        _device_relationship(device_resolution_reason=reason, **arguments)
+
+
+def test_auto_cpu_fallback_reason_is_accepted_after_launcher_resolution() -> None:
+    """The launcher resolves auto to cpu and hands Python the reason."""
+    _device_relationship(device_resolution_reason="cuda_pack_absent")
+
+
+def test_explicit_cuda_request_cannot_report_cpu_execution() -> None:
+    with pytest.raises(ValueError, match="actual_device_policy_mismatch"):
+        _device_relationship(
+            configured_device_policy="cuda",
+            device_resolution_reason="explicit_cuda",
+        )
+
+
+def test_resolution_reason_is_carried_into_runtime_provenance() -> None:
+    provenance = build_runtime_provenance(
+        selection=_selection(),
+        runtime_metadata=_metadata(),
+        configured_device_policy="cpu",
+        device_resolution_reason="cuda_pack_integrity_failed",
+        configured_device_index=0,
+        production_mode=False,
+        platform_identity=_platform(),
+    )
+
+    assert (
+        provenance.device_resolution_reason
+        == "cuda_pack_integrity_failed"
+    )

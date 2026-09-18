@@ -102,15 +102,28 @@ class RuntimePythonIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeDevelopmentHardwareEvidenceIdentity:
+    host_observation_sha256: str
+    evidence_bundle_sha256: str
+    source_head_sha: str
+    captured_at_utc: str
+    operator_reference: str
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimePlatformVariantIdentity:
     status: Literal[
         "qualified-hosted-cpu",
         "qualified-hardware",
+        "qualified-development-hardware",
         "pending-hardware-qualification",
     ]
     resolved_config_sha256: str | None
     python_identity: RuntimePythonIdentity | None
     binary_versions: Mapping[str, str] | None = None
+    development_evidence: (
+        RuntimeDevelopmentHardwareEvidenceIdentity | None
+    ) = None
 
     def __post_init__(self) -> None:
         if self.binary_versions is not None:
@@ -335,10 +348,57 @@ class _RuntimeBinaryVersionsSchema(_StrictModel):
         return value
 
 
+class _RuntimeDevelopmentHardwareEvidenceSchema(_StrictModel):
+    host_observation_sha256: str = Field(
+        alias="hostObservationSha256"
+    )
+    evidence_bundle_sha256: str = Field(
+        alias="evidenceBundleSha256"
+    )
+    source_head_sha: str = Field(alias="sourceHeadSha")
+    captured_at_utc: str = Field(alias="capturedAtUtc")
+    operator_reference: str = Field(alias="operatorReference")
+
+    @field_validator(
+        "host_observation_sha256",
+        "evidence_bundle_sha256",
+    )
+    @classmethod
+    def validate_sha256(cls, value: str) -> str:
+        validate_sha256_hex(value)
+        return value
+
+    @field_validator("source_head_sha")
+    @classmethod
+    def validate_source_head_sha(cls, value: str) -> str:
+        if (
+            len(value) not in {40, 64}
+            or value.lower() != value
+            or any(ch not in "0123456789abcdef" for ch in value)
+        ):
+            raise ValueError(
+                "runtime_development_evidence_head_sha_invalid"
+            )
+        return value
+
+    @field_validator(
+        "captured_at_utc",
+        "operator_reference",
+    )
+    @classmethod
+    def validate_nonempty_text(cls, value: str) -> str:
+        if not value or value != value.strip():
+            raise ValueError(
+                "runtime_development_evidence_text_invalid"
+            )
+        return value
+
+
 class _RuntimePlatformVariantSchema(_StrictModel):
     status: Literal[
         "qualified-hosted-cpu",
         "qualified-hardware",
+        "qualified-development-hardware",
         "pending-hardware-qualification",
     ]
     workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
@@ -356,35 +416,84 @@ class _RuntimePlatformVariantSchema(_StrictModel):
         default=None,
         alias="binaryVersions",
     )
+    development_evidence: (
+        _RuntimeDevelopmentHardwareEvidenceSchema | None
+    ) = Field(default=None, alias="developmentEvidence")
 
     @model_validator(mode="after")
     def validate_evidence_shape(self) -> "_RuntimePlatformVariantSchema":
-        evidence = (
+        ci_evidence = (
             self.workflow_run_id,
             self.job_id,
             self.evidence_head_sha,
+        )
+        runtime_identity = (
             self.resolved_config_sha256,
             self.python_identity,
             self.binary_versions,
         )
-        if self.status.startswith("qualified-"):
-            if any(value is None for value in evidence):
-                raise ValueError("runtime_platform_evidence_required")
+
+        if self.status in {
+            "qualified-hosted-cpu",
+            "qualified-hardware",
+        }:
+            if (
+                any(value is None for value in ci_evidence)
+                or any(value is None for value in runtime_identity)
+                or self.development_evidence is not None
+            ):
+                raise ValueError(
+                    "runtime_platform_evidence_required"
+                )
             assert self.workflow_run_id is not None
             assert self.job_id is not None
             assert self.evidence_head_sha is not None
             assert self.resolved_config_sha256 is not None
-            if not self.workflow_run_id.isdigit() or not self.job_id.isdigit():
-                raise ValueError("runtime_platform_evidence_id_invalid")
+            if (
+                not self.workflow_run_id.isdigit()
+                or not self.job_id.isdigit()
+            ):
+                raise ValueError(
+                    "runtime_platform_evidence_id_invalid"
+                )
             if (
                 len(self.evidence_head_sha) not in {40, 64}
-                or self.evidence_head_sha.lower() != self.evidence_head_sha
-                or any(ch not in "0123456789abcdef" for ch in self.evidence_head_sha)
+                or self.evidence_head_sha.lower()
+                != self.evidence_head_sha
+                or any(
+                    ch not in "0123456789abcdef"
+                    for ch in self.evidence_head_sha
+                )
             ):
-                raise ValueError("runtime_platform_head_sha_invalid")
-            validate_sha256_hex(self.resolved_config_sha256)
-        elif any(value is not None for value in evidence):
-            raise ValueError("runtime_pending_platform_has_evidence")
+                raise ValueError(
+                    "runtime_platform_head_sha_invalid"
+                )
+            validate_sha256_hex(
+                self.resolved_config_sha256
+            )
+        elif self.status == "qualified-development-hardware":
+            if (
+                any(value is not None for value in ci_evidence)
+                or any(value is None for value in runtime_identity)
+                or self.development_evidence is None
+            ):
+                raise ValueError(
+                    "runtime_development_platform_evidence_required"
+                )
+            assert self.resolved_config_sha256 is not None
+            validate_sha256_hex(
+                self.resolved_config_sha256
+            )
+        else:
+            all_evidence = (
+                *ci_evidence,
+                *runtime_identity,
+                self.development_evidence,
+            )
+            if any(value is not None for value in all_evidence):
+                raise ValueError(
+                    "runtime_pending_platform_has_evidence"
+                )
         return self
 
 
@@ -486,6 +595,7 @@ class _RuntimeProfileSchema(_StrictModel):
             if variant_name.endswith("-cuda"):
                 if variant.status not in {
                     "pending-hardware-qualification",
+                    "qualified-development-hardware",
                     "qualified-hardware",
                 }:
                     raise ValueError("runtime_cuda_variant_status_invalid")
@@ -534,7 +644,10 @@ class _RuntimeProfileSchema(_StrictModel):
                     raise ValueError("runtime_torchvision_binary_semantic_mismatch")
 
         has_pending = any(
-            variant.status == "pending-hardware-qualification"
+            variant.status in {
+                "pending-hardware-qualification",
+                "qualified-development-hardware",
+            }
             for variant in self.platform_variants.values()
         ) or any(
             lock.status != "qualified-offline-lock"
@@ -762,11 +875,33 @@ def _runtime_platform_variant_identities(
             if variant.binary_versions is not None
             else None
         )
+        development_evidence = (
+            RuntimeDevelopmentHardwareEvidenceIdentity(
+                host_observation_sha256=(
+                    variant.development_evidence.host_observation_sha256
+                ),
+                evidence_bundle_sha256=(
+                    variant.development_evidence.evidence_bundle_sha256
+                ),
+                source_head_sha=(
+                    variant.development_evidence.source_head_sha
+                ),
+                captured_at_utc=(
+                    variant.development_evidence.captured_at_utc
+                ),
+                operator_reference=(
+                    variant.development_evidence.operator_reference
+                ),
+            )
+            if variant.development_evidence is not None
+            else None
+        )
         identities[variant_name] = RuntimePlatformVariantIdentity(
             status=variant.status,
             resolved_config_sha256=variant.resolved_config_sha256,
             python_identity=python_identity,
             binary_versions=binary_versions,
+            development_evidence=development_evidence,
         )
     return MappingProxyType(identities)
 

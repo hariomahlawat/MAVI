@@ -47,6 +47,9 @@ def _set_overflow(payload: dict, field: str, value: int) -> None:
             "vramBytes": value if field == "gpuVramBytes" else 1,
             "driverVersion": "1",
             "cudaRuntimeVersion": "1",
+            "uuid": "GPU-test",
+            "pciBusId": "00000000:01:00.0",
+            "computeCapability": "7.5",
         }
     else:
         raise AssertionError(f"unknown field: {field}")
@@ -148,3 +151,28 @@ def test_completion_accepts_exact_int64_maximum_decimal_encoding() -> None:
     model = VisionJobComplete.model_validate_json(raw)
 
     assert model.frames_processed == 9_223_372_036_854_775_807
+
+
+def test_free_form_dependency_names_are_not_read_as_wire_integers() -> None:
+    """dependencyVersions keys are caller-supplied, not contract field names."""
+    payload = _payload()
+    payload["provenance"]["dependencyVersions"]["index"] = "1.2.3"
+    payload["provenance"]["dependencyVersions"]["sizeBytes"] = "0.4.0"
+
+    value = VisionJobComplete.model_validate_json(json.dumps(payload))
+
+    assert value.provenance.dependency_versions["index"] == "1.2.3"
+    assert value.provenance.dependency_versions["sizeBytes"] == "0.4.0"
+    jsonschema.validate(
+        payload,
+        json.loads(SCHEMA.read_text(encoding="utf-8")),
+    )
+
+
+def test_declared_integer_fields_still_enforce_their_wire_envelope() -> None:
+    """Scoping the walk must not relax the fields it exists to protect."""
+    payload = _payload()
+    payload["provenance"]["configuredDeviceIndex"] = INT32_OVERFLOW
+
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))

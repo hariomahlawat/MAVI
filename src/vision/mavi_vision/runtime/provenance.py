@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal, Mapping
 
+from mavi_vision.common.control_plane import (
+    AUTO_DEVICE_RESOLUTION_REASONS,
+    CUDA_DEVICE_PATTERN,
+    validate_device_resolution_wire_relationship,
+)
 from mavi_vision.runtime.interfaces import RuntimeMetadata
 from mavi_vision.runtime.manifest import validate_sha256_hex
 from mavi_vision.runtime.qualification import VerifiedReleaseSelection
@@ -29,7 +34,6 @@ _REQUIRED_RUNTIME_VERSION_KEYS = frozenset(
         "pillow",
     }
 )
-_CUDA_DEVICE_PATTERN = re.compile(r"cuda:(\d+)", re.ASCII)
 _GIT_COMMIT_PATTERN = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", re.ASCII)
 _TRACKER_POSITIVE_MIN = 1e-9
 _TRACKER_POSITIVE_MAX = 1e9
@@ -95,6 +99,9 @@ class GpuIdentity:
     vram_bytes: int
     driver_version: str
     cuda_runtime_version: str
+    uuid: str
+    pci_bus_id: str
+    compute_capability: str
 
     def __post_init__(self) -> None:
         _require_text(self.name, code="gpu_name_invalid")
@@ -103,6 +110,14 @@ class GpuIdentity:
             self.cuda_runtime_version,
             code="cuda_runtime_version_invalid",
         )
+        _require_text(self.uuid, code="gpu_uuid_invalid")
+        _require_text(self.pci_bus_id, code="gpu_pci_bus_id_invalid")
+        _require_text(
+            self.compute_capability,
+            code="gpu_compute_capability_invalid",
+        )
+        if re.fullmatch(r"\d+\.\d+", self.compute_capability) is None:
+            raise ValueError("gpu_compute_capability_invalid")
         if self.index < 0:
             raise ValueError("gpu_index_invalid")
         if self.vram_bytes <= 0:
@@ -169,6 +184,7 @@ class RuntimeProvenance:
     mavi_commit: str
     frame_policy: Literal["every-frame"]
     tracker_parameters: TrackerParameters
+    device_resolution_reason: str | None = None
     input_colour_space: Literal["RGB"] = "RGB"
 
     def __post_init__(self) -> None:
@@ -264,6 +280,7 @@ def _validate_device_relationship(
     configured_device_policy: Literal["cpu", "cuda", "auto"],
     configured_device_index: int,
     actual_device: str,
+    device_resolution_reason: str | None,
     gpu: GpuIdentity | None,
     production_mode: bool,
 ) -> None:
@@ -274,7 +291,28 @@ def _validate_device_relationship(
     if production_mode and configured_device_policy == "auto":
         raise ValueError("production_auto_device_forbidden")
 
-    cuda_match = _CUDA_DEVICE_PATTERN.fullmatch(actual_device)
+    if device_resolution_reason is not None:
+        _require_text(
+            device_resolution_reason,
+            code="device_resolution_reason_invalid",
+        )
+        if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", device_resolution_reason, re.ASCII) is None:
+            raise ValueError("device_resolution_reason_invalid")
+
+    # The payload-provable relationships are the published wire contract, shared
+    # verbatim with the JSON Schema and the .NET parser.
+    validate_device_resolution_wire_relationship(
+        configured_device_policy=configured_device_policy,
+        actual_device=actual_device,
+        device_resolution_reason=device_resolution_reason,
+    )
+
+    # Production context is not carried on the wire, so this rule is the worker
+    # runtime's alone: a Production result may never be an Auto result.
+    if production_mode and device_resolution_reason in AUTO_DEVICE_RESOLUTION_REASONS:
+        raise ValueError("production_auto_resolution_reason_forbidden")
+
+    cuda_match = CUDA_DEVICE_PATTERN.fullmatch(actual_device)
     if actual_device != "cpu" and cuda_match is None:
         raise ValueError("actual_device_invalid")
 
@@ -445,6 +483,7 @@ def build_runtime_provenance(
     configured_device_policy: Literal["cpu", "cuda", "auto"],
     configured_device_index: int,
     production_mode: bool,
+    device_resolution_reason: str | None = None,
     mavi_build: str | None = None,
     mavi_commit: str | None = None,
     ffmpeg_version: str | None = None,
@@ -483,6 +522,7 @@ def build_runtime_provenance(
         configured_device_policy=configured_device_policy,
         configured_device_index=configured_device_index,
         actual_device=runtime_metadata.device,
+        device_resolution_reason=device_resolution_reason,
         gpu=gpu,
         production_mode=production_mode,
     )
@@ -550,4 +590,5 @@ def build_runtime_provenance(
             minimum_consecutive_frames=tracker.minimum_consecutive_frames,
             lost_track_buffer_seconds=tracker.lost_track_buffer_seconds,
         ),
+        device_resolution_reason=device_resolution_reason,
     )

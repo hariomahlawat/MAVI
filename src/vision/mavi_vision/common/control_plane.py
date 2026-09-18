@@ -22,6 +22,7 @@ _WORKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", re.ASCII)
 _FAILURE_CODE_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}", re.ASCII)
 _TRACK_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
+_COMPUTE_CAPABILITY_PATTERN = re.compile(r"^[0-9]+\.[0-9]+$", re.ASCII)
 _CANONICAL_UTC_PATTERN = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z",
     re.ASCII,
@@ -38,9 +39,17 @@ _COMPLETION_EVIDENCE_MAX_BYTES = 512 * 1024 * 1024
 _COMPLETION_DEPENDENCY_VERSION_MAX_COUNT = 128
 _TRACKER_POSITIVE_MIN = 1e-9
 _TRACKER_POSITIVE_MAX = 1e9
-_COMPLETION_INTEGER_WIRE_NAMES = frozenset(
+_COMPLETION_INT32_WIRE_NAMES = frozenset(
     {
         "attemptCount",
+        "detectionCount",
+        "configuredDeviceIndex",
+        "index",
+        "minimumConsecutiveFrames",
+    }
+)
+_COMPLETION_INT64_WIRE_NAMES = frozenset(
+    {
         "framesProcessed",
         "processingDurationMs",
         "sizeBytes",
@@ -48,13 +57,109 @@ _COMPLETION_INTEGER_WIRE_NAMES = frozenset(
         "sourceFrameNumber",
         "startOffsetMs",
         "endOffsetMs",
-        "detectionCount",
-        "configuredDeviceIndex",
-        "index",
         "vramBytes",
-        "minimumConsecutiveFrames",
     }
 )
+_COMPLETION_INTEGER_WIRE_NAMES = (
+    _COMPLETION_INT32_WIRE_NAMES
+    | _COMPLETION_INT64_WIRE_NAMES
+)
+# Completion objects have fixed schemas, so a wire name identifies a field.
+# These maps do not: their keys are caller-supplied, so a key that happens to
+# collide with a wire integer name says nothing about its value's wire type.
+_COMPLETION_FREE_FORM_MAP_WIRE_NAMES = frozenset({"dependencyVersions"})
+# Authoritative device-resolution reason vocabulary.
+#
+# This wire contract has three mirrors: this module, the published JSON Schema
+# (contracts/schemas/vision-job-complete-v2.schema.json) and the .NET parser
+# (VisionRuntimeProvenanceParser). The contract layer owns it; the worker
+# runtime (mavi_vision.runtime.provenance) and the Windows launcher consume it.
+# An unrecognised code must fail closed: it cannot be correlated with the
+# executed device, and it would otherwise slip past the Production prohibition
+# on Auto results that the runtime layer applies on top of these rules.
+EXPLICIT_CPU_DEVICE_RESOLUTION_REASON = "explicit_cpu"
+EXPLICIT_CUDA_DEVICE_RESOLUTION_REASON = "explicit_cuda"
+EXPLICIT_DEVICE_RESOLUTION_REASONS = frozenset(
+    {
+        EXPLICIT_CPU_DEVICE_RESOLUTION_REASON,
+        EXPLICIT_CUDA_DEVICE_RESOLUTION_REASON,
+    }
+)
+AUTO_CUDA_DEVICE_RESOLUTION_REASONS = frozenset({"cuda_selected"})
+AUTO_CPU_DEVICE_RESOLUTION_REASONS = frozenset(
+    {
+        "cuda_pack_absent",
+        "cuda_pack_integrity_failed",
+        "cuda_pack_variant_mismatch",
+        "cuda_pack_not_declared",
+        "cuda_pack_id_mismatch",
+        "cuda_driver_probe_unavailable",
+        "cuda_device_unavailable",
+        "cuda_driver_probe_failed",
+    }
+)
+AUTO_DEVICE_RESOLUTION_REASONS = frozenset(
+    AUTO_CUDA_DEVICE_RESOLUTION_REASONS | AUTO_CPU_DEVICE_RESOLUTION_REASONS
+)
+DEVICE_RESOLUTION_REASONS = frozenset(
+    EXPLICIT_DEVICE_RESOLUTION_REASONS | AUTO_DEVICE_RESOLUTION_REASONS
+)
+CUDA_DEVICE_PATTERN = re.compile(r"cuda:(\d+)", re.ASCII)
+
+
+def is_cuda_device(actual_device: object) -> bool:
+    """Report whether a wire ``actualDevice`` value names a CUDA device."""
+    return (
+        isinstance(actual_device, str)
+        and CUDA_DEVICE_PATTERN.fullmatch(actual_device) is not None
+    )
+
+
+def validate_device_resolution_wire_relationship(
+    *,
+    configured_device_policy: object,
+    actual_device: object,
+    device_resolution_reason: object,
+) -> None:
+    """Validate the reason relationships that the wire payload alone can prove.
+
+    Every rule here is also expressed as a conditional in the published JSON
+    Schema and in the .NET parser, so the three wire representations accept the
+    same payloads. The Production prohibition on Auto reasons is deliberately
+    not here: ``productionMode`` is deployment context, not a wire field, so
+    the worker runtime applies it in addition to these rules.
+    """
+    if device_resolution_reason is None:
+        if configured_device_policy == "auto":
+            raise ValueError("auto_device_resolution_reason_required")
+        return
+
+    if device_resolution_reason not in DEVICE_RESOLUTION_REASONS:
+        raise ValueError("device_resolution_reason_unknown")
+
+    if (
+        device_resolution_reason == EXPLICIT_CPU_DEVICE_RESOLUTION_REASON
+        and configured_device_policy != "cpu"
+    ):
+        raise ValueError("device_resolution_reason_policy_mismatch")
+    if (
+        device_resolution_reason == EXPLICIT_CUDA_DEVICE_RESOLUTION_REASON
+        and configured_device_policy != "cuda"
+    ):
+        raise ValueError("device_resolution_reason_policy_mismatch")
+
+    if (
+        device_resolution_reason in AUTO_CUDA_DEVICE_RESOLUTION_REASONS
+        and not is_cuda_device(actual_device)
+    ):
+        raise ValueError("device_resolution_reason_device_mismatch")
+    if (
+        device_resolution_reason in AUTO_CPU_DEVICE_RESOLUTION_REASONS
+        and actual_device != "cpu"
+    ):
+        raise ValueError("device_resolution_reason_device_mismatch")
+
+
 _CONTRACT_EDGE_WHITESPACE = frozenset(
     chr(code)
     for code in (
@@ -160,20 +265,59 @@ def _normalize_completion_json_numbers(value, field_name: str | None = None):
     if isinstance(value, _CompletionJsonNumber):
         if field_name in _COMPLETION_INTEGER_WIRE_NAMES:
             try:
-                return _completion_integer_token(value)
+                parsed = _completion_integer_token(value)
+                if field_name in _COMPLETION_INT32_WIRE_NAMES:
+                    return _completion_int32(parsed)
+                return _completion_int64(parsed)
             except ValueError:
                 # Preserve invalidity through JSON re-serialization. Strict integer
                 # validation rejects the string rather than accepting a rounded float.
                 return str(value)
         return float(value)
+    if (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and field_name in _COMPLETION_INTEGER_WIRE_NAMES
+    ):
+        try:
+            if field_name in _COMPLETION_INT32_WIRE_NAMES:
+                return _completion_int32(value)
+            return _completion_int64(value)
+        except ValueError:
+            # Preserve invalidity as a string so strict model validation cannot
+            # reinterpret a Python bigint outside the published wire envelope.
+            return str(value)
     if isinstance(value, list):
         return [_normalize_completion_json_numbers(item) for item in value]
     if isinstance(value, dict):
+        if field_name in _COMPLETION_FREE_FORM_MAP_WIRE_NAMES:
+            return dict(value)
         return {
             key: _normalize_completion_json_numbers(item, key)
             for key, item in value.items()
         }
     return value
+
+
+def _validate_completion_integer_wire_tree(
+    value: object,
+    field_name: str | None = None,
+) -> None:
+    if field_name in _COMPLETION_INT32_WIRE_NAMES:
+        _completion_int32(value)
+        return
+    if field_name in _COMPLETION_INT64_WIRE_NAMES:
+        _completion_int64(value)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_completion_integer_wire_tree(item)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in _COMPLETION_FREE_FORM_MAP_WIRE_NAMES:
+                continue
+            _validate_completion_integer_wire_tree(item, key)
 
 
 def _completion_integral(value: object, *, minimum: int, maximum: int) -> int:
@@ -194,6 +338,13 @@ def _completion_int32(value: object) -> int:
 
 def _completion_int64(value: object) -> int:
     return _completion_integral(value, minimum=-(2**63), maximum=2**63 - 1)
+
+
+def _json_array_to_tuple(value: object, info: ValidationInfo) -> object:
+    """Normalize a published JSON array to its immutable tuple-backed model shape."""
+    if info.mode == "json" and isinstance(value, list):
+        return tuple(value)
+    return value
 
 
 def _canonical_utc_wire(value: object, info: ValidationInfo) -> object:
@@ -257,6 +408,27 @@ def _provenance_detail(value: str) -> str:
     )
 
 
+def _compute_capability(value: str) -> str:
+    value = _bounded_trimmed_text(
+        value,
+        maximum_length=16,
+        label="GPU compute capability",
+    )
+    if _COMPUTE_CAPABILITY_PATTERN.fullmatch(value) is None:
+        raise ValueError(
+            "GPU compute capability must use major.minor numeric syntax"
+        )
+    return value
+
+
+def _device_resolution_reason(value: str) -> str:
+    if value not in DEVICE_RESOLUTION_REASONS:
+        raise ValueError(
+            "deviceResolutionReason must use the published closed vocabulary"
+        )
+    return value
+
+
 def _sha256(value: str) -> str:
     if _SHA256_PATTERN.fullmatch(value) is None:
         raise ValueError("SHA-256 must use canonical lowercase hexadecimal syntax")
@@ -306,6 +478,12 @@ CompletionInt32 = Annotated[int, BeforeValidator(_completion_int32)]
 CompletionInt64 = Annotated[int, BeforeValidator(_completion_int64)]
 ProvenanceIdentity = Annotated[StrictStr, AfterValidator(_provenance_identity)]
 ProvenanceDetail = Annotated[StrictStr, AfterValidator(_provenance_detail)]
+ComputeCapability = Annotated[StrictStr, AfterValidator(_compute_capability)]
+DeviceResolutionReason = Annotated[
+    StrictStr,
+    AfterValidator(_failure_code),
+    AfterValidator(_device_resolution_reason),
+]
 
 
 class ControlPlaneModel(BaseModel):
@@ -446,6 +624,15 @@ class VisionPlatformIdentity(ControlPlaneModel):
     python_build: tuple[ProvenanceDetail, ProvenanceDetail]
     python_compiler: ProvenanceDetail
 
+    @field_validator("python_build", mode="before")
+    @classmethod
+    def normalize_python_build_json_array(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> object:
+        return _json_array_to_tuple(value, info)
+
 
 class VisionGpuIdentity(ControlPlaneModel):
     name: ProvenanceDetail
@@ -453,6 +640,9 @@ class VisionGpuIdentity(ControlPlaneModel):
     vram_bytes: CompletionInt64 = Field(gt=0, le=9_223_372_036_854_775_807)
     driver_version: ProvenanceDetail
     cuda_runtime_version: ProvenanceDetail
+    uuid: ProvenanceDetail
+    pci_bus_id: ProvenanceIdentity
+    compute_capability: ComputeCapability
 
 
 class VisionTrackerParameters(ControlPlaneModel):
@@ -497,6 +687,7 @@ class VisionRuntimeProvenance(ControlPlaneModel):
     platform: VisionPlatformIdentity
     configured_device_policy: Literal["cpu", "cuda", "auto"]
     configured_device_index: CompletionInt32 = Field(ge=0, le=2_147_483_647)
+    device_resolution_reason: DeviceResolutionReason | None = None
     actual_device: ProvenanceIdentity
     gpu: VisionGpuIdentity | None = None
     mavi_build: ProvenanceIdentity
@@ -505,6 +696,17 @@ class VisionRuntimeProvenance(ControlPlaneModel):
     tracker_parameters: VisionTrackerParameters
     input_colour_space: Literal["RGB"]
 
+
+    @model_validator(mode="after")
+    def validate_device_resolution_relationship(
+        self,
+    ) -> "VisionRuntimeProvenance":
+        validate_device_resolution_wire_relationship(
+            configured_device_policy=self.configured_device_policy,
+            actual_device=self.actual_device,
+            device_resolution_reason=self.device_resolution_reason,
+        )
+        return self
 
     @model_validator(mode="after")
     def validate_verified_binding(self) -> "VisionRuntimeProvenance":
@@ -518,6 +720,24 @@ class VisionRuntimeProvenance(ControlPlaneModel):
 
 
 class VisionJobComplete(ControlPlaneModel):
+    @field_validator("tracks", mode="before")
+    @classmethod
+    def normalize_tracks_json_array(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> object:
+        return _json_array_to_tuple(value, info)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_completion_integer_wire_ranges(
+        cls,
+        value: object,
+    ) -> object:
+        _validate_completion_integer_wire_tree(value)
+        return value
+
     @classmethod
     def model_validate_json(cls, json_data, **kwargs):
         if isinstance(json_data, (bytes, bytearray)):
@@ -531,16 +751,20 @@ class VisionJobComplete(ControlPlaneModel):
         try:
             payload = json.loads(text, parse_float=_completion_json_float)
             payload = _normalize_completion_json_numbers(payload)
-            normalized = json.dumps(
-                payload,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                allow_nan=False,
-            )
         except (json.JSONDecodeError, TypeError, ValueError):
             return super().model_validate_json(json_data, **kwargs)
 
-        return super().model_validate_json(normalized, **kwargs)
+        # Re-serialize the precision-preserving normalization and return to
+        # Pydantic's JSON-mode validator. This keeps canonical JSON semantics
+        # (notably UUID-string decoding and JSON-array handling) while ensuring
+        # mathematically integral number tokens reach strict Int32/Int64 fields
+        # without IEEE-754 rounding.
+        normalized_json = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        return super().model_validate_json(normalized_json, **kwargs)
 
     schema_version: Literal["2.0"]
     job_id: UUID

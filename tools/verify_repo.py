@@ -176,6 +176,127 @@ def check_project_references(errors: list[str]) -> None:
             )
 
 
+_CUDA_TOOLCHAIN_PLACEHOLDER = re.compile(r"^(?:pending|tbd|unknown)\b", re.IGNORECASE)
+
+
+def _frozen_toolchain_value(value: object) -> bool:
+    """A toolchain identity counts as frozen only when it is explicitly stated.
+
+    Absence, null and any placeholder must fail closed: a gate that only knows
+    how to reject one sentinel string silently opens as soon as that sentinel
+    is renamed or removed.
+    """
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and value == value.strip()
+        and _CUDA_TOOLCHAIN_PLACEHOLDER.match(value) is None
+    )
+
+
+def check_windows_cuda_build_contract(errors: list[str]) -> None:
+    """Keep the Windows CUDA build contract and its lock gate fail-closed."""
+    contract_path = ROOT / "config/vision/windows-cuda-development-build-v1.json"
+    catalog_path = ROOT / "config/dependencies/offline-binary-catalog-v1.json"
+    cuda_lock = (
+        ROOT
+        / "src/vision/runtime/mmdetection-phase1-v1"
+        / "windows-x86_64-cuda.lock"
+    )
+
+    contract = _read_json_or_none(contract_path)
+    if not isinstance(contract, dict):
+        fail("Windows CUDA development build contract is missing or invalid.", errors)
+        contract_toolchain: dict = {}
+    else:
+        if contract.get("schemaVersion") != "mavi-windows-cuda-development-build-v1":
+            fail(
+                "Windows CUDA development build contract schema is unsupported.",
+                errors,
+            )
+        raw_toolchain = contract.get("toolchain")
+        contract_toolchain = raw_toolchain if isinstance(raw_toolchain, dict) else {}
+        if not contract_toolchain:
+            fail(
+                "Windows CUDA development build contract declares no toolchain.",
+                errors,
+            )
+        runtime_policy = contract.get("runtimePolicy")
+        if not isinstance(runtime_policy, dict) or (
+            runtime_policy.get("explicitCudaMayFallbackToCpu") is not False
+            or runtime_policy.get("cudaToolkitRequiredAtRuntime") is not False
+            or runtime_policy.get("compilerRequiredAtRuntime") is not False
+        ):
+            fail(
+                "Windows CUDA build contract must keep CUDA fail-closed and the "
+                "build toolchain out of the runtime.",
+                errors,
+            )
+
+    contract_verified = contract_toolchain.get("verificationStatus") == "verified"
+    contract_frozen = contract_verified and all(
+        _frozen_toolchain_value(contract_toolchain.get(name))
+        for name in ("msvcToolset", "windowsSdkVersion", "cudaToolkitVersion")
+    )
+    if contract_verified and not contract_frozen:
+        fail(
+            "Windows CUDA build contract claims a verified toolchain without a "
+            "frozen MSVC toolset, Windows SDK and CUDA Toolkit identity.",
+            errors,
+        )
+
+    catalog = _read_json_or_none(catalog_path)
+    candidate = None
+    if isinstance(catalog, dict):
+        vision_runtime = catalog.get("visionRuntime")
+        if isinstance(vision_runtime, dict):
+            candidate = vision_runtime.get("windowsCudaDevelopmentCandidate")
+    if not isinstance(candidate, dict):
+        fail("Offline binary catalogue has no Windows CUDA candidate.", errors)
+        candidate = {}
+    candidate_toolchain = candidate.get("buildToolchain")
+    if not isinstance(candidate_toolchain, dict):
+        candidate_toolchain = {}
+
+    if contract_frozen and candidate_toolchain:
+        # One frozen toolchain identity, not two that can drift apart.
+        for contract_name, candidate_name in (
+            ("msvcToolset", "msvcToolset"),
+            ("windowsSdkVersion", "windowsSdk"),
+            ("cudaToolkitVersion", "cudaToolkit"),
+        ):
+            if contract_toolchain.get(contract_name) != candidate_toolchain.get(
+                candidate_name
+            ):
+                fail(
+                    "Windows CUDA build contract and offline catalogue disagree "
+                    f"on the frozen toolchain field '{contract_name}'.",
+                    errors,
+                )
+
+    if not cuda_lock.exists():
+        return
+
+    catalogue_frozen = all(
+        _frozen_toolchain_value(candidate_toolchain.get(name))
+        for name in ("msvcToolset", "windowsSdk", "cudaToolkit")
+    )
+    if not contract_frozen or not catalogue_frozen:
+        fail(
+            "A Windows CUDA lock cannot be committed before the MSVC/CUDA "
+            "toolchain preflight is verified and frozen in both the build "
+            "contract and the offline binary catalogue.",
+            errors,
+        )
+
+
+def _read_json_or_none(path: Path) -> object | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def check_dependency_policy(errors: list[str]) -> None:
     """Keep direct dependency changes coupled to the offline deployment policy."""
 
@@ -394,6 +515,57 @@ def check_dependency_policy(errors: list[str]) -> None:
                     f"Offline native/toolchain dependency {dependency_id} has no scope.",
                     errors,
                 )
+
+    required_cuda_policy_ids = {
+        "nvidia-driver-win-x64",
+        "cuda-toolkit-12.4-win-x64-build",
+        "msvc-cuda-build-toolchain-win-x64",
+        "vcredist-win-x64",
+    }
+    declared_native_ids = {
+        entry.get("id")
+        for entry in native
+        if isinstance(entry, dict)
+        and isinstance(entry.get("id"), str)
+    } if isinstance(native, list) else set()
+    missing_cuda_policy = required_cuda_policy_ids - declared_native_ids
+    if missing_cuda_policy:
+        fail(
+            "Windows CUDA dependency policy is incomplete: "
+            + str(sorted(missing_cuda_policy)),
+            errors,
+        )
+
+    python_strategy = (
+        strategies.get("python")
+        if isinstance(strategies, dict)
+        else None
+    )
+    cuda_acquisition = (
+        python_strategy.get("cudaAcquisition")
+        if isinstance(python_strategy, dict)
+        else None
+    )
+    if not isinstance(cuda_acquisition, dict):
+        fail(
+            "Python dependency strategy has no Windows CUDA acquisition policy.",
+            errors,
+        )
+    else:
+        if cuda_acquisition.get("connectedPreparationOnly") is not True:
+            fail(
+                "Windows CUDA wheel acquisition must be connected-preparation-only.",
+                errors,
+            )
+        if cuda_acquisition.get("pytorchIndex") != (
+            "https://download.pytorch.org/whl/cu124"
+        ):
+            fail(
+                "Windows CUDA PyTorch index is not the frozen cu124 candidate.",
+                errors,
+            )
+
+    check_windows_cuda_build_contract(errors)
 
     review = policy.get("requiredChangeReview")
     if not isinstance(review, list) or len(review) < 8 or any(

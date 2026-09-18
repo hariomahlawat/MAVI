@@ -42,3 +42,30 @@ def test_completion_contracts_share_server_provenance_identity_bounds(
 
     with pytest.raises(ValidationError):
         VisionJobComplete.model_validate_json(json.dumps(payload))
+
+
+def test_json_array_normalization_does_not_relax_strict_python_mode() -> None:
+    """Tuple-backed fields accept a JSON array only in JSON mode."""
+    from mavi_vision.common.control_plane import VisionPlatformIdentity
+
+    platform = json.loads(EXAMPLE.read_text(encoding="utf-8"))["provenance"][
+        "platform"
+    ]
+
+    with pytest.raises(ValidationError):
+        VisionPlatformIdentity.model_validate(
+            {**platform, "pythonBuild": ["main", "Sep 1 2026"]}
+        )
+
+    value = VisionPlatformIdentity.model_validate(
+        {**platform, "pythonBuild": ("main", "Sep 1 2026")}
+    )
+    assert value.python_build == ("main", "Sep 1 2026")
+
+
+def test_json_array_normalization_preserves_tuple_arity() -> None:
+    payload = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    payload["provenance"]["platform"]["pythonBuild"] = ["a", "b", "c"]
+
+    with pytest.raises(ValidationError):
+        VisionJobComplete.model_validate_json(json.dumps(payload))

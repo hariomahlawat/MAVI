@@ -46,6 +46,36 @@ public sealed class ProcessingRunAttestationApiTests
     }
 
     [Fact]
+    public async Task CompletedCudaRunReturnsPhysicalGpuAttestation()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        var video = await Task14TestData.SeedBaseVideoAsync(factory, "CAM-ATT-CUDA");
+        var runId = await SeedCompletedRunAsync(
+            factory,
+            video.VideoId,
+            ValidCudaProvenanceJson());
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync(
+            $"/api/processing/runs/{runId}/attestation");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var value = await response.Content
+            .ReadFromJsonAsync<ProcessingRunAttestationResponse>();
+        Assert.NotNull(value);
+        Assert.Equal("cuda", value.ConfiguredDevicePolicy);
+        Assert.Equal("explicit_cuda", value.DeviceResolutionReason);
+        Assert.Equal("cuda:0", value.ActualDevice);
+        Assert.NotNull(value.Gpu);
+        Assert.Equal("GPU-test", value.Gpu.Uuid);
+        Assert.Equal("00000000:01:00.0", value.Gpu.PciBusId);
+        Assert.Equal("7.5", value.Gpu.ComputeCapability);
+        Assert.Equal("576.83", value.Gpu.DriverVersion);
+        Assert.Equal("12.4", value.Gpu.CudaRuntimeVersion);
+    }
+
+    [Fact]
     public async Task UnknownAndNonCompletedRunsAreNonDisclosingNotFound()
     {
         using var factory = new ApiTestFactory();
@@ -109,6 +139,35 @@ public sealed class ProcessingRunAttestationApiTests
         db.ProcessingRuns.Add(run);
         await db.SaveChangesAsync();
         return run.Id;
+    }
+
+    private static string ValidCudaProvenanceJson()
+    {
+        var contract = JsonSerializer.Deserialize<VisionRuntimeProvenanceContract>(
+            ValidProvenanceJson(),
+            WebJsonOptions)
+            ?? throw new InvalidOperationException(
+                "Valid provenance fixture failed to deserialize.");
+
+        contract = contract with
+        {
+            RuntimeVariant = "windows-x86_64-cuda",
+            ConfiguredDevicePolicy = "cuda",
+            ConfiguredDeviceIndex = 0,
+            ActualDevice = "cuda:0",
+            DeviceResolutionReason = "explicit_cuda",
+            Gpu = new VisionGpuIdentityContract(
+                "NVIDIA GeForce GTX 1650 Ti",
+                0,
+                4L * 1024 * 1024 * 1024,
+                "576.83",
+                "12.4",
+                "GPU-test",
+                "00000000:01:00.0",
+                "7.5"),
+        };
+
+        return JsonSerializer.Serialize(contract, WebJsonOptions);
     }
 
     private static string ValidProvenanceJson()

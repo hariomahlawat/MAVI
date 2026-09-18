@@ -110,6 +110,7 @@ class RuntimeSupervisor:
         device_index: int,
         production_mode: bool,
         inference_watchdog_seconds: float,
+        device_resolution_reason: str | None = None,
         watchdog_grace_seconds: float = 10.0,
         watchdog_poll_seconds: float = 1.0,
         build_id: str | None = None,
@@ -149,6 +150,10 @@ class RuntimeSupervisor:
         self._deployment_profile = deployment_profile
         self._device_policy = device_policy
         self._device_index = device_index
+        self._device_resolution_reason = device_resolution_reason
+        self._resolved_device_resolution_reason = (
+            device_resolution_reason
+        )
         self._production_mode = production_mode
         self._inference_watchdog_seconds = inference_watchdog_seconds
         self._watchdog_grace_seconds = watchdog_grace_seconds
@@ -280,7 +285,10 @@ class RuntimeSupervisor:
             selection = self._release_verifier(
                 **verifier_kwargs
             )
-            resolved_device = self._resolve_device(selection)
+            resolved_device, resolved_reason = self._resolve_device(
+                selection
+            )
+            self._resolved_device_resolution_reason = resolved_reason
 
             if profile_requirement is not None:
                 observed_variant = _runtime_variant_name(
@@ -554,11 +562,21 @@ class RuntimeSupervisor:
     def _resolve_device(
         self,
         selection: VerifiedReleaseSelection,
-    ) -> str:
+    ) -> tuple[str, str | None]:
+        """Resolve the execution device and the reason code that selected it.
+
+        The reason code uses the closed vocabulary in
+        :mod:`mavi_vision.runtime.provenance`, shared with the Windows
+        launcher, so an Auto selection made here is as observable in
+        provenance as one made before the interpreter started.
+        """
         if self._device_policy == "cpu":
-            return "cpu"
+            return "cpu", self._device_resolution_reason
         if self._device_policy == "cuda":
-            return f"cuda:{self._device_index}"
+            return (
+                f"cuda:{self._device_index}",
+                self._device_resolution_reason,
+            )
         if self._device_policy == "auto":
             if self._production_mode:
                 raise ValueError("production_auto_device_forbidden")
@@ -578,7 +596,9 @@ class RuntimeSupervisor:
                 and lock.status == "qualified-offline-lock"
             )
             cuda_available = False
+            reason = "cuda_pack_not_declared"
             if cuda_runtime_ready:
+                reason = "cuda_device_unavailable"
                 try:
                     cuda_available = (
                         self._cuda_availability_provider(
@@ -586,6 +606,7 @@ class RuntimeSupervisor:
                         )
                     )
                 except Exception:
+                    reason = "cuda_driver_probe_failed"
                     _LOGGER.exception(
                         "CUDA availability probe failed; "
                         "falling back to CPU in Development"
@@ -595,14 +616,15 @@ class RuntimeSupervisor:
                     "MAVI_DEVICE_POLICY=auto selected %s",
                     cuda_device,
                 )
-                return cuda_device
+                return cuda_device, "cuda_selected"
 
             _LOGGER.info(
                 "MAVI_DEVICE_POLICY=auto selected CPU because a "
                 "qualified compatible CUDA runtime/device was not "
-                "available"
+                "available (%s)",
+                reason,
             )
-            return "cpu"
+            return "cpu", reason
         raise ValueError("device_policy_invalid")
 
     def _build_provenance(
@@ -621,6 +643,9 @@ class RuntimeSupervisor:
             configured_device_policy=self._device_policy,
             configured_device_index=self._device_index,
             production_mode=self._production_mode,
+            device_resolution_reason=(
+                self._resolved_device_resolution_reason
+            ),
             mavi_build=self._build_id,
             mavi_commit=self._commit_sha,
             gpu=gpu,

@@ -44,7 +44,8 @@ public sealed record VisionRuntimeProvenanceContract(
     string? MaviCommit,
     string? FramePolicy,
     VisionTrackerParametersContract? TrackerParameters,
-    string? InputColourSpace);
+    string? InputColourSpace,
+    string? DeviceResolutionReason = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VisionPlatformIdentityContract(
@@ -65,7 +66,10 @@ public sealed record VisionGpuIdentityContract(
     [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? Index,
     [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? VramBytes,
     string? DriverVersion,
-    string? CudaRuntimeVersion);
+    string? CudaRuntimeVersion,
+    string? Uuid = null,
+    string? PciBusId = null,
+    string? ComputeCapability = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VisionTrackerParametersContract(

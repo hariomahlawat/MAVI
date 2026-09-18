@@ -36,7 +36,10 @@
       "processor": "x86_64",
       "pythonVersion": "3.12.14",
       "pythonImplementation": "CPython",
-      "pythonBuild": ["main", "Sep 1 2026"],
+      "pythonBuild": [
+        "main",
+        "Sep 1 2026"
+      ],
       "pythonCompiler": "GCC 13.3.0"
     },
     "configuredDevicePolicy": "cpu",
@@ -47,14 +50,15 @@
     "maviCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "framePolicy": "every-frame",
     "trackerParameters": {
-      "referenceFrameRate": 30.0,
+      "referenceFrameRate": 30,
       "trackActivationThreshold": 0.25,
       "highConfidenceThreshold": 0.1,
       "minimumIouThreshold": 0.2,
       "minimumConsecutiveFrames": 2,
-      "lostTrackBufferSeconds": 1.0
+      "lostTrackBufferSeconds": 1
     },
-    "inputColourSpace": "RGB"
+    "inputColourSpace": "RGB",
+    "deviceResolutionReason": "explicit_cpu"
   },
   "tracks": [
     {

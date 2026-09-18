@@ -187,7 +187,67 @@ Vision execution has three intended device modes:
 
 The device actually used must be observable in worker startup/runtime logs and processing provenance.
 
-The worker now implements this device policy. In Development, `Auto` selects `cuda:<index>` only when the matching Windows CUDA Runtime Pack is qualified, its offline release lock is qualified, and the configured CUDA device is actually available. Otherwise it records the decision in logs and uses CPU. Explicit `CUDA` never silently becomes CPU. The existing Windows CPU path remains available for deterministic regression/debugging. Windows CUDA still requires real compatible hardware/runtime qualification before it can be treated as qualified evidence.
+The worker now implements this device policy. Explicit `CUDA` never silently becomes CPU. The existing Windows CPU path remains available for deterministic regression/debugging. Windows CUDA still requires real compatible hardware/runtime qualification before it can be treated as qualified evidence.
+
+Development `Auto` is resolved in two places, and both record a reason code:
+
+- the Windows launcher resolves it before Python starts, by checking that a Windows CUDA Runtime Pack is installed, passes its manifest/state/artifact integrity preflight, matches the component's declared Runtime Pack identity, and that the configured device is present according to the NVIDIA driver;
+- `RuntimeSupervisor` resolves it for any entry point that reaches Python with `MAVI_DEVICE_POLICY=auto`, by requiring a `qualified-hardware` CUDA runtime variant with a qualified offline lock and an available device.
+
+No Windows CUDA Runtime Pack is declared in this phase, so Development `Auto` always resolves to the qualified CPU path and records `cuda_pack_absent` or `cuda_pack_not_declared`.
+
+**Known gap, required before C4 hardware qualification.** The launcher's Auto check deliberately does not execute code from the candidate CUDA pack, which is why it cannot yet detect a Runtime Pack whose Torch CUDA runtime is installed but cannot initialise (an incompatible VC runtime, a missing CUDA DLL, or a driver older than the packed CUDA family). Once a CUDA Runtime Pack exists, `Auto` in that situation would select CUDA and the worker would then hard-fail, instead of falling back to CPU with a deterministic reason. Closing this needs a post-integrity runtime smoke probe — run only against a pack that has already passed the integrity preflight, so the non-executing trust order established for Auto is preserved — plus a new reason code in the closed vocabulary. It cannot be implemented or validated before a real CUDA Runtime Pack exists, so it is a C3/C4 requirement rather than a C1R one.
+
+### Windows CUDA host observation
+
+Before selecting or building a Windows CUDA Runtime Pack for a development machine, capture the actual NVIDIA host facts from repository root:
+
+```powershell
+python tools/vision/probe_windows_cuda_host.py --output windows-cuda-host-observation.json
+```
+
+The probe records Windows build/architecture, NVIDIA GPU identity, driver version, VRAM and the CUDA compatibility level advertised by the installed NVIDIA driver. It deliberately records `qualification.status=observation-only` and never decides that a PyTorch/CUDA/MMCV graph is qualified.
+
+Review this observation before choosing the CUDA binary graph. In particular, do not infer that the current `torch 2.6.0+cu124` test fixtures are automatically correct for the machine.
+
+The default output filename is ignored by Git because GPU UUID and workstation-specific identity are local engineering evidence. Do not commit the observation unless it has been deliberately sanitized and approved as a qualification artifact.
+
+### Device resolution reason codes
+
+Every worker run records why its device was selected, as `deviceResolutionReason`
+in runtime provenance and in the completion contract. The vocabulary is closed
+and shared between `tools/setup/Start-MaviVisionWorker.ps1` and
+`src/vision/mavi_vision/runtime/provenance.py`; a code outside it is rejected
+rather than recorded, so an offline deployment can always explain its device
+choice from the attestation alone.
+
+| Code | Meaning |
+| --- | --- |
+| `explicit_cpu` | CPU was requested explicitly. |
+| `explicit_cuda` | CUDA was requested explicitly. CUDA failure never becomes CPU. |
+| `cuda_selected` | Auto selected CUDA. |
+| `cuda_pack_absent` | Auto chose CPU: no CUDA Runtime Pack is installed. |
+| `cuda_pack_integrity_failed` | Auto chose CPU: the installed CUDA pack failed its manifest/state/artifact integrity preflight. |
+| `cuda_pack_variant_mismatch` | Auto chose CPU: the installed pack is not `windows-x86_64-cuda`. |
+| `cuda_pack_not_declared` | Auto chose CPU: no qualified CUDA Runtime Pack is declared for the component. |
+| `cuda_pack_id_mismatch` | Auto chose CPU: the installed pack ID does not match the declared requirement. |
+| `cuda_driver_probe_unavailable` | Auto chose CPU: the NVIDIA driver probe is not present. |
+| `cuda_device_unavailable` | Auto chose CPU: the configured CUDA device was not available. |
+| `cuda_driver_probe_failed` | Auto chose CPU: the driver/device probe raised an error. |
+
+Production runs may not carry any Auto code, and an `auto` policy may not omit
+the reason. Adding a code means adding it to both implementations; a contract
+test fails otherwise.
+
+### Current Windows CUDA engineering candidate
+
+The reviewed C1 candidate is recorded in:
+
+`docs/qualification/2026-09-18-windows-cuda-c1-compatibility-decision.md`
+
+The candidate retains CPython 3.12.10, PyTorch 2.6.0+cu124, torchvision 0.21.0+cu124, MMCV 2.1.0, MMEngine 0.10.7 and MMDetection 3.3.0 for controlled C2/C3 engineering. The observed development laptop has a GTX 1650 Ti with 4096 MiB VRAM and NVIDIA driver 576.83.
+
+This remains an **engineering candidate**, not a qualified Runtime Pack. Until C2-C5 complete, the authoritative Application Overlay must not declare a Windows CUDA Runtime Pack and Development `Auto` must continue to fall back to the existing qualified CPU path.
 
 ## Run the .NET suite
 

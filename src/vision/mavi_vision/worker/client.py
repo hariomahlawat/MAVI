@@ -206,6 +206,7 @@ class WorkerApiClient:
             ),
             configuredDevicePolicy=provenance.configured_device_policy,
             configuredDeviceIndex=provenance.configured_device_index,
+            deviceResolutionReason=provenance.device_resolution_reason,
             actualDevice=provenance.actual_device,
             gpu=(
                 None
@@ -216,6 +217,9 @@ class WorkerApiClient:
                     vramBytes=gpu.vram_bytes,
                     driverVersion=gpu.driver_version,
                     cudaRuntimeVersion=gpu.cuda_runtime_version,
+                    uuid=gpu.uuid,
+                    pciBusId=gpu.pci_bus_id,
+                    computeCapability=gpu.compute_capability,
                 )
             ),
             maviBuild=provenance.mavi_build,

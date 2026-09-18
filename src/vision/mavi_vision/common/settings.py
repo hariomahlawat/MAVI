@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -41,6 +42,7 @@ class WorkerSettings(BaseSettings):
     commit_sha: str | None = None
     device_policy: Literal["cpu", "cuda", "auto"] = "auto"
     device_index: int = Field(default=0, ge=0, le=255)
+    device_resolution_reason: str | None = None
     production_mode: bool = False
     inference_watchdog_seconds: float = Field(default=120.0, ge=5.0, le=3600.0)
     watchdog_grace_seconds: float = Field(default=15.0, ge=1.0, le=300.0)
@@ -59,6 +61,24 @@ class WorkerSettings(BaseSettings):
                 "MAVI_INFERENCE_WATCHDOG_SECONDS"
             )
         return self
+
+    @field_validator("device_resolution_reason")
+    @classmethod
+    def validate_device_resolution_reason(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+        if (
+            not value
+            or value != value.strip()
+            or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", value) is None
+        ):
+            raise ValueError(
+                "MAVI_DEVICE_RESOLUTION_REASON is invalid"
+            )
+        return value
 
     @field_validator("api_base_url")
     @classmethod

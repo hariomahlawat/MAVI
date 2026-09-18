@@ -13,6 +13,7 @@ $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "Mavi.Setup.Common.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot "Mavi.VisionRuntime.Common.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot "Mavi.VisionRuntime.Integrity.psm1") -Force
+$env:CUDA_DEVICE_ORDER = "PCI_BUS_ID"
 
 function Get-Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -43,55 +44,107 @@ if ([string]::IsNullOrWhiteSpace($runtimeCudaRoot)) {
 
 function Test-CudaRuntimeUsable {
     param([Parameter(Mandatory = $true)][string]$Root)
+
+    $result = [ordered]@{
+        Usable = $false
+        Reason = "cuda_pack_absent"
+        RuntimeRoot = $Root
+    }
+
+    $pythonPath = Join-Path $Root "venv\Scripts\python.exe"
+    $manifestPath = Join-Path $Root "runtime-pack-manifest.json"
+    $statePath = Join-Path $Root "runtime-install.json"
+    if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+        return [pscustomobject]$result
+    }
+
     try {
-        $pythonPath = Join-Path $Root "venv\Scripts\python.exe"
-        $manifestPath = Join-Path $Root "runtime-pack-manifest.json"
-        $statePath = Join-Path $Root "runtime-install.json"
-        if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf) -or
-            -not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
-            -not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
-            return $false
-        }
         $manifestValue = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-        if ([string]$manifestValue.platformVariant -ne "windows-x86_64-cuda") {
-            return $false
-        }
-        $componentPath = Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json"
-        if (-not (Test-Path -LiteralPath $componentPath -PathType Leaf)) {
-            return $false
-        }
-        $componentValue = Get-Content -LiteralPath $componentPath -Raw | ConvertFrom-Json
-        $cudaRequirement = $componentValue.runtimePacks.PSObject.Properties["windows-x86_64-cuda"]
-        if (-not $cudaRequirement) {
-            return $false
-        }
-        if ([string]$cudaRequirement.Value.runtimePackId -ne [string]$manifestValue.runtimePackId) {
-            return $false
-        }
-        $probe = (& $pythonPath -c "import torch; print('1' if torch.cuda.is_available() and torch.cuda.device_count() > $DeviceIndex else '0')" 2>$null | Out-String).Trim()
-        return ($LASTEXITCODE -eq 0 -and $probe -eq "1")
+        $stateValue = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+        [void](Assert-MaviVisionRuntimeInstalledStatePreflight -RuntimeRoot $Root -InstalledState $stateValue -Manifest $manifestValue -RuntimePackManifestPath $manifestPath)
     }
     catch {
-        return $false
+        $result.Reason = "cuda_pack_integrity_failed"
+        return [pscustomobject]$result
     }
+
+    if ([string]$manifestValue.platformVariant -ne "windows-x86_64-cuda") {
+        $result.Reason = "cuda_pack_variant_mismatch"
+        return [pscustomobject]$result
+    }
+
+    $componentPath = Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json"
+    if (-not (Test-Path -LiteralPath $componentPath -PathType Leaf)) {
+        $result.Reason = "cuda_pack_not_declared"
+        return [pscustomobject]$result
+    }
+    try {
+        $componentValue = Get-Content -LiteralPath $componentPath -Raw | ConvertFrom-Json
+    }
+    catch {
+        $result.Reason = "cuda_pack_not_declared"
+        return [pscustomobject]$result
+    }
+    $cudaRequirement = $componentValue.runtimePacks.PSObject.Properties["windows-x86_64-cuda"]
+    if (-not $cudaRequirement) {
+        $result.Reason = "cuda_pack_not_declared"
+        return [pscustomobject]$result
+    }
+    if ([string]$cudaRequirement.Value.runtimePackId -ne [string]$manifestValue.runtimePackId) {
+        $result.Reason = "cuda_pack_id_mismatch"
+        return [pscustomobject]$result
+    }
+
+    $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
+    if (-not $nvidiaSmi) {
+        $result.Reason = "cuda_driver_probe_unavailable"
+        return [pscustomobject]$result
+    }
+    try {
+        $probe = (& $nvidiaSmi.Source -i $DeviceIndex --query-gpu=index --format=csv,noheader,nounits 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or $probe -ne [string]$DeviceIndex) {
+            $result.Reason = "cuda_device_unavailable"
+            return [pscustomobject]$result
+        }
+    }
+    catch {
+        $result.Reason = "cuda_driver_probe_failed"
+        return [pscustomobject]$result
+    }
+
+    $result.Usable = $true
+    $result.Reason = "cuda_selected"
+    return [pscustomobject]$result
 }
 
 $resolvedDevicePolicy = $DevicePolicy
+# Reason codes are a closed contract shared with
+# src/vision/mavi_vision/runtime/provenance.py; the worker rejects any code it
+# does not recognise, so every literal below must exist in that vocabulary.
+$deviceResolutionReason = $null
 if ($DevicePolicy -eq "auto") {
-    if (Test-CudaRuntimeUsable -Root $runtimeCudaRoot) {
+    $cudaResolution = Test-CudaRuntimeUsable -Root $runtimeCudaRoot
+    if ($cudaResolution.Usable) {
         $runtimeRoot = $runtimeCudaRoot
         $resolvedDevicePolicy = "cuda"
+        $deviceResolutionReason = [string]$cudaResolution.Reason
     }
     else {
         $runtimeRoot = $runtimeCpuRoot
         $resolvedDevicePolicy = "cpu"
+        $deviceResolutionReason = [string]$cudaResolution.Reason
+        Write-Host "Development Auto selected CPU: $deviceResolutionReason" -ForegroundColor Yellow
     }
 }
 elseif ($DevicePolicy -eq "cuda") {
     $runtimeRoot = $runtimeCudaRoot
+    $deviceResolutionReason = "explicit_cuda"
 }
 else {
     $runtimeRoot = $runtimeCpuRoot
+    $deviceResolutionReason = "explicit_cpu"
 }
 
 $runtimeRoot = [IO.Path]::GetFullPath($runtimeRoot.Trim().Trim('"'))
@@ -103,6 +156,7 @@ if (-not (Test-Path -LiteralPath $runtimeStatePath -PathType Leaf) -or -not (Tes
 $runtimeState = Get-Content -LiteralPath $runtimeStatePath -Raw | ConvertFrom-Json
 $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw | ConvertFrom-Json
 [void](Assert-MaviVisionRuntimePackManifest -Manifest $runtimeManifest)
+[void](Assert-MaviVisionRuntimeInstalledStatePreflight -RuntimeRoot $runtimeRoot -InstalledState $runtimeState -Manifest $runtimeManifest -RuntimePackManifestPath $runtimeManifestPath)
 if ([string]$runtimeState.schemaVersion -ne "mavi-vision-runtime-install-v2") { throw "Vision runtime installed state schema is unsupported; reinstall the v2 Runtime Pack." }
 if ((Get-Sha256 $runtimeManifestPath) -ne ([string]$runtimeState.runtimePackManifestSha256).ToLowerInvariant()) { throw "Installed Vision Runtime Pack manifest fingerprint does not match runtime-install.json." }
 $python = Join-Path $runtimeRoot "venv\Scripts\python.exe"
@@ -159,7 +213,7 @@ if ($resolvedDevicePolicy -eq "cuda" -and $runtimeVariant -ne "windows-x86_64-cu
 if ($resolvedDevicePolicy -eq "cpu" -and $runtimeVariant -ne "windows-x86_64-cpu") { throw "Resolved CPU device policy requires the Windows CPU Runtime Pack." }
 [void](Assert-MaviVisionWorkerComponentCompatibility -RuntimeState $runtimeState -RuntimeManifest $runtimeManifest -RequiredRuntimePackId ([string]$runtimeRequirement.runtimePackId) -RequiredThirdPartyLockSha256 ([string]$runtimeRequirement.thirdPartyLockSha256) -RequiredRuntimeRequirementsSha256 ([string]$runtimeRequirement.runtimeRequirementsSha256) -ModelState $modelState -ModelManifest $modelPackManifest -RequiredModelPackId ([string]$modelRequirement.modelPackId) -RequiredModelId ([string]$modelRequirement.modelId) -RequiredCheckpointSha256 ([string]$modelRequirement.checkpointSha256) -RequiredResolvedConfigSha256 ([string]$modelRequirement.resolvedConfigSha256))
 
-$env:MAVI_API_BASE_URL=$ApiBaseUrl;$env:MAVI_WORKER_ID=$WorkerId;$env:MAVI_MEDIA_ROOT=$MediaRoot;$env:MAVI_DEVICE_POLICY=$resolvedDevicePolicy;$env:MAVI_DEVICE_INDEX=[string]$DeviceIndex;$env:MAVI_PRODUCTION_MODE="false";$env:MAVI_MODEL_ROOT=$modelRoot;$env:MAVI_MODEL_MANIFEST_PATH=$modelManifestPath;$env:MAVI_PIPELINE_PROFILE_PATH=$pipelinePath;$env:MAVI_RUNTIME_PROFILE_PATH=$runtimeProfilePath;$env:MAVI_QUALIFICATION_RECORD_PATH=$qualificationPath;$env:MAVI_BUILD_ID="development";$env:MAVI_COMMIT_SHA=$head
+$env:MAVI_API_BASE_URL=$ApiBaseUrl;$env:MAVI_WORKER_ID=$WorkerId;$env:MAVI_MEDIA_ROOT=$MediaRoot;$env:MAVI_DEVICE_POLICY=$resolvedDevicePolicy;$env:MAVI_DEVICE_RESOLUTION_REASON=$deviceResolutionReason;$env:MAVI_DEVICE_INDEX=[string]$DeviceIndex;$env:MAVI_PRODUCTION_MODE="false";$env:MAVI_MODEL_ROOT=$modelRoot;$env:MAVI_MODEL_MANIFEST_PATH=$modelManifestPath;$env:MAVI_PIPELINE_PROFILE_PATH=$pipelinePath;$env:MAVI_RUNTIME_PROFILE_PATH=$runtimeProfilePath;$env:MAVI_QUALIFICATION_RECORD_PATH=$qualificationPath;$env:MAVI_BUILD_ID="development";$env:MAVI_COMMIT_SHA=$head
 $visionSourceRoot = Join-Path $RepositoryRoot "src\vision"
 if (-not (Test-Path -LiteralPath (Join-Path $visionSourceRoot "mavi_vision") -PathType Container)) { throw "MAVI vision source tree is missing: $visionSourceRoot" }
 $existingPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH","Process")
@@ -178,7 +232,7 @@ try {
     Write-Host "  Application  : $head"
     Write-Host "  API          : $ApiBaseUrl"
     Write-Host "  Worker       : $WorkerId"
-    Write-Host "  Device       : requested=$DevicePolicy resolved=$resolvedDevicePolicy"
+    Write-Host "  Device       : requested=$DevicePolicy resolved=$resolvedDevicePolicy reason=$deviceResolutionReason"
     Write-Host "  Variant      : $runtimeVariant"
     & $python -m mavi_vision.worker.main
     exit $LASTEXITCODE

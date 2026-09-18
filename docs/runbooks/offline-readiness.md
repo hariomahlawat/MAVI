@@ -51,7 +51,7 @@ The final Production setup bundle should normally omit Development SDKs and pack
 
 ADR-008 defines three Production profiles: P1 single-host Windows GPU, P2 split-host Windows + Linux GPU, and P3 single-host Windows CPU. Offline readiness is evaluated for the profile(s) the release actually claims as supported.
 
-The current acceptance tooling still contains legacy assumptions that require all four Windows/Linux CPU/CUDA variants and a final Linux-CUDA scenario. Before authoritative Task-18 qualification, that tooling must be reconciled so it requires the full evidence set for each claimed profile without using one profile's evidence to qualify another.
+The profile-aware acceptance tooling now derives prerequisite, runtime, offline, performance, scenario, promotion and closure requirements from the Production profile actually claimed. Evidence from one profile cannot qualify another.
 
 Development remains a single Windows laptop/workstation and may use CPU or compatible Windows CUDA when available. Development device choice does not by itself establish Production qualification.
 
@@ -69,7 +69,7 @@ ADR-003 closure additionally requires three executed proofs during Task 17 final
 
 All three proofs must produce distinct immutable hashed evidence and fail closed on missing stores, mismatched bytes/identities, hidden external dependencies or unexercised install/restore paths.
 
-Under ADR-008, post-promotion disconnected execution is profile-specific. P1 requires Windows-CUDA evidence; P2 requires Linux-CUDA split-host evidence; P3 requires Windows-CPU evidence including an acceptable Production performance envelope. The current assembler/closure implementation still reflects the earlier all-four-variant/Linux-CUDA model and must be reconciled before authoritative Task-18 acceptance. Promotion or candidate evidence alone can never yield `release-verified`.
+Under ADR-008, post-promotion disconnected execution is profile-specific. P1 requires Windows-CUDA evidence; P2 requires Linux-CUDA split-host evidence; P3 requires Windows-CPU evidence including an acceptable Production performance envelope. The assembler and closure tooling are profile-aware and fail closed on cross-profile evidence. Promotion or candidate evidence alone can never yield `release-verified`.
 
 Operational commands and evidence handling are documented in `docs/runbooks/phase1-acceptance.md`. The authoritative requirements remain `docs/superpowers/plans/2026-09-14-task-17-phase1-hardening-qualification-acceptance.md` plus its qualification-closure addendum.
 

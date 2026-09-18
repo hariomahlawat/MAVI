@@ -35,6 +35,7 @@ from mavi_vision.runtime.component_identity import (  # noqa: E402
 from mavi_vision.runtime.offline_lock import (  # noqa: E402
     OfflineLockError,
     load_offline_runtime_lock,
+    validate_accelerator_distribution_versions,
     validate_offline_runtime_lock_for_runtime,
 )
 from mavi_vision.runtime.requirements_projection import (  # noqa: E402
@@ -162,6 +163,10 @@ def _load_runtime_inputs(
             raise RuntimePackError("runtime_pack_wheelhouse_lock_mismatch")
 
     try:
+        validate_accelerator_distribution_versions(
+            lock,
+            expected_variant=platform_variant,
+        )
         validate_offline_runtime_lock_for_runtime(
             lock,
             expected_variant=platform_variant,
@@ -176,6 +181,31 @@ def _load_runtime_inputs(
     return lock, projection, records
 
 
+def _validate_native_abi_for_variant(
+    native_abi: str,
+    platform_variant: str,
+) -> None:
+    if not native_abi or native_abi != native_abi.strip():
+        raise RuntimePackError("runtime_pack_native_abi_invalid")
+    has_cuda_identity = re.search(
+        r"(?:^|-)cuda\d+(?:\.\d+)?(?:-|$)",
+        native_abi,
+    ) is not None
+    has_arch_identity = re.search(
+        r"(?:^|-)sm\d+(?:-|$)",
+        native_abi,
+    ) is not None
+    if platform_variant.endswith("-cuda"):
+        if not has_cuda_identity or not has_arch_identity:
+            raise RuntimePackError(
+                "runtime_pack_cuda_native_abi_incomplete"
+            )
+    elif has_cuda_identity or has_arch_identity:
+        raise RuntimePackError(
+            "runtime_pack_cpu_native_abi_contains_cuda"
+        )
+
+
 def build_runtime_pack(
     *,
     wheelhouse: Path,
@@ -188,8 +218,10 @@ def build_runtime_pack(
     assembled_from_commit: str,
     output: Path,
 ) -> dict[str, object]:
-    if not native_abi or native_abi != native_abi.strip():
-        raise RuntimePackError("runtime_pack_native_abi_invalid")
+    _validate_native_abi_for_variant(
+        native_abi,
+        platform_variant,
+    )
     if not _SHA1_RE.fullmatch(assembled_from_commit):
         raise RuntimePackError("runtime_pack_source_commit_invalid")
     if platform_variant.startswith("windows-") and python_installer is None:

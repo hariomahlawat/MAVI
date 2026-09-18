@@ -170,6 +170,48 @@ def serialize_offline_runtime_lock(lock: OfflineRuntimeLock) -> bytes:
     return ("\n".join(rows) + "\n").encode("utf-8")
 
 
+def validate_accelerator_distribution_versions(
+    lock: OfflineRuntimeLock,
+    *,
+    expected_variant: str,
+) -> None:
+    by_name = {item.name: item for item in lock.distributions}
+    accelerator_packages = ("torch", "torchvision")
+    for name in accelerator_packages:
+        item = by_name.get(name)
+        if item is None:
+            continue
+        try:
+            version = Version(item.version)
+        except InvalidVersion as exc:
+            raise OfflineLockError(
+                "offline_lock_requirement_invalid"
+            ) from exc
+        local = version.local
+        if expected_variant.endswith("-cuda"):
+            if local is None or re.fullmatch(
+                r"cu\d+",
+                local,
+            ) is None:
+                raise OfflineLockError(
+                    "offline_lock_cuda_binary_build_required"
+                )
+        elif expected_variant.endswith("-cpu"):
+            if local != "cpu":
+                raise OfflineLockError(
+                    "offline_lock_cpu_binary_build_required"
+                )
+
+
+def _semantic_public_version(value: str) -> str:
+    try:
+        return Version(value).public
+    except InvalidVersion as exc:
+        raise OfflineLockError(
+            "offline_lock_semantic_version_invalid"
+        ) from exc
+
+
 def validate_offline_runtime_lock_for_runtime(
     lock: OfflineRuntimeLock,
     *,
@@ -186,13 +228,24 @@ def validate_offline_runtime_lock_for_runtime(
         raise OfflineLockError("offline_lock_python_version_mismatch")
 
     if platform_status is not None:
-        allowed_status = (
-            "qualified-hardware"
+        allowed_statuses = (
+            {
+                "qualified-hardware",
+                "qualified-development-hardware",
+            }
             if expected_variant.endswith("-cuda")
-            else "qualified-hosted-cpu"
+            else {"qualified-hosted-cpu"}
         )
-        if platform_status != allowed_status:
+        if platform_status not in allowed_statuses:
             raise OfflineLockError("offline_lock_platform_not_qualified")
+
+    # The accelerator binary identity is bound to the variant unconditionally:
+    # a CUDA-labelled lock must prove CUDA wheels even when no binary version
+    # map is supplied, otherwise CPU Torch could pass as a CUDA runtime.
+    validate_accelerator_distribution_versions(
+        lock,
+        expected_variant=expected_variant,
+    )
 
     by_name = {item.name: item for item in lock.distributions}
     effective_roots = root_requirements if root_requirements is not None else lock.root_requirements
@@ -219,7 +272,16 @@ def validate_offline_runtime_lock_for_runtime(
         item = by_name.get(name)
         if item is None:
             raise OfflineLockError("offline_lock_semantic_distribution_missing")
-        if name in {"torch", "torchvision"} and binary_versions is not None:
+        if name in {"torch", "torchvision"}:
+            if binary_versions is not None:
+                continue
+            if (
+                _semantic_public_version(item.version)
+                != _semantic_public_version(expected_version)
+            ):
+                raise OfflineLockError(
+                    "offline_lock_semantic_version_mismatch"
+                )
             continue
         if item.version != expected_version:
             raise OfflineLockError("offline_lock_semantic_version_mismatch")
@@ -382,5 +444,6 @@ __all__ = [
     "load_offline_runtime_lock",
     "parse_offline_runtime_lock",
     "serialize_offline_runtime_lock",
+    "validate_accelerator_distribution_versions",
     "validate_offline_runtime_lock_for_runtime",
 ]

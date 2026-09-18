@@ -23,6 +23,7 @@ coverage/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.egg-info/
 .venv/
 venv/
 
@@ -59,6 +60,7 @@ appsettings.*.Local.json
 *.webm
 
 # Generated evidence/data stores
+windows-cuda-host-observation.json
 /data/
 /evidence/
 /media-store/

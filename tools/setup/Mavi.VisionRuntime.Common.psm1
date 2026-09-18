@@ -189,6 +189,72 @@ function Test-MaviVisionPythonIdentityEqual {
     return ([string]$leftBuild[0] -eq [string]$rightBuild[0] -and [string]$leftBuild[1] -eq [string]$rightBuild[1])
 }
 
+function Assert-MaviVisionRuntimeInstalledStatePreflight {
+    param(
+        [Parameter(Mandatory = $true)][string]$RuntimeRoot,
+        [Parameter(Mandatory = $true)][object]$InstalledState,
+        [Parameter(Mandatory = $true)][object]$Manifest,
+        [Parameter(Mandatory = $true)][string]$RuntimePackManifestPath
+    )
+
+    [void](Assert-MaviVisionRuntimePackManifest -Manifest $Manifest)
+    if (-not $InstalledState.PSObject.Properties["schemaVersion"] -or
+        [string]$InstalledState.schemaVersion -ne $script:VisionRuntimeInstallSchema) {
+        throw "Vision runtime installed state schema is unsupported."
+    }
+
+    $manifestSha = (Get-FileHash -LiteralPath $RuntimePackManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ([string]$InstalledState.runtimePackManifestSha256 -ne $manifestSha) {
+        throw "Installed Vision Runtime Pack state does not bind the installed manifest."
+    }
+
+    $comparisons = [ordered]@{
+        runtimePackId = [string]$Manifest.runtimePackId
+        thirdPartyLockSha256 = ([string]$Manifest.thirdPartyLockSha256).ToLowerInvariant()
+        runtimeRequirementsSha256 = ([string]$Manifest.runtimeRequirementsSha256).ToLowerInvariant()
+        platformVariant = [string]$Manifest.platformVariant
+        pythonVersion = [string]$Manifest.pythonVersion
+        nativeAbi = [string]$Manifest.nativeAbi
+    }
+    foreach ($name in $comparisons.Keys) {
+        $property = $InstalledState.PSObject.Properties[$name]
+        if (-not $property -or [string]$property.Value -ne [string]$comparisons[$name]) {
+            throw "Installed Vision Runtime Pack state does not match manifest field '$name'."
+        }
+    }
+
+    $root = [IO.Path]::GetFullPath($RuntimeRoot.Trim().Trim('"'))
+    foreach ($purpose in @("third-party-runtime-lock", "application-runtime-requirements")) {
+        $artifacts = @($Manifest.artifacts | Where-Object { [string]$_.purpose -eq $purpose })
+        if ($artifacts.Count -ne 1) {
+            throw "Installed Vision Runtime Pack must declare exactly one '$purpose' artifact."
+        }
+        $relative = [string]$artifacts[0].relativePath
+        if ($relative -notmatch '^runtime/[A-Za-z0-9._-]+$') {
+            throw "Installed Vision Runtime Pack retained artifact path is invalid: '$relative'."
+        }
+        $path = Join-Path $root ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Installed Vision Runtime Pack retained artifact is missing: '$relative'."
+        }
+        $actualSha = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualSha -ne ([string]$artifacts[0].sha256).ToLowerInvariant()) {
+            throw "Installed Vision Runtime Pack retained artifact SHA-256 mismatch: '$relative'."
+        }
+    }
+
+    $pythonPath = Join-Path $root "venv\Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
+        throw "Installed Vision Runtime Pack interpreter is missing."
+    }
+    $pyvenv = Join-Path $root "venv\pyvenv.cfg"
+    if (-not (Test-Path -LiteralPath $pyvenv -PathType Leaf)) {
+        throw "Installed Vision Runtime Pack virtual-environment metadata is missing."
+    }
+
+    return $true
+}
+
 function Test-MaviVisionRuntimePackReuse {
     param(
         [AllowNull()][object]$InstalledState,
