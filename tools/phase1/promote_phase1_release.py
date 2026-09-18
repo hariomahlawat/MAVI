@@ -37,6 +37,7 @@ from mavi_vision.runtime.qualification import (  # noqa: E402
 )
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
 import quality_corpus  # noqa: E402
+import deployment_profiles  # noqa: E402
 from compute_target_verified_manifest import build_target_manifest, sha256_bytes as target_sha256_bytes  # noqa: E402
 from jsonschema import Draft202012Validator  # noqa: E402
 from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
@@ -364,23 +365,22 @@ def parse_gate_arguments(values: list[str]) -> dict[str, Path]:
     return result
 
 
-def _assert_runtime_ready(runtime_raw: dict[str, Any]) -> None:
-    if runtime_raw.get("qualificationStatus") != "qualified":
-        raise PromotionError("promotion_runtime_not_qualified")
+def _assert_runtime_ready(
+    runtime_raw: dict[str, Any],
+    required_variants: frozenset[str],
+) -> None:
     variants = runtime_raw.get("platformVariants")
     locks = runtime_raw.get("releaseLocks")
-    required_variants = {
-        "windows-x86_64-cpu",
-        "windows-x86_64-cuda",
-        "linux-x86_64-cpu",
-        "linux-x86_64-cuda",
-    }
-    if not isinstance(variants, dict) or set(variants) != required_variants:
-        raise PromotionError("promotion_runtime_variants_incomplete")
-    if not isinstance(locks, dict) or set(locks) != required_variants:
-        raise PromotionError("promotion_runtime_locks_incomplete")
-    for variant in required_variants:
-        expected_status = "qualified-hardware" if variant.endswith("-cuda") else "qualified-hosted-cpu"
+    if not isinstance(variants, dict) or not isinstance(locks, dict):
+        raise PromotionError("promotion_runtime_metadata_invalid")
+    for variant in sorted(required_variants):
+        if variant not in variants or variant not in locks:
+            raise PromotionError("promotion_runtime_variant_missing:" + variant)
+        expected_status = (
+            "qualified-hardware"
+            if variant.endswith("-cuda")
+            else "qualified-hosted-cpu"
+        )
         if variants[variant].get("status") != expected_status:
             raise PromotionError("promotion_runtime_variant_not_qualified:" + variant)
         if locks[variant].get("status") != "qualified-offline-lock":
@@ -400,6 +400,9 @@ def build_promoted_metadata(
     quality_case_evidence: dict[str, Path],
     quality_ground_truth: dict[str, Path],
     expected_mavi_build: str,
+    deployment_profile_id: str,
+    required_gates: frozenset[str],
+    required_variants: frozenset[str],
 ) -> tuple[bytes, bytes]:
     if manifest_raw.get("verificationStatus") != "unverified" or manifest_raw.get("qualificationId") is not None:
         raise PromotionError("promotion_manifest_not_pending")
@@ -413,7 +416,7 @@ def build_promoted_metadata(
     if not isinstance(current_evidence, dict):
         raise PromotionError("promotion_evidence_map_invalid")
 
-    _assert_runtime_ready(runtime_raw)
+    _assert_runtime_ready(runtime_raw, required_variants)
 
     qualification_id = qualification_raw.get("qualificationId")
     if not isinstance(qualification_id, str) or not qualification_id:
@@ -421,17 +424,17 @@ def build_promoted_metadata(
     target_manifest_bytes = build_target_manifest(manifest_raw, qualification_id)
     target_manifest_sha = target_sha256_bytes(target_manifest_bytes)
 
-    missing = sorted(MANDATORY_QUALIFICATION_GATES - set(gate_evidence))
+    missing = sorted(required_gates - set(gate_evidence))
     if missing:
         raise PromotionError("promotion_evidence_missing:" + ",".join(missing))
-    if set(gate_evidence) != MANDATORY_QUALIFICATION_GATES:
+    if set(gate_evidence) != required_gates:
         raise PromotionError("promotion_evidence_set_invalid")
 
-    # Never grandfather prior status/evidence references. Promotion rebuilds the
-    # complete evidence map from exact local/transferred bytes on this candidate.
+    # Revalidate every gate used to qualify this deployment profile. Existing
+    # non-profile evidence may be retained, but it never qualifies this profile.
     _validate_offline_aggregate_bindings(gate_evidence)
-    evidence: dict[str, dict[str, str]] = {}
-    gates = {gate: "pending" for gate in MANDATORY_QUALIFICATION_GATES}
+    evidence: dict[str, dict[str, str]] = dict(current_evidence)
+    gates = dict(current_gates)
     for gate, path in sorted(gate_evidence.items()):
         evidence[gate] = load_gate_evidence(
             path,
@@ -447,19 +450,29 @@ def build_promoted_metadata(
         )
         gates[gate] = "passed"
 
-    if any(gates.get(gate) != "passed" for gate in MANDATORY_QUALIFICATION_GATES):
+    if any(gates.get(gate) != "passed" for gate in required_gates):
         raise PromotionError("promotion_gate_not_passed")
-    if any(gate not in evidence for gate in MANDATORY_QUALIFICATION_GATES):
+    if any(gate not in evidence for gate in required_gates):
         raise PromotionError("promotion_gate_evidence_missing")
 
     manifest_bytes = target_manifest_bytes
     final_manifest_sha = target_manifest_sha
 
+    qualified_profiles = qualification_raw.get("qualifiedProfiles", [])
+    if not isinstance(qualified_profiles, list):
+        raise PromotionError("promotion_qualified_profiles_invalid")
+    qualified_profiles = sorted(set(qualified_profiles + [deployment_profile_id]))
+
     qualification = dict(qualification_raw)
     qualification["modelManifestSha256"] = final_manifest_sha
     qualification["requiredGates"] = gates
     qualification["evidence"] = {key: evidence[key] for key in sorted(evidence)}
-    qualification["overallResult"] = "passed"
+    qualification["qualifiedProfiles"] = qualified_profiles
+    qualification["overallResult"] = (
+        "passed"
+        if all(status == "passed" for status in gates.values())
+        else "pending"
+    )
     qualification_bytes = canonical_json(qualification)
     return manifest_bytes, qualification_bytes
 
@@ -471,6 +484,9 @@ def validate_promoted_outputs(
     qualification_bytes: bytes,
     profile_path: Path,
     runtime_profile_path: Path,
+    deployment_profile_id: str,
+    required_gates: frozenset[str],
+    required_runtime_variant: str,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="mavi-task17-promotion-") as directory:
         root = Path(directory)
@@ -486,6 +502,9 @@ def validate_promoted_outputs(
                 runtime_profile_path=runtime_profile_path,
                 qualification_path=qualification_path,
                 allow_unverified=False,
+                required_profile=deployment_profile_id,
+                required_gates=required_gates,
+                required_runtime_variant=required_runtime_variant,
             )
         except ReleaseMetadataError as exc:
             raise PromotionError("promotion_release_validation_failed:" + exc.code) from exc
@@ -499,6 +518,16 @@ def main() -> int:
     parser.add_argument("--pipeline-profile", type=Path, required=True)
     parser.add_argument("--runtime-profile", type=Path, required=True)
     parser.add_argument("--acceptance-profile", type=Path, required=True)
+    parser.add_argument(
+        "--deployment-profile-policy",
+        type=Path,
+        default=deployment_profiles.CANONICAL_DEPLOYMENT_PROFILES,
+    )
+    parser.add_argument(
+        "--deployment-profile",
+        choices=("P1", "P2", "P3"),
+        required=True,
+    )
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--expected-mavi-build", required=True)
     parser.add_argument("--quality-corpus-manifest", type=Path, required=True)
@@ -524,6 +553,12 @@ def main() -> int:
         qualification_raw = read_release_json(args.qualification, code="qualification_record_invalid")
         runtime_raw = read_release_json(args.runtime_profile, code="runtime_profile_invalid")
         acceptance_profile, acceptance_profile_sha256 = _canonical_policy(args.acceptance_profile)
+        selected_profile, deployment_policy_sha256 = deployment_profiles.select_profile(
+            args.deployment_profile,
+            args.deployment_profile_policy,
+        )
+        required_gates = selected_profile.qualification_gates
+        required_variants = selected_profile.required_runtime_variants
 
         # Validate the current pending relationship before constructing promotion.
         verify_release_selection(
@@ -549,6 +584,9 @@ def main() -> int:
             quality_case_evidence=quality_case_evidence,
             quality_ground_truth=quality_ground_truth,
             expected_mavi_build=args.expected_mavi_build,
+            deployment_profile_id=selected_profile.profile_id,
+            required_gates=required_gates,
+            required_variants=required_variants,
         )
         validate_promoted_outputs(
             model_root=args.model_root,
@@ -556,6 +594,9 @@ def main() -> int:
             qualification_bytes=qualification_bytes,
             profile_path=args.pipeline_profile,
             runtime_profile_path=args.runtime_profile,
+            deployment_profile_id=selected_profile.profile_id,
+            required_gates=required_gates,
+            required_runtime_variant=selected_profile.runtime_variant,
         )
     except (
         PromotionError,
