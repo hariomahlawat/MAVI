@@ -118,7 +118,13 @@
     "python": {
       "developmentOffline": "The canonical developer cache carries a Python wheelhouse and Setup installs the Development environment with --no-index.",
       "productionOffline": "Vision runtime dependencies are bound to platform-specific offline runtime locks/bundles and qualification evidence; no first-run downloads are permitted.",
-      "changeRule": "Any Python dependency or build-system change must update this policy and the applicable offline wheel/runtime lock/bundle plus qualification evidence."
+      "changeRule": "Any Python dependency or build-system change must update this policy and the applicable offline wheel/runtime lock/bundle plus qualification evidence.",
+      "cudaAcquisition": {
+        "status": "engineering-candidate",
+        "connectedPreparationOnly": true,
+        "pytorchIndex": "https://download.pytorch.org/whl/cu124",
+        "rule": "Use the dedicated cu124 index, never --extra-index-url, and freeze exact wheel SHA-256 values before offline use."
+      }
     }
   },
   "nativeAndToolchain": [
@@ -189,6 +195,52 @@
       "setupIntegration": "Task-17 runtime qualification and deployment tooling",
       "verification": "runtime locks, hashes, model manifest relationships and disconnected CPU/CUDA qualification",
       "licenceHandling": "model/runtime licence approval is required before promotion"
+    },
+    {
+      "id": "nvidia-driver-win-x64",
+      "scope": [
+        "development",
+        "production-vision"
+      ],
+      "stagingPath": "external:nvidia-windows-driver",
+      "packagedAs": "external operating-system prerequisite; not silently bundled in a Vision Runtime Pack",
+      "setupIntegration": "Vision worker/runtime preflight validates the installed NVIDIA driver before CUDA execution",
+      "verification": "nvidia-smi identity plus a minimum driver requirement frozen with the qualified CUDA Runtime Pack before hardware qualification",
+      "licenceHandling": "NVIDIA driver redistribution, if ever added to MAVI media, requires separate licence approval; current policy treats it as externally installed"
+    },
+    {
+      "id": "cuda-toolkit-12.4-win-x64-build",
+      "scope": [
+        "development-build"
+      ],
+      "stagingPath": "external-or-controlled-build-image:cuda-toolkit-12.4",
+      "packagedAs": "build-only; explicitly excluded from Development Runtime Pack and Production media",
+      "setupIntegration": "C2 CUDA wheel build environment only",
+      "verification": "nvcc --version plus a trivial .cu compilation against the selected MSVC toolset; exact toolkit identity captured in nativeAbi",
+      "licenceHandling": "CUDA Toolkit redistribution is not implied; any cached installer/build image requires NVIDIA licence review"
+    },
+    {
+      "id": "msvc-cuda-build-toolchain-win-x64",
+      "scope": [
+        "development-build"
+      ],
+      "stagingPath": "controlled-build-image:visual-studio-build-tools",
+      "packagedAs": "build-only; excluded from Vision Runtime Pack and Production media",
+      "setupIntegration": "C2 MMCV CUDA wheel build environment only",
+      "verification": "exact VCToolsVersion and WindowsSDKVersion captured before build; toolset frozen only after CUDA 12.4 host-compiler preflight",
+      "licenceHandling": "Microsoft build-tool licensing applies to the controlled build environment; no compiler payload is distributed with the Runtime Pack"
+    },
+    {
+      "id": "vcredist-win-x64",
+      "scope": [
+        "development",
+        "production-vision"
+      ],
+      "stagingPath": "vendor/installers/win-x64/vc_redist.x64.exe",
+      "packagedAs": "prerequisites/vcredist/win-x64/vc_redist.x64.exe",
+      "setupIntegration": "CUDA Runtime Pack installation/repair must verify the required VC runtime before loading MMCV native extensions",
+      "verification": "signed installer identity plus an import/load smoke test for mmcv native ops on the installed runtime",
+      "licenceHandling": "approved Microsoft Visual C++ redistributable retained as a controlled prerequisite if packaging is required"
     }
   ],
   "requiredChangeReview": [
