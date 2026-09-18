@@ -166,12 +166,19 @@ dependencies = []
         checkpoint_sha256=tool.sha256_file(files["checkpoint"]),
         resolved_config_sha256=tool.sha256_file(files["config"]),
         wheelhouse=wheelhouse,
+        deployment_profile_policy_path=(
+            tool.CANONICAL_DEPLOYMENT_PROFILE_POLICY
+        ),
+        deployment_profile_policy_sha256=tool.sha256_file(
+            tool.CANONICAL_DEPLOYMENT_PROFILE_POLICY
+        ),
+        deployment_profile_id=None,
     )
     if bypass_revalidation:
         tool._revalidate_assembly_boundary = lambda _inputs: {
             inputs.platform_variant: inputs.runtime_lock_path,
         }
-        tool._verify_bundled_release_selection = lambda _stage, _release_status: None
+        tool._verify_bundled_release_selection = lambda _stage, _inputs: None
 
     return tool, inputs
 
@@ -446,7 +453,7 @@ def test_direct_assembler_rechecks_production_release_eligibility(
         )()
 
     class Qualification:
-        required_gates = {gate: "pending" for gate in tool.MANDATORY_QUALIFICATION_GATES}
+        required_gates = {}
         overall_result = "pending"
 
     class Platform:
@@ -471,8 +478,16 @@ def test_direct_assembler_rechecks_production_release_eligibility(
         lambda *_: {inputs.platform_variant: inputs.runtime_lock_path},
     )
 
-    production_inputs = replace(inputs, release_status="production")
-    with pytest.raises(tool.OfflineBundleError, match="production_release_not_qualified"):
+    production_inputs = replace(
+        inputs,
+        release_status="production",
+        platform_variant="windows-x86_64-cpu",
+        deployment_profile_id="P3",
+    )
+    with pytest.raises(
+        tool.OfflineBundleError,
+        match="production_release_not_profile_qualified",
+    ):
         tool.build_bundle_from_verified_inputs(
             production_inputs,
             tmp_path / "production-bundle",
@@ -710,39 +725,47 @@ def test_release_mode_policy_fails_closed_for_current_candidate() -> None:
     tool.validate_release_mode(
         "qualification-candidate",
         verification_status="unverified",
-        runtime_qualification_status="partial",
-        qualification_overall_result="pending",
-        all_mandatory_gates_passed=False,
+        deployment_profile_id=None,
     )
 
-    with pytest.raises(tool.OfflineBundleError, match="production_release_not_qualified"):
+    with pytest.raises(
+        tool.OfflineBundleError,
+        match="production_release_not_profile_qualified",
+    ):
         tool.validate_release_mode(
             "production",
             verification_status="unverified",
-            runtime_qualification_status="partial",
-            qualification_overall_result="pending",
-            all_mandatory_gates_passed=False,
+            deployment_profile_id="P3",
+        )
+
+    with pytest.raises(
+        tool.OfflineBundleError,
+        match="production_release_not_profile_qualified",
+    ):
+        tool.validate_release_mode(
+            "production",
+            verification_status="verified",
+            deployment_profile_id=None,
         )
 
     tool.validate_release_mode(
         "production",
         verification_status="verified",
-        runtime_qualification_status="qualified",
-        qualification_overall_result="passed",
-        all_mandatory_gates_passed=True,
+        deployment_profile_id="P3",
     )
 
 
 def test_release_mode_rejects_unknown_mode() -> None:
     tool = _load_bundle_tool()
 
-    with pytest.raises(tool.OfflineBundleError, match="bundle_release_status_invalid"):
+    with pytest.raises(
+        tool.OfflineBundleError,
+        match="bundle_release_status_invalid",
+    ):
         tool.validate_release_mode(
             "developer",
             verification_status="unverified",
-            runtime_qualification_status="partial",
-            qualification_overall_result="pending",
-            all_mandatory_gates_passed=False,
+            deployment_profile_id=None,
         )
 
 
@@ -764,3 +787,43 @@ def test_install_instructions_are_offline_only(tmp_path: Path) -> None:
     assert "Portability: qualified-host-only" in instructions
     assert "http://" not in instructions
     assert "https://" not in instructions
+
+
+def test_bundle_embeds_deployment_profile_policy(tmp_path: Path) -> None:
+    tool, inputs = _fixture_inputs(tmp_path)
+    output = tmp_path / "bundle"
+
+    manifest = tool.build_bundle_from_verified_inputs(
+        inputs,
+        output,
+    )
+
+    policy_path = (
+        output
+        / "release"
+        / "config"
+        / "acceptance"
+        / "phase1-deployment-profiles-v1.json"
+    )
+    assert policy_path.is_file()
+    assert (
+        tool.sha256_file(policy_path)
+        == inputs.deployment_profile_policy_sha256
+    )
+    assert (
+        manifest.deployment_profile_policy_sha256
+        == inputs.deployment_profile_policy_sha256
+    )
+
+
+def test_production_bundle_requires_explicit_profile() -> None:
+    tool = _load_bundle_tool()
+    with pytest.raises(
+        tool.OfflineBundleError,
+        match="production_release_not_profile_qualified",
+    ):
+        tool.validate_release_mode(
+            "production",
+            verification_status="verified",
+            deployment_profile_id=None,
+        )
