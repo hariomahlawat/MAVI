@@ -15,7 +15,7 @@ from mavi_vision.runtime.offline_lock import (
 )
 
 
-ROOT = Path(__file__).parents[2]
+ROOT = Path(__file__).parents[3]
 BUILD_TOOL = ROOT / "tools" / "vision" / "build_runtime_pack.py"
 
 
