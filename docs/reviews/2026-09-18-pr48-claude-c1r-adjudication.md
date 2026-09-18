@@ -52,6 +52,37 @@
 - O5 explicit reason when driver-advertised CUDA version is unavailable: **low priority; retain for C1R cold review**.
 - O6 minimum driver bound for cu124: **must be frozen from authoritative compatibility evidence before C4**, not guessed from the laptop's current driver.
 
+## Second independent cold review (C1R-2)
+
+A second independent cold review of the exact head audited the corrections above
+rather than assuming them complete. It confirmed most dispositions and found
+five residual fail-open boundaries, all corrected in this PR.
+
+| Finding | Severity | Repository action |
+| --- | --- | --- |
+| E1 — the device-resolution reason field accepted any well-formed lowercase code. An unrecognised code (for example one added to the PowerShell launcher but not to Python) was carried into provenance, could not be correlated with the executed device, and bypassed the Production prohibition on Auto results. | HIGH | The vocabulary is now a closed allow-list in `runtime/provenance.py`; an unknown code raises `device_resolution_reason_unknown`. A parity test reads the launcher's literals and asserts they are a subset of it, so the two languages cannot diverge silently. The launcher now emits explicit literals instead of `"explicit_$DevicePolicy"`, which could have produced `explicit_auto`. |
+| E2 — D6 was fixed only on the launcher path. Development Auto resolved inside `RuntimeSupervisor` selected CPU or CUDA and recorded no reason at all, so an Auto result reaching provenance through that path was unexplainable. | HIGH | `_resolve_device` now returns the reason alongside the device, using the same closed vocabulary, and `_build_provenance` carries it. An `auto` runtime may no longer omit the reason. |
+| E3 — D8 set `CUDA_DEVICE_ORDER=PCI_BUS_ID` but never enforced it, and ignored `CUDA_VISIBLE_DEVICES`. Under a mask or a different ordering, `nvidia-smi -i <cuda index>` addresses a different physical GPU than torch used; on a homogeneous multi-GPU host the existing capability and VRAM cross-checks pass, so provenance would attest the wrong GPU's UUID and PCI bus ID. | HIGH | `capture_gpu_identity` now requires `CUDA_DEVICE_ORDER=PCI_BUS_ID`, resolves any `CUDA_VISIBLE_DEVICES` mask to the physical selector it names, fails closed on selector syntaxes it cannot bind to one GPU (such as MIG), and binds torch's own device UUID to the nvidia-smi UUID when torch exposes it. |
+| E4 — the CUDA lock gate in `verify_repo.py` was a deny-list on the single string `pending-r1-preflight` in the offline catalogue. Renaming, nulling or removing that placeholder opened the gate, and the authoritative build contract was not consulted at all. | HIGH | The gate is now an allow-list: a Windows CUDA lock requires an explicitly `verified` build contract naming a frozen MSVC toolset, Windows SDK and CUDA Toolkit, a correspondingly frozen catalogue entry, and agreement between the two. The contract may not claim verification without naming what was verified, and its fail-closed runtime policy is asserted. |
+| E5 — D4 was enforced only when a binary version map was supplied. `validate_offline_runtime_lock_for_runtime` accepted CPU Torch in a CUDA-labelled lock when `binaryVersions` was absent. | MEDIUM | The accelerator binary identity is now validated unconditionally against the variant, before the lock's other content checks. |
+
+Two contract-drift defects were also corrected:
+
+- the completion integer wire-name walk read caller-supplied `dependencyVersions`
+  keys as contract field names, so a dependency named `index` or `sizeBytes`
+  was rejected although the JSON Schema and the .NET parser accept it;
+- .NET GPU compute-capability validation used `int.TryParse`, which accepts
+  signs and surrounding whitespace, while the schema pattern and the Pydantic
+  validator do not.
+
+Confirmed sound without change: explicit CUDA cannot report CPU execution;
+`qualified-development-hardware` cannot satisfy a Production runtime gate and
+keeps the runtime profile `partial`; Int64 schema bounds are exact; NaN and
+infinite float tokens are rejected at the completion boundary; JSON-array
+normalization is scoped to JSON mode and does not relax strict Python-mode
+validation; the CUDA Toolkit and MSVC toolchain are build-only while the NVIDIA
+driver and VC++ runtime are runtime prerequisites.
+
 ## C1R exit criteria
 
 Repository-side C1R may be called **green** only when:

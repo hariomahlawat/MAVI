@@ -203,6 +203,33 @@ Review this observation before choosing the CUDA binary graph. In particular, do
 
 The default output filename is ignored by Git because GPU UUID and workstation-specific identity are local engineering evidence. Do not commit the observation unless it has been deliberately sanitized and approved as a qualification artifact.
 
+### Device resolution reason codes
+
+Every worker run records why its device was selected, as `deviceResolutionReason`
+in runtime provenance and in the completion contract. The vocabulary is closed
+and shared between `tools/setup/Start-MaviVisionWorker.ps1` and
+`src/vision/mavi_vision/runtime/provenance.py`; a code outside it is rejected
+rather than recorded, so an offline deployment can always explain its device
+choice from the attestation alone.
+
+| Code | Meaning |
+| --- | --- |
+| `explicit_cpu` | CPU was requested explicitly. |
+| `explicit_cuda` | CUDA was requested explicitly. CUDA failure never becomes CPU. |
+| `cuda_selected` | Auto selected CUDA. |
+| `cuda_pack_absent` | Auto chose CPU: no CUDA Runtime Pack is installed. |
+| `cuda_pack_integrity_failed` | Auto chose CPU: the installed CUDA pack failed its manifest/state/artifact integrity preflight. |
+| `cuda_pack_variant_mismatch` | Auto chose CPU: the installed pack is not `windows-x86_64-cuda`. |
+| `cuda_pack_not_declared` | Auto chose CPU: no qualified CUDA Runtime Pack is declared for the component. |
+| `cuda_pack_id_mismatch` | Auto chose CPU: the installed pack ID does not match the declared requirement. |
+| `cuda_driver_probe_unavailable` | Auto chose CPU: the NVIDIA driver probe is not present. |
+| `cuda_device_unavailable` | Auto chose CPU: the configured CUDA device was not available. |
+| `cuda_driver_probe_failed` | Auto chose CPU: the driver/device probe raised an error. |
+
+Production runs may not carry any Auto code, and an `auto` policy may not omit
+the reason. Adding a code means adding it to both implementations; a contract
+test fails otherwise.
+
 ### Current Windows CUDA engineering candidate
 
 The reviewed C1 candidate is recorded in:
