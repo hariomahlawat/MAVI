@@ -3,9 +3,11 @@ name: Task 17 Acceptance Validation
 on:
   push:
     branches:
+      - main
       - feature/task-10-rtmdet-bytetrack
   pull_request:
     branches:
+      - main
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'config/acceptance/**'
