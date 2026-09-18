@@ -65,6 +65,7 @@ def provenance() -> RuntimeProvenance:
         ),
         configured_device_policy="cpu",
         configured_device_index=0,
+        device_resolution_reason="explicit_cpu",
         actual_device="cpu",
         gpu=None,
         mavi_build="test-build",
