@@ -42,7 +42,7 @@ Still intentionally absent:
 - Development CUDA E2E evidence;
 - P1 Production acceptance.
 
-## Phase C0 — host observation
+## Phase C0 — host observation — COMPLETE
 
 ### Deliverables
 
@@ -62,11 +62,11 @@ Still intentionally absent:
 
 ### Gate C0
 
-Do not select a PyTorch CUDA build until the real laptop observation has been reviewed.
+**PASSED.** The real laptop observation has been reviewed. Sanitized facts and the resulting C1 decision are recorded in `docs/qualification/2026-09-18-windows-cuda-c1-compatibility-decision.md`.
 
-The host observation is factual evidence only. It never sets a qualification status.
+The host observation remains factual evidence only and does not set a qualification status.
 
-## Phase C1 — compatibility decision
+## Phase C1 — compatibility decision — COMPLETE FOR ENGINEERING
 
 Using the C0 observation, freeze an **engineering candidate** for:
 
@@ -89,7 +89,19 @@ A change to semantic versions requires an explicit compatibility review rather t
 
 ### Gate C1
 
-Document why the selected binary graph is compatible with the observed driver/GPU. Do not infer compatibility only from test fixtures such as `+cu124`.
+**PASSED FOR ENGINEERING VALIDATION.** The C1 candidate is frozen in `docs/qualification/2026-09-18-windows-cuda-c1-compatibility-decision.md`:
+
+- CPython 3.12.10;
+- PyTorch 2.6.0+cu124 candidate;
+- torchvision 0.21.0+cu124 candidate;
+- CUDA 12.4 runtime family carried by PyTorch;
+- MMCV 2.1.0;
+- MMEngine 0.10.7;
+- MMDetection 3.3.0;
+- observed host driver 576.83;
+- observed development GPU GTX 1650 Ti / 4096 MiB.
+
+The final MSVC/Windows SDK native ABI identity remains intentionally unfrozen until C2 observes the actual native build/validation toolchain.
 
 ## Phase C2 — reproducible Windows CUDA wheelhouse and lock
 
@@ -208,14 +220,10 @@ Before merge to `main`:
 
 Merge the milestone back to `main` promptly rather than allowing another long-lived integration branch.
 
-## First operator action
+## Current execution point
 
-Run this on the Windows development laptop from repository root:
+C0 and C1 are complete. The next implementation phase is **C2 — reproducible Windows CUDA wheelhouse and lock**.
 
-```powershell
-python tools/vision/probe_windows_cuda_host.py --output windows-cuda-host-observation.json
-```
+C2 must not mutate the existing Windows CPU lock or Runtime Pack. The first implementation task is to define the exact CUDA wheel acquisition/build inputs and produce a clean, hash-locked third-party closure for the frozen C1 candidate.
 
-Then inspect the JSON before selecting the CUDA/PyTorch binary graph.
-
-The observation file is local engineering evidence and should not be committed if it contains machine-specific GPU UUID or other workstation identity.
+The raw host observation remains local engineering evidence and should not be committed because it contains workstation-specific GPU identity.
