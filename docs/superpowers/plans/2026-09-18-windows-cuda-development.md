@@ -509,6 +509,41 @@ On the laptop, prove the exact C3 pack:
 - no package/model download occurs;
 - no CPU fallback occurs under explicit `CUDA`.
 
+### C4 tooling and execution order
+
+The `qualified-development-hardware` state may only be written from an evidence
+bundle assembled by `tools/vision/build_development_hardware_evidence.py`. The
+tool is offline and takes the three artefacts the real machine produced:
+
+```
+python tools/vision/build_development_hardware_evidence.py \
+    --host-observation host-observation.json \
+    --toolchain-observation toolchain-observation.json \
+    --runtime-verification runtime-verification.json \
+    --source-head-sha <40-hex head of the source tree under test> \
+    --captured-at-utc <YYYY-MM-DDTHH:MM:SSZ> \
+    --operator-reference <workstation or operator label> \
+    --output development-evidence.json
+```
+
+- the host observation comes from `tools/vision/probe_windows_cuda_host.py`
+  (schema v2), and only its `uuidSha256` is carried forward; the raw GPU UUID
+  is never written into the bundle and never committed;
+- the toolchain observation comes from
+  `tools/vision/verify_windows_cuda_toolchain.py` and must read `passed`;
+- the runtime verification comes from
+  `tools/vision/verify_windows_cuda_runtime.py` and must show **on-device
+  execution** -- `mmcvNmsExecutedOnCuda` and `torchMatmulExecutedOnCuda` both
+  true. A wheel that compiled is not a run, and the tool refuses to issue a
+  Development qualification without it.
+
+The tool binds the run to a physical card by identity, not by ordinal: it
+matches the observed inventory on device name and compute capability, and
+refuses (`development_evidence_gpu_ambiguous`) rather than guess on a host with
+two indistinguishable cards. It also refuses when the run's architecture is
+absent from `torchCudaArchList`, because a PTX-JIT fallback does not qualify
+the built artefact.
+
 ### Gate C4
 
 Only after this passes may runtime metadata change `windows-x86_64-cuda` from pending to `qualified-development-hardware` with the ADR-009 Development evidence shape.

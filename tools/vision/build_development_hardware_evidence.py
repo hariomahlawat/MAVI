@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""Assemble the Development CUDA hardware qualification evidence bundle.
+
+ADR-009 separates Development hardware qualification from Production. The
+`qualified-development-hardware` runtime state is what a real run on controlled
+Development hardware produces, and `developmentEvidence` is the record that
+backs it. The whole separation is worth nothing if that record can be written
+from a build that never touched a GPU.
+
+So this tool assembles the bundle only from artefacts that were produced by the
+real machine, and refuses on anything it cannot corroborate:
+
+- the host observation says which physical GPU is present;
+- the toolchain observation says the native build toolchain was verified;
+- the runtime verification says CUDA code actually executed on that GPU.
+
+The third is not optional. A successful wheel build proves the ops compiled,
+not that they ran. Without on-device execution there is no Development hardware
+qualification to claim, and this tool will not manufacture one.
+
+It is offline and reads only the files it is given.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+from pathlib import Path
+
+SCHEMA_VERSION = "mavi-windows-cuda-development-evidence-v1"
+
+_HOST_SCHEMA = "mavi-windows-cuda-host-observation-v2"
+_TOOLCHAIN_SCHEMA = "mavi-windows-cuda-toolchain-observation-v1"
+_RUNTIME_SCHEMA = "mavi-windows-cuda-runtime-verification-v1"
+
+_SOURCE_HEAD_SHA = re.compile(r"^[0-9a-f]{40}$", re.ASCII)
+_SHA256 = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
+_CANONICAL_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", re.ASCII)
+_COMPUTE_CAPABILITY = re.compile(r"^\d+\.\d+$", re.ASCII)
+_OPERATOR_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._@/-]{0,127}$", re.ASCII)
+
+
+class DevelopmentEvidenceError(ValueError):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _load(path: Path, schema: str, code: str) -> tuple[dict, str]:
+    """Load one evidence artefact and return it with the SHA-256 of its bytes."""
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise DevelopmentEvidenceError(code + "_unreadable") from exc
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise DevelopmentEvidenceError(code + "_invalid") from exc
+    if not isinstance(value, dict) or value.get("schemaVersion") != schema:
+        raise DevelopmentEvidenceError(code + "_schema_invalid")
+    return value, _sha256_bytes(raw)
+
+
+def _selected_gpu(host: dict, *, name: str, compute_capability: str) -> dict:
+    """Find the observed GPU the run describes, by identity and never by ordinal.
+
+    The host observation lists GPUs in nvidia-smi order; the runtime reports a
+    CUDA ordinal. Those two enumerations are not the same thing, so position in
+    this list may not be used to answer which card ran the work. The GPU is
+    matched on the attributes both artefacts state, and an inventory where that
+    match is not unique is refused rather than guessed at.
+    """
+    nvidia = host.get("nvidia")
+    if not isinstance(nvidia, dict):
+        raise DevelopmentEvidenceError("development_evidence_host_gpu_missing")
+    gpus = nvidia.get("gpus")
+    if not isinstance(gpus, list) or not gpus:
+        raise DevelopmentEvidenceError("development_evidence_host_gpu_missing")
+    if not all(isinstance(gpu, dict) for gpu in gpus):
+        raise DevelopmentEvidenceError("development_evidence_host_gpu_missing")
+
+    matches = [
+        gpu
+        for gpu in gpus
+        if str(gpu.get("name", "")).strip() == name
+        and str(gpu.get("computeCapability", "")) == compute_capability
+    ]
+    if not matches:
+        # The run and the observation do not describe the same physical device.
+        raise DevelopmentEvidenceError("development_evidence_gpu_mismatch")
+    if len(matches) > 1:
+        # Two identical cards: nothing in either artefact says which one ran.
+        raise DevelopmentEvidenceError("development_evidence_gpu_ambiguous")
+    return matches[0]
+
+
+def build_evidence(
+    *,
+    host_observation: Path,
+    toolchain_observation: Path,
+    runtime_verification: Path,
+    source_head_sha: str,
+    captured_at_utc: str,
+    operator_reference: str,
+    device_index: int = 0,
+) -> dict[str, object]:
+    if _SOURCE_HEAD_SHA.fullmatch(source_head_sha) is None:
+        raise DevelopmentEvidenceError("development_evidence_source_head_sha_invalid")
+    if _CANONICAL_UTC.fullmatch(captured_at_utc) is None:
+        raise DevelopmentEvidenceError("development_evidence_captured_at_invalid")
+    if _OPERATOR_REFERENCE.fullmatch(operator_reference) is None:
+        raise DevelopmentEvidenceError("development_evidence_operator_invalid")
+
+    host, host_sha = _load(
+        host_observation, _HOST_SCHEMA, "development_evidence_host_observation"
+    )
+    toolchain, toolchain_sha = _load(
+        toolchain_observation, _TOOLCHAIN_SCHEMA, "development_evidence_toolchain"
+    )
+    runtime, runtime_sha = _load(
+        runtime_verification, _RUNTIME_SCHEMA, "development_evidence_runtime"
+    )
+
+    if toolchain.get("status") != "passed":
+        raise DevelopmentEvidenceError("development_evidence_toolchain_not_passed")
+    if runtime.get("result") != "passed":
+        raise DevelopmentEvidenceError("development_evidence_runtime_not_passed")
+
+    # On-device execution is the claim. A build that compiled is not a run.
+    if runtime.get("mmcvNmsExecutedOnCuda") is not True:
+        raise DevelopmentEvidenceError("development_evidence_native_ops_not_executed")
+    if runtime.get("torchMatmulExecutedOnCuda") is not True:
+        raise DevelopmentEvidenceError("development_evidence_torch_not_executed")
+
+    if runtime.get("deviceIndex") != device_index:
+        raise DevelopmentEvidenceError("development_evidence_device_index_mismatch")
+
+    runtime_capability = str(runtime.get("computeCapability", ""))
+    if _COMPUTE_CAPABILITY.fullmatch(runtime_capability) is None:
+        raise DevelopmentEvidenceError("development_evidence_runtime_capability_invalid")
+    runtime_name = str(runtime.get("deviceName", "")).strip()
+    if not runtime_name:
+        raise DevelopmentEvidenceError("development_evidence_runtime_device_unnamed")
+
+    gpu = _selected_gpu(
+        host, name=runtime_name, compute_capability=runtime_capability
+    )
+    host_capability = runtime_capability
+    host_name = runtime_name
+
+    uuid_digest = gpu.get("uuidSha256")
+    if not isinstance(uuid_digest, str) or _SHA256.fullmatch(uuid_digest) is None:
+        raise DevelopmentEvidenceError("development_evidence_gpu_identity_missing")
+
+    architecture = f"sm_{host_capability.replace('.', '')}"
+    arch_list = runtime.get("torchCudaArchList")
+    if not isinstance(arch_list, list) or architecture not in arch_list:
+        # Without kernels for this architecture the run relied on PTX JIT, which
+        # is not the artefact being qualified.
+        raise DevelopmentEvidenceError(
+            "development_evidence_architecture_not_in_torch_build"
+        )
+
+    # The bundle digest covers the artefacts themselves, so the record cannot be
+    # detached from the evidence it summarises.
+    bundle = json.dumps(
+        {
+            "hostObservationSha256": host_sha,
+            "toolchainObservationSha256": toolchain_sha,
+            "runtimeVerificationSha256": runtime_sha,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "developmentEvidence": {
+            "hostObservationSha256": host_sha,
+            "evidenceBundleSha256": _sha256_bytes(bundle),
+            "sourceHeadSha": source_head_sha,
+            "capturedAtUtc": captured_at_utc,
+            "operatorReference": operator_reference,
+        },
+        "corroboration": {
+            "toolchainObservationSha256": toolchain_sha,
+            "runtimeVerificationSha256": runtime_sha,
+            "gpuUuidSha256": uuid_digest,
+            "gpuName": host_name,
+            "computeCapability": host_capability,
+            "targetArchitecture": architecture,
+            "deviceIndex": device_index,
+            "hostGpuCount": len(host["nvidia"]["gpus"]),
+            "torchVersion": runtime.get("torchVersion"),
+            "torchCudaRuntimeVersion": runtime.get("torchCudaRuntimeVersion"),
+            "msvcToolset": toolchain.get("vcToolsVersion"),
+            "windowsSdkVersion": toolchain.get("windowsSdkVersion"),
+            "cudaToolkitVersion": toolchain.get("cudaToolkitVersion"),
+        },
+        "note": (
+            "Development hardware evidence for ADR-009. This supports the "
+            "qualified-development-hardware runtime state only. It is not, and "
+            "may not be promoted to, Production qualification: Production "
+            "requires qualified-hardware with its own independent evidence."
+        ),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host-observation", type=Path, required=True)
+    parser.add_argument("--toolchain-observation", type=Path, required=True)
+    parser.add_argument("--runtime-verification", type=Path, required=True)
+    parser.add_argument("--source-head-sha", required=True)
+    parser.add_argument("--captured-at-utc", required=True)
+    parser.add_argument("--operator-reference", required=True)
+    parser.add_argument("--device-index", type=int, default=0)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+
+    try:
+        evidence = build_evidence(
+            host_observation=args.host_observation,
+            toolchain_observation=args.toolchain_observation,
+            runtime_verification=args.runtime_verification,
+            source_head_sha=args.source_head_sha,
+            captured_at_utc=args.captured_at_utc,
+            operator_reference=args.operator_reference,
+            device_index=args.device_index,
+        )
+    except DevelopmentEvidenceError as exc:
+        print(json.dumps({"ok": False, "code": exc.code}, sort_keys=True))
+        return 2
+
+    if args.output is not None:
+        if args.output.exists():
+            print(
+                json.dumps(
+                    {"ok": False, "code": "development_evidence_output_exists"},
+                    sort_keys=True,
+                )
+            )
+            return 2
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    print(json.dumps({"ok": True, "evidence": evidence}, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
