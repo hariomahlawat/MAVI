@@ -31,6 +31,7 @@ Implementation completion remains distinct from release verification: CUDA, disc
 
 - `AGENTS.md` — binding engineering rules.
 - `docs/architecture/dependency-and-offline-packaging-policy.md` — dependency/change methodology.
+- `docs/architecture/phase1-production-topology.md` — approved Phase-1 Production host/plane topology (ADR-008).
 - `docs/runbooks/local-development.md` — supported Development workflow.
 - `docs/runbooks/mavi-offline-setup.md` — offline media preparation and installation.
 - `docs/runbooks/offline-readiness.md` — milestone/release offline-readiness checks.
