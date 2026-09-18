@@ -9,7 +9,7 @@
 
 **Overall readiness: BLOCKED — authoritative production qualification must not start yet.**
 
-The repository is technically ready to perform readiness preparation and rehearsal, but several mandatory release-governance inputs are intentionally unresolved. Starting final CCTV, CUDA qualification, or release-promotion evidence now would create evidence against an unfrozen policy/candidate and would therefore be wasteful or invalid.
+The repository is technically ready to perform readiness preparation and rehearsal, but several mandatory release-governance inputs are intentionally unresolved. Starting final CCTV, profile CUDA qualification, or release-promotion evidence now would create evidence against an unfrozen policy/candidate and would therefore be wasteful or invalid.
 
 This is not a product-failure result. It is a controlled readiness result.
 
@@ -27,8 +27,11 @@ This is not a product-failure result. It is a controlled readiness result.
 | Model Pack identity | **READY** | `mavi-model-v1-2abf67800cec8a9c63d735bf50e44ac695e8b8ccf01397e2cfd884305a5638b4` | Re-confirm on frozen production candidate |
 | Windows CPU functional subsystem evidence | **READY — inherited evidence** | PR #44 completed real 1080p RTMDet/ByteTrack processing and job-level recovery | Do not repeat Development run solely for chronology |
 | Linux CPU hosted runtime evidence | **READY — hosted only** | Qualification metadata marks Linux CPU passed | Still requires intended Production/offline topology evidence if Linux is in final topology |
-| GPU scope | **READY — GPU REQUIRED** | ADR-008 makes Linux NVIDIA/CUDA the canonical Production Vision worker; current release contract also retains Windows/Linux CUDA qualification gates | Produce the required CUDA evidence; do not infer it from CPU qualification |
-| CUDA/GPU evidence | **BLOCKED** | Windows and Linux CUDA gates are still pending hardware qualification | Qualify the required CUDA variants/hardware before release closure |
+| Deployment-profile model | **READY** | ADR-008 defines Development Auto/CUDA/CPU policy and Production profiles P1 Windows GPU, P2 Windows+Linux GPU, P3 Windows CPU | Qualify only the profile(s) claimed as supported; never inherit qualification across profiles |
+| Development GPU policy | **READY** | Windows Development may use `Auto`, `CUDA` or `CPU`; GPU should be used when compatible/available | Implement/verify explicit device selection and visible provenance; no silent fallback |
+| GPU scope | **READY — PROFILE-SPECIFIC** | GPU is required only for Production profiles that claim GPU support; P1 uses Windows CUDA, P2 uses Linux CUDA | Produce CUDA evidence for each GPU profile actually claimed as supported |
+| CUDA/GPU evidence | **BLOCKED** | Windows CUDA and Linux CUDA remain unqualified | Qualify Windows CUDA for P1 and Linux CUDA for P2 independently; neither blocks an unrelated profile unless that profile is claimed |
+| Acceptance tooling/profile reconciliation | **BLOCKED** | Existing closure tooling still assumes four platform variants and final Linux-CUDA scenarios | Refactor/review tooling so evidence requirements are derived from the Production profile(s) claimed as supported |
 | Model release qualification | **BLOCKED** | Model manifest remains `verificationStatus=unverified`; qualification `overallResult=pending` | Complete mandatory gates before promotion |
 | Acceptance corpus | **BLOCKED** | `qualificationCorpusManifestSha256=null` | Freeze approved held-out corpus + manifest |
 | Person threshold | **BLOCKED** | `classThresholds.Person=null` | Approve before final evaluation |
@@ -40,7 +43,7 @@ This is not a product-failure result. It is a controlled readiness result.
 | Application release artifact | **BLOCKED** | No Task-18 frozen application artifact/manifest yet | Build only after qualification candidate is frozen |
 | Offline Binary Kit identity | **BLOCKED** | Kit is intentionally external to Git; no Task-18 candidate manifest has been captured | Select retained kit and record manifest SHA-256 |
 | Production setup bundle | **BLOCKED** | No Task-18 final bundle identity yet | Assemble from frozen app + verified binary kit after readiness inputs are approved |
-| Final Production topology | **READY** | ADR-008: Host A Windows IIS/API/UI + MAVI-owned PostgreSQL/pgvector; Host B Linux x86_64 NVIDIA Vision worker; disconnected LAN | Freeze exact prerequisite versions/host identities before evidence capture |
+| Production deployment profiles | **READY** | ADR-008 approves P1 single-host Windows GPU, P2 split Windows+Linux GPU, and P3 single-host Windows CPU | Select the first Task-18 profile(s) to qualify, then freeze profile-specific prerequisites/host identities |
 | Clean disconnected Production install | **NOT STARTED** | Task-18 evidence not yet run | Execute only after readiness becomes READY |
 | Production E2E | **NOT STARTED** | Task-18 evidence not yet run | Execute after clean install |
 | Failure/reprocess | **NOT STARTED** | Task-18 evidence not yet run | Execute after formal E2E environment is qualified |
@@ -145,20 +148,21 @@ The heavy Runtime/Model workflows are not treated as newly qualified by this doc
 
 ## Readiness actions — controlled order
 
-### R1 — approve the intended Phase-1 production topology — COMPLETE
+### R1 — approve Development and Production deployment profiles — COMPLETE
 
-**Status: READY.** ADR-008 approves the canonical topology:
-- Host A: Windows IIS / ASP.NET Core / React + application-local FFmpeg;
-- Host A logical Data plane: MAVI-owned PostgreSQL 18 + pgvector;
-- Host B: separate Linux x86_64 NVIDIA Vision worker;
-- controlled disconnected LAN; no runtime Internet dependency;
-- Operational/Data/Vision identities remain independently captured even where Operational + Data are co-located.
+**Status: READY.** ADR-008 now defines:
+- Development reference topology: one Windows laptop/workstation;
+- Development device policy: `Auto`, `CUDA`, or `CPU`;
+- P1: single-host Windows GPU Production;
+- P2: split-host Windows operational/data + Linux NVIDIA worker;
+- P3: single-host Windows CPU Production;
+- controlled disconnected Production boundary with explicit runtime/model identities.
 
-See `docs/decisions/ADR-008-phase1-production-topology.md` and `docs/architecture/phase1-production-topology.md`.
+A second machine is not required for normal development. See `docs/decisions/ADR-008-phase1-production-topology.md` and `docs/architecture/phase1-production-topology.md`.
 
 ### R2 — resolve GPU scope — COMPLETE
 
-**Status: READY — GPU REQUIRED.** Linux NVIDIA/CUDA execution is part of the Phase-1 Production acceptance boundary. This is a scope decision only; CUDA qualification remains BLOCKED until real hardware evidence passes. The current release qualification contract also retains Windows and Linux CUDA variant gates, so neither may be treated as passed from CPU evidence.
+**Status: READY — PROFILE-SPECIFIC.** GPU support is not a universal Phase-1 prerequisite. It is mandatory for any Production profile advertised as GPU-capable. Windows CUDA qualifies P1; Linux CUDA qualifies P2; P3 is CPU-only. No profile inherits qualification from another, and no CUDA path may silently fall back to CPU.
 
 ### R3 — freeze acceptance policy before final testing
 
@@ -227,4 +231,4 @@ The Git repository should retain schemas, policy, runbooks, hashes and compact q
 
 It becomes authorized only when the machine-readable readiness record has no mandatory `BLOCKED` item and the reviewed candidate freeze identifies the exact application, Runtime Pack, Model Pack, Offline Binary Kit, topology and acceptance-policy inputs.
 
-R1 and R2 are now resolved. The next professional action is to resolve **R3–R5** deliberately: freeze the acceptance policy, approve exact Production prerequisites from the intended hosts, and resolve supported-update artifact/scope before building the final candidate.
+R1 and R2 are now resolved. Before authoritative qualification, the acceptance toolchain must also be reconciled with ADR-008 because it still contains legacy four-variant/Linux-CUDA-centric closure assumptions. The next professional actions are: select the first Production profile(s) to qualify, complete the profile-tooling reconciliation, then resolve **R3–R5** — acceptance policy, exact profile-specific Production prerequisites, and supported-update artifact/scope.
