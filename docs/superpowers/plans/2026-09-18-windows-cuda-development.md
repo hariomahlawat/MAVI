@@ -460,9 +460,10 @@ identity contract rather than just delaying it.
    and `mmcv.ops`.
 6. **Prove the native ops are real.** A successful `pip wheel` is not evidence
    that CUDA ops were compiled. `tools/vision/verify_windows_cuda_runtime.py`
-   executes `mmcv.ops.nms` on device and asserts the result is on CUDA. If the
-   build host has no GPU, record the build/native proof as complete and the
-   hardware execution as still pending -- do not conflate them.
+   executes `mmcv.ops.nms` on device and asserts the result is on CUDA; it needs
+   `--resolved-config` and records which physical card ran it. If the build host
+   has no GPU, record the build/native proof as complete and the hardware
+   execution as still pending -- do not conflate them.
 
 The Runtime Pack's `--native-abi` is **not** hand-typed. It is the `nativeAbi`
 field of `config/vision/windows-cuda-development-build-v1.json`, derived from
@@ -512,8 +513,27 @@ On the laptop, prove the exact C3 pack:
 ### C4 tooling and execution order
 
 The `qualified-development-hardware` state may only be written from an evidence
-bundle assembled by `tools/vision/build_development_hardware_evidence.py`. The
-tool is offline and takes the three artefacts the real machine produced:
+bundle assembled by `tools/vision/build_development_hardware_evidence.py`.
+
+Produce the three artefacts first, on the Development machine:
+
+```
+python tools/vision/probe_windows_cuda_host.py --sanitized \
+    --output host-observation.json
+python tools/vision/verify_windows_cuda_toolchain.py \
+    --contract config/vision/windows-cuda-development-build-v1.json \
+    --output toolchain-observation.json
+python tools/vision/verify_windows_cuda_runtime.py --device-index 0 \
+    --resolved-config src/vision/runtime/mmdetection-phase1-v1/rtmdet_m_resolved.py \
+    --output runtime-verification.json
+```
+
+`--sanitized` is not optional. Without it the host observation contains the raw
+GPU UUID, which may never be committed or shown, so the SHA-256 the bundle
+records would name a file nobody can ever recompute. The evidence builder
+refuses an observation that still carries a raw `uuid`.
+
+Then assemble the bundle:
 
 ```
 python tools/vision/build_development_hardware_evidence.py \
@@ -523,26 +543,53 @@ python tools/vision/build_development_hardware_evidence.py \
     --source-head-sha <40-hex head of the source tree under test> \
     --captured-at-utc <YYYY-MM-DDTHH:MM:SSZ> \
     --operator-reference <workstation or operator label> \
+    --device-index 0 \
     --output development-evidence.json
 ```
 
-- the host observation comes from `tools/vision/probe_windows_cuda_host.py`
-  (schema v2), and only its `uuidSha256` is carried forward; the raw GPU UUID
-  is never written into the bundle and never committed;
-- the toolchain observation comes from
-  `tools/vision/verify_windows_cuda_toolchain.py` and must read `passed`;
-- the runtime verification comes from
-  `tools/vision/verify_windows_cuda_runtime.py` and must show **on-device
-  execution** -- `mmcvNmsExecutedOnCuda` and `torchMatmulExecutedOnCuda` both
-  true. A wheel that compiled is not a run, and the tool refuses to issue a
-  Development qualification without it.
+`--device-index` must be the CUDA ordinal the run used; it defaults to 0 and
+must match `deviceIndex` in the runtime verification. Refusal prints
+`{"ok": false, "code": ...}` and exits 2, and an existing `--output` path is
+never overwritten (`development_evidence_output_exists`).
 
-The tool binds the run to a physical card by identity, not by ordinal: it
-matches the observed inventory on device name and compute capability, and
-refuses (`development_evidence_gpu_ambiguous`) rather than guess on a host with
-two indistinguishable cards. It also refuses when the run's architecture is
-absent from `torchCudaArchList`, because a PTX-JIT fallback does not qualify
-the built artefact.
+What the builder requires, and why:
+
+- **on-device execution.** `mmcvNmsExecutedOnCuda` and
+  `torchMatmulExecutedOnCuda` must both be `true`. A wheel that compiled is not
+  a run, and no Development qualification exists without one.
+- **one physical card, named by identity.** The run and the host observation
+  must carry the same `gpuUuidSha256` and agree on total memory to within
+  64 MiB. Identity is never inferred from the CUDA ordinal's position in
+  nvidia-smi order, and never from the device's marketing name: the two
+  producers may spell one card's name differently, and `gpu_identity.py` binds
+  on UUID for the same reason.
+- **the same revision and the same target.** The toolchain observation's
+  `sourceHeadSha` must equal `--source-head-sha` and its `targetArchitecture`
+  must match the card's, so neither is the operator's unchecked word.
+- **kernels for this card.** `sm_XY` must appear in `torchCudaArchList`; a run
+  that fell back to PTX JIT does not qualify the built artefact.
+- **stated identities.** Every toolchain and runtime identity field must be
+  present, non-empty text. Torch and torchvision must carry a local build tag
+  (`+cu124`); a bare `2.6.0` is a different artefact.
+
+`gpuUuidSha256` is a **domain-salted** digest, not a plain SHA-256 of the UUID.
+The single definition lives in `tools/vision/host_gpu_digest.py`; a verifier
+computing a plain SHA-256 would wrongly conclude the evidence was forged.
+
+The output's `variantPatch` is the complete `qualified-development-hardware`
+entry for `platformVariants["windows-x86_64-cuda"]` in
+`src/vision/runtime/mmdetection-phase1-v1/runtime.json` — status,
+`resolvedConfigSha256`, `pythonIdentity`, `binaryVersions` — to which
+`developmentEvidence` from the same file is added. It is machine-generated on
+purpose: ADR-009 requires those identities alongside the evidence block, and
+hand-typing them at the last step would reintroduce exactly the fabrication the
+rest of this tooling prevents. A test validates both against the real consumer
+schema in `mavi_vision.runtime.qualification`.
+
+`evidenceBundleSha256` is recomputable from the delivered file alone: blank that
+field, re-serialise the whole record canonically (`sort_keys`, `,`/`:`
+separators, UTF-8) and hash. It therefore binds the three artefact digests, the
+source revision, the capture time and the operator together.
 
 ### Gate C4
 

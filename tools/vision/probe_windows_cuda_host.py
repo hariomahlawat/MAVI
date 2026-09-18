@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import io
 import json
 import os
@@ -18,13 +17,18 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from host_gpu_digest import gpu_uuid_digest  # noqa: E402
+
 
 SCHEMA_VERSION = "mavi-windows-cuda-host-observation-v2"
-_UUID_HASH_DOMAIN = b"mavi-windows-cuda-host-v2\0"
 _CUDA_VERSION_RE = re.compile(r"CUDA Version:\s*([0-9]+(?:\.[0-9]+)?)")
 _NVIDIA_QUERY_FIELDS = (
     "index",
@@ -115,9 +119,7 @@ def _parse_compute_capability(value: str) -> str:
 
 
 def _uuid_digest(uuid: str) -> str:
-    return hashlib.sha256(
-        _UUID_HASH_DOMAIN + uuid.encode("utf-8")
-    ).hexdigest()
+    return gpu_uuid_digest(uuid)
 
 
 def _parse_gpu_rows(text: str) -> list[dict[str, object]]:

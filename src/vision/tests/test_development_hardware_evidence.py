@@ -12,12 +12,15 @@ on a GPU being present.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
 from pathlib import Path
 
 import pytest
+
+from mavi_vision.runtime import qualification
 
 
 TOOL_PATH = (
@@ -30,7 +33,27 @@ TOOL_PATH = (
 _SOURCE_HEAD_SHA = "426195d4e1b0a9f2c3d4e5f60718293a4b5c6d7e"
 _CAPTURED_AT = "2026-09-18T04:11:52Z"
 _OPERATOR = "mavi-dev-workstation-01"
-_UUID_DIGEST = "cb70319f" + "0" * 56
+_RESOLVED_CONFIG_SHA = (
+    "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
+)
+
+
+def _digest_module():
+    spec = importlib.util.spec_from_file_location(
+        "host_gpu_digest", TOOL_PATH.parent / "host_gpu_digest.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+DIGEST = _digest_module()
+_RAW_UUID = "GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+_UUID_DIGEST = DIGEST.gpu_uuid_digest(_RAW_UUID)
+_OTHER_UUID_DIGEST = DIGEST.gpu_uuid_digest(
+    "GPU-11111111-2222-3333-4444-555555555555"
+)
 
 
 def _load():
@@ -78,6 +101,8 @@ def _toolchain(**overrides) -> dict:
         "cudaToolkitVersion": "12.4",
         "vcToolsVersion": "14.44.35207",
         "windowsSdkVersion": "10.0.26100.0",
+        "sourceHeadSha": _SOURCE_HEAD_SHA,
+        "targetArchitecture": "sm75",
     }
     value.update(overrides)
     return value
@@ -85,13 +110,27 @@ def _toolchain(**overrides) -> dict:
 
 def _runtime(**overrides) -> dict:
     value = {
-        "schemaVersion": "mavi-windows-cuda-runtime-verification-v1",
+        "schemaVersion": "mavi-windows-cuda-runtime-verification-v2",
         "deviceIndex": 0,
         "deviceName": "NVIDIA GeForce RTX 2080 Ti",
         "computeCapability": "7.5",
+        "gpuUuidSha256": _UUID_DIGEST,
+        "driverVersion": "560.94",
+        "pythonIdentity": {
+            "version": "3.12.10",
+            "implementation": "CPython",
+            "build": ["tags/v3.12.10:0cc8128", "Apr  8 2025 12:21:36"],
+            "compiler": "MSC v.1943 64 bit (AMD64)",
+        },
+        "binaryVersions": {
+            "torch": "2.6.0+cu124",
+            "torchvision": "0.21.0+cu124",
+        },
+        "resolvedConfigSha256": _RESOLVED_CONFIG_SHA,
         "torchVersion": "2.6.0+cu124",
         "torchCudaRuntimeVersion": "12.4",
         "torchCudaArchList": ["sm_75"],
+        "totalMemoryBytes": 11264 * 1024 * 1024,
         "mmcvNmsExecutedOnCuda": True,
         "torchMatmulExecutedOnCuda": True,
         "result": "passed",
@@ -146,7 +185,7 @@ def test_complete_evidence_is_accepted_and_scoped_to_development(tmp_path):
     evidence = _build(tmp_path)
 
     assert evidence["schemaVersion"] == (
-        "mavi-windows-cuda-development-evidence-v1"
+        "mavi-windows-cuda-development-evidence-v2"
     )
     assert evidence["developmentEvidence"]["sourceHeadSha"] == _SOURCE_HEAD_SHA
     assert evidence["developmentEvidence"]["capturedAtUtc"] == _CAPTURED_AT
@@ -159,13 +198,96 @@ def test_complete_evidence_is_accepted_and_scoped_to_development(tmp_path):
     assert "may not be promoted to, Production qualification" in evidence["note"]
 
 
+def test_emitted_evidence_block_is_what_the_runtime_profile_consumes(tmp_path):
+    """Producer and consumer must agree, or the operator retypes the record."""
+    evidence = _build(tmp_path)
+
+    validated = qualification._RuntimeDevelopmentHardwareEvidenceSchema.model_validate(
+        evidence["developmentEvidence"]
+    )
+
+    assert validated.source_head_sha == _SOURCE_HEAD_SHA
+    assert validated.operator_reference == _OPERATOR
+
+
+def test_emitted_variant_patch_is_an_acceptable_platform_variant(tmp_path):
+    """The whole `qualified-development-hardware` entry is machine-generated.
+
+    ADR-009 requires a resolved-config, Python and binary identity alongside the
+    evidence block. If the tool did not emit them the operator would hand-type
+    exactly the fields this tool exists to stop anyone inventing.
+    """
+    evidence = _build(tmp_path)
+    variant = dict(evidence["variantPatch"])
+    variant["developmentEvidence"] = evidence["developmentEvidence"]
+
+    validated = qualification._RuntimePlatformVariantSchema.model_validate(variant)
+
+    assert validated.status == "qualified-development-hardware"
+    assert validated.binary_versions.torch == "2.6.0+cu124"
+    assert validated.binary_versions.torchvision == "0.21.0+cu124"
+    assert validated.development_evidence is not None
+
+
+def test_variant_patch_carries_no_continuous_integration_identity(tmp_path):
+    """CI evidence alongside Development evidence is rejected by the consumer."""
+    variant = _build(tmp_path)["variantPatch"]
+
+    assert not {"workflowRunId", "jobId", "evidenceHeadSha"} & set(variant)
+
+
+def test_evidence_bundle_digest_can_be_recomputed_from_the_file_alone(tmp_path):
+    evidence = _build(tmp_path)
+    claimed = evidence["developmentEvidence"]["evidenceBundleSha256"]
+
+    recomputed = json.loads(json.dumps(evidence))
+    recomputed["developmentEvidence"]["evidenceBundleSha256"] = ""
+    digest = hashlib.sha256(
+        json.dumps(recomputed, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    assert digest == claimed
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("operator_reference", "someone-else"),
+        ("captured_at_utc", "2026-09-19T04:11:52Z"),
+    ),
+)
+def test_evidence_bundle_digest_covers_the_whole_record(tmp_path, field, value):
+    """Not only the source artefacts: the assertions travel with them."""
+    second_root = tmp_path / "again"
+    second_root.mkdir()
+
+    baseline = _build(tmp_path)
+    altered = _build(second_root, **{field: value})
+
+    assert (
+        baseline["developmentEvidence"]["evidenceBundleSha256"]
+        != altered["developmentEvidence"]["evidenceBundleSha256"]
+    )
+
+
 def test_raw_gpu_uuid_is_never_carried_into_the_bundle(tmp_path):
+    serialised = json.dumps(_build(tmp_path))
+
+    assert _RAW_UUID not in serialised
+    assert "GPU-" not in serialised
+
+
+def test_unsanitized_host_observation_is_refused(tmp_path):
+    """The digest must name a file that can actually be shown to an auditor."""
     host = _host()
-    host["nvidia"]["gpus"][0]["uuid"] = "GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    host["nvidia"]["gpus"][0]["uuid"] = _RAW_UUID
 
-    serialised = json.dumps(_build(tmp_path, host=host))
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, host=host)
 
-    assert "GPU-aaaaaaaa" not in serialised
+    assert _code(excinfo) == (
+        "development_evidence_host_observation_unsanitized"
+    )
 
 
 def test_build_without_on_device_native_ops_is_refused(tmp_path):
@@ -206,11 +328,107 @@ def test_failed_toolchain_observation_is_refused(tmp_path):
     assert _code(excinfo) == "development_evidence_toolchain_not_passed"
 
 
-def test_gpu_named_differently_by_host_and_run_is_refused(tmp_path):
+def test_run_on_a_card_the_host_never_observed_is_refused(tmp_path):
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
-        _build(tmp_path, runtime=_runtime(deviceName="NVIDIA RTX A4000"))
+        _build(tmp_path, runtime=_runtime(gpuUuidSha256=_OTHER_UUID_DIGEST))
 
     assert _code(excinfo) == "development_evidence_gpu_mismatch"
+
+
+def test_device_name_spelling_does_not_decide_identity(tmp_path):
+    """The two producers may spell one card's marketing name differently.
+
+    gpu_identity.py binds on UUID and carries the name only as a label; this
+    tool must not be stricter, or it refuses valid evidence on the workstation
+    with a code that accuses the operator of running on the wrong card.
+    """
+    host = _host()
+    host["nvidia"]["gpus"][0]["name"] = "NVIDIA  GeForce RTX 2080 Ti"
+
+    evidence = _build(tmp_path, runtime=_runtime(deviceName="GeForce RTX 2080 Ti"))
+
+    assert evidence["corroboration"]["gpuUuidSha256"] == _UUID_DIGEST
+    assert evidence["corroboration"]["gpuName"] == "GeForce RTX 2080 Ti"
+
+
+def test_missing_gpu_identity_digest_on_the_run_is_refused(tmp_path):
+    runtime = _runtime()
+    del runtime["gpuUuidSha256"]
+
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=runtime)
+
+    assert _code(excinfo) == "development_evidence_gpu_identity_missing"
+
+
+def test_memory_disagreement_between_host_and_run_is_refused(tmp_path):
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=_runtime(totalMemoryBytes=24576 * 1024 * 1024))
+
+    assert _code(excinfo) == "development_evidence_gpu_memory_mismatch"
+
+
+def test_small_memory_reporting_difference_is_tolerated(tmp_path):
+    runtime = _runtime(totalMemoryBytes=11264 * 1024 * 1024 - 32 * 1024 * 1024)
+
+    assert _build(tmp_path, runtime=runtime)["corroboration"]["hostGpuCount"] == 1
+
+
+def test_toolchain_built_for_another_architecture_is_refused(tmp_path):
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, toolchain=_toolchain(targetArchitecture="sm86"))
+
+    assert _code(excinfo) == (
+        "development_evidence_toolchain_architecture_mismatch"
+    )
+
+
+def test_toolchain_from_another_source_revision_is_refused(tmp_path):
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, toolchain=_toolchain(sourceHeadSha="f" * 40))
+
+    assert _code(excinfo) == "development_evidence_source_revision_mismatch"
+
+
+@pytest.mark.parametrize(
+    "field", ("vcToolsVersion", "windowsSdkVersion", "cudaToolkitVersion")
+)
+@pytest.mark.parametrize("value", (None, {"evil": ["x"]}, [1, 2], ""))
+def test_unstated_toolchain_identity_is_refused(tmp_path, field, value):
+    """A `passed` status is not licence to emit an identity nobody observed."""
+    toolchain = _toolchain()
+    if value is None:
+        del toolchain[field]
+    else:
+        toolchain[field] = value
+
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, toolchain=toolchain)
+
+    assert _code(excinfo) == "development_evidence_toolchain_identity_missing"
+
+
+@pytest.mark.parametrize("field", ("driverVersion", "torchCudaRuntimeVersion"))
+def test_unstated_runtime_identity_is_refused(tmp_path, field):
+    runtime = _runtime()
+    del runtime[field]
+
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=runtime)
+
+    assert _code(excinfo) == "development_evidence_runtime_identity_missing"
+
+
+@pytest.mark.parametrize("value", (True, False))
+def test_boolean_device_index_is_not_read_as_an_ordinal(tmp_path, value):
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(
+            tmp_path,
+            runtime=_runtime(deviceIndex=value),
+            device_index=int(value),
+        )
+
+    assert _code(excinfo) == "development_evidence_device_index_mismatch"
 
 
 def test_compute_capability_disagreement_is_refused(tmp_path):
@@ -218,6 +436,7 @@ def test_compute_capability_disagreement_is_refused(tmp_path):
         _build(
             tmp_path,
             runtime=_runtime(computeCapability="8.6", torchCudaArchList=["sm_86"]),
+            toolchain=_toolchain(targetArchitecture="sm86"),
         )
 
     assert _code(excinfo) == "development_evidence_gpu_mismatch"
@@ -231,7 +450,7 @@ def test_second_gpu_is_matched_by_identity_not_by_ordinal(tmp_path):
         index=0,
         name="NVIDIA RTX A4000",
         computeCapability="8.6",
-        uuidSha256="a" * 64,
+        uuidSha256=_OTHER_UUID_DIGEST,
         pciBusId="00000000:41:00.0",
     )
     target = dict(host["nvidia"]["gpus"][0])
@@ -246,11 +465,27 @@ def test_second_gpu_is_matched_by_identity_not_by_ordinal(tmp_path):
     assert evidence["corroboration"]["hostGpuCount"] == 2
 
 
-def test_two_indistinguishable_gpus_are_refused_rather_than_guessed(tmp_path):
+def test_two_indistinguishable_gpus_are_matched_by_identity(tmp_path):
+    """Identical cards are no longer ambiguous once identity decides."""
     host = _host()
     twin = dict(host["nvidia"]["gpus"][0])
-    twin.update(index=1, uuidSha256="b" * 64, pciBusId="00000000:41:00.0")
+    twin.update(
+        index=1, uuidSha256=_OTHER_UUID_DIGEST, pciBusId="00000000:41:00.0"
+    )
     host["nvidia"]["gpus"] = [host["nvidia"]["gpus"][0], twin]
+    host["nvidia"]["gpuCount"] = 2
+
+    evidence = _build(tmp_path, host=host)
+
+    assert evidence["corroboration"]["gpuUuidSha256"] == _UUID_DIGEST
+
+
+def test_one_card_appearing_twice_in_its_own_inventory_is_refused(tmp_path):
+    host = _host()
+    host["nvidia"]["gpus"] = [
+        host["nvidia"]["gpus"][0],
+        dict(host["nvidia"]["gpus"][0], index=1),
+    ]
     host["nvidia"]["gpuCount"] = 2
 
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
@@ -276,24 +511,56 @@ def test_architecture_absent_from_the_torch_build_is_refused(tmp_path):
     )
 
 
-def test_missing_gpu_identity_digest_is_refused(tmp_path):
+@pytest.mark.parametrize("value", (None, "not-a-digest", 17))
+def test_host_entry_without_a_usable_identity_digest_is_refused(tmp_path, value):
     host = _host()
-    del host["nvidia"]["gpus"][0]["uuidSha256"]
+    if value is None:
+        del host["nvidia"]["gpus"][0]["uuidSha256"]
+    else:
+        host["nvidia"]["gpus"][0]["uuidSha256"] = value
 
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
         _build(tmp_path, host=host)
 
-    assert _code(excinfo) == "development_evidence_gpu_identity_missing"
+    assert _code(excinfo) == "development_evidence_gpu_mismatch"
 
 
-def test_malformed_gpu_identity_digest_is_refused(tmp_path):
-    host = _host()
-    host["nvidia"]["gpus"][0]["uuidSha256"] = "not-a-digest"
+@pytest.mark.parametrize("value", (None, "2.6.0", {"torch": "x"}))
+def test_torch_without_an_accelerator_build_identity_is_refused(tmp_path, value):
+    """A bare 2.6.0 is a different artefact from 2.6.0+cu124."""
+    runtime = _runtime()
+    if value is None:
+        del runtime["binaryVersions"]["torch"]
+    else:
+        runtime["binaryVersions"]["torch"] = value
 
     with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
-        _build(tmp_path, host=host)
+        _build(tmp_path, runtime=runtime)
 
-    assert _code(excinfo) == "development_evidence_gpu_identity_missing"
+    assert _code(excinfo).startswith("development_evidence_binary_")
+
+
+@pytest.mark.parametrize(
+    "field", ("version", "implementation", "build", "compiler")
+)
+def test_incomplete_python_identity_is_refused(tmp_path, field):
+    runtime = _runtime()
+    del runtime["pythonIdentity"][field]
+
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=runtime)
+
+    assert _code(excinfo) == "development_evidence_python_identity_missing"
+
+
+def test_missing_resolved_config_digest_is_refused(tmp_path):
+    runtime = _runtime()
+    del runtime["resolvedConfigSha256"]
+
+    with pytest.raises(MODULE.DevelopmentEvidenceError) as excinfo:
+        _build(tmp_path, runtime=runtime)
+
+    assert _code(excinfo) == "development_evidence_resolved_config_missing"
 
 
 def test_host_observation_without_gpus_is_refused(tmp_path):
@@ -311,7 +578,7 @@ def test_host_observation_without_gpus_is_refused(tmp_path):
     (
         ("host", "mavi-windows-cuda-host-observation-v1", "host_observation"),
         ("toolchain", "mavi-windows-cuda-toolchain-observation-v2", "toolchain"),
-        ("runtime", "mavi-windows-cuda-runtime-verification-v2", "runtime"),
+        ("runtime", "mavi-windows-cuda-runtime-verification-v1", "runtime"),
     ),
 )
 def test_wrong_artefact_schema_version_is_refused(
