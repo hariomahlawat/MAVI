@@ -56,6 +56,18 @@ function Test-CudaRuntimeUsable {
         if ([string]$manifestValue.platformVariant -ne "windows-x86_64-cuda") {
             return $false
         }
+        $componentPath = Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json"
+        if (-not (Test-Path -LiteralPath $componentPath -PathType Leaf)) {
+            return $false
+        }
+        $componentValue = Get-Content -LiteralPath $componentPath -Raw | ConvertFrom-Json
+        $cudaRequirement = $componentValue.runtimePacks.PSObject.Properties["windows-x86_64-cuda"]
+        if (-not $cudaRequirement) {
+            return $false
+        }
+        if ([string]$cudaRequirement.Value.runtimePackId -ne [string]$manifestValue.runtimePackId) {
+            return $false
+        }
         $probe = (& $pythonPath -c "import torch; print('1' if torch.cuda.is_available() and torch.cuda.device_count() > $DeviceIndex else '0')" 2>$null | Out-String).Trim()
         return ($LASTEXITCODE -eq 0 -and $probe -eq "1")
     }
