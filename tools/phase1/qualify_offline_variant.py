@@ -62,8 +62,9 @@ def verify_bundle(bundle: Path) -> tuple[dict[str, Any], str]:
     manifest_path = bundle / "bundle-manifest.json"
     manifest = read_json(manifest_path)
     try:
-        build_offline_bundle._verify_bundled_release_selection(
-            bundle, manifest.get("releaseStatus")
+        build_offline_bundle.verify_bundled_release_manifest(
+            bundle,
+            manifest,
         )
     except Exception as exc:
         raise VariantQualificationError("variant_bundle_release_invalid") from exc
