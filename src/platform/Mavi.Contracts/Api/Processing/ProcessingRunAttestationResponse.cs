@@ -24,6 +24,7 @@ public sealed record ProcessingRunAttestationResponse(
     string MaviCommit,
     string ConfiguredDevicePolicy,
     int ConfiguredDeviceIndex,
+    string? DeviceResolutionReason,
     string ActualDevice,
     ProcessingRunPlatformAttestationResponse Platform,
     ProcessingRunGpuAttestationResponse? Gpu,
@@ -52,4 +53,7 @@ public sealed record ProcessingRunGpuAttestationResponse(
     int Index,
     long VramBytes,
     string DriverVersion,
-    string CudaRuntimeVersion);
+    string CudaRuntimeVersion,
+    string Uuid,
+    string PciBusId,
+    string ComputeCapability);
