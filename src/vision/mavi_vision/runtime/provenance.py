@@ -495,7 +495,6 @@ def build_runtime_provenance(
     _validate_device_relationship(
         configured_device_policy=configured_device_policy,
         configured_device_index=configured_device_index,
-        device_resolution_reason=device_resolution_reason,
         actual_device=runtime_metadata.device,
         gpu=gpu,
         production_mode=production_mode,
