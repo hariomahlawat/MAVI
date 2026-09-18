@@ -3,6 +3,7 @@ name: Vision Model Pack
 on:
   push:
     branches:
+      - main
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'tools/vision/build_model_pack.py'
@@ -13,6 +14,7 @@ on:
       - '.github/workflows/vision-model-pack.yml'
   pull_request:
     branches:
+      - main
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'tools/vision/build_model_pack.py'
