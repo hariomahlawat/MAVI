@@ -38,6 +38,7 @@ public sealed record VisionRuntimeProvenanceContract(
     VisionPlatformIdentityContract? Platform,
     string? ConfiguredDevicePolicy,
     [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? ConfiguredDeviceIndex,
+    string? DeviceResolutionReason,
     string? ActualDevice,
     VisionGpuIdentityContract? Gpu,
     string? MaviBuild,
