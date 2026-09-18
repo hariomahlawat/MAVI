@@ -84,22 +84,22 @@ Create a machine-readable readiness record containing at least:
 
 **Exit criterion:** every behavior-bearing component used by the candidate is uniquely identifiable.
 
-## Task 1.2 — Freeze the intended Production topology
+## Task 1.2 — Freeze the intended Production topology — COMPLETE
 
-Document the actual intended Phase-1 deployment, including:
+ADR-008 now controls Phase-1 Production topology:
 
-- [ ] Windows operational host role and supported OS/IIS/.NET baseline;
-- [ ] PostgreSQL/pgvector ownership and topology;
-- [ ] Vision worker host role;
-- [ ] CPU execution requirement;
-- [ ] GPU/CUDA execution requirement or explicit approved deferral;
-- [ ] managed-media root;
-- [ ] accepted-evidence root;
-- [ ] service identities/permissions relevant to qualification;
-- [ ] network-isolation boundary;
-- [ ] backup/restore target topology.
+- [x] Host A Windows operational role: IIS / ASP.NET Core / React + application-local FFmpeg.
+- [x] Host A data role: MAVI-owned PostgreSQL 18 + pgvector, logically distinct but canonically co-located for Phase 1.
+- [x] Host B Vision role: separate Linux x86_64 NVIDIA worker.
+- [x] Production Vision execution target: CUDA; no silent CPU fallback in final acceptance.
+- [x] CPU runtime evidence retained as subsystem/variant evidence, not final Production-worker proof.
+- [x] managed-media and accepted-evidence stores remain MAVI-owned and separately identified.
+- [x] controlled disconnected LAN boundary; no runtime Internet dependency.
+- [x] backup/restore must restore to a distinct clean target/topology.
 
-Do not inherit the old Windows/Linux split without confirming it remains the deployment requirement.
+Exact OS/IIS/.NET/PostgreSQL/pgvector/Linux/NVIDIA/CUDA versions remain Task 1.4 prerequisite-freeze work, not topology design.
+
+Authority: `docs/decisions/ADR-008-phase1-production-topology.md`.
 
 ## Task 1.3 — Approve acceptance inputs before observing final outcomes
 
@@ -152,7 +152,7 @@ No “best available prior build” may be invented during acceptance.
 - [x] READY / BLOCKED assessment completed against current repository state.
 - [x] Authoritative qualification explicitly withheld while mandatory blockers remain.
 
-Current result: **BLOCKED**. The unresolved mandatory items are Production topology, GPU scope, acceptance corpus/thresholds, Production prerequisite approval, supported-update artifact/scope, final application artifact, Offline Binary Kit identity and final candidate freeze.
+Current result: **BLOCKED**. Production topology and GPU scope are now resolved by ADR-008. Remaining mandatory blockers are CUDA qualification evidence, acceptance corpus/thresholds, Production prerequisite approval, supported-update artifact/scope, final application artifact, Offline Binary Kit identity and final candidate freeze.
 
 **Readiness exit criterion:** all mandatory items are READY. A BLOCKED mandatory item prevents authoritative evidence capture.
 
@@ -427,6 +427,6 @@ Do **not** start with CUDA runs, CCTV metrics or final release promotion.
 
 The immediate next action after this plan is accepted is:
 
-> **Resolve readiness actions R1–R5 in `docs/qualification/2026-09-18-task-18-readiness-pack.md`: approve Production topology, resolve GPU scope, freeze acceptance policy, approve Production prerequisites, and resolve supported-update scope/artifact.**
+> **Resolve readiness actions R3–R5 in `docs/qualification/2026-09-18-task-18-readiness-pack.md`: freeze acceptance policy, approve exact Production prerequisites from the approved topology, and resolve supported-update scope/artifact.**
 
 Only after R1–R5 are resolved should the final application artifact, Offline Binary Kit and Production setup bundle be frozen and authoritative qualification begin. This sequencing prevents expensive runs against an unfrozen policy, topology or artifact identity.
