@@ -59,5 +59,6 @@
     "compilerRequiredAtRuntime": false,
     "inductorEnabled": false,
     "explicitCudaMayFallbackToCpu": false
-  }
+  },
+  "statusNote": "status is a human-readable phase label and is never proof of anything. The authoritative machine-checked proof is toolchain.verificationStatus together with the frozen toolchain identities, which tools/verify_repo.py validates by shape and cross-checks against the offline catalogue."
 }

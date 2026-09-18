@@ -315,3 +315,100 @@ def test_verified_toolchain_does_not_imply_any_cuda_qualification() -> None:
         == "pending-hardware-qualification"
     )
     assert runtime["qualificationStatus"] == "partial"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["TODO", "n/a", "N/A", "FIXME", "???", "xxx", "placeholder", "none", "-", "0", "14.44"],
+)
+def test_a_non_version_identity_is_not_a_frozen_toolchain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    """Identities are validated by shape, not by a list of known placeholders."""
+    _stage(
+        tmp_path,
+        contract_toolchain={**_FROZEN_CONTRACT, "msvcToolset": value},
+        catalog_toolchain={**_FROZEN_CATALOG, "msvcToolset": value},
+        with_lock=True,
+    )
+
+    errors = _run(tmp_path, monkeypatch)
+
+    assert any("claims a verified toolchain" in item for item in errors)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("cudaToolkitVersion", "12"),
+        ("cudaToolkitVersion", "12.4.1"),
+        ("windowsSdkVersion", "10.0.26100"),
+        ("msvcToolset", "14.44"),
+    ],
+)
+def test_malformed_version_identities_are_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: str,
+) -> None:
+    _stage(
+        tmp_path,
+        contract_toolchain={**_FROZEN_CONTRACT, field: value},
+        catalog_toolchain=_FROZEN_CATALOG,
+        with_lock=False,
+    )
+
+    errors = _run(tmp_path, monkeypatch)
+
+    assert any("claims a verified toolchain" in item for item in errors)
+
+
+def test_verified_contract_requires_the_catalogue_identity_even_without_a_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The catalogue may not quietly lack an identity the contract asserts."""
+    _stage(
+        tmp_path,
+        contract_toolchain=_FROZEN_CONTRACT,
+        catalog_toolchain={"policyId": "msvc-cuda-build-toolchain-win-x64"},
+        with_lock=False,
+    )
+
+    errors = _run(tmp_path, monkeypatch)
+
+    assert any(
+        "catalogue does not carry the frozen toolchain identity" in item
+        for item in errors
+    )
+
+
+def test_descriptive_top_level_status_is_never_proof_of_verification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`status` is descriptive. Only the frozen toolchain identity is proof.
+
+    A contract whose top-level status reads as verified while its toolchain is
+    still pending must not permit a CUDA lock.
+    """
+    _stage(
+        tmp_path,
+        contract_toolchain={
+            "cudaToolkitVersion": "12.4",
+            "verificationStatus": "pending-r1-preflight",
+        },
+        catalog_toolchain=_FROZEN_CATALOG,
+        with_lock=True,
+    )
+    contract_path = tmp_path / CONTRACT_RELATIVE
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["status"] = "r1-toolchain-verified-pre-c2"
+    _write(contract_path, contract)
+
+    errors = _run(tmp_path, monkeypatch)
+
+    assert any("Windows CUDA lock cannot be committed" in item for item in errors)

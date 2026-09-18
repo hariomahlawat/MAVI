@@ -102,7 +102,7 @@ A change to semantic versions requires an explicit compatibility review rather t
 - observed host driver 576.83;
 - observed development GPU GTX 1650 Ti / 4096 MiB.
 
-The final MSVC/Windows SDK native ABI identity remains intentionally unfrozen until C2 observes the actual native build/validation toolchain.
+At C1 the final MSVC/Windows SDK native ABI identity was intentionally left unfrozen. It has since been frozen empirically by R1 (CUDA 12.4 + MSVC 14.44.35207 + Windows SDK 10.0.26100.0) — see the R1 record below.
 
 ## Phase C1R — external review remediation — COMPLETE AND MERGED
 
@@ -142,12 +142,13 @@ ADR-009 governs Development-vs-Production qualification separation.
 
 ### C1R remaining external observations
 
-The following cannot be truthfully frozen from repository code alone and remain required before C2:
+These could not be frozen from repository code alone. Items 1-3 have since been
+collected by R1 and are recorded below; item 4 remains outstanding.
 
-1. **R1 toolchain preflight:** CUDA Toolkit 12.4 must compile a trivial `.cu` file with the selected MSVC toolset/Windows SDK. The repository must not assume 14.39 or retain 14.44 without this proof.
-2. **Real v2 host observation:** rerun the host probe so compute capability, PCI identity and memory availability are directly observed rather than inferred from the GPU model.
-3. **Torch cu124 wheel inspection:** confirm Windows wheel metadata/dependency markers and enumerate/hash the CUDA DLL inventory.
-4. **MMCV reproducibility experiment:** build the CUDA MMCV wheel twice from a clean controlled build environment before C3; if byte reproducibility is not achievable, an ADR must define a controlled hash-pinned binary-input model.
+1. ~~**R1 toolchain preflight**~~ — **COLLECTED**. CUDA 12.4 compiled with MSVC 14.44.35207 and Windows SDK 10.0.26100.0. 14.44 was retained on proof, not assumption, and 14.39 proved unnecessary.
+2. ~~**Real v2 host observation**~~ — **COLLECTED**. Compute capability, PCI identity and memory availability directly observed.
+3. ~~**Torch cu124 wheel inspection**~~ — **COLLECTED**. Windows wheel metadata, dependency markers and CUDA DLL inventory confirmed.
+4. **MMCV reproducibility experiment:** build the CUDA MMCV wheel twice from a clean controlled build environment before C3; if byte reproducibility is not achievable, an ADR must define a controlled hash-pinned binary-input model. **Still outstanding — a C2/C3 activity.**
 
 ### Gate C1R — repository side — PASSED AND MERGED
 
@@ -155,7 +156,7 @@ The following cannot be truthfully frozen from repository code alone and remain 
 - Windows CPU lock, `runtime.json` and the component declaration byte-identical to `main`;
 - no `windows-x86_64-cuda.lock`, Runtime Pack or CUDA component requirement introduced;
 - no runtime variant promoted; `windows-x86_64-cuda` remains `pending-hardware-qualification`;
-- the build contract remains fail-closed at `pending-r1-preflight`.
+- the build contract was, at that merge, fail-closed at `pending-r1-preflight` (R1 has since verified and frozen it).
 
 Merging this foundation is **not** a CUDA qualification of any kind.
 
@@ -236,6 +237,30 @@ longer refuses a Windows CUDA lock. Nothing else opened: no lock, Runtime Pack
 or wheelhouse exists, `windows-x86_64-cuda` remains
 `pending-hardware-qualification` and the runtime profile remains `partial`.
 **C2 has not started and requires independent review of this evidence first.**
+
+### Pre-C2 independent review — corrections to the lock gate
+
+An independent cold review of the frozen state audited `tools/verify_repo.py`
+against the negative cases the gate exists to stop, and found two fail-opens in
+the freeze logic itself.
+
+- `_frozen_toolchain_value` was a deny-list over the placeholder words
+  `pending`, `tbd` and `unknown`. Values such as `TODO`, `n/a`, `FIXME`, `-` or
+  `0` therefore counted as frozen identities and, with a matching catalogue,
+  would have admitted a Windows CUDA lock. Identities are now validated by
+  shape — `\d+\.\d+` for the CUDA Toolkit, `\d+\.\d+\.\d+` for the MSVC
+  toolset, `\d+\.\d+\.\d+\.\d+` for the Windows SDK — so anything that is
+  not a version of the expected form fails closed.
+- the contract/catalogue agreement check was skipped when the catalogue's
+  `buildToolchain` was absent entirely, so a verified contract could coexist
+  with a catalogue carrying no identity at all. A verified contract now
+  requires the catalogue identity whether or not a lock exists.
+
+The contract's top-level `status` was reviewed and is **descriptive only**. The
+authoritative proof is `toolchain.verificationStatus` plus the frozen
+identities; a test pins that a verified-looking `status` over a pending
+toolchain still refuses a lock, and the contract carries a `statusNote` saying
+so. No state machine was introduced around `status`.
 
 ### R1 attempt 1 — 2026-09-18 — NOT EXECUTED (no controlled build host reachable)
 
@@ -318,6 +343,8 @@ leaves an artefact behind. The default evidence filename is gitignored
 alongside the host observation, because the record contains build-host paths.
 
 ### R1 execution procedure — for the controlled Windows build host
+
+**Executed 2026-09-18; it passed at step 4 on the first toolset tried.** Retained as the reproducible procedure for any future host or toolchain revision, not as outstanding work.
 
 Run on the Windows CUDA machine, from the repository root, recording all output:
 
