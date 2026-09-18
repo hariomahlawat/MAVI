@@ -170,6 +170,48 @@ def serialize_offline_runtime_lock(lock: OfflineRuntimeLock) -> bytes:
     return ("\n".join(rows) + "\n").encode("utf-8")
 
 
+def validate_accelerator_distribution_versions(
+    lock: OfflineRuntimeLock,
+    *,
+    expected_variant: str,
+) -> None:
+    by_name = {item.name: item for item in lock.distributions}
+    accelerator_packages = ("torch", "torchvision")
+    for name in accelerator_packages:
+        item = by_name.get(name)
+        if item is None:
+            continue
+        try:
+            version = Version(item.version)
+        except InvalidVersion as exc:
+            raise OfflineLockError(
+                "offline_lock_requirement_invalid"
+            ) from exc
+        local = version.local
+        if expected_variant.endswith("-cuda"):
+            if local is None or re.fullmatch(
+                r"cu\d+",
+                local,
+            ) is None:
+                raise OfflineLockError(
+                    "offline_lock_cuda_binary_build_required"
+                )
+        elif expected_variant.endswith("-cpu"):
+            if local != "cpu":
+                raise OfflineLockError(
+                    "offline_lock_cpu_binary_build_required"
+                )
+
+
+def _semantic_public_version(value: str) -> str:
+    try:
+        return Version(value).public
+    except InvalidVersion as exc:
+        raise OfflineLockError(
+            "offline_lock_semantic_version_invalid"
+        ) from exc
+
+
 def validate_offline_runtime_lock_for_runtime(
     lock: OfflineRuntimeLock,
     *,
@@ -184,6 +226,11 @@ def validate_offline_runtime_lock_for_runtime(
         raise OfflineLockError("offline_lock_variant_mismatch")
     if lock.python_version != expected_python_version:
         raise OfflineLockError("offline_lock_python_version_mismatch")
+
+    validate_accelerator_distribution_versions(
+        lock,
+        expected_variant=expected_variant,
+    )
 
     if platform_status is not None:
         allowed_status = (
@@ -219,7 +266,16 @@ def validate_offline_runtime_lock_for_runtime(
         item = by_name.get(name)
         if item is None:
             raise OfflineLockError("offline_lock_semantic_distribution_missing")
-        if name in {"torch", "torchvision"} and binary_versions is not None:
+        if name in {"torch", "torchvision"}:
+            if binary_versions is not None:
+                continue
+            if (
+                _semantic_public_version(item.version)
+                != _semantic_public_version(expected_version)
+            ):
+                raise OfflineLockError(
+                    "offline_lock_semantic_version_mismatch"
+                )
             continue
         if item.version != expected_version:
             raise OfflineLockError("offline_lock_semantic_version_mismatch")
@@ -382,5 +438,6 @@ __all__ = [
     "load_offline_runtime_lock",
     "parse_offline_runtime_lock",
     "serialize_offline_runtime_lock",
+    "validate_accelerator_distribution_versions",
     "validate_offline_runtime_lock_for_runtime",
 ]
