@@ -1,0 +1,139 @@
+{
+  "schemaVersion": "mavi-task18-qualification-readiness-v1",
+  "generatedForPlanningBaseline": "557d5ccc356ae39766d95eec93ce0fdf49fdef31",
+  "planningPullRequest": 45,
+  "overallStatus": "BLOCKED",
+  "authoritativeQualificationAuthorized": false,
+  "componentSelection": {
+    "runtimeProfileId": "mmdetection-phase1-v1",
+    "windowsCpuRuntimePackId": "mavi-runtime-v2-5d6229da58554bc951ddc8bd719574c1b33109a7916afdf717339d8847e39e61",
+    "linuxCpuRuntimePackId": "mavi-runtime-v2-bd94fded938183dce8dc50390d48e97d913d9dad9dc98b528a962ad32314ff61",
+    "modelPackId": "mavi-model-v1-2abf67800cec8a9c63d735bf50e44ac695e8b8ccf01397e2cfd884305a5638b4",
+    "checkpointSha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
+    "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
+  },
+  "readiness": [
+    {
+      "id": "planning-baseline",
+      "status": "READY",
+      "mandatory": true,
+      "detail": "Task 18 re-baselined to current integration history."
+    },
+    {
+      "id": "component-architecture",
+      "status": "READY",
+      "mandatory": true,
+      "detail": "Runtime Pack, Model Pack and Application Overlay boundaries are merged and reviewed."
+    },
+    {
+      "id": "windows-cpu-subsystem-evidence",
+      "status": "READY",
+      "mandatory": false,
+      "detail": "Inherited PR #44 Development functional evidence; not final Production acceptance."
+    },
+    {
+      "id": "application-artifact-freeze",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Final Task-18 application artifact and manifest are not yet frozen."
+    },
+    {
+      "id": "offline-binary-kit-freeze",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "External Offline Binary Kit manifest SHA-256 not yet captured for Task 18."
+    },
+    {
+      "id": "production-topology",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Actual intended Phase-1 production topology requires explicit approval."
+    },
+    {
+      "id": "acceptance-corpus",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "qualificationCorpusManifestSha256 is null."
+    },
+    {
+      "id": "person-threshold",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Person class threshold is null."
+    },
+    {
+      "id": "vehicle-threshold",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Vehicle class threshold is null."
+    },
+    {
+      "id": "empty-scene-threshold",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Empty-scene unmatched-track threshold is null."
+    },
+    {
+      "id": "performance-gate",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Performance thresholds are null; approve thresholds or formally defer the gate."
+    },
+    {
+      "id": "production-prerequisites",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Production prerequisite policy approvalStatus is pending."
+    },
+    {
+      "id": "supported-update",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Prior release applicationManifestSha256 is null; freeze prior artifact or formally defer update proof."
+    },
+    {
+      "id": "gpu-scope",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "CUDA gates are pending; approve GPU requirement or explicit Phase-1 deferral."
+    },
+    {
+      "id": "clean-production-install",
+      "status": "NOT_STARTED",
+      "mandatory": true,
+      "detail": "Must run after readiness becomes READY."
+    },
+    {
+      "id": "production-e2e",
+      "status": "NOT_STARTED",
+      "mandatory": true,
+      "detail": "Must run against exact frozen Production candidate."
+    },
+    {
+      "id": "failure-reprocess",
+      "status": "NOT_STARTED",
+      "mandatory": true,
+      "detail": "Must run in qualified Production topology."
+    },
+    {
+      "id": "backup-clean-restore",
+      "status": "NOT_STARTED",
+      "mandatory": true,
+      "detail": "Must run after a successful formal Production case."
+    },
+    {
+      "id": "release-promotion",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Promotion is prohibited until all mandatory evidence is independently valid."
+    }
+  ],
+  "nextActions": [
+    "Approve intended Phase-1 Production topology.",
+    "Resolve CPU/GPU Phase-1 scope.",
+    "Freeze acceptance corpus and thresholds before final evaluation.",
+    "Approve exact Production prerequisite versions from intended acceptance hosts.",
+    "Freeze exact supported prior release artifact or formally defer update proof.",
+    "Then freeze application artifact and Offline Binary Kit and establish exact-head qualification candidate."
+  ]
+}
