@@ -173,6 +173,80 @@ Until the build contract leaves `pending-r1-preflight`, `tools/verify_repo.py`
 refuses any Windows CUDA lock. That refusal is the intended behaviour, not an
 obstacle to work around.
 
+### R1 attempt 1 — 2026-09-18 — NOT EXECUTED (no controlled build host reachable)
+
+R1 was attempted from the hosted engineering session at
+`feature/windows-cuda-pre-c2`. None of the three evidence items could be
+collected, because that session is not the controlled Windows CUDA host and
+cannot reach the PyTorch CUDA index:
+
+| Evidence item | Requirement | Observed | Result |
+| --- | --- | --- | --- |
+| Toolchain preflight | Windows + CUDA Toolkit 12.4 + MSVC | `platform.system()` = `Linux`; `nvcc`, `cl.exe`, `vswhere.exe` all absent | not executed |
+| Fresh v2 host observation | the NVIDIA GPU machine | `nvidia-smi` absent; no `/dev/nvidia*` | not executed |
+| Torch cu124 wheel inspection | `download.pytorch.org` | `403` CONNECT, recorded by the session proxy as a policy denial | not executed |
+
+No substitute was used. In particular the wheel was **not** fetched from PyPI:
+`torch==2.6.0` there is a different artefact from `2.6.0+cu124` on the cu124
+index, so inspecting it would answer a different question while appearing to
+satisfy this gate.
+
+**R1 therefore remains open. No toolchain has been proven, and the build
+contract stays at `pending-r1-preflight`.** Nothing in the contract or the
+offline catalogue was changed.
+
+### R1 preflight tooling — corrected before first use
+
+Reviewing `tools/vision/verify_windows_cuda_toolchain.py` before trusting its
+result found it untested and carrying four defects that would have corrupted
+the R1 decision. All four are fixed with focused tests
+(`src/vision/tests/test_windows_cuda_toolchain_preflight.py`):
+
+- compile failures were a single opaque code, so an environment problem could
+  have been read as a host-compiler rejection — the one failure that justifies
+  changing toolset. Failures are now classified, and a missing `nvcc` is
+  distinguished from a missing host compiler;
+- the probe architecture was hardcoded to `sm_75` rather than derived from the
+  contract, so it could have proven a target other than the one being frozen;
+- the required build environment was read from the contract and then ignored in
+  favour of a hardcoded copy, with the same consequence;
+- the observation named neither the revision it was collected against nor when,
+  so it could not be bound to a tree.
+
+Behaviour against the current contract is unchanged, and
+`--allow-unsupported-compiler` remains absent and is asserted absent by test.
+
+### R1 execution procedure — for the controlled Windows build host
+
+Run on the Windows CUDA machine, from the repository root, recording all output:
+
+1. Observe, before changing anything: `ver`; `wmic os get caption,version,osarchitecture`;
+   `nvcc --version`; `nvidia-smi`; and
+   `"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -products * -format json`
+   to enumerate installed MSVC toolsets and Windows SDKs. Record exact
+   `VCToolsVersion` values. Note that the CUDA level `nvidia-smi` reports is the
+   driver's maximum, not the installed Toolkit version `nvcc` reports.
+2. Open a developer shell for the **preferred/currently available** toolset
+   first — do not pre-select 14.39 because this plan mentions it:
+   `vcvarsall.bat x64 -vcvars_ver=14.44 -winsdk=<observed SDK>`.
+3. Set `MMCV_WITH_OPS=1`, `FORCE_CUDA=1`, `TORCH_CUDA_ARCH_LIST=7.5+PTX`.
+4. `python tools/vision/verify_windows_cuda_toolchain.py --output <evidence>.json`.
+5. On failure, read the emitted code before acting. Only
+   `cuda_toolchain_host_compiler_unsupported` justifies trying another toolset;
+   `cuda_toolchain_host_compiler_not_found`, `cuda_toolchain_headers_unavailable`
+   and `cuda_toolchain_nvcc_not_found` are environment problems to fix in place.
+6. Only if 14.44 is genuinely rejected, and 14.39 is already installed, repeat
+   from step 2 with `-vcvars_ver=14.39`. If 14.39 is not installed, report the
+   exact component required and why before altering the machine.
+7. Never `--allow-unsupported-compiler`. A forced compile is not a qualified
+   toolchain.
+
+Then run `python tools/vision/probe_windows_cuda_host.py --output
+windows-cuda-host-observation.json` (gitignored; keep the raw UUID local, record
+its SHA-256), and inspect the real wheel with
+`tools/vision/inspect_windows_cuda_torch_wheel.py --wheel <wheel>`, acquiring it
+only from `https://download.pytorch.org/whl/cu124` and never from PyPI.
+
 ## Phase C2 — reproducible Windows CUDA wheelhouse and lock
 
 Build the CUDA wheelhouse as a separate closure.
