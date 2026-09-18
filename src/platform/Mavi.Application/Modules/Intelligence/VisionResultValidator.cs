@@ -289,6 +289,7 @@ public sealed class VisionResultValidator
 
         Add(provenance.ConfiguredDevicePolicy!);
         AddNumber(provenance.ConfiguredDeviceIndex!.Value);
+        AddNullable(provenance.DeviceResolutionReason);
         Add(provenance.ActualDevice!);
         Span<byte> gpuMarker = stackalloc byte[1];
         gpuMarker[0] = provenance.Gpu is null ? (byte)0 : (byte)1;
@@ -300,6 +301,9 @@ public sealed class VisionResultValidator
             AddNumber(provenance.Gpu.VramBytes!.Value);
             Add(provenance.Gpu.DriverVersion!);
             Add(provenance.Gpu.CudaRuntimeVersion!);
+            Add(provenance.Gpu.Uuid!);
+            Add(provenance.Gpu.PciBusId!);
+            Add(provenance.Gpu.ComputeCapability!);
         }
 
         Add(provenance.MaviBuild!);
