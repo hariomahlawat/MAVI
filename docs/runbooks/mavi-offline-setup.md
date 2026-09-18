@@ -216,6 +216,18 @@ Restart Visual Studio once after first setup so it inherits the machine-scoped D
 
 For a repository-based Development workstation, keep the extracted `MAVI-Offline-Binary-Kit` beside the `MAVI` repository and double-click `Setup-MAVI-Development.cmd`. The launcher auto-detects and verifies the sibling kit. Loose `vendor/...` staging is accepted only as release-preparation input to the kit builder; target Development Setup deliberately refuses it. No port, database, pgvector or FFmpeg PATH configuration is required.
 
+## Production deployment profiles
+
+ADR-008 defines three Production profiles over the same application architecture:
+
+- **P1 — Single-host Windows GPU:** IIS/API/UI + MAVI PostgreSQL/pgvector + Windows CUDA Vision worker on one capable Windows NVIDIA machine.
+- **P2 — Split-host Windows + Linux GPU:** Windows operational/data host plus a separate Linux NVIDIA Vision worker.
+- **P3 — Single-host Windows CPU:** complete stack on one Windows machine using the qualified Windows CPU Runtime Pack.
+
+The offline setup media for the Windows operational/data plane remains common. Vision Runtime/Model media are profile-specific.
+
+A profile is supported only after its exact Production qualification passes. The presence of a GPU on a machine does not by itself authorize CUDA execution; the corresponding Runtime Pack/device combination must be qualified.
+
 ## Production workstation
 
 Double-click:
@@ -264,4 +276,4 @@ Plan-only does not generate credentials, create folders, register services, or i
 
 Setup prepares the target. It does **not** declare a release qualified.
 
-After setup, the existing Task-17/Phase-1 disconnected lifecycle, production prerequisite, CPU/CUDA, quality/performance, backup/restore and final production acceptance evidence must still be executed against the exact frozen release as defined in docs/runbooks/phase1-acceptance.md.
+After setup, profile-specific disconnected lifecycle, production prerequisite, device/runtime, quality/performance, backup/restore and final production acceptance evidence must still be executed against the exact frozen release as defined in `docs/runbooks/phase1-acceptance.md`. Current acceptance tooling still contains legacy four-variant/Linux-CUDA assumptions and must be reconciled with ADR-008 before authoritative Task-18 qualification.
