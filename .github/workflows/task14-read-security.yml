@@ -3,6 +3,7 @@ name: Task 14 Read Security
 on:
   pull_request:
     branches:
+      - main
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'src/platform/Mavi.Infrastructure/Storage/AcceptedEvidenceReader.cs'
@@ -15,6 +16,7 @@ on:
       - 'docs/superpowers/plans/2026-09-13-task-14-track-search-evidence-apis.md'
   push:
     branches:
+      - main
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'src/platform/Mavi.Infrastructure/Storage/AcceptedEvidenceReader.cs'
