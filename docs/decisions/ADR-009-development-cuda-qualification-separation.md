@@ -84,12 +84,34 @@ When runtime metadata changes to record Development CUDA evidence:
 4. later P1 qualification must generate new Production evidence and promote the CUDA state separately to `qualified-hardware`;
 5. **the Production offline bundle's identity changes.** `verify_runtime_release_locks` returns every lock whose status is `qualified-offline-lock`, unfiltered by deployment profile, and `build_offline_bundle` both ships all of them and folds all of them into `qualifiedReleaseLocks` in the bundle ID. The moment the Windows CUDA Development lock is frozen, it is copied into the Linux P2 and Windows P3 Production bundles and every Production bundle ID changes.
 
-   This ADR does not decide which way that is resolved. Before the CUDA lock is frozen, one of the two must be chosen deliberately:
+   **Decided: accepted, and it does not block C3.** A Development lock participates in Production bundle identity, and Production acceptance evidence is reissued when Production qualification is undertaken. The bundled locks are not filtered, so a bundle remains a complete record of the runtime profile it was built from.
 
-   - **filter** the bundled locks to the variants the selected deployment profile requires, which keeps Production bundle identity independent of Development work but makes a bundle no longer a complete record of the runtime profile it was built from; or
-   - **accept** that a Development lock participates in Production bundle identity, in which case Production acceptance evidence must be reissued when it is frozen.
+   C3 stays Development-only. What C3 must do instead is bind Development artefacts strongly: to the frozen lock, the Runtime Pack manifest, the Python identity, the Torch and torchvision identities, the MMCV/native ABI identity, the build toolchain identity, and the model, config and checkpoint identities where relevant. Production qualification remains a separate later fail-closed gate that this coupling does not weaken, because Development evidence can never satisfy it.
 
-   Today's behaviour is the second, and is pinned by `test_every_qualified_lock_enters_the_bundle_identity_of_every_variant` so it cannot change silently.
+   Today's behaviour is pinned by `test_every_qualified_lock_enters_the_bundle_identity_of_every_variant` so the accepted coupling cannot change silently either.
+
+## Evidence threat model
+
+What Development evidence proves, and what it does not, is stated here precisely so no reader infers more from a green bundle than it supports.
+
+Development evidence **proves**:
+
+- internal consistency of each artefact;
+- cross-file identity agreement between the host observation, the toolchain observation and the runtime verification;
+- the expected execution relationship, including on-device execution and device-resolution semantics;
+- reproducible evidence binding, so a record cannot be detached from the artefacts it summarises;
+- integrity against accidental mismatch, such as a stale, borrowed or partially regenerated artefact set.
+
+Development evidence does **not** prove:
+
+- authenticity;
+- non-repudiation;
+- operator non-fabrication;
+- tamper-resistance against a privileged local operator.
+
+Every producer runs offline on the operator's own machine with no signing root, and the identity digests an artefact must match are present in the sanitised files the operator holds. A determined operator can therefore still hand-write a consistent set.
+
+That limit is **accepted for Development**, precisely because this ADR keeps `qualified-development-hardware` a state that can never satisfy Production. Production qualification will require stronger provenance -- attestation, signing and CI-produced evidence, where the operator is not in the loop -- as a separate later requirement.
 
 ## Non-decision
 

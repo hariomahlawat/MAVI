@@ -816,17 +816,64 @@ toolchain is CUDA 12.4 + MSVC 14.44.35207 + Windows SDK 10.0.26100.0; MSVC 14.39
 is not required. The evidence is recorded above and frozen in the build
 contract.
 
-**C2, C3 and C4 repository tooling is landed and tested**, and its execution
-order is documented in the phase sections above. No C2 artefact has been
-produced: nothing in this branch acquires wheels, builds MMCV CUDA, freezes a
-lock or promotes any qualification state, and none of that can happen from a
-hosted Linux session. The tooling is what a controlled Windows host will run;
-it exists first so the host session executes a reviewed procedure rather than
-improvising one, and so the artefacts it produces are checked by code rather
-than read by eye.
+### Phase state, in the precise vocabulary
+
+These states are not interchangeable and this plan does not collapse them.
+*Implemented* means the code exists; *tested* means it is covered by automated
+tests; *build-verified* means a real build produced the artefact;
+*Runtime-Pack-verified* means a pack was assembled and checked;
+*hardware-qualified* means a real GPU executed the work and the evidence was
+accepted; *Production-qualified* is a separate later gate that none of this
+reaches.
+
+| Phase | State |
+| --- | --- |
+| C0, C1, C1R | complete; C1R merged to `main` |
+| R1 toolchain preflight | **executed and passed** on the controlled Windows host |
+| C2 wheelhouse/lock | tooling IMPLEMENTED and TESTED; **not build-verified** |
+| C3 Runtime Pack | tooling IMPLEMENTED and TESTED; **not Runtime-Pack-verified** |
+| C4 hardware qualification | tooling IMPLEMENTED and TESTED; **not hardware-qualified** |
+| C5 Overlay binding | **not started**; blocked on a real C3 pack identity |
+| C6 Development E2E | evidence tooling IMPLEMENTED and TESTED; **no run executed** |
+| C7 failure matrix | tooling IMPLEMENTED and TESTED; 23 of 33 cases exercisable without a GPU, **none yet recorded** |
+| Production | **not entered**, and not reachable from anything above |
+
+No C2 artefact has been produced. Nothing in this branch acquires wheels,
+builds MMCV CUDA, freezes a lock or promotes any qualification state, and none
+of that can happen from a hosted Linux session. The tooling exists first so the
+host session executes a reviewed procedure rather than improvising one, and so
+the artefacts it produces are checked by code rather than read by eye.
+
+**Tooling is not execution.** An implemented evidence assembler proves only
+that a bundle will be checked when one exists; it is not a build, not a pack,
+not a run and not a qualification.
 
 The next step remains **independent review of the R1/pre-C2 evidence**, on
 Draft PR #49, before C2 execution begins on the Windows host.
+
+### Owner decisions recorded
+
+Two questions raised by review are resolved and no longer block work.
+
+**Production bundle-identity coupling does not block C3.** C3 remains
+Development-only. Development artefacts bind strongly to the frozen lock, the
+Runtime Pack manifest, the Python, Torch, torchvision and MMCV/native ABI
+identities, the build toolchain identity, and the model, config and checkpoint
+identities where relevant. Production qualification stays a separate later
+fail-closed gate, and Development evidence never satisfies it. The consequence
+recorded in ADR-009 -- that freezing the CUDA lock changes Production bundle
+identity -- is accepted rather than designed around, and is handled when
+Production qualification is undertaken.
+
+**The consistency-only evidence model is accepted for Development.** Stated
+precisely, Development evidence proves internal consistency, cross-file
+identity agreement, the expected execution relationship, reproducible evidence
+binding, and integrity against accidental mismatch. It does **not** prove
+authenticity, non-repudiation, operator non-fabrication, or tamper-resistance
+against a privileged local operator. That limit is acceptable for Development
+because ADR-009 keeps the state separate; Production will require stronger
+provenance, attestation, signing and CI-produced evidence as a later
+requirement.
 
 Two known items remain scheduled beyond this gate and must not be pulled
 forward:
