@@ -174,13 +174,13 @@ class RuntimeProvenance:
     platform: PlatformIdentity
     configured_device_policy: Literal["cpu", "cuda", "auto"]
     configured_device_index: int
-    device_resolution_reason: str | None
     actual_device: str
     gpu: GpuIdentity | None
     mavi_build: str
     mavi_commit: str
     frame_policy: Literal["every-frame"]
     tracker_parameters: TrackerParameters
+    device_resolution_reason: str | None = None
     input_colour_space: Literal["RGB"] = "RGB"
 
     def __post_init__(self) -> None:
@@ -496,6 +496,7 @@ def build_runtime_provenance(
         configured_device_policy=configured_device_policy,
         configured_device_index=configured_device_index,
         actual_device=runtime_metadata.device,
+        device_resolution_reason=device_resolution_reason,
         gpu=gpu,
         production_mode=production_mode,
     )
