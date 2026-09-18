@@ -733,3 +733,72 @@ def test_profile_scoped_release_rejects_missing_profile_evidence(
             required_runtime_variant="windows-x86_64-cpu",
             required_deployment_profile_policy_sha256=policy_sha,
         )
+
+
+def _mark_windows_cuda_development_qualified(
+    runtime_path: Path,
+) -> None:
+    runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    windows_cuda = runtime["platformVariants"]["windows-x86_64-cuda"]
+    for key in ("workflowRunId", "jobId", "evidenceHeadSha"):
+        windows_cuda.pop(key, None)
+    windows_cuda["status"] = "qualified-development-hardware"
+    windows_cuda["developmentEvidence"] = {
+        "hostObservationSha256": "a" * 64,
+        "evidenceBundleSha256": "b" * 64,
+        "sourceHeadSha": "c" * 40,
+        "capturedAtUtc": "2026-09-18T12:00:00Z",
+        "operatorReference": "development-laptop",
+    }
+    runtime["qualificationStatus"] = "partial"
+    _write_json(runtime_path, runtime)
+
+
+def test_development_cuda_hardware_state_is_representable(
+    tmp_path: Path,
+) -> None:
+    paths = _release_fixture(
+        tmp_path,
+        verified=True,
+        all_gates_passed=True,
+    )
+    _mark_windows_cuda_development_qualified(paths["runtime"])
+
+    from mavi_vision.runtime.qualification import load_runtime_profile
+
+    runtime = load_runtime_profile(paths["runtime"])
+    variant = runtime.platform_variants["windows-x86_64-cuda"]
+    assert variant.status == "qualified-development-hardware"
+    assert variant.development_evidence is not None
+    assert runtime.qualification_status == "partial"
+
+
+def test_development_cuda_hardware_state_cannot_satisfy_p1_runtime_gate(
+    tmp_path: Path,
+) -> None:
+    paths = _release_fixture(
+        tmp_path,
+        verified=True,
+        all_gates_passed=True,
+    )
+    _mark_windows_cuda_development_qualified(paths["runtime"])
+
+    with pytest.raises(
+        ReleaseMetadataError,
+        match="runtime_profile_variant_not_qualified",
+    ):
+        verify_release_selection(
+            model_root=paths["model_root"],
+            manifest_path=paths["manifest"],
+            profile_path=paths["profile"],
+            runtime_profile_path=paths["runtime"],
+            qualification_path=paths["qualification"],
+            required_profile="P1",
+            required_gates={
+                "windows-x86_64-cuda",
+                "windows-offline-install",
+                "cctv-quality-baseline",
+            },
+            required_runtime_variant="windows-x86_64-cuda",
+            required_deployment_profile_policy_sha256="f" * 64,
+        )
