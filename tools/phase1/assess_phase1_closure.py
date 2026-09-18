@@ -273,25 +273,56 @@ def validate_performance(
     acceptance_profile_sha256: str,
     acceptance_profile: dict[str, Any],
     expected_mavi_build: str | None,
+    deployment_profile: deployment_profiles.DeploymentProfile,
+    deployment_profile_policy_sha256: str,
 ) -> dict[str, Any]:
     value = load_json(path)
-    validate_schema(value, Path(__file__).with_name("recovery-performance-evidence.schema.json"))
+    validate_schema(
+        value,
+        Path(__file__).with_name(
+            "recovery-performance-evidence.schema.json"
+        ),
+    )
     require_source_commit(value, source_commit, "performance")
     if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
         raise ClosureError("performance_profile_hash_mismatch")
-    if value.get("schemaVersion") != "mavi-linux-nvidia-recovery-performance-evidence-v1":
-        raise ClosureError("performance_schema_invalid")
-    if value.get("runtimeVariant") != "linux-x86_64-cuda":
-        raise ClosureError("performance_runtime_variant_invalid")
-    if expected_mavi_build is not None and value.get("maviBuild") != expected_mavi_build:
+    if (
+        value.get("schemaVersion")
+        != "mavi-profile-recovery-performance-evidence-v2"
+        or value.get("deploymentProfile")
+        != deployment_profile.profile_id
+        or value.get("deploymentProfilePolicySha256")
+        != deployment_profile_policy_sha256
+        or value.get("runtimeVariant")
+        != deployment_profile.runtime_variant
+    ):
+        raise ClosureError("performance_profile_binding_mismatch")
+    actual_device = value.get("actualDevice")
+    if not isinstance(actual_device, str):
+        raise ClosureError("performance_device_invalid")
+    if deployment_profile.requires_cuda:
+        if not actual_device.startswith("cuda:"):
+            raise ClosureError("performance_cuda_device_required")
+    elif actual_device != "cpu":
+        raise ClosureError("performance_cpu_device_required")
+    if (
+        expected_mavi_build is not None
+        and value.get("maviBuild") != expected_mavi_build
+    ):
         raise ClosureError("performance_mavi_build_mismatch")
     thresholds = acceptance_profile.get("performanceThresholds")
-    if not isinstance(thresholds, dict) or value.get("thresholds") != thresholds:
+    if (
+        not isinstance(thresholds, dict)
+        or value.get("thresholds") != thresholds
+    ):
         raise ClosureError("performance_thresholds_mismatch")
     if (
-        value.get("processingFps", 0) < thresholds["minimumProcessingFps"]
-        or value.get("p95EndToEndLatencyMs", float("inf")) > thresholds["maximumP95LatencyMs"]
-        or value.get("memoryGrowthBytes", float("inf")) > thresholds["maximumSoakGrowthBytes"]
+        value.get("processingFps", 0)
+        < thresholds["minimumProcessingFps"]
+        or value.get("p95EndToEndLatencyMs", float("inf"))
+        > thresholds["maximumP95LatencyMs"]
+        or value.get("memoryGrowthBytes", float("inf"))
+        > thresholds["maximumSoakGrowthBytes"]
     ):
         raise ClosureError("performance_recalculation_failed")
     if not _passed_result(value):
@@ -634,11 +665,11 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
     if not args.production_log:
         pending.append("acceptance:production-log-set")
     if (
-        selected_profile.performance_gate is not None
+        selected_profile.performance_evidence_required
         and args.performance is None
     ):
         pending.append(
-            "acceptance:" + selected_profile.performance_gate
+            "acceptance:profile-recovery-performance"
         )
 
     if (
@@ -807,7 +838,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         ] = quality_sha
 
     if (
-        selected_profile.performance_gate is not None
+        selected_profile.performance_evidence_required
         and args.performance is not None
         and expected_mavi_build is not None
     ):
@@ -817,14 +848,17 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             acceptance_profile_sha256,
             acceptance_profile,
             expected_mavi_build,
+            selected_profile,
+            deployment_policy_sha,
         )
         performance_sha = sha256_file(args.performance)
         evidence_hashes[
-            selected_profile.performance_gate
+            "profile-recovery-performance"
         ] = performance_sha
-        qualification_evidence_hashes[
-            selected_profile.performance_gate
-        ] = performance_sha
+        if selected_profile.performance_gate is not None:
+            qualification_evidence_hashes[
+                selected_profile.performance_gate
+            ] = performance_sha
 
     observation_paths: dict[str, Path] = {}
     prerequisite_sha = None
