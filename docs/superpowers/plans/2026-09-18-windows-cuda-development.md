@@ -216,6 +216,43 @@ the R1 decision. All four are fixed with focused tests
 Behaviour against the current contract is unchanged, and
 `--allow-unsupported-compiler` remains absent and is asserted absent by test.
 
+### R1 attempt 2 — 2026-09-18 — NOT EXECUTED (same blocker, re-verified)
+
+R1 was attempted again from the hosted engineering session at PR #49
+(`44f2105`). The blocker was re-verified rather than assumed, and is unchanged:
+`platform.system()` is `Linux`; `nvcc`, `cl.exe`, `vswhere.exe` and
+`nvidia-smi` are all absent; there are no NVIDIA device nodes; and
+`download.pytorch.org` still answers `403` to `CONNECT` as a policy denial.
+Running the preflight here returns its fail-closed
+`cuda_toolchain_windows_required`, which is correct behaviour.
+
+No toolchain was tested, so **no statement is made about whether MSVC 14.44
+works**. That question is still open and is still the gate.
+
+The attempt was used instead to close two remaining gaps in the evidence the
+gate must produce — see below. The build contract, offline catalogue, locks and
+CPU artefacts are untouched.
+
+### R1 preflight tooling — evidence completeness
+
+Beyond the four correctness defects fixed before attempt 1, the preflight did
+not record what the R1 procedure requires an operator to capture: the compile
+exit code and output were absent from a passing observation, and on failure the
+compiler output was truncated into an exception message.
+
+That failure record is the load-bearing one. The rejection of MSVC 14.44 is
+exactly what justifies testing 14.39, so it has to be auditable rather than
+summarised. The observation now carries a `compile` block on both outcomes:
+
+- the exact `nvcc` command and its exit code;
+- full stdout and stderr;
+- the probe source and its SHA-256;
+- the produced object's size and SHA-256 on success.
+
+A failed run also writes its structured evidence to `--output`, so a blocked R1
+leaves an artefact behind. The default evidence filename is gitignored
+alongside the host observation, because the record contains build-host paths.
+
 ### R1 execution procedure — for the controlled Windows build host
 
 Run on the Windows CUDA machine, from the repository root, recording all output:
@@ -230,7 +267,9 @@ Run on the Windows CUDA machine, from the repository root, recording all output:
    first — do not pre-select 14.39 because this plan mentions it:
    `vcvarsall.bat x64 -vcvars_ver=14.44 -winsdk=<observed SDK>`.
 3. Set `MMCV_WITH_OPS=1`, `FORCE_CUDA=1`, `TORCH_CUDA_ARCH_LIST=7.5+PTX`.
-4. `python tools/vision/verify_windows_cuda_toolchain.py --output <evidence>.json`.
+4. `python tools/vision/verify_windows_cuda_toolchain.py --output windows-cuda-toolchain-observation.json`
+   (gitignored; it records build-host paths). Keep the artefact from a failed
+   attempt too — it is the evidence that justifies trying another toolset.
 5. On failure, read the emitted code before acting. Only
    `cuda_toolchain_host_compiler_unsupported` justifies trying another toolset;
    `cuda_toolchain_host_compiler_not_found`, `cuda_toolchain_headers_unavailable`
