@@ -33,9 +33,9 @@
     },
     {
       "id": "profile-aware-acceptance-tooling",
-      "status": "BLOCKED",
+      "status": "READY",
       "mandatory": true,
-      "detail": "Current Phase-1 closure tooling still hard-codes the legacy four-variant/Linux-CUDA-centric model and must be reconciled with ADR-008 before authoritative qualification."
+      "detail": "Profile-aware prerequisite, offline, performance, scenario, additive promotion, production-acceptance and closure tooling is implemented in PR #46; final acceptance remains subject to exact-head CI and independent review."
     },
     {
       "id": "application-artifact-freeze",
@@ -54,6 +54,12 @@
       "status": "READY",
       "mandatory": true,
       "detail": "ADR-008 approves Development single-Windows topology plus P1 Windows GPU, P2 Windows+Linux GPU, and P3 Windows CPU Production profiles."
+    },
+    {
+      "id": "production-profile-selection",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "ADR-008 defines P1/P2/P3, but the first Production profile(s) to qualify have not yet been selected. Conditional prerequisite/runtime evidence is derived only after this selection."
     },
     {
       "id": "acceptance-corpus",
@@ -105,9 +111,9 @@
     },
     {
       "id": "gpu-qualification",
-      "status": "BLOCKED",
-      "mandatory": true,
-      "detail": "Windows CUDA and Linux CUDA remain independently unqualified; only required when the corresponding GPU Production profile is claimed."
+      "status": "CONDITIONAL",
+      "mandatory": false,
+      "detail": "Windows CUDA is required only if P1 is claimed; Linux CUDA is required only if P2 is claimed. P3 is CPU-only and is not blocked by absent GPU qualification."
     },
     {
       "id": "clean-production-install",
@@ -142,7 +148,6 @@
   ],
   "nextActions": [
     "Select the first Production deployment profile(s) to qualify under ADR-008.",
-    "Reconcile Phase-1 acceptance/promotion/closure tooling with profile-specific evidence requirements.",
     "Freeze acceptance corpus and Person/Vehicle/empty-scene/performance thresholds before final evaluation.",
     "Collect and approve exact prerequisite versions for the selected Production profile(s).",
     "Freeze exact supported prior release artifact or formally defer update proof.",
@@ -158,7 +163,9 @@
       "P3 single-host Windows CPU"
     ],
     "networkBoundary": "Production remains controlled/disconnected with no runtime Internet dependency",
-    "qualificationRule": "each claimed Production profile requires its own exact platform/device/topology evidence"
+    "qualificationRule": "each claimed Production profile requires its own exact platform/device/topology evidence",
+    "profileSelectionStatus": "BLOCKED",
+    "profileSelection": "No Production profile has yet been selected for authoritative Task-18 qualification."
   },
   "deploymentProfiles": {
     "authority": "docs/decisions/ADR-008-phase1-production-topology.md",
