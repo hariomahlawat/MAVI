@@ -84,6 +84,17 @@ def validate_inputs(
         raise ProductionScenarioError(
             "production_scenario_production_bundle_required"
         )
+    if (
+        bundle.get("deploymentProfile")
+        != selected_profile.profile_id
+        or bundle.get("deploymentProfilePolicySha256")
+        != deployment_policy_sha
+        or bundle.get("platformVariant")
+        != selected_profile.runtime_variant
+    ):
+        raise ProductionScenarioError(
+            "production_scenario_bundle_profile_mismatch"
+        )
     environment_identity = environment_fingerprint(args.worker_python)
     if (
         variant.get("schemaVersion")
