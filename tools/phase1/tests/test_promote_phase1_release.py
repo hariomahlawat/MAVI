@@ -144,6 +144,7 @@ def test_promotion_reopens_every_gate_even_if_qualification_record_already_says_
             quality_ground_truth={},
             expected_mavi_build="build-a",
             deployment_profile_id="P1",
+            deployment_profile_policy_sha256="f" * 64,
             required_gates=frozenset({
                 "windows-x86_64-cuda",
                 "windows-offline-install",
