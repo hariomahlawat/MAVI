@@ -350,14 +350,22 @@ try {
             }
 
             $visionManifest = Join-Path $visionBundleRoot "bundle-manifest.json"
-            $nestedVisionManifest = Join-Path $visionBundleRoot "windows-x86_64-cpu\bundle-manifest.json"
+            $nestedCpuVisionManifest = Join-Path $visionBundleRoot "windows-x86_64-cpu\bundle-manifest.json"
+            $nestedCudaVisionManifest = Join-Path $visionBundleRoot "windows-x86_64-cuda\bundle-manifest.json"
             if ((Test-Path -LiteralPath $visionManifest -PathType Leaf) -or
-                (Test-Path -LiteralPath $nestedVisionManifest -PathType Leaf)) {
-                & (Join-Path $PSScriptRoot "Install-MaviVisionRuntime.ps1") -BundleRoot $visionBundleRoot -RepositoryRoot $RepositoryRoot
-                Write-MaviSetupStatus -Name "Vision runtime" -Status "OK" -Detail "qualified Windows CPU bundle installed"
+                (Test-Path -LiteralPath $nestedCpuVisionManifest -PathType Leaf)) {
+                & (Join-Path $PSScriptRoot "Install-MaviVisionRuntime.ps1") -BundleRoot $visionBundleRoot -RepositoryRoot $RepositoryRoot -Variant "windows-x86_64-cpu"
+                Write-MaviSetupStatus -Name "Vision runtime CPU" -Status "OK" -Detail "qualified Windows CPU bundle installed"
             }
             else {
-                Write-MaviSetupStatus -Name "Vision runtime" -Status "INFO" -Detail "bundle not present; UI/API remain usable but vision jobs stay queued until runtime is installed"
+                Write-MaviSetupStatus -Name "Vision runtime CPU" -Status "INFO" -Detail "bundle not present; UI/API remain usable but CPU vision jobs stay queued until runtime is installed"
+            }
+            if (Test-Path -LiteralPath $nestedCudaVisionManifest -PathType Leaf) {
+                & (Join-Path $PSScriptRoot "Install-MaviVisionRuntime.ps1") -BundleRoot $visionBundleRoot -RepositoryRoot $RepositoryRoot -Variant "windows-x86_64-cuda"
+                Write-MaviSetupStatus -Name "Vision runtime CUDA" -Status "OK" -Detail "qualified Windows CUDA bundle installed"
+            }
+            else {
+                Write-MaviSetupStatus -Name "Vision runtime CUDA" -Status "INFO" -Detail "qualified CUDA bundle not present; Development Auto will use CPU"
             }
         }
 
