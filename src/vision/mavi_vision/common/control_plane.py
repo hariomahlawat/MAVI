@@ -22,6 +22,7 @@ _WORKER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", re.ASCII)
 _FAILURE_CODE_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}", re.ASCII)
 _TRACK_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
+_COMPUTE_CAPABILITY_PATTERN = re.compile(r"^[0-9]+\.[0-9]+$", re.ASCII)
 _CANONICAL_UTC_PATTERN = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z",
     re.ASCII,
@@ -281,6 +282,19 @@ def _provenance_detail(value: str) -> str:
     )
 
 
+def _compute_capability(value: str) -> str:
+    value = _bounded_trimmed_text(
+        value,
+        maximum_length=16,
+        label="GPU compute capability",
+    )
+    if _COMPUTE_CAPABILITY_PATTERN.fullmatch(value) is None:
+        raise ValueError(
+            "GPU compute capability must use major.minor numeric syntax"
+        )
+    return value
+
+
 def _sha256(value: str) -> str:
     if _SHA256_PATTERN.fullmatch(value) is None:
         raise ValueError("SHA-256 must use canonical lowercase hexadecimal syntax")
@@ -330,6 +344,7 @@ CompletionInt32 = Annotated[int, BeforeValidator(_completion_int32)]
 CompletionInt64 = Annotated[int, BeforeValidator(_completion_int64)]
 ProvenanceIdentity = Annotated[StrictStr, AfterValidator(_provenance_identity)]
 ProvenanceDetail = Annotated[StrictStr, AfterValidator(_provenance_detail)]
+ComputeCapability = Annotated[StrictStr, AfterValidator(_compute_capability)]
 
 
 class ControlPlaneModel(BaseModel):
@@ -478,8 +493,8 @@ class VisionGpuIdentity(ControlPlaneModel):
     driver_version: ProvenanceDetail
     cuda_runtime_version: ProvenanceDetail
     uuid: ProvenanceDetail
-    pci_bus_id: ProvenanceDetail
-    compute_capability: ProvenanceDetail
+    pci_bus_id: ProvenanceIdentity
+    compute_capability: ComputeCapability
 
 
 class VisionTrackerParameters(ControlPlaneModel):
@@ -524,7 +539,7 @@ class VisionRuntimeProvenance(ControlPlaneModel):
     platform: VisionPlatformIdentity
     configured_device_policy: Literal["cpu", "cuda", "auto"]
     configured_device_index: CompletionInt32 = Field(ge=0, le=2_147_483_647)
-    device_resolution_reason: ProvenanceIdentity | None = None
+    device_resolution_reason: FailureCode | None = None
     actual_device: ProvenanceIdentity
     gpu: VisionGpuIdentity | None = None
     mavi_build: ProvenanceIdentity
