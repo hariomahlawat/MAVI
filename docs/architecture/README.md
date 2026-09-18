@@ -36,6 +36,7 @@ Implementation completion remains distinct from release verification: CUDA, disc
 - `AGENTS.md` — binding engineering rules.
 - `docs/architecture/dependency-and-offline-packaging-policy.md` — dependency/change methodology.
 - `docs/architecture/phase1-production-topology.md` — Development device policy and Production deployment profiles (ADR-008).
+- `docs/qualification/2026-09-18-windows-cuda-c1-compatibility-decision.md` — current sanitized Windows-CUDA Development engineering candidate and change-control boundary.
 - `docs/runbooks/local-development.md` — supported Development workflow.
 - `docs/runbooks/mavi-offline-setup.md` — offline media preparation and installation.
 - `docs/runbooks/offline-readiness.md` — milestone/release offline-readiness checks.
