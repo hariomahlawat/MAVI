@@ -36,7 +36,12 @@ def observation():
 
 def test_requires_approved_profile_thresholds():
     with pytest.raises(mod.PerformanceEvidenceError, match="performance_thresholds_not_approved"):
-        mod.evaluate({"performanceThresholds": None}, observation())
+        mod.evaluate(
+            {"performanceThresholds": None},
+            observation(),
+            mod.deployment_profiles.select_profile("P2")[0],
+            "f" * 64,
+        )
 
 
 def test_evaluates_all_thresholds():
@@ -45,7 +50,12 @@ def test_evaluates_all_thresholds():
         "maximumP95LatencyMs": 1000.0,
         "maximumSoakGrowthBytes": 20,
     }}
-    result = mod.evaluate(profile, observation())
+    result = mod.evaluate(
+        profile,
+        observation(),
+        mod.deployment_profiles.select_profile("P2")[0],
+        "f" * 64,
+    )
     assert result["result"]["passed"] is True
 
 
@@ -58,4 +68,31 @@ def test_recovery_contract_is_mandatory():
     value = observation()
     value["noCudaToCpuFallback"] = False
     with pytest.raises(mod.PerformanceEvidenceError, match="performance_recovery_contract_failed"):
-        mod.evaluate(profile, value)
+        mod.evaluate(
+            profile,
+            value,
+            mod.deployment_profiles.select_profile("P2")[0],
+            "f" * 64,
+        )
+
+
+def test_cpu_profile_does_not_require_cuda_specific_recovery():
+    profile = {"performanceThresholds": {
+        "minimumProcessingFps": 10.0,
+        "maximumP95LatencyMs": 1000.0,
+        "maximumSoakGrowthBytes": 20,
+    }}
+    value = observation()
+    value["runtimeVariant"] = "windows-x86_64-cpu"
+    value["actualDevice"] = "cpu"
+    value["boundedCudaOomRecovery"] = False
+    value["noCudaToCpuFallback"] = False
+    result = mod.evaluate(
+        profile,
+        value,
+        mod.deployment_profiles.select_profile("P3")[0],
+        "f" * 64,
+    )
+    assert result["result"]["passed"] is True
+    assert result["boundedCudaOomRecovery"] is None
+    assert result["noCudaToCpuFallback"] is None
