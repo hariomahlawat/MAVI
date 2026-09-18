@@ -3,6 +3,7 @@ name: Task 12 Offline Runtime Pack
 on:
   push:
     branches:
+      - main
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'tools/vision/build_runtime_pack.py'
@@ -18,6 +19,7 @@ on:
       - 'infrastructure/windows/**'
   pull_request:
     branches:
+      - main
       - feature/task-10-rtmdet-bytetrack
     paths:
       - 'tools/vision/build_runtime_pack.py'
