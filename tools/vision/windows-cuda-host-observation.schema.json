@@ -1,18 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mavi.local/schemas/windows-cuda-host-observation-v1.json",
+  "$id": "https://mavi.local/schemas/windows-cuda-host-observation-v2.json",
   "title": "MAVI Windows CUDA Host Observation",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "schemaVersion",
-    "host",
-    "nvidia",
-    "qualification"
-  ],
+  "required": ["schemaVersion", "host", "nvidia", "qualification"],
   "properties": {
     "schemaVersion": {
-      "const": "mavi-windows-cuda-host-observation-v1"
+      "const": "mavi-windows-cuda-host-observation-v2"
     },
     "host": {
       "type": "object",
@@ -38,18 +33,12 @@
         "gpus"
       ],
       "properties": {
-        "driverVersion": {
-          "type": "string",
-          "minLength": 1
-        },
+        "driverVersion": { "type": "string", "minLength": 1 },
         "driverSupportedCudaVersion": {
           "type": ["string", "null"],
           "pattern": "^[0-9]+(?:\\.[0-9]+)?$"
         },
-        "gpuCount": {
-          "type": "integer",
-          "minimum": 1
-        },
+        "gpuCount": { "type": "integer", "minimum": 1 },
         "gpus": {
           "type": "array",
           "minItems": 1,
@@ -60,29 +49,55 @@
               "index",
               "name",
               "uuid",
+              "uuidSha256",
+              "pciBusId",
               "driverVersion",
-              "memoryMiB"
+              "memoryMiB",
+              "computeCapability",
+              "driverModel",
+              "display"
             ],
             "properties": {
-              "index": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "name": {
+              "index": { "type": "integer", "minimum": 0 },
+              "name": { "type": "string", "minLength": 1 },
+              "uuid": { "type": "string", "minLength": 1 },
+              "uuidSha256": {
                 "type": "string",
-                "minLength": 1
+                "pattern": "^[0-9a-f]{64}$"
               },
-              "uuid": {
-                "type": "string",
-                "minLength": 1
-              },
-              "driverVersion": {
-                "type": "string",
-                "minLength": 1
-              },
+              "pciBusId": { "type": "string", "minLength": 1 },
+              "driverVersion": { "type": "string", "minLength": 1 },
               "memoryMiB": {
-                "type": "integer",
-                "minimum": 1
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["total", "free", "used"],
+                "properties": {
+                  "total": { "type": "integer", "minimum": 1 },
+                  "free": { "type": "integer", "minimum": 0 },
+                  "used": { "type": "integer", "minimum": 0 }
+                }
+              },
+              "computeCapability": {
+                "type": "string",
+                "pattern": "^\\d+\\.\\d+$"
+              },
+              "driverModel": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["current", "pending"],
+                "properties": {
+                  "current": { "type": ["string", "null"] },
+                  "pending": { "type": ["string", "null"] }
+                }
+              },
+              "display": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["active", "mode"],
+                "properties": {
+                  "active": { "type": ["string", "null"] },
+                  "mode": { "type": ["string", "null"] }
+                }
               }
             }
           }
@@ -92,16 +107,70 @@
     "qualification": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["status", "windowsCudaRuntimePackQualified"],
+      "properties": {
+        "status": { "const": "observation-only" },
+        "windowsCudaRuntimePackQualified": { "const": false }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
       "required": [
-        "status",
-        "windowsCudaRuntimePackQualified"
+        "captureStatus",
+        "cudaHome",
+        "vcToolsVersion",
+        "windowsSdkVersion",
+        "nvcc",
+        "msvc",
+        "ninja"
       ],
       "properties": {
-        "status": {
-          "const": "observation-only"
+        "captureStatus": { "const": "observed" },
+        "cudaHome": { "type": ["string", "null"] },
+        "vcToolsVersion": { "type": ["string", "null"] },
+        "windowsSdkVersion": { "type": ["string", "null"] },
+        "nvcc": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "versionOutput"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "versionOutput": { "type": "string", "minLength": 1 }
+              }
+            }
+          ]
         },
-        "windowsCudaRuntimePackQualified": {
-          "const": false
+        "msvc": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "versionOutput"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "versionOutput": { "type": "string", "minLength": 1 }
+              }
+            }
+          ]
+        },
+        "ninja": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "version"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "version": { "type": "string", "minLength": 1 }
+              }
+            }
+          ]
         }
       }
     }
