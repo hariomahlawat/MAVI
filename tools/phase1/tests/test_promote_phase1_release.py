@@ -48,6 +48,9 @@ def validation_kwargs(tmp_path: Path) -> dict:
         "quality_case_evidence": {},
         "quality_ground_truth": {},
         "expected_mavi_build": "build-a",
+        "deployment_profile_id": "P1",
+        "deployment_profile_policy_sha256": "f" * 64,
+        "runtime_variant": "windows-x86_64-cuda",
     }
 
 
