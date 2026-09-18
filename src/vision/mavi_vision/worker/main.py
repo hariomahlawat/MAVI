@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -9,6 +10,7 @@ from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.pipeline.production_processor import ProductionVisionProcessor
 from mavi_vision.runtime.activity import InferenceActivity
 from mavi_vision.runtime.execution_lane import ProcessExecutor, VisionExecutionLane
+from mavi_vision.runtime.gpu_identity import capture_gpu_identity
 from mavi_vision.runtime.provenance import RuntimeProvenance
 from mavi_vision.runtime.supervisor import RuntimeState, RuntimeSupervisor
 from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshotProvider
@@ -25,6 +27,12 @@ from mavi_vision.worker.watchdog_incident import (
 # Process logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+# Keep CUDA enumeration stable and aligned with nvidia-smi PCI-bus ordering.
+# The PowerShell launcher sets this before Python starts; setdefault also
+# protects direct developer/test entry points without overriding an explicit
+# operator choice.
+os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
 
 SERVICE_RESTART_EXIT_CODE = 70
 
@@ -162,6 +170,7 @@ async def _run_worker(
             watchdog_grace_seconds=settings.watchdog_grace_seconds,
             build_id=settings.build_id,
             commit_sha=settings.commit_sha,
+            gpu_identity_provider=capture_gpu_identity,
         )
 
         logger.info("Starting MAVI vision worker %s", settings.worker_id)
