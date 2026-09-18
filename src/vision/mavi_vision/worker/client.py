@@ -206,6 +206,7 @@ class WorkerApiClient:
             ),
             configuredDevicePolicy=provenance.configured_device_policy,
             configuredDeviceIndex=provenance.configured_device_index,
+            deviceResolutionReason=provenance.device_resolution_reason,
             actualDevice=provenance.actual_device,
             gpu=(
                 None
