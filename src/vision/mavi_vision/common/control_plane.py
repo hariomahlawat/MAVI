@@ -605,24 +605,17 @@ class VisionJobComplete(ControlPlaneModel):
         except (json.JSONDecodeError, TypeError, ValueError):
             return super().model_validate_json(json_data, **kwargs)
 
-        # Pydantic strict mode intentionally rejects Python lists for tuple
-        # fields. JSON arrays are nevertheless the canonical wire encoding, so
-        # normalize only the two published tuple-shaped fields after parsing.
-        # All other strictness, including integer and scalar validation, remains
-        # unchanged.
-        if isinstance(payload, dict):
-            provenance = payload.get("provenance")
-            if isinstance(provenance, dict):
-                platform = provenance.get("platform")
-                if isinstance(platform, dict):
-                    python_build = platform.get("pythonBuild")
-                    if isinstance(python_build, list):
-                        platform["pythonBuild"] = tuple(python_build)
-            tracks = payload.get("tracks")
-            if isinstance(tracks, list):
-                payload["tracks"] = tuple(tracks)
-
-        return super().model_validate(payload, **kwargs)
+        # Re-serialize the precision-preserving normalization and return to
+        # Pydantic's JSON-mode validator. This keeps canonical JSON semantics
+        # (notably UUID-string decoding and JSON-array handling) while ensuring
+        # mathematically integral number tokens reach strict Int32/Int64 fields
+        # without IEEE-754 rounding.
+        normalized_json = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        return super().model_validate_json(normalized_json, **kwargs)
 
     schema_version: Literal["2.0"]
     job_id: UUID
