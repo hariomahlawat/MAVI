@@ -118,6 +118,16 @@ def worker_environment(
                 / "rtmdet-m-coco-phase1-v1.json"
             ).resolve()
         ),
+        "MAVI_DEPLOYMENT_PROFILE": args.selected_profile.profile_id,
+        "MAVI_DEPLOYMENT_PROFILE_POLICY_PATH": str(
+            (
+                bundle_dir
+                / "release"
+                / "config"
+                / "acceptance"
+                / "phase1-deployment-profiles-v1.json"
+            ).resolve()
+        ),
         "MAVI_BUILD_ID": args.mavi_build,
         "MAVI_COMMIT_SHA": args.source_commit,
         "MAVI_DEVICE_POLICY": (
