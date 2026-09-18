@@ -461,16 +461,45 @@ def validate_qualification_evidence_hashes(
     qualification: Any,
     observed_hashes: dict[str, str],
     required_gates: frozenset[str],
+    *,
+    deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
+    runtime_variant: str,
 ) -> None:
+    profile_qualification = qualification.profile_qualifications.get(
+        deployment_profile_id
+    )
+    if profile_qualification is None:
+        raise ClosureError(
+            "qualification_profile_not_qualified:"
+            + deployment_profile_id
+        )
+    if (
+        profile_qualification.deployment_profile_policy_sha256
+        != deployment_profile_policy_sha256
+    ):
+        raise ClosureError(
+            "qualification_profile_policy_mismatch:"
+            + deployment_profile_id
+        )
+    if profile_qualification.runtime_variant != runtime_variant:
+        raise ClosureError(
+            "qualification_profile_runtime_variant_mismatch:"
+            + deployment_profile_id
+        )
+
     for gate in sorted(required_gates):
         if qualification.required_gates.get(gate) != "passed":
             raise ClosureError(
                 "qualification_gate_not_passed:" + gate
             )
-        expected = qualification.evidence.get(gate)
+        expected = profile_qualification.evidence.get(gate)
         if expected is None:
             raise ClosureError(
-                "qualification_evidence_missing:" + gate
+                "qualification_profile_evidence_missing:"
+                + deployment_profile_id
+                + ":"
+                + gate
             )
         actual = observed_hashes.get(gate)
         if actual is None:
@@ -479,7 +508,10 @@ def validate_qualification_evidence_hashes(
             )
         if actual != expected.sha256:
             raise ClosureError(
-                "qualification_evidence_hash_mismatch:" + gate
+                "qualification_evidence_hash_mismatch:"
+                + deployment_profile_id
+                + ":"
+                + gate
             )
 
 
@@ -545,15 +577,44 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
     ):
         pending.append("runtime-lock:" + runtime_variant)
 
-    if selected_profile.profile_id not in qualification.qualified_profiles:
+    profile_qualification = qualification.profile_qualifications.get(
+        selected_profile.profile_id
+    )
+    if profile_qualification is None:
         pending.append(
             "qualification-profile:" + selected_profile.profile_id
         )
+    else:
+        if (
+            profile_qualification.deployment_profile_policy_sha256
+            != deployment_policy_sha
+        ):
+            raise ClosureError(
+                "qualification_profile_policy_mismatch:"
+                + selected_profile.profile_id
+            )
+        if (
+            profile_qualification.runtime_variant
+            != runtime_variant
+        ):
+            raise ClosureError(
+                "qualification_profile_runtime_variant_mismatch:"
+                + selected_profile.profile_id
+            )
+
     for gate in sorted(required_gates):
         if qualification.required_gates.get(gate) != "passed":
             pending.append("qualification:" + gate)
-        elif gate not in qualification.evidence:
-            pending.append("qualification-evidence:" + gate)
+        elif (
+            profile_qualification is not None
+            and gate not in profile_qualification.evidence
+        ):
+            pending.append(
+                "qualification-profile-evidence:"
+                + selected_profile.profile_id
+                + ":"
+                + gate
+            )
 
     application_manifest_sha256 = None
     expected_mavi_build = None
@@ -1419,6 +1480,9 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             qualification,
             qualification_evidence_hashes,
             required_gates,
+            deployment_profile_id=selected_profile.profile_id,
+            deployment_profile_policy_sha256=deployment_policy_sha,
+            runtime_variant=runtime_variant,
         )
 
     promoted = False
