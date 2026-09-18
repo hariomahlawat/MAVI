@@ -1,139 +1,177 @@
-# ADR-008: Phase-1 Production Topology
+# ADR-008: Development Device Policy and Phase-1 Production Deployment Profiles
 
 **Status:** Accepted  
 **Date:** 2026-09-18
 
 ## Context
 
-Task 18 requires a single, explicit production topology before authoritative qualification begins. Earlier Phase-1 plans assumed a Windows operational plane, PostgreSQL data plane and Linux NVIDIA Vision worker, while subsequent implementation added:
+MAVI must support practical development on a single engineer workstation while also supporting production deployments ranging from a single capable Windows machine to a split operational/accelerator topology.
 
-- one-click offline Windows Production setup;
-- MAVI-owned PostgreSQL 18 + pgvector;
-- application-local FFmpeg;
-- independently deployable Python Vision workers;
-- reusable Runtime Binary Pack / Model Pack / Application Overlay distribution;
-- exact component-integrity checks;
-- a qualified Windows CPU Development execution path.
+Earlier Phase-1 planning implicitly treated a Windows operational host plus a separate Linux NVIDIA worker as the only final production topology. That is unnecessarily restrictive:
 
-The later work does not eliminate the architectural separation between the operational plane and the Vision plane. It does, however, make the Windows application/database host substantially more self-contained and reproducible.
+- the normal developer may have only one Windows laptop;
+- that laptop may have an NVIDIA GPU and should be able to use it;
+- the Windows Production host may itself have a suitable GPU;
+- the Vision worker is already an independently deployable component behind a stable worker/API contract;
+- Runtime Binary Packs and Model Packs are platform/device-specific and independently qualified.
 
-Task 18 must therefore state the supported Phase-1 Production topology explicitly rather than inheriting a historical diagram by implication.
+The architecture should therefore define **logical planes and qualified deployment profiles**, not prescribe one physical host layout for all environments.
 
 ## Decision
 
-The **Phase-1 Production acceptance topology** is a disconnected, on-premises two-host deployment with three logical planes.
+MAVI uses one common application architecture with environment-specific **device policy** and **deployment profiles**.
 
-### Host A — Windows Operational + Data Host
+### 1. Development reference topology
 
-A supported Windows Server/Windows production host runs:
+The supported Development reference topology is a **single Windows workstation/laptop** running:
 
-1. **IIS / ASP.NET Core operational plane**
-   - MAVI API;
-   - compiled React application;
-   - application-local FFmpeg/ffprobe;
-   - machine-owned MAVI Production configuration.
+- React UI;
+- ASP.NET Core API;
+- MAVI-owned PostgreSQL + pgvector;
+- application-local FFmpeg;
+- MAVI Vision worker;
+- required Model Pack;
+- the appropriate qualified Windows Runtime Binary Pack.
 
-2. **MAVI-owned PostgreSQL 18 + pgvector data plane**
-   - dedicated MAVI PostgreSQL service;
-   - Production database `mavi`;
-   - no dependence on an unrelated system PostgreSQL installation;
-   - managed backup/restore under the MAVI operational procedure.
+Development must support explicit device selection:
 
-The operational and database planes remain logically distinct for evidence, topology identity, backup/restore and prerequisite validation even though the canonical Phase-1 deployment co-locates them on Host A.
+- **Auto** — prefer a compatible available GPU when a qualified Windows CUDA runtime exists; otherwise use CPU;
+- **CUDA** — require GPU/CUDA and fail clearly if unavailable or incompatible;
+- **CPU** — force CPU for reproducibility, debugging and regression comparison.
 
-### Host B — Linux NVIDIA Vision Worker
+Any automatic device fallback must be visible in logs and processing provenance. Silent GPU-to-CPU fallback is prohibited.
 
-A separate x86_64 Linux host runs the Production Vision worker using:
+A developer does **not** need a second machine or Linux host for routine feature development.
 
-- the exact qualified Linux CUDA Runtime Binary Pack;
-- the exact required Model Pack;
-- the current qualified Application / Release Overlay;
-- a frozen NVIDIA driver/CUDA runtime combination;
-- no Internet dependency;
-- no silent CPU fallback during GPU-qualified acceptance.
+### 2. Production deployment profiles
 
-The worker communicates with Host A over the controlled internal LAN through the supported MAVI worker/API contract. Model/runtime packages are supplied only from approved offline media/component storage.
+Phase-1 Production supports profile-based qualification. A profile is supported only after its exact platform/device combination has passed the required qualification evidence.
 
-### Network boundary
+#### P1 — Single-host Windows GPU
 
-Both hosts operate inside the same controlled disconnected deployment boundary:
+One supported Windows Production machine runs:
+
+- IIS / ASP.NET Core API;
+- React UI;
+- application-local FFmpeg;
+- MAVI-owned PostgreSQL + pgvector;
+- MAVI Vision worker;
+- qualified Windows CUDA Runtime Binary Pack;
+- qualified Model Pack;
+- NVIDIA GPU.
+
+This is the preferred simple GPU deployment when one Windows machine has adequate GPU, CPU, memory and storage capacity.
+
+#### P2 — Split-host Windows + Linux GPU
+
+Host A — Windows:
+- IIS / ASP.NET Core API;
+- React UI;
+- application-local FFmpeg;
+- MAVI-owned PostgreSQL + pgvector.
+
+Host B — Linux x86_64:
+- MAVI Vision worker;
+- qualified Linux CUDA Runtime Binary Pack;
+- qualified Model Pack;
+- NVIDIA GPU.
+
+Both hosts operate on the controlled disconnected LAN. This profile is suited to dedicated compute, isolation and future scale-out.
+
+#### P3 — Single-host Windows CPU
+
+One Windows Production machine runs the complete stack using the qualified Windows CPU Runtime Binary Pack.
+
+This profile is valid for lower-throughput deployments only after the exact Production CPU profile has passed the required acceptance/performance gates. Existing Development CPU evidence is useful but does not by itself qualify P3 for Production.
+
+### 3. Logical planes remain stable
+
+Regardless of physical profile, MAVI retains the same logical boundaries:
+
+- **Operator plane** — React;
+- **Operational plane** — ASP.NET Core API/orchestration;
+- **Data plane** — PostgreSQL + pgvector and managed storage;
+- **Vision plane** — Python worker;
+- **Integration plane** — explicit worker/API contracts.
+
+Co-location does not collapse evidence boundaries. Production qualification still records distinct operational, data, storage and Vision identities.
+
+### 4. Offline/network boundary
+
+All Production profiles are offline-by-design:
 
 - no runtime Internet dependency;
 - no CDN;
-- no remote model/package resolution;
-- no online licence/activation requirement;
-- only explicitly approved internal endpoints;
-- qualification captures the concrete host/topology identities.
+- no remote package/model resolution;
+- no online telemetry/licensing/activation requirement;
+- only approved internal endpoints;
+- all Runtime/Model components arrive through approved offline media/component stores.
 
-## GPU scope
+## Qualification model
 
-**GPU/CUDA execution is part of the Phase-1 Production acceptance scope.**
+Qualification attaches to the **deployment profile and device/runtime combination**.
 
-This decision does **not** claim that GPU is already qualified. It means Task 18 cannot reach final Phase-1 acceptance until the required Linux NVIDIA/CUDA evidence is produced and passes.
+Examples:
 
-Windows CPU and Linux CPU evidence remain valuable subsystem/runtime evidence but do not substitute for the Production Linux CUDA worker requirement.
+- Windows CPU evidence does not qualify Windows CUDA;
+- Windows CUDA does not qualify Linux CUDA;
+- Linux CUDA does not qualify Windows CUDA;
+- a Development laptop run does not automatically qualify the same machine layout for Production;
+- a Production profile cannot silently use another device when the declared profile requires CUDA.
+
+The application/API/UI contracts, model, pipeline and persisted domain semantics remain common across profiles.
+
+## Phase-1 closure rule
+
+Phase-1 product closure does **not** require every conceivable deployment profile to be qualified simultaneously.
+
+Instead:
+
+1. the release must explicitly identify which Production profile(s) are supported;
+2. every profile claimed as supported must have complete evidence for its exact platform/device/runtime/topology;
+3. unsupported or pending profiles remain explicitly unqualified;
+4. no documentation or installer may imply support for a profile whose evidence is incomplete.
+
+For the immediate Task-18 path, **P1 — Single-host Windows GPU** is the most practical first GPU Production profile because the developer/test environment is already Windows and may use the laptop GPU when compatible. P2 can be qualified later on dedicated Linux NVIDIA hardware without blocking continued development.
+
+P3 remains available as a CPU Production profile only if its performance/acceptance gates are explicitly satisfied.
+
+## Tooling reconciliation requirement
+
+Existing Phase-1 acceptance tools and qualification metadata were created under the earlier four-variant / Linux-CUDA-centric closure model. Some currently hard-code:
+
+- Windows CPU;
+- Windows CUDA;
+- Linux CPU;
+- Linux CUDA;
+- Linux NVIDIA recovery/performance;
+- final scenarios tied specifically to Linux CUDA.
+
+ADR-008 changes the deployment qualification model to profile-based support. Therefore those tools/configuration must be reviewed and, where necessary, refactored **before authoritative Task-18 qualification** so that:
+
+- a release can declare one or more supported Production profiles;
+- the assessor requires only the gates applicable to each claimed profile;
+- it never weakens required evidence for a claimed profile;
+- pending profiles remain pending rather than blocking unrelated qualified profiles.
+
+Until this reconciliation is implemented and reviewed, authoritative release qualification remains blocked.
 
 ## Rationale
 
-1. The operational application and database installation now have a mature, reproducible Windows offline setup path.
-2. Keeping PostgreSQL on the canonical Windows Production host minimizes deployment complexity for Phase 1 while preserving a distinct logical data-plane identity for backup/restore and acceptance evidence.
-3. The Vision plane remains independently deployable and computationally isolated from the operational host.
-4. The existing Phase-1 production acceptance tooling, prerequisite policy and recovery/performance contracts already model a Linux NVIDIA worker.
-5. Phase-1 production throughput/recovery qualification was designed around a dedicated accelerator worker. Removing that requirement would be a product-scope change, not a housekeeping simplification.
-6. The topology remains fully offline and consistent with ADR-003 and ADR-007.
-
-## Qualification implications
-
-Task 18 must now collect and freeze exact prerequisite observations for:
-
-### Windows Operational + Data Host
-- Windows product/version/build;
-- IIS version;
-- ASP.NET Core/.NET runtime;
-- PostgreSQL version;
-- pgvector version;
-- MAVI install/config roots;
-- managed-media/evidence roots;
-- host identity.
-
-### Linux NVIDIA Vision Host
-- distribution/release;
-- architecture;
-- CPython identity;
-- Linux CUDA Runtime Pack identity;
-- Model Pack identity;
-- NVIDIA driver;
-- CUDA runtime;
-- exact venv/environment fingerprint;
-- host identity.
-
-The canonical Production acceptance event must prove:
-
-- Host A application/API/UI health;
-- MAVI-owned PostgreSQL/pgvector availability;
-- Host B worker READY;
-- actual CUDA execution;
-- no silent CPU fallback;
-- controlled internal connectivity;
-- no external runtime dependency.
-
-## Non-goals
-
-This ADR does not:
-
-- approve exact OS/runtime/driver versions;
-- qualify CUDA hardware;
-- promote model/release metadata;
-- require Development to use Linux or GPU;
-- prohibit future scale-out to multiple workers or a separate database host.
-
-Those changes require their own reviewed deployment/qualification decisions.
+1. A single Windows laptop must remain a first-class Development environment.
+2. Available laptop GPU capacity should be usable rather than ignored.
+3. A capable Windows Production host can reasonably run the complete stack including CUDA.
+4. The independently deployable Vision worker already supports split-host scale-out without requiring it everywhere.
+5. Profile-specific qualification is more accurate than treating one physical topology as the product architecture.
+6. Explicit device selection and provenance prevent silent fallback from weakening evidence.
+7. This model minimizes deployment burden while preserving a path to higher-performance dedicated Linux GPU workers.
 
 ## Consequences
 
-- Task-18 readiness item **Production topology** becomes READY.
-- Task-18 **GPU scope** is resolved: GPU is required for Phase-1 Production acceptance.
-- **GPU qualification remains BLOCKED** until real Linux NVIDIA/CUDA evidence exists.
-- `phase1-production-prerequisites-v1.json` remains pending until exact observed versions are reviewed and frozen.
-- Final Task-18 production E2E, failure/reprocess and recovery/performance scenarios must execute with the qualified Linux CUDA worker.
-- Windows CPU PR #44 evidence remains inherited subsystem evidence, not the final Production worker proof.
+- Development remains fully possible on one Windows laptop.
+- Development can use Windows CUDA when a compatible/qualified GPU runtime is available.
+- CPU mode remains deliberately supported for regression/debugging.
+- Production may be single-host Windows GPU, split-host Windows+Linux GPU, or single-host Windows CPU.
+- Qualification is profile-specific.
+- No Production profile is considered supported until its exact evidence is complete.
+- Current Task-18 acceptance tooling requires profile-model reconciliation before authoritative qualification begins.
