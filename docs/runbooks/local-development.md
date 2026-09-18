@@ -192,7 +192,7 @@ The worker now implements this device policy. Explicit `CUDA` never silently bec
 Development `Auto` is resolved in two places, and both record a reason code:
 
 - the Windows launcher resolves it before Python starts, by checking that a Windows CUDA Runtime Pack is installed, passes its manifest/state/artifact integrity preflight, matches the component's declared Runtime Pack identity, and that the configured device is present according to the NVIDIA driver;
-- `RuntimeSupervisor` resolves it for any entry point that reaches Python with `MAVI_DEVICE_POLICY=auto`, by requiring a `qualified-hardware` CUDA runtime variant with a qualified offline lock and an available device.
+- `RuntimeSupervisor` resolves it for any entry point that reaches Python with `MAVI_DEVICE_POLICY=auto`, by requiring a CUDA runtime variant that is either `qualified-hardware` or `qualified-development-hardware`, with a qualified offline lock and an available device. Production forbids `Auto` outright, so the Development state is honoured only where Production cannot reach.
 
 No Windows CUDA Runtime Pack is declared in this phase, so Development `Auto` always resolves to the qualified CPU path and records `cuda_pack_absent` or `cuda_pack_not_declared`.
 

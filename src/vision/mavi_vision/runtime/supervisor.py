@@ -589,9 +589,16 @@ class RuntimeSupervisor:
             lock = selection.runtime_release_locks.get(
                 cuda_variant
             )
+            # Both CUDA qualification states are honoured here, and only here:
+            # Production forbids Auto outright above, so this branch is reached
+            # only on a Development host, where ADR-009 says the state after C4
+            # is `qualified-development-hardware`. Accepting only the Production
+            # state would make Auto unable to use a GPU it has qualified, and
+            # `offline_lock.py` already accepts both for a `-cuda` variant.
             cuda_runtime_ready = (
                 variant is not None
-                and variant.status == "qualified-hardware"
+                and variant.status
+                in {"qualified-hardware", "qualified-development-hardware"}
                 and lock is not None
                 and lock.status == "qualified-offline-lock"
             )

@@ -64,6 +64,15 @@ def test_component_requirements_bind_current_runtime_and_model_inputs() -> None:
         "windows-x86_64-cpu": "3.12.10",
         "linux-x86_64-cpu": "3.12.14",
     }
+    # Plan Gate C5 requires Development `Auto` to keep choosing CPU until the
+    # Application Overlay binding lands. That holds today only because no CUDA
+    # Runtime Pack is declared here, which nothing else asserts. C5 must delete
+    # this deliberately rather than drift past it.
+    assert set(components["runtimePacks"]) == {
+        "windows-x86_64-cpu",
+        "linux-x86_64-cpu",
+    }
+
     for variant, binding in components["runtimePacks"].items():
         lock_hash = _sha(runtime_root / f"{variant}.lock")
         requirements_hash = _sha(runtime_root / f"{variant}.requirements.txt")

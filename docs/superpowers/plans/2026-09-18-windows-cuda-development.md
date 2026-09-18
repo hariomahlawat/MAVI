@@ -680,10 +680,17 @@ toolchain is CUDA 12.4 + MSVC 14.44.35207 + Windows SDK 10.0.26100.0; MSVC 14.39
 is not required. The evidence is recorded above and frozen in the build
 contract.
 
-The next step is **independent review of the R1/pre-C2 evidence**, on Draft
-PR #49. C2 must not begin until that review completes. Nothing in this branch
-acquires wheels, builds MMCV CUDA, freezes a lock or promotes any
-qualification state.
+**C2, C3 and C4 repository tooling is landed and tested**, and its execution
+order is documented in the phase sections above. No C2 artefact has been
+produced: nothing in this branch acquires wheels, builds MMCV CUDA, freezes a
+lock or promotes any qualification state, and none of that can happen from a
+hosted Linux session. The tooling is what a controlled Windows host will run;
+it exists first so the host session executes a reviewed procedure rather than
+improvising one, and so the artefacts it produces are checked by code rather
+than read by eye.
+
+The next step remains **independent review of the R1/pre-C2 evidence**, on
+Draft PR #49, before C2 execution begins on the Windows host.
 
 Two known items remain scheduled beyond this gate and must not be pulled
 forward:

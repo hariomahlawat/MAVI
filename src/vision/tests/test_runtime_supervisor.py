@@ -826,6 +826,111 @@ def test_development_auto_falls_back_to_cpu_when_cuda_unavailable(
     asyncio.run(scenario())
 
 
+def test_development_auto_accepts_a_development_qualified_gpu(
+    monkeypatch,
+) -> None:
+    """ADR-009's Development state is the one the laptop will actually carry.
+
+    `qualified-hardware` is the Production state; a Development host that has
+    passed C4 carries `qualified-development-hardware`. Requiring the former
+    here would make the plan's C6 requirement -- Auto selects CUDA when the
+    qualified pack and device are available -- unreachable on the only kind of
+    host that phase runs on.
+    """
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        runtime = _Runtime("cuda", device="cuda:2")
+        harness = _Harness(
+            runtimes=[runtime],
+            device_policy="auto",
+            cuda_available=True,
+        )
+        harness.selection.runtime_platform_variants[
+            "windows-x86_64-cuda"
+        ].status = "qualified-development-hardware"
+
+        await harness.supervisor.start()
+
+        assert harness.supervisor.state is module.RuntimeState.READY
+        assert harness.factory_calls[0][1] == "cuda:2"
+
+    asyncio.run(scenario())
+
+
+def test_development_auto_still_chooses_cpu_against_the_committed_profile(
+    monkeypatch,
+) -> None:
+    """Plan Gate C5's pre-condition, read from the real runtime profile.
+
+    Every other Auto test here supplies synthetic variant statuses, so nothing
+    asserted what the repository as committed actually resolves to. Until C5
+    binds a CUDA Runtime Pack this must stay CPU; when C5 lands, this test is
+    the one that has to be changed on purpose.
+    """
+    from mavi_vision.runtime.qualification import load_runtime_profile
+
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        profile = load_runtime_profile(
+            Path(__file__).resolve().parents[1]
+            / "runtime"
+            / "mmdetection-phase1-v1"
+            / "runtime.json"
+        )
+        harness = _Harness(device_policy="auto", cuda_available=True)
+        harness.selection.runtime_platform_variants = {
+            name: SimpleNamespace(status=variant.status)
+            for name, variant in profile.platform_variants.items()
+        }
+        harness.selection.runtime_release_locks = {
+            name: SimpleNamespace(status=lock.status)
+            for name, lock in profile.release_locks.items()
+        }
+
+        await harness.supervisor.start()
+
+        assert harness.supervisor.state is module.RuntimeState.READY
+        assert harness.factory_calls[0][1] == "cpu"
+        assert (
+            harness.supervisor._resolved_device_resolution_reason
+            == "cuda_pack_not_declared"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_production_auto_is_refused_whatever_the_cuda_variant_state(
+    monkeypatch,
+) -> None:
+    """Development qualification must never become a Production capability."""
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        harness = _Harness(
+            production_mode=True,
+            device_policy="auto",
+            cuda_available=True,
+        )
+        harness.selection.runtime_platform_variants[
+            "windows-x86_64-cuda"
+        ].status = "qualified-development-hardware"
+
+        await harness.supervisor.start()
+
+        assert harness.supervisor.state is module.RuntimeState.UNAVAILABLE
+        assert harness.factory_calls == []
+
+    asyncio.run(scenario())
+
+
 def test_development_auto_falls_back_when_cuda_runtime_is_not_qualified(
     monkeypatch,
 ) -> None:
