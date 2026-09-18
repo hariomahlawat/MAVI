@@ -286,6 +286,97 @@ public sealed class VisionResultValidatorTests
                 10_000));
     }
 
+
+    [Fact]
+    public void PhysicalGpuIdentityParticipatesInCompletionDigest()
+    {
+        var validator = new VisionResultValidator();
+        var baseProvenance = Provenance() with
+        {
+            ConfiguredDevicePolicy = "cuda",
+            DeviceResolutionReason = "explicit_cuda",
+            ActualDevice = "cuda:0",
+            Gpu = new VisionGpuIdentityContract(
+                "NVIDIA GeForce GTX 1650 Ti",
+                0,
+                4L * 1024 * 1024 * 1024,
+                "576.83",
+                "12.4",
+                "GPU-test-a",
+                "00000000:01:00.0",
+                "7.5")
+        };
+
+        var first = validator.Validate(
+            JobId,
+            Request() with { Provenance = baseProvenance },
+            10_000);
+        var second = validator.Validate(
+            JobId,
+            Request() with
+            {
+                Provenance = baseProvenance with
+                {
+                    Gpu = baseProvenance.Gpu! with
+                    {
+                        Uuid = "GPU-test-b"
+                    }
+                }
+            },
+            10_000);
+
+        Assert.NotEqual(first.CompletionDigest, second.CompletionDigest);
+    }
+
+    [Theory]
+    [InlineData("bad")]
+    [InlineData("7")]
+    [InlineData("7.x")]
+    [InlineData("7.5.0")]
+    public void InvalidGpuComputeCapabilityIsRejected(string value)
+    {
+        var validator = new VisionResultValidator();
+        var provenance = Provenance() with
+        {
+            ConfiguredDevicePolicy = "cuda",
+            ActualDevice = "cuda:0",
+            Gpu = new VisionGpuIdentityContract(
+                "NVIDIA GeForce GTX 1650 Ti",
+                0,
+                4L * 1024 * 1024 * 1024,
+                "576.83",
+                "12.4",
+                "GPU-test",
+                "00000000:01:00.0",
+                value)
+        };
+
+        Assert.Throws<VisionResultValidationException>(() =>
+            validator.Validate(
+                JobId,
+                Request() with { Provenance = provenance },
+                10_000));
+    }
+
+    [Theory]
+    [InlineData("BadReason")]
+    [InlineData("bad-reason")]
+    [InlineData(" reason")]
+    public void InvalidDeviceResolutionReasonIsRejected(string value)
+    {
+        var validator = new VisionResultValidator();
+        var provenance = Provenance() with
+        {
+            DeviceResolutionReason = value
+        };
+
+        Assert.Throws<VisionResultValidationException>(() =>
+            validator.Validate(
+                JobId,
+                Request() with { Provenance = provenance },
+                10_000));
+    }
+
     private static VisionJobCompleteRequest Request(params VisionTrackResultContract[] tracks) =>
         new(
             "2.0",
