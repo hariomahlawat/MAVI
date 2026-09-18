@@ -26,6 +26,7 @@ if str(VISION_ROOT) not in sys.path:
 
 from mavi_vision.runtime.offline_lock import (  # noqa: E402
     LockedDistribution,
+    OfflineLockError,
     OfflineRuntimeLock,
     canonicalize_distribution_name,
     serialize_offline_runtime_lock,
@@ -564,10 +565,13 @@ def freeze_wheelhouse(
         python_version=python_version,
         distributions=distributions,
     )
-    validate_accelerator_distribution_versions(
-        lock,
-        expected_variant=platform_variant,
-    )
+    try:
+        validate_accelerator_distribution_versions(
+            lock,
+            expected_variant=platform_variant,
+        )
+    except OfflineLockError as exc:
+        raise FreezeOfflineLockError(exc.code) from exc
     return lock
 
 
