@@ -124,6 +124,8 @@ def test_bundle_file_set_rejects_nested_same_named_manifest(tmp_path: Path):
         model_id="rtmdet-m-coco-phase1-v1",
         runtime_profile_id="mmdetection-phase1-v1",
         lock_sha256="b" * 64,
+        deployment_profile="P3",
+        deployment_profile_policy_sha256="c" * 64,
         host_compatibility=mod.build_offline_bundle.BundleHostCompatibility(
             os_family="linux",
             architecture="x86_64",
