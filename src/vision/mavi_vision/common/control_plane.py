@@ -453,6 +453,9 @@ class VisionGpuIdentity(ControlPlaneModel):
     vram_bytes: CompletionInt64 = Field(gt=0, le=9_223_372_036_854_775_807)
     driver_version: ProvenanceDetail
     cuda_runtime_version: ProvenanceDetail
+    uuid: ProvenanceDetail
+    pci_bus_id: ProvenanceDetail
+    compute_capability: ProvenanceDetail
 
 
 class VisionTrackerParameters(ControlPlaneModel):
