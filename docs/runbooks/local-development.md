@@ -203,6 +203,16 @@ Review this observation before choosing the CUDA binary graph. In particular, do
 
 The default output filename is ignored by Git because GPU UUID and workstation-specific identity are local engineering evidence. Do not commit the observation unless it has been deliberately sanitized and approved as a qualification artifact.
 
+### Current Windows CUDA engineering candidate
+
+The reviewed C1 candidate is recorded in:
+
+`docs/qualification/2026-09-18-windows-cuda-c1-compatibility-decision.md`
+
+The candidate retains CPython 3.12.10, PyTorch 2.6.0+cu124, torchvision 0.21.0+cu124, MMCV 2.1.0, MMEngine 0.10.7 and MMDetection 3.3.0 for controlled C2/C3 engineering. The observed development laptop has a GTX 1650 Ti with 4096 MiB VRAM and NVIDIA driver 576.83.
+
+This remains an **engineering candidate**, not a qualified Runtime Pack. Until C2-C5 complete, the authoritative Application Overlay must not declare a Windows CUDA Runtime Pack and Development `Auto` must continue to fall back to the existing qualified CPU path.
+
 ## Run the .NET suite
 
 From the repository root:
