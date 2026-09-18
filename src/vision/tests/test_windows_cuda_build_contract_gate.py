@@ -35,6 +35,20 @@ def _write(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2), encoding="utf-8")
 
 
+# The staged toolchain blocks are built from a fixed base rather than from the
+# repository's live contract. Merging onto the live contract would make these
+# guardrail cases stop testing anything the moment R1 freezes a real toolchain.
+_BASE_CONTRACT_TOOLCHAIN = {
+    "cudaToolkitVersion": "12.4",
+    "rule": "No Windows CUDA lock or Runtime Pack may be frozen until nvcc "
+    "successfully compiles a trivial .cu file with the selected MSVC toolset "
+    "and Windows SDK.",
+}
+_BASE_CATALOG_TOOLCHAIN = {
+    "policyId": "msvc-cuda-build-toolchain-win-x64",
+}
+
+
 def _stage(
     tmp_path: Path,
     *,
@@ -45,13 +59,16 @@ def _stage(
     contract = json.loads(
         (ROOT / CONTRACT_RELATIVE).read_text(encoding="utf-8")
     )
-    contract["toolchain"] = {**contract["toolchain"], **contract_toolchain}
+    contract["toolchain"] = {
+        **_BASE_CONTRACT_TOOLCHAIN,
+        **contract_toolchain,
+    }
     _write(tmp_path / CONTRACT_RELATIVE, contract)
 
     catalog = json.loads((ROOT / CATALOG_RELATIVE).read_text(encoding="utf-8"))
     candidate = catalog["visionRuntime"]["windowsCudaDevelopmentCandidate"]
     candidate["buildToolchain"] = {
-        **candidate["buildToolchain"],
+        **_BASE_CATALOG_TOOLCHAIN,
         **catalog_toolchain,
     }
     _write(tmp_path / CATALOG_RELATIVE, catalog)
@@ -142,7 +159,7 @@ def test_cuda_lock_is_refused_when_only_the_catalogue_is_frozen(
     """Freezing the weaker source of truth must not open the gate."""
     _stage(
         tmp_path,
-        contract_toolchain={},
+        contract_toolchain={"verificationStatus": "pending-r1-preflight"},
         catalog_toolchain=_FROZEN_CATALOG,
         with_lock=True,
     )
@@ -221,7 +238,7 @@ def test_runtime_policy_must_keep_explicit_cuda_fail_closed(
 ) -> None:
     _stage(
         tmp_path,
-        contract_toolchain={},
+        contract_toolchain={"verificationStatus": "pending-r1-preflight"},
         catalog_toolchain=_FROZEN_CATALOG,
         with_lock=False,
     )
@@ -233,3 +250,68 @@ def test_runtime_policy_must_keep_explicit_cuda_fail_closed(
     errors = _run(tmp_path, monkeypatch)
 
     assert any("fail-closed" in item for item in errors)
+
+
+def test_repository_contract_records_the_r1_verified_toolchain() -> None:
+    """The frozen identity is empirical evidence; it may not drift silently."""
+    toolchain = json.loads(
+        (ROOT / CONTRACT_RELATIVE).read_text(encoding="utf-8")
+    )["toolchain"]
+
+    assert toolchain["verificationStatus"] == "verified"
+    assert toolchain["cudaToolkitVersion"] == "12.4"
+    assert toolchain["msvcToolset"] == "14.44.35207"
+    assert toolchain["windowsSdkVersion"] == "10.0.26100.0"
+    assert toolchain["msvcCompilerVersion"] == "19.44.35222"
+
+
+def test_repository_contract_and_catalogue_agree_on_the_frozen_toolchain() -> None:
+    """One frozen toolchain identity, not two that can drift apart."""
+    toolchain = json.loads(
+        (ROOT / CONTRACT_RELATIVE).read_text(encoding="utf-8")
+    )["toolchain"]
+    catalogue = json.loads(
+        (ROOT / CATALOG_RELATIVE).read_text(encoding="utf-8")
+    )["visionRuntime"]["windowsCudaDevelopmentCandidate"]["buildToolchain"]
+
+    assert catalogue["cudaToolkit"] == toolchain["cudaToolkitVersion"]
+    assert catalogue["msvcToolset"] == toolchain["msvcToolset"]
+    assert catalogue["windowsSdk"] == toolchain["windowsSdkVersion"]
+
+
+def test_r1_evidence_binds_the_verified_toolchain_to_its_observations() -> None:
+    """A verified toolchain must name the evidence that verified it."""
+    evidence = json.loads(
+        (ROOT / CONTRACT_RELATIVE).read_text(encoding="utf-8")
+    )["toolchain"]["evidence"]
+
+    assert evidence["probeExitCode"] == 0
+    assert evidence["probeArchitecture"] == "-arch=sm_75"
+    assert len(evidence["verifiedAtSourceHeadSha"]) == 40
+    assert len(evidence["hostObservationSha256"]) == 64
+    assert len(evidence["torchWheelSha256"]) == 64
+    assert evidence["torchWheelFilename"].endswith("-cp312-cp312-win_amd64.whl")
+    assert "+cu124" in evidence["torchWheelFilename"]
+
+
+def test_verified_toolchain_does_not_imply_any_cuda_qualification() -> None:
+    """R1 verifies a build toolchain; it qualifies nothing."""
+    contract = json.loads(
+        (ROOT / CONTRACT_RELATIVE).read_text(encoding="utf-8")
+    )
+    catalogue = json.loads(
+        (ROOT / CATALOG_RELATIVE).read_text(encoding="utf-8")
+    )["visionRuntime"]["windowsCudaDevelopmentCandidate"]
+    runtime = json.loads(
+        (
+            ROOT / "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert contract["runtimePolicy"]["explicitCudaMayFallbackToCpu"] is False
+    assert "not a Production-supported runtime" in catalogue["qualificationBoundary"]
+    assert (
+        runtime["platformVariants"]["windows-x86_64-cuda"]["status"]
+        == "pending-hardware-qualification"
+    )
+    assert runtime["qualificationStatus"] == "partial"

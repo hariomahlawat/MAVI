@@ -196,7 +196,7 @@
     "storagePolicy": "Qualified platform/model bundles are retained outside ordinary Git and remain separately manifest/hash qualified; the Windows application binary kit does not silently substitute for vision qualification.",
     "dependencyPolicyId": "vision-model-runtime-bundles",
     "windowsCudaDevelopmentCandidate": {
-      "status": "pre-c2-remediation",
+      "status": "r1-toolchain-verified-pre-c2",
       "platformVariant": "windows-x86_64-cuda",
       "pythonVersion": "3.12.10",
       "torchBinary": "2.6.0+cu124",
@@ -212,8 +212,8 @@
       },
       "buildToolchain": {
         "cudaToolkit": "12.4",
-        "msvcToolset": "pending-r1-preflight",
-        "windowsSdk": "pending-c2-freeze",
+        "msvcToolset": "14.44.35207",
+        "windowsSdk": "10.0.26100.0",
         "policyId": "msvc-cuda-build-toolchain-win-x64"
       },
       "runtimePrerequisites": [
