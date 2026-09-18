@@ -216,6 +216,21 @@ Restart Visual Studio once after first setup so it inherits the machine-scoped D
 
 For a repository-based Development workstation, keep the extracted `MAVI-Offline-Binary-Kit` beside the `MAVI` repository and double-click `Setup-MAVI-Development.cmd`. The launcher auto-detects and verifies the sibling kit. Loose `vendor/...` staging is accepted only as release-preparation input to the kit builder; target Development Setup deliberately refuses it. No port, database, pgvector or FFmpeg PATH configuration is required.
 
+## Production deployment profiles
+
+ADR-008 defines three Production profiles over the same application architecture:
+
+| Profile | Physical topology | Worker runtime | Required worker environment |
+|---|---|---|---|
+| **P1** | Single Windows host | Windows CUDA | `MAVI_DEPLOYMENT_PROFILE=P1`, `MAVI_DEVICE_POLICY=cuda` |
+| **P2** | Windows Operational/Data + separate Linux Vision host | Linux CUDA | `MAVI_DEPLOYMENT_PROFILE=P2`, `MAVI_DEVICE_POLICY=cuda` |
+| **P3** | Single Windows host | Windows CPU | `MAVI_DEPLOYMENT_PROFILE=P3`, `MAVI_DEVICE_POLICY=cpu` |
+
+Production workers **must** set `MAVI_DEPLOYMENT_PROFILE`. Production rejects `MAVI_DEVICE_POLICY=auto`. At worker startup the selected profile is loaded from the exact deployment-profile policy, the release qualification record is checked for that profile/policy/runtime variant, and the actual host OS/device is required to match the profile. Thus P2 cannot accidentally run on a Windows CUDA host and P1/P3 cannot silently use another runtime variant.
+
+The Windows operational/data setup media remains common. The Vision Runtime Pack and worker installation are profile-specific. A profile is supported only after its exact Production qualification passes.
+
+
 ## Production workstation
 
 Double-click:
@@ -264,4 +279,4 @@ Plan-only does not generate credentials, create folders, register services, or i
 
 Setup prepares the target. It does **not** declare a release qualified.
 
-After setup, the existing Task-17/Phase-1 disconnected lifecycle, production prerequisite, CPU/CUDA, quality/performance, backup/restore and final production acceptance evidence must still be executed against the exact frozen release as defined in docs/runbooks/phase1-acceptance.md.
+After setup, profile-specific disconnected lifecycle, production prerequisite, device/runtime, quality/performance, backup/restore and final production acceptance evidence must still be executed against the exact frozen release as defined in `docs/runbooks/phase1-acceptance.md`. Current acceptance tooling still contains legacy four-variant/Linux-CUDA assumptions and must be reconciled with ADR-008 before authoritative Task-18 qualification.

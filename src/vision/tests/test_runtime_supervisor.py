@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import importlib.util
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -107,6 +108,8 @@ class _Harness:
         provenance_error: BaseException | None = None,
         device_policy: str = "cpu",
         production_mode: bool = False,
+        deployment_profile: str | None = None,
+        cuda_available: bool = False,
         require_gpu_identity: bool = False,
         activity: InferenceActivity | None = None,
         monotonic_clock=None,
@@ -128,6 +131,32 @@ class _Harness:
                 class_vocabulary=VOCABULARY,
             ),
             profile=SimpleNamespace(profile_id="profile-a"),
+            runtime_platform_variants={
+                variant: SimpleNamespace(
+                    status=(
+                        "qualified-hardware"
+                        if variant.endswith("-cuda")
+                        else "qualified-hosted-cpu"
+                    )
+                )
+                for variant in (
+                    "windows-x86_64-cpu",
+                    "windows-x86_64-cuda",
+                    "linux-x86_64-cpu",
+                    "linux-x86_64-cuda",
+                )
+            },
+            runtime_release_locks={
+                variant: SimpleNamespace(
+                    status="qualified-offline-lock"
+                )
+                for variant in (
+                    "windows-x86_64-cpu",
+                    "windows-x86_64-cuda",
+                    "linux-x86_64-cpu",
+                    "linux-x86_64-cuda",
+                )
+            },
         )
         self.runtimes = list(runtimes or [_Runtime("a")])
         self.verify_calls: list[dict[str, object]] = []
@@ -160,6 +189,49 @@ class _Harness:
             self.provenances.append(value)
             return value
 
+        effective_profile = (
+            deployment_profile
+            if deployment_profile is not None
+            else ("P3" if production_mode else None)
+        )
+
+        def load_deployment_profile(profile_id, path):
+            del path
+            contracts = {
+                "P1": SimpleNamespace(
+                    profile_id="P1",
+                    runtime_variant="windows-x86_64-cuda",
+                    requires_cuda=True,
+                    qualification_gates=frozenset({
+                        "windows-x86_64-cuda",
+                        "windows-offline-install",
+                        "cctv-quality-baseline",
+                    }),
+                ),
+                "P2": SimpleNamespace(
+                    profile_id="P2",
+                    runtime_variant="linux-x86_64-cuda",
+                    requires_cuda=True,
+                    qualification_gates=frozenset({
+                        "linux-x86_64-cuda",
+                        "linux-offline-install",
+                        "cctv-quality-baseline",
+                        "linux-nvidia-recovery-performance",
+                    }),
+                ),
+                "P3": SimpleNamespace(
+                    profile_id="P3",
+                    runtime_variant="windows-x86_64-cpu",
+                    requires_cuda=False,
+                    qualification_gates=frozenset({
+                        "windows-x86_64-cpu",
+                        "windows-offline-install",
+                        "cctv-quality-baseline",
+                    }),
+                ),
+            }
+            return contracts[profile_id], "f" * 64
+
         self.supervisor = module.RuntimeSupervisor(
             lane=self.lane,
             activity=self.activity,
@@ -168,6 +240,8 @@ class _Harness:
             profile_path=SimpleNamespace(),
             runtime_profile_path=SimpleNamespace(),
             qualification_path=SimpleNamespace(),
+            deployment_profile_policy_path=Path("profiles.json"),
+            deployment_profile=effective_profile,
             device_policy=device_policy,
             device_index=2,
             production_mode=production_mode,
@@ -180,6 +254,8 @@ class _Harness:
             runtime_factory=make_runtime,
             provenance_builder=make_provenance,
             gpu_identity_provider=lambda device: None,
+            cuda_availability_provider=lambda index: cuda_available,
+            deployment_profile_loader=load_deployment_profile,
             **(
                 {"monotonic_clock": monotonic_clock}
                 if monotonic_clock is not None
@@ -286,8 +362,23 @@ def test_release_policy_is_explicit_and_production_auto_is_defensively_rejected(
 
         assert development.verify_calls[0]["allow_unverified"] is True
         assert production.verify_calls[0]["allow_unverified"] is False
-        assert production_auto.events == ["verify"]
+        assert production.verify_calls[0]["required_profile"] == "P3"
+        assert (
+            production.verify_calls[0]["required_runtime_variant"]
+            == "windows-x86_64-cpu"
+        )
+        assert (
+            production.verify_calls[0][
+                "required_deployment_profile_policy_sha256"
+            ]
+            == "f" * 64
+        )
+        assert production_auto.events == []
         assert production_auto.supervisor.state is production_auto.module.RuntimeState.UNAVAILABLE
+        assert (
+            production_auto.supervisor.unavailable_reason
+            == "production_device_policy_profile_mismatch"
+        )
 
     asyncio.run(scenario())
 
@@ -688,3 +779,126 @@ def test_runtime_watchdog_snapshot_rejects_expiry_flag_mismatch() -> None:
             pipeline_profile_sha256=None,
             runtime_profile_sha256=None,
         )
+
+
+def test_development_auto_prefers_qualified_available_windows_gpu(
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        runtime = _Runtime("cuda", device="cuda:2")
+        harness = _Harness(
+            runtimes=[runtime],
+            device_policy="auto",
+            cuda_available=True,
+        )
+
+        await harness.supervisor.start()
+
+        assert harness.supervisor.state is module.RuntimeState.READY
+        assert harness.factory_calls[0][1] == "cuda:2"
+
+    asyncio.run(scenario())
+
+
+def test_development_auto_falls_back_to_cpu_when_cuda_unavailable(
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        harness = _Harness(
+            device_policy="auto",
+            cuda_available=False,
+        )
+        await harness.supervisor.start()
+
+        assert harness.supervisor.state is module.RuntimeState.READY
+        assert harness.factory_calls[0][1] == "cpu"
+
+    asyncio.run(scenario())
+
+
+def test_development_auto_falls_back_when_cuda_runtime_is_not_qualified(
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        harness = _Harness(
+            device_policy="auto",
+            cuda_available=True,
+        )
+        harness.selection.runtime_platform_variants[
+            "windows-x86_64-cuda"
+        ].status = "pending-hardware-qualification"
+
+        await harness.supervisor.start()
+
+        assert harness.supervisor.state is module.RuntimeState.READY
+        assert harness.factory_calls[0][1] == "cpu"
+
+    asyncio.run(scenario())
+
+
+def test_p1_production_binds_windows_cuda_profile_before_runtime(
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        runtime = _Runtime("cuda", device="cuda:2")
+        harness = _Harness(
+            runtimes=[runtime],
+            production_mode=True,
+            deployment_profile="P1",
+            device_policy="cuda",
+        )
+        await harness.supervisor.start()
+
+        assert harness.supervisor.state is module.RuntimeState.READY
+        call = harness.verify_calls[0]
+        assert call["required_profile"] == "P1"
+        assert call["required_runtime_variant"] == "windows-x86_64-cuda"
+        assert (
+            call["required_deployment_profile_policy_sha256"]
+            == "f" * 64
+        )
+        assert harness.factory_calls[0][1] == "cuda:2"
+
+    asyncio.run(scenario())
+
+
+def test_split_linux_profile_cannot_run_on_windows_cuda_host(
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        harness = _Harness(
+            runtimes=[_Runtime("cuda", device="cuda:2")],
+            production_mode=True,
+            deployment_profile="P2",
+            device_policy="cuda",
+        )
+        await harness.supervisor.start()
+
+        assert harness.supervisor.state is module.RuntimeState.UNAVAILABLE
+        assert (
+            harness.supervisor.unavailable_reason
+            == "production_deployment_profile_runtime_variant_mismatch"
+        )
+        assert harness.factory_calls == []
+
+    asyncio.run(scenario())

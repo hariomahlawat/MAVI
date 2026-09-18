@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run an independent final production E2E scenario on the exact Linux-CUDA worker."""
+"""Run an independent final production E2E scenario for one deployment profile."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ sys.modules[SPEC.name] = e2e
 SPEC.loader.exec_module(e2e)
 
 import qualify_offline_variant as offline_variant  # noqa: E402
+import deployment_profiles  # noqa: E402
 from production_acceptance_context import (  # noqa: E402
     AcceptanceContextError,
     load_context as load_acceptance_context,
@@ -59,9 +60,20 @@ def load_json(path: Path, code: str) -> dict[str, Any]:
 
 def validate_inputs(
     args: argparse.Namespace,
-) -> tuple[dict[str, Any], str, dict[str, Any]]:
+) -> tuple[
+    dict[str, Any],
+    str,
+    dict[str, Any],
+    dict[str, Any],
+    deployment_profiles.DeploymentProfile,
+    str,
+]:
+    selected_profile, deployment_policy_sha = deployment_profiles.select_profile(
+        args.deployment_profile,
+        args.deployment_profile_policy,
+    )
     variant = load_json(
-        args.linux_cuda_variant_evidence,
+        args.variant_evidence,
         "production_scenario_variant_invalid",
     )
     bundle, bundle_sha = e2e._validate_bundle(
@@ -72,11 +84,22 @@ def validate_inputs(
         raise ProductionScenarioError(
             "production_scenario_production_bundle_required"
         )
+    if (
+        bundle.get("deploymentProfile")
+        != selected_profile.profile_id
+        or bundle.get("deploymentProfilePolicySha256")
+        != deployment_policy_sha
+        or bundle.get("platformVariant")
+        != selected_profile.runtime_variant
+    ):
+        raise ProductionScenarioError(
+            "production_scenario_bundle_profile_mismatch"
+        )
     environment_identity = environment_fingerprint(args.worker_python)
     if (
         variant.get("schemaVersion")
         != "mavi-offline-variant-evidence-v1"
-        or variant.get("variant") != "linux-x86_64-cuda"
+        or variant.get("variant") != selected_profile.runtime_variant
         or variant.get("bundleMode") != "production"
         or variant.get("sourceCommit") != args.source_commit
         or variant.get("maviBuild") != args.mavi_build
@@ -106,7 +129,14 @@ def validate_inputs(
         raise ProductionScenarioError(
             "production_scenario_ground_truth_forbidden"
         )
-    return bundle, bundle_sha, variant, environment_identity
+    return (
+        bundle,
+        bundle_sha,
+        variant,
+        environment_identity,
+        selected_profile,
+        deployment_policy_sha,
+    )
 
 
 def worker_environment(
@@ -155,9 +185,21 @@ def worker_environment(
                 / "rtmdet-m-coco-phase1-v1.json"
             ).resolve()
         ),
+        "MAVI_DEPLOYMENT_PROFILE": args.selected_profile.profile_id,
+        "MAVI_DEPLOYMENT_PROFILE_POLICY_PATH": str(
+            (
+                args.bundle_dir
+                / "release"
+                / "config"
+                / "acceptance"
+                / "phase1-deployment-profiles-v1.json"
+            ).resolve()
+        ),
         "MAVI_BUILD_ID": args.mavi_build,
         "MAVI_COMMIT_SHA": args.source_commit,
-        "MAVI_DEVICE_POLICY": "cuda",
+        "MAVI_DEVICE_POLICY": (
+            "cuda" if args.selected_profile.requires_cuda else "cpu"
+        ),
         "MAVI_DEVICE_INDEX": str(args.device_index),
         "MAVI_PRODUCTION_MODE": "true",
         "MAVI_POLL_INTERVAL_SECONDS": "0.25",
@@ -172,7 +214,15 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         expected_mavi_build=args.mavi_build,
     )
     scenario_started = datetime.now(timezone.utc)
-    bundle, bundle_sha, variant, environment_identity = validate_inputs(args)
+    (
+        bundle,
+        bundle_sha,
+        variant,
+        environment_identity,
+        selected_profile,
+        deployment_policy_sha,
+    ) = validate_inputs(args)
+    args.selected_profile = selected_profile
     network_isolation = offline_variant.assert_outbound_internet_unavailable()
 
     client = e2e.ApiClient(args.base_url)
@@ -341,7 +391,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         or evidence.get("targetVerifiedManifestSha256")
         != args.target_verified_manifest_sha256
         or attestation.get("verificationStatus") != "verified"
-        or attestation.get("runtimeVariant") != "linux-x86_64-cuda"
+        or attestation.get("runtimeVariant") != selected_profile.runtime_variant
         or attestation.get("maviBuild") != args.mavi_build
         or attestation.get("maviCommit") != args.source_commit
         or attestation.get("productionBundleManifestSha256")
@@ -356,6 +406,15 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "production_scenario_e2e_binding_failed"
         )
 
+    actual_device = attestation.get("actualDevice")
+    if not isinstance(actual_device, str):
+        raise ProductionScenarioError("production_scenario_device_missing")
+    if selected_profile.requires_cuda:
+        if not actual_device.startswith("cuda:"):
+            raise ProductionScenarioError("production_scenario_cuda_required")
+    elif actual_device.startswith("cuda:"):
+        raise ProductionScenarioError("production_scenario_cpu_profile_used_cuda")
+
     if args.mode == "empty-scene-diagnostic":
         if (
             evidence.get("tracks", {}).get("total") != 0
@@ -368,7 +427,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
 
     scenario_completed = datetime.now(timezone.utc)
     return {
-        "schemaVersion": "mavi-production-scenario-evidence-v1",
+        "schemaVersion": "mavi-production-scenario-evidence-v2",
         "acceptanceExecutionId": context["acceptanceExecutionId"],
         "acceptanceContextSha256": context_sha,
         "scenarioStartedAtUtc": scenario_started.isoformat().replace("+00:00", "Z"),
@@ -378,9 +437,10 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "maviBuild": args.mavi_build,
         "operationalHostIdentitySha256": operational_api["hostIdentitySha256"],
         "targetVerifiedManifestSha256": args.target_verified_manifest_sha256,
-        "linuxCudaVariantEvidenceSha256": sha256_file(
-            args.linux_cuda_variant_evidence
-        ),
+        "deploymentProfile": selected_profile.profile_id,
+        "deploymentProfilePolicySha256": deployment_policy_sha,
+        "runtimeVariant": selected_profile.runtime_variant,
+        "variantEvidenceSha256": sha256_file(args.variant_evidence),
         "productionBundleManifestSha256": bundle_sha,
         "productionReleaseLockSha256": bundle["lockSha256"],
         "workerPythonSha256": sha256_file(args.worker_python),
@@ -420,7 +480,17 @@ def main() -> int:
     parser.add_argument("--bundle-dir", type=Path, required=True)
     parser.add_argument("--worker-python", type=Path, required=True)
     parser.add_argument(
-        "--linux-cuda-variant-evidence",
+        "--deployment-profile-policy",
+        type=Path,
+        default=deployment_profiles.CANONICAL_DEPLOYMENT_PROFILES,
+    )
+    parser.add_argument(
+        "--deployment-profile",
+        choices=("P1", "P2", "P3"),
+        required=True,
+    )
+    parser.add_argument(
+        "--variant-evidence",
         type=Path,
         required=True,
     )
@@ -465,6 +535,7 @@ def main() -> int:
         EnvironmentFingerprintError,
         AcceptanceContextError,
         e2e.AcceptanceError,
+        deployment_profiles.DeploymentProfileError,
     ) as exc:
         code = getattr(exc, "code", str(exc))
         print(json.dumps({"ok": False, "code": code}, sort_keys=True))

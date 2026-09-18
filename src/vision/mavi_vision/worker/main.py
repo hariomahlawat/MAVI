@@ -151,6 +151,10 @@ async def _run_worker(
             profile_path=settings.pipeline_profile_path,
             runtime_profile_path=settings.runtime_profile_path,
             qualification_path=settings.qualification_record_path,
+            deployment_profile_policy_path=(
+                settings.deployment_profile_policy_path
+            ),
+            deployment_profile=settings.deployment_profile,
             device_policy=settings.device_policy,
             device_index=settings.device_index,
             production_mode=settings.production_mode,

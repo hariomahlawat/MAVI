@@ -58,6 +58,17 @@ Current Phase-1 runtime profile: `mmdetection-phase1-v1`.
 
 The runtime profile and platform locks remain authoritative for vision qualification. CUDA versions must not be invented before the corresponding hardware qualification freezes them.
 
+
+### Device/profile mapping
+
+- Development Windows CPU uses the qualified Windows CPU Runtime Pack.
+- Development Windows CUDA will use a separately qualified Windows CUDA Runtime Pack when available.
+- P1 Production requires the Windows CUDA Runtime Pack.
+- P2 Production requires the Linux CUDA Runtime Pack.
+- P3 Production requires the Windows CPU Runtime Pack.
+
+Runtime Pack qualification is not transferable between profiles or devices. A compatible GPU being physically present is insufficient without the corresponding qualified runtime/device evidence.
+
 ## Storage split
 
 ### Ordinary Git

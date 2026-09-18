@@ -124,6 +124,8 @@ def test_bundle_file_set_rejects_nested_same_named_manifest(tmp_path: Path):
         model_id="rtmdet-m-coco-phase1-v1",
         runtime_profile_id="mmdetection-phase1-v1",
         lock_sha256="b" * 64,
+        deployment_profile="P3",
+        deployment_profile_policy_sha256="c" * 64,
         host_compatibility=mod.build_offline_bundle.BundleHostCompatibility(
             os_family="linux",
             architecture="x86_64",
@@ -155,7 +157,7 @@ def test_qualified_bundle_rejects_nested_same_named_manifest(tmp_path: Path, mon
 
     monkeypatch.setattr(
         mod.build_offline_bundle,
-        "_verify_bundled_release_selection",
+        "verify_bundled_release_manifest",
         lambda *_: None,
     )
     with pytest.raises(
@@ -163,3 +165,28 @@ def test_qualified_bundle_rejects_nested_same_named_manifest(tmp_path: Path, mon
         match="variant_bundle_file_set_mismatch",
     ):
         mod.verify_bundle(bundle)
+
+
+def test_production_worker_flow_requires_embedded_profile_policy(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    args = __import__("types").SimpleNamespace(
+        worker_flow_output=tmp_path / "worker.json",
+        bundle_dir=bundle,
+    )
+    with pytest.raises(
+        mod.VariantQualificationError,
+        match="variant_production_profile_binding_missing",
+    ):
+        mod.run_installed_worker_flow(
+            args,
+            python=tmp_path / "python",
+            environment={},
+            manifest={
+                "releaseStatus": "production",
+                "deploymentProfile": "P3",
+            },
+            manifest_sha="a" * 64,
+        )

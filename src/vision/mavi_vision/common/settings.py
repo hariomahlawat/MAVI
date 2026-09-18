@@ -30,6 +30,10 @@ class WorkerSettings(BaseSettings):
     runtime_profile_path: Path = Path(
         "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
     )
+    deployment_profile_policy_path: Path = Path(
+        "config/acceptance/phase1-deployment-profiles-v1.json"
+    )
+    deployment_profile: Literal["P1", "P2", "P3"] | None = None
     qualification_record_path: Path | None = Path(
         "models/qualifications/rtmdet-m-coco-phase1-v1.json"
     )
@@ -45,6 +49,10 @@ class WorkerSettings(BaseSettings):
     def validate_runtime_operational_policy(self) -> "WorkerSettings":
         if self.production_mode and self.device_policy == "auto":
             raise ValueError("MAVI_DEVICE_POLICY=auto is development-only")
+        if self.production_mode and self.deployment_profile is None:
+            raise ValueError(
+                "MAVI_DEPLOYMENT_PROFILE is required in production mode"
+            )
         if self.watchdog_grace_seconds >= self.inference_watchdog_seconds:
             raise ValueError(
                 "MAVI_WATCHDOG_GRACE_SECONDS must be less than "

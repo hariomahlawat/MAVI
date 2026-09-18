@@ -110,6 +110,9 @@ def verify_offline_install(
     *,
     expected_source_commit: str | None = None,
     expected_acceptance_profile_sha256: str | None = None,
+    expected_deployment_profile: str | None = None,
+    expected_runtime_variant: str | None = None,
+    expected_deployment_profile_policy_sha256: str | None = None,
 ) -> None:
     if expected_source_commit is not None and value["sourceCommit"] != expected_source_commit:
         raise EvidenceError("offline_source_commit_mismatch")
@@ -118,43 +121,83 @@ def verify_offline_install(
         and value["acceptanceProfileSha256"] != expected_acceptance_profile_sha256
     ):
         raise EvidenceError("offline_acceptance_profile_mismatch")
+    if (
+        expected_deployment_profile is not None
+        and value.get("deploymentProfile") != expected_deployment_profile
+    ):
+        raise EvidenceError("offline_deployment_profile_mismatch")
+    if (
+        expected_deployment_profile_policy_sha256 is not None
+        and value.get("deploymentProfilePolicySha256")
+        != expected_deployment_profile_policy_sha256
+    ):
+        raise EvidenceError("offline_deployment_profile_policy_mismatch")
 
-    os_name = value["os"]
-    required = {
-        "windows": {"windows-x86_64-cpu", "windows-x86_64-cuda"},
-        "linux": {"linux-x86_64-cpu", "linux-x86_64-cuda"},
-    }[os_name]
-    actual = {item["variant"] for item in value["variants"]}
-    if actual != required:
+    variants = value.get("variants")
+    if not isinstance(variants, list) or len(variants) != 1:
+        raise EvidenceError("offline_variant_coverage_incomplete")
+    item = variants[0]
+    if not isinstance(item, dict):
+        raise EvidenceError("offline_variant_coverage_incomplete")
+    variant = item.get("variant")
+    if (
+        not isinstance(variant, str)
+        or expected_runtime_variant is not None
+        and variant != expected_runtime_variant
+    ):
         raise EvidenceError("offline_variant_coverage_incomplete")
 
     aggregate_hashes = value.get("variantEvidenceSha256")
-    if not isinstance(aggregate_hashes, dict) or set(aggregate_hashes) != required:
-        raise EvidenceError("offline_variant_evidence_hash_coverage_incomplete")
-
-    strict_tokens = ("--no-index", "--only-binary=:all:", "--require-hashes", "--find-links")
-    for item in value["variants"]:
-        if not item["variant"].startswith(os_name + "-"):
-            raise EvidenceError("offline_variant_os_mismatch")
-        if any(token not in item["installCommand"] for token in strict_tokens):
-            raise EvidenceError("offline_install_command_not_strict")
-        if item["expectedHostCompatibility"] != item["observedHostCompatibility"]:
-            raise EvidenceError("offline_host_compatibility_mismatch")
-        required_true = (
-            "pipCheckPassed", "runtimeStarted", "realInferencePassed",
-            "workerFlowPassed", "outboundNetworkUnavailable"
+    if (
+        not isinstance(aggregate_hashes, dict)
+        or set(aggregate_hashes) != {variant}
+    ):
+        raise EvidenceError(
+            "offline_variant_evidence_hash_coverage_incomplete"
         )
-        if item["installExitCode"] != 0 or any(not item[name] for name in required_true):
-            raise EvidenceError("offline_variant_not_proven")
-        if item["firstRunDownloadObserved"]:
-            raise EvidenceError("offline_first_run_download_detected")
-        if item["variant"].endswith("-cpu") and item["actualDevice"] != "cpu":
-            raise EvidenceError("offline_cpu_device_mismatch")
-        if item["variant"].endswith("-cuda") and not item["actualDevice"].startswith("cuda:"):
-            raise EvidenceError("offline_cuda_device_mismatch")
-        if item["result"] != "passed":
-            raise EvidenceError("offline_variant_failed")
 
+    os_name = value["os"]
+    if not variant.startswith(os_name + "-"):
+        raise EvidenceError("offline_variant_os_mismatch")
+    strict_tokens = (
+        "--no-index",
+        "--only-binary=:all:",
+        "--require-hashes",
+        "--find-links",
+    )
+    if any(
+        token not in item["installCommand"]
+        for token in strict_tokens
+    ):
+        raise EvidenceError("offline_install_command_not_strict")
+    if (
+        item["expectedHostCompatibility"]
+        != item["observedHostCompatibility"]
+    ):
+        raise EvidenceError("offline_host_compatibility_mismatch")
+    required_true = (
+        "pipCheckPassed",
+        "runtimeStarted",
+        "realInferencePassed",
+        "workerFlowPassed",
+        "outboundNetworkUnavailable",
+    )
+    if (
+        item["installExitCode"] != 0
+        or any(not item[name] for name in required_true)
+    ):
+        raise EvidenceError("offline_variant_not_proven")
+    if item["firstRunDownloadObserved"]:
+        raise EvidenceError("offline_first_run_download_detected")
+    if variant.endswith("-cpu") and item["actualDevice"] != "cpu":
+        raise EvidenceError("offline_cpu_device_mismatch")
+    if (
+        variant.endswith("-cuda")
+        and not item["actualDevice"].startswith("cuda:")
+    ):
+        raise EvidenceError("offline_cuda_device_mismatch")
+    if item["result"] != "passed":
+        raise EvidenceError("offline_variant_failed")
     if value["result"] != "passed":
         raise EvidenceError("offline_os_gate_failed")
 

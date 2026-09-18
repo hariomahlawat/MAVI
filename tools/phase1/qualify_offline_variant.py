@@ -62,8 +62,9 @@ def verify_bundle(bundle: Path) -> tuple[dict[str, Any], str]:
     manifest_path = bundle / "bundle-manifest.json"
     manifest = read_json(manifest_path)
     try:
-        build_offline_bundle._verify_bundled_release_selection(
-            bundle, manifest.get("releaseStatus")
+        build_offline_bundle.verify_bundled_release_manifest(
+            bundle,
+            manifest,
         )
     except Exception as exc:
         raise VariantQualificationError("variant_bundle_release_invalid") from exc
@@ -323,6 +324,24 @@ def run_installed_worker_flow(
     runtime_profile = release_runtime / "runtime.json"
 
     worker_env = dict(environment)
+    production_profile = manifest.get("deploymentProfile")
+    deployment_policy_path = (
+        args.bundle_dir
+        / "release"
+        / "config"
+        / "acceptance"
+        / "phase1-deployment-profiles-v1.json"
+    )
+    if manifest["releaseStatus"] == "production":
+        if (
+            not isinstance(production_profile, str)
+            or not production_profile
+            or not deployment_policy_path.is_file()
+        ):
+            raise VariantQualificationError(
+                "variant_production_profile_binding_missing"
+            )
+
     worker_env.update({
         "MAVI_API_BASE_URL": args.base_url,
         "MAVI_WORKER_ID": f"task17-{args.variant}",
@@ -339,6 +358,11 @@ def run_installed_worker_flow(
         "MAVI_PRODUCTION_MODE": "true" if manifest["releaseStatus"] == "production" else "false",
         "MAVI_POLL_INTERVAL_SECONDS": "0.25",
     })
+    if manifest["releaseStatus"] == "production":
+        worker_env["MAVI_DEPLOYMENT_PROFILE"] = production_profile
+        worker_env["MAVI_DEPLOYMENT_PROFILE_POLICY_PATH"] = str(
+            deployment_policy_path.resolve()
+        )
     worker_command = [str(python), "-m", "mavi_vision.worker.main"]
 
     e2e_command = [

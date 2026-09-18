@@ -47,6 +47,14 @@ The kit must match `config/dependencies/offline-binary-catalog-v1.json`, its com
 
 The final Production setup bundle should normally omit Development SDKs and package caches. Development workstations consume the source repository plus the verified companion binary kit; a combined Development+Production setup bundle is an explicit exception.
 
+## Deployment-profile qualification
+
+ADR-008 defines three Production profiles: P1 single-host Windows GPU, P2 split-host Windows + Linux GPU, and P3 single-host Windows CPU. Offline readiness is evaluated for the profile(s) the release actually claims as supported.
+
+The current acceptance tooling still contains legacy assumptions that require all four Windows/Linux CPU/CUDA variants and a final Linux-CUDA scenario. Before authoritative Task-18 qualification, that tooling must be reconciled so it requires the full evidence set for each claimed profile without using one profile's evidence to qualify another.
+
+Development remains a single Windows laptop/workstation and may use CPU or compatible Windows CUDA when available. Development device choice does not by itself establish Production qualification.
+
 ## Phase-1 formal acceptance
 
 Task 17 owns the formal Phase-1 disconnected-install and end-to-end offline acceptance event. Hosted CI, an invalid proxy, or the existence of a qualification-candidate bundle is not by itself proof of a disconnected deployment.
@@ -61,7 +69,7 @@ ADR-003 closure additionally requires three executed proofs during Task 17 final
 
 All three proofs must produce distinct immutable hashed evidence and fail closed on missing stores, mismatched bytes/identities, hidden external dependencies or unexercised install/restore paths.
 
-After release promotion, all four exact **production** bundles must be executed disconnected. The final Linux-CUDA production E2E must attest the exact production bundle-manifest SHA-256 and promoted platform lock. Backup/restore must then use that final production E2E as its accepted case. `tools/phase1/assemble_production_acceptance.py` reconciles the compiled application artifact, fresh install, supported update, four production variant executions, final production E2E and final backup/restore into one immutable production-acceptance record. `assess_phase1_closure.py` independently reopens those underlying files; promotion or candidate evidence alone can never yield `release-verified`.
+Under ADR-008, post-promotion disconnected execution is profile-specific. P1 requires Windows-CUDA evidence; P2 requires Linux-CUDA split-host evidence; P3 requires Windows-CPU evidence including an acceptable Production performance envelope. The current assembler/closure implementation still reflects the earlier all-four-variant/Linux-CUDA model and must be reconciled before authoritative Task-18 acceptance. Promotion or candidate evidence alone can never yield `release-verified`.
 
 Operational commands and evidence handling are documented in `docs/runbooks/phase1-acceptance.md`. The authoritative requirements remain `docs/superpowers/plans/2026-09-14-task-17-phase1-hardening-qualification-acceptance.md` plus its qualification-closure addendum.
 
@@ -70,8 +78,8 @@ Operational commands and evidence handling are documented in `docs/runbooks/phas
 
 A promoted release is not yet Phase-1 accepted. Final disconnected acceptance additionally requires:
 
-- a repository-owned approved prerequisite baseline and observed matching identities for Windows/IIS, PostgreSQL/pgvector and Linux/NVIDIA/CPython/CUDA;
-- an independent target-containing formal production E2E using the exact Linux-CUDA production venv/bundle;
+- a repository-owned approved prerequisite baseline and observed matching identities for every host/device role in the selected Production profile;
+- an independent target-containing formal production E2E using the exact qualified worker/runtime for that selected profile;
 - a distinct empty-scene production diagnostic with zero false-positive Tracks;
 - a controlled public-API failure/reprocess scenario followed by successful processing from the exact production worker environment;
 - inspected API, IIS, PostgreSQL and scenario-worker logs with no external network, telemetry, licensing or activation dependency;
@@ -82,4 +90,4 @@ These proofs are assembled by `tools/phase1/assemble_production_acceptance.py` a
 
 Final production evidence is one acceptance execution, not a collection of independently clean files. Create a single immutable acceptance context before the final scenarios, checkpoint API/IIS/PostgreSQL logs at that point, and scan only the server/database bytes appended after the checkpoint. Formal, empty-scene and failure/reprocess scenarios must carry the same execution ID/context hash.
 
-Approved prerequisite versions must also be bound to the concrete topology exercised: the Windows prerequisite host identity must match lifecycle evidence, the database identity must match the backup source database, and the Linux prerequisite host identity must match the Linux-CUDA production worker host. Final Linux-CUDA scenarios must recompute and match the qualified virtual-environment fingerprint; the same base Python executable alone is not sufficient.
+Approved prerequisite versions must be bound to the concrete selected profile. Windows operational/database identity must match lifecycle/backup evidence; a P1 Windows CUDA worker must match its qualified Windows CUDA environment fingerprint; a P2 Linux CUDA worker must match its qualified Linux environment fingerprint; and P3 must match the qualified Windows CPU environment. The same base Python executable alone is never sufficient.

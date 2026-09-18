@@ -175,6 +175,20 @@ powershell -ExecutionPolicy Bypass -File tools/setup/Test-MaviEnvironment.ps1 -P
 
 Then restart Visual Studio if Setup changed the machine environment.
 
+## Development device policy
+
+The supported Development reference topology is a **single Windows workstation/laptop**. A second Linux or GPU machine is not required for routine development.
+
+Vision execution has three intended device modes:
+
+- **Auto** — prefer a compatible, qualified Windows CUDA runtime/GPU when available; otherwise use CPU with an explicit log/provenance record of the fallback.
+- **CUDA** — require Windows CUDA. If the compatible runtime/device is unavailable, fail clearly; do not silently fall back to CPU.
+- **CPU** — force CPU for reproducibility, debugging, comparison and machines without a usable GPU.
+
+The device actually used must be observable in worker startup/runtime logs and processing provenance.
+
+The worker now implements this device policy. In Development, `Auto` selects `cuda:<index>` only when the matching Windows CUDA Runtime Pack is qualified, its offline release lock is qualified, and the configured CUDA device is actually available. Otherwise it records the decision in logs and uses CPU. Explicit `CUDA` never silently becomes CPU. The existing Windows CPU path remains available for deterministic regression/debugging. Windows CUDA still requires real compatible hardware/runtime qualification before it can be treated as qualified evidence.
+
 ## Run the .NET suite
 
 From the repository root:

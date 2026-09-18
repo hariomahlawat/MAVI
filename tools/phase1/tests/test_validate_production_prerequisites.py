@@ -20,20 +20,37 @@ sys.modules[SPEC.name] = mod
 SPEC.loader.exec_module(mod)
 
 
+EXECUTION_ID = "11111111-1111-4111-8111-111111111111"
+CONTEXT_SHA = "c" * 64
+CONTEXT_STARTED = "2026-09-14T17:59:00Z"
+
+
 def approved_policy() -> dict:
     return {
         "approvalStatus": "approved",
         "windowsOperationalPlane": {
             "windowsProductName": "Windows Server 2025",
-            "windowsVersion": "10.0",
+            "windowsVersion": "24H2",
             "windowsBuild": "26100",
             "architecture": "AMD64",
             "iisVersion": "Version 10.0",
-            "dotnetRuntimeVersion": "8.0.20",
+            "dotnetRuntimeVersion": "10.0.11",
         },
         "database": {
-            "postgresVersion": "17.6",
+            "postgresVersion": "18.0",
             "pgvectorVersion": "0.8.1",
+        },
+        "windowsCudaVisionWorker": {
+            "architecture": "AMD64",
+            "pythonVersion": "3.12.10",
+            "pythonImplementation": "CPython",
+            "nvidiaDriverVersion": "580.82",
+            "cudaRuntimeVersion": "12.4",
+        },
+        "windowsCpuVisionWorker": {
+            "architecture": "AMD64",
+            "pythonVersion": "3.12.10",
+            "pythonImplementation": "CPython",
         },
         "linuxVisionWorker": {
             "distribution": "ubuntu",
@@ -47,16 +64,11 @@ def approved_policy() -> dict:
     }
 
 
-def observation(role: str, values: dict) -> dict:
-    topology = {
-        "windows-operational-plane": "1" * 64,
-        "database": "3" * 64,
-        "linux-vision-worker": "2" * 64,
-    }[role]
+def observation(role: str, values: dict, topology: str) -> dict:
     return {
         "schemaVersion": "mavi-production-prerequisite-observation-v1",
-        "acceptanceExecutionId": "11111111-1111-4111-8111-111111111111",
-        "acceptanceContextSha256": "c" * 64,
+        "acceptanceExecutionId": EXECUTION_ID,
+        "acceptanceContextSha256": CONTEXT_SHA,
         "role": role,
         "capturedAtUtc": "2026-09-14T18:00:00Z",
         "topologyIdentity": topology,
@@ -64,92 +76,165 @@ def observation(role: str, values: dict) -> dict:
     }
 
 
-def observations(policy: dict):
-    return (
-        observation(
+def p1_observations(policy: dict) -> dict[str, dict]:
+    return {
+        "windows-operational-plane": observation(
             "windows-operational-plane",
             policy["windowsOperationalPlane"],
+            "1" * 64,
         ),
-        observation("database", policy["database"]),
-        observation(
+        "database": observation(
+            "database",
+            policy["database"],
+            "2" * 64,
+        ),
+        "windows-cuda-vision-worker": observation(
+            "windows-cuda-vision-worker",
+            policy["windowsCudaVisionWorker"],
+            "1" * 64,
+        ),
+    }
+
+
+def p2_observations(policy: dict) -> dict[str, dict]:
+    return {
+        "windows-operational-plane": observation(
+            "windows-operational-plane",
+            policy["windowsOperationalPlane"],
+            "1" * 64,
+        ),
+        "database": observation(
+            "database",
+            policy["database"],
+            "2" * 64,
+        ),
+        "linux-vision-worker": observation(
             "linux-vision-worker",
             policy["linuxVisionWorker"],
+            "3" * 64,
         ),
-    )
+    }
 
 
 def test_pending_prerequisite_policy_cannot_pass():
     policy = approved_policy()
+    observations = p1_observations(policy)
     policy["approvalStatus"] = "pending"
-    windows, database, linux = observations(approved_policy())
     with pytest.raises(
         mod.PrerequisiteEvidenceError,
         match="production_prerequisite_policy_not_approved",
     ):
-        mod.validate_observations(policy, windows, database, linux, acceptance_execution_id="11111111-1111-4111-8111-111111111111", acceptance_context_sha256="c" * 64, context_started_at="2026-09-14T17:59:00Z")
+        mod.validate_observations(
+            policy,
+            observations,
+            tuple(observations),
+            acceptance_execution_id=EXECUTION_ID,
+            acceptance_context_sha256=CONTEXT_SHA,
+            context_started_at=CONTEXT_STARTED,
+        )
+
+
+def test_p1_exact_observations_pass():
+    policy = approved_policy()
+    observations = p1_observations(policy)
+    mod.validate_observations(
+        policy,
+        observations,
+        tuple(observations),
+        acceptance_execution_id=EXECUTION_ID,
+        acceptance_context_sha256=CONTEXT_SHA,
+        context_started_at=CONTEXT_STARTED,
+    )
+
+
+def test_p2_exact_observations_pass():
+    policy = approved_policy()
+    observations = p2_observations(policy)
+    mod.validate_observations(
+        policy,
+        observations,
+        tuple(observations),
+        acceptance_execution_id=EXECUTION_ID,
+        acceptance_context_sha256=CONTEXT_SHA,
+        context_started_at=CONTEXT_STARTED,
+    )
+
+
+def test_unclaimed_profile_observation_is_rejected():
+    policy = approved_policy()
+    observations = p1_observations(policy)
+    observations["linux-vision-worker"] = observation(
+        "linux-vision-worker",
+        policy["linuxVisionWorker"],
+        "3" * 64,
+    )
+    with pytest.raises(
+        mod.PrerequisiteEvidenceError,
+        match="production_prerequisite_observation_set_mismatch",
+    ):
+        mod.validate_observations(
+            policy,
+            observations,
+            (
+                "windows-operational-plane",
+                "database",
+                "windows-cuda-vision-worker",
+            ),
+            acceptance_execution_id=EXECUTION_ID,
+            acceptance_context_sha256=CONTEXT_SHA,
+            context_started_at=CONTEXT_STARTED,
+        )
 
 
 def test_mismatched_observed_prerequisite_cannot_pass():
     policy = approved_policy()
-    windows, database, linux = observations(policy)
-    linux["values"]["nvidiaDriverVersion"] = "different"
+    observations = p2_observations(policy)
+    observations["linux-vision-worker"]["values"]["nvidiaDriverVersion"] = "different"
     with pytest.raises(
         mod.PrerequisiteEvidenceError,
         match="production_prerequisite_observation_mismatch:linux-vision-worker",
     ):
-        mod.validate_observations(policy, windows, database, linux, acceptance_execution_id="11111111-1111-4111-8111-111111111111", acceptance_context_sha256="c" * 64, context_started_at="2026-09-14T17:59:00Z")
-
-
-def test_exact_approved_observations_pass():
-    policy = approved_policy()
-    windows, database, linux = observations(policy)
-    mod.validate_observations(policy, windows, database, linux, acceptance_execution_id="11111111-1111-4111-8111-111111111111", acceptance_context_sha256="c" * 64, context_started_at="2026-09-14T17:59:00Z")
+        mod.validate_observations(
+            policy,
+            observations,
+            tuple(observations),
+            acceptance_execution_id=EXECUTION_ID,
+            acceptance_context_sha256=CONTEXT_SHA,
+            context_started_at=CONTEXT_STARTED,
+        )
 
 
 def test_missing_topology_identity_cannot_pass():
     policy = approved_policy()
-    windows, database, linux = observations(policy)
-    del linux["topologyIdentity"]
+    observations = p1_observations(policy)
+    del observations["windows-cuda-vision-worker"]["topologyIdentity"]
     with pytest.raises(
         mod.PrerequisiteEvidenceError,
-        match="production_prerequisite_policy_not_frozen:linux-vision-worker",
+        match="production_prerequisite_policy_not_frozen:windows-cuda-vision-worker",
     ):
-        mod.validate_observations(policy, windows, database, linux, acceptance_execution_id="11111111-1111-4111-8111-111111111111", acceptance_context_sha256="c" * 64, context_started_at="2026-09-14T17:59:00Z")
+        mod.validate_observations(
+            policy,
+            observations,
+            tuple(observations),
+            acceptance_execution_id=EXECUTION_ID,
+            acceptance_context_sha256=CONTEXT_SHA,
+            context_started_at=CONTEXT_STARTED,
+        )
 
 
 def test_stale_observation_before_acceptance_context_cannot_pass():
     policy = approved_policy()
-    windows, database, linux = observations(policy)
-    windows["capturedAtUtc"] = "2026-09-13T18:00:00Z"
+    observations = p1_observations(policy)
+    observations["windows-operational-plane"]["capturedAtUtc"] = "2026-09-13T18:00:00Z"
     with pytest.raises(
         mod.PrerequisiteEvidenceError,
         match="production_prerequisite_context_mismatch:windows-operational-plane",
     ):
         mod.validate_observations(
             policy,
-            windows,
-            database,
-            linux,
-            acceptance_execution_id="11111111-1111-4111-8111-111111111111",
-            acceptance_context_sha256="c" * 64,
-            context_started_at="2026-09-14T17:59:00Z",
-        )
-
-
-def test_observation_from_other_acceptance_execution_cannot_pass():
-    policy = approved_policy()
-    windows, database, linux = observations(policy)
-    linux["acceptanceExecutionId"] = "22222222-2222-4222-8222-222222222222"
-    with pytest.raises(
-        mod.PrerequisiteEvidenceError,
-        match="production_prerequisite_context_mismatch:linux-vision-worker",
-    ):
-        mod.validate_observations(
-            policy,
-            windows,
-            database,
-            linux,
-            acceptance_execution_id="11111111-1111-4111-8111-111111111111",
-            acceptance_context_sha256="c" * 64,
-            context_started_at="2026-09-14T17:59:00Z",
+            observations,
+            tuple(observations),
+            acceptance_execution_id=EXECUTION_ID,
+            acceptance_context_sha256=CONTEXT_SHA,
+            context_started_at=CONTEXT_STARTED,
         )

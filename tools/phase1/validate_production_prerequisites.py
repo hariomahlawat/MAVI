@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate observed production prerequisites against the canonical approved baseline."""
+"""Validate observed production prerequisites for one declared deployment profile."""
 
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ PHASE1_ROOT = Path(__file__).resolve().parent
 if str(PHASE1_ROOT) not in sys.path:
     sys.path.insert(0, str(PHASE1_ROOT))
 
-from production_acceptance_context import (
+import deployment_profiles  # noqa: E402
+from production_acceptance_context import (  # noqa: E402
     AcceptanceContextError,
     load_context as load_acceptance_context,
 )
@@ -29,6 +30,15 @@ from policy_identity import (  # noqa: E402
 
 class PrerequisiteEvidenceError(ValueError):
     pass
+
+
+ROLE_POLICY_KEYS = {
+    "windows-operational-plane": "windowsOperationalPlane",
+    "database": "database",
+    "windows-cuda-vision-worker": "windowsCudaVisionWorker",
+    "windows-cpu-vision-worker": "windowsCpuVisionWorker",
+    "linux-vision-worker": "linuxVisionWorker",
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -49,11 +59,7 @@ def load_json(path: Path, code: str) -> dict[str, Any]:
     return value
 
 
-def validate_schema(
-    value: dict[str, Any],
-    schema_name: str,
-    code: str,
-) -> None:
+def validate_schema(value: dict[str, Any], schema_name: str, code: str) -> None:
     schema = load_json(PHASE1_ROOT / schema_name, code + "_schema_unavailable")
     errors = sorted(
         Draft202012Validator(
@@ -66,11 +72,30 @@ def validate_schema(
         raise PrerequisiteEvidenceError(code + "_schema_invalid")
 
 
+def parse_observation_arguments(values: list[str]) -> dict[str, Path]:
+    result: dict[str, Path] = {}
+    for item in values:
+        if "=" not in item:
+            raise PrerequisiteEvidenceError(
+                "production_prerequisite_observation_argument_invalid"
+            )
+        role, raw_path = item.split("=", 1)
+        if (
+            role not in ROLE_POLICY_KEYS
+            or role in result
+            or not raw_path
+        ):
+            raise PrerequisiteEvidenceError(
+                "production_prerequisite_observation_argument_invalid"
+            )
+        result[role] = Path(raw_path)
+    return result
+
+
 def validate_observations(
     policy: dict[str, Any],
-    windows: dict[str, Any],
-    database: dict[str, Any],
-    linux: dict[str, Any],
+    observations: dict[str, dict[str, Any]],
+    required_roles: tuple[str, ...],
     *,
     acceptance_execution_id: str,
     acceptance_context_sha256: str,
@@ -82,29 +107,37 @@ def validate_observations(
         )
 
     try:
-        context_start = datetime.fromisoformat(context_started_at.replace("Z", "+00:00"))
+        context_start = datetime.fromisoformat(
+            context_started_at.replace("Z", "+00:00")
+        )
     except ValueError as exc:
         raise PrerequisiteEvidenceError(
             "production_prerequisite_context_time_invalid"
         ) from exc
 
-    expected_roles = (
-        (windows, "windows-operational-plane", "windowsOperationalPlane"),
-        (database, "database", "database"),
-        (linux, "linux-vision-worker", "linuxVisionWorker"),
-    )
-    for observation, role, policy_key in expected_roles:
+    if set(observations) != set(required_roles):
+        raise PrerequisiteEvidenceError(
+            "production_prerequisite_observation_set_mismatch"
+        )
+
+    for role in required_roles:
+        observation = observations[role]
         try:
             captured = datetime.fromisoformat(
-                str(observation.get("capturedAtUtc", "")).replace("Z", "+00:00")
+                str(observation.get("capturedAtUtc", "")).replace(
+                    "Z", "+00:00"
+                )
             )
         except ValueError as exc:
             raise PrerequisiteEvidenceError(
                 "production_prerequisite_observation_time_invalid:" + role
             ) from exc
+
         if (
-            observation.get("acceptanceExecutionId") != acceptance_execution_id
-            or observation.get("acceptanceContextSha256") != acceptance_context_sha256
+            observation.get("acceptanceExecutionId")
+            != acceptance_execution_id
+            or observation.get("acceptanceContextSha256")
+            != acceptance_context_sha256
             or captured < context_start
         ):
             raise PrerequisiteEvidenceError(
@@ -114,6 +147,8 @@ def validate_observations(
             raise PrerequisiteEvidenceError(
                 "production_prerequisite_role_mismatch:" + role
             )
+
+        policy_key = ROLE_POLICY_KEYS[role]
         expected = policy.get(policy_key)
         observed = observation.get("values")
         topology_identity = observation.get("topologyIdentity")
@@ -143,6 +178,11 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         expected_source_commit=args.source_commit,
         expected_mavi_build=args.mavi_build,
     )
+    selected_profile, deployment_policy_sha = deployment_profiles.select_profile(
+        args.deployment_profile,
+        args.deployment_profile_policy,
+    )
+
     canonical, policy_sha = canonical_production_prerequisites(args.policy)
     policy = load_json(canonical, "production_prerequisite_policy_invalid")
     validate_schema(
@@ -151,53 +191,56 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
         "production_prerequisite_policy",
     )
 
-    windows = load_json(
-        args.windows_observation,
-        "production_prerequisite_windows_invalid",
-    )
-    database = load_json(
-        args.database_observation,
-        "production_prerequisite_database_invalid",
-    )
-    linux = load_json(
-        args.linux_observation,
-        "production_prerequisite_linux_invalid",
-    )
-    for value in (windows, database, linux):
+    paths = parse_observation_arguments(args.observation)
+    required_roles = selected_profile.required_prerequisite_roles
+    if set(paths) != set(required_roles):
+        raise PrerequisiteEvidenceError(
+            "production_prerequisite_observation_set_mismatch"
+        )
+
+    observations: dict[str, dict[str, Any]] = {}
+    for role in required_roles:
+        value = load_json(
+            paths[role],
+            "production_prerequisite_observation_invalid:" + role,
+        )
         validate_schema(
             value,
             "production-prerequisite-observation.schema.json",
             "production_prerequisite_observation",
         )
+        observations[role] = value
 
     validate_observations(
         policy,
-        windows,
-        database,
-        linux,
+        observations,
+        required_roles,
         acceptance_execution_id=context["acceptanceExecutionId"],
         acceptance_context_sha256=context_sha,
         context_started_at=context["startedAtUtc"],
     )
 
     return {
-        "schemaVersion": "mavi-production-prerequisite-evidence-v1",
+        "schemaVersion": "mavi-production-prerequisite-evidence-v2",
         "acceptanceExecutionId": context["acceptanceExecutionId"],
         "acceptanceContextSha256": context_sha,
         "sourceCommit": args.source_commit,
         "maviBuild": args.mavi_build,
+        "deploymentProfile": selected_profile.profile_id,
+        "deploymentProfilePolicySha256": deployment_policy_sha,
         "policySha256": policy_sha,
-        "windowsObservationSha256": sha256_file(args.windows_observation),
-        "databaseObservationSha256": sha256_file(args.database_observation),
-        "linuxObservationSha256": sha256_file(args.linux_observation),
-        "topologyIdentities": {
-            "windowsOperationalPlane": windows["topologyIdentity"],
-            "database": database["topologyIdentity"],
-            "linuxVisionWorker": linux["topologyIdentity"],
+        "observationSha256": {
+            role: sha256_file(paths[role])
+            for role in sorted(required_roles)
         },
-        "windowsOperationalPlane": windows["values"],
-        "database": database["values"],
-        "linuxVisionWorker": linux["values"],
+        "topologyIdentities": {
+            role: observations[role]["topologyIdentity"]
+            for role in sorted(required_roles)
+        },
+        "values": {
+            role: observations[role]["values"]
+            for role in sorted(required_roles)
+        },
         "result": {"passed": True, "failureCodes": []},
     }
 
@@ -205,12 +248,25 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument(
+        "--deployment-profile-policy",
+        type=Path,
+        default=deployment_profiles.CANONICAL_DEPLOYMENT_PROFILES,
+    )
+    parser.add_argument(
+        "--deployment-profile",
+        choices=("P1", "P2", "P3"),
+        required=True,
+    )
     parser.add_argument("--acceptance-context", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--mavi-build", required=True)
-    parser.add_argument("--windows-observation", type=Path, required=True)
-    parser.add_argument("--database-observation", type=Path, required=True)
-    parser.add_argument("--linux-observation", type=Path, required=True)
+    parser.add_argument(
+        "--observation",
+        action="append",
+        default=[],
+        help="ROLE=PATH; provide exactly the roles required by the selected profile",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -245,12 +301,13 @@ def main() -> int:
         )
     except (
         OSError,
-        json.JSONDecodeError,
-        PolicyIdentityError,
         PrerequisiteEvidenceError,
+        PolicyIdentityError,
         AcceptanceContextError,
+        deployment_profiles.DeploymentProfileError,
     ) as exc:
-        print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
+        code = getattr(exc, "code", str(exc))
+        print(json.dumps({"ok": False, "code": code}, sort_keys=True))
         return 2
 
     print(

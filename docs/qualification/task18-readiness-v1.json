@@ -1,0 +1,200 @@
+{
+  "schemaVersion": "mavi-task18-qualification-readiness-v1",
+  "generatedForPlanningBaseline": "557d5ccc356ae39766d95eec93ce0fdf49fdef31",
+  "planningPullRequest": 45,
+  "overallStatus": "BLOCKED",
+  "authoritativeQualificationAuthorized": false,
+  "componentSelection": {
+    "runtimeProfileId": "mmdetection-phase1-v1",
+    "windowsCpuRuntimePackId": "mavi-runtime-v2-5d6229da58554bc951ddc8bd719574c1b33109a7916afdf717339d8847e39e61",
+    "linuxCpuRuntimePackId": "mavi-runtime-v2-bd94fded938183dce8dc50390d48e97d913d9dad9dc98b528a962ad32314ff61",
+    "modelPackId": "mavi-model-v1-2abf67800cec8a9c63d735bf50e44ac695e8b8ccf01397e2cfd884305a5638b4",
+    "checkpointSha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
+    "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
+  },
+  "readiness": [
+    {
+      "id": "planning-baseline",
+      "status": "READY",
+      "mandatory": true,
+      "detail": "Task 18 re-baselined to current integration history."
+    },
+    {
+      "id": "component-architecture",
+      "status": "READY",
+      "mandatory": true,
+      "detail": "Runtime Pack, Model Pack and Application Overlay boundaries are merged and reviewed."
+    },
+    {
+      "id": "windows-cpu-subsystem-evidence",
+      "status": "READY",
+      "mandatory": false,
+      "detail": "Inherited PR #44 Development functional evidence; not final Production acceptance."
+    },
+    {
+      "id": "profile-aware-acceptance-tooling",
+      "status": "READY",
+      "mandatory": true,
+      "detail": "Profile-aware prerequisite, offline, performance, scenario, additive promotion, production-acceptance and closure tooling is implemented in PR #46; final acceptance remains subject to exact-head CI and independent review."
+    },
+    {
+      "id": "application-artifact-freeze",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Final Task-18 application artifact and manifest are not yet frozen."
+    },
+    {
+      "id": "offline-binary-kit-freeze",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "External Offline Binary Kit manifest SHA-256 not yet captured for Task 18."
+    },
+    {
+      "id": "deployment-profiles",
+      "status": "READY",
+      "mandatory": true,
+      "detail": "ADR-008 approves Development single-Windows topology plus P1 Windows GPU, P2 Windows+Linux GPU, and P3 Windows CPU Production profiles."
+    },
+    {
+      "id": "production-profile-selection",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "ADR-008 defines P1/P2/P3, but the first Production profile(s) to qualify have not yet been selected. Conditional prerequisite/runtime evidence is derived only after this selection."
+    },
+    {
+      "id": "acceptance-corpus",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "qualificationCorpusManifestSha256 is null."
+    },
+    {
+      "id": "person-threshold",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Person class threshold is null."
+    },
+    {
+      "id": "vehicle-threshold",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Vehicle class threshold is null."
+    },
+    {
+      "id": "empty-scene-threshold",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Empty-scene unmatched-track threshold is null."
+    },
+    {
+      "id": "performance-gate",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Performance thresholds are null; approve thresholds or formally defer the gate."
+    },
+    {
+      "id": "production-prerequisites",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Production prerequisite policy approvalStatus is pending."
+    },
+    {
+      "id": "supported-update",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Prior release applicationManifestSha256 is null; freeze prior artifact or formally defer update proof."
+    },
+    {
+      "id": "gpu-scope",
+      "status": "READY",
+      "mandatory": true,
+      "detail": "GPU support is profile-specific: Windows CUDA for P1 and Linux CUDA for P2; P3 is CPU-only."
+    },
+    {
+      "id": "gpu-qualification",
+      "status": "CONDITIONAL",
+      "mandatory": false,
+      "detail": "Windows CUDA is required only if P1 is claimed; Linux CUDA is required only if P2 is claimed. P3 is CPU-only and is not blocked by absent GPU qualification."
+    },
+    {
+      "id": "clean-production-install",
+      "status": "NOT_STARTED",
+      "mandatory": true,
+      "detail": "Must run after readiness becomes READY."
+    },
+    {
+      "id": "production-e2e",
+      "status": "NOT_STARTED",
+      "mandatory": true,
+      "detail": "Must run against exact frozen Production candidate."
+    },
+    {
+      "id": "failure-reprocess",
+      "status": "NOT_STARTED",
+      "mandatory": true,
+      "detail": "Must run in qualified Production topology."
+    },
+    {
+      "id": "backup-clean-restore",
+      "status": "NOT_STARTED",
+      "mandatory": true,
+      "detail": "Must run after a successful formal Production case."
+    },
+    {
+      "id": "release-promotion",
+      "status": "BLOCKED",
+      "mandatory": true,
+      "detail": "Promotion is prohibited until all mandatory evidence is independently valid."
+    }
+  ],
+  "nextActions": [
+    "Select the first Production deployment profile(s) to qualify under ADR-008.",
+    "Freeze acceptance corpus and Person/Vehicle/empty-scene/performance thresholds before final evaluation.",
+    "Collect and approve exact prerequisite versions for the selected Production profile(s).",
+    "Freeze exact supported prior release artifact or formally defer update proof.",
+    "Then freeze application artifact and Offline Binary Kit and establish the exact-head qualification candidate."
+  ],
+  "topologyDecision": {
+    "status": "READY",
+    "authority": "docs/decisions/ADR-008-phase1-production-topology.md",
+    "development": "single Windows workstation/laptop with Auto/CUDA/CPU device policy",
+    "productionProfiles": [
+      "P1 single-host Windows GPU",
+      "P2 split-host Windows + Linux GPU",
+      "P3 single-host Windows CPU"
+    ],
+    "networkBoundary": "Production remains controlled/disconnected with no runtime Internet dependency",
+    "qualificationRule": "each claimed Production profile requires its own exact platform/device/topology evidence",
+    "profileSelectionStatus": "BLOCKED",
+    "profileSelection": "No Production profile has yet been selected for authoritative Task-18 qualification."
+  },
+  "deploymentProfiles": {
+    "authority": "docs/decisions/ADR-008-phase1-production-topology.md",
+    "development": {
+      "physicalTopology": "single Windows laptop/workstation",
+      "devicePolicy": [
+        "Auto",
+        "CUDA",
+        "CPU"
+      ],
+      "autoRule": "prefer compatible qualified Windows CUDA when available; otherwise CPU with visible logging/provenance",
+      "silentFallbackAllowed": false
+    },
+    "production": {
+      "P1": {
+        "name": "single-host-windows-gpu",
+        "device": "windows-cuda",
+        "status": "approved-profile-pending-qualification"
+      },
+      "P2": {
+        "name": "split-windows-linux-gpu",
+        "device": "linux-cuda",
+        "status": "approved-profile-pending-qualification"
+      },
+      "P3": {
+        "name": "single-host-windows-cpu",
+        "device": "windows-cpu",
+        "status": "approved-profile-pending-production-acceptance"
+      }
+    }
+  }
+}

@@ -32,6 +32,10 @@ def test_settings_load_and_normalize(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert settings.runtime_profile_path == Path(
         "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
     )
+    assert settings.deployment_profile_policy_path == Path(
+        "config/acceptance/phase1-deployment-profiles-v1.json"
+    )
+    assert settings.deployment_profile is None
     assert settings.device_policy == "auto"
     assert settings.device_index == 0
     assert settings.production_mode is False
@@ -86,6 +90,7 @@ def test_settings_load_runtime_operational_selection(
     )
     monkeypatch.setenv("MAVI_DEVICE_POLICY", "cuda")
     monkeypatch.setenv("MAVI_DEVICE_INDEX", "2")
+    monkeypatch.setenv("MAVI_DEPLOYMENT_PROFILE", "P1")
     monkeypatch.setenv("MAVI_PRODUCTION_MODE", "true")
     monkeypatch.setenv("MAVI_INFERENCE_WATCHDOG_SECONDS", "180")
     monkeypatch.setenv("MAVI_WATCHDOG_GRACE_SECONDS", "20")
@@ -98,6 +103,7 @@ def test_settings_load_runtime_operational_selection(
     assert settings.runtime_profile_path == tmp_path / "release" / "runtime.json"
     assert settings.device_policy == "cuda"
     assert settings.device_index == 2
+    assert settings.deployment_profile == "P1"
     assert settings.production_mode is True
     assert settings.inference_watchdog_seconds == 180.0
     assert settings.watchdog_grace_seconds == 20.0
@@ -209,3 +215,31 @@ def test_settings_load_release_evidence_and_build_identity_from_environment(
     assert settings.qualification_record_path == qualification
     assert settings.build_id == "mavi-2026.09.12"
     assert settings.commit_sha == "a" * 40
+
+
+def test_production_settings_require_deployment_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    seed_required(monkeypatch, tmp_path)
+    monkeypatch.setenv("MAVI_PRODUCTION_MODE", "true")
+    monkeypatch.setenv("MAVI_DEVICE_POLICY", "cpu")
+
+    with pytest.raises(
+        ValidationError,
+        match="MAVI_DEPLOYMENT_PROFILE is required",
+    ):
+        WorkerSettings()
+
+
+@pytest.mark.parametrize("profile", ["P0", "p1", "P4", ""])
+def test_settings_reject_invalid_deployment_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    profile: str,
+) -> None:
+    seed_required(monkeypatch, tmp_path)
+    monkeypatch.setenv("MAVI_DEPLOYMENT_PROFILE", profile)
+
+    with pytest.raises(ValidationError):
+        WorkerSettings()

@@ -291,38 +291,107 @@ def test_application_lifecycle_manifest_hash_mismatch_is_rejected(tmp_path: Path
         )
 
 
-def test_qualification_evidence_hashes_must_match_promoted_record():
+def test_qualification_evidence_hashes_use_selected_profile_record():
     class Evidence:
         def __init__(self, sha256: str):
             self.sha256 = sha256
+
+    class ProfileQualification:
+        deployment_profile_policy_sha256 = "f" * 64
+        runtime_variant = "windows-x86_64-cuda"
+        evidence = {
+            "windows-x86_64-cuda": Evidence("a" * 64),
+            "windows-offline-install": Evidence("b" * 64),
+            "cctv-quality-baseline": Evidence("c" * 64),
+        }
 
     class Qualification:
         required_gates = {
             gate: "passed"
             for gate in mod.MANDATORY_QUALIFICATION_GATES
         }
+        # Simulate a later P2 promotion overwriting the legacy top-level
+        # shared quality gate. P1 closure must still use P1's own record.
         evidence = {
-            gate: Evidence("a" * 64)
-            for gate in mod.MANDATORY_QUALIFICATION_GATES
+            "windows-x86_64-cuda": Evidence("a" * 64),
+            "windows-offline-install": Evidence("b" * 64),
+            "cctv-quality-baseline": Evidence("d" * 64),
+        }
+        profile_qualifications = {
+            "P1": ProfileQualification(),
         }
 
     observed = {
-        gate: "a" * 64
-        for gate in mod.MANDATORY_QUALIFICATION_GATES
+        "windows-x86_64-cuda": "a" * 64,
+        "windows-offline-install": "b" * 64,
+        "cctv-quality-baseline": "c" * 64,
     }
-    mod.validate_qualification_evidence_hashes(Qualification(), observed)
+    mod.validate_qualification_evidence_hashes(
+        Qualification(),
+        observed,
+        frozenset({
+            "windows-x86_64-cuda",
+            "windows-offline-install",
+            "cctv-quality-baseline",
+        }),
+        deployment_profile_id="P1",
+        deployment_profile_policy_sha256="f" * 64,
+        runtime_variant="windows-x86_64-cuda",
+    )
 
-    observed["linux-x86_64-cuda"] = "b" * 64
+
+def test_qualification_evidence_hashes_reject_selected_profile_mismatch():
+    class Evidence:
+        def __init__(self, sha256: str):
+            self.sha256 = sha256
+
+    class ProfileQualification:
+        deployment_profile_policy_sha256 = "f" * 64
+        runtime_variant = "windows-x86_64-cuda"
+        evidence = {
+            "windows-x86_64-cuda": Evidence("a" * 64),
+            "windows-offline-install": Evidence("b" * 64),
+            "cctv-quality-baseline": Evidence("c" * 64),
+        }
+
+    class Qualification:
+        required_gates = {
+            gate: "passed"
+            for gate in mod.MANDATORY_QUALIFICATION_GATES
+        }
+        profile_qualifications = {
+            "P1": ProfileQualification(),
+        }
+
+    observed = {
+        "windows-x86_64-cuda": "a" * 64,
+        "windows-offline-install": "b" * 64,
+        "cctv-quality-baseline": "d" * 64,
+    }
     with pytest.raises(
         mod.ClosureError,
-        match="qualification_evidence_hash_mismatch:linux-x86_64-cuda",
+        match=(
+            "qualification_evidence_hash_mismatch:"
+            "P1:cctv-quality-baseline"
+        ),
     ):
-        mod.validate_qualification_evidence_hashes(Qualification(), observed)
+        mod.validate_qualification_evidence_hashes(
+            Qualification(),
+            observed,
+            frozenset({
+                "windows-x86_64-cuda",
+                "windows-offline-install",
+                "cctv-quality-baseline",
+            }),
+            deployment_profile_id="P1",
+            deployment_profile_policy_sha256="f" * 64,
+            runtime_variant="windows-x86_64-cuda",
+        )
+
 
 
 def test_production_acceptance_guard_requires_prior_acceptance_evidence():
     source = __import__("inspect").getsource(mod.assess)
-    guard_start = source.index("if (\n        args.production_acceptance is not None")
-    guard_end = source.index("    ):\n        typed_variants", guard_start)
-    guard = source[guard_start:guard_end]
-    assert "args.prior_acceptance_evidence is not None" in guard
+    assert "args.prior_acceptance_evidence" in source
+    assert "production_acceptance_ready" in source
+

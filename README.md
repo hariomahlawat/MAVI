@@ -6,13 +6,14 @@ MAVI is a standalone, offline-production visual-intelligence platform. The proof
 
 - **Operational platform:** ASP.NET Core / C# / .NET 10 LTS
 - **Operator UI:** React + TypeScript + Vite
-- **Vision/AI:** Python workers, later hosted on Linux GPU nodes
+- **Vision/AI:** Python workers with CPU/CUDA device-specific Runtime Packs
 - **Authoritative data:** PostgreSQL 18 + pgvector
-- **Production deployment:** Windows Server/IIS for the operational plane; Ubuntu/Linux GPU servers for vision workers
+- **Development:** one Windows laptop/workstation; CPU or compatible Windows CUDA when available
+- **Production deployment profiles:** P1 single-host Windows GPU, P2 split-host Windows + Linux GPU, P3 single-host Windows CPU
 - **Scale target:** approximately 200–500 cameras per large establishment
 - **Production constraint:** no Internet connectivity required for installation or operation
 
-The current Phase-1 product implementation is complete through Task 16. Task 17 supplies the final acceptance/qualification layer: deterministic ground-truth evaluation, completed-run attestation, public-API end-to-end acceptance, exact application install/update proof, disconnected CPU/CUDA runtime qualification, backup/restore verification, recovery/performance evaluation, evidence verification and fail-closed release promotion. Implementation completion is distinct from release verification: unavailable CUDA/offline/quality/performance evidence remains explicitly pending, and the model release remains intentionally unverified/partially qualified until every mandatory gate actually passes.
+The current Phase-1 product implementation is complete through Task 17. Task 18 is the active production-qualification and closure task. ADR-008 defines profile-based qualification: Development remains a single Windows workstation/laptop with Auto/CUDA/CPU device intent, while Production profiles are qualified independently. Implementation completion is distinct from release verification: unavailable profile/device/offline/quality/performance evidence remains explicitly pending, and no Production profile is advertised as supported until its exact evidence passes.
 
 ## Repository layout
 
@@ -40,6 +41,17 @@ Setup-MAVI-Development.cmd
 Approve elevation, allow Setup to prepare/verify the supported toolchain and MAVI-owned PostgreSQL/pgvector/FFmpeg/offline caches, then restart Visual Studio once and press **F5**.
 
 Do not manually choose PostgreSQL ports, install pgvector, edit connection strings, or configure FFmpeg PATH as the normal workflow. See `docs/runbooks/local-development.md`.
+
+
+### Development device use
+
+Development does not require a separate Linux/GPU host. On the Windows development machine, the intended device policy is:
+
+- **Auto:** prefer compatible Windows CUDA when available, otherwise CPU with visible fallback/provenance;
+- **CUDA:** require CUDA and fail if unavailable;
+- **CPU:** force CPU for debugging/reproducibility.
+
+Windows CPU is currently qualified. Windows CUDA remains a separate qualification target; its addition must preserve the CPU path.
 
 ### Dependency policy
 
@@ -89,6 +101,8 @@ Start with:
 - `docs/architecture/README.md`
 - `docs/architecture/dependency-and-offline-packaging-policy.md`
 - `docs/architecture/offline-binary-inventory.md`
+- `docs/architecture/phase1-production-topology.md`
+- `docs/decisions/ADR-008-phase1-production-topology.md`
 - `docs/decisions/`
 - `AGENTS.md`
 

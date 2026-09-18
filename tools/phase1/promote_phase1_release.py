@@ -37,6 +37,7 @@ from mavi_vision.runtime.qualification import (  # noqa: E402
 )
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
 import quality_corpus  # noqa: E402
+import deployment_profiles  # noqa: E402
 from compute_target_verified_manifest import build_target_manifest, sha256_bytes as target_sha256_bytes  # noqa: E402
 from jsonschema import Draft202012Validator  # noqa: E402
 from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
@@ -131,6 +132,9 @@ def _validate_platform_variant_evidence(
     value: dict[str, Any],
     acceptance_profile_sha256: str,
     expected_mavi_build: str,
+    deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
+    runtime_variant: str,
 ) -> None:
     _validate_schema(value, "offline-variant-evidence.schema.json")
     if value.get("variant") != gate:
@@ -185,11 +189,12 @@ def _validate_offline_os_evidence(
         raise PromotionError("promotion_offline_evidence_not_candidate:" + gate)
 
 
-def _validate_offline_aggregate_bindings(gate_evidence: dict[str, Path]) -> None:
+def _validate_offline_aggregate_bindings(
+    gate_evidence: dict[str, Path],
+    required_variants: frozenset[str],
+) -> None:
     for os_name in ("windows", "linux"):
         aggregate_gate = f"{os_name}-offline-install"
-        cpu_gate = f"{os_name}-x86_64-cpu"
-        cuda_gate = f"{os_name}-x86_64-cuda"
         if aggregate_gate not in gate_evidence:
             continue
         aggregate = _load_dict(
@@ -197,14 +202,25 @@ def _validate_offline_aggregate_bindings(gate_evidence: dict[str, Path]) -> None
             "promotion_offline_evidence_invalid:" + aggregate_gate,
         )
         hashes = aggregate.get("variantEvidenceSha256")
-        expected = {
-            cpu_gate: sha256_file_bytes(gate_evidence[cpu_gate]),
-            cuda_gate: sha256_file_bytes(gate_evidence[cuda_gate]),
-        }
-        if hashes != expected:
+        if not isinstance(hashes, dict):
             raise PromotionError(
-                "promotion_offline_variant_evidence_binding_mismatch:" + aggregate_gate
+                "promotion_offline_variant_evidence_binding_mismatch:"
+                + aggregate_gate
             )
+        for variant in sorted(required_variants):
+            if not variant.startswith(os_name + "-"):
+                continue
+            variant_path = gate_evidence.get(variant)
+            if (
+                variant_path is None
+                or hashes.get(variant) != sha256_file_bytes(variant_path)
+            ):
+                raise PromotionError(
+                    "promotion_offline_variant_evidence_binding_mismatch:"
+                    + aggregate_gate
+                    + ":"
+                    + variant
+                )
 
 
 def _validate_quality_evidence(
@@ -240,12 +256,25 @@ def _validate_performance_evidence(
     acceptance_profile_sha256: str,
     acceptance_profile: dict[str, Any],
     expected_mavi_build: str,
+    *,
+    deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
+    runtime_variant: str,
 ) -> None:
     _validate_schema(value, "recovery-performance-evidence.schema.json")
     if value.get("acceptanceProfileSha256") != acceptance_profile_sha256:
         raise PromotionError("promotion_performance_profile_mismatch")
     if value.get("maviBuild") != expected_mavi_build:
         raise PromotionError("promotion_performance_build_mismatch")
+    if (
+        value.get("schemaVersion")
+        != "mavi-profile-recovery-performance-evidence-v2"
+        or value.get("deploymentProfile") != deployment_profile_id
+        or value.get("deploymentProfilePolicySha256")
+        != deployment_profile_policy_sha256
+        or value.get("runtimeVariant") != runtime_variant
+    ):
+        raise PromotionError("promotion_performance_profile_binding_mismatch")
     expected = acceptance_profile.get("performanceThresholds")
     if not isinstance(expected, dict) or value.get("thresholds") != expected:
         raise PromotionError("promotion_performance_thresholds_mismatch")
@@ -270,6 +299,9 @@ def validate_gate_evidence(
     quality_case_evidence: dict[str, Path],
     quality_ground_truth: dict[str, Path],
     expected_mavi_build: str,
+    deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
+    runtime_variant: str,
 ) -> None:
     if value.get("sourceCommit") != source_commit:
         raise PromotionError("promotion_evidence_source_mismatch:" + gate)
@@ -305,7 +337,13 @@ def validate_gate_evidence(
         return
     if gate == "linux-nvidia-recovery-performance":
         _validate_performance_evidence(
-            value, acceptance_profile_sha256, acceptance_profile, expected_mavi_build
+            value,
+            acceptance_profile_sha256,
+            acceptance_profile,
+            expected_mavi_build,
+            deployment_profile_id=deployment_profile_id,
+            deployment_profile_policy_sha256=deployment_profile_policy_sha256,
+            runtime_variant=runtime_variant,
         )
         return
     raise PromotionError("promotion_gate_unknown:" + gate)
@@ -323,6 +361,9 @@ def load_gate_evidence(
     quality_case_evidence: dict[str, Path],
     quality_ground_truth: dict[str, Path],
     expected_mavi_build: str,
+    deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
+    runtime_variant: str,
 ) -> dict[str, str]:
     try:
         payload = path.read_bytes()
@@ -343,6 +384,9 @@ def load_gate_evidence(
         quality_case_evidence=quality_case_evidence,
         quality_ground_truth=quality_ground_truth,
         expected_mavi_build=expected_mavi_build,
+        deployment_profile_id=deployment_profile_id,
+        deployment_profile_policy_sha256=deployment_profile_policy_sha256,
+        runtime_variant=runtime_variant,
     )
 
     return {
@@ -364,23 +408,22 @@ def parse_gate_arguments(values: list[str]) -> dict[str, Path]:
     return result
 
 
-def _assert_runtime_ready(runtime_raw: dict[str, Any]) -> None:
-    if runtime_raw.get("qualificationStatus") != "qualified":
-        raise PromotionError("promotion_runtime_not_qualified")
+def _assert_runtime_ready(
+    runtime_raw: dict[str, Any],
+    required_variants: frozenset[str],
+) -> None:
     variants = runtime_raw.get("platformVariants")
     locks = runtime_raw.get("releaseLocks")
-    required_variants = {
-        "windows-x86_64-cpu",
-        "windows-x86_64-cuda",
-        "linux-x86_64-cpu",
-        "linux-x86_64-cuda",
-    }
-    if not isinstance(variants, dict) or set(variants) != required_variants:
-        raise PromotionError("promotion_runtime_variants_incomplete")
-    if not isinstance(locks, dict) or set(locks) != required_variants:
-        raise PromotionError("promotion_runtime_locks_incomplete")
-    for variant in required_variants:
-        expected_status = "qualified-hardware" if variant.endswith("-cuda") else "qualified-hosted-cpu"
+    if not isinstance(variants, dict) or not isinstance(locks, dict):
+        raise PromotionError("promotion_runtime_metadata_invalid")
+    for variant in sorted(required_variants):
+        if variant not in variants or variant not in locks:
+            raise PromotionError("promotion_runtime_variant_missing:" + variant)
+        expected_status = (
+            "qualified-hardware"
+            if variant.endswith("-cuda")
+            else "qualified-hosted-cpu"
+        )
         if variants[variant].get("status") != expected_status:
             raise PromotionError("promotion_runtime_variant_not_qualified:" + variant)
         if locks[variant].get("status") != "qualified-offline-lock":
@@ -400,40 +443,136 @@ def build_promoted_metadata(
     quality_case_evidence: dict[str, Path],
     quality_ground_truth: dict[str, Path],
     expected_mavi_build: str,
+    deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
+    required_gates: frozenset[str],
+    required_variants: frozenset[str],
+    current_manifest_bytes: bytes | None = None,
 ) -> tuple[bytes, bytes]:
-    if manifest_raw.get("verificationStatus") != "unverified" or manifest_raw.get("qualificationId") is not None:
-        raise PromotionError("promotion_manifest_not_pending")
-    if qualification_raw.get("overallResult") != "pending":
-        raise PromotionError("promotion_qualification_not_pending")
+    verification_status = manifest_raw.get("verificationStatus")
+    qualification_id = qualification_raw.get("qualificationId")
+    if not isinstance(qualification_id, str) or not qualification_id:
+        raise PromotionError("promotion_qualification_id_invalid")
+
+    if verification_status == "unverified":
+        if manifest_raw.get("qualificationId") is not None:
+            raise PromotionError("promotion_manifest_pending_qualification_unexpected")
+        if qualification_raw.get("overallResult") != "pending":
+            raise PromotionError("promotion_initial_qualification_not_pending")
+        target_manifest_bytes = build_target_manifest(
+            manifest_raw,
+            qualification_id,
+        )
+    elif verification_status == "verified":
+        if manifest_raw.get("qualificationId") != qualification_id:
+            raise PromotionError("promotion_manifest_qualification_mismatch")
+        target_manifest_bytes = (
+            current_manifest_bytes
+            if current_manifest_bytes is not None
+            else canonical_json(manifest_raw)
+        )
+        try:
+            current_manifest_value = json.loads(
+                target_manifest_bytes.decode("utf-8")
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise PromotionError(
+                "promotion_current_manifest_bytes_invalid"
+            ) from exc
+        if current_manifest_value != manifest_raw:
+            raise PromotionError(
+                "promotion_current_manifest_bytes_mismatch"
+            )
+    else:
+        raise PromotionError("promotion_manifest_status_invalid")
+
+    target_manifest_sha = target_sha256_bytes(
+        target_manifest_bytes
+    )
+    if (
+        verification_status == "verified"
+        and qualification_raw.get("modelManifestSha256")
+        != target_manifest_sha
+    ):
+        raise PromotionError(
+            "promotion_verified_manifest_hash_mismatch"
+        )
 
     current_gates = qualification_raw.get("requiredGates")
     current_evidence = qualification_raw.get("evidence")
-    if not isinstance(current_gates, dict) or set(current_gates) != MANDATORY_QUALIFICATION_GATES:
+    if (
+        not isinstance(current_gates, dict)
+        or set(current_gates)
+        != MANDATORY_QUALIFICATION_GATES
+    ):
         raise PromotionError("promotion_gate_set_changed")
     if not isinstance(current_evidence, dict):
         raise PromotionError("promotion_evidence_map_invalid")
 
-    _assert_runtime_ready(runtime_raw)
+    qualified_profiles = qualification_raw.get(
+        "qualifiedProfiles", []
+    )
+    profile_qualifications = qualification_raw.get(
+        "profileQualifications", {}
+    )
+    if (
+        not isinstance(qualified_profiles, list)
+        or len(set(qualified_profiles)) != len(qualified_profiles)
+        or not isinstance(profile_qualifications, dict)
+        or set(qualified_profiles) != set(profile_qualifications)
+    ):
+        raise PromotionError(
+            "promotion_existing_profile_index_invalid"
+        )
+    if verification_status == "unverified" and qualified_profiles:
+        raise PromotionError(
+            "promotion_unverified_manifest_has_qualified_profiles"
+        )
 
-    qualification_id = qualification_raw.get("qualificationId")
-    if not isinstance(qualification_id, str) or not qualification_id:
-        raise PromotionError("promotion_qualification_id_invalid")
-    target_manifest_bytes = build_target_manifest(manifest_raw, qualification_id)
-    target_manifest_sha = target_sha256_bytes(target_manifest_bytes)
+    _assert_runtime_ready(runtime_raw, required_variants)
 
-    missing = sorted(MANDATORY_QUALIFICATION_GATES - set(gate_evidence))
+    missing = sorted(required_gates - set(gate_evidence))
     if missing:
-        raise PromotionError("promotion_evidence_missing:" + ",".join(missing))
-    if set(gate_evidence) != MANDATORY_QUALIFICATION_GATES:
+        raise PromotionError(
+            "promotion_evidence_missing:" + ",".join(missing)
+        )
+    if set(gate_evidence) != required_gates:
         raise PromotionError("promotion_evidence_set_invalid")
 
-    # Never grandfather prior status/evidence references. Promotion rebuilds the
-    # complete evidence map from exact local/transferred bytes on this candidate.
-    _validate_offline_aggregate_bindings(gate_evidence)
-    evidence: dict[str, dict[str, str]] = {}
-    gates = {gate: "pending" for gate in MANDATORY_QUALIFICATION_GATES}
+    _validate_offline_aggregate_bindings(
+        gate_evidence,
+        required_variants,
+    )
+    evidence: dict[str, dict[str, str]] = dict(
+        current_evidence
+    )
+    gates = dict(current_gates)
+    profile_evidence: dict[str, dict[str, str]] = {}
+
+    runtime_variant = next(iter(required_variants))
     for gate, path in sorted(gate_evidence.items()):
-        evidence[gate] = load_gate_evidence(
+        if gate in {
+            "windows-offline-install",
+            "linux-offline-install",
+        }:
+            offline_value = _load_dict(
+                path,
+                "promotion_offline_evidence_invalid:" + gate,
+            )
+            if (
+                offline_value.get("deploymentProfile")
+                != deployment_profile_id
+                or offline_value.get(
+                    "deploymentProfilePolicySha256"
+                )
+                != deployment_profile_policy_sha256
+            ):
+                raise PromotionError(
+                    "promotion_offline_profile_binding_mismatch:"
+                    + gate
+                )
+
+        gate_record = load_gate_evidence(
             path,
             gate=gate,
             expected_source_commit=expected_source_commit,
@@ -444,24 +583,72 @@ def build_promoted_metadata(
             quality_case_evidence=quality_case_evidence,
             quality_ground_truth=quality_ground_truth,
             expected_mavi_build=expected_mavi_build,
+            deployment_profile_id=deployment_profile_id,
+            deployment_profile_policy_sha256=(
+                deployment_profile_policy_sha256
+            ),
+            runtime_variant=runtime_variant,
         )
+        evidence[gate] = gate_record
+        profile_evidence[gate] = gate_record
         gates[gate] = "passed"
 
-    if any(gates.get(gate) != "passed" for gate in MANDATORY_QUALIFICATION_GATES):
+    if any(
+        gates.get(gate) != "passed"
+        for gate in required_gates
+    ):
         raise PromotionError("promotion_gate_not_passed")
-    if any(gate not in evidence for gate in MANDATORY_QUALIFICATION_GATES):
-        raise PromotionError("promotion_gate_evidence_missing")
+    if any(
+        gate not in profile_evidence
+        for gate in required_gates
+    ):
+        raise PromotionError(
+            "promotion_profile_gate_evidence_missing"
+        )
 
-    manifest_bytes = target_manifest_bytes
-    final_manifest_sha = target_manifest_sha
+    updated_profile_qualifications = dict(
+        profile_qualifications
+    )
+    updated_profile_qualifications[
+        deployment_profile_id
+    ] = {
+        "deploymentProfilePolicySha256":
+            deployment_profile_policy_sha256,
+        "runtimeVariant": runtime_variant,
+        "evidence": {
+            key: profile_evidence[key]
+            for key in sorted(profile_evidence)
+        },
+    }
+    updated_qualified_profiles = sorted(
+        updated_profile_qualifications
+    )
 
     qualification = dict(qualification_raw)
-    qualification["modelManifestSha256"] = final_manifest_sha
+    qualification["modelManifestSha256"] = target_manifest_sha
     qualification["requiredGates"] = gates
-    qualification["evidence"] = {key: evidence[key] for key in sorted(evidence)}
-    qualification["overallResult"] = "passed"
-    qualification_bytes = canonical_json(qualification)
-    return manifest_bytes, qualification_bytes
+    qualification["evidence"] = {
+        key: evidence[key]
+        for key in sorted(evidence)
+    }
+    qualification["qualifiedProfiles"] = (
+        updated_qualified_profiles
+    )
+    qualification["profileQualifications"] = {
+        key: updated_profile_qualifications[key]
+        for key in updated_qualified_profiles
+    }
+    qualification["overallResult"] = (
+        "passed"
+        if all(
+            status == "passed"
+            for status in gates.values()
+        )
+        else "pending"
+    )
+
+    return target_manifest_bytes, canonical_json(qualification)
+
 
 
 def validate_promoted_outputs(
@@ -471,24 +658,77 @@ def validate_promoted_outputs(
     qualification_bytes: bytes,
     profile_path: Path,
     runtime_profile_path: Path,
+    deployment_profiles_by_id: dict[
+        str, deployment_profiles.DeploymentProfile
+    ],
+    deployment_profile_policy_sha256: str,
 ) -> None:
-    with tempfile.TemporaryDirectory(prefix="mavi-task17-promotion-") as directory:
+    try:
+        qualification_raw = json.loads(
+            qualification_bytes.decode("utf-8")
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PromotionError(
+            "promotion_qualification_output_invalid"
+        ) from exc
+    qualified_profiles = qualification_raw.get(
+        "qualifiedProfiles"
+    )
+    if (
+        not isinstance(qualified_profiles, list)
+        or not qualified_profiles
+    ):
+        raise PromotionError(
+            "promotion_qualified_profiles_empty"
+        )
+
+    with tempfile.TemporaryDirectory(
+        prefix="mavi-task18-promotion-"
+    ) as directory:
         root = Path(directory)
         manifest_path = root / "manifest.json"
         qualification_path = root / "qualification.json"
         manifest_path.write_bytes(manifest_bytes)
-        qualification_path.write_bytes(qualification_bytes)
-        try:
-            verify_release_selection(
-                model_root=model_root,
-                manifest_path=manifest_path,
-                profile_path=profile_path,
-                runtime_profile_path=runtime_profile_path,
-                qualification_path=qualification_path,
-                allow_unverified=False,
+        qualification_path.write_bytes(
+            qualification_bytes
+        )
+
+        for profile_id in qualified_profiles:
+            selected = deployment_profiles_by_id.get(
+                profile_id
             )
-        except ReleaseMetadataError as exc:
-            raise PromotionError("promotion_release_validation_failed:" + exc.code) from exc
+            if selected is None:
+                raise PromotionError(
+                    "promotion_profile_unknown:"
+                    + str(profile_id)
+                )
+            try:
+                verify_release_selection(
+                    model_root=model_root,
+                    manifest_path=manifest_path,
+                    profile_path=profile_path,
+                    runtime_profile_path=runtime_profile_path,
+                    qualification_path=qualification_path,
+                    allow_unverified=False,
+                    required_profile=profile_id,
+                    required_gates=(
+                        selected.qualification_gates
+                    ),
+                    required_runtime_variant=(
+                        selected.runtime_variant
+                    ),
+                    required_deployment_profile_policy_sha256=(
+                        deployment_profile_policy_sha256
+                    ),
+                )
+            except ReleaseMetadataError as exc:
+                raise PromotionError(
+                    "promotion_release_validation_failed:"
+                    + profile_id
+                    + ":"
+                    + exc.code
+                ) from exc
+
 
 
 def main() -> int:
@@ -499,6 +739,16 @@ def main() -> int:
     parser.add_argument("--pipeline-profile", type=Path, required=True)
     parser.add_argument("--runtime-profile", type=Path, required=True)
     parser.add_argument("--acceptance-profile", type=Path, required=True)
+    parser.add_argument(
+        "--deployment-profile-policy",
+        type=Path,
+        default=deployment_profiles.CANONICAL_DEPLOYMENT_PROFILES,
+    )
+    parser.add_argument(
+        "--deployment-profile",
+        choices=("P1", "P2", "P3"),
+        required=True,
+    )
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--expected-mavi-build", required=True)
     parser.add_argument("--quality-corpus-manifest", type=Path, required=True)
@@ -524,18 +774,86 @@ def main() -> int:
         qualification_raw = read_release_json(args.qualification, code="qualification_record_invalid")
         runtime_raw = read_release_json(args.runtime_profile, code="runtime_profile_invalid")
         acceptance_profile, acceptance_profile_sha256 = _canonical_policy(args.acceptance_profile)
-
-        # Validate the current pending relationship before constructing promotion.
-        verify_release_selection(
-            model_root=args.model_root,
-            manifest_path=args.manifest,
-            profile_path=args.pipeline_profile,
-            runtime_profile_path=args.runtime_profile,
-            qualification_path=args.qualification,
-            allow_unverified=True,
+        (
+            deployment_profiles_by_id,
+            deployment_policy_sha256,
+        ) = deployment_profiles.load_policy(
+            args.deployment_profile_policy
         )
-        load_qualification_record(args.qualification)
+        selected_profile = deployment_profiles_by_id[
+            args.deployment_profile
+        ]
+        required_gates = (
+            selected_profile.qualification_gates
+        )
+        required_variants = (
+            selected_profile.required_runtime_variants
+        )
+
+        current_qualification = load_qualification_record(
+            args.qualification
+        )
         load_runtime_profile(args.runtime_profile)
+
+        if manifest_raw.get("verificationStatus") == "verified":
+            if not current_qualification.qualified_profiles:
+                raise PromotionError(
+                    "promotion_verified_manifest_has_no_profile"
+                )
+            for profile_id in (
+                current_qualification.qualified_profiles
+            ):
+                existing = deployment_profiles_by_id.get(
+                    profile_id
+                )
+                existing_record = (
+                    current_qualification
+                    .profile_qualifications.get(profile_id)
+                )
+                if (
+                    existing is None
+                    or existing_record is None
+                ):
+                    raise PromotionError(
+                        "promotion_existing_profile_unknown:"
+                        + profile_id
+                    )
+                if (
+                    existing_record
+                    .deployment_profile_policy_sha256
+                    != deployment_policy_sha256
+                ):
+                    raise PromotionError(
+                        "promotion_existing_profile_policy_stale:"
+                        + profile_id
+                    )
+                verify_release_selection(
+                    model_root=args.model_root,
+                    manifest_path=args.manifest,
+                    profile_path=args.pipeline_profile,
+                    runtime_profile_path=args.runtime_profile,
+                    qualification_path=args.qualification,
+                    allow_unverified=False,
+                    required_profile=profile_id,
+                    required_gates=(
+                        existing.qualification_gates
+                    ),
+                    required_runtime_variant=(
+                        existing.runtime_variant
+                    ),
+                    required_deployment_profile_policy_sha256=(
+                        deployment_policy_sha256
+                    ),
+                )
+        else:
+            verify_release_selection(
+                model_root=args.model_root,
+                manifest_path=args.manifest,
+                profile_path=args.pipeline_profile,
+                runtime_profile_path=args.runtime_profile,
+                qualification_path=args.qualification,
+                allow_unverified=True,
+            )
 
         manifest_bytes, qualification_bytes = build_promoted_metadata(
             manifest_raw=manifest_raw,
@@ -549,6 +867,11 @@ def main() -> int:
             quality_case_evidence=quality_case_evidence,
             quality_ground_truth=quality_ground_truth,
             expected_mavi_build=args.expected_mavi_build,
+            deployment_profile_id=selected_profile.profile_id,
+            deployment_profile_policy_sha256=deployment_policy_sha256,
+            required_gates=required_gates,
+            required_variants=required_variants,
+            current_manifest_bytes=args.manifest.read_bytes(),
         )
         validate_promoted_outputs(
             model_root=args.model_root,
@@ -556,6 +879,12 @@ def main() -> int:
             qualification_bytes=qualification_bytes,
             profile_path=args.pipeline_profile,
             runtime_profile_path=args.runtime_profile,
+            deployment_profiles_by_id=(
+                deployment_profiles_by_id
+            ),
+            deployment_profile_policy_sha256=(
+                deployment_policy_sha256
+            ),
         )
     except (
         PromotionError,

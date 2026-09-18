@@ -564,3 +564,172 @@ def test_verified_release_requires_qualified_runtime_profile(tmp_path: Path) -> 
             qualification_path=paths["qualification"],
         )
 
+
+
+def _make_p3_profile_qualification(paths: dict[str, Path]) -> str:
+    policy_sha = "f" * 64
+    required = {
+        "windows-x86_64-cpu",
+        "windows-offline-install",
+        "cctv-quality-baseline",
+    }
+    qualification = json.loads(
+        paths["qualification"].read_text(encoding="utf-8")
+    )
+    for gate in qualification["requiredGates"]:
+        qualification["requiredGates"][gate] = (
+            "passed" if gate in required else "pending"
+        )
+    qualification["evidence"] = {
+        gate: {
+            "kind": "test",
+            "reference": f"evidence:{gate}",
+            "sha256": _sha(
+                f"evidence:{gate}".encode("utf-8")
+            ),
+        }
+        for gate in required
+    }
+    qualification["overallResult"] = "pending"
+    qualification["qualifiedProfiles"] = ["P3"]
+    qualification["profileQualifications"] = {
+        "P3": {
+            "deploymentProfilePolicySha256": policy_sha,
+            "runtimeVariant": "windows-x86_64-cpu",
+            "evidence": {
+                gate: qualification["evidence"][gate]
+                for gate in required
+            },
+        }
+    }
+    _write_json(paths["qualification"], qualification)
+    return policy_sha
+
+
+def test_profile_scoped_verified_release_can_pass_while_unrelated_gates_pending(
+    tmp_path: Path,
+) -> None:
+    paths = _release_fixture(
+        tmp_path,
+        verified=True,
+        all_gates_passed=True,
+    )
+    policy_sha = _make_p3_profile_qualification(paths)
+    required = {
+        "windows-x86_64-cpu",
+        "windows-offline-install",
+        "cctv-quality-baseline",
+    }
+
+    selection = verify_release_selection(
+        model_root=paths["model_root"],
+        manifest_path=paths["manifest"],
+        profile_path=paths["profile"],
+        runtime_profile_path=paths["runtime"],
+        qualification_path=paths["qualification"],
+        required_profile="P3",
+        required_gates=required,
+        required_runtime_variant="windows-x86_64-cpu",
+        required_deployment_profile_policy_sha256=policy_sha,
+    )
+
+    assert selection.qualification is not None
+    assert selection.qualification.overall_result == "pending"
+    assert selection.qualification.qualified_profiles == ("P3",)
+    assert (
+        selection.qualification.profile_qualifications[
+            "P3"
+        ].runtime_variant
+        == "windows-x86_64-cpu"
+    )
+
+
+def test_profile_scoped_release_rejects_stale_policy_identity(
+    tmp_path: Path,
+) -> None:
+    paths = _release_fixture(
+        tmp_path,
+        verified=True,
+        all_gates_passed=True,
+    )
+    _make_p3_profile_qualification(paths)
+
+    with pytest.raises(
+        ReleaseMetadataError,
+        match="qualification_profile_policy_mismatch",
+    ):
+        verify_release_selection(
+            model_root=paths["model_root"],
+            manifest_path=paths["manifest"],
+            profile_path=paths["profile"],
+            runtime_profile_path=paths["runtime"],
+            qualification_path=paths["qualification"],
+            required_profile="P3",
+            required_gates={
+                "windows-x86_64-cpu",
+                "windows-offline-install",
+                "cctv-quality-baseline",
+            },
+            required_runtime_variant="windows-x86_64-cpu",
+            required_deployment_profile_policy_sha256="0" * 64,
+        )
+
+
+def test_qualification_record_rejects_profile_index_mismatch(
+    tmp_path: Path,
+) -> None:
+    paths = _release_fixture(
+        tmp_path,
+        verified=True,
+        all_gates_passed=True,
+    )
+    qualification = json.loads(
+        paths["qualification"].read_text(encoding="utf-8")
+    )
+    qualification["qualifiedProfiles"] = ["P1"]
+    qualification["profileQualifications"] = {}
+    _write_json(paths["qualification"], qualification)
+
+    with pytest.raises(
+        ReleaseMetadataError,
+        match="qualification_record_invalid",
+    ):
+        load_qualification_record(paths["qualification"])
+
+
+def test_profile_scoped_release_rejects_missing_profile_evidence(
+    tmp_path: Path,
+) -> None:
+    paths = _release_fixture(
+        tmp_path,
+        verified=True,
+        all_gates_passed=True,
+    )
+    policy_sha = _make_p3_profile_qualification(paths)
+    qualification = json.loads(
+        paths["qualification"].read_text(encoding="utf-8")
+    )
+    qualification["profileQualifications"]["P3"]["evidence"].pop(
+        "cctv-quality-baseline"
+    )
+    _write_json(paths["qualification"], qualification)
+
+    with pytest.raises(
+        ReleaseMetadataError,
+        match="qualification_profile_evidence_missing",
+    ):
+        verify_release_selection(
+            model_root=paths["model_root"],
+            manifest_path=paths["manifest"],
+            profile_path=paths["profile"],
+            runtime_profile_path=paths["runtime"],
+            qualification_path=paths["qualification"],
+            required_profile="P3",
+            required_gates={
+                "windows-x86_64-cpu",
+                "windows-offline-install",
+                "cctv-quality-baseline",
+            },
+            required_runtime_variant="windows-x86_64-cpu",
+            required_deployment_profile_policy_sha256=policy_sha,
+        )
