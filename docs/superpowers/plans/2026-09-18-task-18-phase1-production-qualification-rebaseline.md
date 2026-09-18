@@ -12,6 +12,10 @@
 
 **Cold review:** `docs/reviews/2026-09-18-task-18-rebaseline-cold-review.md`
 
+**Readiness Pack:** `docs/qualification/2026-09-18-task-18-readiness-pack.md`  
+**Machine-readable readiness:** `docs/qualification/task18-readiness-v1.json`  
+**Current readiness:** **BLOCKED — authoritative qualification not yet authorized.**
+
 ---
 
 ## Global constraints
@@ -33,10 +37,10 @@
 
 ## Task 0.1 — Supersede stale Task-18 planning
 
-- [ ] Use current integration head as the sole source branch for new Task-18 execution.
-- [ ] Retain PR #39 and its three planning commits as historical evidence only.
-- [ ] Close PR #39 as superseded after this re-baseline PR is accepted.
-- [ ] Update the Phase-1 roadmap so Task 17 is complete and Task 18 is active.
+- [x] Use current integration head as the sole source branch for new Task-18 execution.
+- [x] Retain PR #39 and its three planning commits as historical evidence only.
+- [x] Close PR #39 as superseded; it was closed without merge on 18 Sep 2026 and points to PR #45.
+- [x] Update the Phase-1 roadmap so Task 17 is complete and Task 18 is active.
 
 **Exit criterion:** there is one unambiguous Task-18 plan based on current integration history.
 
@@ -143,10 +147,12 @@ No “best available prior build” may be invented during acceptance.
 
 ## Task 1.6 — Produce Readiness Pack assessment
 
-Generate a human-readable readiness report with each item:
-- READY;
-- BLOCKED;
-- DEFERRED BY APPROVED SCOPE DECISION.
+- [x] Human-readable readiness report created.
+- [x] Machine-readable readiness record created.
+- [x] READY / BLOCKED assessment completed against current repository state.
+- [x] Authoritative qualification explicitly withheld while mandatory blockers remain.
+
+Current result: **BLOCKED**. The unresolved mandatory items are Production topology, GPU scope, acceptance corpus/thresholds, Production prerequisite approval, supported-update artifact/scope, final application artifact, Offline Binary Kit identity and final candidate freeze.
 
 **Readiness exit criterion:** all mandatory items are READY. A BLOCKED mandatory item prevents authoritative evidence capture.
 
@@ -421,6 +427,6 @@ Do **not** start with CUDA runs, CCTV metrics or final release promotion.
 
 The immediate next action after this plan is accepted is:
 
-> **Build the Task-18 Qualification Readiness Pack against the current integration baseline and return a precise READY/BLOCKED matrix before any authoritative production evidence is captured.**
+> **Resolve readiness actions R1–R5 in `docs/qualification/2026-09-18-task-18-readiness-pack.md`: approve Production topology, resolve GPU scope, freeze acceptance policy, approve Production prerequisites, and resolve supported-update scope/artifact.**
 
-This sequencing prevents the project from spending hours on expensive qualification runs whose policy, topology or artifact identity is not yet frozen.
+Only after R1–R5 are resolved should the final application artifact, Offline Binary Kit and Production setup bundle be frozen and authoritative qualification begin. This sequencing prevents expensive runs against an unfrozen policy, topology or artifact identity.
