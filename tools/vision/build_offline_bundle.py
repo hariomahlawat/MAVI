@@ -33,6 +33,11 @@ from freeze_offline_lock import (  # noqa: E402
     validate_wheel_record_for_target,
     validate_wheelhouse_dependency_closure,
 )
+from mavi_vision.runtime.deployment_profiles import (  # noqa: E402
+    DeploymentProfile,
+    DeploymentProfileError,
+    load_policy as load_deployment_profile_policy,
+)
 from mavi_vision.runtime.manifest import (  # noqa: E402
     ReleaseMetadataError,
     load_model_manifest,
@@ -42,10 +47,14 @@ from mavi_vision.runtime.offline_lock import (  # noqa: E402
     load_offline_runtime_lock,
 )
 from mavi_vision.runtime.qualification import (  # noqa: E402
-    MANDATORY_QUALIFICATION_GATES,
     load_runtime_profile,
     verify_release_selection,
     verify_runtime_release_locks,
+)
+
+
+CANONICAL_DEPLOYMENT_PROFILE_POLICY = (
+    ROOT / "config" / "acceptance" / "phase1-deployment-profiles-v1.json"
 )
 
 
@@ -90,6 +99,8 @@ class BundleManifest:
     runtime_profile_id: str
     lock_sha256: str
     host_compatibility: BundleHostCompatibility
+    deployment_profile: str | None
+    deployment_profile_policy_sha256: str
     artifacts: tuple[BundleArtifact, ...]
 
 
@@ -111,6 +122,9 @@ class VerifiedBundleInputs:
     checkpoint_sha256: str
     resolved_config_sha256: str
     wheelhouse: Path
+    deployment_profile_policy_path: Path
+    deployment_profile_policy_sha256: str
+    deployment_profile_id: str | None = None
     python_installer_path: Path | None = None
 
 
