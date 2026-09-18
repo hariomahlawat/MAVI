@@ -216,6 +216,9 @@ class WorkerApiClient:
                     vramBytes=gpu.vram_bytes,
                     driverVersion=gpu.driver_version,
                     cudaRuntimeVersion=gpu.cuda_runtime_version,
+                    uuid=gpu.uuid,
+                    pciBusId=gpu.pci_bus_id,
+                    computeCapability=gpu.compute_capability,
                 )
             ),
             maviBuild=provenance.mavi_build,
