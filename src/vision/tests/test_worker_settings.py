@@ -38,6 +38,7 @@ def test_settings_load_and_normalize(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert settings.deployment_profile is None
     assert settings.device_policy == "auto"
     assert settings.device_index == 0
+    assert settings.device_resolution_reason is None
     assert settings.production_mode is False
     assert settings.inference_watchdog_seconds == 120.0
     assert settings.watchdog_grace_seconds == 15.0
@@ -241,5 +242,41 @@ def test_settings_reject_invalid_deployment_profile(
     seed_required(monkeypatch, tmp_path)
     monkeypatch.setenv("MAVI_DEPLOYMENT_PROFILE", profile)
 
+    with pytest.raises(ValidationError):
+        WorkerSettings()
+
+
+def test_settings_load_device_resolution_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    seed_required(monkeypatch, tmp_path)
+    monkeypatch.setenv(
+        "MAVI_DEVICE_RESOLUTION_REASON",
+        "cuda_pack_not_declared",
+    )
+
+    settings = WorkerSettings()
+
+    assert (
+        settings.device_resolution_reason
+        == "cuda_pack_not_declared"
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["CUDA FALLBACK", "bad-reason", "", "x" * 65],
+)
+def test_settings_reject_invalid_device_resolution_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    value: str,
+) -> None:
+    seed_required(monkeypatch, tmp_path)
+    monkeypatch.setenv(
+        "MAVI_DEVICE_RESOLUTION_REASON",
+        value,
+    )
     with pytest.raises(ValidationError):
         WorkerSettings()
