@@ -174,6 +174,7 @@ class RuntimeProvenance:
     platform: PlatformIdentity
     configured_device_policy: Literal["cpu", "cuda", "auto"]
     configured_device_index: int
+    device_resolution_reason: str | None
     actual_device: str
     gpu: GpuIdentity | None
     mavi_build: str
@@ -456,6 +457,7 @@ def build_runtime_provenance(
     configured_device_policy: Literal["cpu", "cuda", "auto"],
     configured_device_index: int,
     production_mode: bool,
+    device_resolution_reason: str | None = None,
     mavi_build: str | None = None,
     mavi_commit: str | None = None,
     ffmpeg_version: str | None = None,
@@ -493,6 +495,7 @@ def build_runtime_provenance(
     _validate_device_relationship(
         configured_device_policy=configured_device_policy,
         configured_device_index=configured_device_index,
+        device_resolution_reason=device_resolution_reason,
         actual_device=runtime_metadata.device,
         gpu=gpu,
         production_mode=production_mode,
