@@ -299,6 +299,9 @@ def validate_gate_evidence(
     quality_case_evidence: dict[str, Path],
     quality_ground_truth: dict[str, Path],
     expected_mavi_build: str,
+    deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
+    runtime_variant: str,
 ) -> None:
     if value.get("sourceCommit") != source_commit:
         raise PromotionError("promotion_evidence_source_mismatch:" + gate)
