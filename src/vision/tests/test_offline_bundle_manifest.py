@@ -506,68 +506,86 @@ def test_same_inputs_create_identical_bundle_bytes(tmp_path: Path) -> None:
     assert _relative_file_bytes(first) == _relative_file_bytes(second)
 
 
-def test_bundle_carries_all_verified_runtime_locks_and_binds_them_to_id(
+def test_bundle_carries_only_selected_runtime_lock_and_ignores_unrelated_lock(
     tmp_path: Path,
 ) -> None:
     tool, inputs = _fixture_inputs(tmp_path)
-    selected_lock = tool.load_offline_runtime_lock(inputs.runtime_lock_path)
-    windows_lock = OfflineRuntimeLock(
+    selected_lock = tool.load_offline_runtime_lock(
+        inputs.runtime_lock_path
+    )
+    unrelated_lock = OfflineRuntimeLock(
         schema_version=selected_lock.schema_version,
         platform_variant="windows-x86_64-cpu",
         python_version="3.12.10",
         distributions=selected_lock.distributions,
     )
-    windows_lock_path = tmp_path / "windows-x86_64-cpu.lock"
-    windows_lock_path.write_bytes(serialize_offline_runtime_lock(windows_lock))
+    unrelated_lock_path = (
+        tmp_path / "windows-x86_64-cpu.lock"
+    )
+    unrelated_lock_path.write_bytes(
+        serialize_offline_runtime_lock(unrelated_lock)
+    )
 
+    # The assembly boundary deliberately returns only the selected profile
+    # variant. An unrelated qualified lock must not enter this bundle.
     tool._revalidate_assembly_boundary = lambda _inputs: {
         inputs.platform_variant: inputs.runtime_lock_path,
-        "windows-x86_64-cpu": windows_lock_path,
     }
 
     first = tmp_path / "bundle-a"
-    first_manifest = tool.build_bundle_from_verified_inputs(inputs, first)
+    first_manifest = tool.build_bundle_from_verified_inputs(
+        inputs,
+        first,
+    )
 
-    assert (
+    selected_path = (
         first
         / "release"
         / "runtime"
         / "mmdetection-phase1-v1"
         / "linux-x86_64-cpu.lock"
-    ).is_file()
-    assert (
+    )
+    unrelated_path = (
         first
         / "release"
         / "runtime"
         / "mmdetection-phase1-v1"
         / "windows-x86_64-cpu.lock"
-    ).is_file()
+    )
+    assert selected_path.is_file()
+    assert not unrelated_path.exists()
 
     artifact_variants = {
         item.platform_variant
         for item in first_manifest.artifacts
         if item.purpose == "runtime-lock"
     }
-    assert artifact_variants == {
-        "linux-x86_64-cpu",
-        "windows-x86_64-cpu",
-    }
+    assert artifact_variants == {"linux-x86_64-cpu"}
 
-    changed_windows_lock = replace(
-        windows_lock,
+    changed_unrelated_lock = replace(
+        unrelated_lock,
         distributions=(
-            *windows_lock.distributions[:-1],
+            *unrelated_lock.distributions[:-1],
             replace(
-                windows_lock.distributions[-1],
+                unrelated_lock.distributions[-1],
                 sha256="f" * 64,
             ),
         ),
     )
-    windows_lock_path.write_bytes(serialize_offline_runtime_lock(changed_windows_lock))
+    unrelated_lock_path.write_bytes(
+        serialize_offline_runtime_lock(
+            changed_unrelated_lock
+        )
+    )
 
     second = tmp_path / "bundle-b"
-    second_manifest = tool.build_bundle_from_verified_inputs(inputs, second)
-    assert second_manifest.bundle_id != first_manifest.bundle_id
+    second_manifest = tool.build_bundle_from_verified_inputs(
+        inputs,
+        second,
+    )
+    assert second_manifest.bundle_id == first_manifest.bundle_id
+    assert _relative_file_bytes(second) == _relative_file_bytes(first)
+
 
 
 def test_bundle_manifest_lists_every_product_file_once_except_itself(
