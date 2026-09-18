@@ -845,3 +845,34 @@ def test_production_bundle_requires_explicit_profile() -> None:
             verification_status="verified",
             deployment_profile_id=None,
         )
+
+
+def test_every_qualified_lock_enters_the_bundle_identity_of_every_variant(
+    tmp_path: Path,
+) -> None:
+    """A lock qualified for one variant changes the bundle ID of all of them.
+
+    `verify_runtime_release_locks` returns every lock whose status is
+    `qualified-offline-lock`, unfiltered by deployment profile, and `_bundle_id`
+    folds all of them into `qualifiedReleaseLocks`. So freezing the Windows CUDA
+    Development lock at C3 will change the identity of the Linux and Windows
+    Production bundles too, and ship that lock inside them.
+
+    ADR-009 records this consequence and leaves the choice open: either filter
+    the bundled locks to what the selected deployment profile requires, or
+    accept that a Development lock participates in Production bundle identity
+    and reissue Production acceptance evidence. This test pins today's
+    behaviour so whichever is chosen is chosen deliberately.
+    """
+    tool, inputs = _fixture_inputs(tmp_path)
+    only_this_variant = {inputs.platform_variant: inputs.runtime_lock_path}
+
+    other_lock = tmp_path / "windows-x86_64-cuda.lock"
+    other_lock.write_bytes(b"a different qualified lock\n")
+    with_a_foreign_lock = dict(
+        only_this_variant, **{"windows-x86_64-cuda": other_lock}
+    )
+
+    assert tool._bundle_id(inputs, only_this_variant) != tool._bundle_id(
+        inputs, with_a_foreign_lock
+    )

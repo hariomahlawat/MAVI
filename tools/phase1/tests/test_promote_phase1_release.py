@@ -125,6 +125,25 @@ def test_runtime_ready_checks_only_selected_profile_variant():
         mod._assert_runtime_ready(value, frozenset({"windows-x86_64-cuda"}))
 
 
+def test_development_hardware_qualification_never_promotes_to_production():
+    """ADR-009's whole point, checked at the gate that would let it through.
+
+    The existing coverage uses `pending-hardware-qualification`, which no one
+    would mistake for Production. `qualified-development-hardware` is the state
+    that reads like success and must still be refused here.
+    """
+    value = qualified_runtime()
+    value["platformVariants"]["windows-x86_64-cuda"]["status"] = (
+        "qualified-development-hardware"
+    )
+
+    with pytest.raises(
+        mod.PromotionError,
+        match="promotion_runtime_variant_not_qualified:windows-x86_64-cuda",
+    ):
+        mod._assert_runtime_ready(value, frozenset({"windows-x86_64-cuda"}))
+
+
 def test_promotion_reopens_every_gate_even_if_qualification_record_already_says_passed(tmp_path: Path):
     gates = {gate: "passed" for gate in mod.MANDATORY_QUALIFICATION_GATES}
     qualification = {

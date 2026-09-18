@@ -135,3 +135,25 @@ def test_every_declared_runtime_pack_is_covered_by_the_boundary_gate():
     covered = set(re.findall(r"^\s*- variant:\s*(\S+)\s*$", workflow, re.MULTILINE))
 
     assert covered == set(components["runtimePacks"])
+
+
+def test_every_setup_powershell_module_is_parsed_by_the_acceptance_gate():
+    """A module nothing parses is a syntax error nobody sees until Windows.
+
+    `Mavi.VisionRuntime.Integrity.psm1` -- the Auto integrity preflight -- was
+    the one module missing from the list, so a parse error in it would have
+    surfaced only indirectly, through whichever script imports it.
+    """
+    repository_root = Path(__file__).resolve().parents[3]
+    workflow = (
+        repository_root / ".github/workflows/task17-acceptance.yml"
+    ).read_text(encoding="utf-8")
+
+    modules = {
+        path.name
+        for path in (repository_root / "tools/setup").glob("*.psm1")
+    }
+
+    assert modules, "no PowerShell modules found to check"
+    for module in sorted(modules):
+        assert f'"tools/setup/{module}"' in workflow, module

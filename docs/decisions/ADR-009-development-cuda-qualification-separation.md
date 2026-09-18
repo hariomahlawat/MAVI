@@ -81,7 +81,15 @@ When runtime metadata changes to record Development CUDA evidence:
 1. the runtime-profile SHA-256 changes;
 2. qualification metadata that binds the runtime-profile SHA-256 must be reissued;
 3. the existing Windows CPU regression path must be re-proven against the new runtime-profile identity before merge;
-4. later P1 qualification must generate new Production evidence and promote the CUDA state separately to `qualified-hardware`.
+4. later P1 qualification must generate new Production evidence and promote the CUDA state separately to `qualified-hardware`;
+5. **the Production offline bundle's identity changes.** `verify_runtime_release_locks` returns every lock whose status is `qualified-offline-lock`, unfiltered by deployment profile, and `build_offline_bundle` both ships all of them and folds all of them into `qualifiedReleaseLocks` in the bundle ID. The moment the Windows CUDA Development lock is frozen, it is copied into the Linux P2 and Windows P3 Production bundles and every Production bundle ID changes.
+
+   This ADR does not decide which way that is resolved. Before the CUDA lock is frozen, one of the two must be chosen deliberately:
+
+   - **filter** the bundled locks to the variants the selected deployment profile requires, which keeps Production bundle identity independent of Development work but makes a bundle no longer a complete record of the runtime profile it was built from; or
+   - **accept** that a Development lock participates in Production bundle identity, in which case Production acceptance evidence must be reissued when it is frozen.
+
+   Today's behaviour is the second, and is pinned by `test_every_qualified_lock_enters_the_bundle_identity_of_every_variant` so it cannot change silently.
 
 ## Non-decision
 
