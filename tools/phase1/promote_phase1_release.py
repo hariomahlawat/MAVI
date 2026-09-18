@@ -186,11 +186,12 @@ def _validate_offline_os_evidence(
         raise PromotionError("promotion_offline_evidence_not_candidate:" + gate)
 
 
-def _validate_offline_aggregate_bindings(gate_evidence: dict[str, Path]) -> None:
+def _validate_offline_aggregate_bindings(
+    gate_evidence: dict[str, Path],
+    required_variants: frozenset[str],
+) -> None:
     for os_name in ("windows", "linux"):
         aggregate_gate = f"{os_name}-offline-install"
-        cpu_gate = f"{os_name}-x86_64-cpu"
-        cuda_gate = f"{os_name}-x86_64-cuda"
         if aggregate_gate not in gate_evidence:
             continue
         aggregate = _load_dict(
@@ -198,14 +199,25 @@ def _validate_offline_aggregate_bindings(gate_evidence: dict[str, Path]) -> None
             "promotion_offline_evidence_invalid:" + aggregate_gate,
         )
         hashes = aggregate.get("variantEvidenceSha256")
-        expected = {
-            cpu_gate: sha256_file_bytes(gate_evidence[cpu_gate]),
-            cuda_gate: sha256_file_bytes(gate_evidence[cuda_gate]),
-        }
-        if hashes != expected:
+        if not isinstance(hashes, dict):
             raise PromotionError(
-                "promotion_offline_variant_evidence_binding_mismatch:" + aggregate_gate
+                "promotion_offline_variant_evidence_binding_mismatch:"
+                + aggregate_gate
             )
+        for variant in sorted(required_variants):
+            if not variant.startswith(os_name + "-"):
+                continue
+            variant_path = gate_evidence.get(variant)
+            if (
+                variant_path is None
+                or hashes.get(variant) != sha256_file_bytes(variant_path)
+            ):
+                raise PromotionError(
+                    "promotion_offline_variant_evidence_binding_mismatch:"
+                    + aggregate_gate
+                    + ":"
+                    + variant
+                )
 
 
 def _validate_quality_evidence(
@@ -432,7 +444,7 @@ def build_promoted_metadata(
 
     # Revalidate every gate used to qualify this deployment profile. Existing
     # non-profile evidence may be retained, but it never qualifies this profile.
-    _validate_offline_aggregate_bindings(gate_evidence)
+    _validate_offline_aggregate_bindings(gate_evidence, required_variants)
     evidence: dict[str, dict[str, str]] = dict(current_evidence)
     gates = dict(current_gates)
     for gate, path in sorted(gate_evidence.items()):
