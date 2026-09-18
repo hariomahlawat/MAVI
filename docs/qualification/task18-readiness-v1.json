@@ -45,9 +45,9 @@
     },
     {
       "id": "production-topology",
-      "status": "BLOCKED",
+      "status": "READY",
       "mandatory": true,
-      "detail": "Actual intended Phase-1 production topology requires explicit approval."
+      "detail": "ADR-008 approves Host A Windows Operational+Data and Host B Linux NVIDIA Vision worker on a controlled disconnected LAN."
     },
     {
       "id": "acceptance-corpus",
@@ -93,9 +93,15 @@
     },
     {
       "id": "gpu-scope",
+      "status": "READY",
+      "mandatory": true,
+      "detail": "GPU is required for Phase-1 Production acceptance. Linux CUDA is the canonical Production worker; current release contract retains Windows/Linux CUDA gates."
+    },
+    {
+      "id": "gpu-qualification",
       "status": "BLOCKED",
       "mandatory": true,
-      "detail": "CUDA gates are pending; approve GPU requirement or explicit Phase-1 deferral."
+      "detail": "Required CUDA hardware/runtime evidence has not yet passed; CPU evidence cannot satisfy this gate."
     },
     {
       "id": "clean-production-install",
@@ -129,11 +135,19 @@
     }
   ],
   "nextActions": [
-    "Approve intended Phase-1 Production topology.",
-    "Resolve CPU/GPU Phase-1 scope.",
-    "Freeze acceptance corpus and thresholds before final evaluation.",
-    "Approve exact Production prerequisite versions from intended acceptance hosts.",
+    "Freeze acceptance corpus and Person/Vehicle/empty-scene/performance thresholds before final evaluation.",
+    "Collect observations on the approved Production topology and approve exact prerequisite versions.",
     "Freeze exact supported prior release artifact or formally defer update proof.",
-    "Then freeze application artifact and Offline Binary Kit and establish exact-head qualification candidate."
-  ]
+    "Then freeze application artifact and Offline Binary Kit and establish exact-head qualification candidate.",
+    "Produce required CUDA qualification evidence before final release closure."
+  ],
+  "topologyDecision": {
+    "status": "READY",
+    "authority": "docs/decisions/ADR-008-phase1-production-topology.md",
+    "windowsHost": "IIS + ASP.NET Core MAVI API + React UI + application-local FFmpeg + MAVI-owned PostgreSQL 18/pgvector",
+    "visionHost": "separate Linux x86_64 NVIDIA Vision worker",
+    "networkBoundary": "controlled disconnected LAN; no runtime Internet dependency",
+    "productionVisionExecution": "Linux CUDA",
+    "cpuEvidenceRole": "subsystem/runtime qualification; not final Production worker acceptance"
+  }
 }
