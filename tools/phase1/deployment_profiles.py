@@ -53,6 +53,7 @@ class DeploymentProfile:
     offline_install_gate: str
     quality_gate: str
     performance_gate: str | None
+    performance_evidence_required: bool
     required_prerequisite_roles: tuple[str, ...]
     vision_host_role: str
     requires_cuda: bool
@@ -119,6 +120,9 @@ def load_policy(
         offline_install_gate = item.get("offlineInstallGate")
         quality_gate = item.get("qualityGate")
         performance_gate = item.get("performanceGate")
+        performance_evidence_required = item.get(
+            "performanceEvidenceRequired"
+        )
         roles = item.get("requiredPrerequisiteRoles")
         vision_host_role = item.get("visionHostRole")
         requires_cuda = item.get("requiresCuda")
@@ -139,6 +143,11 @@ def load_policy(
             raise DeploymentProfileError("deployment_profile_variant_invalid:" + profile_id)
         if performance_gate is not None and not _nonempty_text(performance_gate):
             raise DeploymentProfileError("deployment_profile_performance_gate_invalid:" + profile_id)
+        if not isinstance(performance_evidence_required, bool):
+            raise DeploymentProfileError(
+                "deployment_profile_performance_requirement_invalid:"
+                + profile_id
+            )
         if (
             not isinstance(roles, list)
             or not roles
@@ -161,6 +170,7 @@ def load_policy(
             offline_install_gate=offline_install_gate,
             quality_gate=quality_gate,
             performance_gate=performance_gate,
+            performance_evidence_required=performance_evidence_required,
             required_prerequisite_roles=tuple(roles),
             vision_host_role=vision_host_role,
             requires_cuda=requires_cuda,
