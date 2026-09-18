@@ -227,11 +227,6 @@ def validate_offline_runtime_lock_for_runtime(
     if lock.python_version != expected_python_version:
         raise OfflineLockError("offline_lock_python_version_mismatch")
 
-    validate_accelerator_distribution_versions(
-        lock,
-        expected_variant=expected_variant,
-    )
-
     if platform_status is not None:
         allowed_statuses = (
             {
@@ -284,6 +279,10 @@ def validate_offline_runtime_lock_for_runtime(
             raise OfflineLockError("offline_lock_semantic_version_mismatch")
 
     if binary_versions is not None:
+        validate_accelerator_distribution_versions(
+            lock,
+            expected_variant=expected_variant,
+        )
         for raw_name, expected_version in binary_versions.items():
             name = canonicalize_distribution_name(raw_name)
             item = by_name.get(name)
