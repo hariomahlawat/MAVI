@@ -97,19 +97,20 @@ function Test-CudaRuntimeUsable {
         return [pscustomobject]$result
     }
 
+    $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
+    if (-not $nvidiaSmi) {
+        $result.Reason = "cuda_driver_probe_unavailable"
+        return [pscustomobject]$result
+    }
     try {
-        $probe = (& $pythonPath -c "import torch; print('1' if torch.cuda.is_available() and torch.cuda.device_count() > $DeviceIndex else '0')" 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            $result.Reason = "cuda_torch_import_failed"
-            return [pscustomobject]$result
-        }
-        if ($probe -ne "1") {
+        $probe = (& $nvidiaSmi.Source -i $DeviceIndex --query-gpu=index --format=csv,noheader,nounits 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or $probe -ne [string]$DeviceIndex) {
             $result.Reason = "cuda_device_unavailable"
             return [pscustomobject]$result
         }
     }
     catch {
-        $result.Reason = "cuda_torch_import_failed"
+        $result.Reason = "cuda_driver_probe_failed"
         return [pscustomobject]$result
     }
 
@@ -150,6 +151,7 @@ if (-not (Test-Path -LiteralPath $runtimeStatePath -PathType Leaf) -or -not (Tes
 $runtimeState = Get-Content -LiteralPath $runtimeStatePath -Raw | ConvertFrom-Json
 $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw | ConvertFrom-Json
 [void](Assert-MaviVisionRuntimePackManifest -Manifest $runtimeManifest)
+[void](Assert-MaviVisionRuntimeInstalledStatePreflight -RuntimeRoot $runtimeRoot -InstalledState $runtimeState -Manifest $runtimeManifest -RuntimePackManifestPath $runtimeManifestPath)
 if ([string]$runtimeState.schemaVersion -ne "mavi-vision-runtime-install-v2") { throw "Vision runtime installed state schema is unsupported; reinstall the v2 Runtime Pack." }
 if ((Get-Sha256 $runtimeManifestPath) -ne ([string]$runtimeState.runtimePackManifestSha256).ToLowerInvariant()) { throw "Installed Vision Runtime Pack manifest fingerprint does not match runtime-install.json." }
 $python = Join-Path $runtimeRoot "venv\Scripts\python.exe"
