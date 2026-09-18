@@ -233,12 +233,15 @@ def validate_offline_runtime_lock_for_runtime(
     )
 
     if platform_status is not None:
-        allowed_status = (
-            "qualified-hardware"
+        allowed_statuses = (
+            {
+                "qualified-hardware",
+                "qualified-development-hardware",
+            }
             if expected_variant.endswith("-cuda")
-            else "qualified-hosted-cpu"
+            else {"qualified-hosted-cpu"}
         )
-        if platform_status != allowed_status:
+        if platform_status not in allowed_statuses:
             raise OfflineLockError("offline_lock_platform_not_qualified")
 
     by_name = {item.name: item for item in lock.distributions}
