@@ -674,6 +674,56 @@ Also capture:
 
 The CUDA run must prove on-device MMCV native ops, for example CUDA-tensor NMS, before RTMDet E2E evidence is accepted.
 
+### C6 tooling and execution order
+
+C6's output is an evidence bundle, not a report that it went well. Record each
+run as a `mavi-windows-cuda-development-e2e-run-v1` document and assemble them
+with `tools/vision/build_development_e2e_evidence.py`:
+
+```
+python tools/vision/build_development_e2e_evidence.py \
+    --development-evidence development-evidence.json \
+    --run explicit-cuda=run-explicit-cuda.json \
+    --run auto-cuda=run-auto-cuda.json \
+    --run explicit-cpu=run-explicit-cpu.json \
+    --run restart-recovery=run-restart-recovery.json \
+    --run cuda-oom-recovery=run-cuda-oom-recovery.json \
+    --source-head-sha <40-hex head of the source tree under test> \
+    --captured-at-utc <YYYY-MM-DDTHH:MM:SSZ> \
+    --operator-reference <workstation or operator label> \
+    --output development-e2e-evidence.json
+```
+
+The five case IDs are exactly the required set: one per thing the list above
+asks to be proven, and the bundle is refused if any is missing or if a case
+nobody asked for is supplied. Each run must reach `Processed` at 100% with
+detections persisted, carry provenance agreeing with the run, and name the
+media by SHA-256.
+
+The rules that matter most:
+
+- **no silent GPU-to-CPU fallback.** Policy, resolved device and reason code go
+  through `validate_device_resolution_wire_relationship` -- the same function
+  the wire contract uses, not a restatement that could drift -- and a case that
+  exists to prove CUDA is refused if it reports `cpu`. A legitimate Auto
+  fallback is a real result but does not satisfy the `auto-cuda` case;
+- **a CUDA run must have touched the GPU.** On-device MMCV native ops, a peak
+  device allocation above zero, and nvidia-smi showing more device memory in use
+  during the run than before it;
+- **provenance stays `unverified`.** Development never inherits the release's
+  verified label, so a run record claiming `verified` did not come from this
+  runtime;
+- **the OOM and restart cases must have exercised what they are named for.**
+
+Timing is carried for engineering characterisation only. The bundle says so in
+the record itself, and this tool never compares an elapsed time against a
+threshold, because no Production bound may be derived from Development hardware.
+
+The bundle is bound to the C4 hardware evidence by digest and must name the same
+source revision, so a C6 run cannot be attached to a qualification of something
+else. `evidenceBundleSha256` is recomputable the same way as C4's: blank the
+field, re-serialise the record canonically as UTF-8, hash.
+
 ## Phase C7 — failure and recovery
 
 Exercise:
