@@ -63,6 +63,7 @@ def variant_payload(mode: str = "production") -> dict:
 
 def scenario_payload(e2e_sha: str) -> dict:
     return {
+        "schemaVersion": "mavi-production-scenario-evidence-v2",
         "acceptanceExecutionId": EXECUTION_ID,
         "acceptanceContextSha256": CONTEXT_SHA,
         "scenarioStartedAtUtc": "2026-09-14T18:10:00Z",
@@ -72,7 +73,10 @@ def scenario_payload(e2e_sha: str) -> dict:
         "maviBuild": "build-a",
         "operationalHostIdentitySha256": WINDOWS_HOST,
         "targetVerifiedManifestSha256": "b" * 64,
-        "linuxCudaVariantEvidenceSha256": "f" * 64,
+        "deploymentProfile": "P2",
+        "deploymentProfilePolicySha256": "f" * 64,
+        "runtimeVariant": "linux-x86_64-cuda",
+        "variantEvidenceSha256": "f" * 64,
         "productionBundleManifestSha256": "d" * 64,
         "productionReleaseLockSha256": "e" * 64,
         "workerPythonSha256": "2" * 64,
@@ -129,12 +133,19 @@ def test_candidate_variant_cannot_satisfy_production_acceptance(tmp_path: Path):
         )
 
 
-def test_production_variant_set_requires_all_four():
-    with pytest.raises(mod.ProductionAcceptanceError, match="production_variant_set_incomplete"):
-        mod.parse_variant_arguments([
-            "linux-x86_64-cpu=a.json",
-            "linux-x86_64-cuda=b.json",
-        ])
+def test_production_variant_set_is_profile_scoped():
+    assert mod.parse_variant_arguments(
+        ["linux-x86_64-cuda=b.json"],
+        frozenset({"linux-x86_64-cuda"}),
+    ) == {"linux-x86_64-cuda": Path("b.json")}
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_variant_set_incomplete",
+    ):
+        mod.parse_variant_arguments(
+            ["linux-x86_64-cpu=a.json"],
+            frozenset({"linux-x86_64-cuda"}),
+        )
 
 
 def _write_json(path: Path, value: dict) -> Path:
@@ -297,9 +308,9 @@ def test_backup_rejects_tampered_underlying_execution(tmp_path: Path):
 def test_topology_binding_rejects_other_linux_host():
     prereq = {
         "topologyIdentities": {
-            "windowsOperationalPlane": "1" * 64,
+            "windows-operational-plane": "1" * 64,
             "database": "5" * 64,
-            "linuxVisionWorker": "2" * 64,
+            "linux-vision-worker": "2" * 64,
         }
     }
     fresh = {
@@ -321,8 +332,18 @@ def test_topology_binding_rejects_other_linux_host():
         },
     }
     linux = {"hostIdentitySha256": "9" * 64}
-    with pytest.raises(mod.ProductionAcceptanceError, match="production_linux_topology_mismatch"):
-        mod.validate_topology_binding(prereq, fresh, update, backup, linux)
+    with pytest.raises(
+        mod.ProductionAcceptanceError,
+        match="production_vision_topology_mismatch",
+    ):
+        mod.validate_topology_binding(
+            prereq,
+            fresh,
+            update,
+            backup,
+            linux,
+            mod.deployment_profiles.select_profile("P2")[0],
+        )
 
 
 def test_final_scenario_rejects_other_venv(tmp_path: Path, monkeypatch):
@@ -331,7 +352,7 @@ def test_final_scenario_rejects_other_venv(tmp_path: Path, monkeypatch):
     scenario = scenario_payload(mod.sha256_file(e2e_path))
     variant_path = tmp_path / "variant.json"
     variant_path.write_text("{}", encoding="utf-8")
-    scenario["linuxCudaVariantEvidenceSha256"] = mod.sha256_file(variant_path)
+    scenario["variantEvidenceSha256"] = mod.sha256_file(variant_path)
     scenario["workerEnvironmentSha256"] = "9" * 64
     scenario_path = tmp_path / "scenario.json"
     scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
@@ -356,10 +377,12 @@ def test_final_scenario_rejects_other_venv(tmp_path: Path, monkeypatch):
             acceptance_profile_sha256="c" * 64,
             expected_corpus_sha256="9" * 64,
             mavi_build="build-a",
-            linux_cuda_variant_path=variant_path,
-            linux_cuda_variant=variant,
-            linux_cuda_bundle_sha256="d" * 64,
-            linux_cuda_lock_sha256="e" * 64,
+            deployment_profile=mod.deployment_profiles.select_profile("P2")[0],
+            deployment_profile_policy_sha256="f" * 64,
+            variant_path=variant_path,
+            variant=variant,
+            bundle_sha256="d" * 64,
+            lock_sha256="e" * 64,
             acceptance_execution_id=EXECUTION_ID,
             acceptance_context_sha256=CONTEXT_SHA,
             expected_operational_host_identity_sha256=WINDOWS_HOST,
@@ -397,10 +420,12 @@ def test_final_scenario_cannot_reuse_variant_smoke_e2e(tmp_path: Path, monkeypat
             acceptance_profile_sha256="c" * 64,
             expected_corpus_sha256="9" * 64,
             mavi_build="build-a",
-            linux_cuda_variant_path=variant_path,
-            linux_cuda_variant=variant,
-            linux_cuda_bundle_sha256="d" * 64,
-            linux_cuda_lock_sha256="e" * 64,
+            deployment_profile=mod.deployment_profiles.select_profile("P2")[0],
+            deployment_profile_policy_sha256="f" * 64,
+            variant_path=variant_path,
+            variant=variant,
+            bundle_sha256="d" * 64,
+            lock_sha256="e" * 64,
             acceptance_execution_id=EXECUTION_ID,
             acceptance_context_sha256=CONTEXT_SHA,
             expected_operational_host_identity_sha256=WINDOWS_HOST,
@@ -411,6 +436,7 @@ def test_failure_reprocess_rejects_source_drift(tmp_path: Path, monkeypatch):
     variant_path = tmp_path / "variant.json"
     variant_path.write_text("{}", encoding="utf-8")
     value = {
+        "schemaVersion": "mavi-production-failure-reprocess-evidence-v2",
         "acceptanceExecutionId": EXECUTION_ID,
         "acceptanceContextSha256": CONTEXT_SHA,
         "scenarioStartedAtUtc": "2026-09-14T18:12:00Z",
@@ -419,9 +445,12 @@ def test_failure_reprocess_rejects_source_drift(tmp_path: Path, monkeypatch):
         "maviBuild": "build-a",
         "operationalHostIdentitySha256": WINDOWS_HOST,
         "targetVerifiedManifestSha256": "b" * 64,
+        "deploymentProfile": "P2",
+        "deploymentProfilePolicySha256": "f" * 64,
+        "runtimeVariant": "linux-x86_64-cuda",
         "productionBundleManifestSha256": "d" * 64,
         "productionReleaseLockSha256": "e" * 64,
-        "linuxCudaVariantEvidenceSha256": mod.sha256_file(variant_path),
+        "variantEvidenceSha256": mod.sha256_file(variant_path),
         "workerPythonSha256": "2" * 64,
         "workerEnvironmentSha256": "5" * 64,
         "workerVenvRootSha256": "6" * 64,
@@ -469,10 +498,12 @@ def test_failure_reprocess_rejects_source_drift(tmp_path: Path, monkeypatch):
             source_commit="a" * 40,
             mavi_build="build-a",
             target_manifest_sha256="b" * 64,
-            linux_cuda_variant_path=variant_path,
-            linux_cuda_variant=variant,
-            linux_cuda_bundle_sha256="d" * 64,
-            linux_cuda_lock_sha256="e" * 64,
+            deployment_profile=mod.deployment_profiles.select_profile("P2")[0],
+            deployment_profile_policy_sha256="f" * 64,
+            variant_path=variant_path,
+            variant=variant,
+            bundle_sha256="d" * 64,
+            lock_sha256="e" * 64,
             acceptance_execution_id=EXECUTION_ID,
             acceptance_context_sha256=CONTEXT_SHA,
             expected_operational_host_identity_sha256=WINDOWS_HOST,
