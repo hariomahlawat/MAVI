@@ -9,7 +9,7 @@
 
 **Overall readiness: BLOCKED — authoritative production qualification must not start yet.**
 
-The repository is technically ready to perform readiness preparation and rehearsal, but several mandatory release-governance inputs are intentionally unresolved. Starting final CCTV, CUDA, production-topology or release-promotion evidence now would create evidence against an unfrozen policy/candidate and would therefore be wasteful or invalid.
+The repository is technically ready to perform readiness preparation and rehearsal, but several mandatory release-governance inputs are intentionally unresolved. Starting final CCTV, CUDA qualification, or release-promotion evidence now would create evidence against an unfrozen policy/candidate and would therefore be wasteful or invalid.
 
 This is not a product-failure result. It is a controlled readiness result.
 
@@ -27,7 +27,8 @@ This is not a product-failure result. It is a controlled readiness result.
 | Model Pack identity | **READY** | `mavi-model-v1-2abf67800cec8a9c63d735bf50e44ac695e8b8ccf01397e2cfd884305a5638b4` | Re-confirm on frozen production candidate |
 | Windows CPU functional subsystem evidence | **READY — inherited evidence** | PR #44 completed real 1080p RTMDet/ByteTrack processing and job-level recovery | Do not repeat Development run solely for chronology |
 | Linux CPU hosted runtime evidence | **READY — hosted only** | Qualification metadata marks Linux CPU passed | Still requires intended Production/offline topology evidence if Linux is in final topology |
-| CUDA/GPU evidence | **BLOCKED** | Windows and Linux CUDA gates are pending hardware qualification | Approve CPU-only scope or perform required GPU qualification |
+| GPU scope | **READY — GPU REQUIRED** | ADR-008 makes Linux NVIDIA/CUDA the canonical Production Vision worker; current release contract also retains Windows/Linux CUDA qualification gates | Produce the required CUDA evidence; do not infer it from CPU qualification |
+| CUDA/GPU evidence | **BLOCKED** | Windows and Linux CUDA gates are still pending hardware qualification | Qualify the required CUDA variants/hardware before release closure |
 | Model release qualification | **BLOCKED** | Model manifest remains `verificationStatus=unverified`; qualification `overallResult=pending` | Complete mandatory gates before promotion |
 | Acceptance corpus | **BLOCKED** | `qualificationCorpusManifestSha256=null` | Freeze approved held-out corpus + manifest |
 | Person threshold | **BLOCKED** | `classThresholds.Person=null` | Approve before final evaluation |
@@ -39,7 +40,7 @@ This is not a product-failure result. It is a controlled readiness result.
 | Application release artifact | **BLOCKED** | No Task-18 frozen application artifact/manifest yet | Build only after qualification candidate is frozen |
 | Offline Binary Kit identity | **BLOCKED** | Kit is intentionally external to Git; no Task-18 candidate manifest has been captured | Select retained kit and record manifest SHA-256 |
 | Production setup bundle | **BLOCKED** | No Task-18 final bundle identity yet | Assemble from frozen app + verified binary kit after readiness inputs are approved |
-| Final Production topology | **BLOCKED** | Historical Windows/Linux topology cannot be assumed after later setup/runtime changes | Approve actual intended topology |
+| Final Production topology | **READY** | ADR-008: Host A Windows IIS/API/UI + MAVI-owned PostgreSQL/pgvector; Host B Linux x86_64 NVIDIA Vision worker; disconnected LAN | Freeze exact prerequisite versions/host identities before evidence capture |
 | Clean disconnected Production install | **NOT STARTED** | Task-18 evidence not yet run | Execute only after readiness becomes READY |
 | Production E2E | **NOT STARTED** | Task-18 evidence not yet run | Execute after clean install |
 | Failure/reprocess | **NOT STARTED** | Task-18 evidence not yet run | Execute after formal E2E environment is qualified |
@@ -144,26 +145,20 @@ The heavy Runtime/Model workflows are not treated as newly qualified by this doc
 
 ## Readiness actions — controlled order
 
-### R1 — approve the intended Phase-1 production topology
+### R1 — approve the intended Phase-1 production topology — COMPLETE
 
-**Owner decision required.**
+**Status: READY.** ADR-008 approves the canonical topology:
+- Host A: Windows IIS / ASP.NET Core / React + application-local FFmpeg;
+- Host A logical Data plane: MAVI-owned PostgreSQL 18 + pgvector;
+- Host B: separate Linux x86_64 NVIDIA Vision worker;
+- controlled disconnected LAN; no runtime Internet dependency;
+- Operational/Data/Vision identities remain independently captured even where Operational + Data are co-located.
 
-Record:
-- whether Vision Production execution is Windows CPU, Linux CPU, GPU/CUDA, or a defined combination;
-- Windows operational host role;
-- database role/topology;
-- worker role;
-- storage roots;
-- offline/network boundary.
+See `docs/decisions/ADR-008-phase1-production-topology.md` and `docs/architecture/phase1-production-topology.md`.
 
-### R2 — resolve GPU scope
+### R2 — resolve GPU scope — COMPLETE
 
-Choose one reviewed route:
-
-1. **GPU required:** retain Windows/Linux CUDA requirements as applicable and provide hardware/driver/CUDA qualification.
-2. **GPU deferred:** approve a scope/ADR change and remove GPU claims/gates from Phase-1 release acceptance consistently.
-
-No implicit decision is permitted.
+**Status: READY — GPU REQUIRED.** Linux NVIDIA/CUDA execution is part of the Phase-1 Production acceptance boundary. This is a scope decision only; CUDA qualification remains BLOCKED until real hardware evidence passes. The current release qualification contract also retains Windows and Linux CUDA variant gates, so neither may be treated as passed from CPU evidence.
 
 ### R3 — freeze acceptance policy before final testing
 
@@ -232,4 +227,4 @@ The Git repository should retain schemas, policy, runbooks, hashes and compact q
 
 It becomes authorized only when the machine-readable readiness record has no mandatory `BLOCKED` item and the reviewed candidate freeze identifies the exact application, Runtime Pack, Model Pack, Offline Binary Kit, topology and acceptance-policy inputs.
 
-The next professional action is to resolve **R1–R5** deliberately before building the final candidate.
+R1 and R2 are now resolved. The next professional action is to resolve **R3–R5** deliberately: freeze the acceptance policy, approve exact Production prerequisites from the intended hosts, and resolve supported-update artifact/scope before building the final candidate.
