@@ -129,7 +129,7 @@ try {
         "MAVI_VISION_RUNTIME_ROOT",
         "MAVI_VISION_RUNTIME_WINDOWS_CPU_ROOT",
         "MAVI_VISION_RUNTIME_WINDOWS_CUDA_ROOT",
-        "DevicePolicy = \"auto\"",
+        'DevicePolicy = "auto"',
         "MAVI_MODEL_ROOT",
         "MAVI_RUNTIME_PROFILE_PATH",
         "MAVI_QUALIFICATION_RECORD_PATH",
