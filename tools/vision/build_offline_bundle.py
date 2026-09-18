@@ -204,6 +204,7 @@ def build_bundle_from_verified_inputs(
         inputs.runtime_lock_path,
         inputs.checkpoint_path,
         inputs.resolved_config_path,
+        inputs.deployment_profile_policy_path,
     ):
         _assert_safe_regular_file(path)
     _assert_safe_directory(inputs.wheelhouse)
@@ -909,6 +910,20 @@ def _install_instructions(inputs: VerifiedBundleInputs) -> str:
         "./release/config/pipelines/phase1-detection-tracking-v1.json\n"
         "MAVI_RUNTIME_PROFILE_PATH="
         "./release/runtime/mmdetection-phase1-v1/runtime.json\n"
+        "MAVI_DEPLOYMENT_PROFILE_POLICY_PATH="
+        "./release/config/acceptance/phase1-deployment-profiles-v1.json\n"
+        + (
+            (
+                f"MAVI_DEPLOYMENT_PROFILE={inputs.deployment_profile_id}\n"
+                + (
+                    "MAVI_DEVICE_POLICY=cuda\n"
+                    if inputs.platform_variant.endswith("-cuda")
+                    else "MAVI_DEVICE_POLICY=cpu\n"
+                )
+            )
+            if inputs.deployment_profile_id is not None
+            else ""
+        )
     )
 
 
@@ -925,6 +940,10 @@ def _bundle_id(
         "pipelineProfileSha256": sha256_file(inputs.pipeline_profile_path),
         "qualificationRecordSha256": sha256_file(inputs.qualification_path),
         "releaseLockSha256": sha256_file(inputs.runtime_lock_path),
+        "deploymentProfile": inputs.deployment_profile_id,
+        "deploymentProfilePolicySha256": (
+            inputs.deployment_profile_policy_sha256
+        ),
         "qualifiedReleaseLocks": {
             variant: sha256_file(path)
             for variant, path in sorted(verified_locks.items())
@@ -953,6 +972,10 @@ def _serialize_manifest(manifest: BundleManifest) -> bytes:
         "modelId": manifest.model_id,
         "runtimeProfileId": manifest.runtime_profile_id,
         "lockSha256": manifest.lock_sha256,
+        "deploymentProfile": manifest.deployment_profile,
+        "deploymentProfilePolicySha256": (
+            manifest.deployment_profile_policy_sha256
+        ),
         "hostCompatibility": {
             "osFamily": manifest.host_compatibility.os_family,
             "architecture": manifest.host_compatibility.architecture,
@@ -1311,6 +1334,15 @@ def _parse_args() -> argparse.Namespace:
         required=True,
     )
     parser.add_argument("--platform-variant", required=True)
+    parser.add_argument(
+        "--deployment-profile",
+        choices=("P1", "P2", "P3"),
+    )
+    parser.add_argument(
+        "--deployment-profile-policy",
+        type=Path,
+        default=CANONICAL_DEPLOYMENT_PROFILE_POLICY,
+    )
     parser.add_argument("--model-root", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--qualification", type=Path, required=True)
@@ -1336,9 +1368,17 @@ def main() -> int:
             runtime_profile_path=args.runtime_profile,
             wheelhouse=args.wheelhouse,
             output=args.output,
+            deployment_profile=args.deployment_profile,
+            deployment_profile_policy_path=(
+                args.deployment_profile_policy
+            ),
             python_installer_path=args.python_installer,
         )
-    except (OfflineBundleError, ReleaseMetadataError) as exc:
+    except (
+        OfflineBundleError,
+        ReleaseMetadataError,
+        DeploymentProfileError,
+    ) as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
@@ -1349,6 +1389,7 @@ def main() -> int:
                 "bundleId": manifest.bundle_id,
                 "platformVariant": manifest.platform_variant,
                 "releaseStatus": manifest.release_status,
+                "deploymentProfile": manifest.deployment_profile,
                 "artifactCount": len(manifest.artifacts),
             },
             sort_keys=True,
