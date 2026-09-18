@@ -1,5 +1,16 @@
 # Phase-1 Acceptance and Qualification Runbook
 
+> **ADR-008 deployment-profile notice — 18 Sep 2026**
+>
+> The architecture now supports profile-based Production qualification:
+> - P1 single-host Windows GPU;
+> - P2 split-host Windows + Linux GPU;
+> - P3 single-host Windows CPU.
+>
+> Development is a single Windows workstation/laptop with intended Auto / CUDA / CPU device modes.
+>
+> Parts of this runbook and the current Phase-1 tools were written for the earlier four-platform-variant / Linux-CUDA-centric closure model. Those commands remain useful implementation/history references, but **must not be used to claim authoritative Task-18 release acceptance until the acceptance/promotion/closure tooling is reconciled with ADR-008**. The reconciled tooling must require every gate applicable to each Production profile actually claimed as supported and must not allow evidence from one profile to qualify another.
+
 Task 17 closes Phase 1 by proving the existing Camera → Import → Processing → Visual Search → Evidence Review system against explicit release, provenance, offline and recovery contracts. Hosted CI is not a substitute for disconnected or hardware qualification.
 
 ## Truth states
