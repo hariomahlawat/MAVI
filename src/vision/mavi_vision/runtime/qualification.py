@@ -971,7 +971,10 @@ def verify_release_selection(
 
     if manifest.verification_status == "verified":
         if required_runtime_variant is None:
-            if runtime_profile.qualification_status != "qualified":
+            if (
+                not allow_unverified
+                and runtime_profile.qualification_status != "qualified"
+            ):
                 raise ReleaseMetadataError("runtime_profile_not_qualified")
         else:
             variant = runtime_profile.platform_variants.get(required_runtime_variant)
@@ -1017,7 +1020,7 @@ def verify_release_selection(
             profile_sha256=profile_sha256,
             runtime_profile_id=runtime_profile_id,
             runtime_profile_sha256=runtime_profile_sha256,
-            require_passed=True,
+            require_passed=not allow_unverified,
             required_profile=required_profile,
             required_gates=required_gates,
             required_deployment_profile_policy_sha256=(
