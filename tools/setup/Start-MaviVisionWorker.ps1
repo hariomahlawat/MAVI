@@ -4,7 +4,7 @@ param(
     [string]$ApiBaseUrl = "http://localhost:62153",
     [string]$WorkerId = "dev-worker-01",
     [string]$MediaRoot = "C:\ProgramData\MAVI\Development\Data",
-    [ValidateSet("cpu","cuda","auto")][string]$DevicePolicy = "cpu",
+    [ValidateSet("cpu","cuda","auto")][string]$DevicePolicy = "auto",
     [int]$DeviceIndex = 0
 )
 
@@ -25,15 +25,68 @@ if (-not $git) { throw "git.exe is required to identify the application revision
 $head = (& $git.Source -C $RepositoryRoot rev-parse HEAD 2>$null | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') { throw "Unable to determine repository HEAD." }
 
-# Runtime Binary Pack: installed state, manifest, live interpreter and installed
-# third-party closure are independently revalidated before application startup.
-$runtimeRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_RUNTIME_ROOT", "Machine")
-if ([string]::IsNullOrWhiteSpace($runtimeRoot)) { $runtimeRoot = "C:\ProgramData\MAVI\Development\VisionRuntime\windows-x86_64-cpu" }
+# Runtime Binary Pack: choose the exact interpreter/runtime environment before
+# the Python worker starts. Auto selection belongs here because CPU and CUDA are
+# separate immutable Runtime Packs/venvs and cannot be safely swapped in-process.
+$runtimeBase = "C:\ProgramData\MAVI\Development\VisionRuntime"
+$runtimeCpuRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_RUNTIME_WINDOWS_CPU_ROOT", "Machine")
+if ([string]::IsNullOrWhiteSpace($runtimeCpuRoot)) {
+    $legacyRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_RUNTIME_ROOT", "Machine")
+    $runtimeCpuRoot = if ([string]::IsNullOrWhiteSpace($legacyRoot)) {
+        Join-Path $runtimeBase "windows-x86_64-cpu"
+    } else { $legacyRoot }
+}
+$runtimeCudaRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_RUNTIME_WINDOWS_CUDA_ROOT", "Machine")
+if ([string]::IsNullOrWhiteSpace($runtimeCudaRoot)) {
+    $runtimeCudaRoot = Join-Path $runtimeBase "windows-x86_64-cuda"
+}
+
+function Test-CudaRuntimeUsable {
+    param([Parameter(Mandatory = $true)][string]$Root)
+    try {
+        $pythonPath = Join-Path $Root "venv\Scripts\python.exe"
+        $manifestPath = Join-Path $Root "runtime-pack-manifest.json"
+        $statePath = Join-Path $Root "runtime-install.json"
+        if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+            return $false
+        }
+        $manifestValue = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        if ([string]$manifestValue.platformVariant -ne "windows-x86_64-cuda") {
+            return $false
+        }
+        $probe = (& $pythonPath -c "import torch; print('1' if torch.cuda.is_available() and torch.cuda.device_count() > $DeviceIndex else '0')" 2>$null | Out-String).Trim()
+        return ($LASTEXITCODE -eq 0 -and $probe -eq "1")
+    }
+    catch {
+        return $false
+    }
+}
+
+$resolvedDevicePolicy = $DevicePolicy
+if ($DevicePolicy -eq "auto") {
+    if (Test-CudaRuntimeUsable -Root $runtimeCudaRoot) {
+        $runtimeRoot = $runtimeCudaRoot
+        $resolvedDevicePolicy = "cuda"
+    }
+    else {
+        $runtimeRoot = $runtimeCpuRoot
+        $resolvedDevicePolicy = "cpu"
+    }
+}
+elseif ($DevicePolicy -eq "cuda") {
+    $runtimeRoot = $runtimeCudaRoot
+}
+else {
+    $runtimeRoot = $runtimeCpuRoot
+}
+
 $runtimeRoot = [IO.Path]::GetFullPath($runtimeRoot.Trim().Trim('"'))
 $runtimeStatePath = Join-Path $runtimeRoot "runtime-install.json"
 $runtimeManifestPath = Join-Path $runtimeRoot "runtime-pack-manifest.json"
 if (-not (Test-Path -LiteralPath $runtimeStatePath -PathType Leaf) -or -not (Test-Path -LiteralPath $runtimeManifestPath -PathType Leaf)) {
-    throw "MAVI Vision Runtime Pack is not installed. Install the qualified windows-x86_64-cpu Runtime Pack first."
+    throw "MAVI Vision Runtime Pack for requested device policy '$DevicePolicy' is not installed at '$runtimeRoot'."
 }
 $runtimeState = Get-Content -LiteralPath $runtimeStatePath -Raw | ConvertFrom-Json
 $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw | ConvertFrom-Json
@@ -70,17 +123,19 @@ $qualificationPath = Join-Path $RepositoryRoot "models\qualifications\rtmdet-m-c
 $pipelinePath = Join-Path $RepositoryRoot "src\vision\config\pipelines\phase1-detection-tracking-v1.json"
 $runtimeProfilePath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\runtime.json"
 $componentRequirementsPath = Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json"
-$runtimeLockPath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cpu.lock"
-$runtimeRequirementsPath = Join-Path $RepositoryRoot "src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cpu.requirements.txt"
+$runtimeVariant = [string]$runtimeManifest.platformVariant
+$runtimeLockPath = Join-Path $RepositoryRoot ("src\vision\runtime\mmdetection-phase1-v1\" + $runtimeVariant + ".lock")
+$runtimeRequirementsPath = Join-Path $RepositoryRoot ("src\vision\runtime\mmdetection-phase1-v1\" + $runtimeVariant + ".requirements.txt")
 foreach ($path in @($modelManifestPath,$qualificationPath,$pipelinePath,$runtimeProfilePath,$componentRequirementsPath,$runtimeLockPath,$runtimeRequirementsPath)) { if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required Vision application overlay file is missing: $path" } }
 $modelSourceManifest = Get-Content -LiteralPath $modelManifestPath -Raw | ConvertFrom-Json
 $qualification = Get-Content -LiteralPath $qualificationPath -Raw | ConvertFrom-Json
 $components = Get-Content -LiteralPath $componentRequirementsPath -Raw | ConvertFrom-Json
 if ([string]$components.schemaVersion -ne "mavi-vision-component-requirements-v1") { throw "Unsupported Vision component-requirements schema '$($components.schemaVersion)'." }
 if ([string]$components.runtimeProfileId -ne [string]$qualification.runtimeProfileId) { throw "Vision component requirements target the wrong runtime profile." }
-$runtimeRequirement = $components.runtimePacks."windows-x86_64-cpu"
+$runtimeRequirementProperty = $components.runtimePacks.PSObject.Properties[$runtimeVariant]
+$runtimeRequirement = if ($runtimeRequirementProperty) { $runtimeRequirementProperty.Value } else { $null }
 $modelRequirement = $components.modelPack
-if (-not $runtimeRequirement -or -not $modelRequirement) { throw "Vision component requirements do not declare the required Windows CPU Runtime Pack and Model Pack." }
+if (-not $runtimeRequirement -or -not $modelRequirement) { throw "Vision component requirements do not declare the required '$runtimeVariant' Runtime Pack and Model Pack." }
 if ((Get-Sha256 $modelManifestPath) -ne ([string]$qualification.modelManifestSha256).ToLowerInvariant()) { throw "Vision application model-manifest fingerprint does not match qualification metadata." }
 if ((Get-Sha256 $pipelinePath) -ne ([string]$qualification.pipelineProfileSha256).ToLowerInvariant()) { throw "Vision application pipeline fingerprint does not match qualification metadata." }
 if ((Get-Sha256 $runtimeProfilePath) -ne ([string]$qualification.runtimeProfileSha256).ToLowerInvariant()) { throw "Vision application runtime-profile fingerprint does not match qualification metadata." }
@@ -88,9 +143,11 @@ if ((Get-Sha256 $runtimeLockPath) -ne ([string]$runtimeRequirement.thirdPartyLoc
 if ((Get-Sha256 $runtimeRequirementsPath) -ne ([string]$runtimeRequirement.runtimeRequirementsSha256).ToLowerInvariant()) { throw "Vision application runtime-requirements binding is stale." }
 if ([string]$runtimeRequirement.nativeAbi -ne [string]$runtimeManifest.nativeAbi) { throw "Vision application Runtime Pack native ABI binding is stale." }
 if ([string]$modelSourceManifest.modelId -ne [string]$modelRequirement.modelId -or [string]$modelSourceManifest.checkpoint.sha256 -ne [string]$modelRequirement.checkpointSha256 -or [string]$modelSourceManifest.resolvedConfig.sha256 -ne [string]$modelRequirement.resolvedConfigSha256) { throw "Vision application Model Pack binding is stale." }
+if ($resolvedDevicePolicy -eq "cuda" -and $runtimeVariant -ne "windows-x86_64-cuda") { throw "Resolved CUDA device policy requires the Windows CUDA Runtime Pack." }
+if ($resolvedDevicePolicy -eq "cpu" -and $runtimeVariant -ne "windows-x86_64-cpu") { throw "Resolved CPU device policy requires the Windows CPU Runtime Pack." }
 [void](Assert-MaviVisionWorkerComponentCompatibility -RuntimeState $runtimeState -RuntimeManifest $runtimeManifest -RequiredRuntimePackId ([string]$runtimeRequirement.runtimePackId) -RequiredThirdPartyLockSha256 ([string]$runtimeRequirement.thirdPartyLockSha256) -RequiredRuntimeRequirementsSha256 ([string]$runtimeRequirement.runtimeRequirementsSha256) -ModelState $modelState -ModelManifest $modelPackManifest -RequiredModelPackId ([string]$modelRequirement.modelPackId) -RequiredModelId ([string]$modelRequirement.modelId) -RequiredCheckpointSha256 ([string]$modelRequirement.checkpointSha256) -RequiredResolvedConfigSha256 ([string]$modelRequirement.resolvedConfigSha256))
 
-$env:MAVI_API_BASE_URL=$ApiBaseUrl;$env:MAVI_WORKER_ID=$WorkerId;$env:MAVI_MEDIA_ROOT=$MediaRoot;$env:MAVI_DEVICE_POLICY=$DevicePolicy;$env:MAVI_DEVICE_INDEX=[string]$DeviceIndex;$env:MAVI_PRODUCTION_MODE="false";$env:MAVI_MODEL_ROOT=$modelRoot;$env:MAVI_MODEL_MANIFEST_PATH=$modelManifestPath;$env:MAVI_PIPELINE_PROFILE_PATH=$pipelinePath;$env:MAVI_RUNTIME_PROFILE_PATH=$runtimeProfilePath;$env:MAVI_QUALIFICATION_RECORD_PATH=$qualificationPath;$env:MAVI_BUILD_ID="development";$env:MAVI_COMMIT_SHA=$head
+$env:MAVI_API_BASE_URL=$ApiBaseUrl;$env:MAVI_WORKER_ID=$WorkerId;$env:MAVI_MEDIA_ROOT=$MediaRoot;$env:MAVI_DEVICE_POLICY=$resolvedDevicePolicy;$env:MAVI_DEVICE_INDEX=[string]$DeviceIndex;$env:MAVI_PRODUCTION_MODE="false";$env:MAVI_MODEL_ROOT=$modelRoot;$env:MAVI_MODEL_MANIFEST_PATH=$modelManifestPath;$env:MAVI_PIPELINE_PROFILE_PATH=$pipelinePath;$env:MAVI_RUNTIME_PROFILE_PATH=$runtimeProfilePath;$env:MAVI_QUALIFICATION_RECORD_PATH=$qualificationPath;$env:MAVI_BUILD_ID="development";$env:MAVI_COMMIT_SHA=$head
 $visionSourceRoot = Join-Path $RepositoryRoot "src\vision"
 if (-not (Test-Path -LiteralPath (Join-Path $visionSourceRoot "mavi_vision") -PathType Container)) { throw "MAVI vision source tree is missing: $visionSourceRoot" }
 $existingPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH","Process")
@@ -109,7 +166,8 @@ try {
     Write-Host "  Application  : $head"
     Write-Host "  API          : $ApiBaseUrl"
     Write-Host "  Worker       : $WorkerId"
-    Write-Host "  Device       : $DevicePolicy"
+    Write-Host "  Device       : requested=$DevicePolicy resolved=$resolvedDevicePolicy"
+    Write-Host "  Variant      : $runtimeVariant"
     & $python -m mavi_vision.worker.main
     exit $LASTEXITCODE
 }
