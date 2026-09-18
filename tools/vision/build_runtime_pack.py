@@ -181,6 +181,68 @@ def _load_runtime_inputs(
     return lock, projection, records
 
 
+class NativeAbiDerivationError(RuntimePackError):
+    """The build contract cannot produce a native ABI identity."""
+
+
+_CUDA_TOOLKIT_SHAPE = re.compile(r"^\d+\.\d+$")
+_MSVC_TOOLSET_SHAPE = re.compile(r"^\d+\.\d+\.\d+$")
+_WINDOWS_SDK_SHAPE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
+_COMPUTE_CAPABILITY_SHAPE = re.compile(r"^\d+\.\d+$")
+
+
+def derive_native_abi(contract: dict) -> str:
+    """Derive the CUDA Runtime Pack's native ABI from the frozen build contract.
+
+    The native ABI exists to make a pack's identity reflect the facts that
+    decide whether its native ops will actually run: the platform, the host
+    compiler that compiled them, the SDK, the CUDA runtime family and the
+    target GPU architecture. Hand-typing that string in a workflow is how it
+    drifts away from the toolchain that was actually verified, so it is derived
+    from the contract and never written by hand.
+
+    The MSVC toolset is carried at full precision, unlike the CPU pack's
+    two-component form, because a CUDA pack's native ops depend on the exact
+    toolset build that R1 proved.
+    """
+    toolchain = contract.get("toolchain")
+    if not isinstance(toolchain, dict):
+        raise NativeAbiDerivationError("native_abi_contract_toolchain_missing")
+    if toolchain.get("verificationStatus") != "verified":
+        # An unverified toolchain has no proven identity to name.
+        raise NativeAbiDerivationError("native_abi_toolchain_not_verified")
+
+    target = contract.get("targetGpu")
+    if not isinstance(target, dict):
+        raise NativeAbiDerivationError("native_abi_contract_target_missing")
+
+    fields = {
+        "cudaToolkitVersion": (toolchain.get("cudaToolkitVersion"), _CUDA_TOOLKIT_SHAPE),
+        "msvcToolset": (toolchain.get("msvcToolset"), _MSVC_TOOLSET_SHAPE),
+        "windowsSdkVersion": (toolchain.get("windowsSdkVersion"), _WINDOWS_SDK_SHAPE),
+        "computeCapability": (target.get("computeCapability"), _COMPUTE_CAPABILITY_SHAPE),
+    }
+    for name, (value, shape) in fields.items():
+        if not isinstance(value, str) or shape.fullmatch(value) is None:
+            raise NativeAbiDerivationError("native_abi_contract_field_invalid:" + name)
+
+    platform_variant = contract.get("platformVariant")
+    if platform_variant != "windows-x86_64-cuda":
+        raise NativeAbiDerivationError("native_abi_platform_variant_unsupported")
+
+    major, minor = fields["computeCapability"][0].split(".")
+    native_abi = (
+        "win_amd64"
+        f"-msvc-{fields['msvcToolset'][0]}"
+        f"-sdk-{fields['windowsSdkVersion'][0]}"
+        f"-cuda{fields['cudaToolkitVersion'][0]}"
+        f"-sm{major}{minor}"
+    )
+    # The derived string must satisfy the same rule any supplied one does.
+    _validate_native_abi_for_variant(native_abi, platform_variant)
+    return native_abi
+
+
 def _validate_native_abi_for_variant(
     native_abi: str,
     platform_variant: str,

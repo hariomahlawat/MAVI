@@ -48,17 +48,15 @@ def _write_wheel(
     name: str,
     version: str,
     tag: str = "cp312-cp312-win_amd64",
-    requires_dist: tuple[str, ...] = (),
 ) -> Path:
     normalized = name.replace("-", "_")
     path = root / f"{normalized}-{version}-{tag}.whl"
     root.mkdir(parents=True, exist_ok=True)
     dist_info = f"{normalized}-{version}.dist-info"
-    requires = "".join(f"Requires-Dist: {item}\n" for item in requires_dist)
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
             f"{dist_info}/METADATA",
-            f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n{requires}\n",
+            f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n\n",
         )
         archive.writestr(
             f"{dist_info}/WHEEL",
@@ -288,7 +286,9 @@ def test_a_wheel_for_the_wrong_platform_is_refused(tmp_path: Path) -> None:
         house, name="mmcv", version="2.1.0", tag="cp312-cp312-manylinux_2_39_x86_64"
     )
 
-    with pytest.raises(module.WheelhouseManifestError, match="wheelhouse_wheel_invalid"):
+    with pytest.raises(
+        module.WheelhouseManifestError, match="wheel_platform_incompatible"
+    ):
         _build(module, house, {wheel.name: {"kind": "index", "indexUrl": _PYPI}})
 
 
@@ -322,3 +322,174 @@ def test_output_file_is_never_overwritten(tmp_path: Path, monkeypatch) -> None:
 
     assert module.main() == 2
     assert output.read_text(encoding="utf-8") == "{}\n"
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "windows-x86_64-CUDA",
+        "windows-x86_64-cuda124",
+        "windows-x86_64-gpu",
+        "",
+        "nonsense",
+    ],
+)
+def test_an_unrecognised_platform_variant_is_refused(
+    tmp_path: Path, variant: str
+) -> None:
+    """An unknown variant would make the accelerator rule decide nothing."""
+    module = _load()
+    house = tmp_path / "wheelhouse"
+    torch = _write_wheel(house, name="torch", version="2.6.0+cpu")
+
+    with pytest.raises(
+        module.WheelhouseManifestError,
+        match="wheelhouse_platform_variant_unsupported",
+    ):
+        _build(
+            module,
+            house,
+            {torch.name: {"kind": "index", "indexUrl": _CU124_INDEX}},
+            variant=variant,
+        )
+
+
+def test_a_wheel_in_a_subdirectory_is_refused(tmp_path: Path) -> None:
+    """A wheel filtered out of the inventory still ships with the wheelhouse."""
+    module = _load()
+    house, origins = _cuda_wheelhouse(tmp_path)
+    nested = house / "nested"
+    nested.mkdir()
+    _write_wheel(nested, name="filelock", version="3.16.1")
+
+    with pytest.raises(
+        module.WheelhouseManifestError, match="wheelhouse_unexpected_file"
+    ):
+        _build(module, house, origins)
+
+
+def test_a_symlinked_wheel_is_refused(tmp_path: Path) -> None:
+    """An archive taken without dereferencing would ship a dangling link."""
+    module = _load()
+    house, origins = _cuda_wheelhouse(tmp_path)
+    outside = tmp_path / "outside"
+    real = _write_wheel(outside, name="filelock", version="3.16.1")
+    link = house / real.name
+    link.symlink_to(real)
+    origins[link.name] = {"kind": "index", "indexUrl": _PYPI}
+
+    with pytest.raises(
+        module.WheelhouseManifestError, match="wheelhouse_symlink_entry"
+    ):
+        _build(module, house, origins)
+
+
+def test_a_dangling_symlink_is_refused(tmp_path: Path) -> None:
+    module = _load()
+    house, origins = _cuda_wheelhouse(tmp_path)
+    (house / "ghost-1.0.0-cp312-cp312-win_amd64.whl").symlink_to(
+        tmp_path / "does-not-exist.whl"
+    )
+
+    with pytest.raises(
+        module.WheelhouseManifestError, match="wheelhouse_symlink_entry"
+    ):
+        _build(module, house, origins)
+
+
+def test_a_duplicate_distribution_is_refused(tmp_path: Path) -> None:
+    module = _load()
+    house = tmp_path / "wheelhouse"
+    first = _write_wheel(house, name="torch", version="2.6.0+cu124")
+    second = _write_wheel(house, name="torch", version="2.5.0+cu124")
+    origins = {
+        first.name: {"kind": "index", "indexUrl": _CU124_INDEX},
+        second.name: {"kind": "index", "indexUrl": _CU124_INDEX},
+    }
+
+    with pytest.raises(
+        module.WheelhouseManifestError, match="wheelhouse_duplicate_distribution"
+    ):
+        _build(module, house, origins)
+
+
+def test_an_absent_wheelhouse_is_refused(tmp_path: Path) -> None:
+    module = _load()
+
+    with pytest.raises(module.WheelhouseManifestError, match="wheelhouse_missing"):
+        _build(module, tmp_path / "nope", {})
+
+
+def test_a_normalised_cuda_local_version_is_accepted(tmp_path: Path) -> None:
+    """`+CU124` is PEP 440 for the same CUDA build; the lock accepts it too."""
+    module = _load()
+    house = tmp_path / "wheelhouse"
+    torch = _write_wheel(house, name="torch", version="2.6.0+CU124")
+
+    manifest = _build(
+        module, house, {torch.name: {"kind": "index", "indexUrl": _CU124_INDEX}}
+    )
+
+    assert manifest["wheelCount"] == 1
+
+
+@pytest.mark.parametrize("body", ["not json", "[]", '"scalar"', "17"])
+def test_malformed_origin_files_are_refused(tmp_path: Path, body: str) -> None:
+    module = _load()
+    path = tmp_path / "origins.json"
+    path.write_text(body, encoding="utf-8")
+
+    with pytest.raises(
+        module.WheelhouseManifestError, match="wheelhouse_origins_invalid"
+    ):
+        module._load_origins(path)
+
+
+def test_manifest_output_is_byte_identical_across_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The committed artefact's bytes are the property that matters."""
+    module = _load()
+    house, origins = _cuda_wheelhouse(tmp_path)
+    origins_path = tmp_path / "origins.json"
+    origins_path.write_text(json.dumps(origins), encoding="utf-8")
+
+    written: list[bytes] = []
+    for run in ("one", "two"):
+        output = tmp_path / run / "manifest.json"
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "build_wheelhouse_manifest.py",
+                "--wheelhouse", str(house),
+                "--platform-variant", "windows-x86_64-cuda",
+                "--python-version", "3.12.10",
+                "--origins", str(origins_path),
+                "--output", str(output),
+            ],
+        )
+        assert module.main() == 0
+        written.append(output.read_bytes())
+
+    assert written[0] == written[1]
+    assert written[0].endswith(b"\n")
+    assert b"\r\n" not in written[0]
+    assert json.loads(written[0])["wheelCount"] == 3
+
+
+def test_inventory_is_independent_of_filesystem_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hold the one variable the determinism claim depends on."""
+    module = _load()
+    house, origins = _cuda_wheelhouse(tmp_path)
+
+    forward = json.dumps(_build(module, house, origins), sort_keys=True)
+
+    original = Path.iterdir
+    monkeypatch.setattr(
+        Path, "iterdir", lambda self: reversed(sorted(original(self)))
+    )
+    reversed_order = json.dumps(_build(module, house, origins), sort_keys=True)
+
+    assert forward == reversed_order

@@ -11,6 +11,10 @@ This tool is offline. It reads a prepared wheelhouse and an explicit origin
 declaration, and fails closed when they do not account for each other exactly.
 Wheel inspection is delegated to freeze_offline_lock so there is one
 implementation of what a wheel is.
+
+Scope: this records identity and origin. The transitive dependency closure is
+deliberately not checked here -- `freeze_offline_lock` owns that, and duplicating
+it would create a second opinion about what a complete wheelhouse is.
 """
 
 from __future__ import annotations
@@ -35,14 +39,16 @@ from freeze_offline_lock import (  # noqa: E402
 )
 
 from mavi_vision.runtime.offline_lock import (  # noqa: E402
+    SUPPORTED_PLATFORM_VARIANTS,
     canonicalize_distribution_name,
 )
+
+from packaging.version import InvalidVersion, Version  # noqa: E402
 
 SCHEMA_VERSION = "mavi-wheelhouse-manifest-v1"
 
 _ACCELERATOR_DISTRIBUTIONS = ("torch", "torchvision")
 _CUDA_LOCAL_VERSION = re.compile(r"^cu\d+$", re.ASCII)
-_SHA256 = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 
 
 class WheelhouseManifestError(ValueError):
@@ -96,15 +102,27 @@ def _validate_accelerator_identity(name: str, version: str, variant: str) -> Non
     """A CUDA wheelhouse must carry CUDA accelerator builds, and vice versa."""
     if name not in _ACCELERATOR_DISTRIBUTIONS:
         return
-    local = version.partition("+")[2]
+    try:
+        # PEP 440 normalisation, so `+CU124` is the CUDA build it claims to be.
+        local = Version(version).local or ""
+    except InvalidVersion as exc:
+        raise WheelhouseManifestError(
+            "wheelhouse_version_invalid:" + name
+        ) from exc
     if variant.endswith("-cuda"):
         if _CUDA_LOCAL_VERSION.fullmatch(local) is None:
             raise WheelhouseManifestError(
                 "wheelhouse_cuda_binary_build_required:" + name
             )
-    elif variant.endswith("-cpu") and local != "cpu":
+    elif variant.endswith("-cpu"):
+        if local != "cpu":
+            raise WheelhouseManifestError(
+                "wheelhouse_cpu_binary_build_required:" + name
+            )
+    else:
+        # A variant that is neither must never silently skip the check.
         raise WheelhouseManifestError(
-            "wheelhouse_cpu_binary_build_required:" + name
+            "wheelhouse_platform_variant_unsupported:" + variant
         )
 
 
@@ -115,15 +133,25 @@ def build_manifest(
     python_version: str,
     origins: dict[str, object],
 ) -> dict[str, object]:
+    if platform_variant not in SUPPORTED_PLATFORM_VARIANTS:
+        # Checked before anything is read: an unrecognised variant would let the
+        # accelerator rule below decide nothing at all.
+        raise WheelhouseManifestError(
+            "wheelhouse_platform_variant_unsupported:" + platform_variant
+        )
     if not wheelhouse.is_dir():
         raise WheelhouseManifestError("wheelhouse_missing")
 
-    entries = sorted(item for item in wheelhouse.iterdir() if item.is_file())
-    strays = [item.name for item in entries if item.suffix.casefold() != ".whl"]
-    if strays:
-        # An unaccounted file in the wheelhouse is either a stray download or a
-        # payload nobody inspected. Neither belongs in a frozen supply chain.
-        raise WheelhouseManifestError("wheelhouse_unexpected_file:" + strays[0])
+    # Enumerate without filtering: a directory or a symlink filtered out before
+    # the stray check is a payload nobody inspected, shipped anyway.
+    entries = sorted(wheelhouse.iterdir())
+    for item in entries:
+        if item.is_symlink():
+            # An offline supply-chain artefact must be a real file: an archive
+            # taken without dereferencing would ship a dangling link.
+            raise WheelhouseManifestError("wheelhouse_symlink_entry:" + item.name)
+        if not item.is_file() or item.suffix.casefold() != ".whl":
+            raise WheelhouseManifestError("wheelhouse_unexpected_file:" + item.name)
     if not entries:
         raise WheelhouseManifestError("wheelhouse_empty")
 
@@ -161,9 +189,6 @@ def build_manifest(
         seen[canonical] = record.version
         _validate_accelerator_identity(canonical, record.version, platform_variant)
 
-        if _SHA256.fullmatch(record.sha256) is None:
-            raise WheelhouseManifestError("wheelhouse_sha256_invalid:" + path.name)
-
         wheels.append(
             {
                 "filename": path.name,
@@ -187,8 +212,9 @@ def build_manifest(
         "wheels": wheels,
         "note": (
             "Inventory and origin of a prepared wheelhouse. This records what "
-            "the artefacts are and where they came from; it is not a runtime, "
-            "hardware or Production qualification."
+            "the artefacts are and where they came from; the transitive "
+            "dependency closure is validated by the offline lock, not here. It "
+            "is not a runtime, hardware or Production qualification."
         ),
     }
 
