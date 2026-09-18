@@ -47,20 +47,25 @@ Its independent review is:
 
 ## Immediate Task-18 objective
 
-The next artifact is the **Qualification Readiness Pack**. It must freeze:
+The Qualification Readiness Pack now exists, ADR-008 defines the deployment profiles, and PR #46 implements the profile-aware qualification toolchain.
 
-- application/source identity;
-- Runtime Pack ID;
-- Model Pack ID;
-- component requirements;
-- Offline Binary Kit identity;
-- intended Production topology;
+The immediate decision is to select the first Production profile(s) to qualify:
+
+- **P1** — single-host Windows GPU;
+- **P2** — Windows Operational/Data + Linux GPU worker;
+- **P3** — single-host Windows CPU.
+
+After profile selection, freeze:
+
 - acceptance corpus and thresholds;
-- Production prerequisite versions;
+- exact profile-specific Production prerequisites;
 - supported-update artifact/policy, if update proof remains mandatory;
-- CPU/GPU Phase-1 scope.
+- final application artifact;
+- Offline Binary Kit identity;
+- exact selected Runtime Pack(s) and Model Pack;
+- final Production setup/bundle identity.
 
-No authoritative final qualification run begins while a mandatory readiness item is unresolved.
+No authoritative final qualification run begins while a mandatory readiness item applicable to the selected profile remains unresolved. GPU evidence is not a universal blocker: it is required only for P1/P2.
 
 ## Evidence already retained
 
