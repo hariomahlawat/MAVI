@@ -1,85 +1,125 @@
-# Phase-1 Production Topology
+# Development and Phase-1 Production Deployment Profiles
 
 **Authority:** ADR-008  
-**Status:** Approved architecture; exact prerequisite versions and qualification evidence remain pending.
+**Status:** Approved architecture. Exact device/runtime versions and profile qualification evidence remain pending.
 
-## Canonical topology
+## Development reference topology — single Windows laptop/workstation
 
 ```text
-          Controlled disconnected LAN
-        ┌───────────────────────────────┐
-        │                               │
-        │  Host A — Windows             │
-        │  ┌─────────────────────────┐  │
-        │  │ IIS / ASP.NET Core      │  │
-        │  │ MAVI API + React UI     │  │
-        │  │ App-local FFmpeg        │  │
-        │  └────────────┬────────────┘  │
-        │               │               │
-        │  ┌────────────▼────────────┐  │
-        │  │ MAVI PostgreSQL 18     │  │
-        │  │ + pgvector             │  │
-        │  │ database: mavi         │  │
-        │  └─────────────────────────┘  │
-        │                               │
-        │         worker/API contract   │
-        │                  │            │
-        │                  ▼            │
-        │  Host B — Linux x86_64        │
-        │  ┌─────────────────────────┐  │
-        │  │ MAVI Vision Worker      │  │
-        │  │ Linux CUDA Runtime Pack │  │
-        │  │ Qualified Model Pack    │  │
-        │  │ NVIDIA GPU              │  │
-        │  └─────────────────────────┘  │
-        │                               │
-        └───────────────────────────────┘
-                 No Internet dependency
+Windows Development Machine
+├── React UI
+├── ASP.NET Core API
+├── MAVI PostgreSQL + pgvector
+├── App-local FFmpeg
+└── MAVI Vision Worker
+    ├── Model Pack
+    └── Device policy
+        ├── Auto  -> CUDA when compatible/available, otherwise CPU
+        ├── CUDA  -> require GPU or fail
+        └── CPU   -> force CPU
 ```
 
-## Logical planes
+This is the normal development model. A second machine is not required.
 
-| Plane | Physical host | Phase-1 responsibility |
+### Development device rules
+
+- Use GPU when available and the correct Windows CUDA Runtime Pack is installed.
+- CPU remains a supported explicit mode.
+- `Auto` may fall back only with clear startup/runtime logging and provenance.
+- `CUDA` must fail rather than silently execute on CPU.
+- Device actually used must be recorded with the processing/runtime provenance.
+
+## Production profiles
+
+### P1 — Single-host Windows GPU
+
+```text
+Windows Production Host
+├── IIS / ASP.NET Core
+│   └── MAVI API + React UI
+├── App-local FFmpeg
+├── MAVI PostgreSQL 18 + pgvector
+└── MAVI Vision Worker
+    ├── Windows CUDA Runtime Pack
+    ├── Model Pack
+    └── NVIDIA GPU
+```
+
+Use when one capable Windows machine provides the complete installation.
+
+### P2 — Split-host Windows + Linux GPU
+
+```text
+Controlled disconnected LAN
+
+Host A — Windows
+├── IIS / ASP.NET Core
+├── MAVI API + React UI
+├── App-local FFmpeg
+└── MAVI PostgreSQL 18 + pgvector
+          │
+          │ worker/API contract
+          ▼
+Host B — Linux x86_64
+└── MAVI Vision Worker
+    ├── Linux CUDA Runtime Pack
+    ├── Model Pack
+    └── NVIDIA GPU
+```
+
+Use when dedicated compute, isolation or scale-out is desirable.
+
+### P3 — Single-host Windows CPU
+
+```text
+Windows Production Host
+├── IIS / ASP.NET Core
+├── MAVI API + React UI
+├── App-local FFmpeg
+├── MAVI PostgreSQL 18 + pgvector
+└── MAVI Vision Worker
+    ├── Windows CPU Runtime Pack
+    └── Model Pack
+```
+
+Use only where the qualified CPU performance envelope is acceptable.
+
+## Logical-plane mapping
+
+| Plane | Development | P1 | P2 | P3 |
+|---|---|---|---|---|
+| Operator | Windows laptop | Windows host | Windows Host A | Windows host |
+| Operational | Windows laptop | Windows host | Windows Host A | Windows host |
+| Data | Windows laptop | Windows host | Windows Host A | Windows host |
+| Vision | Windows laptop | Windows host | Linux Host B | Windows host |
+| Accelerator | optional Windows GPU | Windows GPU | Linux GPU | none |
+
+Logical evidence boundaries remain separate even when planes share one physical host.
+
+## Qualification rule
+
+A profile is supported only when its exact evidence is complete.
+
+| Profile | Current architectural status | Qualification status |
 |---|---|---|
-| Operator | Host A | React UI served through MAVI/IIS |
-| Operational | Host A | ASP.NET Core API, orchestration, worker control plane |
-| Data | Host A | MAVI-owned PostgreSQL 18 + pgvector, authoritative state |
-| Vision | Host B | RTMDet/ByteTrack execution on qualified Linux CUDA worker |
-| Integration | LAN contract | Versioned API/worker contracts and evidence-bound identities |
+| Development Windows CPU | supported | real functional evidence exists |
+| Development Windows CUDA | supported by design | pending compatible CUDA runtime/hardware qualification |
+| P1 Windows GPU | approved Production profile | pending Windows CUDA + Production acceptance |
+| P2 Windows + Linux GPU | approved Production profile | pending Linux CUDA + Production acceptance |
+| P3 Windows CPU | approved Production profile | pending Production performance/acceptance even though CPU subsystem evidence exists |
 
-Co-location of Operational and Data planes on Host A is the canonical Phase-1 deployment choice. They remain separate logical/evidence roles.
+No profile inherits qualification from another.
 
-## Storage
+## Current tooling caveat
 
-Production storage is under the MAVI-owned Production root on Host A and must expose distinct identities for:
+The present Phase-1 acceptance toolchain still contains assumptions from the earlier four-variant/Linux-CUDA-centric model. Authoritative Task-18 qualification must wait until those tools are reconciled with ADR-008 so release closure can bind evidence to the profile(s) actually claimed as supported.
 
-- managed source media;
-- accepted evidence;
-- database;
-- setup/qualification evidence where applicable.
+## Offline boundary
 
-Exact roots are installation-policy values and must be captured in qualification evidence rather than assumed from a developer workstation.
+All Production profiles:
 
-## Runtime/model distribution
-
-Host B receives Vision components from approved offline media:
-
-- Linux CUDA Runtime Binary Pack — **not yet qualified**;
-- required Model Pack;
-- current Application / Release Overlay.
-
-No first-run package/model download is allowed.
-
-## Qualification boundary
-
-The topology is approved. The following remain unresolved and therefore block authoritative final acceptance:
-
-1. exact Windows/IIS/.NET/PostgreSQL/pgvector versions;
-2. exact Linux distribution/Python/NVIDIA/CUDA versions;
-3. Linux CUDA Runtime Pack identity and hardware evidence;
-4. final application artifact;
-5. final Offline Binary Kit/setup-media identity;
-6. acceptance corpus and thresholds;
-7. supported-update artifact/scope.
-
-The topology approval does not convert any pending qualification gate into passed.
+- run without Internet connectivity;
+- use approved Offline Binary Kit/component media;
+- prohibit first-run package/model downloads;
+- prohibit CDN/runtime cloud dependencies;
+- retain exact application, Runtime Pack, Model Pack and topology identities.
