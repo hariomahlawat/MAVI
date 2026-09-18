@@ -10,8 +10,8 @@ from mavi_vision.common.analytical import ObjectClass
 from mavi_vision.runtime.interfaces import RuntimeMetadata
 from mavi_vision.runtime.manifest import ArtifactRef, ModelManifest
 from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
+from mavi_vision.common.control_plane import DEVICE_RESOLUTION_REASONS
 from mavi_vision.runtime.provenance import (
-    DEVICE_RESOLUTION_REASONS,
     GpuIdentity,
     PlatformIdentity,
     _validate_device_relationship,

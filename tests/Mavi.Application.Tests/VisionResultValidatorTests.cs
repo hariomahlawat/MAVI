@@ -371,6 +371,11 @@ public sealed class VisionResultValidatorTests
     [InlineData("BadReason")]
     [InlineData("bad-reason")]
     [InlineData(" reason")]
+    // Syntactically valid but outside the published closed vocabulary: the
+    // schema enum and the Pydantic model reject these, so .NET must too.
+    [InlineData("cuda_some_new_reason")]
+    [InlineData("explicit_auto")]
+    [InlineData("cuda_selected_v2")]
     public void InvalidDeviceResolutionReasonIsRejected(string value)
     {
         var validator = new VisionResultValidator();
@@ -384,6 +389,98 @@ public sealed class VisionResultValidatorTests
                 JobId,
                 Request() with { Provenance = provenance },
                 10_000));
+    }
+
+    [Theory]
+    // Explicit reasons must match the configured policy.
+    [InlineData("cpu", "cpu", "explicit_cuda")]
+    [InlineData("auto", "cpu", "explicit_cpu")]
+    // Auto CPU-fallback reasons must correspond to CPU execution.
+    [InlineData("cuda", "cuda:0", "cuda_pack_absent")]
+    [InlineData("cuda", "cuda:0", "cuda_device_unavailable")]
+    // Auto CUDA-selection reasons must correspond to CUDA execution.
+    [InlineData("cpu", "cpu", "cuda_selected")]
+    public void DeviceResolutionReasonMustMatchPolicyAndDevice(
+        string policy,
+        string actualDevice,
+        string reason)
+    {
+        var validator = new VisionResultValidator();
+        var provenance = Provenance() with
+        {
+            ConfiguredDevicePolicy = policy,
+            ActualDevice = actualDevice,
+            DeviceResolutionReason = reason,
+            Gpu = actualDevice == "cpu" ? null : Gpu()
+        };
+
+        Assert.Throws<VisionResultValidationException>(() =>
+            validator.Validate(
+                JobId,
+                Request() with { Provenance = provenance },
+                10_000));
+    }
+
+    [Fact]
+    public void AutoPolicyMayNotOmitItsDeviceResolutionReason()
+    {
+        var validator = new VisionResultValidator();
+        var provenance = Provenance() with
+        {
+            ConfiguredDevicePolicy = "auto",
+            DeviceResolutionReason = null
+        };
+
+        Assert.Throws<VisionResultValidationException>(() =>
+            validator.Validate(
+                JobId,
+                Request() with { Provenance = provenance },
+                10_000));
+    }
+
+    [Theory]
+    [InlineData("cpu", "cpu", "explicit_cpu")]
+    [InlineData("cpu", "cpu", "cuda_pack_absent")]
+    [InlineData("auto", "cpu", "cuda_device_unavailable")]
+    [InlineData("cuda", "cuda:0", "explicit_cuda")]
+    [InlineData("cuda", "cuda:0", "cuda_selected")]
+    [InlineData("auto", "cuda:0", "cuda_selected")]
+    public void ContractedDeviceResolutionReasonCombinationsAreAccepted(
+        string policy,
+        string actualDevice,
+        string reason)
+    {
+        var validator = new VisionResultValidator();
+        var provenance = Provenance() with
+        {
+            ConfiguredDevicePolicy = policy,
+            ActualDevice = actualDevice,
+            DeviceResolutionReason = reason,
+            Gpu = actualDevice == "cpu" ? null : Gpu()
+        };
+
+        var result = validator.Validate(
+            JobId,
+            Request() with { Provenance = provenance },
+            10_000);
+
+        Assert.NotEqual(default, result.CompletionDigest);
+    }
+
+    [Fact]
+    public void ExplicitPolicyMayOmitItsDeviceResolutionReason()
+    {
+        var validator = new VisionResultValidator();
+
+        var result = validator.Validate(
+            JobId,
+            Request() with
+            {
+                Provenance = Provenance() with { DeviceResolutionReason = null }
+            },
+            10_000);
+
+        Assert.NotEqual(default, result.CompletionDigest);
     }
 
     private static VisionJobCompleteRequest Request(params VisionTrackResultContract[] tracks) =>
@@ -426,6 +523,17 @@ public sealed class VisionResultValidatorTests
                 20,
                 new string('b', 64)));
     }
+
+    private static VisionGpuIdentityContract Gpu() =>
+        new(
+            "NVIDIA GeForce GTX 1650 Ti",
+            0,
+            4L * 1024 * 1024 * 1024,
+            "576.83",
+            "12.4",
+            "GPU-test",
+            "00000000:01:00.0",
+            "7.5");
 
     private static VisionRuntimeProvenanceContract Provenance() =>
         new(

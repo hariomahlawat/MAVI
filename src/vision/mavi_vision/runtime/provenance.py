@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal, Mapping
 
+from mavi_vision.common.control_plane import (
+    AUTO_DEVICE_RESOLUTION_REASONS,
+    CUDA_DEVICE_PATTERN,
+    validate_device_resolution_wire_relationship,
+)
 from mavi_vision.runtime.interfaces import RuntimeMetadata
 from mavi_vision.runtime.manifest import validate_sha256_hex
 from mavi_vision.runtime.qualification import VerifiedReleaseSelection
@@ -29,35 +34,10 @@ _REQUIRED_RUNTIME_VERSION_KEYS = frozenset(
         "pillow",
     }
 )
-_CUDA_DEVICE_PATTERN = re.compile(r"cuda:(\d+)", re.ASCII)
 _GIT_COMMIT_PATTERN = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", re.ASCII)
 _TRACKER_POSITIVE_MIN = 1e-9
 _TRACKER_POSITIVE_MAX = 1e9
 _MAX_DEPENDENCY_VERSIONS = 128
-# The device-resolution reason vocabulary is a closed contract shared with the
-# Windows launcher (tools/setup/Start-MaviVisionWorker.ps1). It is deliberately
-# exhaustive: an unrecognised code must fail closed rather than be carried into
-# provenance, because an unknown code cannot be correlated with the executed
-# device and would silently bypass the Production prohibition on Auto results.
-_AUTO_CUDA_RESOLUTION_REASONS = frozenset({"cuda_selected"})
-_AUTO_CPU_RESOLUTION_REASONS = frozenset(
-    {
-        "cuda_pack_absent",
-        "cuda_pack_integrity_failed",
-        "cuda_pack_variant_mismatch",
-        "cuda_pack_not_declared",
-        "cuda_pack_id_mismatch",
-        "cuda_driver_probe_unavailable",
-        "cuda_device_unavailable",
-        "cuda_driver_probe_failed",
-    }
-)
-_EXPLICIT_RESOLUTION_REASONS = frozenset({"explicit_cpu", "explicit_cuda"})
-DEVICE_RESOLUTION_REASONS = frozenset(
-    _EXPLICIT_RESOLUTION_REASONS
-    | _AUTO_CUDA_RESOLUTION_REASONS
-    | _AUTO_CPU_RESOLUTION_REASONS
-)
 
 
 def _require_text(value: str, *, code: str) -> str:
@@ -311,33 +291,28 @@ def _validate_device_relationship(
     if production_mode and configured_device_policy == "auto":
         raise ValueError("production_auto_device_forbidden")
 
-    if device_resolution_reason is None:
-        # Auto selection is only observable if the selected result carries the
-        # reason it was selected for, so an Auto runtime may not omit it.
-        if configured_device_policy == "auto":
-            raise ValueError("auto_device_resolution_reason_required")
-    else:
+    if device_resolution_reason is not None:
         _require_text(
             device_resolution_reason,
             code="device_resolution_reason_invalid",
         )
         if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", device_resolution_reason, re.ASCII) is None:
             raise ValueError("device_resolution_reason_invalid")
-        if device_resolution_reason not in DEVICE_RESOLUTION_REASONS:
-            raise ValueError("device_resolution_reason_unknown")
 
-        auto_reason = (
-            device_resolution_reason in _AUTO_CUDA_RESOLUTION_REASONS
-            or device_resolution_reason in _AUTO_CPU_RESOLUTION_REASONS
-        )
-        if production_mode and auto_reason:
-            raise ValueError("production_auto_resolution_reason_forbidden")
-        if device_resolution_reason == "explicit_cpu" and configured_device_policy != "cpu":
-            raise ValueError("device_resolution_reason_policy_mismatch")
-        if device_resolution_reason == "explicit_cuda" and configured_device_policy != "cuda":
-            raise ValueError("device_resolution_reason_policy_mismatch")
+    # The payload-provable relationships are the published wire contract, shared
+    # verbatim with the JSON Schema and the .NET parser.
+    validate_device_resolution_wire_relationship(
+        configured_device_policy=configured_device_policy,
+        actual_device=actual_device,
+        device_resolution_reason=device_resolution_reason,
+    )
 
-    cuda_match = _CUDA_DEVICE_PATTERN.fullmatch(actual_device)
+    # Production context is not carried on the wire, so this rule is the worker
+    # runtime's alone: a Production result may never be an Auto result.
+    if production_mode and device_resolution_reason in AUTO_DEVICE_RESOLUTION_REASONS:
+        raise ValueError("production_auto_resolution_reason_forbidden")
+
+    cuda_match = CUDA_DEVICE_PATTERN.fullmatch(actual_device)
     if actual_device != "cpu" and cuda_match is None:
         raise ValueError("actual_device_invalid")
 
@@ -345,11 +320,6 @@ def _validate_device_relationship(
         raise ValueError("actual_device_policy_mismatch")
     if configured_device_policy == "cuda" and cuda_match is None:
         raise ValueError("actual_device_policy_mismatch")
-
-    if device_resolution_reason in _AUTO_CUDA_RESOLUTION_REASONS and cuda_match is None:
-        raise ValueError("device_resolution_reason_device_mismatch")
-    if device_resolution_reason in _AUTO_CPU_RESOLUTION_REASONS and actual_device != "cpu":
-        raise ValueError("device_resolution_reason_device_mismatch")
 
     if cuda_match is not None:
         actual_index = int(cuda_match.group(1))

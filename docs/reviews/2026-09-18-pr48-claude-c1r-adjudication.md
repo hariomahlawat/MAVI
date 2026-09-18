@@ -83,6 +83,36 @@ normalization is scoped to JSON mode and does not relax strict Python-mode
 validation; the CUDA Toolkit and MSVC toolchain are build-only while the NVIDIA
 driver and VC++ runtime are runtime prerequisites.
 
+## Third independent cold review (C1R-3)
+
+A third cold review audited the C1R-2 corrections themselves and found that two
+of them were incomplete. Both are corrected.
+
+| Finding | Severity | Repository action |
+| --- | --- | --- |
+| F1 — the closed reason vocabulary and its relationships existed only in the worker's provenance builder. The wire contract enforced nothing: JSON Schema, the `VisionJobComplete` model and the .NET parser all accepted `cuda_some_new_reason`, `explicit_cpu` under a `cuda` policy, `cuda_selected` with CPU execution, and an `auto` policy with no reason at all. | HIGH | The vocabulary moved to the contract layer (`mavi_vision.common.control_plane`), which now also owns `validate_device_resolution_wire_relationship` — the rules a payload alone can prove. The JSON Schema carries the closed enum plus five `if`/`then` conditionals; the `VisionRuntimeProvenance` model and the .NET parser apply the same rules; the worker runtime consumes the shared validator and adds only the Production prohibition, which needs deployment context rather than the payload. |
+| F2 — GPU identity still assumed CUDA ordinal N addressed `nvidia-smi -i N` whenever no mask was set. Under `CUDA_DEVICE_ORDER=PCI_BUS_ID` the CUDA order is the PCI-bus order, which need not match the driver's own ordering, so on a two-GPU host whose orders differ the record named the wrong physical card — and did so silently, because the capability and VRAM cross-checks compare against the wrong card's own values. | HIGH | The probe now queries the whole physical inventory (index, UUID, PCI bus ID, driver, memory, compute capability) with `CUDA_VISIBLE_DEVICES` stripped from the probe environment, and derives the CUDA ordinal space explicitly: PCI-bus order when no mask is set, mask order when one is. A numeric mask entry is itself enumeration-dependent, so it is accepted only when both readings name the same GPU or the runtime's own device UUID settles it; otherwise it fails closed. The reconstructed ordinal space must match `torch.cuda.device_count()`. |
+
+### Where the reason contract is enforced, and why
+
+| Rule | JSON Schema | Pydantic | .NET | Worker runtime |
+| --- | --- | --- | --- | --- |
+| closed vocabulary | yes | yes | yes | yes |
+| `explicit_cpu` implies `cpu` policy | yes | yes | yes | yes |
+| `explicit_cuda` implies `cuda` policy | yes | yes | yes | yes |
+| Auto CUDA reason implies CUDA execution | yes | yes | yes | yes |
+| Auto CPU reason implies CPU execution | yes | yes | yes | yes |
+| `auto` policy must carry a reason | yes | yes | yes | yes |
+| Production may not carry an Auto reason | no | no | no | yes |
+
+The last row is deliberate: `productionMode` is deployment context and is not a
+field of the completion payload, so no payload validator can decide it. The
+worker applies it where that context exists, at provenance construction, and
+`test_auto_cpu_fallback_reasons_are_forbidden_in_production` pins it there.
+Every other row is asserted identical across the mirrors by
+`src/vision/tests/test_device_resolution_reason_contract.py`, which reads the
+published schema and the .NET source rather than restating their contents.
+
 ## C1R exit criteria
 
 Repository-side C1R may be called **green** only when:

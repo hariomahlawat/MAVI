@@ -68,6 +68,98 @@ _COMPLETION_INTEGER_WIRE_NAMES = (
 # These maps do not: their keys are caller-supplied, so a key that happens to
 # collide with a wire integer name says nothing about its value's wire type.
 _COMPLETION_FREE_FORM_MAP_WIRE_NAMES = frozenset({"dependencyVersions"})
+# Authoritative device-resolution reason vocabulary.
+#
+# This wire contract has three mirrors: this module, the published JSON Schema
+# (contracts/schemas/vision-job-complete-v2.schema.json) and the .NET parser
+# (VisionRuntimeProvenanceParser). The contract layer owns it; the worker
+# runtime (mavi_vision.runtime.provenance) and the Windows launcher consume it.
+# An unrecognised code must fail closed: it cannot be correlated with the
+# executed device, and it would otherwise slip past the Production prohibition
+# on Auto results that the runtime layer applies on top of these rules.
+EXPLICIT_CPU_DEVICE_RESOLUTION_REASON = "explicit_cpu"
+EXPLICIT_CUDA_DEVICE_RESOLUTION_REASON = "explicit_cuda"
+EXPLICIT_DEVICE_RESOLUTION_REASONS = frozenset(
+    {
+        EXPLICIT_CPU_DEVICE_RESOLUTION_REASON,
+        EXPLICIT_CUDA_DEVICE_RESOLUTION_REASON,
+    }
+)
+AUTO_CUDA_DEVICE_RESOLUTION_REASONS = frozenset({"cuda_selected"})
+AUTO_CPU_DEVICE_RESOLUTION_REASONS = frozenset(
+    {
+        "cuda_pack_absent",
+        "cuda_pack_integrity_failed",
+        "cuda_pack_variant_mismatch",
+        "cuda_pack_not_declared",
+        "cuda_pack_id_mismatch",
+        "cuda_driver_probe_unavailable",
+        "cuda_device_unavailable",
+        "cuda_driver_probe_failed",
+    }
+)
+AUTO_DEVICE_RESOLUTION_REASONS = frozenset(
+    AUTO_CUDA_DEVICE_RESOLUTION_REASONS | AUTO_CPU_DEVICE_RESOLUTION_REASONS
+)
+DEVICE_RESOLUTION_REASONS = frozenset(
+    EXPLICIT_DEVICE_RESOLUTION_REASONS | AUTO_DEVICE_RESOLUTION_REASONS
+)
+CUDA_DEVICE_PATTERN = re.compile(r"cuda:(\d+)", re.ASCII)
+
+
+def is_cuda_device(actual_device: object) -> bool:
+    """Report whether a wire ``actualDevice`` value names a CUDA device."""
+    return (
+        isinstance(actual_device, str)
+        and CUDA_DEVICE_PATTERN.fullmatch(actual_device) is not None
+    )
+
+
+def validate_device_resolution_wire_relationship(
+    *,
+    configured_device_policy: object,
+    actual_device: object,
+    device_resolution_reason: object,
+) -> None:
+    """Validate the reason relationships that the wire payload alone can prove.
+
+    Every rule here is also expressed as a conditional in the published JSON
+    Schema and in the .NET parser, so the three wire representations accept the
+    same payloads. The Production prohibition on Auto reasons is deliberately
+    not here: ``productionMode`` is deployment context, not a wire field, so
+    the worker runtime applies it in addition to these rules.
+    """
+    if device_resolution_reason is None:
+        if configured_device_policy == "auto":
+            raise ValueError("auto_device_resolution_reason_required")
+        return
+
+    if device_resolution_reason not in DEVICE_RESOLUTION_REASONS:
+        raise ValueError("device_resolution_reason_unknown")
+
+    if (
+        device_resolution_reason == EXPLICIT_CPU_DEVICE_RESOLUTION_REASON
+        and configured_device_policy != "cpu"
+    ):
+        raise ValueError("device_resolution_reason_policy_mismatch")
+    if (
+        device_resolution_reason == EXPLICIT_CUDA_DEVICE_RESOLUTION_REASON
+        and configured_device_policy != "cuda"
+    ):
+        raise ValueError("device_resolution_reason_policy_mismatch")
+
+    if (
+        device_resolution_reason in AUTO_CUDA_DEVICE_RESOLUTION_REASONS
+        and not is_cuda_device(actual_device)
+    ):
+        raise ValueError("device_resolution_reason_device_mismatch")
+    if (
+        device_resolution_reason in AUTO_CPU_DEVICE_RESOLUTION_REASONS
+        and actual_device != "cpu"
+    ):
+        raise ValueError("device_resolution_reason_device_mismatch")
+
+
 _CONTRACT_EDGE_WHITESPACE = frozenset(
     chr(code)
     for code in (
@@ -329,6 +421,14 @@ def _compute_capability(value: str) -> str:
     return value
 
 
+def _device_resolution_reason(value: str) -> str:
+    if value not in DEVICE_RESOLUTION_REASONS:
+        raise ValueError(
+            "deviceResolutionReason must use the published closed vocabulary"
+        )
+    return value
+
+
 def _sha256(value: str) -> str:
     if _SHA256_PATTERN.fullmatch(value) is None:
         raise ValueError("SHA-256 must use canonical lowercase hexadecimal syntax")
@@ -379,6 +479,11 @@ CompletionInt64 = Annotated[int, BeforeValidator(_completion_int64)]
 ProvenanceIdentity = Annotated[StrictStr, AfterValidator(_provenance_identity)]
 ProvenanceDetail = Annotated[StrictStr, AfterValidator(_provenance_detail)]
 ComputeCapability = Annotated[StrictStr, AfterValidator(_compute_capability)]
+DeviceResolutionReason = Annotated[
+    StrictStr,
+    AfterValidator(_failure_code),
+    AfterValidator(_device_resolution_reason),
+]
 
 
 class ControlPlaneModel(BaseModel):
@@ -582,7 +687,7 @@ class VisionRuntimeProvenance(ControlPlaneModel):
     platform: VisionPlatformIdentity
     configured_device_policy: Literal["cpu", "cuda", "auto"]
     configured_device_index: CompletionInt32 = Field(ge=0, le=2_147_483_647)
-    device_resolution_reason: FailureCode | None = None
+    device_resolution_reason: DeviceResolutionReason | None = None
     actual_device: ProvenanceIdentity
     gpu: VisionGpuIdentity | None = None
     mavi_build: ProvenanceIdentity
@@ -591,6 +696,17 @@ class VisionRuntimeProvenance(ControlPlaneModel):
     tracker_parameters: VisionTrackerParameters
     input_colour_space: Literal["RGB"]
 
+
+    @model_validator(mode="after")
+    def validate_device_resolution_relationship(
+        self,
+    ) -> "VisionRuntimeProvenance":
+        validate_device_resolution_wire_relationship(
+            configured_device_policy=self.configured_device_policy,
+            actual_device=self.actual_device,
+            device_resolution_reason=self.device_resolution_reason,
+        )
+        return self
 
     @model_validator(mode="after")
     def validate_verified_binding(self) -> "VisionRuntimeProvenance":

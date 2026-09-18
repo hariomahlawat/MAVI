@@ -11,6 +11,34 @@ public sealed record ParsedVisionRuntimeProvenance(
 
 public sealed class VisionRuntimeProvenanceParser
 {
+    // Authoritative device-resolution reason vocabulary, mirrored from
+    // contracts/schemas/vision-job-complete-v2.schema.json and
+    // mavi_vision.common.control_plane. A cross-language test binds these sets
+    // to the published schema enum so the three mirrors cannot drift apart.
+    private const string ExplicitCpuDeviceResolutionReason = "explicit_cpu";
+    private const string ExplicitCudaDeviceResolutionReason = "explicit_cuda";
+
+    internal static readonly HashSet<string> AutoCudaDeviceResolutionReasons =
+    [
+        "cuda_selected"
+    ];
+
+    internal static readonly HashSet<string> AutoCpuDeviceResolutionReasons =
+    [
+        "cuda_device_unavailable", "cuda_driver_probe_failed",
+        "cuda_driver_probe_unavailable", "cuda_pack_absent",
+        "cuda_pack_id_mismatch", "cuda_pack_integrity_failed",
+        "cuda_pack_not_declared", "cuda_pack_variant_mismatch"
+    ];
+
+    internal static readonly HashSet<string> DeviceResolutionReasons =
+    [
+        ExplicitCpuDeviceResolutionReason,
+        ExplicitCudaDeviceResolutionReason,
+        .. AutoCudaDeviceResolutionReasons,
+        .. AutoCpuDeviceResolutionReasons
+    ];
+
     private static readonly HashSet<string> AttestationDependencyAllowlist =
     [
         "python", "torch", "torchvision", "mmdet", "mmcv", "mmengine", "trackers",
@@ -111,18 +139,14 @@ public sealed class VisionRuntimeProvenanceParser
         if (value.ConfiguredDevicePolicy is not ("cpu" or "cuda" or "auto") ||
             value.ConfiguredDeviceIndex is not >= 0)
             throw Invalid("provenance_device_invalid");
-        OptionalBounded(
-            value.DeviceResolutionReason,
-            64,
-            "provenance_device_resolution_reason_invalid");
-        if (value.DeviceResolutionReason is not null &&
-            (!char.IsAsciiLetterLower(value.DeviceResolutionReason[0]) ||
-             value.DeviceResolutionReason.Any(character =>
-                 !(char.IsAsciiLetterLower(character) ||
-                   char.IsAsciiDigit(character) ||
-                   character == '_'))))
-            throw Invalid("provenance_device_resolution_reason_invalid");
-        RequiredBounded(value.ActualDevice, 128, "provenance_device_invalid");
+        var actualDevice = RequiredBounded(
+            value.ActualDevice,
+            128,
+            "provenance_device_invalid");
+        ValidateDeviceResolutionReason(
+            value.ConfiguredDevicePolicy,
+            actualDevice,
+            value.DeviceResolutionReason);
         if (value.FramePolicy != "every-frame" || value.InputColourSpace != "RGB")
             throw Invalid("provenance_pipeline_semantics_invalid");
 
@@ -182,6 +206,60 @@ public sealed class VisionRuntimeProvenanceParser
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Validates the reason relationships the wire payload alone can prove.
+    /// Every rule here is also a conditional in the published JSON Schema and
+    /// in <c>validate_device_resolution_wire_relationship</c>, so the three
+    /// wire representations accept the same payloads. The Production
+    /// prohibition on Auto reasons needs deployment context rather than the
+    /// payload, so the vision worker applies it in addition to these rules.
+    /// </summary>
+    private static void ValidateDeviceResolutionReason(
+        string? configuredDevicePolicy,
+        string actualDevice,
+        string? deviceResolutionReason)
+    {
+        if (deviceResolutionReason is null)
+        {
+            if (configuredDevicePolicy == "auto")
+                throw Invalid("provenance_device_resolution_reason_required");
+            return;
+        }
+
+        OptionalBounded(
+            deviceResolutionReason,
+            64,
+            "provenance_device_resolution_reason_invalid");
+        if (!DeviceResolutionReasons.Contains(deviceResolutionReason))
+            throw Invalid("provenance_device_resolution_reason_invalid");
+
+        if (deviceResolutionReason == ExplicitCpuDeviceResolutionReason &&
+            configuredDevicePolicy != "cpu")
+            throw Invalid("provenance_device_resolution_reason_mismatch");
+        if (deviceResolutionReason == ExplicitCudaDeviceResolutionReason &&
+            configuredDevicePolicy != "cuda")
+            throw Invalid("provenance_device_resolution_reason_mismatch");
+
+        if (AutoCudaDeviceResolutionReasons.Contains(deviceResolutionReason) &&
+            !IsCudaDevice(actualDevice))
+            throw Invalid("provenance_device_resolution_reason_mismatch");
+        if (AutoCpuDeviceResolutionReasons.Contains(deviceResolutionReason) &&
+            actualDevice != "cpu")
+            throw Invalid("provenance_device_resolution_reason_mismatch");
+    }
+
+    /// <summary>
+    /// Matches the published <c>^cuda:[0-9]+$</c> device pattern.
+    /// </summary>
+    private static bool IsCudaDevice(string actualDevice)
+    {
+        if (!actualDevice.StartsWith("cuda:", StringComparison.Ordinal))
+            return false;
+        var ordinal = actualDevice["cuda:".Length..];
+        return ordinal.Length > 0 &&
+            ordinal.All(char.IsAsciiDigit);
     }
 
     private static string Required(string? value, string code)

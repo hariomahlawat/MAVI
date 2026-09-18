@@ -542,12 +542,23 @@
           "const": "RGB"
         },
         "deviceResolutionReason": {
+          "$comment": "Closed vocabulary; mirrored by mavi_vision.common.control_plane and VisionRuntimeProvenanceParser.",
           "anyOf": [
             {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 64,
-              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              "enum": [
+                "cuda_device_unavailable",
+                "cuda_driver_probe_failed",
+                "cuda_driver_probe_unavailable",
+                "cuda_pack_absent",
+                "cuda_pack_id_mismatch",
+                "cuda_pack_integrity_failed",
+                "cuda_pack_not_declared",
+                "cuda_pack_variant_mismatch",
+                "cuda_selected",
+                "explicit_cpu",
+                "explicit_cuda"
+              ]
             },
             {
               "type": "null"
@@ -582,6 +593,113 @@
               },
               "platformLockSha256": {
                 "$ref": "#/$defs/sha256"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "deviceResolutionReason": {
+                "const": "explicit_cpu"
+              }
+            },
+            "required": [
+              "deviceResolutionReason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "configuredDevicePolicy": {
+                "const": "cpu"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "deviceResolutionReason": {
+                "const": "explicit_cuda"
+              }
+            },
+            "required": [
+              "deviceResolutionReason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "configuredDevicePolicy": {
+                "const": "cuda"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "deviceResolutionReason": {
+                "const": "cuda_selected"
+              }
+            },
+            "required": [
+              "deviceResolutionReason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "actualDevice": {
+                "pattern": "^cuda:[0-9]+$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "deviceResolutionReason": {
+                "enum": [
+                  "cuda_device_unavailable",
+                  "cuda_driver_probe_failed",
+                  "cuda_driver_probe_unavailable",
+                  "cuda_pack_absent",
+                  "cuda_pack_id_mismatch",
+                  "cuda_pack_integrity_failed",
+                  "cuda_pack_not_declared",
+                  "cuda_pack_variant_mismatch"
+                ]
+              }
+            },
+            "required": [
+              "deviceResolutionReason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "actualDevice": {
+                "const": "cpu"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "configuredDevicePolicy": {
+                "const": "auto"
+              }
+            },
+            "required": [
+              "configuredDevicePolicy"
+            ]
+          },
+          "then": {
+            "required": [
+              "deviceResolutionReason"
+            ],
+            "properties": {
+              "deviceResolutionReason": {
+                "type": "string"
               }
             }
           }

@@ -187,7 +187,16 @@ Vision execution has three intended device modes:
 
 The device actually used must be observable in worker startup/runtime logs and processing provenance.
 
-The worker now implements this device policy. In Development, `Auto` selects `cuda:<index>` only when the matching Windows CUDA Runtime Pack is qualified, its offline release lock is qualified, and the configured CUDA device is actually available. Otherwise it records the decision in logs and uses CPU. Explicit `CUDA` never silently becomes CPU. The existing Windows CPU path remains available for deterministic regression/debugging. Windows CUDA still requires real compatible hardware/runtime qualification before it can be treated as qualified evidence.
+The worker now implements this device policy. Explicit `CUDA` never silently becomes CPU. The existing Windows CPU path remains available for deterministic regression/debugging. Windows CUDA still requires real compatible hardware/runtime qualification before it can be treated as qualified evidence.
+
+Development `Auto` is resolved in two places, and both record a reason code:
+
+- the Windows launcher resolves it before Python starts, by checking that a Windows CUDA Runtime Pack is installed, passes its manifest/state/artifact integrity preflight, matches the component's declared Runtime Pack identity, and that the configured device is present according to the NVIDIA driver;
+- `RuntimeSupervisor` resolves it for any entry point that reaches Python with `MAVI_DEVICE_POLICY=auto`, by requiring a `qualified-hardware` CUDA runtime variant with a qualified offline lock and an available device.
+
+No Windows CUDA Runtime Pack is declared in this phase, so Development `Auto` always resolves to the qualified CPU path and records `cuda_pack_absent` or `cuda_pack_not_declared`.
+
+**Known gap, required before C4 hardware qualification.** The launcher's Auto check deliberately does not execute code from the candidate CUDA pack, which is why it cannot yet detect a Runtime Pack whose Torch CUDA runtime is installed but cannot initialise (an incompatible VC runtime, a missing CUDA DLL, or a driver older than the packed CUDA family). Once a CUDA Runtime Pack exists, `Auto` in that situation would select CUDA and the worker would then hard-fail, instead of falling back to CPU with a deterministic reason. Closing this needs a post-integrity runtime smoke probe — run only against a pack that has already passed the integrity preflight, so the non-executing trust order established for Auto is preserved — plus a new reason code in the closed vocabulary. It cannot be implemented or validated before a real CUDA Runtime Pack exists, so it is a C3/C4 requirement rather than a C1R one.
 
 ### Windows CUDA host observation
 
