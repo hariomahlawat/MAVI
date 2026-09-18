@@ -153,7 +153,7 @@ No “best available prior build” may be invented during acceptance.
 - [x] READY / BLOCKED assessment completed against current repository state.
 - [x] Authoritative qualification explicitly withheld while mandatory blockers remain.
 
-Current result: **BLOCKED**. Development/Production profile architecture is resolved by ADR-008. Remaining mandatory blockers include profile-aware acceptance-tool reconciliation, selection of the first Production profile(s) to qualify, applicable CUDA evidence for any GPU profile claimed, acceptance corpus/thresholds, profile-specific Production prerequisites, supported-update artifact/scope, final application artifact, Offline Binary Kit identity and final candidate freeze.
+Current result: **BLOCKED**. Development/Production profile architecture and profile-aware qualification tooling are implemented. Remaining mandatory blockers are selection of the first Production profile(s) to qualify, acceptance corpus/thresholds, profile-specific Production prerequisites, supported-update artifact/scope, final application artifact, Offline Binary Kit identity and final candidate freeze. CUDA evidence is conditional: Windows CUDA is required for P1 and Linux CUDA for P2; CPU-only P3 is not blocked by absent GPU qualification.
 
 **Readiness exit criterion:** all mandatory items are READY. A BLOCKED mandatory item prevents authoritative evidence capture.
 
@@ -428,8 +428,8 @@ Phase 1 is closed only when the final status is `ACCEPTED` and every mandatory c
 
 Do **not** start with CUDA runs, CCTV metrics or final release promotion.
 
-The immediate next action after this plan is accepted is:
+The immediate next action is:
 
-> **First reconcile the current Phase-1 acceptance/promotion/closure tooling with ADR-008's profile-based model and select the first Production profile(s) to qualify. Then resolve R3–R5: freeze acceptance policy, approve exact prerequisites for the selected profile(s), and resolve supported-update scope/artifact.**
+> **Select the first Production profile(s) to qualify under ADR-008. Then freeze the acceptance policy, approve exact prerequisites for that selected profile set, and resolve supported-update scope/artifact.**
 
-Only after R1–R5 are resolved should the final application artifact, Offline Binary Kit and Production setup bundle be frozen and authoritative qualification begin. This sequencing prevents expensive runs against an unfrozen policy, topology or artifact identity.
+The profile-aware prerequisite, offline, performance, scenario, additive-promotion, production-acceptance and closure tooling is already implemented in PR #46 and must remain exact-head green through final review/merge. Only after profile selection and the remaining readiness inputs are frozen should the final application artifact, Offline Binary Kit and Production setup bundle be frozen and authoritative qualification begin.
