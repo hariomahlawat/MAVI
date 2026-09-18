@@ -48,11 +48,6 @@ VARIANTS = (
     "linux-x86_64-cpu",
     "linux-x86_64-cuda",
 )
-PREREQUISITE_ROLES = {
-    "windows-operational-plane": "windowsOperationalPlane",
-    "database": "database",
-    "linux-vision-worker": "linuxVisionWorker",
-}
 LOG_ROLES = {
     "api", "iis", "postgres",
     "formal-worker", "empty-worker", "failure-worker",
