@@ -31,6 +31,8 @@ _ALLOWED_PREREQUISITE_ROLES = frozenset(
     {
         "windows-operational-plane",
         "database",
+        "windows-cuda-vision-worker",
+        "windows-cpu-vision-worker",
         "linux-vision-worker",
     }
 )
