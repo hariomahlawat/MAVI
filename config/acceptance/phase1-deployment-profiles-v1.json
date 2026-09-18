@@ -15,7 +15,8 @@
         "windows-cuda-vision-worker"
       ],
       "visionHostRole": "windows-cuda-vision-worker",
-      "requiresCuda": true
+      "requiresCuda": true,
+      "performanceEvidenceRequired": true
     },
     "P2": {
       "id": "P2",
@@ -31,7 +32,8 @@
         "linux-vision-worker"
       ],
       "visionHostRole": "linux-vision-worker",
-      "requiresCuda": true
+      "requiresCuda": true,
+      "performanceEvidenceRequired": true
     },
     "P3": {
       "id": "P3",
@@ -47,7 +49,8 @@
         "windows-cpu-vision-worker"
       ],
       "visionHostRole": "windows-cpu-vision-worker",
-      "requiresCuda": false
+      "requiresCuda": false,
+      "performanceEvidenceRequired": true
     }
   }
 }
