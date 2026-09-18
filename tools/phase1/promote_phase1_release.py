@@ -413,6 +413,7 @@ def build_promoted_metadata(
     quality_ground_truth: dict[str, Path],
     expected_mavi_build: str,
     deployment_profile_id: str,
+    deployment_profile_policy_sha256: str,
     required_gates: frozenset[str],
     required_variants: frozenset[str],
 ) -> tuple[bytes, bytes]:
@@ -448,6 +449,20 @@ def build_promoted_metadata(
     evidence: dict[str, dict[str, str]] = dict(current_evidence)
     gates = dict(current_gates)
     for gate, path in sorted(gate_evidence.items()):
+        if gate in {"windows-offline-install", "linux-offline-install"}:
+            offline_value = _load_dict(
+                path,
+                "promotion_offline_evidence_invalid:" + gate,
+            )
+            if (
+                offline_value.get("deploymentProfile")
+                != deployment_profile_id
+                or offline_value.get("deploymentProfilePolicySha256")
+                != deployment_profile_policy_sha256
+            ):
+                raise PromotionError(
+                    "promotion_offline_profile_binding_mismatch:" + gate
+                )
         evidence[gate] = load_gate_evidence(
             path,
             gate=gate,
@@ -597,6 +612,7 @@ def main() -> int:
             quality_ground_truth=quality_ground_truth,
             expected_mavi_build=args.expected_mavi_build,
             deployment_profile_id=selected_profile.profile_id,
+            deployment_profile_policy_sha256=deployment_policy_sha256,
             required_gates=required_gates,
             required_variants=required_variants,
         )
