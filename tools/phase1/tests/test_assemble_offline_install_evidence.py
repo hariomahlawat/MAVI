@@ -60,28 +60,56 @@ def test_load_hashes_exact_bytes(tmp_path: Path):
     assert len(digest) == 64
 
 
-def test_variant_evidence_hashes_are_exact_source_bytes(tmp_path: Path, monkeypatch):
-    cpu = tmp_path / "cpu.json"
+def test_variant_evidence_hash_is_profile_scoped(tmp_path: Path, monkeypatch):
     cuda = tmp_path / "cuda.json"
     output = tmp_path / "offline.json"
-    cpu.write_text(json.dumps(variant("linux-x86_64-cpu", "a" * 40)), encoding="utf-8")
-    cuda.write_text(json.dumps(variant("linux-x86_64-cuda", "a" * 40)), encoding="utf-8")
+    cuda.write_text(
+        json.dumps(variant("linux-x86_64-cuda", "a" * 40)),
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(
         sys,
         "argv",
         [
             str(MODULE_PATH),
-            "--os", "linux",
-            "--cpu", str(cpu),
-            "--cuda", str(cuda),
-            "--isolation-method", "air-gapped",
-            "--output", str(output),
+            "--deployment-profile",
+            "P2",
+            "--variant",
+            str(cuda),
+            "--isolation-method",
+            "air-gapped",
+            "--output",
+            str(output),
         ],
     )
     assert mod.main() == 0
     value = json.loads(output.read_text(encoding="utf-8"))
+    assert value["schemaVersion"] == "mavi-offline-install-evidence-v2"
+    assert value["deploymentProfile"] == "P2"
+    assert value["os"] == "linux"
     assert value["variantEvidenceSha256"] == {
-        "linux-x86_64-cpu": __import__("hashlib").sha256(cpu.read_bytes()).hexdigest(),
-        "linux-x86_64-cuda": __import__("hashlib").sha256(cuda.read_bytes()).hexdigest(),
+        "linux-x86_64-cuda": __import__("hashlib").sha256(
+            cuda.read_bytes()
+        ).hexdigest()
     }
+    assert len(value["variants"]) == 1
+
+
+def test_profile_rejects_wrong_runtime_variant(tmp_path: Path):
+    cpu = tmp_path / "cpu.json"
+    cpu.write_text(
+        json.dumps(variant("linux-x86_64-cpu", "a" * 40)),
+        encoding="utf-8",
+    )
+    args = __import__("argparse").Namespace(
+        deployment_profile="P2",
+        deployment_profile_policy=mod.deployment_profiles.CANONICAL_DEPLOYMENT_PROFILES,
+        variant=cpu,
+        isolation_method="air-gapped",
+    )
+    with __import__("pytest").raises(
+        mod.AssembleError,
+        match="offline_variant_not_passed",
+    ):
+        mod.assemble(args)
