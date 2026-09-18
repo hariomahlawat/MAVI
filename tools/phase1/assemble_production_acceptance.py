@@ -406,16 +406,19 @@ def validate_variant(
 def validate_prerequisites(
     evidence_path: Path,
     *,
-    windows_observation: Path,
-    database_observation: Path,
-    linux_observation: Path,
+    observation_paths: dict[str, Path],
+    selected_profile: deployment_profiles.DeploymentProfile,
+    deployment_policy_sha256: str,
     source_commit: str,
     mavi_build: str,
     acceptance_execution_id: str,
     acceptance_context_sha256: str,
     context_started_at: str,
 ) -> str:
-    evidence = load_json(evidence_path, "production_prerequisite_evidence_invalid")
+    evidence = load_json(
+        evidence_path,
+        "production_prerequisite_evidence_invalid",
+    )
     validate_schema(
         evidence,
         "production-prerequisite-evidence.schema.json",
@@ -424,7 +427,10 @@ def validate_prerequisites(
     canonical_policy, policy_sha = canonical_production_prerequisites(
         ROOT / "config" / "acceptance" / "phase1-production-prerequisites-v1.json"
     )
-    policy = load_json(canonical_policy, "production_prerequisite_policy_invalid")
+    policy = load_json(
+        canonical_policy,
+        "production_prerequisite_policy_invalid",
+    )
     validate_schema(
         policy,
         "production-prerequisite-policy.schema.json",
@@ -435,70 +441,81 @@ def validate_prerequisites(
             "production_prerequisite_policy_not_approved"
         )
 
-    try:
-        context_start = _parse_utc(
-            context_started_at,
-            "production_prerequisite_context_time_invalid",
+    required_roles = selected_profile.required_prerequisite_roles
+    if set(observation_paths) != set(required_roles):
+        raise ProductionAcceptanceError(
+            "production_prerequisite_observation_set_mismatch"
         )
-    except ProductionAcceptanceError:
-        raise
-
-    observations = {
-        "windows-operational-plane": windows_observation,
-        "database": database_observation,
-        "linux-vision-worker": linux_observation,
-    }
-    expected_hash_fields = {
-        "windows-operational-plane": "windowsObservationSha256",
-        "database": "databaseObservationSha256",
-        "linux-vision-worker": "linuxObservationSha256",
-    }
-    topology_fields = {
-        "windows-operational-plane": "windowsOperationalPlane",
-        "database": "database",
-        "linux-vision-worker": "linuxVisionWorker",
-    }
-    for role, path in observations.items():
-        value = load_json(path, "production_prerequisite_observation_invalid")
-        validate_schema(
-            value,
-            "production-prerequisite-observation.schema.json",
-            "production_prerequisite_observation",
-        )
-        policy_key = PREREQUISITE_ROLES[role]
-        captured = _parse_utc(
-            value.get("capturedAtUtc"),
-            "production_prerequisite_observation_time_invalid:" + role,
-        )
-        if (
-            value.get("acceptanceExecutionId") != acceptance_execution_id
-            or value.get("acceptanceContextSha256") != acceptance_context_sha256
-            or captured < context_start
-            or value.get("role") != role
-            or value.get("values") != policy.get(policy_key)
-            or evidence.get(policy_key) != value.get("values")
-            or evidence.get(expected_hash_fields[role]) != sha256_file(path)
-            or evidence.get("topologyIdentities", {}).get(topology_fields[role])
-            != value.get("topologyIdentity")
-        ):
-            raise ProductionAcceptanceError(
-                "production_prerequisite_observation_mismatch:" + role
-            )
-
     if (
-        evidence.get("acceptanceExecutionId") != acceptance_execution_id
-        or evidence.get("acceptanceContextSha256") != acceptance_context_sha256
+        evidence.get("schemaVersion")
+        != "mavi-production-prerequisite-evidence-v2"
+        or evidence.get("deploymentProfile")
+        != selected_profile.profile_id
+        or evidence.get("deploymentProfilePolicySha256")
+        != deployment_policy_sha256
+        or evidence.get("acceptanceExecutionId")
+        != acceptance_execution_id
+        or evidence.get("acceptanceContextSha256")
+        != acceptance_context_sha256
         or evidence.get("sourceCommit") != source_commit
         or evidence.get("maviBuild") != mavi_build
         or evidence.get("policySha256") != policy_sha
         or not passed_result(evidence)
     ):
-        raise ProductionAcceptanceError("production_prerequisite_binding_failed")
+        raise ProductionAcceptanceError(
+            "production_prerequisite_binding_failed"
+        )
+
+    context_start = _parse_utc(
+        context_started_at,
+        "production_prerequisite_context_time_invalid",
+    )
+    evidence_hashes = evidence.get("observationSha256", {})
+    topology = evidence.get("topologyIdentities", {})
+    evidence_values = evidence.get("values", {})
+
+    role_policy_keys = {
+        "windows-operational-plane": "windowsOperationalPlane",
+        "database": "database",
+        "windows-cuda-vision-worker": "windowsCudaVisionWorker",
+        "windows-cpu-vision-worker": "windowsCpuVisionWorker",
+        "linux-vision-worker": "linuxVisionWorker",
+    }
+    for role in required_roles:
+        path = observation_paths[role]
+        value = load_json(
+            path,
+            "production_prerequisite_observation_invalid",
+        )
+        validate_schema(
+            value,
+            "production-prerequisite-observation.schema.json",
+            "production_prerequisite_observation",
+        )
+        captured = _parse_utc(
+            value.get("capturedAtUtc"),
+            "production_prerequisite_observation_time_invalid:" + role,
+        )
+        if (
+            captured < context_start
+            or value.get("acceptanceExecutionId")
+            != acceptance_execution_id
+            or value.get("acceptanceContextSha256")
+            != acceptance_context_sha256
+            or value.get("role") != role
+            or value.get("values") != policy.get(role_policy_keys[role])
+            or evidence_values.get(role) != value.get("values")
+            or evidence_hashes.get(role) != sha256_file(path)
+            or topology.get(role) != value.get("topologyIdentity")
+        ):
+            raise ProductionAcceptanceError(
+                "production_prerequisite_observation_mismatch:" + role
+            )
     return sha256_file(evidence_path)
 
 
 def validate_prerequisite_observation_window(
-    observation_paths: tuple[Path, Path, Path],
+    observation_paths: tuple[Path, ...],
     *,
     first_scenario_started_at: str,
 ) -> None:
@@ -532,15 +549,20 @@ def validate_scenario(
     acceptance_profile_sha256: str,
     expected_corpus_sha256: str | None,
     mavi_build: str,
-    linux_cuda_variant_path: Path,
-    linux_cuda_variant: dict[str, Any],
-    linux_cuda_bundle_sha256: str,
-    linux_cuda_lock_sha256: str,
+    deployment_profile: deployment_profiles.DeploymentProfile,
+    deployment_profile_policy_sha256: str,
+    variant_path: Path,
+    variant: dict[str, Any],
+    bundle_sha256: str,
+    lock_sha256: str,
     acceptance_execution_id: str,
     acceptance_context_sha256: str,
     expected_operational_host_identity_sha256: str,
 ) -> tuple[str, str, str]:
-    scenario = load_json(scenario_path, "production_scenario_invalid")
+    scenario = load_json(
+        scenario_path,
+        "production_scenario_invalid",
+    )
     validate_schema(
         scenario,
         "production-scenario-evidence.schema.json",
@@ -562,59 +584,88 @@ def validate_scenario(
             ),
         )
     except evidence_verifier.EvidenceError as exc:
-        raise ProductionAcceptanceError("production_e2e_invalid:" + exc.code) from exc
+        raise ProductionAcceptanceError(
+            "production_e2e_invalid:" + exc.code
+        ) from exc
 
     attestation = e2e.get("attestation", {})
     release_expected = e2e.get("releaseExpected", {})
     e2e_sha = sha256_file(e2e_path)
     if (
-        scenario.get("mode") != mode
-        or scenario.get("acceptanceExecutionId") != acceptance_execution_id
-        or scenario.get("acceptanceContextSha256") != acceptance_context_sha256
+        scenario.get("schemaVersion")
+        != "mavi-production-scenario-evidence-v2"
+        or scenario.get("mode") != mode
+        or scenario.get("deploymentProfile")
+        != deployment_profile.profile_id
+        or scenario.get("deploymentProfilePolicySha256")
+        != deployment_profile_policy_sha256
+        or scenario.get("runtimeVariant")
+        != deployment_profile.runtime_variant
+        or scenario.get("acceptanceExecutionId")
+        != acceptance_execution_id
+        or scenario.get("acceptanceContextSha256")
+        != acceptance_context_sha256
         or scenario.get("sourceCommit") != source_commit
         or scenario.get("maviBuild") != mavi_build
         or scenario.get("operationalHostIdentitySha256")
         != expected_operational_host_identity_sha256
         or e2e.get("operationalApi", {}).get("hostIdentitySha256")
         != expected_operational_host_identity_sha256
-        or scenario.get("targetVerifiedManifestSha256") != target_manifest_sha256
-        or scenario.get("linuxCudaVariantEvidenceSha256")
-        != sha256_file(linux_cuda_variant_path)
+        or scenario.get("targetVerifiedManifestSha256")
+        != target_manifest_sha256
+        or scenario.get("variantEvidenceSha256")
+        != sha256_file(variant_path)
         or scenario.get("productionBundleManifestSha256")
-        != linux_cuda_bundle_sha256
+        != bundle_sha256
         or scenario.get("productionReleaseLockSha256")
-        != linux_cuda_lock_sha256
+        != lock_sha256
         or scenario.get("workerPythonSha256")
-        != linux_cuda_variant.get("workerPythonSha256")
+        != variant.get("workerPythonSha256")
         or scenario.get("workerEnvironmentSha256")
-        != linux_cuda_variant.get("workerEnvironmentSha256")
+        != variant.get("workerEnvironmentSha256")
         or scenario.get("workerVenvRootSha256")
-        != linux_cuda_variant.get("workerVenvRootSha256")
+        != variant.get("workerVenvRootSha256")
         or scenario.get("workerResolvedPythonSha256")
-        != linux_cuda_variant.get("workerResolvedPythonSha256")
+        != variant.get("workerResolvedPythonSha256")
         or scenario.get("e2eEvidenceSha256") != e2e_sha
         or scenario.get("networkIsolation", {}).get("passed") is not True
         or not passed_result(scenario)
         or e2e.get("mode") != mode
-        or e2e.get("targetVerifiedManifestSha256") != target_manifest_sha256
-        or release_expected.get("modelManifestSha256") != target_manifest_sha256
+        or e2e.get("targetVerifiedManifestSha256")
+        != target_manifest_sha256
+        or release_expected.get("modelManifestSha256")
+        != target_manifest_sha256
         or attestation.get("verificationStatus") != "verified"
-        or attestation.get("runtimeVariant") != "linux-x86_64-cuda"
+        or attestation.get("runtimeVariant")
+        != deployment_profile.runtime_variant
         or attestation.get("maviBuild") != mavi_build
         or attestation.get("maviCommit") != source_commit
         or attestation.get("productionBundleManifestSha256")
-        != linux_cuda_bundle_sha256
-        or attestation.get("platformLockSha256") != linux_cuda_lock_sha256
+        != bundle_sha256
+        or attestation.get("platformLockSha256") != lock_sha256
         or attestation.get("candidateBundleManifestSha256") is not None
         or attestation.get("candidateSelectedLockSha256") is not None
     ):
-        raise ProductionAcceptanceError("production_scenario_binding_failed:" + mode)
+        raise ProductionAcceptanceError(
+            "production_scenario_binding_failed:" + mode
+        )
 
     actual_device = attestation.get("actualDevice")
-    if not isinstance(actual_device, str) or not actual_device.startswith("cuda:"):
-        raise ProductionAcceptanceError("production_scenario_cuda_required:" + mode)
+    if not isinstance(actual_device, str):
+        raise ProductionAcceptanceError(
+            "production_scenario_device_missing:" + mode
+        )
+    if deployment_profile.requires_cuda:
+        if not actual_device.startswith("cuda:"):
+            raise ProductionAcceptanceError(
+                "production_scenario_cuda_required:" + mode
+            )
+    elif actual_device.startswith("cuda:"):
+        raise ProductionAcceptanceError(
+            "production_scenario_cpu_profile_used_cuda:" + mode
+        )
 
-    if e2e_sha == linux_cuda_variant.get("workerFlowEvidenceSha256"):
+    if e2e_sha == variant.get("workerFlowEvidenceSha256"):
         raise ProductionAcceptanceError(
             "production_scenario_reused_variant_smoke:" + mode
         )
@@ -644,15 +695,20 @@ def validate_failure_reprocess(
     source_commit: str,
     mavi_build: str,
     target_manifest_sha256: str,
-    linux_cuda_variant_path: Path,
-    linux_cuda_variant: dict[str, Any],
-    linux_cuda_bundle_sha256: str,
-    linux_cuda_lock_sha256: str,
+    deployment_profile: deployment_profiles.DeploymentProfile,
+    deployment_profile_policy_sha256: str,
+    variant_path: Path,
+    variant: dict[str, Any],
+    bundle_sha256: str,
+    lock_sha256: str,
     acceptance_execution_id: str,
     acceptance_context_sha256: str,
     expected_operational_host_identity_sha256: str,
 ) -> tuple[str, str]:
-    value = load_json(path, "production_failure_reprocess_invalid")
+    value = load_json(
+        path,
+        "production_failure_reprocess_invalid",
+    )
     validate_schema(
         value,
         "production-failure-reprocess-evidence.schema.json",
@@ -667,28 +723,47 @@ def validate_failure_reprocess(
         media.get("afterReprocessSha256"),
         media.get("afterReprocessEtagSha256"),
     }
+    actual_device = attestation.get("actualDevice")
+    device_invalid = not isinstance(actual_device, str)
+    if not device_invalid:
+        if deployment_profile.requires_cuda:
+            device_invalid = not actual_device.startswith("cuda:")
+        else:
+            device_invalid = actual_device.startswith("cuda:")
+
     if (
-        value.get("acceptanceExecutionId") != acceptance_execution_id
-        or value.get("acceptanceContextSha256") != acceptance_context_sha256
+        value.get("schemaVersion")
+        != "mavi-production-failure-reprocess-evidence-v2"
+        or value.get("deploymentProfile")
+        != deployment_profile.profile_id
+        or value.get("deploymentProfilePolicySha256")
+        != deployment_profile_policy_sha256
+        or value.get("runtimeVariant")
+        != deployment_profile.runtime_variant
+        or value.get("acceptanceExecutionId")
+        != acceptance_execution_id
+        or value.get("acceptanceContextSha256")
+        != acceptance_context_sha256
         or value.get("sourceCommit") != source_commit
         or value.get("maviBuild") != mavi_build
         or value.get("operationalHostIdentitySha256")
         != expected_operational_host_identity_sha256
-        or value.get("targetVerifiedManifestSha256") != target_manifest_sha256
+        or value.get("targetVerifiedManifestSha256")
+        != target_manifest_sha256
         or value.get("productionBundleManifestSha256")
-        != linux_cuda_bundle_sha256
+        != bundle_sha256
         or value.get("productionReleaseLockSha256")
-        != linux_cuda_lock_sha256
-        or value.get("linuxCudaVariantEvidenceSha256")
-        != sha256_file(linux_cuda_variant_path)
+        != lock_sha256
+        or value.get("variantEvidenceSha256")
+        != sha256_file(variant_path)
         or value.get("workerPythonSha256")
-        != linux_cuda_variant.get("workerPythonSha256")
+        != variant.get("workerPythonSha256")
         or value.get("workerEnvironmentSha256")
-        != linux_cuda_variant.get("workerEnvironmentSha256")
+        != variant.get("workerEnvironmentSha256")
         or value.get("workerVenvRootSha256")
-        != linux_cuda_variant.get("workerVenvRootSha256")
+        != variant.get("workerVenvRootSha256")
         or value.get("workerResolvedPythonSha256")
-        != linux_cuda_variant.get("workerResolvedPythonSha256")
+        != variant.get("workerResolvedPythonSha256")
         or value.get("firstProcessingRunId")
         == value.get("reprocessProcessingRunId")
         or len(media_hashes) != 1
@@ -696,16 +771,20 @@ def validate_failure_reprocess(
         or value.get("trackCount", 0) <= 0
         or value.get("networkIsolation", {}).get("passed") is not True
         or attestation.get("verificationStatus") != "verified"
-        or attestation.get("runtimeVariant") != "linux-x86_64-cuda"
+        or attestation.get("runtimeVariant")
+        != deployment_profile.runtime_variant
         or attestation.get("maviBuild") != mavi_build
         or attestation.get("maviCommit") != source_commit
-        or attestation.get("modelManifestSha256") != target_manifest_sha256
-        or attestation.get("platformLockSha256") != linux_cuda_lock_sha256
-        or not isinstance(attestation.get("actualDevice"), str)
-        or not attestation["actualDevice"].startswith("cuda:")
+        or attestation.get("modelManifestSha256")
+        != target_manifest_sha256
+        or attestation.get("platformLockSha256")
+        != lock_sha256
+        or device_invalid
         or not passed_result(value)
     ):
-        raise ProductionAcceptanceError("production_failure_reprocess_binding_failed")
+        raise ProductionAcceptanceError(
+            "production_failure_reprocess_binding_failed"
+        )
     return sha256_file(path), value["workerLogSha256"]
 
 
@@ -1041,17 +1120,53 @@ def validate_backup(
     return sha256_file(path)
 
 
-def parse_variant_arguments(values: list[str]) -> dict[str, Path]:
+def parse_variant_arguments(
+    values: list[str],
+    required_variants: frozenset[str],
+) -> dict[str, Path]:
     result: dict[str, Path] = {}
     for item in values:
         if "=" not in item:
-            raise ProductionAcceptanceError("production_variant_argument_invalid")
+            raise ProductionAcceptanceError(
+                "production_variant_argument_invalid"
+            )
         variant, raw = item.split("=", 1)
-        if variant not in VARIANTS or variant in result or not raw:
-            raise ProductionAcceptanceError("production_variant_argument_invalid")
+        if (
+            variant not in VARIANTS
+            or variant in result
+            or not raw
+        ):
+            raise ProductionAcceptanceError(
+                "production_variant_argument_invalid"
+            )
         result[variant] = Path(raw)
-    if set(result) != set(VARIANTS):
-        raise ProductionAcceptanceError("production_variant_set_incomplete")
+    if set(result) != set(required_variants):
+        raise ProductionAcceptanceError(
+            "production_variant_set_incomplete"
+        )
+    return result
+
+
+def parse_prerequisite_observation_arguments(
+    values: list[str],
+    required_roles: tuple[str, ...],
+) -> dict[str, Path]:
+    result: dict[str, Path] = {}
+    for item in values:
+        if "=" not in item:
+            raise ProductionAcceptanceError(
+                "production_prerequisite_observation_argument_invalid"
+            )
+        role, raw = item.split("=", 1)
+        if role in result or role not in required_roles or not raw:
+            raise ProductionAcceptanceError(
+                "production_prerequisite_observation_argument_invalid"
+            )
+        result[role] = Path(raw)
+    if set(result) != set(required_roles):
+        raise ProductionAcceptanceError(
+            "production_prerequisite_observation_set_mismatch"
+        )
     return result
 
 
@@ -1060,34 +1175,65 @@ def validate_topology_binding(
     fresh_install: dict[str, Any],
     offline_update: dict[str, Any],
     backup_restore: dict[str, Any],
-    linux_cuda_variant: dict[str, Any],
+    worker_variant: dict[str, Any],
+    deployment_profile: deployment_profiles.DeploymentProfile,
 ) -> None:
     topology = prerequisite.get("topologyIdentities", {})
-    windows_topology = topology.get("windowsOperationalPlane")
+    windows_topology = topology.get("windows-operational-plane")
     database_topology = topology.get("database")
-    linux_topology = topology.get("linuxVisionWorker")
+    vision_topology = topology.get(deployment_profile.vision_host_role)
+
     if (
         not isinstance(windows_topology, str)
-        or fresh_install.get("hosting", {}).get("hostIdentitySha256") != windows_topology
-        or fresh_install.get("operationalApi", {}).get("hostIdentitySha256") != windows_topology
-        or offline_update.get("hosting", {}).get("hostIdentitySha256") != windows_topology
-        or offline_update.get("operationalApi", {}).get("hostIdentitySha256") != windows_topology
-        or backup_restore.get("liveStorageTopology", {}).get("operationalHostIdentitySha256") != windows_topology
-        or backup_restore.get("restoreStorageTopology", {}).get("operationalHostIdentitySha256") != windows_topology
+        or fresh_install.get("hosting", {}).get("hostIdentitySha256")
+        != windows_topology
+        or fresh_install.get("operationalApi", {}).get("hostIdentitySha256")
+        != windows_topology
+        or offline_update.get("hosting", {}).get("hostIdentitySha256")
+        != windows_topology
+        or offline_update.get("operationalApi", {}).get("hostIdentitySha256")
+        != windows_topology
+        or backup_restore.get("liveStorageTopology", {}).get(
+            "operationalHostIdentitySha256"
+        )
+        != windows_topology
+        or backup_restore.get("restoreStorageTopology", {}).get(
+            "operationalHostIdentitySha256"
+        )
+        != windows_topology
     ):
-        raise ProductionAcceptanceError("production_windows_topology_mismatch")
+        raise ProductionAcceptanceError(
+            "production_windows_topology_mismatch"
+        )
+
     if (
         not isinstance(database_topology, str)
-        or backup_restore.get("sourceDatabaseIdentitySha256") != database_topology
-        or backup_restore.get("liveStorageTopology", {}).get("databaseIdentitySha256")
+        or backup_restore.get("sourceDatabaseIdentitySha256")
+        != database_topology
+        or backup_restore.get("liveStorageTopology", {}).get(
+            "databaseIdentitySha256"
+        )
         != database_topology
     ):
-        raise ProductionAcceptanceError("production_database_topology_mismatch")
+        raise ProductionAcceptanceError(
+            "production_database_topology_mismatch"
+        )
+
     if (
-        not isinstance(linux_topology, str)
-        or linux_cuda_variant.get("hostIdentitySha256") != linux_topology
+        not isinstance(vision_topology, str)
+        or worker_variant.get("hostIdentitySha256") != vision_topology
     ):
-        raise ProductionAcceptanceError("production_linux_topology_mismatch")
+        raise ProductionAcceptanceError(
+            "production_vision_topology_mismatch"
+        )
+
+    if (
+        deployment_profile.profile_id in {"P1", "P3"}
+        and vision_topology != windows_topology
+    ):
+        raise ProductionAcceptanceError(
+            "production_single_host_topology_mismatch"
+        )
 
 
 def assemble(args: argparse.Namespace) -> dict[str, Any]:
