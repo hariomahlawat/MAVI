@@ -29,6 +29,7 @@ from mavi_vision.runtime.offline_lock import (  # noqa: E402
     OfflineRuntimeLock,
     canonicalize_distribution_name,
     serialize_offline_runtime_lock,
+    validate_accelerator_distribution_versions,
 )
 
 
@@ -557,12 +558,17 @@ def freeze_wheelhouse(
         )
         for record in sorted(by_name.values(), key=lambda item: item.name)
     )
-    return OfflineRuntimeLock(
+    lock = OfflineRuntimeLock(
         schema_version="mavi-offline-lock-v1",
         platform_variant=platform_variant,
         python_version=python_version,
         distributions=distributions,
     )
+    validate_accelerator_distribution_versions(
+        lock,
+        expected_variant=platform_variant,
+    )
+    return lock
 
 
 def write_lock(
