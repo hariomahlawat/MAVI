@@ -168,21 +168,24 @@ def validate_release_mode(
     release_status: str,
     *,
     verification_status: str,
-    runtime_qualification_status: str,
-    qualification_overall_result: str,
-    all_mandatory_gates_passed: bool,
+    deployment_profile_id: str | None,
 ) -> None:
-    if release_status not in {"qualification-candidate", "production"}:
-        raise OfflineBundleError("bundle_release_status_invalid")
+    if release_status not in {
+        "qualification-candidate",
+        "production",
+    }:
+        raise OfflineBundleError(
+            "bundle_release_status_invalid"
+        )
     if release_status == "qualification-candidate":
         return
     if (
         verification_status != "verified"
-        or runtime_qualification_status != "qualified"
-        or qualification_overall_result != "passed"
-        or not all_mandatory_gates_passed
+        or deployment_profile_id is None
     ):
-        raise OfflineBundleError("production_release_not_qualified")
+        raise OfflineBundleError(
+            "production_release_not_profile_qualified"
+        )
 
 
 def build_bundle_from_verified_inputs(
@@ -317,6 +320,11 @@ def build_bundle_from_verified_inputs(
             purpose="pipeline-profile",
         )
         add_file(
+            inputs.deployment_profile_policy_path,
+            "release/config/acceptance/phase1-deployment-profiles-v1.json",
+            purpose="deployment-profile-policy",
+        )
+        add_file(
             inputs.runtime_profile_path,
             "release/runtime/mmdetection-phase1-v1/runtime.json",
             purpose="runtime-profile",
@@ -358,7 +366,7 @@ def build_bundle_from_verified_inputs(
         )
 
         artifacts = sorted(artifacts, key=lambda item: item.relative_path)
-        _verify_bundled_release_selection(stage, inputs.release_status)
+        _verify_bundled_release_selection(stage, inputs)
         bundle_id = _bundle_id(inputs, verified_locks)
         manifest = BundleManifest(
             schema_version="1.0",
@@ -371,6 +379,10 @@ def build_bundle_from_verified_inputs(
             runtime_profile_id=inputs.runtime_profile_id,
             lock_sha256=sha256_file(inputs.runtime_lock_path),
             host_compatibility=_bundle_host_compatibility(inputs.platform_variant),
+            deployment_profile=inputs.deployment_profile_id,
+            deployment_profile_policy_sha256=(
+                inputs.deployment_profile_policy_sha256
+            ),
             artifacts=tuple(artifacts),
         )
         manifest_path = stage / "bundle-manifest.json"
@@ -405,9 +417,61 @@ def resolve_verified_bundle_inputs(
     pipeline_profile_path: Path,
     runtime_profile_path: Path,
     wheelhouse: Path,
+    deployment_profile: str | None = None,
+    deployment_profile_policy_path: Path = (
+        CANONICAL_DEPLOYMENT_PROFILE_POLICY
+    ),
     python_installer_path: Path | None = None,
 ) -> VerifiedBundleInputs:
-    _validate_source_commit_against_checkout(source_commit, ROOT)
+    _validate_source_commit_against_checkout(
+        source_commit,
+        ROOT,
+    )
+    try:
+        profiles, deployment_policy_sha = (
+            load_deployment_profile_policy(
+                deployment_profile_policy_path
+            )
+        )
+    except DeploymentProfileError as exc:
+        raise OfflineBundleError(exc.code) from exc
+
+    selected_profile: DeploymentProfile | None = None
+    if deployment_profile is not None:
+        try:
+            selected_profile = profiles[deployment_profile]
+        except KeyError as exc:
+            raise OfflineBundleError(
+                "bundle_deployment_profile_unknown"
+            ) from exc
+        if (
+            selected_profile.runtime_variant
+            != platform_variant
+        ):
+            raise OfflineBundleError(
+                "bundle_deployment_profile_variant_mismatch"
+            )
+    elif release_status == "production":
+        raise OfflineBundleError(
+            "production_deployment_profile_required"
+        )
+
+    verify_kwargs: dict[str, object] = {}
+    if (
+        release_status == "production"
+        and selected_profile is not None
+    ):
+        verify_kwargs = {
+            "required_profile":
+                selected_profile.profile_id,
+            "required_gates":
+                selected_profile.qualification_gates,
+            "required_runtime_variant":
+                selected_profile.runtime_variant,
+            "required_deployment_profile_policy_sha256":
+                deployment_policy_sha,
+        }
+
     try:
         selection = verify_release_selection(
             model_root=model_root,
@@ -415,9 +479,14 @@ def resolve_verified_bundle_inputs(
             profile_path=pipeline_profile_path,
             runtime_profile_path=runtime_profile_path,
             qualification_path=qualification_path,
-            allow_unverified=release_status == "qualification-candidate",
+            allow_unverified=(
+                release_status == "qualification-candidate"
+            ),
+            **verify_kwargs,
         )
-        runtime_profile = load_runtime_profile(runtime_profile_path)
+        runtime_profile = load_runtime_profile(
+            runtime_profile_path
+        )
         verified_locks = verify_runtime_release_locks(
             runtime_profile_path,
             runtime_profile,
@@ -427,25 +496,31 @@ def resolve_verified_bundle_inputs(
 
     qualification = selection.qualification
     if qualification is None:
-        raise OfflineBundleError("qualification_record_required")
-    all_gates_passed = all(
-        qualification.required_gates.get(gate) == "passed"
-        for gate in MANDATORY_QUALIFICATION_GATES
-    )
+        raise OfflineBundleError(
+            "qualification_record_required"
+        )
     validate_release_mode(
         release_status,
         verification_status=selection.verification_status,
-        runtime_qualification_status=selection.runtime_qualification_status,
-        qualification_overall_result=qualification.overall_result,
-        all_mandatory_gates_passed=all_gates_passed,
+        deployment_profile_id=(
+            selected_profile.profile_id
+            if selected_profile is not None
+            else None
+        ),
     )
 
     lock_path = verified_locks.get(platform_variant)
     if lock_path is None:
-        raise OfflineBundleError("bundle_platform_lock_not_qualified")
-    platform = selection.runtime_platform_variants.get(platform_variant)
+        raise OfflineBundleError(
+            "bundle_platform_lock_not_qualified"
+        )
+    platform = selection.runtime_platform_variants.get(
+        platform_variant
+    )
     if platform is None or platform.python_identity is None:
-        raise OfflineBundleError("bundle_platform_identity_missing")
+        raise OfflineBundleError(
+            "bundle_platform_identity_missing"
+        )
 
     return VerifiedBundleInputs(
         source_commit=source_commit,
@@ -461,9 +536,24 @@ def resolve_verified_bundle_inputs(
         runtime_lock_path=lock_path,
         checkpoint_path=selection.checkpoint_path,
         resolved_config_path=selection.resolved_config_path,
-        checkpoint_sha256=selection.manifest.checkpoint.sha256,
-        resolved_config_sha256=selection.manifest.resolved_config.sha256,
+        checkpoint_sha256=(
+            selection.manifest.checkpoint.sha256
+        ),
+        resolved_config_sha256=(
+            selection.manifest.resolved_config.sha256
+        ),
         wheelhouse=wheelhouse,
+        deployment_profile_policy_path=(
+            deployment_profile_policy_path
+        ),
+        deployment_profile_policy_sha256=(
+            deployment_policy_sha
+        ),
+        deployment_profile_id=(
+            selected_profile.profile_id
+            if selected_profile is not None
+            else None
+        ),
         python_installer_path=python_installer_path,
     )
 
@@ -487,11 +577,67 @@ def _infer_model_root(inputs: VerifiedBundleInputs) -> Path:
 def _revalidate_assembly_boundary(
     inputs: VerifiedBundleInputs,
 ) -> Mapping[str, Path]:
-    if inputs.release_status not in {"qualification-candidate", "production"}:
-        raise OfflineBundleError("bundle_release_status_invalid")
+    if inputs.release_status not in {
+        "qualification-candidate",
+        "production",
+    }:
+        raise OfflineBundleError(
+            "bundle_release_status_invalid"
+        )
+
+    try:
+        profiles, policy_sha = (
+            load_deployment_profile_policy(
+                inputs.deployment_profile_policy_path
+            )
+        )
+    except DeploymentProfileError as exc:
+        raise OfflineBundleError(exc.code) from exc
+    if policy_sha != inputs.deployment_profile_policy_sha256:
+        raise OfflineBundleError(
+            "bundle_deployment_profile_policy_changed"
+        )
+
+    selected_profile: DeploymentProfile | None = None
+    verify_kwargs: dict[str, object] = {}
+    if inputs.deployment_profile_id is not None:
+        selected_profile = profiles.get(
+            inputs.deployment_profile_id
+        )
+        if selected_profile is None:
+            raise OfflineBundleError(
+                "bundle_deployment_profile_unknown"
+            )
+        if (
+            selected_profile.runtime_variant
+            != inputs.platform_variant
+        ):
+            raise OfflineBundleError(
+                "bundle_deployment_profile_variant_mismatch"
+            )
+    if (
+        inputs.release_status == "production"
+        and selected_profile is None
+    ):
+        raise OfflineBundleError(
+            "production_deployment_profile_required"
+        )
+    if (
+        inputs.release_status == "production"
+        and selected_profile is not None
+    ):
+        verify_kwargs = {
+            "required_profile":
+                selected_profile.profile_id,
+            "required_gates":
+                selected_profile.qualification_gates,
+            "required_runtime_variant":
+                selected_profile.runtime_variant,
+            "required_deployment_profile_policy_sha256":
+                policy_sha,
+        }
 
     model_root = _infer_model_root(inputs)
-    allow_unverified = inputs.release_status == "qualification-candidate"
     try:
         selection = verify_release_selection(
             model_root=model_root,
@@ -499,9 +645,15 @@ def _revalidate_assembly_boundary(
             profile_path=inputs.pipeline_profile_path,
             runtime_profile_path=inputs.runtime_profile_path,
             qualification_path=inputs.qualification_path,
-            allow_unverified=allow_unverified,
+            allow_unverified=(
+                inputs.release_status
+                == "qualification-candidate"
+            ),
+            **verify_kwargs,
         )
-        runtime_profile = load_runtime_profile(inputs.runtime_profile_path)
+        runtime_profile = load_runtime_profile(
+            inputs.runtime_profile_path
+        )
         verified_locks = verify_runtime_release_locks(
             inputs.runtime_profile_path,
             runtime_profile,
@@ -509,46 +661,93 @@ def _revalidate_assembly_boundary(
     except ReleaseMetadataError as exc:
         raise OfflineBundleError(exc.code) from exc
 
-    qualification = selection.qualification
-    if qualification is None:
-        raise OfflineBundleError("qualification_record_required")
-    all_gates_passed = all(
-        qualification.required_gates.get(gate) == "passed"
-        for gate in MANDATORY_QUALIFICATION_GATES
-    )
     validate_release_mode(
         inputs.release_status,
         verification_status=selection.verification_status,
-        runtime_qualification_status=selection.runtime_qualification_status,
-        qualification_overall_result=qualification.overall_result,
-        all_mandatory_gates_passed=all_gates_passed,
+        deployment_profile_id=inputs.deployment_profile_id,
     )
 
-    lock_path = verified_locks.get(inputs.platform_variant)
-    platform = selection.runtime_platform_variants.get(inputs.platform_variant)
+    lock_path = verified_locks.get(
+        inputs.platform_variant
+    )
+    platform = selection.runtime_platform_variants.get(
+        inputs.platform_variant
+    )
     if (
         lock_path is None
         or platform is None
         or platform.python_identity is None
         or selection.manifest.model_id != inputs.model_id
-        or selection.runtime_profile_id != inputs.runtime_profile_id
-        or platform.python_identity.version != inputs.python_version
-        or _absolute_path(lock_path) != _absolute_path(inputs.runtime_lock_path)
-        or _absolute_path(selection.checkpoint_path) != _absolute_path(inputs.checkpoint_path)
+        or selection.runtime_profile_id
+        != inputs.runtime_profile_id
+        or platform.python_identity.version
+        != inputs.python_version
+        or _absolute_path(lock_path)
+        != _absolute_path(inputs.runtime_lock_path)
+        or _absolute_path(selection.checkpoint_path)
+        != _absolute_path(inputs.checkpoint_path)
         or _absolute_path(selection.resolved_config_path)
         != _absolute_path(inputs.resolved_config_path)
-        or selection.manifest.checkpoint.sha256 != inputs.checkpoint_sha256
-        or selection.manifest.resolved_config.sha256 != inputs.resolved_config_sha256
+        or selection.manifest.checkpoint.sha256
+        != inputs.checkpoint_sha256
+        or selection.manifest.resolved_config.sha256
+        != inputs.resolved_config_sha256
     ):
-        raise OfflineBundleError("bundle_verified_inputs_mismatch")
+        raise OfflineBundleError(
+            "bundle_verified_inputs_mismatch"
+        )
 
     return verified_locks
 
 
 def _verify_bundled_release_selection(
     stage: Path,
-    release_status: str,
+    inputs: VerifiedBundleInputs,
 ) -> None:
+    staged_policy = (
+        stage
+        / "release"
+        / "config"
+        / "acceptance"
+        / "phase1-deployment-profiles-v1.json"
+    )
+    try:
+        profiles, policy_sha = (
+            load_deployment_profile_policy(staged_policy)
+        )
+    except DeploymentProfileError as exc:
+        raise OfflineBundleError(exc.code) from exc
+    if (
+        policy_sha
+        != inputs.deployment_profile_policy_sha256
+    ):
+        raise OfflineBundleError(
+            "bundle_staged_profile_policy_mismatch"
+        )
+
+    verify_kwargs: dict[str, object] = {}
+    if inputs.release_status == "production":
+        if inputs.deployment_profile_id is None:
+            raise OfflineBundleError(
+                "production_deployment_profile_required"
+            )
+        profile = profiles.get(
+            inputs.deployment_profile_id
+        )
+        if profile is None:
+            raise OfflineBundleError(
+                "bundle_deployment_profile_unknown"
+            )
+        verify_kwargs = {
+            "required_profile": profile.profile_id,
+            "required_gates":
+                profile.qualification_gates,
+            "required_runtime_variant":
+                profile.runtime_variant,
+            "required_deployment_profile_policy_sha256":
+                policy_sha,
+        }
+
     try:
         verify_release_selection(
             model_root=stage / "release" / "models",
@@ -580,7 +779,11 @@ def _verify_bundled_release_selection(
                 / "qualifications"
                 / "rtmdet-m-coco-phase1-v1.json"
             ),
-            allow_unverified=release_status == "qualification-candidate",
+            allow_unverified=(
+                inputs.release_status
+                == "qualification-candidate"
+            ),
+            **verify_kwargs,
         )
     except ReleaseMetadataError as exc:
         raise OfflineBundleError(exc.code) from exc
@@ -598,6 +801,10 @@ def build_offline_bundle(
     runtime_profile_path: Path,
     wheelhouse: Path,
     output: Path,
+    deployment_profile: str | None = None,
+    deployment_profile_policy_path: Path = (
+        CANONICAL_DEPLOYMENT_PROFILE_POLICY
+    ),
     python_installer_path: Path | None = None,
 ) -> BundleManifest:
     inputs = resolve_verified_bundle_inputs(
@@ -610,6 +817,10 @@ def build_offline_bundle(
         pipeline_profile_path=pipeline_profile_path,
         runtime_profile_path=runtime_profile_path,
         wheelhouse=wheelhouse,
+        deployment_profile=deployment_profile,
+        deployment_profile_policy_path=(
+            deployment_profile_policy_path
+        ),
         python_installer_path=python_installer_path,
     )
     return build_bundle_from_verified_inputs(inputs, output)
