@@ -201,6 +201,25 @@ def _normalize_completion_json_numbers(value, field_name: str | None = None):
     return value
 
 
+def _validate_completion_integer_wire_tree(
+    value: object,
+    field_name: str | None = None,
+) -> None:
+    if field_name in _COMPLETION_INT32_WIRE_NAMES:
+        _completion_int32(value)
+        return
+    if field_name in _COMPLETION_INT64_WIRE_NAMES:
+        _completion_int64(value)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_completion_integer_wire_tree(item)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            _validate_completion_integer_wire_tree(item, key)
+
+
 def _completion_integral(value: object, *, minimum: int, maximum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("completion integer must be a JSON number")
@@ -561,6 +580,15 @@ class VisionRuntimeProvenance(ControlPlaneModel):
 
 
 class VisionJobComplete(ControlPlaneModel):
+    @model_validator(mode="before")
+    @classmethod
+    def validate_completion_integer_wire_ranges(
+        cls,
+        value: object,
+    ) -> object:
+        _validate_completion_integer_wire_tree(value)
+        return value
+
     @classmethod
     def model_validate_json(cls, json_data, **kwargs):
         if isinstance(json_data, (bytes, bytearray)):
