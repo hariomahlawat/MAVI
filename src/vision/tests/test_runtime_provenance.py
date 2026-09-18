@@ -426,6 +426,9 @@ def test_cuda_provenance_requires_matching_gpu_identity() -> None:
         vram_bytes=12 * 1024**3,
         driver_version="580.1",
         cuda_runtime_version="12.4",
+        uuid="GPU-test-uuid",
+        pci_bus_id="00000000:01:00.0",
+        compute_capability="8.9",
     )
 
     provenance = build_runtime_provenance(
