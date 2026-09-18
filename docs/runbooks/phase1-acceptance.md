@@ -113,28 +113,29 @@ Candidate runs legitimately have platformLockSha256=null; the candidate bundle-m
 
 ## Runtime and disconnected qualification
 
-Required variants:
+Qualification is **deployment-profile scoped**. A release claims only the profile(s) for which complete evidence is retained:
 
-- windows-x86_64-cpu
-- windows-x86_64-cuda
-- linux-x86_64-cpu
-- linux-x86_64-cuda
+- **P1** -> `windows-x86_64-cuda`;
+- **P2** -> `linux-x86_64-cuda`;
+- **P3** -> `windows-x86_64-cpu`.
 
-Each variant qualification verifies all bundle hashes, source commit, full frozen hostCompatibility, exact CPython patch version, unavailable outbound Internet, clean venv, strict no-index/hash-only installation, pip check, real local RTMDet inference, required actual device and full worker-flow evidence for the same variant.
+The unused legacy `linux-x86_64-cpu` runtime may remain useful for hosted engineering checks, but it is not a Production profile in ADR-008 and is not required merely because another profile is qualified.
 
-Use tools/phase1/qualify_windows_offline.ps1 for Windows CPU+CUDA and tools/phase1/qualify_linux_offline.sh for Linux CPU+CUDA. Both wrappers require the frozen `config/acceptance/phase1-acceptance-v1.json`, the controlled qualification media/corpus, the MAVI API/media root, and the frozen MAVI build identity.
+Each selected-variant qualification verifies all bundle hashes, source commit, full frozen host compatibility, exact CPython patch version, unavailable outbound Internet, clean venv, strict no-index/hash-only installation, pip check, real local RTMDet inference, required actual device and full worker-flow evidence for the same profile/variant.
 
-The variant qualifier creates a clean venv, installs the exact bundle lock with no-index/hash-only semantics, and then launches `mavi_vision.worker.main` from that newly installed venv. While that exact worker process is alive it runs the public-API E2E harness and generates the worker-flow evidence itself. A previously generated/detached worker-evidence JSON is not accepted. Variant evidence retains the installed Python executable SHA-256, worker-command SHA-256, worker-log SHA-256, worker-flow evidence SHA-256, bundle/lock identities, host identity, device and MAVI build.
+Use `tools/phase1/qualify_windows_offline.ps1 -DeploymentProfile P1` for Windows CUDA or `-DeploymentProfile P3` for Windows CPU. Use `tools/phase1/qualify_linux_offline.sh` for P2 Linux CUDA. The wrappers require the frozen `config/acceptance/phase1-acceptance-v1.json`, controlled qualification media/corpus, MAVI API/media root and frozen MAVI build identity.
 
-A CPU run never substitutes for CUDA. A CUDA run that falls back to CPU fails.
+The variant qualifier creates a clean venv, installs the exact bundle lock with no-index/hash-only semantics, and launches `mavi_vision.worker.main` from that newly installed venv. For Production bundles the worker also receives the bundle's exact `MAVI_DEPLOYMENT_PROFILE` and embedded deployment-profile policy path. The worker independently rejects a profile/policy/runtime/device mismatch before processing. A previously generated or detached worker-evidence JSON is not accepted.
 
-The Windows/Linux offline-install aggregate records the exact SHA-256 of the CPU and CUDA variant evidence files from which it was assembled. Promotion independently re-hashes the four supplied platform-variant evidence objects and rejects any OS aggregate assembled from different evidence bytes, even when all objects are individually valid.
+A CPU run never substitutes for CUDA. A CUDA run that falls back to CPU fails. Evidence for P1, P2 and P3 is independent.
 
-## Linux NVIDIA recovery/performance
+The offline-install aggregate contains exactly the selected profile's variant evidence SHA-256. Promotion independently re-hashes that selected variant and binds the aggregate to the same deployment profile and deployment-profile policy SHA-256. Evidence from one profile cannot satisfy another profile's offline-install gate.
 
-Raw observations must be bound to the exact acceptance-profile hash and evaluated by tools/phase1/evaluate_recovery_performance.py.
+## Profile recovery/performance
 
-The evaluator refuses to pass until reviewed performance thresholds exist in the acceptance profile. Evidence must prove no Track-state leakage, bounded CUDA OOM recovery, no semantic fallback, watchdog containment, replacement runtime after recovery, no CUDA-to-CPU fallback, bounded soak-memory growth, measured processing FPS and measured p95 end-to-end latency.
+Raw observations must be bound to the exact acceptance-profile hash, deployment profile, deployment-profile policy SHA-256 and runtime variant, then evaluated by `tools/phase1/evaluate_recovery_performance.py`.
+
+The evaluator refuses to pass until reviewed performance thresholds exist in the acceptance profile. Every claimed profile must prove its performance/recovery envelope. CUDA profiles additionally require bounded CUDA OOM recovery and no CUDA-to-CPU fallback; the CPU profile does not manufacture CUDA-specific evidence.
 
 ## Backup and restore
 
@@ -152,7 +153,7 @@ Do not discard the underlying proof files after finalization. Final production a
 
 tools/phase1/verify_phase1_evidence.py performs schema and semantic validation on transferred evidence.
 
-`tools/phase1/assess_phase1_closure.py` is the final truth-state assessor. Before real-world evidence exists it must report `implementation-complete-evidence-pending`. Promotion alone is not closure: the assessor also requires the application manifest, four production variant evidence files, final production E2E and the independently assembled production-acceptance record. It re-hashes the underlying files and compares them to that record before allowing `release-verified`. Use `--require-complete` only when expecting final production acceptance.
+`tools/phase1/assess_phase1_closure.py` is the final truth-state assessor. Before real-world evidence exists it must report `implementation-complete-evidence-pending`. Promotion alone is not closure: for the selected deployment profile the assessor also requires the application manifest, exact profile variant/offline evidence, profile performance/recovery evidence, final Production E2E, failure/reprocess, lifecycle/update, backup/restore and the independently assembled Production-acceptance record. It re-hashes the underlying files against the **selected profile's own immutable evidence map**, not the legacy top-level evidence map, before allowing `release-verified`. Use `--require-complete` only when expecting final Production acceptance.
 
 The assessor must never be weakened merely to remove a pending item.
 
