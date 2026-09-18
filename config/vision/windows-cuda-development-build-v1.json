@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "mavi-windows-cuda-development-build-v1",
+  "status": "pre-c2-toolchain-verification-required",
+  "platformVariant": "windows-x86_64-cuda",
+  "pythonVersion": "3.12.10",
+  "torchBinaryVersion": "2.6.0+cu124",
+  "torchvisionBinaryVersion": "0.21.0+cu124",
+  "pytorchIndex": "https://download.pytorch.org/whl/cu124",
+  "cudaRuntimeFamily": "12.4",
+  "targetGpu": {
+    "computeCapability": "7.5",
+    "architecture": "sm75",
+    "torchCudaArchList": "7.5+PTX"
+  },
+  "mmcv": {
+    "version": "2.1.0",
+    "sourceRepository": "https://github.com/open-mmlab/mmcv.git",
+    "sourceCommit": "57c4e25e06e2d4f8a9357c84bcd24089a284dc88",
+    "buildEnvironment": {
+      "MMCV_WITH_OPS": "1",
+      "FORCE_CUDA": "1",
+      "TORCH_CUDA_ARCH_LIST": "7.5+PTX",
+      "MAX_JOBS": "2"
+    }
+  },
+  "toolchain": {
+    "cudaToolkitVersion": "12.4",
+    "msvcToolset": null,
+    "windowsSdkVersion": null,
+    "verificationStatus": "pending-r1-preflight",
+    "rule": "No Windows CUDA lock or Runtime Pack may be frozen until nvcc successfully compiles a trivial .cu file with the selected MSVC toolset and Windows SDK."
+  },
+  "buildHost": {
+    "policy": "controlled-windows-build-host",
+    "authoritativeBuildLocation": "controlled CI/build host after toolchain freeze",
+    "developmentLaptopRole": "hardware validation and C4/C6 execution; not the authoritative C2 wheel build host",
+    "gpuRequiredForBuild": false
+  },
+  "runtimePolicy": {
+    "cudaToolkitRequiredAtRuntime": false,
+    "compilerRequiredAtRuntime": false,
+    "inductorEnabled": false,
+    "explicitCudaMayFallbackToCpu": false
+  }
+}
