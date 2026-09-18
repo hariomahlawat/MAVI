@@ -103,6 +103,49 @@ A change to semantic versions requires an explicit compatibility review rather t
 
 The final MSVC/Windows SDK native ABI identity remains intentionally unfrozen until C2 observes the actual native build/validation toolchain.
 
+## Phase C1R — external review remediation — IN PROGRESS
+
+Claude's independent cold review of PR #48 concluded:
+
+`C1 ACCEPTABLE WITH REQUIRED CORRECTIONS BEFORE C2`
+
+Accepted pre-C2 corrections are now binding. C2 is **not authorized** until C1R closes.
+
+### C1R implemented controls
+
+- host observation upgraded to schema v2 with compute capability, PCI bus ID, free/used VRAM, driver/display state and sanitized stdout;
+- checked-in schema is validated by tests;
+- dedicated build contract added at `config/vision/windows-cuda-development-build-v1.json`;
+- dedicated CUDA acquisition/offline prerequisite policy recorded;
+- CPU Torch cannot be frozen into a CUDA-labelled lock/pack;
+- CUDA Torch local versions are semantically compatible with the base runtime graph without weakening exact binary checks;
+- CUDA Runtime Pack native ABI must include CUDA family and target architecture;
+- Development CUDA may use `qualified-development-hardware`, which Production profiles explicitly reject;
+- physical GPU provenance includes UUID, PCI bus ID and compute capability;
+- `CUDA_DEVICE_ORDER=PCI_BUS_ID` is enforced before worker CUDA imports;
+- Development `Auto` performs a non-executing installed-state preflight before probing the CUDA runtime and emits a stable selection/fallback reason.
+
+ADR-009 governs Development-vs-Production qualification separation.
+
+### C1R remaining external observations
+
+The following cannot be truthfully frozen from repository code alone and remain required before C2:
+
+1. **R1 toolchain preflight:** CUDA Toolkit 12.4 must compile a trivial `.cu` file with the selected MSVC toolset/Windows SDK. The repository must not assume 14.39 or retain 14.44 without this proof.
+2. **Real v2 host observation:** rerun the host probe so compute capability, PCI identity and memory availability are directly observed rather than inferred from the GPU model.
+3. **Torch cu124 wheel inspection:** confirm Windows wheel metadata/dependency markers and enumerate/hash the CUDA DLL inventory.
+4. **MMCV reproducibility experiment:** build the CUDA MMCV wheel twice from a clean controlled build environment before C3; if byte reproducibility is not achievable, an ADR must define a controlled hash-pinned binary-input model.
+
+### Gate C1R
+
+C1R passes only when:
+
+- the exact CUDA 12.4 + MSVC + SDK toolchain is empirically frozen;
+- the build contract is updated from `pending-r1-preflight`;
+- the real v2 host observation is reviewed;
+- hosted CI is green;
+- no Windows CPU lock/Runtime Pack bytes changed.
+
 ## Phase C2 — reproducible Windows CUDA wheelhouse and lock
 
 Build the CUDA wheelhouse as a separate closure.
@@ -118,6 +161,15 @@ Required properties:
 - no network dependency during installation.
 
 MMCV must be built/selected against the exact Torch/CUDA ABI and cannot silently degrade to CPU-only native ops.
+
+The C2 build environment must set:
+
+- `MMCV_WITH_OPS=1`;
+- `FORCE_CUDA=1`;
+- `TORCH_CUDA_ARCH_LIST=7.5+PTX`;
+- the exact toolchain frozen by R1.
+
+The authoritative C2 wheel build occurs on a controlled Windows build host. The Development laptop is the C4/C6 hardware-execution target, not the authoritative wheel build host.
 
 ### Gate C2
 
@@ -140,7 +192,9 @@ Freeze:
 
 ### Gate C3
 
-Runtime Pack reproduction from the same inputs must produce the same content identity. Existing Windows CPU Runtime Pack checks must remain green.
+Runtime Pack reproduction from the same inputs must produce the same content identity. The CUDA MMCV wheel must first be rebuilt twice from clean inputs and compared byte-for-byte. If native CUDA compilation proves irreducibly non-deterministic, stop and adopt a reviewed ADR that treats the MMCV CUDA wheel as a controlled, archived, hash-pinned binary input rather than silently weakening this gate.
+
+Existing Windows CPU Runtime Pack checks must remain green.
 
 ## Phase C4 — hardware runtime qualification
 
@@ -157,7 +211,9 @@ On the laptop, prove the exact C3 pack:
 
 ### Gate C4
 
-Only after this passes may runtime metadata change `windows-x86_64-cuda` from pending to an engineering-qualified hardware state.
+Only after this passes may runtime metadata change `windows-x86_64-cuda` from pending to `qualified-development-hardware` with the ADR-009 Development evidence shape.
+
+This state must remain unacceptable to P1/P2 Production qualification.
 
 ## Phase C5 — Application Overlay binding
 
@@ -193,6 +249,18 @@ Prove:
 
 Capture CPU vs CUDA elapsed time/FPS for engineering characterization only; do not freeze Production thresholds from this comparison.
 
+Also capture:
+
+- `torch.cuda.max_memory_allocated()`;
+- `torch.cuda.max_memory_reserved()`;
+- `nvidia-smi` free/used memory before, during and after the run;
+- `torch.cuda.get_arch_list()`;
+- `torch.version.cuda`;
+- host RAM peak;
+- one deliberate, bounded CUDA OOM/recovery exercise.
+
+The CUDA run must prove on-device MMCV native ops, for example CUDA-tensor NMS, before RTMDet E2E evidence is accepted.
+
 ## Phase C7 — failure and recovery
 
 Exercise:
@@ -222,8 +290,10 @@ Merge the milestone back to `main` promptly rather than allowing another long-li
 
 ## Current execution point
 
-C0 and C1 are complete. The next implementation phase is **C2 — reproducible Windows CUDA wheelhouse and lock**.
+C0 and the semantic C1 candidate are complete, but Claude's independent review inserted a mandatory **C1R remediation gate**.
 
-C2 must not mutate the existing Windows CPU lock or Runtime Pack. The first implementation task is to define the exact CUDA wheel acquisition/build inputs and produce a clean, hash-locked third-party closure for the frozen C1 candidate.
+Repository-side C1R remediation is being implemented now. **Do not begin C2 wheel acquisition or freeze a CUDA lock until R1 toolchain preflight and the fresh v2 host observation are reviewed.**
+
+The existing Windows CPU lock and Runtime Pack must remain byte-for-byte unchanged.
 
 The raw host observation remains local engineering evidence and should not be committed because it contains workstation-specific GPU identity.
