@@ -11,9 +11,10 @@
       "performanceGate": null,
       "requiredPrerequisiteRoles": [
         "windows-operational-plane",
-        "database"
+        "database",
+        "windows-cuda-vision-worker"
       ],
-      "visionHostRole": "windows-operational-plane",
+      "visionHostRole": "windows-cuda-vision-worker",
       "requiresCuda": true
     },
     "P2": {
@@ -42,9 +43,10 @@
       "performanceGate": null,
       "requiredPrerequisiteRoles": [
         "windows-operational-plane",
-        "database"
+        "database",
+        "windows-cpu-vision-worker"
       ],
-      "visionHostRole": "windows-operational-plane",
+      "visionHostRole": "windows-cpu-vision-worker",
       "requiresCuda": false
     }
   }
