@@ -176,6 +176,33 @@ def _load_runtime_inputs(
     return lock, projection, records
 
 
+def _validate_native_abi_for_variant(
+    native_abi: str,
+    platform_variant: str,
+) -> None:
+    _validate_native_abi_for_variant(
+        native_abi,
+        platform_variant,
+    )
+    has_cuda_identity = re.search(
+        r"(?:^|-)cuda\d+(?:\.\d+)?(?:-|$)",
+        native_abi,
+    ) is not None
+    has_arch_identity = re.search(
+        r"(?:^|-)sm\d+(?:-|$)",
+        native_abi,
+    ) is not None
+    if platform_variant.endswith("-cuda"):
+        if not has_cuda_identity or not has_arch_identity:
+            raise RuntimePackError(
+                "runtime_pack_cuda_native_abi_incomplete"
+            )
+    elif has_cuda_identity or has_arch_identity:
+        raise RuntimePackError(
+            "runtime_pack_cpu_native_abi_contains_cuda"
+        )
+
+
 def build_runtime_pack(
     *,
     wheelhouse: Path,
