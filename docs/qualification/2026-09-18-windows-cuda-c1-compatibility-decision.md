@@ -3,7 +3,7 @@
 **Date:** 2026-09-18  
 **Branch:** `feature/windows-cuda-development`  
 **Base:** `main@9b0b88f5c9d20ddfa8c4e835e454d24c69921b84`  
-**Status:** **ACCEPTED FOR ENGINEERING VALIDATION**  
+**Status:** **ACCEPTED WITH REQUIRED PRE-C2 REMEDIATION**  
 **Scope:** Development Windows-CUDA only; not P1 Production acceptance.
 
 ## Purpose
@@ -12,7 +12,9 @@ Freeze the first Windows-CUDA engineering candidate after reviewing the actual d
 
 `tools/vision/probe_windows_cuda_host.py`
 
-This decision authorizes C2 wheelhouse/lock engineering against one reviewed candidate graph. It does **not** declare the graph qualified, does not update the Application Overlay, and does not change any Production-support status.
+This decision freezes the semantic candidate graph but does **not** authorize C2 until the C1R external-review remediation gate passes. It does **not** declare the graph qualified, does not update the Application Overlay, and does not change any Production-support status.
+
+Claude's independent PR #48 review accepted the version graph but identified required corrections around MMCV CUDA build behavior, accelerator-labelled locks, Development-vs-Production qualification state, GPU identity, dependency governance, host observation completeness and native toolchain verification. Those corrections are incorporated into the implementation plan and ADR-009.
 
 ## Sanitized C0 observation
 
@@ -118,15 +120,15 @@ A failed C2/C4 experiment may justify a new candidate, but the failed candidate 
 
 ## C1 gate decision
 
-**C1 is complete for engineering planning.**
+**C1 semantic-stack selection is complete. C2 remains blocked by C1R.**
 
-Authorized next work:
+Authorized next work before C2:
 
-1. build the isolated Windows-CUDA wheelhouse;
-2. produce the deterministic `windows-x86_64-cuda.lock`;
-3. produce the deterministic runtime-requirements projection;
-4. prove MMCV/Torch/CUDA compatibility;
-5. keep the existing Windows CPU lock and Runtime Pack byte-for-byte untouched.
+1. rerun the v2 Windows CUDA host observation;
+2. empirically freeze the CUDA 12.4 + MSVC + Windows SDK build toolchain;
+3. inspect the actual torch cu124 Windows wheel metadata and DLL inventory;
+4. verify the MMCV CUDA native-op build/reproducibility strategy;
+5. complete hosted regression tests while keeping the Windows CPU lock and Runtime Pack byte-for-byte untouched.
 
 Not authorized yet:
 
