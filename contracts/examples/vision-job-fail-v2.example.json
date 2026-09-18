@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "2.0",
+  "workerId": "gpu-sdd-01",
+  "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "failureCode": "vision_dummy_not_implemented",
+  "failureMessage": "optional bounded diagnostic"
+}

@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/profile-recovery-performance-evidence-v2.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sourceCommit",
+    "targetVerifiedManifestSha256",
+    "acceptanceProfileSha256",
+    "maviBuild",
+    "deploymentProfile",
+    "deploymentProfilePolicySha256",
+    "runtimeVariant",
+    "actualDevice",
+    "noTrackStateLeakAcrossVideos",
+    "noSemanticFallback",
+    "watchdogContainmentPassed",
+    "replacementRuntimeUsedAfterRecovery",
+    "boundedCudaOomRecovery",
+    "noCudaToCpuFallback",
+    "memorySamplesBytes",
+    "memoryGrowthBytes",
+    "processingFps",
+    "p95EndToEndLatencyMs",
+    "thresholds",
+    "result"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "mavi-profile-recovery-performance-evidence-v2"
+    },
+    "sourceCommit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "targetVerifiedManifestSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "acceptanceProfileSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "maviBuild": {
+      "type": "string",
+      "minLength": 1
+    },
+    "deploymentProfile": {
+      "enum": ["P1", "P2", "P3"]
+    },
+    "deploymentProfilePolicySha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "runtimeVariant": {
+      "enum": [
+        "windows-x86_64-cpu",
+        "windows-x86_64-cuda",
+        "linux-x86_64-cpu",
+        "linux-x86_64-cuda"
+      ]
+    },
+    "actualDevice": {
+      "type": "string",
+      "minLength": 1
+    },
+    "noTrackStateLeakAcrossVideos": {
+      "const": true
+    },
+    "noSemanticFallback": {
+      "const": true
+    },
+    "watchdogContainmentPassed": {
+      "const": true
+    },
+    "replacementRuntimeUsedAfterRecovery": {
+      "const": true
+    },
+    "boundedCudaOomRecovery": {
+      "type": ["boolean", "null"]
+    },
+    "noCudaToCpuFallback": {
+      "type": ["boolean", "null"]
+    },
+    "memorySamplesBytes": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "memoryGrowthBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "processingFps": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "p95EndToEndLatencyMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimumProcessingFps",
+        "maximumP95LatencyMs",
+        "maximumSoakGrowthBytes"
+      ],
+      "properties": {
+        "minimumProcessingFps": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximumP95LatencyMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximumSoakGrowthBytes": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failureCodes"],
+      "properties": {
+        "passed": {
+          "const": true
+        },
+        "failureCodes": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

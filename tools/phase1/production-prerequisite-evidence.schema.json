@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/production-prerequisite-evidence-v2.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "acceptanceExecutionId",
+    "acceptanceContextSha256",
+    "sourceCommit",
+    "maviBuild",
+    "deploymentProfile",
+    "deploymentProfilePolicySha256",
+    "policySha256",
+    "observationSha256",
+    "topologyIdentities",
+    "values",
+    "result"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "mavi-production-prerequisite-evidence-v2"
+    },
+    "acceptanceExecutionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "acceptanceContextSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sourceCommit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "maviBuild": {
+      "type": "string",
+      "minLength": 1
+    },
+    "deploymentProfile": {
+      "enum": ["P1", "P2", "P3"]
+    },
+    "deploymentProfilePolicySha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "policySha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "observationSha256": {
+      "$ref": "#/$defs/roleShaMap"
+    },
+    "topologyIdentities": {
+      "$ref": "#/$defs/roleShaMap"
+    },
+    "values": {
+      "type": "object",
+      "minProperties": 2,
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failureCodes"],
+      "properties": {
+        "passed": {
+          "const": true
+        },
+        "failureCodes": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "roleShaMap": {
+      "type": "object",
+      "minProperties": 2,
+      "additionalProperties": {
+        "$ref": "#/$defs/sha256"
+      }
+    }
+  }
+}

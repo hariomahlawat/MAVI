@@ -1,0 +1,147 @@
+using Mavi.Domain.Common;
+
+namespace Mavi.Domain.Processing;
+
+public sealed class ProcessingRun
+{
+    private ProcessingRun() { }
+
+    public static ProcessingRun Create(Guid videoAssetId, string pipelineVersion, string configurationJson, DateTimeOffset nowUtc)
+    {
+        if (videoAssetId == Guid.Empty) throw Invalid("processing_video_required");
+        if (string.IsNullOrWhiteSpace(pipelineVersion) || pipelineVersion.Trim().Length > 64) throw Invalid("processing_pipeline_invalid");
+        if (string.IsNullOrWhiteSpace(configurationJson)) throw Invalid("processing_configuration_required");
+        return new ProcessingRun
+        {
+            Id = Guid.CreateVersion7(),
+            VideoAssetId = videoAssetId,
+            Status = ProcessingRunStatus.Queued,
+            PipelineVersion = pipelineVersion.Trim(),
+            ConfigurationJson = configurationJson,
+            QueuedAtUtc = nowUtc.ToUniversalTime(),
+        };
+    }
+
+    public void MarkRunning(string workerId, DateTimeOffset startedAtUtc)
+    {
+        if (Status != ProcessingRunStatus.Queued || !WorkerIdRules.IsCanonical(workerId)) throw Invalid("processing_transition_invalid");
+        Status = ProcessingRunStatus.Running;
+        WorkerId = workerId;
+        StartedAtUtc = startedAtUtc.ToUniversalTime();
+    }
+
+    public void AssignLease(string workerId, DateTimeOffset nowUtc)
+    {
+        if (!WorkerIdRules.IsCanonical(workerId) ||
+            Status is ProcessingRunStatus.Completed or ProcessingRunStatus.Failed or ProcessingRunStatus.Cancelled)
+            throw Invalid("processing_transition_invalid");
+        if (Status == ProcessingRunStatus.Queued)
+        {
+            Status = ProcessingRunStatus.Running;
+            StartedAtUtc = nowUtc.ToUniversalTime();
+        }
+        WorkerId = workerId;
+    }
+
+    public void MarkCompleted(long framesProcessed, int tracksCreated, long durationMs, DateTimeOffset completedAtUtc) =>
+        MarkCompletedCore(framesProcessed, tracksCreated, durationMs, null, null, null, null, null, completedAtUtc);
+
+    public void MarkCompleted(
+        long framesProcessed,
+        int tracksCreated,
+        long durationMs,
+        string detectorName,
+        string detectorVersion,
+        string trackerName,
+        string trackerVersion,
+        string runtimeProvenanceJson,
+        DateTimeOffset completedAtUtc)
+    {
+        if (!ValidIdentity(detectorName) || !ValidIdentity(detectorVersion) ||
+            !ValidIdentity(trackerName) || !ValidIdentity(trackerVersion) ||
+            string.IsNullOrWhiteSpace(runtimeProvenanceJson))
+            throw Invalid("processing_provenance_invalid");
+
+        MarkCompletedCore(
+            framesProcessed,
+            tracksCreated,
+            durationMs,
+            detectorName.Trim(),
+            detectorVersion.Trim(),
+            trackerName.Trim(),
+            trackerVersion.Trim(),
+            runtimeProvenanceJson,
+            completedAtUtc);
+    }
+
+    private void MarkCompletedCore(
+        long framesProcessed,
+        int tracksCreated,
+        long durationMs,
+        string? detectorName,
+        string? detectorVersion,
+        string? trackerName,
+        string? trackerVersion,
+        string? runtimeProvenanceJson,
+        DateTimeOffset completedAtUtc)
+    {
+        if (Status != ProcessingRunStatus.Running || framesProcessed < 0 || tracksCreated < 0 || durationMs < 0)
+            throw Invalid("processing_transition_invalid");
+
+        Status = ProcessingRunStatus.Completed;
+        FramesProcessed = framesProcessed;
+        TracksCreated = tracksCreated;
+        ProcessingDurationMs = durationMs;
+        DetectorName = detectorName;
+        DetectorVersion = detectorVersion;
+        TrackerName = trackerName;
+        TrackerVersion = trackerVersion;
+        RuntimeProvenanceJson = runtimeProvenanceJson;
+        CompletedAtUtc = completedAtUtc.ToUniversalTime();
+    }
+
+    public void AssignCompletionVisibilitySequence(long visibilitySequence)
+    {
+        if (Status != ProcessingRunStatus.Completed ||
+            VisibilitySequence is not null ||
+            visibilitySequence <= 0)
+            throw Invalid("processing_visibility_sequence_invalid");
+
+        VisibilitySequence = visibilitySequence;
+    }
+
+    public void MarkFailed(string errorCode, string? details, DateTimeOffset failedAtUtc)
+    {
+        if (Status is ProcessingRunStatus.Completed or ProcessingRunStatus.Cancelled || string.IsNullOrWhiteSpace(errorCode))
+            throw Invalid("processing_transition_invalid");
+        if (errorCode.Length > 64 || details?.Length > 4000) throw Invalid("processing_failure_invalid");
+        Status = ProcessingRunStatus.Failed;
+        ErrorCode = errorCode;
+        ErrorDetails = details;
+        CompletedAtUtc = failedAtUtc.ToUniversalTime();
+    }
+
+    public Guid Id { get; private set; }
+    public Guid VideoAssetId { get; private set; }
+    public ProcessingRunStatus Status { get; private set; }
+    public string PipelineVersion { get; private set; } = string.Empty;
+    public string? DetectorName { get; private set; }
+    public string? DetectorVersion { get; private set; }
+    public string? TrackerName { get; private set; }
+    public string? TrackerVersion { get; private set; }
+    public string ConfigurationJson { get; private set; } = string.Empty;
+    public string? RuntimeProvenanceJson { get; private set; }
+    public string? WorkerId { get; private set; }
+    public DateTimeOffset QueuedAtUtc { get; private set; }
+    public DateTimeOffset? StartedAtUtc { get; private set; }
+    public DateTimeOffset? CompletedAtUtc { get; private set; }
+    public long? VisibilitySequence { get; private set; }
+    public long FramesProcessed { get; private set; }
+    public int TracksCreated { get; private set; }
+    public long? ProcessingDurationMs { get; private set; }
+    public string? ErrorCode { get; private set; }
+    public string? ErrorDetails { get; private set; }
+
+    private static bool ValidIdentity(string value) => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= 128;
+    private static DomainValidationException Invalid(string code) => new(code, "The processing run operation is invalid.");
+}

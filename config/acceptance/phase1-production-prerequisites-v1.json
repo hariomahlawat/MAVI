@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "mavi-phase1-production-prerequisite-policy-v1",
+  "approvalStatus": "pending",
+  "windowsOperationalPlane": {
+    "windowsProductName": null,
+    "windowsVersion": null,
+    "windowsBuild": null,
+    "architecture": "AMD64",
+    "iisVersion": null,
+    "dotnetRuntimeVersion": null
+  },
+  "database": {
+    "postgresVersion": null,
+    "pgvectorVersion": null
+  },
+  "linuxVisionWorker": {
+    "distribution": null,
+    "release": null,
+    "architecture": "x86_64",
+    "pythonVersion": null,
+    "pythonImplementation": "CPython",
+    "nvidiaDriverVersion": null,
+    "cudaRuntimeVersion": null
+  },
+  "windowsCudaVisionWorker": {
+    "architecture": "AMD64",
+    "pythonVersion": null,
+    "pythonImplementation": "CPython",
+    "nvidiaDriverVersion": null,
+    "cudaRuntimeVersion": null
+  },
+  "windowsCpuVisionWorker": {
+    "architecture": "AMD64",
+    "pythonVersion": null,
+    "pythonImplementation": "CPython"
+  }
+}

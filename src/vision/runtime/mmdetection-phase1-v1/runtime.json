@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0",
+  "runtimeProfileId": "mmdetection-phase1-v1",
+  "qualificationStatus": "partial",
+  "pythonMinor": "3.12",
+  "semanticGraph": {
+    "torch": "2.6.0",
+    "torchvision": "0.21.0",
+    "mmcv": "2.1.0",
+    "mmengine": "0.10.7",
+    "mmdet": "3.3.0",
+    "trackers": "2.6.0",
+    "supervision": "0.30.2",
+    "scipy": "1.18.1",
+    "numpy": "2.5.3",
+    "opencv": "5.0.0",
+    "av": "16.1.0",
+    "opencvPython": "5.0.0.93",
+    "pillow": "11.3.0"
+  },
+  "checkpoint": {
+    "publisher": "OpenMMLab",
+    "artifact": "rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth",
+    "sha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b"
+  },
+  "platformVariants": {
+    "linux-x86_64-cpu": {
+      "status": "qualified-hosted-cpu",
+      "workflowRunId": "34630472797",
+      "jobId": "103365765296",
+      "evidenceHeadSha": "6aac1566e4d8118e394341bd1a2feabc5f642955",
+      "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+      "pythonIdentity": {
+        "version": "3.12.14",
+        "implementation": "CPython",
+        "build": [
+          "main",
+          "Aug 13 2026 02:47:42"
+        ],
+        "compiler": "GCC 13.3.0"
+      },
+      "binaryVersions": {
+        "torch": "2.6.0+cpu",
+        "torchvision": "0.21.0+cpu"
+      }
+    },
+    "windows-x86_64-cpu": {
+      "status": "qualified-hosted-cpu",
+      "workflowRunId": "34630472797",
+      "jobId": "103365765642",
+      "evidenceHeadSha": "6aac1566e4d8118e394341bd1a2feabc5f642955",
+      "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+      "pythonIdentity": {
+        "version": "3.12.10",
+        "implementation": "CPython",
+        "build": [
+          "tags/v3.12.10:0cc8128",
+          "Apr  8 2025 12:21:36"
+        ],
+        "compiler": "MSC v.1943 64 bit (AMD64)"
+      },
+      "binaryVersions": {
+        "torch": "2.6.0+cpu",
+        "torchvision": "0.21.0+cpu"
+      }
+    },
+    "linux-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    },
+    "windows-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    }
+  },
+  "releaseLocks": {
+    "linux-x86_64-cpu": {
+      "status": "qualified-offline-lock",
+      "artifact": "linux-x86_64-cpu.lock",
+      "sha256": "b1d0970df273538feceff678bb27a3722140c7c3c7317aadfbf83a88103b3a6b"
+    },
+    "windows-x86_64-cpu": {
+      "status": "qualified-offline-lock",
+      "artifact": "windows-x86_64-cpu.lock",
+      "sha256": "66517c8ff1de06d30093b497cbc1eddbeb6f0a879c920849b8a2f91eafaebb33"
+    },
+    "linux-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    },
+    "windows-x86_64-cuda": {
+      "status": "pending-hardware-qualification"
+    }
+  },
+  "resolvedConfig": {
+    "artifact": "rtmdet_m_resolved.py",
+    "sha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+    "format": "python",
+    "encoding": "utf-8",
+    "lineEndings": "lf",
+    "selfContained": true
+  }
+}

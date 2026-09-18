@@ -1,0 +1,675 @@
+import asyncio
+import json
+import logging
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+from mavi_vision.common.analytical import VisionProcessingResult
+from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
+from mavi_vision.common.lease import LeaseGuard, LeaseLostError
+from mavi_vision.pipeline.process_video import VideoProcessingError
+from mavi_vision.runtime.errors import (
+    GpuOutOfMemoryError,
+    GpuRuntimeError,
+    InferenceContractError,
+    ProcessingDependencyError,
+    RuntimeDisposition,
+    TrackerError,
+)
+from mavi_vision.runtime.progress import ProcessingProgressSink
+from mavi_vision.storage.integrity import SourceIntegrityError
+from mavi_vision.storage.local_media_store import LocalMediaStore
+from mavi_vision.worker.client import WorkerApiError
+from mavi_vision.worker.runner import WorkerRunner
+
+
+ROOT = Path(__file__).resolve().parents[3]
+EXAMPLE = ROOT / "contracts/examples/vision-job-lease-v2.example.json"
+PROVENANCE_SENTINEL = object()
+
+
+# Test doubles
+class FakeWorkerApiClient:
+    def __init__(self, leased_job: VisionJobLease | None) -> None:
+        self.leased_job = leased_job
+        self.heartbeats: list[float] = []
+        self.failures: list[tuple[str, str | None]] = []
+        self.completions: list[tuple[VisionProcessingResult, int, object]] = []
+        self.events: list[str] = []
+
+    async def lease(self) -> VisionJobLease | None:
+        self.events.append("lease")
+        return self.leased_job
+
+    async def heartbeat(
+        self, lease: VisionJobLease, progress_percent: float
+    ) -> VisionJobHeartbeatResponse:
+        self.events.append("heartbeat")
+        self.heartbeats.append(progress_percent)
+        return VisionJobHeartbeatResponse(
+            schemaVersion="2.0",
+            progressPercent=progress_percent,
+            leaseExpiresAtUtc=datetime(2099, 9, 9, 3, 0, tzinfo=timezone.utc),
+        )
+
+    async def fail(
+        self,
+        lease: VisionJobLease,
+        failure_code: str,
+        failure_message: str | None = None,
+    ) -> None:
+        self.events.append(f"fail:{failure_code}")
+        self.failures.append((failure_code, failure_message))
+
+    async def complete(
+        self,
+        lease: VisionJobLease,
+        result: VisionProcessingResult,
+        processing_duration_ms: int,
+        provenance: object,
+        *,
+        authorize_publish=None,
+    ) -> object:
+        if authorize_publish is not None:
+            authorize_publish()
+        self.events.append("complete")
+        self.completions.append((result, processing_duration_ms, provenance))
+        return object()
+
+
+class FailingTerminalWorkerApiClient(FakeWorkerApiClient):
+    async def fail(
+        self,
+        lease: VisionJobLease,
+        failure_code: str,
+        failure_message: str | None = None,
+    ) -> None:
+        self.events.append(f"fail:{failure_code}")
+        self.failures.append((failure_code, failure_message))
+        raise WorkerApiError("worker API request failed")
+
+
+class FailingCompletionWorkerApiClient(FakeWorkerApiClient):
+    async def complete(
+        self,
+        lease: VisionJobLease,
+        result: VisionProcessingResult,
+        processing_duration_ms: int,
+        provenance: object,
+        *,
+        authorize_publish=None,
+    ) -> object:
+        if authorize_publish is not None:
+            authorize_publish()
+        self.events.append("complete")
+        self.completions.append((result, processing_duration_ms, provenance))
+        raise WorkerApiError("worker API request failed")
+
+
+class ExpiringAtCompletionPublicationApi(FakeWorkerApiClient):
+    async def heartbeat(
+        self, lease: VisionJobLease, progress_percent: float
+    ) -> VisionJobHeartbeatResponse:
+        self.events.append("heartbeat")
+        self.heartbeats.append(progress_percent)
+        return VisionJobHeartbeatResponse(
+            schemaVersion="2.0",
+            progressPercent=progress_percent,
+            leaseExpiresAtUtc=datetime.now(timezone.utc) + timedelta(seconds=0.03),
+        )
+
+    async def complete(
+        self,
+        lease: VisionJobLease,
+        result: VisionProcessingResult,
+        processing_duration_ms: int,
+        provenance: object,
+        *,
+        authorize_publish=None,
+    ) -> object:
+        await asyncio.sleep(0.05)
+        if authorize_publish is not None:
+            authorize_publish()
+        self.events.append("complete")
+        self.completions.append((result, processing_duration_ms, provenance))
+        return object()
+
+
+class FailingHeartbeatWorkerApiClient(FakeWorkerApiClient):
+    async def heartbeat(
+        self, lease: VisionJobLease, progress_percent: float
+    ) -> VisionJobHeartbeatResponse:
+        self.events.append("heartbeat")
+        self.heartbeats.append(progress_percent)
+        raise WorkerApiError("worker API request failed")
+
+
+class BackoffProbeWorkerApiClient(FailingHeartbeatWorkerApiClient):
+    def __init__(self, leased_job: VisionJobLease) -> None:
+        super().__init__(leased_job)
+        self.lease_calls = 0
+
+    async def lease(self) -> VisionJobLease | None:
+        self.lease_calls += 1
+        self.events.append("lease")
+        if self.lease_calls == 1:
+            return self.leased_job
+        raise RuntimeError("stop polling probe")
+
+
+class ExplodingMediaStore:
+    def resolve_file(self, storage_key: str) -> Path:
+        raise RuntimeError(f"secret path and token: {storage_key}")
+
+
+class RecordingProcessor:
+    def __init__(self, result: VisionProcessingResult | None = None, error: Exception | None = None) -> None:
+        self.result = result
+        self.error = error
+        self.calls: list[dict[str, object]] = []
+        self.events: list[str] = []
+
+    def process(
+        self,
+        *,
+        job_id,
+        attempt_count: int,
+        source_path: Path,
+        expected_source_size_bytes: int,
+        expected_source_sha256: str,
+        lease_guard: LeaseGuard,
+        progress_sink: ProcessingProgressSink | None = None,
+    ) -> VisionProcessingResult:
+        self.events.append("process")
+        self.calls.append(
+            {
+                "job_id": job_id,
+                "attempt_count": attempt_count,
+                "source_path": source_path,
+                "expected_source_size_bytes": expected_source_size_bytes,
+                "expected_source_sha256": expected_source_sha256,
+                "lease_guard": lease_guard,
+                "progress_sink": progress_sink,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None
+        return self.result
+
+
+# Test helpers
+def make_lease(storage_key: str = "videos/input.mp4") -> VisionJobLease:
+    payload = json.loads(EXAMPLE.read_text())
+    payload["sourceStorageKey"] = storage_key
+    return VisionJobLease.model_validate_json(json.dumps(payload))
+
+
+def make_result(lease: VisionJobLease) -> VisionProcessingResult:
+    return VisionProcessingResult(job_id=lease.job_id, frames_processed=1, tracks=())
+
+
+# Worker iterations
+def test_no_work_iteration_returns_false_without_lifecycle_calls(tmp_path: Path) -> None:
+    client = FakeWorkerApiClient(None)
+    processor = RecordingProcessor(VisionProcessingResult(job_id=make_lease().job_id, frames_processed=0, tracks=()))
+    result = asyncio.run(
+        WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+    )
+    assert result is False
+    assert client.heartbeats == []
+    assert client.failures == []
+    assert processor.calls == []
+
+
+def test_task9_pipeline_heartbeats_then_processes_with_shared_attempt_guard(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    processor = RecordingProcessor(make_result(lease))
+
+    duration_times = iter([10.0, 10.25])
+    result = asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            duration_clock=lambda: next(duration_times),
+        ).run_once()
+    )
+
+    assert result is True
+    assert client.heartbeats == [1.0]
+    assert len(processor.calls) == 1
+    call = processor.calls[0]
+    assert call["job_id"] == lease.job_id
+    assert call["attempt_count"] == lease.attempt_count
+    assert call["source_path"] == media
+    assert call["expected_source_size_bytes"] == lease.source_size_bytes
+    assert call["expected_source_sha256"] == lease.source_sha256
+    assert isinstance(call["lease_guard"], LeaseGuard)
+    assert call["lease_guard"].is_lost() is False
+    assert client.failures == []
+    assert len(client.completions) == 1
+    completed_result, duration_ms, provenance = client.completions[0]
+    assert completed_result == processor.result
+    assert duration_ms == 250
+    assert provenance is PROVENANCE_SENTINEL
+    assert client.events == ["lease", "heartbeat", "complete"]
+    assert processor.events == ["process"]
+
+
+def test_runtime_replacement_cannot_rebind_completed_result_provenance(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    old_provenance = object()
+    new_provenance = object()
+    current_provenance = [old_provenance]
+
+    class RuntimeReplacingProcessor(RecordingProcessor):
+        def process(self, **kwargs) -> VisionProcessingResult:
+            current_provenance[0] = new_provenance
+            return super().process(**kwargs)
+
+    processor = RuntimeReplacingProcessor(make_result(lease))
+
+    result = asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            runtime_provenance_provider=lambda: current_provenance[0],
+        ).run_once()
+    )
+
+    assert result is True
+    assert current_provenance[0] is new_provenance
+    assert len(client.completions) == 1
+    assert client.completions[0][2] is old_provenance
+    assert client.failures == []
+
+
+def test_unconfigured_task9_processor_reports_controlled_failure(tmp_path: Path) -> None:
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(make_lease())
+
+    result = asyncio.run(WorkerRunner(client, LocalMediaStore(tmp_path), 2.0).run_once())
+
+    assert result is True
+    assert client.heartbeats == [1.0]
+    assert client.failures == [
+        ("task9_processor_not_configured", "Task 9 processor is not configured.")
+    ]
+
+
+def test_source_integrity_processor_failure_is_controlled_once(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    processor = RecordingProcessor(error=SourceIntegrityError("source_sha256_mismatch"))
+
+    result = asyncio.run(
+        WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+    )
+
+    assert result is True
+    assert client.failures == [
+        (
+            "source_media_integrity_failed",
+            "Leased source media failed integrity verification.",
+        )
+    ]
+
+
+def test_video_processing_failure_is_controlled_once(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    processor = RecordingProcessor(error=VideoProcessingError("pipeline_processing_failed"))
+
+    result = asyncio.run(
+        WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+    )
+
+    assert result is True
+    assert client.failures == [("vision_processing_failed", "Vision processing failed.")]
+
+
+@pytest.mark.parametrize(
+    ("error_type", "expected_code"),
+    [
+        (InferenceContractError, "vision_inference_contract_failed"),
+        (GpuOutOfMemoryError, "vision_gpu_out_of_memory"),
+        (GpuRuntimeError, "vision_gpu_runtime_failed"),
+        (TrackerError, "vision_tracker_failed"),
+    ],
+)
+def test_processing_dependency_failure_uses_approved_stable_code(
+    tmp_path: Path,
+    error_type: type[ProcessingDependencyError],
+    expected_code: str,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    local_diagnostic = r"checkpoint=C:\\secret\\rtmdet.pth token=do-not-send"
+    processor = RecordingProcessor(error=error_type(local_diagnostic))
+
+    result = asyncio.run(
+        WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+    )
+
+    assert result is True
+    assert client.heartbeats == [1.0]
+    assert len(processor.calls) == 1
+    assert client.failures == [(expected_code, "Vision processing failed.")]
+    assert local_diagnostic not in (client.failures[0][1] or "")
+    assert client.events == ["lease", "heartbeat", f"fail:{expected_code}"]
+
+
+def test_unapproved_processing_dependency_code_fails_closed(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    local_diagnostic = r"checkpoint=C:\\secret\\future.pth token=do-not-send"
+    processor = RecordingProcessor(
+        error=ProcessingDependencyError(
+            "vision_future_dependency_failed",
+            RuntimeDisposition.RECOVER,
+            local_diagnostic,
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="mavi_vision.worker.runner"):
+        result = asyncio.run(
+            WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+        )
+
+    assert result is True
+    assert client.failures == [("vision_processing_failed", "Vision processing failed.")]
+    assert local_diagnostic not in (client.failures[0][1] or "")
+    assert "vision_future_dependency_failed" in caplog.text
+    assert local_diagnostic not in caplog.text
+    assert client.events == ["lease", "heartbeat", "fail:vision_processing_failed"]
+
+
+def test_processing_dependency_terminal_fail_error_is_not_retried(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FailingTerminalWorkerApiClient(lease)
+    processor = RecordingProcessor(
+        error=GpuOutOfMemoryError("local CUDA diagnostic must not leave worker")
+    )
+
+    with pytest.raises(WorkerApiError, match="worker API request failed"):
+        asyncio.run(
+            WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+        )
+
+    assert client.heartbeats == [1.0]
+    assert len(processor.calls) == 1
+    assert client.failures == [
+        ("vision_gpu_out_of_memory", "Vision processing failed.")
+    ]
+    assert client.events == [
+        "lease",
+        "heartbeat",
+        "fail:vision_gpu_out_of_memory",
+    ]
+
+
+def test_processor_lease_loss_is_api_error_without_terminal_failure(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    processor = RecordingProcessor(error=LeaseLostError())
+
+    with pytest.raises(WorkerApiError, match="lease ownership lost"):
+        asyncio.run(
+            WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+        )
+
+    assert client.heartbeats == [1.0]
+    assert len(processor.calls) == 1
+    assert client.failures == []
+
+
+def test_completion_publication_rechecks_lease_after_payload_projection(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = ExpiringAtCompletionPublicationApi(lease)
+    processor = RecordingProcessor(make_result(lease))
+
+    with pytest.raises(WorkerApiError, match="lease ownership lost"):
+        asyncio.run(
+            WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                processor,
+                heartbeat_interval_seconds=30.0,
+                runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            ).run_once()
+        )
+
+    assert client.heartbeats == [1.0]
+    assert client.failures == []
+    assert client.completions == []
+    assert client.events == ["lease", "heartbeat"]
+
+
+def test_completion_transport_error_is_not_followed_by_failure(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FailingCompletionWorkerApiClient(lease)
+    processor = RecordingProcessor(make_result(lease))
+
+    with pytest.raises(WorkerApiError):
+        asyncio.run(
+            WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                processor,
+                runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            ).run_once()
+        )
+
+    assert client.heartbeats == [1.0]
+    assert len(processor.calls) == 1
+    assert client.failures == []
+    assert len(client.completions) == 1
+    assert client.events == ["lease", "heartbeat", "complete"]
+
+
+def test_heartbeat_api_error_propagates_without_processing_for_polling_backoff(
+    tmp_path: Path,
+) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FailingHeartbeatWorkerApiClient(lease)
+    processor = RecordingProcessor(make_result(lease))
+
+    with pytest.raises(WorkerApiError):
+        asyncio.run(
+            WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_once()
+        )
+
+    assert client.heartbeats == [1.0]
+    assert client.failures == []
+    assert processor.calls == []
+
+
+def test_run_forever_sleeps_before_next_lease_after_worker_api_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    lease = make_lease()
+    client = BackoffProbeWorkerApiClient(lease)
+    processor = RecordingProcessor(make_result(lease))
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+        client.events.append("sleep")
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    with pytest.raises(RuntimeError, match="stop polling probe"):
+        asyncio.run(
+            WorkerRunner(client, LocalMediaStore(tmp_path), 2.0, processor).run_forever()
+        )
+
+    assert sleep_calls == [2.0]
+    assert client.events == ["lease", "heartbeat", "sleep", "lease"]
+    assert processor.calls == []
+
+
+def test_missing_source_media_uses_controlled_failure(tmp_path: Path) -> None:
+    client = FakeWorkerApiClient(make_lease())
+    result = asyncio.run(WorkerRunner(client, LocalMediaStore(tmp_path), 2.0).run_once())
+    assert result is True
+    assert client.heartbeats == []
+    assert client.failures == [
+        ("source_media_unavailable", "Leased source media is unavailable.")
+    ]
+
+
+def test_unexpected_error_uses_generic_controlled_failure(tmp_path: Path) -> None:
+    leased_job = make_lease()
+    client = FakeWorkerApiClient(leased_job)
+    result = asyncio.run(WorkerRunner(client, ExplodingMediaStore(), 2.0).run_once())
+    assert result is True
+    assert client.heartbeats == []
+    assert client.failures == [
+        ("worker_unhandled_error", "The worker encountered an unexpected error.")
+    ]
+    assert leased_job.lease_token not in client.failures[0][1]
+    assert leased_job.source_storage_key not in client.failures[0][1]
+
+
+def test_injected_process_executor_receives_processor_call_exactly_once(
+    tmp_path: Path,
+) -> None:
+    class RecordingExecutor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def run(self, func, /, *args, **kwargs):
+            self.calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir()
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    processor = RecordingProcessor(make_result(lease))
+    executor = RecordingExecutor()
+
+    result = asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            process_executor=executor,
+        ).run_once()
+    )
+
+    assert result is True
+    assert len(executor.calls) == 1
+    func, args, kwargs = executor.calls[0]
+    assert func == processor.process
+    assert args == ()
+    assert kwargs["job_id"] == lease.job_id
+    assert kwargs["attempt_count"] == lease.attempt_count
+    assert kwargs["source_path"] == media
+    assert isinstance(kwargs["lease_guard"], LeaseGuard)
+
+
+def test_injected_vision_lane_executes_processing_on_its_dedicated_thread(
+    tmp_path: Path,
+) -> None:
+    import threading
+
+    from mavi_vision.runtime.execution_lane import VisionExecutionLane
+
+    class ThreadRecordingProcessor(RecordingProcessor):
+        def __init__(self, result: VisionProcessingResult) -> None:
+            super().__init__(result)
+            self.thread_id: int | None = None
+
+        def process(self, **kwargs) -> VisionProcessingResult:
+            self.thread_id = threading.get_ident()
+            return super().process(**kwargs)
+
+    async def scenario() -> None:
+        lease = make_lease()
+        media = tmp_path / "videos" / "input.mp4"
+        media.parent.mkdir()
+        media.write_bytes(b"video")
+        client = FakeWorkerApiClient(lease)
+        processor = ThreadRecordingProcessor(make_result(lease))
+        lane = VisionExecutionLane()
+        event_loop_thread = threading.get_ident()
+
+        try:
+            result = await WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                processor,
+                process_executor=lane,
+            ).run_once()
+        finally:
+            await lane.close()
+
+        assert result is True
+        assert processor.thread_id is not None
+        assert processor.thread_id != event_loop_thread
+
+    asyncio.run(scenario())

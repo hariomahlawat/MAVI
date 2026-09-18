@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/phase1-production-acceptance-evidence-v2.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "acceptanceExecutionId",
+    "acceptanceContextSha256",
+    "serverLogCheckpointSha256",
+    "sourceCommit",
+    "maviBuild",
+    "deploymentProfile",
+    "deploymentProfilePolicySha256",
+    "runtimeVariant",
+    "verifiedModelManifestSha256",
+    "acceptanceProfileSha256",
+    "applicationManifestSha256",
+    "prerequisiteEvidenceSha256",
+    "freshInstallEvidenceSha256",
+    "offlineUpdateEvidenceSha256",
+    "priorApplicationManifestSha256",
+    "priorAcceptanceEvidenceSha256",
+    "preUpdateStateCheckSha256",
+    "postUpdateStateCheckSha256",
+    "backupRestoreEvidenceSha256",
+    "backupExecutionEvidenceSha256",
+    "postRestoreCheckSha256",
+    "backupSetManifestSha256",
+    "backupDatabaseManifestSha256",
+    "backupManagedSourceManifestSha256",
+    "backupAcceptedEvidenceManifestSha256",
+    "productionVariantEvidenceSha256",
+    "productionBundleManifestSha256",
+    "productionReleaseLockSha256",
+    "formalScenarioEvidenceSha256",
+    "finalE2eEvidenceSha256",
+    "emptySceneScenarioEvidenceSha256",
+    "emptySceneE2eEvidenceSha256",
+    "failureReprocessEvidenceSha256",
+    "logInspectionEvidenceSha256",
+    "result"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "mavi-phase1-production-acceptance-evidence-v2"
+    },
+    "acceptanceExecutionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "acceptanceContextSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "serverLogCheckpointSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sourceCommit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "maviBuild": {
+      "type": "string",
+      "minLength": 1
+    },
+    "deploymentProfile": {
+      "enum": ["P1", "P2", "P3"]
+    },
+    "deploymentProfilePolicySha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "runtimeVariant": {
+      "enum": [
+        "windows-x86_64-cpu",
+        "windows-x86_64-cuda",
+        "linux-x86_64-cpu",
+        "linux-x86_64-cuda"
+      ]
+    },
+    "verifiedModelManifestSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "acceptanceProfileSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "applicationManifestSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "prerequisiteEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "freshInstallEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "offlineUpdateEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "priorApplicationManifestSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "priorAcceptanceEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "preUpdateStateCheckSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "postUpdateStateCheckSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "backupRestoreEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "backupExecutionEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "postRestoreCheckSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "backupSetManifestSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "backupDatabaseManifestSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "backupManagedSourceManifestSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "backupAcceptedEvidenceManifestSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "formalScenarioEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "finalE2eEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "emptySceneScenarioEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "emptySceneE2eEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "failureReprocessEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "logInspectionEvidenceSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "productionVariantEvidenceSha256": {
+      "$ref": "#/$defs/variantMap"
+    },
+    "productionBundleManifestSha256": {
+      "$ref": "#/$defs/variantMap"
+    },
+    "productionReleaseLockSha256": {
+      "$ref": "#/$defs/variantMap"
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failureCodes"],
+      "properties": {
+        "passed": {
+          "const": true
+        },
+        "failureCodes": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "variantMap": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "windows-x86_64-cpu": {
+          "$ref": "#/$defs/sha256"
+        },
+        "windows-x86_64-cuda": {
+          "$ref": "#/$defs/sha256"
+        },
+        "linux-x86_64-cpu": {
+          "$ref": "#/$defs/sha256"
+        },
+        "linux-x86_64-cuda": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

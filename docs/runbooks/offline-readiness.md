@@ -1,0 +1,93 @@
+# Offline Readiness Runbook
+
+Every major milestone should be exercised on a test machine with Internet access disabled.
+
+Verify that:
+
+1. the operational API starts without external connectivity;
+2. the React UI loads with all fonts, scripts, styles and images local;
+3. authentication does not call an external identity provider;
+4. the Python worker starts without downloading packages or model weights;
+5. model files are resolved from approved local storage;
+6. video processing, search and evidence retrieval function on the LAN;
+7. logs contain no failed Internet telemetry or licence-check calls;
+8. backup and restore use only local/approved network storage;
+9. an update can be applied from a controlled offline bundle.
+
+
+## Dependency and prerequisite packaging
+
+Before any disconnected acceptance run, the canonical offline media must contain all prerequisites needed by the target profile, including:
+
+- the qualified MAVI application artifact with its app-local, hash-manifested FFmpeg/ffprobe pack;
+- the approved MAVI-owned PostgreSQL 18 runtime pack containing pgvector and retained PostgreSQL/pgvector notices;
+- the ASP.NET Core 10 Hosting Bundle required by the Windows/IIS operational plane;
+- the exact Python/runtime/model bundles required by the qualified vision profile; and
+- Development SDK installers/caches when validating the disconnected Development profile.
+
+Normal installation is performed through `Setup-MAVI-Production.cmd` or `Setup-MAVI-Development.cmd`. Setup verifies the media, provisions/repairs MAVI-owned prerequisites, and the application then verifies PostgreSQL/pgvector/media-tool readiness before automatic EF migrations.
+
+A release is not offline-ready if it succeeds only because a prerequisite happens to be installed on PATH, because pgvector/native files were copied manually outside the approved runtime pack, or because first startup downloads anything.
+
+### Future dependency changes
+
+Every new library, SDK, native executable, runtime, model, database extension or OS prerequisite must be integrated before the feature is considered complete. Follow `docs/architecture/dependency-and-offline-packaging-policy.md`.
+
+`config/dependencies/offline-dependency-policy-v1.json` is the machine-readable direct-dependency baseline. Repository verification must fail when a direct .NET/npm/Python dependency changes without an explicit policy update. For native/external dependencies, the same feature must update staging/bundle composition, Setup/readiness, deterministic version/hash checks, licence/notices and applicable disconnected qualification.
+
+## Binary-kit readiness
+
+Before final setup-media assembly, verify the separately retained `MAVI-Offline-Binary-Kit` with:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File tools/setup/Test-MaviOfflineBinaryKit.ps1 -KitRoot "<KIT_ROOT>"
+~~~
+
+The kit must match `config/dependencies/offline-binary-catalog-v1.json`, its complete SHA-256 manifest, and the nested PostgreSQL/pgvector and FFmpeg manifests.
+
+The final Production setup bundle should normally omit Development SDKs and package caches. Development workstations consume the source repository plus the verified companion binary kit; a combined Development+Production setup bundle is an explicit exception.
+
+## Deployment-profile qualification
+
+ADR-008 defines three Production profiles: P1 single-host Windows GPU, P2 split-host Windows + Linux GPU, and P3 single-host Windows CPU. Offline readiness is evaluated for the profile(s) the release actually claims as supported.
+
+The current acceptance tooling still contains legacy assumptions that require all four Windows/Linux CPU/CUDA variants and a final Linux-CUDA scenario. Before authoritative Task-18 qualification, that tooling must be reconciled so it requires the full evidence set for each claimed profile without using one profile's evidence to qualify another.
+
+Development remains a single Windows laptop/workstation and may use CPU or compatible Windows CUDA when available. Development device choice does not by itself establish Production qualification.
+
+## Phase-1 formal acceptance
+
+Task 17 owns the formal Phase-1 disconnected-install and end-to-end offline acceptance event. Hosted CI, an invalid proxy, or the existence of a qualification-candidate bundle is not by itself proof of a disconnected deployment.
+
+Formal evidence must bind the exact source/application-build/model/profile/runtime/bundle identities that were exercised and must keep unavailable hardware or offline gates explicitly pending rather than inferring success. Application build identity is compiled into `Mavi.Api.dll`; mutable environment variables are not accepted as binary identity. Each platform qualification must execute the full worker flow from the clean venv created from the exact tested bundle/lock rather than attaching a previously generated worker-evidence file.
+
+ADR-003 closure additionally requires three executed proofs during Task 17 final acceptance:
+
+- **fresh offline application installation:** install the exact hashed MAVI application artifact from controlled offline media onto a clean/reprovisioned Windows/IIS plane, then independently verify the running build identity matches that artifact; hashing an artifact beside a pre-existing deployment is insufficient;
+- **offline application update:** in a separate case, start from an explicitly supported prior MAVI release whose exact application-manifest hash is frozen in policy, retain that prior manifest and the exact prior passed acceptance evidence, prove the live prior commit **and build**, apply the accepted target artifact with Internet unavailable, execute only the policy-frozen migration script when required, and retain independent pre/post authoritative-state checks proving the same representative data survives; fresh-install evidence cannot substitute for this proof;
+- **offline backup/restore:** first bind the proposed PostgreSQL/media/evidence backup sources to the live MAVI storage-topology attestation, then back up those exact stores to local/approved network storage, restore them to a clean/reprovisioned target, and revalidate retained IDs/relationships, source/evidence hashes, Track search/detail and completed-run provenance before the restored deployment is accepted.
+
+All three proofs must produce distinct immutable hashed evidence and fail closed on missing stores, mismatched bytes/identities, hidden external dependencies or unexercised install/restore paths.
+
+Under ADR-008, post-promotion disconnected execution is profile-specific. P1 requires Windows-CUDA evidence; P2 requires Linux-CUDA split-host evidence; P3 requires Windows-CPU evidence including an acceptable Production performance envelope. The current assembler/closure implementation still reflects the earlier all-four-variant/Linux-CUDA model and must be reconciled before authoritative Task-18 acceptance. Promotion or candidate evidence alone can never yield `release-verified`.
+
+Operational commands and evidence handling are documented in `docs/runbooks/phase1-acceptance.md`. The authoritative requirements remain `docs/superpowers/plans/2026-09-14-task-17-phase1-hardening-qualification-acceptance.md` plus its qualification-closure addendum.
+
+
+## Final production-topology acceptance
+
+A promoted release is not yet Phase-1 accepted. Final disconnected acceptance additionally requires:
+
+- a repository-owned approved prerequisite baseline and observed matching identities for every host/device role in the selected Production profile;
+- an independent target-containing formal production E2E using the exact qualified worker/runtime for that selected profile;
+- a distinct empty-scene production diagnostic with zero false-positive Tracks;
+- a controlled public-API failure/reprocess scenario followed by successful processing from the exact production worker environment;
+- inspected API, IIS, PostgreSQL and scenario-worker logs with no external network, telemetry, licensing or activation dependency;
+- backup/restore bound to the exact final formal production E2E.
+
+These proofs are assembled by `tools/phase1/assemble_production_acceptance.py` and independently reopened by `tools/phase1/assess_phase1_closure.py`. Missing or cross-spliced evidence remains pending/fails closed.
+
+
+Final production evidence is one acceptance execution, not a collection of independently clean files. Create a single immutable acceptance context before the final scenarios, checkpoint API/IIS/PostgreSQL logs at that point, and scan only the server/database bytes appended after the checkpoint. Formal, empty-scene and failure/reprocess scenarios must carry the same execution ID/context hash.
+
+Approved prerequisite versions must be bound to the concrete selected profile. Windows operational/database identity must match lifecycle/backup evidence; a P1 Windows CUDA worker must match its qualified Windows CUDA environment fingerprint; a P2 Linux CUDA worker must match its qualified Linux environment fingerprint; and P3 must match the qualified Windows CPU environment. The same base Python executable alone is never sufficient.

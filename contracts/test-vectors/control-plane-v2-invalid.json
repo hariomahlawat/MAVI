@@ -1,0 +1,763 @@
+[
+  {
+    "name": "malformed trailing token bits",
+    "schema": "vision-job-heartbeat-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB",
+      "progressPercent": 0
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "missing heartbeat progress",
+    "schema": "vision-job-heartbeat-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "padded worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": " gpu-sdd-01 "
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "wrong schema version",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "1.0",
+      "workerId": "gpu-sdd-01"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "missing schema version",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "workerId": "gpu-sdd-01"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "unknown member",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "unknown": true
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "invalid failure code",
+    "schema": "vision-job-fail-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "failureCode": "https://failure"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "invalid storage key",
+    "schema": "vision-job-lease-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "018f0000-0000-7000-8000-000000000001",
+      "processingRunId": "018f0000-0000-7000-8000-000000000002",
+      "videoAssetId": "018f0000-0000-7000-8000-000000000003",
+      "cameraId": "018f0000-0000-7000-8000-000000000004",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T03:00:00Z",
+      "pipeline": "phase1",
+      "pipelineVersion": "v1",
+      "sourceStorageKey": "../video.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 1,
+      "recordingStartUtc": "2026-09-09T01:00:00Z",
+      "recordingEndUtc": "2026-09-09T01:00:01Z",
+      "durationMs": 1000,
+      "width": 1,
+      "height": 1,
+      "frameRateNumerator": 1,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "UTC",
+      "recordingUtcOffsetMinutes": 0
+    },
+    "direction": "platform-response"
+  },
+  {
+    "name": "non UTC response timestamp",
+    "schema": "vision-job-heartbeat-response-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "progressPercent": 0,
+      "leaseExpiresAtUtc": "2026-09-09T08:30:00+05:30"
+    },
+    "direction": "platform-response"
+  },
+  {
+    "name": "string heartbeat progress",
+    "schema": "vision-job-heartbeat-v2",
+    "direction": "worker-request",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "progressPercent": "50"
+    }
+  },
+  {
+    "name": "string lease attempt count",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": "1",
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "phase1-detection-tracking",
+      "pipelineVersion": "phase1-v1",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 123456,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": 60000,
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 25,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "Asia/Kolkata",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "zero lease attempt count",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 0,
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "phase1-detection-tracking",
+      "pipelineVersion": "phase1-v1",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 123456,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": 60000,
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 25,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "Asia/Kolkata",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "negative source size",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "phase1-detection-tracking",
+      "pipelineVersion": "phase1-v1",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": -1,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": 60000,
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 25,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "Asia/Kolkata",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "negative duration",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "phase1-detection-tracking",
+      "pipelineVersion": "phase1-v1",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 123456,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": -1,
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 25,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "Asia/Kolkata",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "zero width",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "phase1-detection-tracking",
+      "pipelineVersion": "phase1-v1",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 123456,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": 60000,
+      "width": 0,
+      "height": 1080,
+      "frameRateNumerator": 25,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "Asia/Kolkata",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "zero height",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "phase1-detection-tracking",
+      "pipelineVersion": "phase1-v1",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 123456,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": 60000,
+      "width": 1920,
+      "height": 0,
+      "frameRateNumerator": 25,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "Asia/Kolkata",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "zero frame rate numerator",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "phase1-detection-tracking",
+      "pipelineVersion": "phase1-v1",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 123456,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": 60000,
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 0,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "Asia/Kolkata",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "zero frame rate denominator",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "phase1-detection-tracking",
+      "pipelineVersion": "phase1-v1",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 123456,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": 60000,
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 25,
+      "frameRateDenominator": 0,
+      "recordingTimeZoneId": "Asia/Kolkata",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "epoch lease expiry",
+    "schema": "vision-job-heartbeat-response-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "progressPercent": 42.5,
+      "leaseExpiresAtUtc": 1788912000
+    }
+  },
+  {
+    "name": "overlong pipeline",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+      "pipelineVersion": "phase1-v1",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 123456,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": 60000,
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 25,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "Asia/Kolkata",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "overlong pipeline version",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "phase1-detection-tracking",
+      "pipelineVersion": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 123456,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": 60000,
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 25,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "Asia/Kolkata",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "overlong recording time zone id",
+    "schema": "vision-job-lease-v2",
+    "direction": "platform-response",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "11111111-1111-7111-8111-111111111111",
+      "processingRunId": "22222222-2222-7222-8222-222222222222",
+      "videoAssetId": "33333333-3333-7333-8333-333333333333",
+      "cameraId": "44444444-4444-7444-8444-444444444444",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T02:32:00Z",
+      "pipeline": "phase1-detection-tracking",
+      "pipelineVersion": "phase1-v1",
+      "sourceStorageKey": "source/44444444-4444-7444-8444-444444444444/2026/09/09/33333333-3333-7333-8333-333333333333.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 123456,
+      "recordingStartUtc": "2026-09-09T01:30:00Z",
+      "recordingEndUtc": "2026-09-09T01:31:00Z",
+      "durationMs": 60000,
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 25,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "recordingUtcOffsetMinutes": 330
+    }
+  },
+  {
+    "name": "snake case schema version",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schema_version": "2.0",
+      "workerId": "gpu-sdd-01"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "snake case worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "worker_id": "gpu-sdd-01"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "snake case heartbeat worker id",
+    "schema": "vision-job-heartbeat-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "progressPercent": 50,
+      "worker_id": "gpu-sdd-01"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "snake case failure code",
+    "schema": "vision-job-fail-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "failure_code": "worker_failed"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "zero offset heartbeat response expiry",
+    "schema": "vision-job-heartbeat-response-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "progressPercent": 50,
+      "leaseExpiresAtUtc": "2026-09-09T03:00:00+00:00"
+    },
+    "direction": "platform-response"
+  },
+  {
+    "name": "zero offset lease expiry",
+    "schema": "vision-job-lease-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "jobId": "018f0000-0000-7000-8000-000000000001",
+      "processingRunId": "018f0000-0000-7000-8000-000000000002",
+      "videoAssetId": "018f0000-0000-7000-8000-000000000003",
+      "cameraId": "018f0000-0000-7000-8000-000000000004",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "attemptCount": 1,
+      "leaseExpiresAtUtc": "2026-09-09T03:00:00+00:00",
+      "pipeline": "phase1",
+      "pipelineVersion": "v1",
+      "sourceStorageKey": "source/video.mp4",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceSizeBytes": 1,
+      "recordingStartUtc": "2026-09-09T01:00:00Z",
+      "recordingEndUtc": "2026-09-09T01:00:01Z",
+      "durationMs": 1000,
+      "width": 1,
+      "height": 1,
+      "frameRateNumerator": 1,
+      "frameRateDenominator": 1,
+      "recordingTimeZoneId": "UTC",
+      "recordingUtcOffsetMinutes": 0
+    },
+    "direction": "platform-response"
+  },
+  {
+    "name": "zero offset worker health timestamp",
+    "schema": "worker-health-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "status": "ready",
+      "timestampUtc": "2026-09-09T03:00:00+00:00"
+    },
+    "direction": "platform-response"
+  },
+  {
+    "name": "leading hyphen worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "-gpu"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "leading underscore worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "_gpu"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "leading dot worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": ".gpu"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "internal space worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu worker"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "slash worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu/worker"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "colon worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu:worker"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "backslash worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu\\worker"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "newline worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu\nworker"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "tab worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu\tworker"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "non ASCII worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-é"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "overlong worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing line feed worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing carriage return worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01\r"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing carriage return line feed worker id",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01\r\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "maximum length worker id followed by line feed",
+    "schema": "vision-job-lease-request-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "malformed lease expiry date-time",
+    "schema": "vision-job-heartbeat-response-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "progressPercent": 50,
+      "leaseExpiresAtUtc": "garbageZ"
+    },
+    "direction": "platform-response"
+  },
+  {
+    "name": "malformed worker health date-time",
+    "schema": "worker-health-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "status": "ready",
+      "timestampUtc": "not-a-dateZ"
+    },
+    "direction": "platform-response"
+  },
+  {
+    "name": "trailing line feed failure code",
+    "schema": "vision-job-fail-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "failureCode": "worker_failed\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing carriage return failure code",
+    "schema": "vision-job-fail-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "failureCode": "worker_failed\r"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "trailing carriage return line feed failure code",
+    "schema": "vision-job-fail-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "failureCode": "worker_failed\r\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "maximum length failure code followed by line feed",
+    "schema": "vision-job-fail-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu-sdd-01",
+      "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "failureCode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    },
+    "direction": "worker-request"
+  },
+  {
+    "name": "unsafe platform response worker id",
+    "schema": "worker-health-v2",
+    "payload": {
+      "schemaVersion": "2.0",
+      "workerId": "gpu/worker",
+      "status": "ready",
+      "timestampUtc": "2026-09-09T03:00:00Z"
+    },
+    "direction": "platform-response"
+  }
+]

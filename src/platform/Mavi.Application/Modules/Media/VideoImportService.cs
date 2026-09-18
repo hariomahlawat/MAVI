@@ -1,0 +1,183 @@
+using System.Globalization;
+using Mavi.Application.Abstractions.Storage;
+using Mavi.Application.Abstractions.Time;
+using Mavi.Application.Modules.Cameras;
+using Mavi.Domain.Common;
+using Mavi.Domain.Media;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace Mavi.Application.Modules.Media;
+
+public sealed record ImportVideoCommand(
+    Guid CameraId,
+    DateTime RecordingStartLocal,
+    string OriginalFileName,
+    Stream Content);
+
+public sealed record VideoImportResult(bool IsSuccess, VideoAsset? Video, string? ErrorCode, Guid? ExistingVideoAssetId)
+{
+    public static VideoImportResult Success(VideoAsset video) => new(true, video, null, null);
+    public static VideoImportResult Failure(string errorCode, Guid? existingVideoAssetId = null) =>
+        new(false, null, errorCode, existingVideoAssetId);
+}
+
+public static class VideoImportErrorCodes
+{
+    public const string CameraNotFound = "camera_not_found";
+    public const string CameraInactive = "camera_inactive";
+    public const string InvalidRecordingTime = "invalid_recording_time";
+    public const string FormatUnsupported = "video_format_unsupported";
+    public const string MetadataInvalid = "video_metadata_invalid";
+    public const string Duplicate = "video_duplicate";
+    public const string InvalidFileName = "video_filename_invalid";
+    public const string FileTooLarge = "video_file_too_large";
+    public const string ContainerUnsupported = "video_container_unsupported";
+}
+
+public sealed class VideoImportService(
+    ICameraRepository cameras,
+    IVideoCatalog catalog,
+    IMediaStore mediaStore,
+    IVideoMetadataReader metadataReader,
+    ITimeZoneService timeZones,
+    TimeProvider timeProvider,
+    IOptions<VideoImportOptions> options,
+    ILogger<VideoImportService> logger)
+{
+    private static readonly Action<ILogger, string, Exception?> LogCleanupFailure =
+        LoggerMessage.Define<string>(LogLevel.Error, new EventId(1, nameof(LogCleanupFailure)),
+            "Failed to delete managed media {StorageKey} after an unsuccessful import.");
+
+    // Import workflow
+    public async Task<VideoImportResult> ImportAsync(ImportVideoCommand command, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(command.Content);
+        var camera = await cameras.GetAsync(command.CameraId, cancellationToken);
+        if (camera is null) return VideoImportResult.Failure(VideoImportErrorCodes.CameraNotFound);
+        if (!camera.IsActive) return VideoImportResult.Failure(VideoImportErrorCodes.CameraInactive);
+
+        if (!TryNormalizeFileName(command.OriginalFileName, out var fileName))
+            return VideoImportResult.Failure(VideoImportErrorCodes.InvalidFileName);
+        var extension = Path.GetExtension(fileName);
+        if (!options.Value.AllowedExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+            return VideoImportResult.Failure(VideoImportErrorCodes.FormatUnsupported);
+        if (command.RecordingStartLocal.Kind != DateTimeKind.Unspecified)
+            return VideoImportResult.Failure(VideoImportErrorCodes.InvalidRecordingTime);
+
+        DateTimeOffset recordingStartUtc;
+        TimeSpan recordingOffset;
+        try
+        {
+            if (timeZones.IsAmbiguous(command.RecordingStartLocal, camera.TimeZoneId) ||
+                timeZones.IsInvalid(command.RecordingStartLocal, camera.TimeZoneId))
+                return VideoImportResult.Failure(VideoImportErrorCodes.InvalidRecordingTime);
+            recordingStartUtc = timeZones.ConvertLocalToUtc(command.RecordingStartLocal, camera.TimeZoneId);
+            recordingOffset = timeZones.GetUtcOffset(command.RecordingStartLocal, camera.TimeZoneId);
+        }
+        catch (MaviTimeZoneException)
+        {
+            return VideoImportResult.Failure(VideoImportErrorCodes.InvalidRecordingTime);
+        }
+
+        var videoId = Guid.CreateVersion7();
+        var localDate = command.RecordingStartLocal;
+        var storageDate = localDate.ToString("yyyy'/'MM'/'dd", CultureInfo.InvariantCulture);
+        var storageKey = $"source/{camera.Id:D}/{storageDate}/{videoId:D}.mp4".ToLowerInvariant();
+        var mediaWritten = false;
+        try
+        {
+            MediaWriteResult write;
+            try
+            {
+                var boundedContent = new MaximumLengthReadStream(command.Content, options.Value.MaximumFileSizeBytes);
+                write = await mediaStore.WriteAsync(storageKey, boundedContent, cancellationToken);
+            }
+            catch (VideoFileTooLargeException)
+            {
+                return VideoImportResult.Failure(VideoImportErrorCodes.FileTooLarge);
+            }
+            mediaWritten = true;
+            VideoMetadata metadata;
+            try
+            {
+                metadata = await metadataReader.ReadAsync(storageKey, cancellationToken);
+            }
+            catch (VideoMetadataException)
+            {
+                return VideoImportResult.Failure(VideoImportErrorCodes.MetadataInvalid);
+            }
+            if (!PhaseOneMp4ContainerPolicy.IsSupported(metadata))
+                return VideoImportResult.Failure(VideoImportErrorCodes.ContainerUnsupported);
+
+            var existing = await catalog.FindSourceVideoBySha256Async(write.Sha256, cancellationToken);
+            if (existing is not null)
+                return VideoImportResult.Failure(VideoImportErrorCodes.Duplicate, existing.Id);
+
+            var nowUtc = timeProvider.GetUtcNow();
+            var artifact = Artifact.Create(ArtifactType.SourceVideo, storageKey, "video/mp4", write.SizeBytes, write.Sha256,
+                createdAtUtc: nowUtc);
+            var video = VideoAsset.Create(videoId, camera.Id, artifact.Id, fileName, recordingStartUtc,
+                metadata.DurationMs, metadata.FrameRateNumerator, metadata.FrameRateDenominator,
+                metadata.Width, metadata.Height, metadata.CodecName, TimestampSource.Manual, 1.0,
+                camera.TimeZoneId, checked((int)recordingOffset.TotalMinutes), nowUtc);
+            await catalog.AddAsync(artifact, video, cancellationToken);
+            try
+            {
+                await catalog.SaveChangesAsync(cancellationToken);
+            }
+            catch (DuplicateSourceVideoException)
+            {
+                var existingAfterRace = await catalog.FindSourceVideoBySha256Async(write.Sha256, cancellationToken);
+                if (existingAfterRace is null)
+                    throw new InvalidOperationException(
+                        "Duplicate source-video persistence was reported but the authoritative existing video could not be resolved.");
+
+                return VideoImportResult.Failure(VideoImportErrorCodes.Duplicate, existingAfterRace.Id);
+            }
+
+            mediaWritten = false;
+            return VideoImportResult.Success(video);
+        }
+        finally
+        {
+            if (mediaWritten)
+            {
+                try
+                {
+                    await mediaStore.DeleteAsync(storageKey, CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    LogCleanupFailure(logger, storageKey, exception);
+                }
+            }
+        }
+    }
+
+    // Untrusted filename normalization
+    private static bool TryNormalizeFileName(string? original, out string fileName)
+    {
+        fileName = string.Empty;
+        if (string.IsNullOrWhiteSpace(original)) return false;
+        var segments = original.Replace('\\', '/').Split('/');
+        fileName = segments[^1].Trim();
+        return fileName.Length is > 0 and <= 255 && fileName is not "." and not ".." &&
+            !fileName.Any(char.IsControl);
+    }
+}
+
+internal static class PhaseOneMp4ContainerPolicy
+{
+    // Container identity is derived from both the demuxer and authoritative ISO base-media brand.
+    public static bool IsSupported(VideoMetadata metadata)
+    {
+        var formats = metadata.FormatName.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (!formats.Contains("mp4", StringComparer.OrdinalIgnoreCase)) return false;
+        var brand = metadata.MajorBrand?.Trim().TrimEnd('\0').ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(brand)) return false;
+        return brand != "qt" && !brand.StartsWith("3gp", StringComparison.Ordinal) &&
+            !brand.StartsWith("3g2", StringComparison.Ordinal);
+    }
+}

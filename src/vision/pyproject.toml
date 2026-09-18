@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mavi-vision"
+version = "0.1.0"
+description = "MAVI computer-vision worker contracts and processing interfaces"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "av>=15,<17",
+  "httpx>=0.28,<0.29",
+  "msgpack>=1.1,<2",
+  "numpy>=2.2,<3",
+  "packaging>=26,<27",
+  "Pillow>=11,<12",
+  "pydantic>=2.11,<3",
+  "pydantic-settings>=2.10,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.4"]
+vision-runtime = [
+  "torch==2.6.0",
+  "torchvision==0.21.0",
+  "mmcv==2.1.0",
+  "mmengine==0.10.7",
+  "mmdet==3.3.0",
+  "trackers==2.6.0",
+  "supervision==0.30.2",
+  "scipy==1.18.1",
+  "numpy==2.5.3",
+  "opencv-python==5.0.0.93",
+  "av==16.1.0",
+  "Pillow==11.3.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mavi_vision*"]
+namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

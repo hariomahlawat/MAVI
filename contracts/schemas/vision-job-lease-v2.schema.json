@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "vision-job-lease-v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "jobId",
+    "processingRunId",
+    "videoAssetId",
+    "cameraId",
+    "workerId",
+    "leaseToken",
+    "attemptCount",
+    "leaseExpiresAtUtc",
+    "pipeline",
+    "pipelineVersion",
+    "sourceStorageKey",
+    "sourceSha256",
+    "sourceSizeBytes",
+    "recordingStartUtc",
+    "recordingEndUtc",
+    "durationMs",
+    "width",
+    "height",
+    "frameRateNumerator",
+    "frameRateDenominator",
+    "recordingTimeZoneId",
+    "recordingUtcOffsetMinutes"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "2.0"
+    },
+    "jobId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "processingRunId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "videoAssetId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "cameraId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "workerId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+    },
+    "leaseToken": {
+      "type": "string",
+      "minLength": 43,
+      "maxLength": 43,
+      "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+    },
+    "attemptCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "leaseExpiresAtUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?Z(?![\\s\\S])"
+    },
+    "pipeline": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "pipelineVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "sourceStorageKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\:]).+(?<!/)$"
+    },
+    "sourceSha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "sourceSizeBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "recordingStartUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?Z(?![\\s\\S])"
+    },
+    "recordingEndUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?Z(?![\\s\\S])"
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "frameRateNumerator": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "frameRateDenominator": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "recordingTimeZoneId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "recordingUtcOffsetMinutes": {
+      "type": "integer"
+    }
+  }
+}

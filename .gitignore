@@ -1,0 +1,82 @@
+# Git worktrees
+.worktrees/
+worktrees/
+
+# .NET
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+TestResults/
+coverage/
+
+# Node / React
+**/node_modules/
+**/dist/
+**/.vite/
+*.tsbuildinfo
+
+# Python
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# IDEs
+.idea/
+.vscode/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+secrets.json
+appsettings.*.Local.json
+
+# AI model weights / runtimes
+*.pt
+*.pth
+*.onnx
+*.engine
+*.plan
+*.safetensors
+*.gguf
+
+# CCTV / large media data
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.m4v
+*.webm
+
+# Generated evidence/data stores
+/data/
+/evidence/
+/media-store/
+/models/weights/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated third-party offline payloads (release inputs, not normal Git history)
+vendor/ffmpeg/manifest.json
+vendor/ffmpeg/win-x64/
+vendor/postgresql/pg18/
+vendor/pgvector/pg18/
+vendor/installers/win-x64/
+vendor/developer-cache/win-x64/
+
+# Separately retained offline binary kit (generated/downloaded payload)
+MAVI-Offline-Binary-Kit/
+MAVI-Offline-Binary-Kit*.zip
+vendor/offline-binary-kit/generated/

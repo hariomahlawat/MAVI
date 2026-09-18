@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "mavi-phase1-deployment-profiles-v1",
+  "profiles": {
+    "P1": {
+      "id": "P1",
+      "name": "single-host-windows-gpu",
+      "description": "Single Windows Production host running Operational, Data and Vision planes with NVIDIA CUDA.",
+      "runtimeVariant": "windows-x86_64-cuda",
+      "offlineInstallGate": "windows-offline-install",
+      "qualityGate": "cctv-quality-baseline",
+      "performanceGate": null,
+      "requiredPrerequisiteRoles": [
+        "windows-operational-plane",
+        "database",
+        "windows-cuda-vision-worker"
+      ],
+      "visionHostRole": "windows-cuda-vision-worker",
+      "requiresCuda": true,
+      "performanceEvidenceRequired": true
+    },
+    "P2": {
+      "id": "P2",
+      "name": "split-windows-linux-gpu",
+      "description": "Windows Operational/Data host plus separate Linux NVIDIA Vision worker.",
+      "runtimeVariant": "linux-x86_64-cuda",
+      "offlineInstallGate": "linux-offline-install",
+      "qualityGate": "cctv-quality-baseline",
+      "performanceGate": "linux-nvidia-recovery-performance",
+      "requiredPrerequisiteRoles": [
+        "windows-operational-plane",
+        "database",
+        "linux-vision-worker"
+      ],
+      "visionHostRole": "linux-vision-worker",
+      "requiresCuda": true,
+      "performanceEvidenceRequired": true
+    },
+    "P3": {
+      "id": "P3",
+      "name": "single-host-windows-cpu",
+      "description": "Single Windows Production host running Operational, Data and Vision planes on CPU.",
+      "runtimeVariant": "windows-x86_64-cpu",
+      "offlineInstallGate": "windows-offline-install",
+      "qualityGate": "cctv-quality-baseline",
+      "performanceGate": null,
+      "requiredPrerequisiteRoles": [
+        "windows-operational-plane",
+        "database",
+        "windows-cpu-vision-worker"
+      ],
+      "visionHostRole": "windows-cpu-vision-worker",
+      "requiresCuda": false,
+      "performanceEvidenceRequired": true
+    }
+  }
+}

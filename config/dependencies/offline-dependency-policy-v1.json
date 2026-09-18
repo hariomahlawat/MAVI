@@ -1,0 +1,205 @@
+{
+  "schemaVersion": "mavi-offline-dependency-policy-v1",
+  "purpose": "Fail closed when a direct software dependency surface changes without an explicit offline/deployment policy update.",
+  "managedSources": {
+    "dotnet": {
+      "src/platform/Mavi.Application/Mavi.Application.csproj": {
+        "Microsoft.Extensions.Logging.Abstractions": "10.0.11",
+        "Microsoft.Extensions.Options": "10.0.11"
+      },
+      "src/platform/Mavi.Infrastructure/Mavi.Infrastructure.csproj": {
+        "Microsoft.EntityFrameworkCore": "10.0.11",
+        "Microsoft.EntityFrameworkCore.Design": "10.0.11",
+        "Microsoft.Extensions.Configuration.Abstractions": "10.0.11",
+        "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.11",
+        "Microsoft.Extensions.Options.ConfigurationExtensions": "10.0.11",
+        "Npgsql.EntityFrameworkCore.PostgreSQL": "10.0.3",
+        "Pgvector.EntityFrameworkCore": "0.3.0"
+      },
+      "src/platform/Mavi.Api/Mavi.Api.csproj": {
+        "Microsoft.AspNetCore.SpaProxy": "10.0.11",
+        "Microsoft.EntityFrameworkCore.Design": "10.0.11",
+        "Microsoft.EntityFrameworkCore.Relational": "10.0.11"
+      },
+      "tests/Mavi.Domain.Tests/Mavi.Domain.Tests.csproj": {
+        "Microsoft.NET.Test.Sdk": "17.14.1",
+        "xunit": "2.9.3",
+        "xunit.runner.visualstudio": "3.1.5"
+      },
+      "tests/Mavi.Application.Tests/Mavi.Application.Tests.csproj": {
+        "Microsoft.NET.Test.Sdk": "17.14.1",
+        "xunit": "2.9.3",
+        "xunit.runner.visualstudio": "3.1.5"
+      },
+      "tests/Mavi.IntegrationTests/Mavi.IntegrationTests.csproj": {
+        "Microsoft.AspNetCore.Mvc.Testing": "10.0.11",
+        "Microsoft.EntityFrameworkCore.Relational": "10.0.11",
+        "Microsoft.NET.Test.Sdk": "17.14.1",
+        "Npgsql": "10.0.3",
+        "xunit": "2.9.3",
+        "xunit.runner.visualstudio": "3.1.5"
+      }
+    },
+    "npm": {
+      "src/web/mavi-web/package.json": {
+        "dependencies": {
+          "@tanstack/react-query": "^5.102.8",
+          "react": "^19.1.1",
+          "react-dom": "^19.1.1",
+          "react-router-dom": "^7.18.3"
+        },
+        "devDependencies": {
+          "@testing-library/jest-dom": "^7.0.1",
+          "@testing-library/react": "^16.3.3",
+          "@testing-library/user-event": "^14.6.7",
+          "@types/react": "^19.1.10",
+          "@types/react-dom": "^19.1.7",
+          "@vitejs/plugin-react": "^5.0.2",
+          "jsdom": "^30.0.1",
+          "typescript": "^5.9.2",
+          "vite": "^7.1.4",
+          "vitest": "^3.2.7"
+        }
+      }
+    },
+    "python": {
+      "src/vision/pyproject.toml": {
+        "projectDependencies": [
+          "av>=15,<17",
+          "httpx>=0.28,<0.29",
+          "msgpack>=1.1,<2",
+          "numpy>=2.2,<3",
+          "packaging>=26,<27",
+          "Pillow>=11,<12",
+          "pydantic>=2.11,<3",
+          "pydantic-settings>=2.10,<3"
+        ],
+        "optionalDependencies": {
+          "dev": [
+            "pytest>=8.4"
+          ],
+          "vision-runtime": [
+            "torch==2.6.0",
+            "torchvision==0.21.0",
+            "mmcv==2.1.0",
+            "mmengine==0.10.7",
+            "mmdet==3.3.0",
+            "trackers==2.6.0",
+            "supervision==0.30.2",
+            "scipy==1.18.1",
+            "numpy==2.5.3",
+            "opencv-python==5.0.0.93",
+            "av==16.1.0",
+            "Pillow==11.3.0"
+          ]
+        },
+        "buildSystemRequires": [
+          "setuptools>=75"
+        ]
+      },
+      "tools/requirements.txt": {
+        "requirements": [
+          "jsonschema[format-nongpl]>=4.23,<5"
+        ]
+      }
+    }
+  },
+  "ecosystemStrategies": {
+    "dotnet": {
+      "developmentOffline": "Prepare-MaviDeveloperOfflineCache.ps1 captures the NuGet restore closure used by the solution.",
+      "productionOffline": "dotnet publish produces the self-contained application dependency closure required by the deployed MAVI web host; the ASP.NET Core 10 Hosting Bundle is carried in the setup media.",
+      "changeRule": "Any PackageReference addition/version change must update this policy and prove offline restore/publish in CI or disconnected qualification as applicable."
+    },
+    "npm": {
+      "developmentOffline": "The canonical developer cache carries npm cache content and Setup runs npm ci --offline.",
+      "productionOffline": "Frontend dependencies are compiled into local static assets during publish; production does not execute npm or load CDN assets.",
+      "changeRule": "Any dependency/devDependency change must update package-lock.json and this policy, then pass frontend test/typecheck/build and offline-cache preparation."
+    },
+    "python": {
+      "developmentOffline": "The canonical developer cache carries a Python wheelhouse and Setup installs the Development environment with --no-index.",
+      "productionOffline": "Vision runtime dependencies are bound to platform-specific offline runtime locks/bundles and qualification evidence; no first-run downloads are permitted.",
+      "changeRule": "Any Python dependency or build-system change must update this policy and the applicable offline wheel/runtime lock/bundle plus qualification evidence."
+    }
+  },
+  "nativeAndToolchain": [
+    {
+      "id": "postgresql-pgvector-win-x64",
+      "scope": [
+        "development",
+        "production"
+      ],
+      "stagingPath": "vendor/postgresql/pg18/win-x64",
+      "packagedAs": "prerequisites/postgresql/pg18/win-x64",
+      "setupIntegration": "tools/setup/Setup-MAVI.ps1",
+      "verification": "SHA-256 manifest, PostgreSQL 18 executable version, pgvector availability/extension check",
+      "licenceHandling": "LICENSE-POSTGRESQL.txt and LICENSE-PGVECTOR.txt retained in the runtime pack"
+    },
+    {
+      "id": "ffmpeg-win-x64",
+      "scope": [
+        "development",
+        "production"
+      ],
+      "stagingPath": "vendor/ffmpeg",
+      "packagedAs": "application/tools/ffmpeg",
+      "setupIntegration": "application-local dependency resolved by NativeMediaToolStartup/MediaToolPathResolver",
+      "verification": "manifest SHA-256 plus executable/version viability before serving requests",
+      "licenceHandling": "FFmpeg licence/notices retained with the application payload"
+    },
+    {
+      "id": "dotnet-hosting-win-x64",
+      "scope": [
+        "production"
+      ],
+      "stagingPath": "vendor/installers/win-x64/dotnet-hosting.exe",
+      "packagedAs": "prerequisites/hosting/win-x64/dotnet-hosting.exe",
+      "setupIntegration": "tools/setup/Setup-MAVI.ps1",
+      "verification": "ASP.NET Core 10 runtime and IIS ASP.NET Core Module V2 are verified after installation",
+      "licenceHandling": "approved Microsoft redistributable retained as controlled release input"
+    },
+    {
+      "id": "developer-toolchain-win-x64",
+      "scope": [
+        "development"
+      ],
+      "stagingPath": "vendor/installers/win-x64",
+      "packagedAs": "prerequisites/developer/win-x64",
+      "setupIntegration": "tools/setup/Setup-MAVI.ps1",
+      "verification": ".NET 10 SDK, Node.js 22.13+, Python 3.13 and npm are checked after installation",
+      "licenceHandling": "approved vendor installers are controlled release inputs"
+    },
+    {
+      "id": "developer-offline-caches",
+      "scope": [
+        "development"
+      ],
+      "stagingPath": "vendor/developer-cache/win-x64",
+      "packagedAs": "prerequisites/developer/win-x64/{nuget-packages,npm-cache,python-wheelhouse}",
+      "setupIntegration": "tools/setup/Mavi.Setup.Windows.psm1",
+      "verification": "offline restore/install followed by .NET build, frontend build and Python tests",
+      "licenceHandling": "dependency licences remain governed by their upstream packages; release preparation must retain any redistribution notices required by a newly added package"
+    },
+    {
+      "id": "vision-model-runtime-bundles",
+      "scope": [
+        "production-vision"
+      ],
+      "stagingPath": "models + src/vision/runtime",
+      "packagedAs": "platform-specific qualified offline runtime/model bundles",
+      "setupIntegration": "Task-17 runtime qualification and deployment tooling",
+      "verification": "runtime locks, hashes, model manifest relationships and disconnected CPU/CUDA qualification",
+      "licenceHandling": "model/runtime licence approval is required before promotion"
+    }
+  ],
+  "requiredChangeReview": [
+    "Justify why the new dependency is needed and prefer the existing standard library/framework when reasonable.",
+    "Classify it as build-only, development/test, application runtime, native runtime, model/runtime, or operating-system prerequisite.",
+    "Update this dependency policy snapshot for every direct .NET, npm or Python dependency change.",
+    "Update the offline cache/bundle/staging path for anything needed on a disconnected Development or Production machine.",
+    "Retain required licences/notices and add hash/version verification for native binaries or external payloads.",
+    "Update Setup/repair and Test-MaviEnvironment when the target machine needs a new installed/runtime prerequisite.",
+    "Add or update tests and disconnected qualification evidence appropriate to the dependency's scope.",
+    "Update local-development, offline-setup, offline-readiness and release/acceptance documentation when operator or release preparation steps change.",
+    "Do not add runtime Internet downloads, CDN assets, online activation/licence checks, remote telemetry, or undeclared PATH dependencies."
+  ]
+}

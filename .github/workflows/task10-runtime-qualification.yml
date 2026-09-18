@@ -1,0 +1,701 @@
+name: Task 10 Runtime Qualification
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'tools/vision/probe_runtime.py'
+      - 'tools/vision/resolve_mmdet_config.py'
+      - 'src/vision/tests/test_runtime_probe.py'
+      - 'src/vision/tests/test_resolve_mmdet_config.py'
+      - 'src/vision/tests/test_runtime_metadata.py'
+      - 'src/vision/tests/test_rtmdet_colour_space.py'
+      - 'src/vision/tests/test_mmdetection_runtime.py'
+      - 'src/vision/tests/test_production_processor*.py'
+      - 'src/vision/tests/test_process_video.py'
+      - 'src/vision/mavi_vision/runtime/**'
+      - 'src/vision/mavi_vision/pipeline/**'
+      - 'src/vision/mavi_vision/tracking/**'
+      - 'src/vision/mavi_vision/detection/interfaces.py'
+      - 'src/vision/tests/test_bytetrack_*.py'
+      - 'src/vision/mavi_vision/common/analytical.py'
+      - 'src/vision/pyproject.toml'
+      - 'src/vision/runtime/**/*.json'
+      - 'src/vision/config/pipelines/**/*.json'
+      - 'models/manifests/**/*.json'
+      - 'models/qualifications/**/*.json'
+      - '.github/workflows/task10-runtime-qualification.yml'
+      - 'docs/decisions/ADR-005-qualified-vision-runtime.md'
+      - 'docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md'
+      - 'docs/superpowers/plans/2026-09-11-task-10-rtmdet-bytetrack.md'
+  push:
+    branches:
+      - main
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'tools/vision/probe_runtime.py'
+      - 'tools/vision/resolve_mmdet_config.py'
+      - 'src/vision/tests/test_runtime_probe.py'
+      - 'src/vision/tests/test_resolve_mmdet_config.py'
+      - 'src/vision/tests/test_runtime_metadata.py'
+      - 'src/vision/tests/test_rtmdet_colour_space.py'
+      - 'src/vision/tests/test_mmdetection_runtime.py'
+      - 'src/vision/tests/test_production_processor*.py'
+      - 'src/vision/tests/test_process_video.py'
+      - 'src/vision/mavi_vision/runtime/**'
+      - 'src/vision/mavi_vision/pipeline/**'
+      - 'src/vision/mavi_vision/tracking/**'
+      - 'src/vision/mavi_vision/detection/interfaces.py'
+      - 'src/vision/tests/test_bytetrack_*.py'
+      - 'src/vision/mavi_vision/common/analytical.py'
+      - 'src/vision/pyproject.toml'
+      - 'src/vision/runtime/**/*.json'
+      - 'src/vision/config/pipelines/**/*.json'
+      - 'models/manifests/**/*.json'
+      - 'models/qualifications/**/*.json'
+      - '.github/workflows/task10-runtime-qualification.yml'
+      - 'docs/decisions/ADR-005-qualified-vision-runtime.md'
+      - 'docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md'
+      - 'docs/superpowers/plans/2026-09-11-task-10-rtmdet-bytetrack.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mavi-task10-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cpu-candidate:
+    name: CPU ${{ matrix.os }} Python ${{ matrix.python-version }} Torch 2.6.0
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: '3.12.14'
+            runtime-variant: linux-x86_64-cpu
+          - os: windows-latest
+            python-version: '3.12.10'
+            runtime-variant: windows-x86_64-cpu
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      MMCV_WITH_OPS: '1'
+      MAX_JOBS: '2'
+      RTMDET_CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
+      RTMDET_CHECKPOINT_SHA256: 229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b
+      MAVI_EVENT_SHA: ${{ github.sha }}
+      MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      MAVI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+      MAVI_RUNTIME_VARIANT: ${{ matrix.runtime-variant }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install compatible build tooling
+        run: >-
+          python -m pip install --upgrade pip
+          "setuptools==80.9.0"
+          wheel
+          ninja
+          psutil
+          pytest
+          "numpy==2.5.3"
+          "av==16.1.0"
+          "Pillow==11.3.0"
+          "msgpack>=1.1,<2"
+          "pydantic>=2.11,<3"
+
+      - name: Run runtime qualification tooling unit tests
+        run: >-
+          python -m pytest
+          src/vision/tests/test_runtime_probe.py
+          src/vision/tests/test_resolve_mmdet_config.py
+          src/vision/tests/test_runtime_metadata.py
+          -q
+
+      - name: Run production runtime boundary unit tests without ML imports
+        working-directory: src/vision
+        run: >-
+          python -m pytest
+          tests/test_rtmdet_colour_space.py
+          tests/test_mmdetection_runtime.py
+          tests/test_runtime_errors.py
+          tests/test_bytetrack_profile_semantics.py
+          tests/test_bytetrack_adapter.py
+          tests/test_production_processor.py
+          tests/test_process_video.py
+          -q
+
+      - name: Install candidate PyTorch CPU build
+        run: >-
+          python -m pip install
+          torch==2.6.0
+          torchvision==0.21.0
+          --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Verify PyTorch NumPy-2 bridge before MMCV build
+        run: >-
+          python -c "import numpy as np, torch; x=np.array([1,2,3], dtype=np.float32); y=torch.from_numpy(x); z=y.numpy(); print('numpy-bridge-ok', np.__version__, torch.__version__, z.tolist())"
+
+      - name: Configure MSVC compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+
+      - name: Stabilize Windows PyTorch extension environment
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "DISTUTILS_USE_SDK=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MSSdk=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Checkout immutable MMCV 2.1.0 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .qualification-mmcv
+          git -C .qualification-mmcv remote add origin https://github.com/open-mmlab/mmcv.git
+          git -C .qualification-mmcv fetch --depth 1 origin 57c4e25e06e2d4f8a9357c84bcd24089a284dc88
+          git -C .qualification-mmcv checkout --detach FETCH_HEAD
+          test "$(git -C .qualification-mmcv rev-parse HEAD)" = "57c4e25e06e2d4f8a9357c84bcd24089a284dc88"
+
+      - name: Build/install MMCV 2.1.0 against installed PyTorch
+        working-directory: .qualification-mmcv
+        run: python -m pip install --no-build-isolation -v .
+
+      - name: Install remaining candidate graph
+        run: >-
+          python -m pip install
+          mmengine==0.10.7
+          mmdet==3.3.0
+          trackers==2.6.0
+          supervision==0.30.2
+          scipy==1.18.1
+          opencv-python==5.0.0.93
+          av==16.1.0
+          Pillow==11.3.0
+
+      - name: Test real PyTorch restricted checkpoint loading
+        run: python -m pytest src/vision/tests/test_runtime_probe.py -q -k real_torch
+
+      - name: Verify compiled MMCV ops and dependency imports
+        run: >-
+          python -c "import mmcv, mmengine, mmdet, torch, torchvision, trackers, supervision, scipy, numpy, cv2, av; from mmcv.ops import nms; print('imports-ok', mmcv.__version__, torch.__version__, numpy.__version__)"
+
+      - name: Verify candidate semantic graph matches runtime metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          import json
+          import os
+          import platform
+          import av
+          import cv2
+          import mmcv
+          import mmdet
+          import mmengine
+          import numpy
+          import scipy
+          import supervision
+          import torch
+          import torchvision
+
+          profile = json.load(open(
+              "src/vision/runtime/mmdetection-phase1-v1/runtime.json",
+              encoding="utf-8",
+          ))
+          expected = profile["semanticGraph"]
+          actual = {
+              "torch": torch.__version__.split("+", 1)[0],
+              "torchvision": torchvision.__version__.split("+", 1)[0],
+              "mmcv": mmcv.__version__,
+              "mmengine": mmengine.__version__,
+              "mmdet": mmdet.__version__,
+              "trackers": importlib.metadata.version("trackers"),
+              "supervision": supervision.__version__,
+              "scipy": scipy.__version__,
+              "numpy": numpy.__version__,
+              "opencv": cv2.__version__,
+              "opencvPython": importlib.metadata.version("opencv-python"),
+              "pillow": importlib.metadata.version("Pillow"),
+              "av": av.__version__,
+          }
+          if actual != expected:
+              raise SystemExit(
+                  "runtime_semantic_graph_mismatch:"
+                  + json.dumps({"actual": actual, "expected": expected}, sort_keys=True)
+              )
+
+          variant_name = os.environ["MAVI_RUNTIME_VARIANT"]
+          variant = profile["platformVariants"][variant_name]
+          expected_binary = variant["binaryVersions"]
+          actual_binary = {
+              "torch": torch.__version__,
+              "torchvision": torchvision.__version__,
+          }
+          if actual_binary != expected_binary:
+              raise SystemExit(
+                  "runtime_binary_identity_mismatch:"
+                  + json.dumps(
+                      {
+                          "variant": variant_name,
+                          "actual": actual_binary,
+                          "expected": expected_binary,
+                      },
+                      sort_keys=True,
+                  )
+              )
+
+          expected_python = variant["pythonIdentity"]
+          actual_python = {
+              "version": platform.python_version(),
+              "implementation": platform.python_implementation(),
+              "build": list(platform.python_build()),
+              "compiler": platform.python_compiler(),
+          }
+          if actual_python != expected_python:
+              raise SystemExit(
+                  "runtime_python_identity_mismatch:"
+                  + json.dumps(
+                      {
+                          "variant": variant_name,
+                          "actual": actual_python,
+                          "expected": expected_python,
+                      },
+                      sort_keys=True,
+                  )
+              )
+
+          print("runtime-semantic-graph-ok", json.dumps(actual, sort_keys=True))
+          print(
+              "runtime-binary-identity-ok",
+              variant_name,
+              json.dumps(actual_binary, sort_keys=True),
+          )
+          print(
+              "runtime-python-identity-ok",
+              variant_name,
+              json.dumps(actual_python, sort_keys=True),
+          )
+          PY
+
+      - name: Run exact Trackers 2.6 ByteTrack qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qualification-evidence
+          MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_bytetrack_runtime.py -q
+
+          PYTHONPATH=src/vision python - <<'PY'
+          import hashlib
+          import importlib.metadata
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          from mavi_vision.runtime.profile import load_pipeline_profile
+
+          profile_path = Path("src/vision/config/pipelines/phase1-detection-tracking-v1.json")
+          profile_sha256 = hashlib.sha256(profile_path.read_bytes()).hexdigest()
+          qualification = json.loads(
+              Path("models/qualifications/rtmdet-m-coco-phase1-v1.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          if qualification["pipelineProfileSha256"] != profile_sha256:
+              raise SystemExit("bytetrack_qualification_profile_hash_mismatch")
+
+          executed_source_sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"],
+              text=True,
+          ).strip()
+          expected_source_sha = os.environ["MAVI_EXPECTED_SOURCE_SHA"]
+          if executed_source_sha != expected_source_sha:
+              raise SystemExit(
+                  "bytetrack_qualification_source_sha_mismatch:"
+                  + json.dumps(
+                      {
+                          "executed": executed_source_sha,
+                          "expected": expected_source_sha,
+                          "event": os.environ["MAVI_EVENT_SHA"],
+                          "prHead": os.environ.get("MAVI_PR_HEAD_SHA") or None,
+                      },
+                      sort_keys=True,
+                  )
+              )
+
+          profile = load_pipeline_profile(profile_path)
+          tracker = profile.tracker
+          record = {
+              "status": "passed",
+              "runtimeVariant": os.environ["MAVI_RUNTIME_VARIANT"],
+              "headSha": executed_source_sha,
+              "eventSha": os.environ["MAVI_EVENT_SHA"],
+              "prHeadSha": os.environ.get("MAVI_PR_HEAD_SHA") or None,
+              "profileSha256": profile_sha256,
+              "effectiveNativeParameters": {
+                  "frame_rate": tracker.reference_frame_rate,
+                  "lost_track_buffer": tracker.lost_track_buffer,
+                  "track_activation_threshold": tracker.track_activation_threshold,
+                  "high_conf_det_threshold": tracker.high_confidence_threshold,
+                  "minimum_iou_threshold": tracker.minimum_iou_threshold,
+                  "minimum_consecutive_frames": tracker.minimum_consecutive_frames,
+              },
+              "pythonIdentity": {
+                  "version": platform.python_version(),
+                  "implementation": platform.python_implementation(),
+              },
+              "packages": {
+                  "trackers": importlib.metadata.version("trackers"),
+                  "supervision": importlib.metadata.version("supervision"),
+              },
+              "testResult": "passed",
+              "testSuite": "src/vision/tests/test_bytetrack_runtime.py",
+          }
+          Path("qualification-evidence/bytetrack-qualification.json").write_text(
+              json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print("bytetrack-qualification-ok", json.dumps(record, sort_keys=True))
+          PY
+
+      - name: Run exact production attempt composition qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_production_processor_runtime.py -q
+
+          PYTHONPATH=src/vision python - <<'PY'
+          import importlib.metadata
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          executed_source_sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"],
+              text=True,
+          ).strip()
+          expected_source_sha = os.environ["MAVI_EXPECTED_SOURCE_SHA"]
+          if executed_source_sha != expected_source_sha:
+              raise SystemExit(
+                  "production_composition_source_sha_mismatch:"
+                  f"{executed_source_sha}!={expected_source_sha}"
+              )
+
+          record = {
+              "status": "passed",
+              "testSuite": "src/vision/tests/test_production_processor_runtime.py",
+              "headSha": executed_source_sha,
+              "eventSha": os.environ["MAVI_EVENT_SHA"],
+              "prHeadSha": os.environ.get("MAVI_PR_HEAD_SHA") or None,
+              "packages": {
+                  "trackers": importlib.metadata.version("trackers"),
+                  "supervision": importlib.metadata.version("supervision"),
+              },
+              "python": platform.python_version(),
+              "platform": platform.platform(),
+          }
+          if record["packages"] != {
+              "trackers": "2.6.0",
+              "supervision": "0.30.2",
+          }:
+              raise SystemExit(
+                  "production_composition_package_drift:"
+                  + json.dumps(record["packages"], sort_keys=True)
+              )
+
+          root = Path("qualification-evidence")
+          root.mkdir(parents=True, exist_ok=True)
+          (root / "production-composition-qualification.json").write_text(
+              json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print(
+              "production-composition-qualification-ok",
+              json.dumps(record, sort_keys=True),
+          )
+          PY
+
+      - name: Resolve official RTMDet-M config and fetch checkpoint
+        shell: bash
+        run: |
+          mkdir -p qualification-evidence
+          git init .qualification-mmdet
+          git -C .qualification-mmdet remote add origin https://github.com/open-mmlab/mmdetection.git
+          git -C .qualification-mmdet fetch --depth 1 origin 44ebd17b145c2372c4b700bfb9cb20dbd28ab64a
+          git -C .qualification-mmdet checkout --detach FETCH_HEAD
+          test "$(git -C .qualification-mmdet rev-parse HEAD)" = "44ebd17b145c2372c4b700bfb9cb20dbd28ab64a"
+          python - <<'PY'
+          import os
+          import urllib.request
+          urllib.request.urlretrieve(os.environ['RTMDET_CHECKPOINT_URL'], '.qualification-rtmdet-m.pth')
+          PY
+          python tools/vision/resolve_mmdet_config.py \
+            --input .qualification-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
+            --output qualification-evidence/rtmdet-m-resolved.py \
+            > qualification-evidence/resolved-config.json
+          python - <<'PY'
+          import json
+
+          record = json.load(open(
+              "qualification-evidence/resolved-config.json",
+              encoding="utf-8",
+          ))
+          profile = json.load(open(
+              "src/vision/runtime/mmdetection-phase1-v1/runtime.json",
+              encoding="utf-8",
+          ))
+          assert record["status"] == "passed"
+          assert record["selfContained"] is True
+          actual_hash = record["resolvedConfig"]["sha256"]
+          expected_hash = profile["resolvedConfig"]["sha256"]
+          if actual_hash != expected_hash:
+              raise SystemExit(
+                  "resolved_config_hash_mismatch:"
+                  + json.dumps(
+                      {"actual": actual_hash, "expected": expected_hash},
+                      sort_keys=True,
+                  )
+              )
+          print("resolved-config-ok", actual_hash)
+          PY
+          cp src/vision/runtime/mmdetection-phase1-v1/runtime.json qualification-evidence/runtime.json
+          rm -rf .qualification-mmdet
+          test -f qualification-evidence/rtmdet-m-resolved.py
+
+      - name: Prove missing checkpoint fails before runtime loading
+        shell: bash
+        run: |
+          set +e
+          python tools/vision/probe_runtime.py \
+            --config qualification-evidence/rtmdet-m-resolved.py \
+            --checkpoint .qualification-missing.pth \
+            --checkpoint-sha256 "$RTMDET_CHECKPOINT_SHA256" \
+            --device cpu 2> qualification-evidence/missing.err
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -q checkpoint_missing qualification-evidence/missing.err
+
+      - name: Run real RTMDet-M CPU probe
+        shell: bash
+        run: |
+          set +e
+          python tools/vision/probe_runtime.py \
+            --config qualification-evidence/rtmdet-m-resolved.py \
+            --checkpoint .qualification-rtmdet-m.pth \
+            --checkpoint-sha256 "$RTMDET_CHECKPOINT_SHA256" \
+            --device cpu > qualification-evidence/runtime-probe.json 2> qualification-evidence/runtime-probe.err
+          code=$?
+          printf '%s\n' "$code" > qualification-evidence/runtime-probe.exitcode
+          cat qualification-evidence/runtime-probe.json
+          cat qualification-evidence/runtime-probe.err >&2
+          set -e
+          exit "$code"
+
+      - name: Run production MMDetectionRuntime smoke on verified local artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_root=".qualification-model-root/rtmdet-m-coco-phase1-v1"
+          mkdir -p "$release_root"
+          cp .qualification-rtmdet-m.pth "$release_root/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth"
+          cp qualification-evidence/rtmdet-m-resolved.py "$release_root/rtmdet_m_resolved.py"
+
+          PYTHONPATH=src/vision python - <<'PY'
+          import json
+          import os
+          import numpy as np
+          from pathlib import Path
+
+          from mavi_vision.runtime.activity import InferenceActivity
+          from mavi_vision.runtime.mmdetection import MMDetectionRuntime
+          from mavi_vision.runtime.qualification import verify_release_selection
+
+          selection = verify_release_selection(
+              model_root=Path(".qualification-model-root"),
+              manifest_path=Path("models/manifests/rtmdet-m-coco-phase1-v1.json"),
+              profile_path=Path("src/vision/config/pipelines/phase1-detection-tracking-v1.json"),
+              runtime_profile_path=Path("src/vision/runtime/mmdetection-phase1-v1/runtime.json"),
+              allow_unverified=True,
+          )
+          activity = InferenceActivity()
+          runtime = MMDetectionRuntime(selection, device="cpu", activity=activity)
+          try:
+              runtime.warmup()
+              image_rgb = np.zeros((48, 80, 3), dtype=np.uint8)
+              image_rgb[..., 0] = 29
+              image_rgb[..., 1] = 101
+              image_rgb[..., 2] = 223
+              detections = runtime.infer(image_rgb)
+              metadata = runtime.metadata
+              if metadata.ordered_class_vocabulary != selection.manifest.class_vocabulary:
+                  raise SystemExit("production_runtime_vocabulary_mismatch")
+              if metadata.device != "cpu":
+                  raise SystemExit("production_runtime_device_mismatch")
+              expected_binary = selection.runtime_platform_variants[
+                  os.environ["MAVI_RUNTIME_VARIANT"]
+              ].binary_versions
+              actual_binary = {
+                  "torch": metadata.versions["torch"],
+                  "torchvision": metadata.versions["torchvision"],
+              }
+              if expected_binary is None or actual_binary != dict(expected_binary):
+                  raise SystemExit("production_runtime_binary_identity_mismatch")
+              snapshot = activity.snapshot()
+              if snapshot.active or snapshot.completed_count != 2:
+                  raise SystemExit("production_runtime_activity_mismatch")
+              record = {
+                  "status": "passed",
+                  "backend": metadata.backend,
+                  "modelId": metadata.model_id,
+                  "device": metadata.device,
+                  "predictionCount": len(detections),
+                  "activityCompletedCount": snapshot.completed_count,
+                  "orderedClassVocabulary": list(metadata.ordered_class_vocabulary),
+                  "versions": dict(metadata.versions),
+              }
+              Path("qualification-evidence/production-runtime-smoke.json").write_text(
+                  json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n",
+                  encoding="utf-8",
+              )
+              print("production-runtime-smoke-ok", json.dumps(record, sort_keys=True))
+          finally:
+              runtime.close()
+          PY
+
+      - name: Verify qualification evidence set
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          root = Path("qualification-evidence")
+          required = (
+              "runtime-probe.json",
+              "runtime-probe.err",
+              "runtime-probe.exitcode",
+              "resolved-config.json",
+              "rtmdet-m-resolved.py",
+              "runtime.json",
+              "missing.err",
+              "production-runtime-smoke.json",
+              "bytetrack-qualification.json",
+              "production-composition-qualification.json",
+          )
+          missing = [name for name in required if not (root / name).is_file()]
+          if missing:
+              raise SystemExit(
+                  "qualification_evidence_missing:" + ",".join(sorted(missing))
+              )
+
+          if (root / "runtime-probe.exitcode").read_text(encoding="utf-8").strip() != "0":
+              raise SystemExit("qualification_probe_exitcode_not_zero")
+
+          probe = json.load((root / "runtime-probe.json").open(encoding="utf-8"))
+          if probe.get("status") != "passed":
+              raise SystemExit("qualification_probe_status_not_passed")
+
+          production = json.load(
+              (root / "production-runtime-smoke.json").open(encoding="utf-8")
+          )
+          if production.get("status") != "passed":
+              raise SystemExit("production_runtime_smoke_not_passed")
+          if production.get("device") != "cpu":
+              raise SystemExit("production_runtime_smoke_device_invalid")
+
+          bytetrack = json.load(
+              (root / "bytetrack-qualification.json").open(encoding="utf-8")
+          )
+          if bytetrack.get("status") != "passed":
+              raise SystemExit("bytetrack_qualification_status_not_passed")
+          if bytetrack.get("packages") != {
+              "trackers": "2.6.0",
+              "supervision": "0.30.2",
+          }:
+              raise SystemExit("bytetrack_qualification_package_drift")
+          import hashlib
+          profile_hash = hashlib.sha256(
+              Path(
+                  "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
+              ).read_bytes()
+          ).hexdigest()
+          if bytetrack.get("profileSha256") != profile_hash:
+              raise SystemExit("bytetrack_qualification_profile_hash_mismatch")
+
+          executed_source_sha = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"],
+              text=True,
+          ).strip()
+          expected_source_sha = os.environ["MAVI_EXPECTED_SOURCE_SHA"]
+          if executed_source_sha != expected_source_sha:
+              raise SystemExit("qualification_checkout_source_sha_mismatch")
+          if bytetrack.get("headSha") != executed_source_sha:
+              raise SystemExit("bytetrack_evidence_source_sha_mismatch")
+          expected_pr_head = os.environ.get("MAVI_PR_HEAD_SHA") or None
+          if bytetrack.get("prHeadSha") != expected_pr_head:
+              raise SystemExit("bytetrack_evidence_pr_head_sha_mismatch")
+          if bytetrack.get("eventSha") != os.environ["MAVI_EVENT_SHA"]:
+              raise SystemExit("bytetrack_evidence_event_sha_mismatch")
+
+          composition = json.load(
+              (root / "production-composition-qualification.json").open(
+                  encoding="utf-8"
+              )
+          )
+          if composition.get("status") != "passed":
+              raise SystemExit("production_composition_status_not_passed")
+          if composition.get("packages") != {
+              "trackers": "2.6.0",
+              "supervision": "0.30.2",
+          }:
+              raise SystemExit("production_composition_package_drift")
+          if composition.get("headSha") != executed_source_sha:
+              raise SystemExit("production_composition_source_sha_mismatch")
+          if composition.get("prHeadSha") != expected_pr_head:
+              raise SystemExit("production_composition_pr_head_sha_mismatch")
+          if composition.get("eventSha") != os.environ["MAVI_EVENT_SHA"]:
+              raise SystemExit("production_composition_event_sha_mismatch")
+
+          resolved = json.load((root / "resolved-config.json").open(encoding="utf-8"))
+          runtime = json.load((root / "runtime.json").open(encoding="utf-8"))
+          actual_hash = resolved["resolvedConfig"]["sha256"]
+          expected_hash = runtime["resolvedConfig"]["sha256"]
+          if actual_hash != expected_hash:
+              raise SystemExit(
+                  "resolved_config_hash_mismatch:"
+                  + json.dumps(
+                      {"actual": actual_hash, "expected": expected_hash},
+                      sort_keys=True,
+                  )
+              )
+          print("qualification-evidence-ok", actual_hash)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runtime-probe-${{ matrix.os }}-py3.12-torch2.6.0
+          path: qualification-evidence/
+          include-hidden-files: false
+          if-no-files-found: warn

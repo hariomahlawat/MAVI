@@ -1,0 +1,183 @@
+name: Task 17 Acceptance Validation
+
+on:
+  push:
+    branches:
+      - main
+      - feature/task-10-rtmdet-bytetrack
+  pull_request:
+    branches:
+      - main
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'config/acceptance/**'
+      - 'sample-data/ground-truth/**'
+      - 'tools/phase1/**'
+      - 'tools/native/**'
+      - 'tools/setup/**'
+      - 'config/setup/**'
+      - 'config/dependencies/**'
+      - 'Setup-MAVI-Development.cmd'
+      - 'Prepare-MAVI-Offline-Binary-Kit.cmd'
+      - 'Prepare-MAVI-Offline-Binary-Kit.ps1'
+      - 'src/platform/**'
+      - 'src/vision/**'
+      - 'models/**'
+      - 'docs/**'
+      - '.github/workflows/task17-acceptance.yml'
+      - 'tools/verify_repo.py'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'CONTRIBUTING.md'
+      - '.github/pull_request_template.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  deterministic-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact checked-out source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install repository verification dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
+
+      - name: Verify repository and Task 17 assets
+        run: python tools/verify_repo.py
+
+      - name: Test Task 17 tooling
+        run: python -m pytest -q tools/phase1/tests
+
+      - name: Compile Task 17 Python tooling
+        run: python -m compileall -q tools/phase1
+
+      - name: Validate shell wrapper syntax
+        run: bash -n tools/phase1/qualify_linux_offline.sh
+
+      - name: Assert hosted CI is not an offline acceptance substitute
+        shell: python
+        run: |
+          from pathlib import Path
+          workflow = Path(".github/workflows/task17-acceptance.yml").read_text(encoding="utf-8")
+          forbidden = [
+              "qualify_" + "windows_offline.ps1 --",
+              "qualify_" + "linux_offline.sh ",
+              "qualify_" + "offline_variant.py --bundle-dir",
+              "qualify_" + "application_lifecycle.ps1 -Mode",
+              "qualify_" + "backup_restore.py execute",
+          ]
+          hits = [item for item in forbidden if item in workflow]
+          if hits:
+              raise SystemExit(f"Hosted workflow attempts disconnected qualification: {hits}")
+
+      - name: Confirm pending release truth remains valid
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("models/manifests/rtmdet-m-coco-phase1-v1.json").read_text())
+          qualification = json.loads(Path("models/qualifications/rtmdet-m-coco-phase1-v1.json").read_text())
+          runtime = json.loads(Path("src/vision/runtime/mmdetection-phase1-v1/runtime.json").read_text())
+          if manifest["verificationStatus"] == "unverified":
+              assert manifest["qualificationId"] is None
+              assert qualification["overallResult"] == "pending"
+          if runtime["qualificationStatus"] == "partial":
+              assert any(
+                  item["status"] == "pending-hardware-qualification"
+                  for item in runtime["platformVariants"].values()
+              )
+
+  windows-script-validation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact checked-out source head
+        shell: pwsh
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:MAVI_EXPECTED_SOURCE_SHA) {
+            throw "Task 17 checkout mismatch: actual=$actual expected=$env:MAVI_EXPECTED_SOURCE_SHA"
+          }
+
+      - name: Parse Task 17 PowerShell qualification scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $scripts = @(
+            "tools/phase1/qualify_windows_offline.ps1",
+            "tools/phase1/qualify_application_lifecycle.ps1",
+            "tools/native/stage_ffmpeg_windows.ps1",
+            "tools/native/stage_pgvector_windows.ps1",
+            "tools/native/install_pgvector_windows.ps1",
+            "tools/native/stage_postgresql_runtime_windows.ps1",
+            "tools/setup/Setup-MAVI.ps1",
+            "tools/setup/New-MaviOfflineSetupBundle.ps1",
+            "tools/setup/New-MaviOfflineBinaryKit.ps1",
+            "tools/setup/Test-MaviOfflineBinaryKit.ps1",
+            "tools/setup/Prepare-MaviDeveloperOfflineCache.ps1",
+            "tools/setup/Prepare-MaviFfmpegWindows.ps1",
+            "tools/setup/Install-MaviVisionRuntime.ps1",
+            "tools/setup/Install-MaviVisionModelPack.ps1",
+            "tools/setup/Sync-MaviOfflineVisionComponentStore.ps1",
+            "tools/setup/Start-MaviVisionWorker.ps1",
+            "tools/setup/Test-MaviEnvironment.ps1",
+            "tools/setup/Test-MaviSetupContracts.ps1",
+            "tools/setup/Test-MaviVisionRuntimeStateContracts.ps1",
+            "tools/setup/Test-MaviVisionModelPackStateContracts.ps1",
+            "tools/setup/Test-MaviVisionWorkerComponentContracts.ps1",
+            "tools/setup/Mavi.VisionRuntime.Common.psm1",
+            "tools/setup/Mavi.Setup.Common.psm1",
+            "tools/setup/Mavi.Setup.Windows.psm1",
+            "Prepare-MAVI-Offline-Binary-Kit.ps1"
+          )
+          foreach ($script in $scripts) {
+            Write-Host "Parsing $script"
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script),
+              [ref]$tokens,
+              [ref]$errors
+            )
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object {
+                Write-Error "${script}:$($_.Extent.StartLineNumber):$($_.Extent.StartColumnNumber): $($_.Message)"
+              }
+              throw "PowerShell parse failed: $script"
+            }
+          }
+
+      - name: Validate MAVI setup contracts on Windows PowerShell
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          .\tools\setup\Test-MaviSetupContracts.ps1
+          .\tools\setup\Test-MaviVisionRuntimeStateContracts.ps1
+          .\tools\setup\Test-MaviVisionModelPackStateContracts.ps1
+          .\tools\setup\Test-MaviVisionWorkerComponentContracts.ps1

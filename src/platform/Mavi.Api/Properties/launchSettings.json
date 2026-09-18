@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "Mavi.Api": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
+        "MAVI_API_PROXY_TARGET": "https://localhost:62152"
+      },
+      "applicationUrl": "https://localhost:62152;http://localhost:62153"
+    }
+  }
+}
