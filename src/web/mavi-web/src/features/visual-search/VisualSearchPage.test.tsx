@@ -1,10 +1,11 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
-import { searchTracks, type TrackSearchItem } from '../../api/tracks';
+import { getTrack, searchTracks, type TrackDetail, type TrackSearchItem } from '../../api/tracks';
+import { listVideos } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
 import VisualSearchPage from './VisualSearchPage';
 
@@ -21,6 +22,15 @@ vi.mock('../../api/tracks', async () => {
   return {
     ...actual,
     searchTracks: vi.fn(),
+    getTrack: vi.fn(),
+  };
+});
+
+vi.mock('../../api/videos', async () => {
+  const actual = await vi.importActual<typeof import('../../api/videos')>('../../api/videos');
+  return {
+    ...actual,
+    listVideos: vi.fn(),
   };
 });
 
@@ -61,6 +71,47 @@ function track(id: string, overrides: Partial<TrackSearchItem> = {}): TrackSearc
   };
 }
 
+function detail(item: TrackSearchItem, localTrackNumber: number): TrackDetail {
+  return {
+    id: item.id,
+    processingRunId: item.processingRunId,
+    videoAssetId: item.videoAssetId,
+    camera: { id: item.cameraId, code: item.cameraCode, name: item.cameraName },
+    objectClass: item.objectClass,
+    localTrackNumber,
+    startOffsetMs: item.startOffsetMs,
+    endOffsetMs: item.endOffsetMs,
+    startTimestampUtc: item.startTimestampUtc,
+    endTimestampUtc: item.endTimestampUtc,
+    durationMs: item.durationMs,
+    detectionCount: item.detectionCount,
+    meanConfidence: item.meanConfidence,
+    maxConfidence: item.maxConfidence,
+    reviewStatus: item.reviewStatus,
+    processing: {
+      pipelineVersion: 'phase1',
+      detectorName: 'RTMDet',
+      detectorVersion: '1',
+      trackerName: 'ByteTrack',
+      trackerVersion: '1',
+      completedAtUtc: '2026-09-14T02:40:00Z',
+    },
+    video: {
+      recordingStartUtc: '2026-09-14T02:26:42Z',
+      recordingEndUtc: '2026-09-14T02:36:42Z',
+      durationMs: 600_000,
+      width: 1920,
+      height: 1080,
+      frameRateNumerator: 25,
+      frameRateDenominator: 1,
+      videoContentUrl: item.videoContentUrl,
+    },
+    representative: null,
+    trajectoryArtifactId: null,
+    trajectoryContentUrl: null,
+  };
+}
+
 function SearchHistoryHarness() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -77,6 +128,7 @@ describe('VisualSearchPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(listVideos).mockResolvedValue([]);
     vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
     vi.mocked(searchTracks).mockResolvedValue({
       items: [track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451')],
@@ -372,6 +424,7 @@ describe('VisualSearchPage', () => {
     const { ApiError } = await import('../../api/client');
     vi.clearAllMocks();
     vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(listVideos).mockResolvedValue([]);
     vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
     vi.mocked(searchTracks).mockRejectedValueOnce(new ApiError({
       status: 400,
@@ -439,5 +492,83 @@ describe('VisualSearchPage', () => {
 
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
     expect(vi.mocked(searchTracks).mock.calls[1][0].fromUtc).toBeUndefined();
+  });
+
+  describe('in-place inspector', () => {
+    const first = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451');
+    const second = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21452', { objectClass: 'Vehicle', cameraName: 'East Gate' });
+
+    beforeEach(() => {
+      vi.mocked(searchTracks).mockResolvedValue({ items: [first, second], nextCursor: null });
+      vi.mocked(getTrack).mockImplementation(async (id) => detail(id === first.id ? first : second, id === first.id ? 7 : 8));
+    });
+
+    it('selects a result into the URL, shows its evidence in place and closes on Escape', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+      const rows = within(await screen.findByRole('listbox', { name: 'Track results' })).getAllByRole('option');
+      expect(rows).toHaveLength(2);
+
+      await user.click(rows[0]);
+
+      expect(await screen.findByRole('heading', { name: 'Person · Track 7' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search?track=' + first.id);
+      expect(rows[0]).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByLabelText('Source video evidence')).toHaveAttribute('src', first.videoContentUrl);
+      expect(vi.mocked(getTrack).mock.calls[0][0]).toBe(first.id);
+
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('heading', { name: 'Person · Track 7' })).not.toBeInTheDocument());
+      expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search');
+    });
+
+    it('steps through results with the keyboard and opens the full review on Enter', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search?track=' + first.id });
+      await screen.findByRole('heading', { name: 'Person · Track 7' });
+
+      await user.keyboard('j');
+      expect(await screen.findByRole('heading', { name: 'Vehicle · Track 8' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Next result' })).toBeDisabled();
+
+      await user.keyboard('k');
+      expect(await screen.findByRole('heading', { name: 'Person · Track 7' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Previous result' })).toBeDisabled();
+
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(screen.getByLabelText('Current search location'))
+        .toHaveTextContent('/review/video/' + first.videoAssetId + '?trackId=' + first.id));
+    });
+
+    it('drops the selection when a new search snapshot is committed', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search?track=' + first.id });
+      await screen.findByRole('heading', { name: 'Person · Track 7' });
+
+      await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+
+      await waitFor(() => expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search?objectClass=Vehicle'));
+      expect(screen.getByLabelText('Current search location')).not.toHaveTextContent('track=');
+      expect(screen.queryByRole('heading', { name: 'Person · Track 7' })).not.toBeInTheDocument();
+    });
+
+    it('fetches the next snapshot page when stepping past the last loaded result', async () => {
+      const user = userEvent.setup();
+      const third = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21453', { cameraName: 'South Gate' });
+      vi.mocked(searchTracks)
+        .mockResolvedValueOnce({ items: [first, second], nextCursor: 'page-two' })
+        .mockResolvedValueOnce({ items: [third], nextCursor: null });
+      vi.mocked(getTrack).mockImplementation(async (id) => detail([first, second, third].find((item) => item.id === id) ?? first, 9));
+
+      renderWithApp(<VisualSearchPage />, { route: '/search?track=' + second.id });
+      await screen.findByRole('heading', { name: 'Vehicle · Track 9' });
+
+      await user.click(screen.getByRole('button', { name: 'Next result' }));
+
+      await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(searchTracks).mock.calls[1][0]).toEqual(expect.objectContaining({ cursor: 'page-two' }));
+      expect(await screen.findByText(/3 \/ 3/)).toBeInTheDocument();
+    });
   });
 });
