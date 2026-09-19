@@ -31,6 +31,7 @@ reads are hundreds of megabytes of intermediate output.
 
 from __future__ import annotations
 
+import bisect
 import re
 import struct
 from dataclasses import dataclass
@@ -58,6 +59,18 @@ _PE_DEBUG_TYPE_CODEVIEW = 2
 _PE_DEBUG_TYPE_REPRO = 16
 _PE_DIRECTORY_EXPORT = 0
 _PE_DIRECTORY_DEBUG = 6
+_PE_SCN_CNT_CODE = 0x00000020
+_PE_SCN_MEM_EXECUTE = 0x20000000
+#: An honest image carries one CodeView entry and perhaps a REPRO and a
+#: VC_FEATURE entry. A large count is how a crafted image buys normalisable
+#: bytes 20 at a time, so the count is bounded rather than trusted.
+_PE_MAX_DEBUG_ENTRIES = 16
+#: Total bytes any one artefact may have excused. MSVC needs about forty: a
+#: COFF timestamp, a checksum, an export timestamp, and a GUID and Age per
+#: debug entry. This is the backstop that makes the two rules above belt and
+#: braces rather than the only thing standing between a declared range and
+#: arbitrary content.
+MAX_NORMALIZED_BYTES = 256
 
 FORMAT_COFF_OBJECT = "coff-object"
 FORMAT_BIGOBJ_OBJECT = "bigobj-object"
@@ -218,6 +231,13 @@ class _Section:
     virtual_size: int
     pointer_to_raw_data: int
     size_of_raw_data: int
+    characteristics: int
+
+    @property
+    def executable(self) -> bool:
+        return bool(
+            self.characteristics & (_PE_SCN_CNT_CODE | _PE_SCN_MEM_EXECUTE)
+        )
 
 
 def _pe_sections(data: bytes, offset: int, count: int) -> tuple[_Section, ...]:
@@ -232,6 +252,7 @@ def _pe_sections(data: bytes, offset: int, count: int) -> tuple[_Section, ...]:
                 virtual_address=_u32(data, base + 12),
                 size_of_raw_data=_u32(data, base + 16),
                 pointer_to_raw_data=_u32(data, base + 20),
+                characteristics=_u32(data, base + 36),
             )
         )
     return tuple(sections)
@@ -324,11 +345,17 @@ def _pe_image_layout(data: bytes) -> NativeLayout:
         count = debug[1] // _PE_DEBUG_ENTRY_SIZE
         if table + count * _PE_DEBUG_ENTRY_SIZE > len(data):
             raise NativeFormatError("pe_debug_directory_out_of_range")
+        if count > _PE_MAX_DEBUG_ENTRIES:
+            raise NativeFormatError("pe_debug_entry_count_implausible")
         entries: list[dict[str, object]] = []
         for index in range(count):
             base = table + index * _PE_DEBUG_ENTRY_SIZE
             entry_type = _u32(data, base + 12)
-            size_of_data = _u32(data, base + 20)
+            # IMAGE_DEBUG_DIRECTORY: Characteristics 0, TimeDateStamp 4,
+            # MajorVersion 8, MinorVersion 10, Type 12, SizeOfData 16,
+            # AddressOfRawData 20, PointerToRawData 24.
+            size_of_data = _u32(data, base + 16)
+            address_of_raw_data = _u32(data, base + 20)
             pointer = _u32(data, base + 24)
             normalized.append(
                 NormalizedField(
@@ -345,8 +372,24 @@ def _pe_image_layout(data: bytes) -> NativeLayout:
             # made deterministic, so it is the dominant source of PE variance.
             # The PDB path is *not* normalised: it is an embedded absolute build
             # path and belongs to that category, where it stays visible.
-            if size_of_data < 24 or pointer + 24 > len(data):
+            #
+            # Every one of the checks below exists because `pointer` is a raw
+            # file offset taken from the file itself. Left unconstrained it
+            # nominates any twenty bytes in the image -- including twenty bytes
+            # of `.text` -- as normalisable, and the equivalence proof becomes
+            # circular: the bytes that select the mask are chosen by whoever
+            # produced the file.
+            if size_of_data < 24:
+                raise NativeFormatError("pe_codeview_record_too_small")
+            if pointer == 0 or pointer + size_of_data > len(data):
                 raise NativeFormatError("pe_codeview_record_out_of_range")
+            if address_of_raw_data:
+                mapped = _rva_to_offset(address_of_raw_data, sections)
+                if mapped != pointer:
+                    # The mapped and raw views of the same record must agree;
+                    # a record only reachable through one of them is not the
+                    # record the loader sees.
+                    raise NativeFormatError("pe_codeview_record_unmapped")
             if data[pointer : pointer + 4] != b"RSDS":
                 raise NativeFormatError("pe_codeview_signature_unknown")
             normalized.append(
@@ -358,12 +401,44 @@ def _pe_image_layout(data: bytes) -> NativeLayout:
         detail["debugEntries"] = entries
 
     normalized.sort(key=lambda field: (field.offset, field.name))
+    _reject_unsound_fields(normalized, sections)
     return NativeLayout(
         native_format=FORMAT_PE_IMAGE,
         normalized=tuple(normalized),
         observed=(),
         detail=detail,
     )
+
+
+def _reject_unsound_fields(
+    fields: list[NormalizedField], sections: Iterable[_Section]
+) -> None:
+    """Refuse a layout whose declared ranges could cover compiled content.
+
+    Bounds-checking each field against the file is not enough. Every offset
+    above is read *from* the file, so a crafted or unusual image can aim a
+    declared range at whatever it likes. Two rules close that, and neither
+    depends on recognising an attack:
+
+    * a declared range may not intersect a section that holds or executes
+      code -- metadata never lives there;
+    * declared ranges may not overlap each other -- otherwise the bytes that
+      decide where one mask goes can themselves be inside another mask, and
+      the two files can end up declaring different ranges from the same
+      apparent content.
+    """
+    previous_end = -1
+    for field in sorted(fields, key=lambda item: item.offset):
+        if field.offset < previous_end:
+            raise NativeFormatError("pe_normalized_fields_overlap")
+        previous_end = field.end
+        for section in sections:
+            if not section.executable:
+                continue
+            start = section.pointer_to_raw_data
+            end = start + section.size_of_raw_data
+            if field.offset < end and start < field.end:
+                raise NativeFormatError("pe_normalized_field_in_code_section")
 
 
 _LAYOUTS = {
@@ -450,21 +525,64 @@ _EMBEDDED_PATH = re.compile(
     # Windows: a bare drive letter, not preceded by a word character (which
     # would make it the last letter of `https`), and not followed by `//`.
     rb"(?<![A-Za-z0-9_])[A-Za-z]:(?:\\|/(?!/))[^\x00-\x1f\"<>|*?]{6,120}"
-    # POSIX: a rooted path under a directory a build actually runs from, not
-    # preceded by anything that would make it the tail of a URL or a longer
-    # path fragment.
-    rb"|(?<![A-Za-z0-9_:/.\-])/(?:home|build|tmp|work|opt|usr|root|var|mnt|Users)"
+    # UNC: `\\host\share\...` has no drive letter, so the branch above never
+    # sees it, and it is exactly what a shared build host embeds.
+    rb"|(?<![A-Za-z0-9_])\\\\[A-Za-z0-9_.-]{2,63}\\[^\x00-\x1f\"<>|*?]{4,120}"
+    # POSIX: a rooted path under a directory a build runs from or links
+    # against, including the CI roots real builds actually use. Not preceded
+    # by anything that would make it the tail of a URL or a longer path
+    # fragment -- and not preceded by a space, which is what separates an
+    # embedded string from a sentence that happens to mention a directory.
+    rb"|(?<![A-Za-z0-9_:/.\- ])/(?:home|build|builds|tmp|work|workspace|github"
+    rb"|srv|root|Users|checkout|project|opt|usr|var|mnt)"
     rb"/[\w./+\-]{4,120}"
+)
+
+#: Interpreter paths that appear in every wheel's console scripts. They are
+#: real absolute paths and they are not build paths: a shebang says what will
+#: run the script, not where it was compiled. Reporting them would put a known
+#: constant at the top of every evidence file.
+_SHEBANG_INTERPRETERS = frozenset(
+    {"/usr/bin/env", "/bin/sh", "/bin/bash", "/usr/bin/python", "/usr/bin/python3"}
 )
 
 
 def _url_spans(data: bytes) -> list[tuple[int, int]]:
-    return [match.span() for match in _URL_TOKEN.finditer(data)]
+    return sorted(match.span() for match in _URL_TOKEN.finditer(data))
 
 
-def _overlaps(span: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
+def _prepare_spans(spans: list[tuple[int, int]]) -> tuple[list[int], list[int]]:
+    """Index sorted spans for constant-ish overlap queries.
+
+    `starts[i]` is each span's start; `reach[i]` is the furthest end reached by
+    any span up to `i`. With both, an overlap test is one binary search and one
+    comparison. The scan this replaces ran once per path match against every
+    URL span, which on a string-dense 27 MB image is quadratic -- measured at
+    four times the cost per doubling, extrapolating to hours for one member.
+    A gate nobody can run is a gate nobody runs.
+    """
+    starts: list[int] = []
+    reach: list[int] = []
+    furthest = 0
+    for span_start, span_end in spans:
+        starts.append(span_start)
+        furthest = max(furthest, span_end)
+        reach.append(furthest)
+    return starts, reach
+
+
+def _overlaps(span: tuple[int, int], prepared: tuple[list[int], list[int]]) -> bool:
+    starts, reach = prepared
+    if not starts:
+        return False
     start, end = span
-    return any(start < other_end and other_start < end for other_start, other_end in spans)
+    # The last span that begins before this one ends. Every span at or below
+    # that index begins before `end`, so an overlap exists exactly when one of
+    # them also finishes after `start` -- which `reach` answers directly.
+    index = bisect.bisect_left(starts, end) - 1
+    if index < 0:
+        return False
+    return reach[index] > start
 
 
 def embedded_build_path_spans(data: bytes) -> list[tuple[int, int, str]]:
@@ -472,13 +590,15 @@ def embedded_build_path_spans(data: bytes) -> list[tuple[int, int, str]]:
 
     URLs are excluded mechanically rather than by host allow-list.
     """
-    urls = _url_spans(data)
+    urls = _prepare_spans(_url_spans(data))
     found: list[tuple[int, int, str]] = []
     for match in _EMBEDDED_PATH.finditer(data):
         span = match.span()
         if _overlaps(span, urls):
             continue
         text = match.group().decode("utf-8", "replace").rstrip("\x00")
+        if text in _SHEBANG_INTERPRETERS:
+            continue
         found.append((span[0], span[1], text))
     return found
 
@@ -525,6 +645,11 @@ def compare_native_payloads(
         The payloads are different lengths, so no field-wise proof is possible.
     ``native-format-mismatch``
         The two payloads are different formats.
+    ``normalized-field-disagreement``
+        The two payloads declare different metadata ranges, so masking each
+        with its own declaration would compare two different remainders.
+    ``normalized-budget-exceeded``
+        More bytes are declared metadata than any honest artefact needs.
     ``unparsable-native-format``
         At least one payload would not parse. Never normalised.
 
@@ -585,11 +710,41 @@ def compare_native_payloads(
 
     result["format"] = left_format
     result["byteIdentical"] = False
+    left_masked_bytes = normalized_byte_count(left_layout)
+    right_masked_bytes = normalized_byte_count(right_layout)
     result["normalizedByteCount"] = {
-        "left": normalized_byte_count(left_layout),
-        "right": normalized_byte_count(right_layout),
+        "left": left_masked_bytes,
+        "right": right_masked_bytes,
     }
     result["detail"] = {"left": left_layout.detail, "right": right_layout.detail}
+
+    # The two files must agree on *which* ranges are metadata. Each layout is
+    # derived from its own file, so without this a pair can declare different
+    # ranges and each excuse the bytes the other carries -- masking two
+    # different regions and comparing the remainder proves nothing about
+    # either.
+    left_fields = {(f.name, f.offset, f.length) for f in left_layout.normalized}
+    right_fields = {(f.name, f.offset, f.length) for f in right_layout.normalized}
+    if left_fields != right_fields:
+        result["classification"] = "normalized-field-disagreement"
+        result["normalizedFields"] = []
+        result["residualDifferences"] = []
+        result["residualDifferenceCount"] = None
+        result["fieldsOnlyInLeft"] = sorted(str(item) for item in left_fields - right_fields)
+        result["fieldsOnlyInRight"] = sorted(str(item) for item in right_fields - left_fields)
+        return result
+
+    # A backstop on total excused bytes. An honest MSVC image needs about
+    # forty; a number far above that means the declaration is being used to
+    # carry content rather than to describe metadata, whatever route got it
+    # past the structural rules.
+    if max(left_masked_bytes, right_masked_bytes) > MAX_NORMALIZED_BYTES:
+        result["classification"] = "normalized-budget-exceeded"
+        result["normalizedFields"] = []
+        result["residualDifferences"] = []
+        result["residualDifferenceCount"] = None
+        result["normalizedByteBudget"] = MAX_NORMALIZED_BYTES
+        return result
 
     if len(left) != len(right):
         # Masking cannot prove anything about payloads of different lengths:
@@ -695,6 +850,7 @@ def compare_native_payloads(
 
 __all__ = [
     "ACCEPTABLE_CLASSIFICATIONS",
+    "MAX_NORMALIZED_BYTES",
     "RESIDUAL_SAMPLE_LIMIT",
     "FORMAT_BIGOBJ_OBJECT",
     "FORMAT_COFF_OBJECT",

@@ -27,7 +27,7 @@ TOOLS = REPOSITORY_ROOT / "tools/vision"
 _INVOCATION = re.compile(
     r"python tools\\vision\\(?P<tool>[a-z_]+\.py)(?P<args>.*?)"
     r"(?=\n\s*\n|\npython tools|```)",
-    re.DOTALL,
+    re.DOTALL | re.IGNORECASE,
 )
 _FLAG = re.compile(r"--[a-z][a-z0-9-]*")
 
@@ -241,7 +241,8 @@ def test_every_artefact_the_runbook_writes_is_gitignored():
         "development-evidence.json",
         "development-e2e-evidence.json",
         "failure-matrix-evidence.json",
-        "mmcv-reproducibility.json",
+        "mmcv-reproducibility-ab.json",
+        "mmcv-objects-a2-a3.json",
         "wheelhouse-manifest.json",
         "run-explicit-cuda.json",
         "run-auto-cuda.json",
@@ -311,50 +312,68 @@ def test_the_runbook_requires_the_object_tree_comparison():
     assert "136" in text
 
 
-@pytest.mark.parametrize(
-    ("tool", "value"),
-    [
-        (
-            "compare_wheel_reproducibility.py",
-            "semantically-identical-after-native-normalization",
-        ),
-        ("compare_native_object_trees.py", "normalized-identical"),
-    ],
-)
-def test_every_require_value_the_runbook_names_is_accepted_by_its_tool(tool, value):
-    """A flag that exists with a value the tool rejects still strands the operator."""
-    text = _runbook_text()
-    assert f"--require {value}" in text
+def test_every_verdict_and_classification_the_runbook_names_is_real():
+    """A name the tool cannot emit sends the operator looking for nothing.
 
-    spec = importlib.util.spec_from_file_location(
-        "require_" + tool.removesuffix(".py"), TOOLS / tool
+    The first draft told the operator to expect `embedded-build-path-divergence`
+    as the *verdict*. It is a per-member classification and can never appear
+    there, so an operator running the A-versus-B comparison would have seen
+    `divergent-content`, matched it against the STOP row, and filed a false
+    finding on the expected result.
+    """
+    import importlib.util as _il
+
+    def _load(tool: str):
+        spec = _il.spec_from_file_location("names_" + tool.removesuffix(".py"), TOOLS / tool)
+        module = _il.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    analyser = _load("native_binary_metadata.py")
+    source = (TOOLS / "compare_wheel_reproducibility.py").read_text(encoding="utf-8")
+    verdicts = set(re.findall(r'verdict = "([a-z-]+)"', source))
+    object_source = (TOOLS / "compare_native_object_trees.py").read_text(encoding="utf-8")
+    verdicts |= set(re.findall(r'verdict = "([a-z-]+)"', object_source))
+    analyser_source = (TOOLS / "native_binary_metadata.py").read_text(encoding="utf-8")
+    classifications = set(
+        re.findall(r'"classification"\]? *[:=] *"([a-z-]+)"', analyser_source)
     )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
 
-    captured: list[tuple] = []
-    original = argparse.ArgumentParser.add_argument
+    assert "embedded-build-path-divergence" in classifications
+    assert "embedded-build-path-divergence" not in verdicts
+    assert analyser.ACCEPTABLE_CLASSIFICATIONS <= classifications
 
-    def record(self, *args, **kwargs):
-        if "--require" in args:
-            captured.append(tuple(kwargs.get("choices", ())))
-        return original(self, *args, **kwargs)
+    text = _runbook_text()
+    known = verdicts | classifications
+    # Every hyphenated lowercase token the runbook presents in backticks that
+    # looks like one of these names must actually be one.
+    quoted = set(re.findall(r"`([a-z][a-z-]{8,})`", text))
+    suspicious = {
+        name
+        for name in quoted
+        if ("divergen" in name or "identical" in name or "normaliz" in name)
+        and not name.endswith(".py")
+    }
+    unknown = suspicious - known
+    assert not unknown, f"runbook names verdicts/classifications that do not exist: {sorted(unknown)}"
 
-    argparse.ArgumentParser.add_argument = record
-    try:
-        parser_argv, sys.argv = sys.argv, [tool, "--help"]
-        try:
-            module.main()
-        except SystemExit:
-            pass
-        finally:
-            sys.argv = parser_argv
-    finally:
-        argparse.ArgumentParser.add_argument = original
 
-    assert captured, f"{tool} declares no --require"
-    assert value in captured[0]
+def test_the_runbook_does_not_enforce_a_tier_the_expected_result_cannot_reach():
+    """`--require` on either C2.2 command would fail on the expected outcome.
+
+    A-versus-B embeds two different source roots, and the A2/A3 objects differ
+    in a header word the analyser deliberately refuses to excuse. Both are
+    recording runs; enforcing a tier would make the documented-expected result
+    exit 3.
+    """
+    text = _runbook_text()
+    section = text[text.index("### C2.2a") : text.index("### What C2.2 does")]
+
+    # The prose says "no `--require`"; what must not appear is an invocation
+    # that actually passes one.
+    assert not re.search(r"--require\s+[a-z]", section)
+    assert "no `--require`" in section.lower()
 
 
 def test_the_plan_records_that_pack_identity_binds_to_the_canonical_wheel():

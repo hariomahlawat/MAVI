@@ -118,11 +118,22 @@ def pe_image(
     signature: bytes = b"PE\x00\x00",
     optional_magic: int = 0x20B,
     codeview_signature: bytes = b"RSDS",
+    debug_in_code_section: bool = False,
+    codeview_size_of_data: int | None = None,
+    codeview_address_override: int | None = None,
+    extra_debug_entries: int = 0,
 ) -> bytes:
-    """A PE32+ image carrying a debug directory with an RSDS CodeView record.
+    """A PE32+ image with a read-only data section and a code section.
 
-    The layout is built bottom-up so every RVA resolves through the section
-    table, which is what makes the parser's RVA arithmetic actually run.
+    The split matters. MSVC puts the export directory, the debug directory and
+    the CodeView record in read-only data, never in `.text`, and the analyser
+    refuses to normalise a range that lands in an executable section. A
+    single-section fixture would put the metadata in code and be rejected --
+    correctly, which is why `debug_in_code_section` exists as an explicit
+    negative case rather than as the default shape.
+
+    Every RVA resolves through the section table, so the parser's address
+    arithmetic and its mapped-versus-raw consistency check both actually run.
     """
     if debug_timestamp is None:
         debug_timestamp = timestamp
@@ -131,18 +142,17 @@ def pe_image(
 
     dos = b"MZ" + b"\x00" * 0x3A + struct.pack("<I", 0x40)
     optional_size = 240
-    header_span = 0x40 + 4 + 20 + optional_size + 40
-    section_raw = (header_span + 0x1FF) & ~0x1FF
-    section_rva = 0x1000
+    header_span = 0x40 + 4 + 20 + optional_size + 2 * 40
+    rdata_raw = (header_span + 0x1FF) & ~0x1FF
+    rdata_rva = 0x1000
 
-    # Section payload: export directory, then the debug entry array, then the
-    # CodeView record, then the code body.
-    export_dir = struct.pack("<IIIIIIIIIII", 0, export_timestamp, 0, 0, 1, 0, 0, 0, 0, 0, 0)
-    export_rva = section_rva
+    export_dir = struct.pack(
+        "<IIIIIIIIIII", 0, export_timestamp, 0, 0, 1, 0, 0, 0, 0, 0, 0
+    )
     cursor = len(export_dir)
 
-    entries = (2 if repro_entry else 1) if include_debug else 0
-    debug_array_rva = section_rva + cursor
+    entries = ((2 if repro_entry else 1) + extra_debug_entries) if include_debug else 0
+    debug_array_rva = rdata_rva + cursor
     debug_array_size = entries * 28
     cursor += debug_array_size
 
@@ -153,64 +163,90 @@ def pe_image(
         + pdb_path
         + b"\x00"
     )
-    codeview_rva = section_rva + cursor
+    codeview_rva = rdata_rva + cursor
     if include_debug:
         cursor += len(codeview)
 
     repro_blob = struct.pack("<I", 4) + b"\xde\xad\xbe\xef"
-    repro_rva = section_rva + cursor
+    repro_rva = rdata_rva + cursor
     if include_debug and repro_entry:
         cursor += len(repro_blob)
 
-    payload_parts = [export_dir]
-    debug_entries = b"".join(
-        struct.pack(
+    rdata_len = cursor
+    text_raw = (rdata_raw + rdata_len + 0x1FF) & ~0x1FF
+    text_rva = (rdata_rva + rdata_len + 0xFFF) & ~0xFFF
+
+    if debug_in_code_section:
+        # Aim the CodeView record into `.text` while leaving the record itself
+        # where it is, so only the declared range moves into executable bytes.
+        codeview_pointer = text_raw
+        codeview_address = text_rva
+    else:
+        codeview_pointer = rdata_raw + (codeview_rva - rdata_rva)
+        codeview_address = codeview_rva
+
+    def entry(index: int) -> bytes:
+        if index == 0:
+            return struct.pack(
+                "<IIHHIIII",
+                0,
+                debug_timestamp,
+                0,
+                0,
+                2,
+                len(codeview) if codeview_size_of_data is None else codeview_size_of_data,
+                codeview_address
+                if codeview_address_override is None
+                else codeview_address_override,
+                codeview_pointer,
+            )
+        return struct.pack(
             "<IIHHIIII",
             0,
             debug_timestamp,
             0,
             0,
-            2 if index == 0 else 16,
-            len(codeview) if index == 0 else len(repro_blob),
-            codeview_rva if index == 0 else repro_rva,
-            section_raw + (codeview_rva - section_rva)
-            if index == 0
-            else section_raw + (repro_rva - section_rva),
+            16,
+            len(repro_blob),
+            repro_rva,
+            rdata_raw + (repro_rva - rdata_rva),
         )
-        for index in range(entries)
-    )
-    payload_parts.append(debug_entries)
+
+    rdata = export_dir + b"".join(entry(i) for i in range(entries))
     if include_debug:
-        payload_parts.append(codeview)
+        rdata += codeview
         if repro_entry:
-            payload_parts.append(repro_blob)
-    payload_parts.append(body)
-    payload = b"".join(payload_parts)
+            rdata += repro_blob
 
     coff = struct.pack(
-        "<HHIIIHH", _MACHINE_AMD64, 1, timestamp, 0, 0, optional_size, 0x2022
+        "<HHIIIHH", _MACHINE_AMD64, 2, timestamp, 0, 0, optional_size, 0x2022
     )
 
     optional = bytearray(optional_size)
     struct.pack_into("<H", optional, 0, optional_magic)
-    struct.pack_into("<I", optional, 16, section_rva)          # entry point
-    struct.pack_into("<I", optional, 32, 0x1000)               # section align
-    struct.pack_into("<I", optional, 36, 0x200)                # file align
-    struct.pack_into("<I", optional, 56, section_rva + len(payload))
-    struct.pack_into("<I", optional, 60, section_raw)
+    struct.pack_into("<I", optional, 16, text_rva)
+    struct.pack_into("<I", optional, 32, 0x1000)
+    struct.pack_into("<I", optional, 36, 0x200)
+    struct.pack_into("<I", optional, 56, text_rva + len(body))
+    struct.pack_into("<I", optional, 60, rdata_raw)
     struct.pack_into("<I", optional, 64, checksum)
-    struct.pack_into("<I", optional, 108, 16)                  # NumberOfRvaAndSizes
-    struct.pack_into("<II", optional, 112, export_rva, len(export_dir))
+    struct.pack_into("<I", optional, 108, 16)
+    struct.pack_into("<II", optional, 112, rdata_rva, len(export_dir))
     if include_debug:
         struct.pack_into(
             "<II", optional, 112 + 6 * 8, debug_array_rva, debug_array_size
         )
 
-    section = (
-        b".text".ljust(8, b"\x00")
-        + struct.pack("<IIII", len(payload), section_rva, len(payload), section_raw)
+    sections = (
+        b".rdata".ljust(8, b"\x00")
+        + struct.pack("<IIII", len(rdata), rdata_rva, len(rdata), rdata_raw)
+        + struct.pack("<IIHHI", 0, 0, 0, 0, 0x40000040)
+        + b".text".ljust(8, b"\x00")
+        + struct.pack("<IIII", len(body), text_rva, len(body), text_raw)
         + struct.pack("<IIHHI", 0, 0, 0, 0, 0x60000020)
     )
 
-    head = dos + signature + coff + bytes(optional) + section
-    return head + b"\x00" * (section_raw - len(head)) + payload
+    head = dos + signature + coff + bytes(optional) + sections
+    image = head + b"\x00" * (rdata_raw - len(head)) + rdata
+    image += b"\x00" * (text_raw - len(image)) + body
+    return image

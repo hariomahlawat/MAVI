@@ -136,10 +136,28 @@ python tools\vision\inspect_windows_cuda_torch_wheel.py `
 ### The build environment
 
 Open an **x64 Native Tools Command Prompt for VS 2022** so the frozen toolset is
-the active one, then, in each build's virtual environment:
+the active one, then start PowerShell inside it:
+
+```
+powershell -NoExit
+```
+
+Every fenced block in this runbook is PowerShell. The Native Tools shortcut
+opens `cmd.exe`, so running them there fails on the first line; starting
+PowerShell *from within* it keeps the 14.44 toolset on `PATH`, which is the
+part that must not change. Do not open PowerShell from the Start menu instead:
+the toolset would not be the frozen one.
+
+Create a virtual environment per build tree and install the build inputs into
+it. Torch must be installed, not merely downloaded: MMCV's `setup.py` imports
+`torch` to obtain `CUDAExtension`, and `--no-build-isolation` means nothing
+else will provide it.
 
 ```powershell
-python -m pip install "setuptools==80.10.2" wheel
+python -m venv $work\venv-a
+$work\venv-a\Scripts\python.exe -m pip install --no-index `
+    --find-links $work\wheelhouse torch torchvision
+$work\venv-a\Scripts\python.exe -m pip install "setuptools==80.10.2" wheel
 ```
 
 - **Must NOT change:** the setuptools pin. MMCV 2.1.0 imports `pkg_resources`,
@@ -164,10 +182,12 @@ $env:DISTUTILS_USE_SDK = "1"
   substitution the frozen contract forbids.
 
 Clone MMCV at commit `57c4e25e06e2d4f8a9357c84bcd24089a284dc88` into **two
-separate clean trees**, `$work\mmcv-src-a` and `$work\mmcv-src-b`, and in each:
+separate clean trees**, `$work\mmcv-src-a` and `$work\mmcv-src-b`, and in each
+(from inside that tree, with that tree's venv):
 
 ```powershell
-python -m pip wheel . --no-build-isolation --no-deps --wheel-dir $work\build-a
+$work\venv-a\Scripts\python.exe -m pip wheel . `
+    --no-build-isolation --no-deps --wheel-dir $work\build-a
 ```
 
 - **Success:** `mmcv-2.1.0-cp312-cp312-win_amd64.whl`, roughly 9.5 MB.
@@ -175,87 +195,164 @@ python -m pip wheel . --no-build-isolation --no-deps --wheel-dir $work\build-a
 - **Record:** SHA-256 and byte size of each wheel.
 - **Must NOT change:** `--no-build-isolation` (isolation would install an
   unpinned setuptools and defeat the pin above) or `--no-deps`.
+- **Must NOT change:** the `--wheel-dir` for a given build. Two builds writing
+  to one directory silently overwrite each other, and since no two builds of
+  this wheel are byte-identical, the hash you recorded would then belong to a
+  file that no longer exists. C2.3 binds the lock to that hash.
 - **Failure:** STOP.
 
-**Preserve the intermediate objects before anything cleans them.** Each tree's
-`build\temp.win-amd64-cpython-312` holds the 136 objects; copy the two aside as
-`$work\obj-a` and `$work\obj-b`. They are the evidence for C2.2b and they are
-deleted by a rebuild.
+**Preserve the intermediate objects before anything cleans them.** `pip wheel`
+leaves them in the *source tree*, at
+`build\temp.win-amd64-cpython-312`, not in the wheel directory. Copy each
+tree's aside before doing anything else:
 
-### C2.2a Compare the two wheels
+```powershell
+Copy-Item -Recurse $work\mmcv-src-a\build\temp.win-amd64-cpython-312 $work\obj-a
+Copy-Item -Recurse $work\mmcv-src-b\build\temp.win-amd64-cpython-312 $work\obj-b
+```
+
+They are the evidence for C2.2b and a rebuild deletes them.
+
+### C2.2a Compare the wheels
+
+Two comparisons, answering two different questions. Both use wheels you already
+have; neither needs a rebuild.
+
+**The one that matters: A2 versus A3** — same source tree, same venv, so the
+only variable is time. This is the comparison that establishes there is no
+unexplained native divergence.
+
+```powershell
+python tools\vision\compare_wheel_reproducibility.py `
+    --left  $work\build-a2\mmcv-2.1.0-cp312-cp312-win_amd64.whl `
+    --right $work\build-a3\mmcv-2.1.0-cp312-cp312-win_amd64.whl `
+    --output $work\mmcv-reproducibility-a2a3.json
+```
+
+- **Expected:** `verdict` `semantically-identical-after-native-normalization`,
+  and `nativeAnalysis["mmcv/_ext.cp312-win_amd64.pyd"].classification`
+  `metadata-normalized-identical`.
+- **This is the C2 acceptance evidence.** If it holds, two independent builds
+  of the frozen recipe differ only in named build-metadata fields, and the
+  compiled code is the same. That is the whole question.
+
+**The other: A versus B** — different source trees, so MSVC embeds two
+different absolute roots. This one is about *relocatability*, not correctness.
 
 ```powershell
 python tools\vision\compare_wheel_reproducibility.py `
     --left  $work\build-a\mmcv-2.1.0-cp312-cp312-win_amd64.whl `
     --right $work\build-b\mmcv-2.1.0-cp312-cp312-win_amd64.whl `
-    --output $work\mmcv-reproducibility-ab.json `
-    --require semantically-identical-after-native-normalization
+    --output $work\mmcv-reproducibility-ab.json
 ```
 
-- **Success:** verdict `byte-identical`, `semantically-identical`, or
-  `semantically-identical-after-native-normalization`.
-- **Output:** `$work\mmcv-reproducibility-ab.json` — **external** (the filename
-  is also gitignored if written into the tree).
-- **Record:** the verdict, every entry of `varianceSources`, the
-  `nativeAnalysis` block for `mmcv/_ext.cp312-win_amd64.pyd`, and the embedded
-  build paths the tool reports for **both** wheels.
-- **Verdict meaning:**
-  - `byte-identical` — C3 may enforce exact hash identity on rebuild;
-  - `semantically-identical` — the installed members are byte-equal and only the
-    container varies;
-  - `semantically-identical-after-native-normalization` — the installed members
-    are **not** byte-equal, and every byte by which they differ was proved to
-    lie inside a documented build-metadata field, each of which the report
-    names. This is the expected R1 outcome and it is **weaker** than the tier
-    above it: the wheel cannot be re-derived by hash, so C3 binds to the
-    selected canonical wheel plus this evidence, not to reproducibility;
-  - `divergent-*` — **STOP.** The report names the cause. Two cases to read
-    carefully before concluding anything:
-    - `embedded-build-path-divergence` on the A-versus-B comparison is
-      **expected and is not a failure of the compiler.** The two trees have
-      different absolute paths and MSVC embeds them. It means the build is not
-      relocatable, which is a real finding, but C2.2b is what tells you whether
-      the *code* agrees. Record it and run C2.2b.
-    - `undocumented-header-field-divergence` means a header word differs that
-      this repository has not established the meaning of. The report decodes
-      both values. **Do not normalise it locally.** Record the two values and
-      stop; they are the input to the decision, not a step to get past.
-- **Failure:** STOP for anything other than `embedded-build-path-divergence`.
+- **Expected:** `verdict` `divergent-content`, with the `.pyd` classified
+  `embedded-build-path-divergence`. That is the correct answer and not a
+  failure of the compiler; record it and move on.
+
+**There is deliberately no `--require` on either.** Both are **recording runs**:
+their job is to put the variance on the record. Enforcing a tier on A-vs-B
+would fail on the expected result.
+
+- **Expected:** `verdict` is `divergent-content`. Exit code 0 (nothing is
+  being enforced).
+- **Output:** both JSON files — **external** (the filenames are also gitignored
+  if written into the tree).
+- **Record:** for each, the `verdict`, every entry of `varianceSources`, the
+  embedded build paths reported for **both** wheels, and
+  `nativeAnalysis["mmcv/_ext.cp312-win_amd64.pyd"].classification` with the
+  `normalizedFields` it names.
+
+**Read the verdict and the classification as two different things.** The
+*verdict* describes the whole wheel and is one of `byte-identical`,
+`semantically-identical`,
+`semantically-identical-after-native-normalization`, `divergent-inventory` or
+`divergent-content`. The *classification* describes one native member and is
+reported under `nativeAnalysis`. `embedded-build-path-divergence` is a
+classification, never a verdict; expecting to see it as the verdict will send
+you looking for something that cannot appear.
+
+What the member classification means here:
+
+| `nativeAnalysis[...].classification` | Meaning | Action |
+| --- | --- | --- |
+| `embedded-build-path-divergence` | The two trees' absolute paths are compiled in. **Expected for A-vs-B, and a defect if it appears for A2-vs-A3.** | Record it; continue |
+| `metadata-normalized-identical` | Every differing byte was inside a named metadata field. **Expected for A2-vs-A3; this is the acceptance evidence.** | Record which fields; continue |
+| `undocumented-header-field-divergence` | A header word differs whose meaning this repository has not established. Both values are decoded in the report | Record both values; continue to C2.2b |
+| `unexplained-native-difference` | Bytes differ that nothing accounts for | **STOP** |
+| `native-size-mismatch` | The images are different sizes | **STOP** |
+| `unparsable-native-format` | The `.pyd` did not parse | **STOP** |
+
+- **Failure:** STOP on the last three only. Do **not** re-run with different
+  inputs to obtain a different classification.
 
 ### C2.2b Compare the intermediate objects
 
 The wheel comparison sees the linked image, which carries the linker's variance
-on top of the compiler's. This step asks the narrower question the A-versus-B
-paths make unanswerable: did the **compiler** produce the same code?
+on top of the compiler's, and A-vs-B additionally carries two different source
+roots. This step asks the narrower question those make unanswerable: did the
+**compiler** produce the same code?
 
-Rebuild `$work\mmcv-src-a` a second time into `$work\obj-a2` — same path, same
-virtual environment, same flags — so the only variable left is time.
+**Use the objects you already preserved.** The first host session kept A2's and
+A3's object trees. Point the tool at those. Do **not** rebuild MMCV to produce
+fresh ones: a rebuild costs the better part of an hour and answers no question
+that the preserved trees do not already answer.
 
 ```powershell
 python tools\vision\compare_native_object_trees.py `
-    --left  $work\obj-a `
-    --right $work\obj-a2 `
-    --output $work\mmcv-objects-a-a2.json `
-    --require normalized-identical
+    --left  $work\obj-a2 `
+    --right $work\obj-a3 `
+    --output $work\mmcv-objects-a2-a3.json
 ```
 
-- **Success:** verdict `identical` or `metadata-normalized-identical`, with
-  `unresolvedCount` **0**.
-- **Output:** `$work\mmcv-objects-a-a2.json` — **external**.
-- **Record:** `comparedCount` (expected 136), `metadataNormalizedCount`,
-  `unresolvedCount`, and the whole `normalizedFieldCounts` map. That map is the
-  evidence: it names which field excused each object and how many objects it
-  excused.
-- **Must NOT change:** the source path or the virtual environment between the
-  two builds. Changing either reintroduces embedded-path variance and the step
-  stops answering its question.
-- **Failure:** STOP. A non-zero `unresolvedCount` means the compiler is not
-  deterministic on this toolchain, which is a far larger finding than a
-  timestamp and changes C3, not just C2.
+(Only if those trees are gone: rebuild `$work\mmcv-src-a` once, into a
+**different** wheel directory, and copy `build\temp.win-amd64-cpython-312`
+aside first.)
 
-Also run the same comparison across `$work\obj-a` and `$work\obj-b`. It is
-expected to report embedded build paths; run it so the result is on the record
-rather than assumed.
+**No `--require`**, for a reason that is the one open question of this phase.
+The first session measured a `/bigobj` CPU object differing at offsets 8, 9, 36
+and 37. Offset 8 is the documented `TimeDateStamp` and is normalised. Offset 36
+is `MetaDataSize`, which is **not** a timestamp in the documented layout, so the
+tool reports it rather than excusing it — which means a **non-zero**
+`unresolvedCount` is the expected outcome today.
+
+- **Expected:** `comparedCount` 136; every unresolved object classified
+  `undocumented-header-field-divergence` on `bigobj.MetaDataSize` (and possibly
+  `bigobj.MetaDataOffset`); no object classified anything else.
+- **Output:** `$work\mmcv-objects-a2-a3.json` — **external**.
+- **Record:** `comparedCount`, `metadataNormalizedCount`, `unresolvedCount`,
+  `normalizedFieldCounts`, `outOfScopeNativeFiles`, and from
+  `unresolved[].analysis.residualDifferences` the decoded `left` and `right`
+  values for `bigobj.MetaDataSize`.
+- **Failure:** STOP if any object is classified `unexplained-native-difference`,
+  `native-size-mismatch` or `unparsable-native-format`, or if `comparedCount`
+  is not 136. Those would mean the compiler itself differs, which changes C3
+  rather than just C2.
+
+#### How much this question is worth
+
+`MetaDataSize` and `MetaDataOffset` are CLR metadata fields. A native object
+does not carry CLR metadata, and the native linker does not consume them, so a
+difference there is **not** on the path to the code that runs.
+
+That is an argument, not a proof — but the proof is cheap and you already have
+it: **the linked image is the artefact that executes.** If the `.pyd` in C2.2a
+reduces to `metadata-normalized-identical`, then whatever differs at object
+offset 36 did not change a byte the linker emitted, and the functional question
+is closed regardless of what the field turns out to be.
+
+So: record the two decoded values, and read them against the `.pyd` result.
+Two values a few thousand apart in the `0x68xxxxxx` range are two timestamps
+and the field can later be ratified as normalisable. A small integer means
+something else, and it still carries no functional risk if the image compares
+clean. **Do not rebuild MMCV to investigate this further.** It is a labelling
+question about a header word, tracked openly, not a blocker — and it is not
+worth an hour of build time, let alone a change to the frozen recipe.
+
+Also run the same comparison across `$work\obj-a` and `$work\obj-b` if those
+trees are still present. It is expected to report embedded build paths; run it
+so the result is on the record rather than assumed. If they are gone, skip it:
+A-vs-B relocatability is already recorded by C2.2a.
 
 ### What C2.2 does and does not establish
 
@@ -281,11 +378,35 @@ nothing and both are currently inferences rather than observations:
   and the finding is larger than a timestamp.
 
 **Do not add `/Brepro`, `--frandom-seed` or `/PDBALTPATH` to make this step
-pass.** They are recorded in the plan as R2 candidates with the experiment that
-would evaluate them. Adding a flag to change a verdict, before knowing whether
-it changes the artefact, is what the checker exists to prevent.
+pass**, and do not chase byte-for-byte equality across Development rebuilds.
+The target here is a known-good canonical artefact with its recipe recorded and
+no unexplained native divergence — not theoretical reproducibility. Those flags
+are recorded in the plan as R2 candidates; Production carries the stronger
+qualification burden, and this is not it.
 
-## C2.3 Assemble the wheelhouse manifest
+## C2.3 Acquire the remaining dependencies and assemble the manifest
+
+C2.1 used `--no-deps`, so the wheelhouse holds only Torch and torchvision. The
+rest of the closure -- `mmengine`, `mmdet`, `numpy`, `pillow` and their
+transitive dependencies -- must be downloaded from PyPI into the *same*
+directory, or the manifest, the lock's closure check and the offline install
+all fail for want of them.
+
+```powershell
+python -m pip download mmengine mmdet numpy pillow `
+    --only-binary=:all: --dest $work\wheelhouse
+```
+
+- **Success:** the wheelhouse now holds the full set.
+- **Must NOT change:** the index. These come from PyPI; only Torch,
+  torchvision and MMCV are special. If a dependency resolves to a `+cu124`
+  version here, stop: it belongs to the CUDA set and should have come from
+  C2.1.
+- **Failure:** STOP.
+
+Copy the **canonical** MMCV wheel into the wheelhouse as well -- one of the two,
+chosen and recorded per the paragraph below.
+
 
 Choose **one** of the two MMCV wheels as the canonical artefact and record which
 and why. Build A is the conventional choice; whichever it is, its SHA-256 is
@@ -311,6 +432,26 @@ python tools\vision\build_wheelhouse_manifest.py `
 - **Record:** the manifest SHA-256.
 - **Failure:** STOP. The manifest refuses symlinks, subdirectories and strays;
   a refusal means the wheelhouse is not a clean set.
+
+`origins.json` maps every wheel filename to where it came from:
+
+```json
+{
+  "torch-2.6.0+cu124-cp312-cp312-win_amd64.whl": {
+    "kind": "index",
+    "indexUrl": "https://download.pytorch.org/whl/cu124"
+  },
+  "mmcv-2.1.0-cp312-cp312-win_amd64.whl": {
+    "kind": "local-build",
+    "sourceRepository": "https://github.com/open-mmlab/mmcv",
+    "sourceCommit": "57c4e25e06e2d4f8a9357c84bcd24089a284dc88",
+    "buildToolchain": "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75"
+  }
+}
+```
+
+Every wheel needs an entry and every entry needs a wheel; the manifest refuses
+either mismatch.
 
 ## C2.4 Freeze the lock
 
@@ -379,6 +520,23 @@ a SHA recorded without it claims more than was measured.
 
 ## C3.1 Build the pack from the frozen C2 inputs
 
+A Windows Runtime Pack embeds the CPython installer, and `build_runtime_pack.py`
+refuses without one (`runtime_pack_python_installer_required`). Acquire it
+first, and check what you acquired:
+
+```powershell
+Invoke-WebRequest -Uri https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe `
+    -OutFile $work\python-3.12.10-amd64.exe
+(Get-AuthenticodeSignature $work\python-3.12.10-amd64.exe).Status
+(Get-Item $work\python-3.12.10-amd64.exe).VersionInfo.ProductVersion
+```
+
+- **Success:** signature `Valid`, ProductVersion `3.12.10150.0`.
+- **Output:** `$work\python-3.12.10-amd64.exe` — **external**.
+- **Record:** its SHA-256.
+- **Failure:** STOP. An unsigned or mismatched installer is not substitutable.
+
+
 The `--native-abi` is **not hand-typed**. It is the `nativeAbi` field of the
 build contract, derived from the verified toolchain and pinned by test:
 
@@ -390,6 +548,7 @@ python tools\vision\build_runtime_pack.py `
     --platform-variant windows-x86_64-cuda `
     --python-version 3.12.10 `
     --contract config\vision\windows-cuda-development-build-v1.json `
+    --python-installer $work\python-3.12.10-amd64.exe `
     --assembled-from-commit $head `
     --output $work\runtime-pack
 ```
@@ -459,6 +618,27 @@ All of C3.1–C3.4 passed. Only now is the pack **RUNTIME-PACK-VERIFIED**.
 
 # C4 — Development hardware qualification
 
+The Development laptop is the C4/C6 execution target and **not** the build
+host, so this is a new shell on a different machine. Re-establish the session
+variables and the contract's build environment before anything else -- the
+toolchain verifier in C4.2 compares `os.environ` against the contract and
+refuses with `cuda_build_environment_mismatch:<name>` on any difference:
+
+```powershell
+$head = (git rev-parse HEAD).Trim()
+$op   = "<workstation or operator label>"
+$work = "C:\mavi-c4"
+New-Item -ItemType Directory -Path $work -Force | Out-Null
+$env:MMCV_WITH_OPS = "1"
+$env:FORCE_CUDA = "1"
+$env:TORCH_CUDA_ARCH_LIST = "7.5+PTX"
+$env:MAX_JOBS = "2"
+$env:DISTUTILS_USE_SDK = "1"
+```
+
+`$head` must be the same commit you recorded at C2. If it is not, stop: the
+assemblers require every artefact to name one head.
+
 ## C4.1 Capture a fresh host observation
 
 ```powershell
@@ -497,11 +677,35 @@ python tools\vision\verify_windows_cuda_toolchain.py `
 
 ```powershell
 $env:CUDA_DEVICE_ORDER = "PCI_BUS_ID"
-python tools\vision\verify_windows_cuda_runtime.py --device-index 0 `
-    --resolved-config src\vision\runtime\mmdetection-phase1-v1\rtmdet_m_resolved.py `
+$packPython = "$work\runtime-pack\venv\Scripts\python.exe"
+$resolved = "<Model Pack root>\rtmdet_m_resolved.py"
+& $packPython tools\vision\verify_windows_cuda_runtime.py --device-index 0 `
+    --resolved-config $resolved `
     --host-observation $work\host-observation.json `
     --output $work\runtime-verification.json
 ```
+
+Two things here are easy to get wrong and both invalidate the result.
+
+**The interpreter must be the pack's.** The tool imports `torch` from whatever
+interpreter runs it, and the record it writes is what C4.4 turns into a
+qualification. A bare `python` qualifies whichever environment happened to be
+on `PATH`, which is worse than failing.
+
+**`rtmdet_m_resolved.py` is not in this repository.** It is generated by
+`tools/vision/resolve_mmdet_config.py` and ships inside the **Model Pack**;
+`src\vision\runtime\mmdetection-phase1-v1\` contains only the locks, the
+requirements projections and `runtime.json`. Point `--resolved-config` at the
+installed Model Pack's copy, and check it is the qualified one:
+
+```powershell
+(Get-FileHash $resolved -Algorithm SHA256).Hash.ToLower()
+```
+
+It must equal `resolvedConfig.sha256` in
+`src\vision\runtime\mmdetection-phase1-v1\runtime.json`. If it does not, stop:
+you would be qualifying a different model configuration from the one the
+release metadata describes.
 
 - **Success:** `"result": "passed"`, with `mmcvNmsExecutedOnCuda` and
   `torchMatmulExecutedOnCuda` both `true` and `peakMemoryAllocatedBytes` above
@@ -652,8 +856,8 @@ python tools\vision\build_failure_matrix_evidence.py --print-matrix `
     --scope hardware --source-head-sha x --captured-at-utc x --operator-reference x
 ```
 
-37 cases: **7** exercisable anywhere (record before the session), **18** needing
-the Windows launcher but no GPU, **12** needing a real device.
+37 cases: **7** exercisable anywhere (record before the session), **20** needing
+the Windows launcher but no GPU, **10** needing a real device.
 
 Record each as a `mavi-windows-cuda-failure-case-v1` document (schema:
 `tools/vision/windows-cuda-failure-case.schema.json`), then:

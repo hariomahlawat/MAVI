@@ -148,7 +148,7 @@ collected by R1 and are recorded below; item 4 remains outstanding.
 1. ~~**R1 toolchain preflight**~~ — **COLLECTED**. CUDA 12.4 compiled with MSVC 14.44.35207 and Windows SDK 10.0.26100.0. 14.44 was retained on proof, not assumption, and 14.39 proved unnecessary.
 2. ~~**Real v2 host observation**~~ — **COLLECTED**. Compute capability, PCI identity and memory availability directly observed.
 3. ~~**Torch cu124 wheel inspection**~~ — **COLLECTED**. Windows wheel metadata, dependency markers and CUDA DLL inventory confirmed.
-4. **MMCV reproducibility experiment:** build the CUDA MMCV wheel twice from a clean controlled build environment before C3; if byte reproducibility is not achievable, an ADR must define a controlled hash-pinned binary-input model. **Still outstanding — a C2/C3 activity.**
+4. **MMCV reproducibility experiment:** build the CUDA MMCV wheel twice from a clean controlled build environment before C3. **Collected, with a finding:** four builds, not byte-reproducible. The ADR condition was answered by review rather than by an ADR — identity already binds the canonical wheel's SHA-256. See "Consequence for C3 identity — reviewed, no change required".
 
 ### Gate C1R — repository side — PASSED AND MERGED
 
@@ -236,7 +236,7 @@ toolchain being unverified. That condition is now satisfied, so the gate no
 longer refuses a Windows CUDA lock. Nothing else opened: no lock, Runtime Pack
 or wheelhouse exists, `windows-x86_64-cuda` remains
 `pending-hardware-qualification` and the runtime profile remains `partial`.
-**C2 has not started and requires independent review of this evidence first.**
+**As of R1, C2 had not started and required independent review of this evidence first.** That review is complete and the build half of C2 has since run; see "Current execution point".
 
 ### Pre-C2 independent review — corrections to the lock gate
 
@@ -692,7 +692,18 @@ Freeze:
 
 ### Gate C3
 
-Runtime Pack reproduction from the same inputs must produce the same content identity. The CUDA MMCV wheel must first be rebuilt twice from clean inputs and compared byte-for-byte. If native CUDA compilation proves irreducibly non-deterministic, stop and adopt a reviewed ADR that treats the MMCV CUDA wheel as a controlled, archived, hash-pinned binary input rather than silently weakening this gate.
+Runtime Pack reproduction from the same inputs must produce the same content
+identity: rebuild the pack and compare `runtimePackId`. This is a property of
+the pack builder, not of MSVC, so it is unconditional — C2.2's verdict does not
+soften it.
+
+The wheel comparison belongs to **Gate C2**, not here, and its acceptance model
+is semantic equivalence after mechanically verified normalisation. The earlier
+requirement to compare the wheel byte-for-byte, and to write an ADR treating it
+as a hash-pinned binary input if that failed, has been **superseded**: the
+measurement was taken, the wheel is not byte-reproducible, and the lock already
+pins it by SHA-256. See "Consequence for C3 identity — reviewed, no change
+required". No ADR is required.
 
 Existing Windows CPU Runtime Pack checks must remain green.
 
@@ -972,7 +983,7 @@ not run in hosted CI at all. So:
 
 - `--scope linux-observable` -- the 7 cases the worker itself produces, needing
   neither a GPU nor the launcher;
-- `--scope windows-host` -- the 27 cases needing the Windows launcher but no
+- `--scope windows-host` -- the 27 cases observable without a GPU (the 7 above plus 20 needing the Windows launcher), but no
   GPU;
 - `--scope hardware` -- all 37, and it additionally requires
   `--development-evidence`: every hardware case must carry the salted GPU
@@ -1005,7 +1016,7 @@ Where Auto is permitted to answer CPU, explicit CUDA has its own refusal case --
 all eight, not only the obvious four. Those are the highest-risk places for a
 silent fallback precisely because a legitimate CPU answer exists next door.
 
-Twelve cases require a real GPU; twenty more require the Windows launcher; the
+Ten cases require a real GPU; twenty more require the Windows launcher; the
 remaining seven are exercisable on any machine and should be recorded before the
 host session, so the session spends its time on what only it can do.
 

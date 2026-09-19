@@ -64,6 +64,10 @@ _IDENTITY_MEMBERS = re.compile(
 # The converse does not hold: RECORD can disagree with the members it lists, and
 # that is an installable defect, so it is reported in its own right.
 _RECORD_MEMBER = re.compile(r"\.dist-info/RECORD$", re.IGNORECASE)
+#: Largest member this tool will decompress. The MMCV `.pyd` is ~27 MB and the
+#: Torch wheel is never passed here, so this is generous for the artefacts in
+#: scope and finite for the ones that are not.
+_MAX_MEMBER_BYTES = 128 * 1024 * 1024
 # Absolute build paths embedded in artefacts defeat relocatable reproduction.
 # The scan itself lives in `native_binary_metadata` because the object-tree
 # comparator needs the same answer, and because the first version of it read
@@ -93,7 +97,7 @@ class _Archive:
     # Only native members: `_ext.cp312-win_amd64.pyd` is 27 MB and the pure
     # Python members are already decided by their hashes.
     native_payloads: dict[str, bytes]
-    record: bytes | None
+    records: dict[str, bytes]
 
 
 def _read_archive(path: Path) -> _Archive:
@@ -107,7 +111,7 @@ def _read_archive(path: Path) -> _Archive:
         members: dict[str, _Member] = {}
         order: list[str] = []
         native_payloads: dict[str, bytes] = {}
-        record: bytes | None = None
+        records: dict[str, bytes] = {}
         for info in archive.infolist():
             if info.is_dir():
                 continue
@@ -118,6 +122,14 @@ def _read_archive(path: Path) -> _Archive:
                 # between two artefacts.
                 raise WheelComparisonError(
                     f"wheel_duplicate_member:{path.name}:{info.filename}"
+                )
+            if info.file_size > _MAX_MEMBER_BYTES:
+                # An unbounded read turns a half-megabyte archive into a
+                # gigabyte of resident memory, and `MemoryError` is not an
+                # `OSError`, so the tool would die with a traceback rather than
+                # a refusal.
+                raise WheelComparisonError(
+                    f"wheel_member_too_large:{path.name}:{info.filename}"
                 )
             try:
                 # Read by ZipInfo, never by name: name lookup resolves through
@@ -145,13 +157,16 @@ def _read_archive(path: Path) -> _Archive:
             if _is_native(info.filename):
                 native_payloads[info.filename] = data
             if _RECORD_MEMBER.search(info.filename) is not None:
-                record = data
+                # Every RECORD, not merely the last one seen: a wheel carrying
+                # a second `.dist-info` can otherwise hide a RECORD that lies
+                # about every hash behind an honest one.
+                records[info.filename] = data
         return _Archive(
             members=members,
             order=tuple(order),
             comment=archive.comment or b"",
             native_payloads=native_payloads,
-            record=record,
+            records=records,
         )
 
 
@@ -198,7 +213,7 @@ def _embedded_paths(path: Path) -> dict[str, list[str]]:
 
 
 def _record_consistency(archive: _Archive) -> dict[str, object]:
-    """Check RECORD against the members it lists, inside one wheel.
+    """Check every RECORD against the members of its own wheel.
 
     RECORD restating a member's hash means it differs whenever that member
     does. That is a consequence, not an independent defect -- but only when
@@ -206,52 +221,59 @@ def _record_consistency(archive: _Archive) -> dict[str, object]:
     installs something other than what it describes, so the two questions are
     separated here rather than collapsed into "RECORD differs".
     """
-    if archive.record is None:
+    if not archive.records:
         return {"present": False, "consistent": None, "disagreements": []}
     disagreements: list[str] = []
-    try:
-        text = archive.record.decode("utf-8")
-    except UnicodeDecodeError:
-        return {"present": True, "consistent": False, "disagreements": ["record_not_utf8"]}
-    # RECORD is CSV, not three fields split on the last two commas: a member
-    # whose path contains a comma is quoted, and splitting by hand would report
-    # a malformed row for a wheel that is perfectly well formed.
     listed: set[str] = set()
-    for row in csv.reader(io.StringIO(text)):
-        if not row or not any(field.strip() for field in row):
+    for record_name, payload in sorted(archive.records.items()):
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            disagreements.append(f"record_not_utf8:{record_name}")
             continue
-        if len(row) != 3:
-            disagreements.append(f"record_row_malformed:{','.join(row)[:80]}")
-            continue
-        name, digest, size = row
-        listed.add(name)
-        member = archive.members.get(name)
-        if member is None:
-            # RECORD lists itself and the .dist-info dir with empty fields.
-            if digest == "" and size == "":
+        # RECORD is CSV, not three fields split on the last two commas: a
+        # member whose path contains a comma is quoted, and splitting by hand
+        # would report a malformed row for a wheel that is perfectly well
+        # formed.
+        for row in csv.reader(io.StringIO(text)):
+            if not row or not any(field.strip() for field in row):
                 continue
-            disagreements.append(f"record_member_missing:{name}")
-            continue
-        if digest == "" and size == "":
-            continue
-        if not digest.startswith("sha256="):
-            disagreements.append(f"record_hash_algorithm_unsupported:{name}")
-            continue
-        expected = base64.urlsafe_b64encode(
-            bytes.fromhex(member.sha256)
-        ).rstrip(b"=").decode()
-        if digest[len("sha256=") :] != expected:
-            disagreements.append(f"record_hash_mismatch:{name}")
-        if size != str(member.size):
-            disagreements.append(f"record_size_mismatch:{name}")
-    # A member the wheel ships and RECORD does not describe is installed
-    # without a hash to check it against.
+            if len(row) != 3:
+                disagreements.append(f"record_row_malformed:{','.join(row)[:80]}")
+                continue
+            name, digest, size = row
+            listed.add(name)
+            member = archive.members.get(name)
+            if digest == "" and size == "":
+                # Only a RECORD may describe itself with empty fields. For any
+                # other shipped member an empty digest means it installs with
+                # nothing to check it against -- the same defect this function
+                # reports for a member RECORD omits entirely.
+                if member is not None and _RECORD_MEMBER.search(name) is None:
+                    disagreements.append(f"record_hash_absent:{name}")
+                continue
+            if member is None:
+                disagreements.append(f"record_member_missing:{name}")
+                continue
+            if not digest.startswith("sha256="):
+                disagreements.append(f"record_hash_algorithm_unsupported:{name}")
+                continue
+            expected = base64.urlsafe_b64encode(
+                bytes.fromhex(member.sha256)
+            ).rstrip(b"=").decode()
+            if digest[len("sha256=") :] != expected:
+                disagreements.append(f"record_hash_mismatch:{name}")
+            if size != str(member.size):
+                disagreements.append(f"record_size_mismatch:{name}")
+    # A member the wheel ships and no RECORD describes is installed without a
+    # hash to check it against.
     for name in sorted(set(archive.members) - listed):
         if _RECORD_MEMBER.search(name) is not None:
             continue
         disagreements.append(f"record_member_unlisted:{name}")
     return {
         "present": True,
+        "recordCount": len(archive.records),
         "consistent": not disagreements,
         "disagreements": sorted(disagreements)[:32],
     }
@@ -493,7 +515,7 @@ def main() -> int:
     except WheelComparisonError as exc:
         print(json.dumps({"ok": False, "code": exc.code}, sort_keys=True))
         return 2
-    except (RuntimeError, NotImplementedError, OSError) as exc:
+    except (RuntimeError, NotImplementedError, OSError, MemoryError) as exc:
         print(
             json.dumps(
                 {"ok": False, "code": "wheel_comparison_failed", "detail": str(exc)[:200]},

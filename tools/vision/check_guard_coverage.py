@@ -283,6 +283,24 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    record_unexplained = False",
     ),
     Mutation(
+        "C2 normalises a declared range inside a code section",
+        "tools/vision/native_binary_metadata.py",
+        "            if field.offset < end and start < field.end:",
+        "            if False:",
+    ),
+    Mutation(
+        "C2 compares two payloads that declare different ranges",
+        "tools/vision/native_binary_metadata.py",
+        "    if left_fields != right_fields:",
+        "    if False:",
+    ),
+    Mutation(
+        "C2 trusts a CodeView pointer the section map contradicts",
+        "tools/vision/native_binary_metadata.py",
+        "                if mapped != pointer:",
+        "                if False:",
+    ),
+    Mutation(
         "C2 wheel gate stops noticing a member RECORD omits",
         "tools/vision/compare_wheel_reproducibility.py",
         "    for name in sorted(set(archive.members) - listed):",

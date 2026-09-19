@@ -51,6 +51,10 @@ _OUT_OF_SCOPE_SUFFIXES = (".lib", ".a", ".exp", ".pdb", ".dll", ".pyd")
 #: every object diverges is one situation, not two hundred.
 _UNRESOLVED_REPORT_LIMIT = 24
 
+#: Largest object this tool will read. MMCV's biggest `/bigobj` output is
+#: about 18 MB, so this is generous for the artefacts in scope.
+_MAX_OBJECT_BYTES = 128 * 1024 * 1024
+
 
 class ObjectTreeError(ValueError):
     def __init__(self, code: str) -> None:
@@ -97,6 +101,12 @@ def compare_object_trees(left_root: Path, right_root: Path) -> dict[str, object]
     formats_seen: dict[str, int] = {}
 
     for name in shared:
+        # A multi-gigabyte object would otherwise raise `MemoryError`, which is
+        # not an `OSError`, and the tool would die with a traceback instead of
+        # a refusal. The largest honest MMCV object is ~18 MB.
+        for side, path in (("left", left[name]), ("right", right[name])):
+            if path.stat().st_size > _MAX_OBJECT_BYTES:
+                raise ObjectTreeError(f"object_too_large:{side}:{name}")
         left_bytes = left[name].read_bytes()
         right_bytes = right[name].read_bytes()
         if left_bytes == right_bytes:
@@ -186,7 +196,7 @@ def main() -> int:
     except ObjectTreeError as exc:
         print(json.dumps({"ok": False, "code": exc.code}, sort_keys=True))
         return 2
-    except OSError as exc:
+    except (OSError, MemoryError) as exc:
         print(
             json.dumps(
                 {

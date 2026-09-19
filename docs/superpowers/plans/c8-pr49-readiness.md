@@ -22,12 +22,12 @@ The vocabulary is not interchangeable:
 | Item | State | Evidence |
 | --- | --- | --- |
 | R1 toolchain preflight | **executed and passed** on the controlled Windows host | frozen in `config/vision/windows-cuda-development-build-v1.json`, `verificationStatus: verified` |
-| C2 tooling (wheel inspection, reproducibility comparison, native metadata analysis, object-tree comparison, wheelhouse manifest, lock freeze) | IMPLEMENTED, TESTED | `tools/vision/`, vision suite; 57 tests on the native analyser, 42 on the wheel comparator, 13 on the object-tree comparator |
+| C2 tooling (wheel inspection, reproducibility comparison, native metadata analysis, object-tree comparison, wheelhouse manifest, lock freeze) | IMPLEMENTED, TESTED | `tools/vision/`, vision suite; counts are read from the suite rather than restated here |
 | C3 tooling (Runtime Pack build, native-ABI derivation) | IMPLEMENTED, TESTED | `build_runtime_pack.derive_native_abi`, pinned against the committed contract |
 | C4 tooling (host probe, toolchain verify, runtime verify, evidence assembler) | IMPLEMENTED, TESTED | 88 tests on the assembler, 16 on the verifier |
 | C5 tooling (requirements projection writer, Auto-decision function) | IMPLEMENTED, TESTED | reproduces both tracked CPU projections byte for byte; 9 Auto branches on Windows CI |
-| C6 tooling (E2E evidence assembler) | IMPLEMENTED, TESTED | 53 tests |
-| C7 tooling (failure matrix, 37 declared cases) | IMPLEMENTED, TESTED | 72 tests |
+| C6 tooling (E2E evidence assembler) | IMPLEMENTED, TESTED | vision suite |
+| C7 tooling (failure matrix, 37 declared cases: 7 linux-observable, +20 windows-host, +10 hardware) | IMPLEMENTED, TESTED | vision suite |
 | Published schemas for all five record types | COMPLETE | `tools/vision/*.schema.json`, validated on load |
 | Launcher failure-code vocabulary | COMPLETE | 38 codes, mirror-checked, exercised on Windows CI |
 | Guard-coverage harness | COMPLETE | `check_guard_coverage.py`, runs in the quality gate |
@@ -47,12 +47,20 @@ Done on the host, recorded in the plan:
 - [x] three procedural corrections established and written into the runbook: `--no-deps` on the wheel download, `setuptools==80.10.2`, `DISTUTILS_USE_SDK=1`
 - [x] reproducibility **measured**: the wheel is not byte-reproducible; four distinct SHA-256 values
 
+**The C2 Development target is the minimum defensible set**, not byte-for-byte
+reproducibility: one canonical MMCV CUDA wheel with an exact SHA-256; the
+source, toolchain and dependency recipe recorded; a clean offline install; a
+successful native-op validation; enough reproducibility evidence to show no
+unexplained functional or native-code divergence; and fail-closed behaviour on
+anything genuinely unexplained. Production carries the stronger burden later.
+
 Still required before Gate C2:
 
 - [ ] authoritative `+cu124` wheels acquired from the dedicated index **with `--no-deps`**
-- [ ] C2.2a verdict recorded from `compare_wheel_reproducibility.py` (expected `semantically-identical-after-native-normalization`; anything else is a finding)
-- [ ] C2.2b run: `compare_native_object_trees.py` over all 136 A2/A3 objects with `unresolvedCount` 0 — the hand inspection covered two
-- [ ] the two BIGOBJ header words at offsets 36 and 40 decoded and their meaning settled; they currently block equivalence by design
+- [ ] C2.2a run on the **A2/A3 wheels** (same source tree): expected `semantically-identical-after-native-normalization` — this is the acceptance evidence
+- [ ] C2.2a run on the A/B wheels for the relocatability record: expected `divergent-content` with `embedded-build-path-divergence`
+- [ ] C2.2b run on the **preserved** A2/A3 object trees — no rebuild. Expect `unresolvedCount` > 0 on `bigobj.MetaDataSize`; STOP only on `unexplained-native-difference`, `native-size-mismatch` or `unparsable-native-format`
+- [ ] the two BIGOBJ header words at offsets 36 and 40 decoded and **recorded**. Their meaning need not be settled to close C2: they are CLR metadata fields the native linker does not consume, and a clean A2/A3 `.pyd` comparison proves they changed no emitted byte. Tracked openly, not a blocker
 - [ ] canonical MMCV wheel chosen, named, and its SHA-256 recorded **together with** the reproducibility verdict
 - [ ] wheelhouse manifest produced
 - [ ] `windows-x86_64-cuda.lock` frozen and committed

@@ -495,3 +495,155 @@ def test_a_file_url_still_reports_the_local_path_it_wraps() -> None:
     assert MODULE.embedded_build_paths(b"file:///C:/mavi-c2/build-a/_ext.pdb") == [
         "C:/mavi-c2/build-a/_ext.pdb"
     ]
+
+
+# ---------------------------------------------------------------------------
+# Declared ranges must be provably metadata, not merely pointed at by metadata
+#
+# Every offset the PE parser reads comes out of the file. Left unconstrained,
+# a declared range nominates arbitrary bytes -- including `.text` -- as
+# normalisable, and the equivalence proof becomes circular: whoever produced
+# the file chooses which bytes the comparison ignores.
+# ---------------------------------------------------------------------------
+
+
+def test_a_declared_range_inside_a_code_section_is_refused() -> None:
+    """The headline fail-open: 20 bytes of `.text` excused per debug entry.
+
+    Two checks can catch this -- the mapped/raw consistency check usually
+    fires first, and the section rule is the backstop for a record crafted to
+    satisfy it. Either refusal is correct; what must never happen is a layout.
+    """
+    with pytest.raises(MODULE.NativeFormatError) as excinfo:
+        MODULE.describe_native_layout(fixtures.pe_image(debug_in_code_section=True))
+    assert excinfo.value.code in {
+        "pe_normalized_field_in_code_section",
+        "pe_codeview_record_unmapped",
+        "pe_codeview_signature_unknown",
+    }
+
+
+def test_the_section_rule_catches_a_range_the_other_checks_admit() -> None:
+    """The backstop, exercised on its own: a field aimed into `.text`."""
+    import struct as _struct
+
+    data = bytearray(fixtures.pe_image())
+    pe = _struct.unpack_from("<I", data, 0x3C)[0]
+    optional = pe + 4 + 20
+    # Point the export directory at the code section; its TimeDateStamp field
+    # is then declared inside executable bytes.
+    text_rva = _struct.unpack_from("<I", data, optional + 16)[0]
+    _struct.pack_into("<I", data, optional + 112, text_rva)
+    with pytest.raises(MODULE.NativeFormatError) as excinfo:
+        MODULE.describe_native_layout(bytes(data))
+    assert excinfo.value.code == "pe_normalized_field_in_code_section"
+
+
+def test_a_code_section_payload_cannot_be_normalized_away() -> None:
+    """End to end: the same two images the layout refuses are never equivalent."""
+    left = fixtures.pe_image(debug_in_code_section=True, body=b"\x90" * 1024)
+    right = fixtures.pe_image(
+        debug_in_code_section=True, body=b"\xcc" * 20 + b"\x90" * 1004
+    )
+    result = MODULE.compare_native_payloads(left, right)
+
+    assert result["classification"] == "unparsable-native-format"
+    assert result["classification"] not in MODULE.ACCEPTABLE_CLASSIFICATIONS
+
+
+def test_size_of_data_is_read_from_the_documented_offset() -> None:
+    """`SizeOfData` is at entry offset 16, not 20 -- 20 is `AddressOfRawData`.
+
+    Reading it from 20 made the `size_of_data < 24` guard test a large RVA,
+    which always passes, so an entry describing no CodeView record at all was
+    accepted and its pointer honoured.
+    """
+    with pytest.raises(MODULE.NativeFormatError) as excinfo:
+        MODULE.describe_native_layout(fixtures.pe_image(codeview_size_of_data=0))
+    assert excinfo.value.code == "pe_codeview_record_too_small"
+
+
+def test_a_codeview_record_whose_two_views_disagree_is_refused() -> None:
+    """`AddressOfRawData` must map to `PointerToRawData` through the sections.
+
+    A record reachable through only one of them is not the record the loader
+    sees, and the mismatch is how two images can be made to declare different
+    ranges from the same apparent content.
+    """
+    with pytest.raises(MODULE.NativeFormatError) as excinfo:
+        MODULE.describe_native_layout(
+            fixtures.pe_image(codeview_address_override=0x1)
+        )
+    assert excinfo.value.code == "pe_codeview_record_unmapped"
+
+
+def test_an_implausible_debug_entry_count_is_refused() -> None:
+    """Entries are how a crafted image buys normalisable bytes, 20 at a time."""
+    with pytest.raises(MODULE.NativeFormatError) as excinfo:
+        MODULE.describe_native_layout(fixtures.pe_image(extra_debug_entries=32))
+    assert excinfo.value.code == "pe_debug_entry_count_implausible"
+
+
+def test_two_payloads_declaring_different_ranges_are_refused() -> None:
+    """Masking each file with its own declaration compares two remainders."""
+    left = fixtures.pe_image(timestamp=1)
+    right = fixtures.pe_image(timestamp=1, include_debug=False)
+    result = MODULE.compare_native_payloads(left, right)
+
+    assert result["classification"] == "normalized-field-disagreement"
+    assert result["classification"] not in MODULE.ACCEPTABLE_CLASSIFICATIONS
+    assert result["fieldsOnlyInLeft"]
+
+
+def test_the_normalized_byte_budget_is_small_for_an_honest_image() -> None:
+    layout = MODULE.describe_native_layout(fixtures.pe_image())
+    assert MODULE.normalized_byte_count(layout) <= 64
+    assert MODULE.MAX_NORMALIZED_BYTES <= 256
+
+
+def test_overlap_detection_handles_nested_spans() -> None:
+    """A nested span must still be found once the scan became a binary search."""
+    prepared = MODULE._prepare_spans([(0, 100), (10, 20), (200, 210)])
+    assert MODULE._overlaps((15, 16), prepared) is True
+    assert MODULE._overlaps((120, 130), prepared) is False
+    assert MODULE._overlaps((99, 205), prepared) is True
+    assert MODULE._overlaps((0, 0), MODULE._prepare_spans([])) is False
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"#!/usr/bin/env python\n",
+        b"#!/bin/sh\n",
+    ],
+)
+def test_a_shebang_interpreter_is_not_a_build_path(payload: bytes) -> None:
+    """Every wheel's console scripts carry one; none of them is a build path."""
+    assert MODULE.embedded_build_paths(payload) == []
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        b"See /usr/share/doc/python3/README for details",
+        b"Defaults to /tmp/cache unless overridden",
+        b"it searches /usr/lib and /usr/lib64 in order",
+    ],
+)
+def test_a_directory_mentioned_in_prose_is_not_a_build_path(prose: bytes) -> None:
+    assert MODULE.embedded_build_paths(prose) == []
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (b"\x00/github/workspace/mmcv/src/ext.cpp\x00", "/github/workspace/mmcv/src/ext.cpp"),
+        (b"\x00/builds/group/proj/mmcv/ext.cpp\x00", "/builds/group/proj/mmcv/ext.cpp"),
+        (b"\x00/workspace/mmcv/ops/nms.cu\x00", "/workspace/mmcv/ops/nms.cu"),
+        (b"\x00/opt/conda/lib/python3.12/site-packages/torch/include\x00", "/opt/conda/lib/python3.12/site-packages/torch/include"),
+        (b"\x00\\\\buildhost\\share\\mmcv\\src\\ext.cpp\x00", "\\\\buildhost\\share\\mmcv\\src\\ext.cpp"),
+    ],
+)
+def test_ci_and_unc_build_roots_are_detected(payload: bytes, expected: str) -> None:
+    """The roots real builds run under, which the first allow-list missed."""
+    assert MODULE.embedded_build_paths(payload) == [expected]
