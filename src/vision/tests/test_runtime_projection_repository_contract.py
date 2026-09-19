@@ -62,19 +62,38 @@ def test_component_requirements_bind_current_runtime_and_model_inputs() -> None:
     expected_native_abi = {
         "windows-x86_64-cpu": "win_amd64-msvc-14.44-sdk-10.0.26100.0",
         "linux-x86_64-cpu": "glibc-2.39-libstdcxx-GLIBCXX_3.4.33-gcc-14.2.0-linux_x86_64",
+        "windows-x86_64-cuda": (
+            "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75"
+        ),
     }
     expected_python = {
         "windows-x86_64-cpu": "3.12.10",
         "linux-x86_64-cpu": "3.12.14",
+        "windows-x86_64-cuda": "3.12.10",
     }
-    # Plan Gate C5 requires Development `Auto` to keep choosing CPU until the
-    # Application Overlay binding lands. That holds today only because no CUDA
-    # Runtime Pack is declared here, which nothing else asserts. C5 must delete
-    # this deliberately rather than drift past it.
+    # Deleted deliberately at Gate C5, as this comment previously required.
+    # Until C5 the set was pinned to the two CPU variants, because Development
+    # `Auto` kept choosing CPU only by virtue of no CUDA Runtime Pack being
+    # declared here and nothing else asserting it. The CUDA pack is declared
+    # now, so the pin is replaced by the stronger statement: every declared
+    # variant's identity must re-derive from the tracked lock and projection,
+    # which the loop below does for CUDA exactly as for the CPU variants.
     assert set(components["runtimePacks"]) == {
         "windows-x86_64-cpu",
         "linux-x86_64-cpu",
+        "windows-x86_64-cuda",
     }
+
+    # The CUDA native ABI now appears in three places -- this binding, the
+    # boundary-gate matrix and the frozen build contract. They must agree, or
+    # the pack identity silently stops describing the toolchain that built it.
+    contract = json.loads(
+        (repository_root / "config/vision/windows-cuda-development-build-v1.json")
+        .read_text(encoding="utf-8")
+    )
+    assert (
+        contract["nativeAbi"] == expected_native_abi["windows-x86_64-cuda"]
+    )
 
     for variant, binding in components["runtimePacks"].items():
         lock_hash = _sha(runtime_root / f"{variant}.lock")

@@ -140,9 +140,18 @@ at. In progress on the host, uncommitted at the time of writing: the CUDA
 runtime-pack binding in `mmdetection-phase1-v1.json`, and the CUDA row in the
 boundary-gate workflow.
 
-- [ ] component overlay declares `windows-x86_64-cuda` with real identities
-- [ ] boundary-gate matrix row added
-- [ ] the two pre-C5 pinning tests updated deliberately
+- [x] component overlay declares `windows-x86_64-cuda` with real identities (commit `4b54f4d`); the pack identity re-derives from the tracked lock and projection and matches the host-reported `mavi-runtime-v2-89fd8bf…`
+- [x] boundary-gate matrix row added; the `windows-x86_64-cuda` boundary job passes in CI, which is the first workflow validation of the CUDA lock
+- [x] the two pre-C5 pinning tests updated deliberately
+
+**Auto still resolves to CPU, and that is correct.** The CUDA entry in
+`releaseLocks` is `pending-hardware-qualification`, and `cuda_runtime_ready`
+requires `qualified-offline-lock`. The variant status and the pack binding both
+now favour CUDA; the release lock is what gates it. The reported reason remains
+`cuda_pack_not_declared`, the catch-all for a not-ready CUDA runtime, which now
+under-describes the cause — left as is, because the reason vocabulary is closed
+and mirrored in the JSON schema, the .NET parser and the PowerShell launcher,
+and the selection itself is right.
 - [ ] explicit CUDA fail-closed verified on the host
 - [ ] permitted Auto fallback verified with a stable, logged, persisted reason
 

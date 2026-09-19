@@ -863,12 +863,26 @@ def test_development_auto_accepts_a_development_qualified_gpu(
 def test_development_auto_still_chooses_cpu_against_the_committed_profile(
     monkeypatch,
 ) -> None:
-    """Plan Gate C5's pre-condition, read from the real runtime profile.
+    """What the repository as committed actually resolves to, on Auto.
 
     Every other Auto test here supplies synthetic variant statuses, so nothing
-    asserted what the repository as committed actually resolves to. Until C5
-    binds a CUDA Runtime Pack this must stay CPU; when C5 lands, this test is
-    the one that has to be changed on purpose.
+    else asserts this. Changed on purpose at Gate C5, as its previous wording
+    required -- but the outcome did not change and the reason it did not is
+    the point.
+
+    Before C5 the answer was CPU because no CUDA Runtime Pack was declared.
+    C5 declared one, and Gate C4 moved the variant to
+    `qualified-development-hardware`, so both of those now favour CUDA. Auto
+    still selects CPU because the CUDA entry in `releaseLocks` is
+    `pending-hardware-qualification`, and `cuda_runtime_ready` requires
+    `qualified-offline-lock`.
+
+    The reported reason is still `cuda_pack_not_declared`, which is the
+    catch-all for a not-ready CUDA runtime and now under-describes the cause:
+    a pack *is* declared. That is left alone deliberately. The reason
+    vocabulary is closed and mirrored in the JSON schema, the .NET parser and
+    the PowerShell launcher, so a more precise member is a four-place change
+    for a diagnostic string, and the selection itself is correct.
     """
     from mavi_vision.runtime.qualification import load_runtime_profile
 
@@ -894,6 +908,18 @@ def test_development_auto_still_chooses_cpu_against_the_committed_profile(
         }
 
         await harness.supervisor.start()
+
+        # The two things that changed at C4/C5, asserted so this test fails if
+        # either is ever quietly reverted.
+        assert (
+            profile.platform_variants["windows-x86_64-cuda"].status
+            == "qualified-development-hardware"
+        )
+        # ...and the one that has not, which is why CPU is still correct.
+        assert (
+            profile.release_locks["windows-x86_64-cuda"].status
+            == "pending-hardware-qualification"
+        )
 
         assert harness.supervisor.state is module.RuntimeState.READY
         assert harness.factory_calls[0][1] == "cpu"
