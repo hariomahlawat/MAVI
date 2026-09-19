@@ -11,7 +11,10 @@ from mavi_vision.common.analytical import ObjectClass
 from mavi_vision.runtime.interfaces import RuntimeMetadata
 from mavi_vision.runtime.manifest import ArtifactRef, ModelManifest
 from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
-from mavi_vision.common.control_plane import DEVICE_RESOLUTION_REASONS
+from mavi_vision.common.control_plane import (
+    AUTO_CPU_DEVICE_RESOLUTION_REASONS,
+    DEVICE_RESOLUTION_REASONS,
+)
 from mavi_vision.runtime.provenance import (
     GpuIdentity,
     PlatformIdentity,
@@ -719,22 +722,52 @@ def test_device_resolution_reason_vocabulary_is_closed() -> None:
 
 
 def test_windows_launcher_emits_only_contracted_resolution_reasons() -> None:
-    """PowerShell and Python must not silently diverge on reason codes."""
-    launcher = (
-        Path(__file__).resolve().parents[3]
-        / "tools/setup/Start-MaviVisionWorker.ps1"
+    """PowerShell and Python must not silently diverge on reason codes.
+
+    The Auto decision moved into `Mavi.VisionRuntime.Common.psm1` so it could be
+    called and therefore tested; the explicit policies are still decided in the
+    launcher. Both files are read, because the contract is about what the
+    Windows side can emit, not about which file happens to hold it.
+    """
+    setup = Path(__file__).resolve().parents[3] / "tools/setup"
+    text = "\n".join(
+        (setup / name).read_text(encoding="utf-8")
+        for name in (
+            "Start-MaviVisionWorker.ps1",
+            "Mavi.VisionRuntime.Common.psm1",
+        )
     )
-    text = launcher.read_text(encoding="utf-8")
     emitted = {
         line.split('Reason = "', 1)[1].split('"', 1)[0]
         for line in text.splitlines()
         if 'Reason = "' in line
+    }
+    emitted |= {
+        line.split('deviceResolutionReason = "', 1)[1].split('"', 1)[0]
+        for line in text.splitlines()
+        if 'deviceResolutionReason = "' in line
     }
 
     # An interpolated literal such as "explicit_$DevicePolicy" cannot be
     # verified against the vocabulary, so it fails this assertion too.
     assert emitted >= {"explicit_cpu", "explicit_cuda", "cuda_selected"}
     assert emitted <= DEVICE_RESOLUTION_REASONS
+
+
+def test_every_auto_cpu_reason_is_reachable_from_the_windows_auto_decision() -> None:
+    """A reason the vocabulary contracts but nothing emits cannot be observed."""
+    module = (
+        Path(__file__).resolve().parents[3]
+        / "tools/setup/Mavi.VisionRuntime.Common.psm1"
+    ).read_text(encoding="utf-8")
+    emitted = {
+        line.split('Reason = "', 1)[1].split('"', 1)[0]
+        for line in module.splitlines()
+        if 'Reason = "' in line
+    }
+
+    assert AUTO_CPU_DEVICE_RESOLUTION_REASONS <= emitted
+    assert "cuda_selected" in emitted
 
 
 @pytest.mark.parametrize(

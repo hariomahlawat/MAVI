@@ -59,90 +59,15 @@ if ([string]::IsNullOrWhiteSpace($runtimeCudaRoot)) {
     $runtimeCudaRoot = Join-Path $runtimeBase "windows-x86_64-cuda"
 }
 
-function Test-CudaRuntimeUsable {
-    param([Parameter(Mandatory = $true)][string]$Root)
-
-    $result = [ordered]@{
-        Usable = $false
-        Reason = "cuda_pack_absent"
-        RuntimeRoot = $Root
-    }
-
-    $pythonPath = Join-Path $Root "venv\Scripts\python.exe"
-    $manifestPath = Join-Path $Root "runtime-pack-manifest.json"
-    $statePath = Join-Path $Root "runtime-install.json"
-    if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
-        return [pscustomobject]$result
-    }
-
-    try {
-        $manifestValue = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-        $stateValue = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-        [void](Assert-MaviVisionRuntimeInstalledStatePreflight -RuntimeRoot $Root -InstalledState $stateValue -Manifest $manifestValue -RuntimePackManifestPath $manifestPath)
-    }
-    catch {
-        $result.Reason = "cuda_pack_integrity_failed"
-        return [pscustomobject]$result
-    }
-
-    if ([string]$manifestValue.platformVariant -ne "windows-x86_64-cuda") {
-        $result.Reason = "cuda_pack_variant_mismatch"
-        return [pscustomobject]$result
-    }
-
-    $componentPath = Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json"
-    if (-not (Test-Path -LiteralPath $componentPath -PathType Leaf)) {
-        $result.Reason = "cuda_pack_not_declared"
-        return [pscustomobject]$result
-    }
-    try {
-        $componentValue = Get-Content -LiteralPath $componentPath -Raw | ConvertFrom-Json
-    }
-    catch {
-        $result.Reason = "cuda_pack_not_declared"
-        return [pscustomobject]$result
-    }
-    $cudaRequirement = $componentValue.runtimePacks.PSObject.Properties["windows-x86_64-cuda"]
-    if (-not $cudaRequirement) {
-        $result.Reason = "cuda_pack_not_declared"
-        return [pscustomobject]$result
-    }
-    if ([string]$cudaRequirement.Value.runtimePackId -ne [string]$manifestValue.runtimePackId) {
-        $result.Reason = "cuda_pack_id_mismatch"
-        return [pscustomobject]$result
-    }
-
-    $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
-    if (-not $nvidiaSmi) {
-        $result.Reason = "cuda_driver_probe_unavailable"
-        return [pscustomobject]$result
-    }
-    try {
-        $probe = (& $nvidiaSmi.Source -i $DeviceIndex --query-gpu=index --format=csv,noheader,nounits 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0 -or $probe -ne [string]$DeviceIndex) {
-            $result.Reason = "cuda_device_unavailable"
-            return [pscustomobject]$result
-        }
-    }
-    catch {
-        $result.Reason = "cuda_driver_probe_failed"
-        return [pscustomobject]$result
-    }
-
-    $result.Usable = $true
-    $result.Reason = "cuda_selected"
-    return [pscustomobject]$result
-}
-
 $resolvedDevicePolicy = $DevicePolicy
 # Reason codes are a closed contract shared with
 # src/vision/mavi_vision/runtime/provenance.py; the worker rejects any code it
 # does not recognise, so every literal below must exist in that vocabulary.
 $deviceResolutionReason = $null
 if ($DevicePolicy -eq "auto") {
-    $cudaResolution = Test-CudaRuntimeUsable -Root $runtimeCudaRoot
+    # The decision itself lives in Mavi.VisionRuntime.Common.psm1 so it can be
+    # called, and therefore tested, outside this script.
+    $cudaResolution = Resolve-MaviVisionCudaAvailability -Root $runtimeCudaRoot -ComponentRequirementsPath (Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json") -DeviceIndex $DeviceIndex
     if ($cudaResolution.Usable) {
         $runtimeRoot = $runtimeCudaRoot
         $resolvedDevicePolicy = "cuda"
