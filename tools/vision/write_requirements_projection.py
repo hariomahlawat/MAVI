@@ -26,6 +26,18 @@ for _candidate in (Path(__file__).resolve().parents[2] / "src" / "vision",):
     if str(_candidate) not in sys.path:
         sys.path.insert(0, str(_candidate))
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from vision_package_bootstrap import (  # noqa: E402
+    install_lightweight_vision_package,
+)
+
+# Must run before the first `mavi_vision` import: the package's eager
+# re-exports would otherwise pull in NumPy and Torch, which this tool
+# exists to help acquire.
+install_lightweight_vision_package()
+
 from mavi_vision.runtime.requirements_projection import (  # noqa: E402
     RuntimeRequirementsError,
     build_runtime_requirements_projection,

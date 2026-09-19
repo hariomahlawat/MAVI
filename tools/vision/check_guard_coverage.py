@@ -283,6 +283,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    record_unexplained = False",
     ),
     Mutation(
+        "C2 projection tool drags the runtime stack back in",
+        "tools/vision/write_requirements_projection.py",
+        "install_lightweight_vision_package()",
+        "pass",
+    ),
+    Mutation(
         "C2 normalises a declared range inside a code section",
         "tools/vision/native_binary_metadata.py",
         "            if field.offset < end and start < field.end:",
@@ -315,6 +321,7 @@ SUITES = (
     "tests/test_native_binary_metadata.py",
     "tests/test_wheel_reproducibility_comparison.py",
     "tests/test_native_object_tree_comparison.py",
+    "tests/test_offline_tool_bootstrap.py",
 )
 
 

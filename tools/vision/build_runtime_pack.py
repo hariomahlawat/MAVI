@@ -27,6 +27,18 @@ from freeze_offline_lock import (  # noqa: E402
     validate_wheel_record_for_target,
     validate_wheelhouse_dependency_closure,
 )
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from vision_package_bootstrap import (  # noqa: E402
+    install_lightweight_vision_package,
+)
+
+# Must run before the first `mavi_vision` import: the package's eager
+# re-exports would otherwise pull in NumPy and Torch, which this tool
+# exists to help acquire.
+install_lightweight_vision_package()
+
 from mavi_vision.runtime.component_identity import (  # noqa: E402
     RuntimePackIdentityInputs,
     runtime_pack_id,

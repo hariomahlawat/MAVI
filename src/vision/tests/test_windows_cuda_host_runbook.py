@@ -443,9 +443,15 @@ def test_acquisition_is_derived_from_the_repository_not_typed():
 def test_the_projection_is_derived_once_and_then_checked():
     """Deriving the same artefact twice is how two copies come to disagree."""
     text = _runbook_text()
-    writes = re.findall(r"write_requirements_projection\.py", text)
+    # Count invocations, not mentions: the prose names the tool too.
+    invocations = re.findall(
+        r"python tools\\vision\\write_requirements_projection\.py", text
+    )
 
-    assert len(writes) == 2, "expected one write at C2.3a and one --check at C2.4"
+    assert len(invocations) == 2, (
+        "expected one write at C2.3a and one --check at C2.4, "
+        f"found {len(invocations)}"
+    )
     assert "--check" in text[text.index("## C2.4") :]
 
 

@@ -460,6 +460,23 @@ describes a runtime nobody specified.
 
 ### C2.3a Derive the authoritative requirements projection
 
+**The tooling environment needs one third-party package.** Across all four C2/C3
+tools — `write_requirements_projection.py`, `build_wheelhouse_manifest.py`,
+`freeze_offline_lock.py` and `build_runtime_pack.py` — the only import outside
+the standard library is `packaging`:
+
+```powershell
+python -m pip install "packaging>=26"
+```
+
+Nothing else. In particular **not** NumPy, Torch or the rest of the runtime:
+these tools decide *what to install*, so needing the install to have happened
+would be circular. They import `mavi_vision` submodules through a lightweight
+package bootstrap that skips the runtime package's eager re-exports; a test
+runs each of them with the entire runtime stack blocked at import time.
+
+
+
 ```powershell
 python tools\vision\write_requirements_projection.py `
     --platform-variant windows-x86_64-cuda --python-version 3.12.10 `

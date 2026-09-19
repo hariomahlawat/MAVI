@@ -24,6 +24,18 @@ VISION_ROOT = ROOT / "src" / "vision"
 if str(VISION_ROOT) not in sys.path:
     sys.path.insert(0, str(VISION_ROOT))
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from vision_package_bootstrap import (  # noqa: E402
+    install_lightweight_vision_package,
+)
+
+# Must run before the first `mavi_vision` import: the package's eager
+# re-exports would otherwise pull in NumPy and Torch, which this tool
+# exists to help acquire.
+install_lightweight_vision_package()
+
 from mavi_vision.runtime.offline_lock import (  # noqa: E402
     LockedDistribution,
     OfflineLockError,
