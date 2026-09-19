@@ -34,6 +34,8 @@ import re
 import sys
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 for _candidate in (
     Path(__file__).resolve().parent,
     Path(__file__).resolve().parents[2] / "src" / "vision",
@@ -99,6 +101,13 @@ _CHARACTERISATION_NOTE = (
 )
 
 
+_RECORD_SCHEMA_PATH = Path(__file__).resolve().parent / "windows-cuda-development-e2e-run.schema.json"
+
+
+def _record_schema() -> dict:
+    return json.loads(_RECORD_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+
 class DevelopmentE2eError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
@@ -139,7 +148,12 @@ def _non_negative_int(value: object, code: str) -> int:
     return value
 
 
-def _load(path: Path, schema: str, code: str) -> tuple[dict, str]:
+def _load(
+    path: Path,
+    schema: str,
+    code: str,
+    json_schema: dict | None = None,
+) -> tuple[dict, str]:
     try:
         raw = path.read_bytes()
     except OSError as exc:
@@ -150,6 +164,14 @@ def _load(path: Path, schema: str, code: str) -> tuple[dict, str]:
         raise DevelopmentE2eError(code + "_invalid") from exc
     if not isinstance(value, dict) or value.get("schemaVersion") != schema:
         raise DevelopmentE2eError(code + "_schema_invalid")
+    if json_schema is not None:
+        # The published schema owns the record's shape, and names the offending
+        # path when it is wrong. The assembler owns the policy the shape cannot
+        # express, and keeps its own actionable codes for that.
+        try:
+            Draft202012Validator(json_schema).validate(value)
+        except Exception as exc:
+            raise DevelopmentE2eError(code + "_schema_invalid") from exc
     return value, _sha256_bytes(raw)
 
 
@@ -407,7 +429,7 @@ def build_e2e_evidence(
     run_digests = {}
     for case_id in sorted(REQUIRED_CASES):
         run, run_sha = _load(
-            runs[case_id], RUN_SCHEMA_VERSION, "e2e_run"
+            runs[case_id], RUN_SCHEMA_VERSION, "e2e_run", _record_schema()
         )
         checked_runs.append(
             _check_run(

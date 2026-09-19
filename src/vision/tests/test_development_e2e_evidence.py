@@ -168,6 +168,12 @@ def _code(excinfo) -> str:
     return excinfo.value.code
 
 
+# Layering, as for C4 and C7: the published record schema owns each run's
+# shape; the assembler owns cross-run and cross-artefact policy and keeps its
+# own actionable codes for that.
+_MALFORMED = "e2e_run_schema_invalid"
+
+
 def test_a_complete_run_matrix_is_accepted(tmp_path):
     evidence = _build(tmp_path)
 
@@ -235,6 +241,9 @@ def test_a_cuda_case_that_actually_ran_on_cpu_is_refused(tmp_path):
     run = _run("explicit-cuda")
     run["actualDevice"] = "cpu"
     run["provenance"]["actualDevice"] = "cpu"
+    # A run that really landed on CPU reports no device telemetry.
+    for block in ("cuda", "nvidiaSmi", "gpuUuidSha256"):
+        run.pop(block, None)
 
     with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
         _build(tmp_path, runs={"explicit-cuda": run})
@@ -246,6 +255,8 @@ def test_auto_claiming_cuda_while_running_on_cpu_is_refused(tmp_path):
     run = _run("auto-cuda")
     run["actualDevice"] = "cpu"
     run["provenance"]["actualDevice"] = "cpu"
+    for block in ("cuda", "nvidiaSmi", "gpuUuidSha256"):
+        run.pop(block, None)
 
     with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
         _build(tmp_path, runs={"auto-cuda": run})
@@ -262,6 +273,7 @@ def test_auto_that_fell_back_to_cpu_does_not_satisfy_the_cuda_case(tmp_path):
     run["provenance"]["deviceResolutionReason"] = "cuda_device_unavailable"
     del run["cuda"]
     del run["nvidiaSmi"]
+    del run["gpuUuidSha256"]
 
     with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
         _build(tmp_path, runs={"auto-cuda": run})
@@ -316,8 +328,8 @@ def test_a_cuda_run_with_no_device_memory_in_use_is_refused(tmp_path):
         ("progressPercent", 99, "e2e_run_incomplete:explicit-cuda"),
         ("detectionCount", 0, "e2e_run_no_detections:explicit-cuda"),
         ("framesProcessed", 0, "e2e_run_no_frames:explicit-cuda"),
-        ("elapsedSeconds", 0, "e2e_run_timing_missing:explicit-cuda"),
-        ("mediaSha256", "not-a-digest", "e2e_run_media_identity_missing:explicit-cuda"),
+        ("elapsedSeconds", 0, _MALFORMED),
+        ("mediaSha256", "not-a-digest", _MALFORMED),
         ("hostRamPeakBytes", 0, "e2e_run_host_ram_missing:explicit-cuda"),
     ),
 )
@@ -348,9 +360,7 @@ def test_provenance_claiming_verified_on_development_is_refused(tmp_path):
     with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
         _build(tmp_path, runs={"explicit-cuda": run})
 
-    assert _code(excinfo) == (
-        "e2e_run_provenance_status_unexpected:explicit-cuda"
-    )
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_the_oom_case_must_actually_have_recovered_from_one(tmp_path):
@@ -443,7 +453,7 @@ def test_a_cuda_run_without_a_gpu_identity_is_refused(tmp_path):
     with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
         _build(tmp_path, runs={"explicit-cuda": run})
 
-    assert _code(excinfo) == "e2e_run_gpu_identity_missing:explicit-cuda"
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_run_on_another_ordinal_than_c4_attested_is_refused(tmp_path):
@@ -506,13 +516,27 @@ def test_a_c4_record_whose_own_digest_does_not_recompute_is_refused(tmp_path):
     assert _code(excinfo) == "e2e_development_evidence_digest_mismatch"
 
 
-@pytest.mark.parametrize("value", (float("nan"), float("inf"), float("-inf")))
+@pytest.mark.parametrize("value", (float("nan"), float("inf")))
 def test_a_non_finite_elapsed_time_is_refused(tmp_path, value):
-    """`nan <= 0` is False, and the artefact would not be valid JSON."""
+    """`nan <= 0` is False, and the artefact would not be valid JSON.
+
+    Both pass JSON Schema's numeric bounds -- NaN compares false against every
+    one of them -- so this is the assembler's guard, not the schema's.
+    """
     with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
         _build(tmp_path, runs={"explicit-cuda": _run("explicit-cuda", elapsedSeconds=value)})
 
     assert _code(excinfo) == "e2e_run_timing_missing:explicit-cuda"
+
+
+def test_a_negative_infinite_elapsed_time_is_refused(tmp_path):
+    with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
+        _build(
+            tmp_path,
+            runs={"explicit-cuda": _run("explicit-cuda", elapsedSeconds=float("-inf"))},
+        )
+
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_runs_of_different_media_do_not_characterise_anything(tmp_path):
@@ -541,22 +565,15 @@ def test_a_run_that_persisted_no_tracks_is_refused(tmp_path):
     assert _code(excinfo) == "e2e_run_no_tracks:explicit-cuda"
 
 
-@pytest.mark.parametrize(
-    ("block", "code"),
-    (
-        ("cuda", "e2e_run_cuda_telemetry_missing:explicit-cuda"),
-        ("nvidiaSmi", "e2e_run_nvidia_smi_missing:explicit-cuda"),
-        ("provenance", "e2e_run_provenance_missing:explicit-cuda"),
-    ),
-)
-def test_a_cuda_run_missing_a_required_block_is_refused(tmp_path, block, code):
+@pytest.mark.parametrize("block", ("cuda", "nvidiaSmi", "provenance"))
+def test_a_cuda_run_missing_a_required_block_is_refused(tmp_path, block):
     run = _run("explicit-cuda")
     del run[block]
 
     with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
         _build(tmp_path, runs={"explicit-cuda": run})
 
-    assert _code(excinfo) == code
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_reserved_memory_below_allocated_memory_is_refused(tmp_path):
@@ -592,7 +609,7 @@ def test_a_cuda_run_without_a_runtime_version_is_refused(tmp_path):
     with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
         _build(tmp_path, runs={"explicit-cuda": run})
 
-    assert _code(excinfo).startswith("e2e_run_cuda_runtime_version")
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_the_bundle_names_the_card_and_the_media_it_describes(tmp_path):
@@ -600,3 +617,44 @@ def test_the_bundle_names_the_card_and_the_media_it_describes(tmp_path):
 
     assert evidence["developmentE2e"]["gpuUuidSha256"] == _GPU_DIGEST
     assert evidence["developmentE2e"]["mediaSha256"] == _MEDIA_SHA
+
+
+# --- The assembler's own guards, exercised at its boundary.
+#
+# `_check_run` is reachable without the published schema, and the schema now
+# catches most malformed shapes before it. Testing only through `build_e2e_
+# evidence` would therefore leave these guards unexercised -- deleting them
+# would change nothing observable, which is how a guard quietly becomes dead.
+
+
+def _expectation(case_id: str) -> dict:
+    return MODULE.REQUIRED_CASES[case_id]
+
+
+@pytest.mark.parametrize(
+    ("block", "code"),
+    (
+        ("provenance", "e2e_run_provenance_missing:explicit-cuda"),
+        ("cuda", "e2e_run_cuda_telemetry_missing:explicit-cuda"),
+        ("nvidiaSmi", "e2e_run_nvidia_smi_missing:explicit-cuda"),
+    ),
+)
+def test_check_run_refuses_a_missing_block_without_the_schema(block, code):
+    run = _run("explicit-cuda")
+    del run[block]
+
+    with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
+        MODULE._check_run("explicit-cuda", run, _expectation("explicit-cuda"))
+
+    assert _code(excinfo) == code
+
+
+@pytest.mark.parametrize("block", ("provenance", "cuda", "nvidiaSmi"))
+def test_check_run_refuses_a_non_dict_block_without_the_schema(block):
+    run = _run("explicit-cuda")
+    run[block] = "yes"
+
+    with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
+        MODULE._check_run("explicit-cuda", run, _expectation("explicit-cuda"))
+
+    assert _code(excinfo).startswith("e2e_run_")

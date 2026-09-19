@@ -169,6 +169,14 @@ def _code(excinfo) -> str:
     return excinfo.value.code
 
 
+# Layering: the published record schema owns each observation's shape, so a
+# malformed one is refused as `failure_case_schema_invalid` with the offending
+# JSON path in the cause. The assembler owns what shape cannot express -- does
+# this observation match the case it claims, and the GPU binding -- and keeps
+# its own specific codes for those.
+_MALFORMED = "failure_case_schema_invalid"
+
+
 def test_the_matrix_covers_every_permitted_auto_fallback_reason():
     """One case per reason, so a reason the runtime emits is never unexercised."""
     exercised = {
@@ -257,7 +265,7 @@ def test_a_fail_closed_case_that_reports_a_device_is_refused(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="windows-host", cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_not_fail_closed:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_fail_closed_case_that_completed_processing_is_refused(tmp_path):
@@ -267,7 +275,7 @@ def test_a_fail_closed_case_that_completed_processing_is_refused(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="windows-host", cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_not_fail_closed:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_explicit_cuda_falling_back_to_cpu_is_refused(tmp_path):
@@ -282,7 +290,7 @@ def test_explicit_cuda_falling_back_to_cpu_is_refused(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="windows-host", cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_not_fail_closed:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 @pytest.mark.parametrize(
@@ -296,9 +304,7 @@ def test_no_fail_closed_case_may_carry_a_resolution_reason(tmp_path, case):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="windows-host", cases={case: observation})
 
-    assert _code(excinfo) == (
-        "failure_case_unexpected_resolution_reason:" + case
-    )
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_fallback_for_the_wrong_reason_does_not_satisfy_a_case(tmp_path):
@@ -331,7 +337,7 @@ def test_an_unlogged_fallback_is_a_silent_fallback(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="windows-host", cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_fallback_not_logged:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_fallback_missing_from_provenance_is_refused(tmp_path):
@@ -341,7 +347,7 @@ def test_a_fallback_missing_from_provenance_is_refused(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="windows-host", cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_fallback_not_persisted:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_fallback_that_did_not_land_on_cpu_is_refused(tmp_path):
@@ -351,7 +357,7 @@ def test_a_fallback_that_did_not_land_on_cpu_is_refused(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="windows-host", cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_fallback_device_invalid:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_case_claiming_the_wrong_outcome_is_refused(tmp_path):
@@ -361,7 +367,7 @@ def test_a_case_claiming_the_wrong_outcome_is_refused(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="windows-host", cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_outcome_mismatch:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_case_run_under_the_wrong_policy_is_refused(tmp_path):
@@ -381,7 +387,7 @@ def test_a_recovery_case_that_never_retried_is_refused(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="hardware", cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_recovery_not_exercised:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_recovery_case_that_did_not_recover_is_refused(tmp_path):
@@ -391,10 +397,11 @@ def test_a_recovery_case_that_did_not_recover_is_refused(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="hardware", cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_not_recovered:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_fail_closed_case_may_not_claim_recovery(tmp_path):
+    """A well-formed boolean, so this one is the assembler's guard, not shape."""
     case = "corrupted-manifest"
     observation = _observation(case, recovered=True)
 
@@ -407,9 +414,9 @@ def test_a_fail_closed_case_may_not_claim_recovery(tmp_path):
 @pytest.mark.parametrize(
     ("field", "value", "code"),
     (
-        ("failureCode", "", "failure_case_failure_code_missing"),
-        ("failureCode", "Vision Runtime Broke", "failure_case_failure_code_invalid"),
-        ("operatorDiagnostic", "", "failure_case_operator_diagnostic_missing"),
+        ("failureCode", "", _MALFORMED),
+        ("failureCode", "Vision Runtime Broke", _MALFORMED),
+        ("operatorDiagnostic", "", _MALFORMED),
     ),
 )
 def test_a_case_without_a_usable_diagnostic_is_refused(
@@ -422,7 +429,7 @@ def test_a_case_without_a_usable_diagnostic_is_refused(
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="windows-host", cases={case: observation})
 
-    assert _code(excinfo) == code + ":" + case
+    assert _code(excinfo) == code
 
 
 def test_an_observation_of_the_wrong_schema_is_refused(tmp_path):
@@ -556,7 +563,7 @@ def test_a_permitted_fallback_is_not_reported_as_a_failure(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="windows-host", cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_fallback_has_failure_code:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 @pytest.mark.parametrize("value", (1, "no", None))
@@ -572,7 +579,7 @@ def test_a_fail_closed_case_must_state_that_nothing_ran(tmp_path, value):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_not_fail_closed:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_fail_closed_case_claiming_truthy_recovery_is_refused(tmp_path):
@@ -582,7 +589,7 @@ def test_a_fail_closed_case_claiming_truthy_recovery_is_refused(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, cases={case: observation})
 
-    assert _code(excinfo) == "failure_case_retry_not_permitted:" + case
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_a_hardware_bundle_requires_the_c4_evidence_it_was_observed_against(
@@ -751,9 +758,7 @@ def test_an_unbounded_operator_diagnostic_is_refused(tmp_path):
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, cases={case: observation})
 
-    assert _code(excinfo) == (
-        "failure_case_operator_diagnostic_invalid:" + case
-    )
+    assert _code(excinfo) == _MALFORMED
 
 
 def test_redaction_applies_to_every_case_not_only_hardware_ones(tmp_path):
@@ -768,3 +773,48 @@ def test_redaction_applies_to_every_case_not_only_hardware_ones(tmp_path):
     evidence = _build(tmp_path, cases={case: observation})
 
     assert "GPU-6c1f0a3e" not in json.dumps(evidence)
+
+
+# --- The assembler's own guards, exercised at its boundary, for the same
+# --- reason as in the C6 suite: the schema catches most shapes first.
+
+
+@pytest.mark.parametrize("value", (None, 1, "no"))
+def test_check_case_requires_a_stated_fail_closed_without_the_schema(value):
+    case = "corrupted-lock"
+    observation = _observation(case)
+    if value is None:
+        del observation["processingCompleted"]
+    else:
+        observation["processingCompleted"] = value
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        MODULE._check_case(case, observation, MODULE.FAILURE_CASES[case])
+
+    assert _code(excinfo) == "failure_case_not_fail_closed:" + case
+
+
+def test_check_case_bounds_the_operator_diagnostic_without_the_schema():
+    case = "corrupted-lock"
+    observation = _observation(case, operatorDiagnostic="x" * 2001)
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        MODULE._check_case(case, observation, MODULE.FAILURE_CASES[case])
+
+    assert _code(excinfo) == (
+        "failure_case_operator_diagnostic_invalid:" + case
+    )
+
+
+def test_check_case_redacts_a_raw_uuid_without_the_schema():
+    case = "corrupted-lock"
+    observation = _observation(
+        case,
+        operatorDiagnostic=(
+            "refused while GPU-6c1f0a3e-9b2d-4c7f-a1e5-2b8d4f6a9c01 idle"
+        ),
+    )
+
+    checked = MODULE._check_case(case, observation, MODULE.FAILURE_CASES[case])
+
+    assert "GPU-6c1f0a3e" not in checked["operatorDiagnostic"]

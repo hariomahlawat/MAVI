@@ -36,6 +36,8 @@ import re
 import sys
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 for _candidate in (
     Path(__file__).resolve().parent,
     Path(__file__).resolve().parents[2] / "src" / "vision",
@@ -153,6 +155,13 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 # paste that message in here, so it is redacted on the way through, exactly as
 # the runtime verifier already redacts its own failure detail.
 _RAW_GPU_UUID = re.compile(r"GPU-[0-9A-Fa-f][0-9A-Fa-f-]{7,}")
+
+
+_RECORD_SCHEMA_PATH = Path(__file__).resolve().parent / "windows-cuda-failure-case.schema.json"
+
+
+def _record_schema() -> dict:
+    return json.loads(_RECORD_SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
 class FailureMatrixError(ValueError):
@@ -540,7 +549,12 @@ def _text(value: object, code: str) -> str:
     return value
 
 
-def _load(path: Path, schema: str, code: str) -> tuple[dict, str]:
+def _load(
+    path: Path,
+    schema: str,
+    code: str,
+    json_schema: dict | None = None,
+) -> tuple[dict, str]:
     try:
         raw = path.read_bytes()
     except OSError as exc:
@@ -551,6 +565,14 @@ def _load(path: Path, schema: str, code: str) -> tuple[dict, str]:
         raise FailureMatrixError(code + "_invalid") from exc
     if not isinstance(value, dict) or value.get("schemaVersion") != schema:
         raise FailureMatrixError(code + "_schema_invalid")
+    if json_schema is not None:
+        # The published schema owns the record's shape, and names the offending
+        # path when it is wrong. The assembler owns the policy the shape cannot
+        # express, and keeps its own actionable codes for that.
+        try:
+            Draft202012Validator(json_schema).validate(value)
+        except Exception as exc:
+            raise FailureMatrixError(code + "_schema_invalid") from exc
     return value, _sha256_bytes(raw)
 
 
@@ -807,7 +829,7 @@ def build_failure_matrix(
     digests = {}
     for case_id in sorted(cases):
         observation, digest = _load(
-            cases[case_id], CASE_SCHEMA_VERSION, "failure_case"
+            cases[case_id], CASE_SCHEMA_VERSION, "failure_case", _record_schema()
         )
         checked.append(
             _check_case(

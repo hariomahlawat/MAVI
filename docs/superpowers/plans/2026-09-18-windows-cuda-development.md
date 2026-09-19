@@ -752,8 +752,9 @@ python tools/vision/build_failure_matrix_evidence.py --print-matrix \
     --operator-reference x
 ```
 
-Record each case as a `mavi-windows-cuda-failure-case-v1` document, then
-assemble:
+Record each case as a `mavi-windows-cuda-failure-case-v1` document -- its shape
+is published at `tools/vision/windows-cuda-failure-case.schema.json` and
+validated on load -- then assemble:
 
 ```
 python tools/vision/build_failure_matrix_evidence.py --scope hardware \
