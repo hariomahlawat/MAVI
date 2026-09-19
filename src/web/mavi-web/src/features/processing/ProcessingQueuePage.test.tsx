@@ -1,7 +1,9 @@
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
+import { ApiError } from '../../api/client';
 import { getProcessingStatus, listVideos, type ProcessingRunStatus, type VideoAsset } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
 import ProcessingQueuePage, { bucketFor, orderForQueue } from './ProcessingQueuePage';
@@ -85,5 +87,31 @@ describe('ProcessingQueuePage', () => {
     renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
     expect(await screen.findByText('Nothing has been queued')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Videos' })).toHaveAttribute('href', '/videos');
+  });
+
+  it('describes the table as the latest run per video, not a run history', async () => {
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    await screen.findByRole('table');
+    expect(screen.getByText(/latest run per video/i)).toBeInTheDocument();
+    expect(screen.queryByText(/processing history/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a per-video status failure with a retry instead of loading forever', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getProcessingStatus).mockImplementation(async (id) => {
+      if (id === failed.id) throw new ApiError({ status: 503, code: 'status_unavailable', detail: 'Status store unavailable.' });
+      return { videoStatus: 'Processed', latestRun: run('Completed', { progressPercent: 100, tracksCreated: 42 }) };
+    });
+
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    const table = await screen.findByRole('table');
+    const rows = within(table).getAllByRole('row').slice(1);
+
+    expect(await within(rows[1]).findByText(/run status unavailable/i)).toBeInTheDocument();
+    expect(within(rows[1]).queryByText(/Loading run/)).not.toBeInTheDocument();
+
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: run('Failed', { failureCode: 'worker_watchdog_timeout' }) });
+    await user.click(within(rows[1]).getByRole('button', { name: /retry/i }));
+    expect(await within(rows[1]).findByText('worker_watchdog_timeout')).toBeInTheDocument();
   });
 });

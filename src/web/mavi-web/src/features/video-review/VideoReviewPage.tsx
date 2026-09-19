@@ -13,6 +13,7 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { ProvenancePanel, RepresentativeEvidence, TrackIdentity, TrackSummary } from './TrackDetailsPanels';
 import TrackEvidencePlayer from './TrackEvidencePlayer';
+import { returnToSearchPath } from './returnContext';
 import { useTrajectory } from './useTrajectory';
 
 function shouldRetryQuery(failureCount: number, error: unknown): boolean {
@@ -66,7 +67,7 @@ export default function VideoReviewPage() {
   if (identityMismatch) return <Invalid message="The selected Track does not belong to the video identified by this review route." />;
 
   const displayTimeZoneId = systemConfig.data?.displayTimeZoneId;
-  const backToSearch = `/search?videoAssetId=${videoAssetId}&track=${trackId}`;
+  const backToSearch = returnToSearchPath(searchParams.get('from'), videoAssetId, trackId);
 
   return (
     <section className="page">

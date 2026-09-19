@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FormEvent } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError, isGuid } from '../../api/client';
@@ -157,7 +157,11 @@ export default function VisualSearchPage() {
   const position = selectedIndex(items, selectedId);
   const hasMore = Boolean(tracks.hasNextPage);
 
+  // A next-page advance the operator asked for; see the effect below.
+  const pendingAdvance = useRef<{ fingerprint: string; fromId: string } | null>(null);
+
   const selectTrack = useCallback((id: string | null) => {
+    if (id === null) pendingAdvance.current = null;
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       if (id) next.set(SELECTION_PARAM, id);
@@ -166,14 +170,37 @@ export default function VisualSearchPage() {
     }, { replace: true });
   }, [setSearchParams]);
 
-  const { fetchNextPage, isFetchingNextPage } = tracks;
+  const { fetchNextPage, isFetchingNextPage, isFetchNextPageError } = tracks;
+  // Continuation is automatic only while it succeeds. After a failure the
+  // operator decides: "Retry load more" for a transient error, "Refresh
+  // results" for an expired snapshot. The query itself retries a 5xx once.
+  const canContinue = hasMore && !isFetchingNextPage && !isFetchNextPageError;
 
   // Keep one page ahead of the operator while they step through results.
   useEffect(() => {
-    if (hasMore && !isFetchingNextPage && nearEnd(items, selectedId)) void fetchNextPage();
-  }, [items, selectedId, hasMore, isFetchingNextPage, fetchNextPage]);
+    if (canContinue && nearEnd(items, selectedId)) void fetchNextPage();
+  }, [items, selectedId, canContinue, fetchNextPage]);
+
+  // Stepping past the last loaded row asks for the next page and remembers
+  // where the operator was. The advance happens only when that page lands for
+  // the same committed search with the same Track still selected; a changed
+  // filter, a changed selection, a closed inspector or an unmount discards it.
+  useEffect(() => {
+    const pending = pendingAdvance.current;
+    if (!pending) return;
+    if (pending.fingerprint !== fingerprint || pending.fromId !== selectedId || isFetchNextPageError) {
+      pendingAdvance.current = null;
+      return;
+    }
+    const next = neighbourId(items, selectedId, 1);
+    if (next) {
+      pendingAdvance.current = null;
+      selectTrack(next);
+    }
+  }, [items, fingerprint, selectedId, isFetchNextPageError, selectTrack]);
 
   const goPrevious = useCallback(() => {
+    pendingAdvance.current = null;
     const previous = neighbourId(items, selectedId, -1);
     if (previous) selectTrack(previous);
   }, [items, selectedId, selectTrack]);
@@ -181,21 +208,23 @@ export default function VisualSearchPage() {
   const goNext = useCallback(() => {
     const next = neighbourId(items, selectedId, 1);
     if (next) {
+      pendingAdvance.current = null;
       selectTrack(next);
       return;
     }
-    if (!hasMore || isFetchingNextPage) return;
-    void fetchNextPage().then((result) => {
-      const pages = result.data?.pages ?? [];
-      const first = pages[pages.length - 1]?.items[0];
-      if (first) selectTrack(first.id.toLowerCase());
-    });
-  }, [items, selectedId, hasMore, isFetchingNextPage, fetchNextPage, selectTrack]);
+    if (!selectedId || !hasMore || isFetchNextPageError) return;
+    pendingAdvance.current = { fingerprint, fromId: selectedId };
+    if (!isFetchingNextPage) void fetchNextPage();
+  }, [items, selectedId, hasMore, isFetchingNextPage, isFetchNextPageError, fingerprint, fetchNextPage, selectTrack]);
+
+  // The committed search (without selection) travels with every review link so
+  // the Review page can hand back to exactly this search.
+  const searchContext = committed.isValid ? committed.canonicalQuery : '';
 
   const openSelected = useCallback(() => {
     const selected = position >= 0 ? items[position] : undefined;
-    if (selected) navigate(reviewPath(selected));
-  }, [items, position, navigate]);
+    if (selected) navigate(reviewPath(selected, searchContext));
+  }, [items, position, navigate, searchContext]);
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -407,7 +436,7 @@ export default function VisualSearchPage() {
 
           {items.length > 0 ? (
             view === 'list' ? (
-              <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} onSelect={selectTrack} />
+              <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} searchContext={searchContext} onSelect={selectTrack} />
             ) : (
               <div className="results__list">
                 <div className="track-grid">
@@ -417,6 +446,7 @@ export default function VisualSearchPage() {
                       track={track}
                       displayTimeZoneId={displayTimeZoneId}
                       selected={selectedId !== null && track.id.toLowerCase() === selectedId}
+                      searchContext={searchContext}
                       onSelect={selectTrack}
                     />
                   ))}
@@ -459,6 +489,7 @@ export default function VisualSearchPage() {
             total={items.length}
             hasMore={hasMore}
             displayTimeZoneId={displayTimeZoneId}
+            searchContext={searchContext}
             summary={position >= 0 ? items[position] : undefined}
             onPrevious={goPrevious}
             onNext={goNext}

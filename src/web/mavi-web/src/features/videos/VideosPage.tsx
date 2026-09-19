@@ -163,6 +163,7 @@ export default function VideosPage() {
                   const status = processing.byVideo.get(row.id);
                   const run = status?.latestRun;
                   const active = isActiveStatus(row.processingStatus);
+                  const statusError = active ? processing.errors.get(row.id) : undefined;
                   return (
                     <tr key={row.id}>
                       <td>
@@ -184,6 +185,12 @@ export default function VideosPage() {
                           <StatusBadge status={row.processingStatus} />
                           {active && run ? (
                             <Progress value={run.progressPercent} inline label={undefined} />
+                          ) : null}
+                          {statusError ? (
+                            <span className="run-cell__line">
+                              <span className="text-err">Live status unavailable</span>
+                              <Button size="sm" variant="ghost" icon="refresh" onClick={() => processing.retry(row.id)}>Retry</Button>
+                            </span>
                           ) : null}
                           {row.processingStatus === 'Failed' && run?.failureCode ? (
                             <span className="run-cell__line"><code>{run.failureCode}</code></span>

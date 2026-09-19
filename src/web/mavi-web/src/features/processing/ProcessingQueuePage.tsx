@@ -6,7 +6,7 @@ import { getSystemConfig } from '../../api/system';
 import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
-import { ButtonLink } from '../../shared/components/Button';
+import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
 import LoadingState from '../../shared/components/LoadingState';
 import PageHeader from '../../shared/components/PageHeader';
@@ -65,7 +65,7 @@ export default function ProcessingQueuePage() {
     <section className="page">
       <PageHeader
         title="Processing"
-        description="Queue, running and completed processing runs across all videos. Detail and diagnostics live on each run."
+        description="The latest processing run for every video that has one: queued and running first, then failed, then completed. Earlier runs of a video are not listed here."
       />
 
       {videos.isError ? (
@@ -80,7 +80,7 @@ export default function ProcessingQueuePage() {
         <div className="stat"><span className="stat__label">Completed</span><span className="stat__value">{counts.completed}</span><span className="stat__meta">results available</span></div>
       </div>
 
-      <Panel body="flush" title="Runs" description={videos.data ? `${rows.length} video${rows.length === 1 ? '' : 's'} with processing history` : 'Loading…'}>
+      <Panel body="flush" title="Latest run per video" description={videos.data ? `${rows.length} video${rows.length === 1 ? '' : 's'} with a processing run` : 'Loading…'}>
         {videos.isPending ? <div className="panel__body"><LoadingState label="Loading processing state…" /></div> : null}
 
         {videos.data && rows.length === 0 ? (
@@ -100,13 +100,14 @@ export default function ProcessingQueuePage() {
                   <th scope="col">Worker</th>
                   <th scope="col">Queued</th>
                   <th scope="col" className="num">Attempt</th>
-                  <th scope="col" className="num">Tracks</th>
+                  <th scope="col" className="num" title="Final count, recorded when the run completed">Tracks</th>
                   <th scope="col"><span className="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => {
                   const run = processing.byVideo.get(row.id)?.latestRun ?? null;
+                  const statusError = processing.errors.get(row.id);
                   const active = isActiveStatus(row.processingStatus);
                   return (
                     <tr key={row.id}>
@@ -125,6 +126,11 @@ export default function ProcessingQueuePage() {
                               {active ? <Progress value={run.progressPercent} inline /> : null}
                               {run.failureCode ? <span className="run-cell__line"><code>{run.failureCode}</code></span> : null}
                             </>
+                          ) : statusError ? (
+                            <span className="run-cell__line">
+                              <span className="text-err">Run status unavailable</span>
+                              <Button size="sm" variant="ghost" icon="refresh" onClick={() => processing.retry(row.id)}>Retry</Button>
+                            </span>
                           ) : <span className="faint">Loading run…</span>}
                         </div>
                       </td>

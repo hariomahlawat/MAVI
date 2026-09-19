@@ -22,13 +22,24 @@ export function useVideoProcessing(videoIds: readonly string[]) {
 
   return useMemo(() => {
     const byVideo = new Map<string, ProcessingStatus>();
+    const errors = new Map<string, unknown>();
+    const refetchers = new Map<string, () => void>();
     let pending = 0;
-    let failed = 0;
     results.forEach((result, index) => {
-      if (result.data) byVideo.set(videoIds[index], result.data);
+      const id = videoIds[index];
+      if (result.data) byVideo.set(id, result.data);
       if (result.isPending) pending += 1;
-      if (result.isError) failed += 1;
+      if (result.isError) errors.set(id, result.error);
+      refetchers.set(id, () => { void result.refetch(); });
     });
-    return { byVideo, pending, failed };
+    return {
+      byVideo,
+      /** Videos whose latest-run status could not be loaded, by id. */
+      errors,
+      pending,
+      failed: errors.size,
+      /** Re-request one video's status after a failure. */
+      retry: (id: string) => refetchers.get(id)?.(),
+    };
   }, [results, videoIds]);
 }

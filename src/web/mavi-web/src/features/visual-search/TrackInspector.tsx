@@ -18,6 +18,8 @@ type Props = {
   total: number;
   hasMore: boolean;
   displayTimeZoneId?: string;
+  /** Canonical committed search query, carried into the full review link. */
+  searchContext?: string;
   summary?: TrackSearchItem;
   onPrevious: () => void;
   onNext: () => void;
@@ -35,6 +37,7 @@ export default function TrackInspector({
   total,
   hasMore,
   displayTimeZoneId,
+  searchContext,
   summary,
   onPrevious,
   onNext,
@@ -65,7 +68,7 @@ export default function TrackInspector({
           <span className="inspector__pos" aria-live="polite">{position >= 0 ? `${position + 1} / ${total}${hasMore ? '+' : ''}` : '— / ' + total}</span>
           <Button size="sm" iconOnly icon="chevronRight" onClick={onNext} disabled={!canNext} title="Next result (j / ↓)">Next result</Button>
           {detail ? (
-            <ButtonLink size="sm" to={reviewPath({ id: detail.id, videoAssetId: detail.videoAssetId } as TrackSearchItem)} icon="external" title="Open full review (Enter)">
+            <ButtonLink size="sm" to={reviewPath({ id: detail.id, videoAssetId: detail.videoAssetId }, searchContext)} icon="external" title="Open full review (Enter)">
               Open
             </ButtonLink>
           ) : null}

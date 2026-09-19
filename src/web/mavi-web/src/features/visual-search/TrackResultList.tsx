@@ -6,8 +6,21 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence, formatOffset } from '../../shared/format/format';
 
-export function reviewPath(track: TrackSearchItem): string {
-  return '/review/video/' + track.videoAssetId.toLowerCase() + '?trackId=' + encodeURIComponent(track.id.toLowerCase());
+/**
+ * Route to the full review of a Track. `searchContext` is the canonical
+ * committed search query (without selection); it travels in the URL as `from`
+ * so that a refresh or a shared link still returns to the same committed
+ * search with this Track selected. Without it the Review page falls back to
+ * the Track's video scope.
+ */
+export function reviewPath(track: Pick<TrackSearchItem, 'id' | 'videoAssetId'>, searchContext?: string): string {
+  const trackId = track.id.toLowerCase();
+  let path = '/review/video/' + track.videoAssetId.toLowerCase() + '?trackId=' + encodeURIComponent(trackId);
+  if (searchContext !== undefined) {
+    const from = (searchContext ? searchContext + '&' : '') + 'track=' + trackId;
+    path += '&from=' + encodeURIComponent(from);
+  }
+  return path;
 }
 
 /**
@@ -21,12 +34,14 @@ function ResultRow({
   index,
   selected,
   displayTimeZoneId,
+  searchContext,
   onSelect,
 }: {
   track: TrackSearchItem;
   index: number;
   selected: boolean;
   displayTimeZoneId?: string;
+  searchContext?: string;
   onSelect: (id: string) => void;
 }) {
   const ref = useRef<HTMLLIElement | null>(null);
@@ -62,7 +77,7 @@ function ResultRow({
         <time dateTime={track.startTimestampUtc}>{displayTimestamp(track.startTimestampUtc, displayTimeZoneId)}</time>
         <span className="row row--nowrap">
           <StatusBadge status={track.reviewStatus} />
-          <Link className="btn btn--ghost btn--sm btn--icon" to={reviewPath(track)} title="Review evidence">
+          <Link className="btn btn--ghost btn--sm btn--icon" to={reviewPath(track, searchContext)} title="Review evidence">
             <Icon name="external" size="sm" />
             <span className="visually-hidden">Review evidence</span>
           </Link>
@@ -77,11 +92,13 @@ export default function TrackResultList({
   items,
   selectedId,
   displayTimeZoneId,
+  searchContext,
   onSelect,
 }: {
   items: TrackSearchItem[];
   selectedId: string | null;
   displayTimeZoneId?: string;
+  searchContext?: string;
   onSelect: (id: string) => void;
 }) {
   return (
@@ -93,6 +110,7 @@ export default function TrackResultList({
           index={index}
           selected={selectedId !== null && track.id.toLowerCase() === selectedId}
           displayTimeZoneId={displayTimeZoneId}
+          searchContext={searchContext}
           onSelect={onSelect}
         />
       ))}

@@ -63,3 +63,4 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .muted { color: var(--text-2); }
 .faint { color: var(--text-3); }
 .small { font-size: var(--fs-1); }
+.text-err { color: var(--err); }

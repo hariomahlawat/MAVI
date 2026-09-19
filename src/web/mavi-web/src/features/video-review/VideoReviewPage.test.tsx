@@ -294,4 +294,37 @@ describe('VideoReviewPage', () => {
     expect(await screen.findByText('Track was not found.')).toBeInTheDocument();
     await waitFor(() => expect(getTrack).toHaveBeenCalledTimes(1));
   });
+
+  describe('return navigation', () => {
+    it('returns to the exact committed search context carried in the route', async () => {
+      const from = 'cameraId=018f3f5a-2f70-7a2b-8a12-2d02f4c21412&objectClass=Person&track=' + trackId;
+      renderWithApp(<VideoReviewPage />, {
+        route: '/review/video/' + videoId + '?trackId=' + trackId + '&from=' + encodeURIComponent(from),
+        routePath: '/review/video/:videoAssetId',
+      });
+      await screen.findByLabelText('Source video evidence');
+      expect(screen.getByRole('link', { name: 'Back to search' })).toHaveAttribute('href', '/search?' + from);
+    });
+
+    it('falls back to the video scope on a direct link or refresh without a search context', async () => {
+      renderWithApp(<VideoReviewPage />, {
+        route: '/review/video/' + videoId + '?trackId=' + trackId,
+        routePath: '/review/video/:videoAssetId',
+      });
+      await screen.findByLabelText('Source video evidence');
+      expect(screen.getByRole('link', { name: 'Back to search' }))
+        .toHaveAttribute('href', '/search?videoAssetId=' + videoId + '&track=' + trackId);
+    });
+
+    it('rejects a malformed or foreign search context and uses the fallback', async () => {
+      const bogus = encodeURIComponent('objectClass=Person&objectClass=Vehicle&evil=1');
+      renderWithApp(<VideoReviewPage />, {
+        route: '/review/video/' + videoId + '?trackId=' + trackId + '&from=' + bogus,
+        routePath: '/review/video/:videoAssetId',
+      });
+      await screen.findByLabelText('Source video evidence');
+      expect(screen.getByRole('link', { name: 'Back to search' }))
+        .toHaveAttribute('href', '/search?videoAssetId=' + videoId + '&track=' + trackId);
+    });
+  });
 });

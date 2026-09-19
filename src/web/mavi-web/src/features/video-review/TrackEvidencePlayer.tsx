@@ -93,29 +93,51 @@ export default function TrackEvidencePlayer({ detail, trajectory, trajectoryErro
   }, [measure]);
 
   // Track the playhead at frame rate while playing; `timeupdate` alone is too
-  // coarse (~250 ms) for a box that is visible for 400 ms.
+  // coarse (~250 ms) for a box that is visible for 400 ms. Exactly one frame
+  // loop exists per media element: `start` always cancels a previous loop,
+  // seeking and time updates only publish the position, and pause/end/unmount
+  // stop it. The <video> is keyed by source URL, so a source change unmounts
+  // this element and the cleanup below runs.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     let handle = 0;
-    const tick = () => {
-      setCurrentMs(video.currentTime * 1000);
-      if (!video.paused && !video.ended) handle = window.requestAnimationFrame(tick);
+    const publish = () => setCurrentMs(video.currentTime * 1000);
+    const stop = () => {
+      if (handle !== 0) window.cancelAnimationFrame(handle);
+      handle = 0;
     };
-    const onPlay = () => { handle = window.requestAnimationFrame(tick); };
-    const onStop = () => { window.cancelAnimationFrame(handle); setCurrentMs(video.currentTime * 1000); };
+    const tick = () => {
+      publish();
+      handle = !video.paused && !video.ended ? window.requestAnimationFrame(tick) : 0;
+    };
+    const start = () => {
+      stop();
+      handle = window.requestAnimationFrame(tick);
+    };
+    const onPlay = () => start();
+    const onStop = () => { stop(); publish(); };
+    const onSeeked = () => {
+      publish();
+      // A seek during playback keeps the loop; a seek while paused needs none.
+      if (!video.paused && !video.ended && handle === 0) start();
+    };
     video.addEventListener('play', onPlay);
+    video.addEventListener('playing', onPlay);
     video.addEventListener('pause', onStop);
     video.addEventListener('ended', onStop);
-    video.addEventListener('seeked', onStop);
-    video.addEventListener('timeupdate', onStop);
+    video.addEventListener('emptied', onStop);
+    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('timeupdate', publish);
     return () => {
-      window.cancelAnimationFrame(handle);
+      stop();
       video.removeEventListener('play', onPlay);
+      video.removeEventListener('playing', onPlay);
       video.removeEventListener('pause', onStop);
       video.removeEventListener('ended', onStop);
-      video.removeEventListener('seeked', onStop);
-      video.removeEventListener('timeupdate', onStop);
+      video.removeEventListener('emptied', onStop);
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('timeupdate', publish);
     };
   }, [detail.video.videoContentUrl]);
 

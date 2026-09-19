@@ -10,11 +10,13 @@ export default function TrackResultCard({
   track,
   displayTimeZoneId,
   selected = false,
+  searchContext,
   onSelect,
 }: {
   track: TrackSearchItem;
   displayTimeZoneId?: string;
   selected?: boolean;
+  searchContext?: string;
   onSelect?: (id: string) => void;
 }) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
@@ -64,7 +66,7 @@ export default function TrackResultCard({
 
         <Link
           className="btn btn--sm track-card__action"
-          to={reviewPath(track)}
+          to={reviewPath(track, searchContext)}
           onClick={(event) => event.stopPropagation()}
         >
           Review evidence
