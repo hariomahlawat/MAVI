@@ -82,7 +82,9 @@ public static class VideoEndpoints
                 result.LatestRun.CompletedAtUtc,
                 result.LatestRun.ProgressPercent,
                 result.LatestRun.AttemptCount,
-                result.LatestRun.FailureCode);
+                result.LatestRun.FailureCode,
+                result.LatestRun.FramesProcessed,
+                result.LatestRun.TracksCreated);
 
         return Results.Ok(new ProcessingStatusResponse(result.VideoStatus, latestRun));
     }

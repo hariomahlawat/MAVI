@@ -1,0 +1,95 @@
+/* MAVI design tokens. Every colour, size and radius in the application resolves
+   to one of these. Screens never introduce literals of their own. */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces: the page, a panel on it, something raised above a panel. */
+  --bg: #0a0e15;
+  --surface: #10161f;
+  --surface-2: #161d29;
+  --surface-3: #1c2533;
+  --overlay: rgb(10 14 21 / 92%);
+
+  --border: #232d3c;
+  --border-strong: #33405280;
+  --border-focus: #7fb0ff;
+
+  /* Text: primary, secondary, tertiary (labels), inverse on accent. */
+  --text: #e6ebf2;
+  --text-2: #9aa7b8;
+  --text-3: #8592a8;
+  --text-on-accent: #f4f8ff;
+
+  /* Accent is used for exactly two things: the primary action and the
+     selected state. Status has its own semantic set below. */
+  --accent: #3b82f6;
+  --accent-strong: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #1b2a45;
+  --accent-text: #9cc2ff;
+
+  /* Semantic status. Each has a text, a soft background and a border so a
+     badge, an alert and a dot all agree. */
+  --ok: #34d399;
+  --ok-soft: #0f2a21;
+  --ok-border: #1f5a45;
+  --warn: #fbbf24;
+  --warn-soft: #2d2107;
+  --warn-border: #6b4d0c;
+  --err: #f87171;
+  --err-soft: #2f1414;
+  --err-border: #7a2626;
+  --info: #7fb0ff;
+  --info-soft: #14233b;
+  --info-border: #274a83;
+  --neutral: #a3adbd;
+  --neutral-soft: #1a2230;
+  --neutral-border: #2b3646;
+
+  /* Evidence overlay colours, kept distinct from UI accent so a box on video
+     is never confused with a selected control. */
+  --evidence: #f0abfc;
+  --evidence-track: #38bdf8;
+
+  /* Spacing scale (4px base). */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+
+  /* Radii: controls, panels. Nothing rounder than this. */
+  --r-1: 4px;
+  --r-2: 6px;
+  --r-3: 8px;
+
+  /* Control metrics. Every input, select and button is this tall. */
+  --control-h: 32px;
+  --control-h-sm: 26px;
+  --control-px: 10px;
+
+  /* Type scale. */
+  --font-ui: Inter, "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --fs-0: 11px;
+  --fs-1: 12px;
+  --fs-2: 13px;
+  --fs-3: 14px;
+  --fs-4: 16px;
+  --fs-5: 20px;
+  --lh: 1.45;
+
+  /* Layout. */
+  --sidebar-w: 216px;
+  --sidebar-w-collapsed: 56px;
+  --topbar-h: 44px;
+  --content-max: 1600px;
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 30%);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 35%);
+
+  --dur: 120ms;
+}

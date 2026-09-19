@@ -13,7 +13,7 @@ MAVI is a standalone, offline-production visual-intelligence platform. The proof
 - **Scale target:** approximately 200–500 cameras per large establishment
 - **Production constraint:** no Internet connectivity required for installation or operation
 
-The current Phase-1 product implementation is complete through Task 17. Task 18 is the active production-qualification and closure task. ADR-008 defines profile-based qualification: Development remains a single Windows workstation/laptop with Auto/CUDA/CPU device intent, while Production profiles are qualified independently. Implementation completion is distinct from release verification: unavailable profile/device/offline/quality/performance evidence remains explicitly pending, and no Production profile is advertised as supported until its exact evidence passes.
+The current Phase-1 product implementation is complete through Task 17. Task 18 is the active production-qualification and closure task. The operator application provides Overview, Cameras, Videos, Import, Processing, Search and Review workflows; see `docs/superpowers/plans/2026-09-19-visual-intelligence-workspace.md` for the current search/review workspace. ADR-008 defines profile-based qualification: Development remains a single Windows workstation/laptop with Auto/CUDA/CPU device intent, while Production profiles are qualified independently. Implementation completion is distinct from release verification: unavailable profile/device/offline/quality/performance evidence remains explicitly pending, and no Production profile is advertised as supported until its exact evidence passes.
 
 ## Repository layout
 

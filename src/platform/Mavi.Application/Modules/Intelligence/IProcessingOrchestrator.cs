@@ -18,7 +18,8 @@ public sealed record QueueProcessingResult(bool IsSuccess, Guid? ProcessingRunId
 public sealed record ProcessingStatusResult(bool Found, string VideoStatus, ProcessingRunStatusView? LatestRun);
 public sealed record ProcessingRunStatusView(Guid ProcessingRunId, string Status, string Pipeline, string PipelineVersion,
     string? WorkerId, DateTimeOffset QueuedAtUtc, DateTimeOffset? StartedAtUtc, DateTimeOffset? CompletedAtUtc,
-    double ProgressPercent, int AttemptCount, string? FailureCode);
+    double ProgressPercent, int AttemptCount, string? FailureCode,
+    long FramesProcessed = 0, int TracksCreated = 0);
 public sealed record VisionLeaseView(Guid JobId, Guid ProcessingRunId, Guid VideoAssetId,
     Guid CameraId, string WorkerId, string LeaseToken, string Pipeline, string PipelineVersion, string SourceStorageKey, string SourceSha256,
     long SourceSizeBytes, DateTimeOffset RecordingStartUtc, DateTimeOffset RecordingEndUtc, long DurationMs,

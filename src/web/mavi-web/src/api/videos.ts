@@ -32,6 +32,8 @@ export type ProcessingRunStatus = {
   progressPercent: number;
   attemptCount: number;
   failureCode: string | null;
+  framesProcessed: number;
+  tracksCreated: number;
 };
 
 export type ProcessingStatus = {

@@ -17,6 +17,8 @@ function status(videoStatus: string, runStatus?: string): ProcessingStatus {
           progressPercent: 0,
           attemptCount: 1,
           failureCode: null,
+          framesProcessed: 0,
+          tracksCreated: 0,
         }
       : null,
   };

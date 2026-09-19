@@ -11,8 +11,17 @@ vi.mock('../api/platform', () => ({
   getPlatformHealth: vi.fn(),
 }));
 
+vi.mock('../features/overview/OverviewPage', () => ({
+  default: () => <h1>Overview route</h1>,
+}));
 vi.mock('../features/cameras/CamerasPage', () => ({
   default: () => <h1>Cameras route</h1>,
+}));
+vi.mock('../features/videos/VideosPage', () => ({
+  default: () => <h1>Videos route</h1>,
+}));
+vi.mock('../features/processing/ProcessingQueuePage', () => ({
+  default: () => <h1>Processing queue route</h1>,
 }));
 vi.mock('../features/video-import/VideoImportPage', () => ({
   default: () => <h1>Import route</h1>,
@@ -50,13 +59,24 @@ describe('MAVI application routes', () => {
     });
   });
 
-  it('redirects root to Cameras and navigates to Import', async () => {
+  it('renders the Overview at root and navigates through the primary navigation', async () => {
     const user = userEvent.setup();
     renderRoute('/');
 
+    expect(await screen.findByRole('heading', { name: 'Overview route' })).toBeInTheDocument();
+    await user.click(screen.getByRole('link', { name: 'Cameras' }));
     expect(await screen.findByRole('heading', { name: 'Cameras route' })).toBeInTheDocument();
+    await user.click(screen.getByRole('link', { name: 'Videos' }));
+    expect(await screen.findByRole('heading', { name: 'Videos route' })).toBeInTheDocument();
+    await user.click(screen.getByRole('link', { name: 'Processing' }));
+    expect(await screen.findByRole('heading', { name: 'Processing queue route' })).toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Import' }));
     expect(await screen.findByRole('heading', { name: 'Import route' })).toBeInTheDocument();
+  });
+
+  it('renders a not-found page for unknown routes', async () => {
+    renderRoute('/nowhere');
+    expect(await screen.findByText(/not found/i)).toBeInTheDocument();
   });
 
   it('resolves direct processing, Search and Review deep links in the client router', async () => {

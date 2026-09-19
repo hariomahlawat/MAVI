@@ -23,6 +23,8 @@ export const queryKeys = {
   videoProcessing: (id: string) => ['video-processing', id] as const,
   trackSearch: (fingerprint: string) => ['tracks', 'search', fingerprint] as const,
   track: (id: string) => ['track', id] as const,
+  trajectory: (artifactId: string) => ['trajectory', artifactId] as const,
+  runAttestation: (processingRunId: string) => ['processing-run', processingRunId, 'attestation'] as const,
   systemConfig: ['system-config'] as const,
   platformHealth: ['platform-health'] as const,
 };

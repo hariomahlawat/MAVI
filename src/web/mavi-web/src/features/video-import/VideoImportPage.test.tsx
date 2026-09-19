@@ -208,6 +208,8 @@ describe('VideoImportPage', () => {
         progressPercent: 20,
         attemptCount: 1,
         failureCode: null,
+        framesProcessed: 0,
+        tracksCreated: 0,
       },
     });
 
