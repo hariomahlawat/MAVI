@@ -827,6 +827,16 @@ Before merge to `main`:
 
 Merge the milestone back to `main` promptly rather than allowing another long-lived integration branch.
 
+## Operator procedure for the host session
+
+Everything in this plan that a hosted session cannot do is consolidated, in
+execution order and with exact commands, in
+`docs/runbooks/windows-cuda-host-session.md`. This plan remains authoritative
+for the reasoning, the gates and the dated history; the runbook is the
+procedure, so the host session executes a reviewed sequence rather than
+improvising one. A test checks that every flag the runbook names still exists
+on the tool it names.
+
 ## Current execution point
 
 C0, C1 and C1R are complete. C1R is merged to `main`; the merge commit is

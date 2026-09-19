@@ -177,6 +177,11 @@ Then restart Visual Studio if Setup changed the machine environment.
 
 ## Development device policy
 
+> The Windows CUDA workstream has its own operator procedure:
+> `docs/runbooks/windows-cuda-host-session.md`. Nothing in it is required for
+> ordinary CPU development.
+
+
 The supported Development reference topology is a **single Windows workstation/laptop**. A second Linux or GPU machine is not required for routine development.
 
 Vision execution has three intended device modes:
