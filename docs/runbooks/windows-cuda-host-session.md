@@ -1053,6 +1053,164 @@ state changes on account of this section.
 
 ---
 
+## C6.R Run sheet — the five runs in one session
+
+Everything below is one PowerShell session on the host, in this order. Each
+run produces exactly one `run-<case>.json`, composed by a tool from artefacts
+the host wrote — never typed. Read C6.P first.
+
+### C6.R.0 Session variables and baseline
+
+```powershell
+cd <repository root>
+$head   = (git rev-parse HEAD).Trim()
+$utc    = { (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }
+$op     = "<workstation or operator label>"
+$work   = "C:\mavi-c6"                                   # external scratch
+$api    = "http://localhost:62153"
+$media  = "<full path to 2min.mp4 as imported>"
+$telemetry = "C:\ProgramData\MAVI\Development\Data\diagnostics\attempt-telemetry.jsonl"
+$packPython = "C:\ProgramData\MAVI\Development\VisionRuntime\windows-x86_64-cuda\venv\Scripts\python.exe"
+New-Item -ItemType Directory -Path $work -Force | Out-Null
+Copy-Item C:\mavi-c4\development-evidence.json $work\   # the C4 bundle, unchanged
+function Smi { (& nvidia-smi -i 0 --query-gpu=memory.used,memory.free --format=csv,noheader,nounits).Trim() }
+function Status($videoId) { Invoke-RestMethod "$api/api/videos/$videoId/processing" | ConvertTo-Json -Depth 6 }
+function Attestation($runId) { Invoke-RestMethod "$api/api/processing/runs/$runId/attestation" | ConvertTo-Json -Depth 8 }
+```
+
+- `$head` must be the head you will assemble against; the assemblers bind the
+  runs to the **committed** C4 record in `runtime.json`, not to the C4 capture
+  head, so a head later than C4's is expected and correct.
+- Import `2min.mp4` once through the MAVI UI (a camera is required). Note the
+  video id from `Invoke-RestMethod "$api/api/videos"` — the `id` whose
+  `originalFileName` is `2min.mp4`. All five runs re-queue **this** video, so
+  the media SHA-256 and the frame count are identical by construction.
+- **Same media, same frame count** is checked by the assembler; a different
+  file, or a re-import, is refused as `e2e_runs_describe_different_media`.
+
+### C6.R.1 What every run captures
+
+| Field in the run record | Source | How |
+| --- | --- | --- |
+| `framesProcessed`, `detectionCount`, `trackCount`, `elapsedSeconds`, provenance device/reason/status, `gpuUuidSha256`, `hostRamPeakBytes`, `cuda.*` | the worker's own completion line | `attempt-telemetry.jsonl` — written by the worker at every accepted attempt (`external`, never committed) |
+| `status`, `progressPercent`, attempt count | the API | `Status $videoId > $work\status-<case>.json` |
+| device, reason, frames, tracks, duration, GPU identity — **cross-check** | the API | `Attestation <processingRunId> > $work\attestation-<case>.json` |
+| `mediaSha256` | the file | computed by the composer from `$media` |
+| `nvidiaSmi.before/during/after` | you | `Smi` before queueing, once mid-run, once after `Processed` |
+| `configuredDevicePolicy` | you | the `-DevicePolicy` you gave the launcher |
+
+**Proof of device** is not the ordinal string. It is the telemetry's
+`gpuUuidSha256` (the salted digest of the card the provenance names) matching
+the C4 corroboration, `cuda.mmcvNmsExecutedOnCuda: true`, a non-zero peak
+device allocation, and nvidia-smi showing more device memory in use *during*
+the run than before it. The assembler checks all four.
+
+**On the first run only**, while the job is processing, run `powercfg /requests`
+in a second window and confirm the `SYSTEM` request `MAVI vision processing
+active (job … attempt …)` is present, then confirm it is absent once the worker
+is idle. That is a smoke check of C6.P's mechanism, not a gate; note the
+result in the run's diagnostics.
+
+### C6.R.2 The five runs
+
+Each run: (1) start the worker with the stated policy in window A; (2) `Smi`
+→ *before*; (3) queue processing for the video in the UI (or
+`Invoke-RestMethod -Method Post "$api/api/videos/$videoId/process"`); (4) `Smi`
+mid-run → *during*; (5) wait for `videoStatus: Processed`; (6) `Smi` → *after*;
+(7) save status and attestation; (8) compose; (9) stop the worker (Ctrl+C).
+
+**explicit-cuda** — `tools\setup\Start-MaviVisionWorker.ps1 -DevicePolicy cuda -WorkerId c6-explicit-cuda`
+
+```powershell
+python tools\vision\compose_windows_cuda_evidence.py e2e-run --case-id explicit-cuda `
+    --telemetry $telemetry --processing-status $work\status-explicit-cuda.json `
+    --attestation $work\attestation-explicit-cuda.json --media $media `
+    --configured-device-policy cuda `
+    --nvidia-smi-before "<before>" --nvidia-smi-during "<during>" --nvidia-smi-after "<after>" `
+    --output $work\run-explicit-cuda.json
+```
+
+- **Expected:** `Processed`, reason `explicit_cuda`, device `cuda:0`.
+- **Output:** **external** (`$work`); the assembler binds it later.
+
+**auto-cuda** — `-DevicePolicy auto -WorkerId c6-auto-cuda`. Same composer call
+with `--case-id auto-cuda`, `--configured-device-policy auto`, and the
+`auto-cuda` status/attestation files.
+
+- **Expected:** the launcher prints `resolved=cuda reason=cuda_selected`; the
+  worker records reason `cuda_selected`. The launcher resolves Auto before
+  Python starts and hands over the resolved policy, so the attestation's
+  `configuredDevicePolicy` reads `cuda` while the record states `auto` — the
+  composer accepts exactly that pairing and only with an Auto reason.
+- **If the launcher prints `Development Auto selected CPU`:** that is a C7
+  `auto-*` observation, not this case. STOP and read the reason.
+
+**explicit-cpu** — `-DevicePolicy cpu -WorkerId c6-explicit-cpu`. Composer with
+`--case-id explicit-cpu`, `--configured-device-policy cpu`, **no** nvidia-smi
+arguments. Expect a long run; timing is characterisation only.
+
+**restart-recovery** — `-DevicePolicy cuda -WorkerId c6-restart`. Queue, and
+when progress is between 30 % and 60 %:
+
+1. put the host to **Sleep** from the Start menu and leave it asleep for at
+   least **3 minutes** — a user-initiated sleep is outside the power request's
+   guarantee by design, which is what makes it usable here;
+2. wake it. The worker resumes, its watchdog observes an inference open for
+   longer than 120 s, records `vision_inference_watchdog_expired` in
+   `Data\diagnostics\watchdog-incidents.jsonl`, and exits **70** (the `.cmd`
+   window says so);
+3. restart the worker with the **same** `-WorkerId`. The lease has expired, the
+   same job is re-leased as **attempt 2**, and it runs to `Processed`.
+
+Compose with `--case-id restart-recovery`; the composer derives
+`restartCount` from the attempt count it finds in telemetry and refuses an
+attempt 1. Save the incident line — it is also C7 `worker-restart-recovered`
+(C7.G7). If the watchdog does **not** fire after a ≥3 min sleep, stop the
+worker with `Stop-Process` instead, restart it, and note in the diagnostics
+that the restart was operator-initiated; the C6 case still holds, the C7 case
+then needs its own induction.
+
+**cuda-oom-recovery** — `-DevicePolicy cuda -WorkerId c6-oom`. A failed
+attempt is terminal on the platform (the job is marked `Failed`; nothing
+requeues it), so the recovery being proven is the **worker runtime's**: it must
+survive the OOM in-process and process the next job without a restart.
+
+1. start the worker and wait for `READY`;
+2. in window B, hold most of the device: `& $packPython -c "import torch,time; x=torch.empty(int(<MiB>)*1024*1024,dtype=torch.uint8,device='cuda:0'); print('holding',x.numel()//2**20,'MiB'); time.sleep(3600)"`
+   — start with `<MiB>` leaving roughly **400 MiB** free (read `Smi`);
+3. queue the video. The attempt fails with `vision_gpu_out_of_memory`;
+   `Status $videoId > $work\status-oom-failed.json` — this file is the proof;
+4. window A must log the runtime **recovering** and returning to `READY`
+   **without** exiting. If instead it exits or stays `UNAVAILABLE`, the hog was
+   too large for the model to reload: Ctrl+C the hog, restart the worker, and
+   retry with ~200 MiB more free;
+5. Ctrl+C the hog; re-queue the video (a **new** processing run); wait for
+   `Processed`; save its status and attestation.
+
+```powershell
+python tools\vision\compose_windows_cuda_evidence.py e2e-run --case-id cuda-oom-recovery `
+    --telemetry $telemetry --processing-status $work\status-oom.json `
+    --failed-processing-status $work\status-oom-failed.json `
+    --attestation $work\attestation-oom.json --media $media `
+    --configured-device-policy cuda `
+    --nvidia-smi-before "<before>" --nvidia-smi-during "<during>" --nvidia-smi-after "<after>" `
+    --output $work\run-cuda-oom-recovery.json
+```
+
+The composer sets `recoveredFromCudaOutOfMemory` only from the failed run's
+own status record carrying `vision_gpu_out_of_memory`. This run is also C7
+`cuda-out-of-memory-recovered` (C7.G7).
+
+### C6.R.3 Assemble
+
+The assembly command is in the C6 section above. `--source-head-sha $head`
+is the head under test; the bundle records the C4 capture head separately as
+`qualificationSourceHeadSha`. Record `evidenceBundleSha256`, `gpuUuidSha256`
+and `mediaSha256` from the output. **Failure:** the code names the run and the
+field; fix the input, not the rule.
+
+---
+
 ## C6.D Isolating a watchdog exit 70 (diagnostic, not a gate)
 
 Use this only when a C6 run has died with fatal supervisor exit **70**. It
@@ -1143,18 +1301,160 @@ does not explain a 120 s stall.
 
 # C7 — failure matrix
 
-Print the matrix and use it as the run sheet:
+37 declared cases (`build_failure_matrix_evidence.py --print-matrix`), grouped
+below by the mechanism that induces them, so one mutation and one restore
+serve a whole group. Every case becomes one `case-<id>.json` written by the
+composer, which pre-fills the declared policy and outcome, digests any GPU
+UUID, redacts one from the diagnostic, and refuses a record the assembler would
+refuse. Record the seven G5 cases **before** the session.
 
 ```powershell
 python tools\vision\build_failure_matrix_evidence.py --print-matrix `
     --scope hardware --source-head-sha x --captured-at-utc x --operator-reference x
 ```
 
-37 cases: **7** exercisable anywhere (record before the session), **20** needing
-the Windows launcher but no GPU, **10** needing a real device.
+**Rules for every mutation.** Mutate a *copy* where one exists; otherwise
+mutate in place and restore **before** the next case, then re-run the
+launcher once with the qualified configuration and confirm `READY` — a case
+observed against a still-damaged installation is that installation's failure,
+not the case's. Never edit the qualified Runtime Pack or Model Pack directories
+except as the exact renames below, and never leave them renamed.
 
-Record each as a `mavi-windows-cuda-failure-case-v1` document (schema:
-`tools/vision/windows-cuda-failure-case.schema.json`), then:
+**Which code to record.** A launcher refusal prints
+`mavi_launch_failed:<code>: <message>` — record `<code>`. A worker startup
+refusal logs `MAVI vision runtime UNAVAILABLE ...: <stable code>` and, for a
+compatibility refusal, a second line `Vision runtime startup refused:
+vision_runtime_incompatible (<detail code>)` — record the **detail** code where
+the case declares it (`cuda_unavailable`, `cuda_device_index_invalid`); the
+composer refuses the wrong one. A GPU-identity refusal's stable code *is* the
+detail (`gpu_identity_…`, `nvidia_smi_…`).
+
+For hardware cases (G6, G7) add `--gpu-uuid "$(nvidia-smi -i 0
+--query-gpu=uuid --format=csv,noheader)"` and `--driver-version "$(nvidia-smi
+-i 0 --query-gpu=driver_version --format=csv,noheader)"`; the UUID is digested
+and never stored.
+
+### C7.G1 Permitted Auto fallback — 8 cases, launcher, no GPU needed for 7
+
+Launch `-DevicePolicy auto`, read `Development Auto selected CPU: <reason>`,
+let the worker reach `READY` on CPU, then confirm the reason in a completed
+run's attestation (`deviceResolutionReason`) or the worker log. Compose:
+
+```powershell
+python tools\vision\compose_windows_cuda_evidence.py failure-case --case-id auto-pack-absent `
+    --actual-device cpu --device-resolution-reason cuda_pack_absent `
+    --fallback-logged --fallback-persisted-in-provenance `
+    --diagnostic "<the launcher's yellow line, verbatim>" `
+    --output $work\case-auto-pack-absent.json
+```
+
+| Case | Mutation (restore in brackets) | Reason |
+| --- | --- | --- |
+| `auto-pack-absent` | `Rename-Item …\VisionRuntime\windows-x86_64-cuda windows-x86_64-cuda.off` [rename back] | `cuda_pack_absent` |
+| `auto-pack-integrity-failed` | append one byte to `…\windows-x86_64-cuda\runtime-pack-manifest.json` [restore from `$work` copy taken first] | `cuda_pack_integrity_failed` |
+| `auto-pack-variant-mismatch` | `$env:MAVI_VISION_RUNTIME_WINDOWS_CUDA_ROOT = "<the CPU pack root>"` for this shell [`Remove-Item Env:\…`]; the launcher reads the Machine value, so set it with `[Environment]::SetEnvironmentVariable(…, "Machine")` and unset the same way | `cuda_pack_variant_mismatch` |
+| `auto-pack-id-mismatch` | in a **copy** of the CUDA pack, edit `runtimePackId` in `runtime-pack-manifest.json` and re-hash it into `runtime-install.json`'s `runtimePackManifestSha256`; point the Machine variable at the copy | `cuda_pack_id_mismatch` |
+| `auto-pack-not-declared` | `git stash` after deleting the `windows-x86_64-cuda` entry from `src\vision\config\components\mmdetection-phase1-v1.json` [`git checkout -- <file>`] | `cuda_pack_not_declared` |
+| `auto-driver-probe-unavailable` | run the launcher from a shell whose `PATH` excludes `nvidia-smi.exe`'s directory (`$env:PATH = ($env:PATH -split ';' \| ? { $_ -notmatch 'NVIDIA' -and $_ -notmatch 'System32' }) -join ';'`) | `cuda_driver_probe_unavailable` |
+| `auto-device-unavailable` | `-DeviceIndex 1` on this single-GPU host | `cuda_device_unavailable` |
+| `auto-driver-probe-failed` | put a stub `nvidia-smi.exe` (a `.cmd` renamed, that `exit 1`) first on `PATH` for this shell | `cuda_driver_probe_failed` |
+
+### C7.G2 Explicit CUDA launcher refusals — 7 cases, launcher, no GPU
+
+Same mutations as G1's first five rows but with `-DevicePolicy cuda`; explicit
+CUDA never falls back, so each is a refusal. Compose with `--failure-code
+<code>` and `--diagnostic-file` pointing at the saved launcher output.
+
+| Case | Mutation | Declared codes |
+| --- | --- | --- |
+| `explicit-cuda-pack-absent` | rename the pack directory | `launch_runtime_pack_not_installed` |
+| `explicit-cuda-pack-integrity-failed` | byte appended to the manifest | `launch_runtime_manifest_fingerprint_mismatch` |
+| `explicit-cuda-pack-variant-mismatch` | CUDA root → CPU pack | `launch_cuda_policy_requires_cuda_pack` |
+| `explicit-cuda-resolved-to-cpu-refused` | same as above; the invariant is the refusal itself | `launch_cuda_policy_requires_cuda_pack` |
+| `explicit-cuda-pack-identity-mismatch` | edited `runtimePackId` copy | `launch_component_pack_requirement_missing`, `launch_cuda_policy_requires_cuda_pack`, `launch_runtime_native_abi_binding_stale` |
+| `explicit-cuda-pack-not-declared` | component entry removed | `launch_component_pack_requirement_missing` |
+| `explicit-cuda-python-abi-mismatch` | in a pack **copy**, replace `venv\Scripts\python.exe` with the repository Development venv's interpreter (a different build) | `launch_runtime_python_identity_state_mismatch`, `launch_runtime_python_identity_manifest_mismatch` |
+
+### C7.G3 Explicit CUDA worker startup refusals — 3 cases, no GPU
+
+These are refused by the worker, not the launcher, so bypass the launcher and
+start the module directly from a **CPU** venv with CUDA asked for. From the
+Development venv (`.venv` or the CPU pack venv):
+
+```powershell
+$env:MAVI_DEVICE_POLICY = "cuda"; $env:MAVI_DEVICE_RESOLUTION_REASON = "explicit_cuda"
+# plus the MAVI_* variables the launcher exports (copy them from Start-MaviVisionWorker.ps1 line 171)
+python -m mavi_vision.worker.main
+```
+
+| Case | Mutation | Code |
+| --- | --- | --- |
+| `explicit-cuda-torch-cuda-mismatch` | the CPU venv's `torch==2.6.0+cpu` against the CUDA variant's declared `2.6.0+cu124` | `vision_runtime_incompatible` |
+| `explicit-cuda-torchvision-binary-mismatch` | same run, if torchvision is checked first; otherwise a pack copy with the CPU torchvision wheel installed over it | `vision_runtime_incompatible` |
+| `explicit-cuda-native-extension-import-failed` | in a pack **copy**, rename `Lib\site-packages\mmcv\_ext.cp312-win_amd64.pyd` | `vision_runtime_incompatible` |
+
+Restore: `Remove-Item Env:\MAVI_*`; delete the copies.
+
+### C7.G4 Overlay, identity and evidence refusals — 8 cases, launcher, no GPU
+
+Each edits one tracked file in the checkout; restore with `git checkout --
+<file>` and confirm `git status` is clean before the next case.
+
+| Case | Mutation | Declared codes |
+| --- | --- | --- |
+| `stale-qualification-evidence` | change one digit of `runtimeProfileSha256` in `models\qualifications\rtmdet-m-coco-phase1-v1.json` | `launch_runtime_profile_qualification_mismatch` (or the manifest/pipeline sibling) |
+| `tampered-qualification-evidence` | add a trailing space inside `src\vision\runtime\mmdetection-phase1-v1\runtime.json` | `launch_runtime_profile_qualification_mismatch` |
+| `qualification-bundle-mismatch` | set `runtimeProfileId` in the qualification record to another id; start the worker directly as in G3 | `qualification_identity_mismatch`, `runtime_profile_id_mismatch`, `qualification_record_invalid` |
+| `corrupted-lock` | append a line to `windows-x86_64-cuda.lock` | `launch_runtime_lock_binding_stale` |
+| `corrupted-manifest` | byte appended to the **Model Pack** `model-pack-manifest.json` [restore] | `launch_model_manifest_fingerprint_mismatch` |
+| `missing-model-identity` | rename `models\manifests\rtmdet-m-coco-phase1-v1.json` | `launch_overlay_file_missing` |
+| `runtime-profile-mismatch` | set `runtimeProfileId` in `mmdetection-phase1-v1.json` (components) to another id | `launch_component_runtime_profile_mismatch` |
+| `development-evidence-presented-to-production` | `$env:MAVI_PRODUCTION_MODE="true"; $env:MAVI_DEPLOYMENT_PROFILE="P1"` and start the worker directly | `production_runtime_not_qualified`, `runtime_platform_variant_not_qualified`, `unverified_release_forbidden`, `production_release_not_verified` |
+
+### C7.G5 Vocabulary — 1 case, anywhere
+
+`auto-unknown-reason-refused`: start the worker directly with
+`MAVI_DEVICE_POLICY=auto` and `MAVI_DEVICE_RESOLUTION_REASON=cuda_because`;
+settings refuse it. Compose with `--failure-code device_resolution_reason_invalid
+--refused-resolution-reason cuda_because`. (The seven cases exercisable off the
+host are this one plus G3's three, G4's `qualification-bundle-mismatch`,
+`corrupted-lock` and `development-evidence-presented-to-production`; record
+them first.)
+
+### C7.G6 Explicit CUDA device and driver refusals — 8 cases, GPU
+
+Environment-only where possible; each is one shell and undone by closing it.
+
+| Case | Mutation | Declared codes | Inducible here? |
+| --- | --- | --- | --- |
+| `explicit-cuda-device-unavailable` | `$env:CUDA_VISIBLE_DEVICES=""` then `-DevicePolicy cuda` | `cuda_unavailable` (detail line) | yes |
+| `explicit-cuda-invalid-device-index` | `-DeviceIndex 1` | `cuda_device_index_invalid` (detail line) or `gpu_identity_index_unavailable` | yes |
+| `explicit-cuda-wrong-physical-gpu` | start the worker directly with `$env:CUDA_DEVICE_ORDER="FASTEST_FIRST"` (the launcher forces `PCI_BUS_ID`; the module only defaults it) | `gpu_identity_device_order_unstable` | yes |
+| `explicit-cuda-driver-probe-unavailable` | PATH without `nvidia-smi.exe`, `-DevicePolicy cuda` | `nvidia_smi_not_found` | yes |
+| `explicit-cuda-driver-probe-failed` | stub `nvidia-smi.exe` that exits 1, `-DevicePolicy cuda` | `gpu_identity_nvidia_smi_failed` | yes |
+| `explicit-cuda-driver-insufficient` | requires a driver older than CUDA 12.4's minimum (528.33) | `cuda_unavailable` | **no** without a driver downgrade — decision required |
+| `explicit-cuda-wrong-architecture` | requires a card the pack has no kernels for | `gpu_identity_compute_capability_mismatch` | **no** on a single sm_75 host — decision required |
+| `explicit-cuda-mmcv-ops-failed` | requires `mmcv._ext` that loads but whose CUDA kernels fail | `vision_runtime_incompatible`, `mmcv_cuda_op_executed_off_device` | **no** without a second card — decision required |
+
+The three marked **no** cannot be observed honestly on this host without an
+invasive change (a temporary older driver) or hardware that is not present. A
+`hardware`-scope bundle requires all 37, so these need an explicit decision
+before C7 can close: perform the driver downgrade and restore, or accept and
+record the gap. Do not synthesise them.
+
+### C7.G7 Recovery — 2 cases, GPU, taken from C6
+
+Both come from C6.R.2 without extra runs. `worker-restart-recovered`:
+`--failure-code vision_inference_watchdog_expired --actual-device cuda:0
+--device-resolution-reason explicit_cuda --recovered --attempt-count 2`, the
+diagnostic pasted from `watchdog-incidents.jsonl`. `cuda-out-of-memory-recovered`:
+`--failure-code vision_gpu_out_of_memory … --attempt-count 2`, the diagnostic
+stating that attempt 1 of the first processing run failed with the code, the
+runtime recovered in-process, and the re-queued run completed as its attempt 1
+— `attemptCount` here counts processing attempts of the media, because a
+failed attempt is terminal on the platform.
+
+### Assemble
 
 ```powershell
 python tools\vision\build_failure_matrix_evidence.py --scope hardware `
@@ -1168,16 +1468,13 @@ python tools\vision\build_failure_matrix_evidence.py --scope hardware `
 ```
 
 - **Success:** `{"ok": true, ...}` with `caseCount: 37`.
-- **Output:** **gitignored**.
+- **Output:** **gitignored** if written inside the checkout; keep it in `$work`.
 - **Record:** `evidenceBundleSha256`.
-- **Scope is never implied.** A `hardware` bundle requires the C4 evidence and
-  every hardware case must name the same card; a narrower scope may not carry a
-  case it could not have observed.
-- **Stable codes:** each case declares the failure codes it may legitimately
-  report. A case carrying another case's code is refused.
-- **Diagnostics:** a raw GPU UUID in a pasted driver message is redacted
-  automatically, but diagnostics are bounded at 2000 characters — paste the
-  relevant lines, not a whole log.
+- **Scope is never implied.** A `hardware` bundle requires the C4 evidence,
+  binds to the committed C4 record, and every hardware case must name the same
+  card; a narrower scope may not carry a case it could not have observed.
+- **Stable codes:** each case declares the codes it may legitimately report. A
+  case carrying another case's code is refused — by the composer first.
 - **Failure:** a refused case is usually the observation, not the tool. Read the
   code: it names the case and the disagreement.
 
