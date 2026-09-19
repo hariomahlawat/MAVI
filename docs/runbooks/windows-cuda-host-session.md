@@ -968,6 +968,89 @@ python tools\vision\build_development_e2e_evidence.py `
 
 ---
 
+## C6.D Isolating a watchdog exit 70 (diagnostic, not a gate)
+
+Use this only when a C6 run has died with fatal supervisor exit **70**. It
+qualifies nothing and records nothing toward C6; it exists to name the frame
+and the stage a stuck inference was in.
+
+**Read the incident record first.** Before running anything:
+
+```powershell
+Get-Content "<media root>\diagnostics\watchdog-incidents.jsonl" | Select-Object -Last 1
+```
+
+`failure_code` distinguishes a genuine ≥120 s activity
+(`vision_inference_watchdog_expired`) from the snapshot-provider race
+(`vision_watchdog_observation_failed`); `completed_count` should be frames + 1
+for warmup. That one line is free and rules more in or out than any rerun.
+
+**What exit 70 means, exactly.** One `InferenceActivity.mark_started()` was
+still open 135 s later. That interval encloses only `inference_detector(...)`
+and `_convert_prediction(...)` inside `MMDetectionRuntime.infer()`. The tracker,
+staging and heartbeat run outside it and cannot produce this code. Note that
+CUDA launches are asynchronous: the detector call measures *enqueue*, and the
+`.cpu()` inside conversion is where the GPU stream is actually waited on, so a
+GPU-side stall surfaces as a fast detector call followed by a conversion that
+never returns. A check that calls the detector without reading results back
+cannot see that.
+
+**Run the exact failing window first** — every frame, not sampled — through
+the real `infer()` path, using the installed Runtime Pack's interpreter:
+
+```powershell
+$packPython = "C:\ProgramData\MAVI\Development\VisionRuntime\windows-x86_64-cuda\venv\Scripts\python.exe"
+& $packPython tools\vision\trace_inference_window.py `
+    --source "<the exact source asset the failed job processed>" `
+    --expected-sha256 <its sha256 from the job record> `
+    --model-root "<Model Pack root>" `
+    --device cuda:0 `
+    --mode window --window-start-seconds 108 --window-end-seconds 122 `
+    --output $work\inference-trace-window.jsonl
+```
+
+- **Output:** `$work\inference-trace-window.jsonl` and, only if a hang occurs,
+  `$work\inference-trace-window.jsonl.tracebacks.txt` — both **external**,
+  never committed. Every event is fsync'd before the next stage starts, so if
+  the process dies the last line names the frame and stage.
+- **Record:** the `summary` line; any `error` or `hang` line in full; the
+  `slowest` frame; whether `cudaReservedBytes` grows across the run.
+- **Read it like this:** a `hang` line with `stage: convert_prediction` and a
+  short `detectSeconds` on the preceding `enter` is a GPU-side stall. A `hang`
+  with `stage: inference_detector` is the host-side call itself. An `error`
+  line names the classified exception. A clean run through 122 s means the
+  window alone does not reproduce it.
+- **On a hang:** the tool dumps every thread's Python stack to the
+  `.tracebacks.txt` file at 60 s and again at 150 s, then exits **3** — not 70,
+  so the two are never confused. The production 120 s / 15 s values are not
+  read or changed by this tool.
+
+**If the window is clean, test cumulative degradation** — the same runtime
+instance, every frame from the start through 122 s (≈3,700 sequential
+`infer()` calls):
+
+```powershell
+& $packPython tools\vision\trace_inference_window.py `
+    --source "<same asset>" --expected-sha256 <same sha256> `
+    --model-root "<Model Pack root>" --device cuda:0 `
+    --mode sequential --until-seconds 122 `
+    --output $work\inference-trace-sequential.jsonl
+```
+
+- **Read it like this:** compare `detectSeconds`, `syncSeconds` and
+  `cudaReservedBytes` on the first hundred frames against the last hundred. A
+  monotonic climb is the cumulative-state finding; a flat line followed by one
+  outlier is not.
+
+**What this does not do.** It does not restart the C6 run, does not write any
+evidence document, and does not change what C6 accepts. `--no-explicit-sync`
+reproduces production's timing profile exactly but hides where a GPU stall
+surfaces; leave it off unless comparing against the worker's own numbers.
+
+**Also worth one command**, because the failure landed at ≈420 s on a laptop
+GPU: `powercfg /q` and read `VIDEOIDLE` (Turn off display after) on the active
+plan. Modern Standby was excluded; display-off is a separate power event.
+
 # C7 — failure matrix
 
 Print the matrix and use it as the run sheet:

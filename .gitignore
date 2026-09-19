@@ -74,6 +74,8 @@ windows-cuda-toolchain-observation.json
 /mmcv-reproducibility.json
 /mmcv-reproducibility-*.json
 /mmcv-objects-*.json
+/inference-trace-*.jsonl
+/inference-trace-*.jsonl.tracebacks.txt
 /wheelhouse-manifest.json
 /data/
 /evidence/

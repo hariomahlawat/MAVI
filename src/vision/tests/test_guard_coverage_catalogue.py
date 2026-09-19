@@ -75,6 +75,7 @@ def test_the_catalogue_covers_every_fail_closed_tool():
         "tools/vision/compare_wheel_reproducibility.py",
         "tools/vision/compare_native_object_trees.py",
         "tools/vision/write_requirements_projection.py",
+        "tools/vision/trace_inference_window.py",
     }
 
 

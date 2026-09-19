@@ -306,6 +306,27 @@ MUTATIONS: tuple[Mutation, ...] = (
         "                if mapped != pointer:",
         "                if False:",
     ),
+    # C6 exit-70 diagnostic. Its whole value is that the last line on disk is
+    # true and that a hang is reported before it is terminated; these are the
+    # two rules a "helpful" edit would most plausibly soften.
+    Mutation(
+        "C6 trace stops fsyncing each event before the next stage",
+        "tools/vision/trace_inference_window.py",
+        "            os.fsync(self._handle.fileno())\n            self._count += 1",
+        "            self._count += 1",
+    ),
+    Mutation(
+        "C6 trace terminates a hang with the worker's exit code",
+        "tools/vision/trace_inference_window.py",
+        "HANG_EXIT_CODE = 3",
+        "HANG_EXIT_CODE = 70",
+    ),
+    Mutation(
+        "C6 trace refuses to overwrite an existing trace",
+        "tools/vision/trace_inference_window.py",
+        "        if path.exists():\n            raise TraceError(\"trace_output_exists\")",
+        "        if False:\n            raise TraceError(\"trace_output_exists\")",
+    ),
     Mutation(
         "C2 wheel gate stops noticing a member RECORD omits",
         "tools/vision/compare_wheel_reproducibility.py",
@@ -322,6 +343,7 @@ SUITES = (
     "tests/test_wheel_reproducibility_comparison.py",
     "tests/test_native_object_tree_comparison.py",
     "tests/test_offline_tool_bootstrap.py",
+    "tests/test_trace_inference_window.py",
 )
 
 
