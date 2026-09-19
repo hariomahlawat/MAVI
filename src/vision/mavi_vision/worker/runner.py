@@ -3,7 +3,7 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -32,6 +32,7 @@ from mavi_vision.runtime.watchdog import (
 )
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import MediaStoreError
+from mavi_vision.worker.attempt_telemetry import AttemptCompletion
 from mavi_vision.worker.client import WorkerApiError
 from mavi_vision.worker.watchdog_incident import (
     WATCHDOG_FAILURE_CODE,
@@ -144,6 +145,9 @@ class WorkerRunner:
         host_power_request: Callable[[str], AbstractContextManager[object]] = (
             keep_host_awake
         ),
+        attempt_completed_sink: (
+            Callable[[AttemptCompletion], Awaitable[None]] | None
+        ) = None,
     ) -> None:
         if heartbeat_interval_seconds <= 0:
             raise ValueError("heartbeat_interval_seconds must be positive")
@@ -178,6 +182,7 @@ class WorkerRunner:
         self._runtime_provenance_provider = runtime_provenance_provider
         self._duration_clock = duration_clock
         self._host_power_request = host_power_request
+        self._attempt_completed_sink = attempt_completed_sink
         self._fatal_termination_active = False
 
     @property
@@ -343,9 +348,29 @@ class WorkerRunner:
                 provenance_snapshot,
                 authorize_publish=completion_guard.check_owned,
             )
-            return True
         except LeaseLostError as exc:
             raise WorkerApiError("lease ownership lost") from exc
+
+        # The attempt is authoritative from here. Telemetry describes it and
+        # cannot change it, so a failing sink is logged and nothing more.
+        if self._attempt_completed_sink is not None:
+            try:
+                await self._attempt_completed_sink(
+                    AttemptCompletion(
+                        job_id=lease.job_id,
+                        attempt_count=lease.attempt_count,
+                        result=result,
+                        processing_duration_ms=processing_duration_ms,
+                        provenance=provenance_snapshot,
+                    )
+                )
+            except Exception:
+                _LOGGER.warning(
+                    "Attempt telemetry sink failed for job %s attempt %s",
+                    lease.job_id,
+                    lease.attempt_count,
+                )
+        return True
 
     async def _process_with_lease_heartbeats(
         self,

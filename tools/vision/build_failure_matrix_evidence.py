@@ -96,6 +96,12 @@ _GPU_IDENTITY_CODES = frozenset(
         "gpu_identity_device_order_unstable",
         "gpu_identity_visible_devices_ambiguous",
         "gpu_identity_index_unavailable",
+        # The driver inventory probe itself. Explicit CUDA reaches the worker's
+        # own identity probe (the launcher probes only for Auto), so these are
+        # the codes an explicit-CUDA driver-probe refusal actually surfaces.
+        "nvidia_smi_not_found",
+        "nvidia_smi_timed_out",
+        "gpu_identity_nvidia_smi_failed",
     }
 )
 _RUNTIME_VERIFICATION_CODES = frozenset(
@@ -158,6 +164,27 @@ _RAW_GPU_UUID = re.compile(r"GPU-[0-9A-Fa-f][0-9A-Fa-f-]{7,}")
 
 
 _RECORD_SCHEMA_PATH = Path(__file__).resolve().parent / "windows-cuda-failure-case.schema.json"
+
+# Where the C4 record lives once Gate C4 has passed. A hardware-scope bundle is
+# bound to that committed record rather than to a head equality, for the same
+# reason C6 is: the C4 patch is committed after capture, so the head carrying
+# it can never be the head the evidence names.
+_CUDA_VARIANT = "windows-x86_64-cuda"
+_DEFAULT_RUNTIME_PROFILE = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "vision"
+    / "runtime"
+    / "mmdetection-phase1-v1"
+    / "runtime.json"
+)
+_EVIDENCE_BLOCK_FIELDS = (
+    "hostObservationSha256",
+    "evidenceBundleSha256",
+    "sourceHeadSha",
+    "capturedAtUtc",
+    "operatorReference",
+)
 
 
 def _record_schema() -> dict:
@@ -414,14 +441,28 @@ FAILURE_CASES.update(
             stage="startup",
             hardware=True,
             windows=True,
-            codes=frozenset({"cuda_unavailable", "vision_gpu_runtime_failed"}),
+            codes=frozenset(
+                {
+                    "cuda_unavailable",
+                    "vision_gpu_runtime_failed",
+                    "nvidia_smi_not_found",
+                    "nvidia_smi_timed_out",
+                }
+            ),
         ),
         "explicit-cuda-driver-probe-failed": _fail_closed_case(
             "explicit CUDA refuses when the driver probe itself fails",
             stage="startup",
             hardware=True,
             windows=True,
-            codes=frozenset({"cuda_unavailable", "vision_gpu_runtime_failed"}),
+            codes=frozenset(
+                {
+                    "cuda_unavailable",
+                    "vision_gpu_runtime_failed",
+                    "gpu_identity_nvidia_smi_failed",
+                    "nvidia_smi_timed_out",
+                }
+            ),
         ),
         # Evidence and identity integrity.
         "stale-qualification-evidence": _fail_closed_case(
@@ -786,6 +827,38 @@ def expected_cases(scope: str) -> set[str]:
     }
 
 
+def _committed_qualification(
+    runtime_profile: Path,
+    block: dict,
+) -> tuple[str, str]:
+    """Require the C4 block to be the record the committed profile carries."""
+    try:
+        raw = runtime_profile.read_bytes()
+        profile = json.loads(raw)
+    except OSError as exc:
+        raise FailureMatrixError("failure_matrix_runtime_profile_unreadable") from exc
+    except json.JSONDecodeError as exc:
+        raise FailureMatrixError("failure_matrix_runtime_profile_invalid") from exc
+    variants = profile.get("platformVariants") if isinstance(profile, dict) else None
+    variant = variants.get(_CUDA_VARIANT) if isinstance(variants, dict) else None
+    if not isinstance(variant, dict):
+        raise FailureMatrixError("failure_matrix_runtime_profile_invalid")
+    if variant.get("status") != "qualified-development-hardware":
+        raise FailureMatrixError("failure_matrix_runtime_variant_not_qualified")
+    committed = variant.get("developmentEvidence")
+    if not isinstance(committed, dict):
+        raise FailureMatrixError("failure_matrix_qualification_not_committed")
+    for field in _EVIDENCE_BLOCK_FIELDS:
+        if block.get(field) != committed.get(field):
+            raise FailureMatrixError("failure_matrix_qualification_not_committed")
+    head = block.get("sourceHeadSha")
+    if not isinstance(head, str) or _SOURCE_HEAD_SHA.fullmatch(head) is None:
+        raise FailureMatrixError(
+            "failure_matrix_development_evidence_schema_invalid"
+        )
+    return _sha256_bytes(raw), head
+
+
 def build_failure_matrix(
     *,
     scope: str,
@@ -794,6 +867,7 @@ def build_failure_matrix(
     captured_at_utc: str,
     operator_reference: str,
     development_evidence: Path | None = None,
+    runtime_profile: Path = _DEFAULT_RUNTIME_PROFILE,
 ) -> dict[str, object]:
     if scope not in SCOPES:
         raise FailureMatrixError("failure_matrix_scope_invalid")
@@ -825,6 +899,8 @@ def build_failure_matrix(
     # about which machine produced it.
     gpu_uuid_sha256: str | None = None
     development_sha: str | None = None
+    runtime_profile_sha: str | None = None
+    qualification_head: str | None = None
     if scope == "hardware":
         if development_evidence is None:
             raise FailureMatrixError("failure_matrix_development_evidence_required")
@@ -870,9 +946,11 @@ def build_failure_matrix(
             raise FailureMatrixError(
                 "failure_matrix_development_evidence_schema_invalid"
             )
-        block = hardware.get("developmentEvidence")
-        if not isinstance(block, dict) or block.get("sourceHeadSha") != source_head_sha:
-            raise FailureMatrixError("failure_matrix_source_revision_mismatch")
+        # Bound to the qualification the tree under test actually carries, as
+        # C6 is; see _committed_qualification for why head equality cannot.
+        runtime_profile_sha, qualification_head = _committed_qualification(
+            runtime_profile, block_for_digest
+        )
     elif development_evidence is not None:
         # A non-hardware bundle that cited hardware evidence would imply the
         # very thing its scope denies.
@@ -900,6 +978,8 @@ def build_failure_matrix(
             "scope": scope,
             "evidenceBundleSha256": "",
             "sourceHeadSha": source_head_sha,
+            "qualificationSourceHeadSha": qualification_head,
+            "runtimeProfileSha256": runtime_profile_sha,
             "capturedAtUtc": captured_at_utc,
             "operatorReference": operator_reference,
             "caseCount": len(checked),
@@ -939,6 +1019,12 @@ def main() -> int:
     parser.add_argument("--source-head-sha", required=True)
     parser.add_argument("--captured-at-utc", required=True)
     parser.add_argument("--operator-reference", required=True)
+    parser.add_argument(
+        "--runtime-profile",
+        type=Path,
+        default=_DEFAULT_RUNTIME_PROFILE,
+        help="the committed runtime profile carrying the C4 record (hardware scope)",
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument(
         "--print-matrix",
@@ -976,6 +1062,7 @@ def main() -> int:
             captured_at_utc=args.captured_at_utc,
             operator_reference=args.operator_reference,
             development_evidence=args.development_evidence,
+            runtime_profile=args.runtime_profile,
         )
     except FailureMatrixError as exc:
         print(json.dumps({"ok": False, "code": exc.code}, sort_keys=True))

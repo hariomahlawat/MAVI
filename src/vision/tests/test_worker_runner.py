@@ -876,3 +876,95 @@ def test_the_default_runner_uses_the_real_best_effort_request(tmp_path: Path) ->
     # And an ordinary attempt on this (non-Windows) CI host completes normally.
     assert asyncio.run(runner.run_once()) is True
     assert "complete" in client.events
+
+
+# Attempt telemetry sink
+class RecordingSink:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.completions: list[object] = []
+        self.error = error
+
+    async def __call__(self, completion) -> None:
+        self.completions.append(completion)
+        if self.error is not None:
+            raise self.error
+
+
+def test_the_sink_receives_the_accepted_attempt_after_completion(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    result = make_result(lease)
+    processor = RecordingProcessor(result)
+    sink = RecordingSink()
+
+    outcome = asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            attempt_completed_sink=sink,
+        ).run_once()
+    )
+
+    assert outcome is True
+    assert client.events[-1] == "complete"
+    [completion] = sink.completions
+    assert completion.job_id == lease.job_id
+    assert completion.attempt_count == lease.attempt_count
+    assert completion.result is result
+    assert completion.provenance is PROVENANCE_SENTINEL
+    assert completion.processing_duration_ms == client.completions[0][1]
+
+
+def test_a_failing_sink_cannot_change_the_attempt_outcome(tmp_path: Path, caplog) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    sink = RecordingSink(error=OSError("disk full"))
+
+    with caplog.at_level(logging.WARNING):
+        outcome = asyncio.run(
+            WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                RecordingProcessor(make_result(lease)),
+                runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+                attempt_completed_sink=sink,
+            ).run_once()
+        )
+
+    assert outcome is True
+    assert "complete" in client.events
+    assert client.failures == []
+    assert any("telemetry sink failed" in r.message for r in caplog.records)
+
+
+def test_the_sink_is_not_called_for_a_failed_attempt(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    sink = RecordingSink()
+
+    asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            RecordingProcessor(error=VideoProcessingError("decode_failed")),
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            attempt_completed_sink=sink,
+        ).run_once()
+    )
+
+    assert sink.completions == []
+    assert client.failures[0][0] == "vision_processing_failed"

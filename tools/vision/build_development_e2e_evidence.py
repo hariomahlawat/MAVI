@@ -54,6 +54,27 @@ RUN_SCHEMA_VERSION = "mavi-windows-cuda-development-e2e-run-v1"
 
 _DEVELOPMENT_EVIDENCE_SCHEMA = "mavi-windows-cuda-development-evidence-v2"
 
+# The committed runtime profile is where the C4 record lives once Gate C4 has
+# passed. A C6 bundle is bound to *that* record, not to a head equality: the
+# C4 patch is committed after capture, so the head that carries it can never
+# be the head the evidence names, and C5 commits follow before any C6 run.
+_CUDA_VARIANT = "windows-x86_64-cuda"
+_DEFAULT_RUNTIME_PROFILE = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "vision"
+    / "runtime"
+    / "mmdetection-phase1-v1"
+    / "runtime.json"
+)
+_EVIDENCE_BLOCK_FIELDS = (
+    "hostObservationSha256",
+    "evidenceBundleSha256",
+    "sourceHeadSha",
+    "capturedAtUtc",
+    "operatorReference",
+)
+
 _SOURCE_HEAD_SHA = re.compile(r"^[0-9a-f]{40}$", re.ASCII)
 _SHA256 = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 _CANONICAL_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", re.ASCII)
@@ -383,6 +404,42 @@ def _check_run(
     return checked
 
 
+def _committed_qualification(
+    runtime_profile: Path,
+    block: dict,
+) -> tuple[str, str]:
+    """Require the C4 block to be the record the committed profile carries.
+
+    Returns the profile's SHA-256 and the C4 capture head. A bundle that cited a
+    C4 record the tree does not carry would join runs to a qualification of
+    something else -- the very thing the old head-equality rule was for, and
+    which this checks directly.
+    """
+    try:
+        raw = runtime_profile.read_bytes()
+        profile = json.loads(raw)
+    except OSError as exc:
+        raise DevelopmentE2eError("e2e_runtime_profile_unreadable") from exc
+    except json.JSONDecodeError as exc:
+        raise DevelopmentE2eError("e2e_runtime_profile_invalid") from exc
+    variants = profile.get("platformVariants") if isinstance(profile, dict) else None
+    variant = variants.get(_CUDA_VARIANT) if isinstance(variants, dict) else None
+    if not isinstance(variant, dict):
+        raise DevelopmentE2eError("e2e_runtime_profile_invalid")
+    if variant.get("status") != "qualified-development-hardware":
+        raise DevelopmentE2eError("e2e_runtime_variant_not_qualified")
+    committed = variant.get("developmentEvidence")
+    if not isinstance(committed, dict):
+        raise DevelopmentE2eError("e2e_qualification_not_committed")
+    for field in _EVIDENCE_BLOCK_FIELDS:
+        if block.get(field) != committed.get(field):
+            raise DevelopmentE2eError("e2e_qualification_not_committed")
+    head = block.get("sourceHeadSha")
+    if not isinstance(head, str) or _SOURCE_HEAD_SHA.fullmatch(head) is None:
+        raise DevelopmentE2eError("e2e_development_evidence_schema_invalid")
+    return _sha256_bytes(raw), head
+
+
 def build_e2e_evidence(
     *,
     development_evidence: Path,
@@ -390,6 +447,7 @@ def build_e2e_evidence(
     source_head_sha: str,
     captured_at_utc: str,
     operator_reference: str,
+    runtime_profile: Path = _DEFAULT_RUNTIME_PROFILE,
 ) -> dict[str, object]:
     if _SOURCE_HEAD_SHA.fullmatch(source_head_sha) is None:
         raise DevelopmentE2eError("e2e_source_head_sha_invalid")
@@ -412,10 +470,14 @@ def build_e2e_evidence(
         or not isinstance(variant_patch, dict)
     ):
         raise DevelopmentE2eError("e2e_development_evidence_schema_invalid")
-    # C6 runs describe the same source revision the hardware was qualified at;
-    # otherwise the bundle joins a run to a qualification of something else.
-    if block.get("sourceHeadSha") != source_head_sha:
-        raise DevelopmentE2eError("e2e_source_revision_mismatch")
+    # C6 runs are bound to the qualification the tree under test actually
+    # carries: the C4 block must be, field for field, the record committed in
+    # the runtime profile. Head equality cannot serve here -- the C4 patch is
+    # committed after capture, so the head carrying it never equals the head
+    # the evidence names.
+    runtime_profile_sha, qualification_head = _committed_qualification(
+        runtime_profile, block
+    )
     # A C4 record that did not itself reach the Development state cannot be the
     # base of a Development E2E bundle.
     if variant_patch.get("status") != "qualified-development-hardware":
@@ -472,6 +534,8 @@ def build_e2e_evidence(
             "mediaSha256": sorted(media)[0],
             "evidenceBundleSha256": "",
             "sourceHeadSha": source_head_sha,
+            "qualificationSourceHeadSha": qualification_head,
+            "runtimeProfileSha256": runtime_profile_sha,
             "capturedAtUtc": captured_at_utc,
             "operatorReference": operator_reference,
         },
@@ -503,6 +567,12 @@ def main() -> int:
     parser.add_argument("--source-head-sha", required=True)
     parser.add_argument("--captured-at-utc", required=True)
     parser.add_argument("--operator-reference", required=True)
+    parser.add_argument(
+        "--runtime-profile",
+        type=Path,
+        default=_DEFAULT_RUNTIME_PROFILE,
+        help="the committed runtime profile carrying the C4 record",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -527,6 +597,7 @@ def main() -> int:
             source_head_sha=args.source_head_sha,
             captured_at_utc=args.captured_at_utc,
             operator_reference=args.operator_reference,
+            runtime_profile=args.runtime_profile,
         )
     except DevelopmentE2eError as exc:
         print(json.dumps({"ok": False, "code": exc.code}, sort_keys=True))

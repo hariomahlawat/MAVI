@@ -1152,3 +1152,130 @@ def test_explicit_policy_preserves_launcher_resolution_reason(
         ] == "cuda_pack_absent"
 
     asyncio.run(scenario())
+
+
+# Device telemetry after an attempt
+def test_device_telemetry_is_nothing_on_a_cpu_runtime() -> None:
+    async def scenario() -> None:
+        harness = _Harness()
+        await harness.supervisor.start()
+
+        assert await harness.supervisor.device_telemetry() is None
+
+    asyncio.run(scenario())
+
+
+def test_device_telemetry_is_nothing_before_a_device_is_resolved() -> None:
+    async def scenario() -> None:
+        harness = _Harness(device_policy="cuda", device_resolution_reason="explicit_cuda")
+
+        assert await harness.supervisor.device_telemetry() is None
+
+    asyncio.run(scenario())
+
+
+def test_device_telemetry_reads_the_resolved_cuda_device_on_the_lane(monkeypatch) -> None:
+    async def scenario() -> None:
+        class _CountingLane(_Lane):
+            def __init__(self) -> None:
+                super().__init__()
+                self.calls: list[str] = []
+
+            async def run(self, func, /, *args, **kwargs):
+                self.calls.append(getattr(func, "__name__", repr(func)))
+                return func(*args, **kwargs)
+
+        lane = _CountingLane()
+        harness = _Harness(
+            runtimes=[_Runtime("cuda", device="cuda:2")],
+            device_policy="cuda",
+            device_resolution_reason="explicit_cuda",
+            cuda_available=True,
+            lane=lane,
+        )
+        seen: list[str] = []
+
+        def fake_collect(device: str):
+            seen.append(device)
+            return {"device": device, "mmcvNmsExecutedOnCuda": True}
+
+        monkeypatch.setattr(
+            harness.module, "collect_cuda_device_telemetry", fake_collect
+        )
+        await harness.supervisor.start()
+
+        reading = await harness.supervisor.device_telemetry()
+
+        assert reading == {"device": "cuda:2", "mmcvNmsExecutedOnCuda": True}
+        assert seen == ["cuda:2"]
+        # The CUDA context is touched on the lane, never on the event loop.
+        assert "fake_collect" in lane.calls
+
+    asyncio.run(scenario())
+
+
+def test_device_telemetry_failure_is_swallowed(monkeypatch) -> None:
+    async def scenario() -> None:
+        harness = _Harness(
+            runtimes=[_Runtime("cuda", device="cuda:2")],
+            device_policy="cuda",
+            device_resolution_reason="explicit_cuda",
+            cuda_available=True,
+        )
+
+        def exploding(device: str):
+            raise RuntimeError("CUDA error: unspecified launch failure")
+
+        monkeypatch.setattr(harness.module, "collect_cuda_device_telemetry", exploding)
+        await harness.supervisor.start()
+
+        assert await harness.supervisor.device_telemetry() is None
+        assert harness.supervisor.state is harness.module.RuntimeState.READY
+
+    asyncio.run(scenario())
+
+
+# A startup refusal must say which check refused, not only its family
+def test_a_startup_refusal_logs_the_detail_code_beside_the_stable_one(caplog) -> None:
+    """`vision_runtime_incompatible` covers every compatibility check.
+
+    The check that refused is the exception message, itself a code such as
+    `cuda_unavailable`; without it an operator cannot record which refusal
+    happened, and the C7 matrix declares those detail codes.
+    """
+    import logging
+
+    from mavi_vision.runtime.errors import RuntimeCompatibilityError
+
+    async def scenario() -> None:
+        harness = _Harness(verifier_error=RuntimeCompatibilityError("cuda_unavailable"))
+        with caplog.at_level(logging.ERROR, logger=harness.module.__name__):
+            await harness.supervisor.start()
+
+        assert harness.supervisor.unavailable_reason == "vision_runtime_incompatible"
+        assert any(
+            "vision_runtime_incompatible (cuda_unavailable)" in record.message
+            for record in caplog.records
+        )
+
+    asyncio.run(scenario())
+
+
+def test_a_startup_refusal_never_renders_a_message_that_is_not_a_code(caplog) -> None:
+    import logging
+
+    from mavi_vision.runtime.errors import RuntimeCompatibilityError
+
+    async def scenario() -> None:
+        harness = _Harness(
+            verifier_error=RuntimeCompatibilityError(
+                "could not open C:\\Users\\someone\\secret\\config.py"
+            )
+        )
+        with caplog.at_level(logging.ERROR, logger=harness.module.__name__):
+            await harness.supervisor.start()
+
+        assert not any("secret" in record.message for record in caplog.records)
+        assert harness.supervisor.unavailable_reason == "vision_runtime_incompatible"
+
+    asyncio.run(scenario())

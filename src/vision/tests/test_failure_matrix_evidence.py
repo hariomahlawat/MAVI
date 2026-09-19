@@ -149,6 +149,7 @@ def _build(
     captured_at_utc: str = _CAPTURED_AT,
     operator_reference: str = _OPERATOR,
     hardware: dict | None = None,
+    runtime_profile: dict | None = None,
 ) -> dict:
     records = {
         case: _observation(case) for case in MODULE.expected_cases(scope)
@@ -160,12 +161,13 @@ def _build(
     if drop is not None:
         records.pop(drop, None)
     evidence_path = None
+    profile_path = None
     if scope == "hardware":
-        evidence_path = _write(
-            tmp_path,
-            "hardware.json",
-            _hardware_evidence() if hardware is None else hardware,
-        )
+        hardware = _hardware_evidence() if hardware is None else hardware
+        evidence_path = _write(tmp_path, "hardware.json", hardware)
+        if runtime_profile is None:
+            runtime_profile = _runtime_profile_carrying(hardware)
+        profile_path = _write(tmp_path, "runtime.json", runtime_profile)
     return MODULE.build_failure_matrix(
         scope=scope,
         cases={
@@ -176,7 +178,21 @@ def _build(
         captured_at_utc=captured_at_utc,
         operator_reference=operator_reference,
         development_evidence=evidence_path,
+        **({} if profile_path is None else {"runtime_profile": profile_path}),
     )
+
+
+def _runtime_profile_carrying(hardware: dict, **variant_overrides) -> dict:
+    """The committed runtime profile as it stands once Gate C4 has passed."""
+    variant = {
+        "status": "qualified-development-hardware",
+        "developmentEvidence": dict(hardware["developmentEvidence"]),
+    }
+    variant.update(variant_overrides)
+    return {
+        "schemaVersion": "1.0",
+        "platformVariants": {"windows-x86_64-cuda": variant},
+    }
 
 
 def _code(excinfo) -> str:
@@ -684,21 +700,57 @@ def test_a_hardware_case_must_state_the_driver_it_ran_under(tmp_path):
     assert _code(excinfo) == "failure_case_driver_version_missing:" + case
 
 
-def test_a_hardware_bundle_from_another_source_revision_is_refused(tmp_path):
-    hardware = _hardware_evidence(
-        developmentEvidence={
-            "hostObservationSha256": "ab" * 32,
-            "evidenceBundleSha256": "",
-            "sourceHeadSha": "f" * 40,
-            "capturedAtUtc": "2026-09-18T04:11:52Z",
-            "operatorReference": _OPERATOR,
-        }
-    )
+# A hardware bundle is bound to the qualification the tree carries, as C6 is:
+# the head that records C7 is never the head the C4 record names.
+def test_a_hardware_bundle_at_a_later_head_binds_to_the_committed_record(tmp_path):
+    later_head = "e" * 40
+
+    evidence = _build(tmp_path, scope="hardware", source_head_sha=later_head)
+
+    block = evidence["failureMatrix"]
+    assert block["sourceHeadSha"] == later_head
+    assert block["qualificationSourceHeadSha"] == _SOURCE_HEAD_SHA
+    assert len(block["runtimeProfileSha256"]) == 64
+
+
+def test_a_hardware_bundle_citing_an_uncommitted_c4_record_is_refused(tmp_path):
+    hardware = _hardware_evidence()
+    committed = _hardware_evidence()
+    committed["developmentEvidence"]["capturedAtUtc"] = "2026-09-18T05:00:00Z"
 
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
-        _build(tmp_path, scope="hardware", hardware=hardware)
+        _build(
+            tmp_path,
+            scope="hardware",
+            hardware=hardware,
+            runtime_profile=_runtime_profile_carrying(committed),
+        )
 
-    assert _code(excinfo) == "failure_matrix_source_revision_mismatch"
+    assert _code(excinfo) == "failure_matrix_qualification_not_committed"
+
+
+def test_a_pending_profile_cannot_anchor_a_hardware_bundle(tmp_path):
+    hardware = _hardware_evidence()
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        _build(
+            tmp_path,
+            scope="hardware",
+            hardware=hardware,
+            runtime_profile=_runtime_profile_carrying(
+                hardware, status="pending-hardware-qualification"
+            ),
+        )
+
+    assert _code(excinfo) == "failure_matrix_runtime_variant_not_qualified"
+
+
+def test_a_non_hardware_bundle_never_reads_the_runtime_profile(tmp_path):
+    """Scope is never implied: a Linux bundle must not depend on the C4 record."""
+    evidence = _build(tmp_path, scope="linux-observable")
+
+    assert evidence["failureMatrix"]["qualificationSourceHeadSha"] is None
+    assert evidence["failureMatrix"]["runtimeProfileSha256"] is None
 
 
 def test_a_raw_gpu_uuid_pasted_by_an_operator_is_redacted(tmp_path):

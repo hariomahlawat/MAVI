@@ -327,6 +327,46 @@ MUTATIONS: tuple[Mutation, ...] = (
         "        if path.exists():\n            raise TraceError(\"trace_output_exists\")",
         "        if False:\n            raise TraceError(\"trace_output_exists\")",
     ),
+    # C6/C7 binding to the committed qualification. The head-equality rule it
+    # replaced could never hold after C4's own patch commit; this one must.
+    Mutation(
+        "C6 accepts a C4 record the committed profile does not carry",
+        "tools/vision/build_development_e2e_evidence.py",
+        "        if block.get(field) != committed.get(field):\n            raise DevelopmentE2eError(\"e2e_qualification_not_committed\")",
+        "        if False:\n            raise DevelopmentE2eError(\"e2e_qualification_not_committed\")",
+    ),
+    Mutation(
+        "C7 accepts a C4 record the committed profile does not carry",
+        "tools/vision/build_failure_matrix_evidence.py",
+        "        if block.get(field) != committed.get(field):\n            raise FailureMatrixError(\"failure_matrix_qualification_not_committed\")",
+        "        if False:\n            raise FailureMatrixError(\"failure_matrix_qualification_not_committed\")",
+    ),
+    # The composer. Its value is that a record it writes is one the assembler
+    # accepts, so the guards that matter are the ones a shortcut would soften.
+    Mutation(
+        "composer writes a launcher policy the worker contradicts",
+        "tools/vision/compose_windows_cuda_evidence.py",
+        "    if worker_policy != operator_policy:",
+        "    if False:",
+    ),
+    Mutation(
+        "composer writes a CUDA record from an incomplete device reading",
+        "tools/vision/compose_windows_cuda_evidence.py",
+        "        if any(value is None for value in block.values()):",
+        "        if False:",
+    ),
+    Mutation(
+        "composer claims OOM recovery without the failed run",
+        "tools/vision/compose_windows_cuda_evidence.py",
+        "        if failed[\"failureCode\"] != _OOM_FAILURE_CODE:",
+        "        if False:",
+    ),
+    Mutation(
+        "composer overwrites an evidence record",
+        "tools/vision/compose_windows_cuda_evidence.py",
+        "    if path.exists():\n        raise ComposeError(\"compose_output_exists\", path.name)",
+        "    if False:\n        raise ComposeError(\"compose_output_exists\", path.name)",
+    ),
     Mutation(
         "C2 wheel gate stops noticing a member RECORD omits",
         "tools/vision/compare_wheel_reproducibility.py",
@@ -344,6 +384,7 @@ SUITES = (
     "tests/test_native_object_tree_comparison.py",
     "tests/test_offline_tool_bootstrap.py",
     "tests/test_trace_inference_window.py",
+    "tests/test_compose_windows_cuda_evidence.py",
 )
 
 

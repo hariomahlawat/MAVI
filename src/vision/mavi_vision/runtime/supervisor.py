@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import platform
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -12,12 +13,17 @@ from pathlib import Path
 from typing import Any, NoReturn, Protocol, TypeVar
 
 from mavi_vision.runtime.activity import InferenceActivity
+from mavi_vision.runtime.device_telemetry import collect_cuda_device_telemetry
 from mavi_vision.runtime.deployment_profiles import (
     DeploymentProfile,
     DeploymentProfileError,
     select_profile,
 )
-from mavi_vision.runtime.errors import ProcessingDependencyError, RuntimeDisposition
+from mavi_vision.runtime.errors import (
+    ProcessingDependencyError,
+    RuntimeDisposition,
+    RuntimeStartupError,
+)
 from mavi_vision.runtime.interfaces import DetectorRuntime, RuntimeMetadata
 from mavi_vision.runtime.profile import PipelineProfile
 from mavi_vision.runtime.provenance import (
@@ -324,6 +330,7 @@ class RuntimeSupervisor:
                 raise
             self._selection = None
             self._resolved_device = None
+            _log_startup_refusal(exc)
             self._set_unavailable(
                 reason=_failure_reason(exc),
                 restart_required=_requires_restart(exc),
@@ -405,6 +412,23 @@ class RuntimeSupervisor:
     def watchdog_expired(self) -> bool:
         return self.watchdog_snapshot().expired
 
+    async def device_telemetry(self) -> dict[str, object] | None:
+        """Read the CUDA device counters after an attempt; None on CPU.
+
+        Runs on the vision lane because it touches the CUDA context, and only
+        between attempts, when the lane is idle. Best-effort: a failure here is
+        a field in the reading, never an exception into the caller, because this
+        is diagnostic evidence and the attempt already has its outcome.
+        """
+        device = self._resolved_device
+        if device is None or not device.startswith("cuda:"):
+            return None
+        try:
+            return await self._lane.run(collect_cuda_device_telemetry, device)
+        except Exception:
+            _LOGGER.warning("CUDA device telemetry could not be collected")
+            return None
+
     async def recover_if_required(self) -> None:
         incident = self._consume_incident()
         if incident is None:
@@ -468,6 +492,7 @@ class RuntimeSupervisor:
                 await self._close_candidate_best_effort(candidate)
             if isinstance(exc, asyncio.CancelledError):
                 raise
+            _log_startup_refusal(exc)
             self._set_unavailable(
                 reason=_failure_reason(exc),
                 restart_required=_requires_restart(exc),
@@ -813,6 +838,28 @@ def _requires_restart(error: BaseException) -> bool:
     return (
         isinstance(error, ProcessingDependencyError)
         and error.runtime_disposition is RuntimeDisposition.UNAVAILABLE
+    )
+
+
+# A startup refusal's stable code is one of a handful (`vision_runtime_incompatible`
+# covers every compatibility check), and the check that actually refused is the
+# exception's message -- itself a code, such as `cuda_unavailable`. Without this
+# line the operator sees only the family, which is not enough to record which
+# refusal happened. Only code-shaped detail is rendered: an arbitrary message
+# could carry a path.
+_DETAIL_CODE = re.compile(r"^[a-z][A-Za-z0-9_:.-]{0,127}$")
+
+
+def _log_startup_refusal(error: BaseException) -> None:
+    if not isinstance(error, RuntimeStartupError):
+        return
+    detail = str(error)
+    if detail == error.failure_code or _DETAIL_CODE.fullmatch(detail) is None:
+        return
+    _LOGGER.error(
+        "Vision runtime startup refused: %s (%s)",
+        error.failure_code,
+        detail,
     )
 
 

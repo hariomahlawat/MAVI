@@ -76,6 +76,7 @@ def test_the_catalogue_covers_every_fail_closed_tool():
         "tools/vision/compare_native_object_trees.py",
         "tools/vision/write_requirements_projection.py",
         "tools/vision/trace_inference_window.py",
+        "tools/vision/compose_windows_cuda_evidence.py",
     }
 
 

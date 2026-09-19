@@ -10,6 +10,7 @@ import pytest
 from mavi_vision.runtime.supervisor import RuntimeState
 from mavi_vision.worker.client import WorkerApiError
 from mavi_vision.worker import main as worker_main
+from mavi_vision.worker.attempt_telemetry import JsonlAttemptTelemetryRecorder
 from mavi_vision.worker.watchdog_incident import JsonlWatchdogIncidentRecorder
 
 
@@ -255,6 +256,9 @@ class _CompositionSupervisor:
     def report_watchdog_expiry(self) -> None:
         return None
 
+    async def device_telemetry(self):
+        return None
+
     async def close(self) -> None:
         self.close_calls += 1
         self.events.append("supervisor-close")
@@ -395,6 +399,12 @@ def test_run_worker_composes_ready_processor_runner_and_single_owner_shutdown(
             JsonlWatchdogIncidentRecorder,
         )
         assert callable(runner_kwargs["runtime_provenance_provider"])
+        # Per-attempt telemetry lands beside the watchdog incidents and reads
+        # the device through the supervisor, so it runs on the lane.
+        telemetry = runner_kwargs["attempt_completed_sink"]
+        assert isinstance(telemetry, JsonlAttemptTelemetryRecorder)
+        assert telemetry._path == tmp_path / "diagnostics" / "attempt-telemetry.jsonl"
+        assert telemetry._device_telemetry == supervisor.device_telemetry
 
         assert events[-3:] == ["supervisor-close", "lane-close", "client-close"]
         assert supervisor.close_calls == 1

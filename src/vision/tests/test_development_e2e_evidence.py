@@ -142,18 +142,18 @@ def _build(
     source_head_sha: str = _SOURCE_HEAD_SHA,
     captured_at_utc: str = _CAPTURED_AT,
     operator_reference: str = _OPERATOR,
+    runtime_profile: dict | None = None,
 ) -> dict:
     records = {case: _run(case) for case in MODULE.REQUIRED_CASES}
     if runs:
         records.update(runs)
     if drop is not None:
         records.pop(drop, None)
+    hardware = _hardware_evidence() if hardware is None else hardware
+    if runtime_profile is None:
+        runtime_profile = _runtime_profile_carrying(hardware)
     return MODULE.build_e2e_evidence(
-        development_evidence=_write(
-            tmp_path,
-            "hardware.json",
-            _hardware_evidence() if hardware is None else hardware,
-        ),
+        development_evidence=_write(tmp_path, "hardware.json", hardware),
         runs={
             case: _write(tmp_path, f"run-{case}.json", record)
             for case, record in records.items()
@@ -161,7 +161,25 @@ def _build(
         source_head_sha=source_head_sha,
         captured_at_utc=captured_at_utc,
         operator_reference=operator_reference,
+        runtime_profile=_write(tmp_path, "runtime.json", runtime_profile),
     )
+
+
+def _runtime_profile_carrying(hardware: dict, **variant_overrides) -> dict:
+    """The committed runtime profile as it stands once Gate C4 has passed.
+
+    Only the fields the assembler binds to are modelled; the profile's own
+    schema is exercised by the runtime metadata tests.
+    """
+    variant = {
+        "status": "qualified-development-hardware",
+        "developmentEvidence": dict(hardware["developmentEvidence"]),
+    }
+    variant.update(variant_overrides)
+    return {
+        "schemaVersion": "1.0",
+        "platformVariants": {"windows-x86_64-cuda": variant},
+    }
 
 
 def _code(excinfo) -> str:
@@ -224,6 +242,11 @@ def test_an_unrecognised_case_is_refused(tmp_path):
             source_head_sha=_SOURCE_HEAD_SHA,
             captured_at_utc=_CAPTURED_AT,
             operator_reference=_OPERATOR,
+            runtime_profile=_write(
+                tmp_path,
+                "runtime.json",
+                _runtime_profile_carrying(_hardware_evidence()),
+            ),
         )
 
     assert _code(excinfo) == "e2e_unknown_case:looks-good-to-me"
@@ -382,14 +405,82 @@ def test_the_restart_case_must_actually_have_restarted(tmp_path):
     assert _code(excinfo) == "e2e_run_restart_not_exercised"
 
 
-def test_runs_from_another_source_revision_are_refused(tmp_path):
+# Binding to the qualification the tree carries. The C4 patch is committed
+# after capture and C5 commits follow, so the head that runs C6 is never the
+# head the C4 record names; the bundle is bound to the committed record instead.
+def test_runs_at_a_later_head_bind_to_the_committed_qualification(tmp_path):
+    later_head = "e" * 40
+
+    evidence = _build(tmp_path, source_head_sha=later_head)
+
+    block = evidence["developmentE2e"]
+    assert block["sourceHeadSha"] == later_head
+    assert block["qualificationSourceHeadSha"] == _SOURCE_HEAD_SHA
+    assert len(block["runtimeProfileSha256"]) == 64
+
+
+def test_a_c4_record_the_tree_does_not_carry_is_refused(tmp_path):
+    """A bundle citing some other C4 record joins runs to another qualification."""
     hardware = _hardware_evidence()
-    hardware["developmentEvidence"]["sourceHeadSha"] = "f" * 40
+    committed = _hardware_evidence()
+    committed["developmentEvidence"]["capturedAtUtc"] = "2026-09-18T05:00:00Z"
 
     with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
-        _build(tmp_path, hardware=hardware)
+        _build(
+            tmp_path,
+            hardware=hardware,
+            runtime_profile=_runtime_profile_carrying(committed),
+        )
 
-    assert _code(excinfo) == "e2e_source_revision_mismatch"
+    assert _code(excinfo) == "e2e_qualification_not_committed"
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["hostObservationSha256", "sourceHeadSha", "operatorReference"],
+)
+def test_every_field_of_the_committed_record_must_agree(tmp_path, field):
+    hardware = _hardware_evidence()
+    profile = _runtime_profile_carrying(hardware)
+    profile["platformVariants"]["windows-x86_64-cuda"]["developmentEvidence"][
+        field
+    ] = "x" * 40 if field != "operatorReference" else "someone-else"
+
+    with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
+        _build(tmp_path, hardware=hardware, runtime_profile=profile)
+
+    assert _code(excinfo) == "e2e_qualification_not_committed"
+
+
+def test_a_profile_still_pending_cannot_anchor_a_c6_bundle(tmp_path):
+    hardware = _hardware_evidence()
+    profile = _runtime_profile_carrying(
+        hardware, status="pending-hardware-qualification"
+    )
+
+    with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
+        _build(tmp_path, hardware=hardware, runtime_profile=profile)
+
+    assert _code(excinfo) == "e2e_runtime_variant_not_qualified"
+
+
+def test_a_profile_without_the_record_cannot_anchor_a_c6_bundle(tmp_path):
+    hardware = _hardware_evidence()
+    profile = _runtime_profile_carrying(hardware)
+    del profile["platformVariants"]["windows-x86_64-cuda"]["developmentEvidence"]
+
+    with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
+        _build(tmp_path, hardware=hardware, runtime_profile=profile)
+
+    assert _code(excinfo) == "e2e_qualification_not_committed"
+
+
+def test_the_default_runtime_profile_is_the_committed_one():
+    assert MODULE._DEFAULT_RUNTIME_PROFILE == (
+        Path(__file__).resolve().parents[3]
+        / "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
+    )
+    assert MODULE._DEFAULT_RUNTIME_PROFILE.is_file()
 
 
 def test_a_hardware_bundle_of_the_wrong_schema_is_refused(tmp_path):
