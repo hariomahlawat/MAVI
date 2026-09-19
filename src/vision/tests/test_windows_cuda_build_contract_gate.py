@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -317,10 +318,40 @@ def test_verified_toolchain_does_not_imply_any_cuda_qualification() -> None:
 
     assert contract["runtimePolicy"]["explicitCudaMayFallbackToCpu"] is False
     assert "not a Production-supported runtime" in catalogue["qualificationBoundary"]
-    assert (
-        runtime["platformVariants"]["windows-x86_64-cuda"]["status"]
-        == "pending-hardware-qualification"
-    )
+
+    # The toolchain contract itself must never carry a qualification state.
+    # This is the part of the original assertion that was actually about R1;
+    # the CUDA variant's status was standing in for it, and once Gate C4
+    # passed that stand-in started asserting that C4 had not happened.
+    # The contract's own status is a *toolchain* verification state, never a
+    # hardware-qualification one. This is the part of the original assertion
+    # that was actually about R1; the CUDA variant's status was standing in
+    # for it, and once Gate C4 passed that stand-in started asserting that C4
+    # had not happened.
+    assert contract["status"] == "r1-toolchain-verified-pre-c2"
+    assert "qualificationStatus" not in contract
+    assert "qualified-development-hardware" not in json.dumps(contract)
+    assert "qualified-hardware" not in json.dumps(contract)
+
+    # Whatever the variant's state, it must rest on hardware evidence rather
+    # than on the toolchain being verified. A CUDA variant claiming a
+    # qualified state with no evidence block is the failure this guards.
+    variant = runtime["platformVariants"]["windows-x86_64-cuda"]
+    if variant["status"] != "pending-hardware-qualification":
+        assert variant["status"] == "qualified-development-hardware"
+        evidence = variant["developmentEvidence"]
+        assert set(evidence) == {
+            "capturedAtUtc",
+            "evidenceBundleSha256",
+            "hostObservationSha256",
+            "operatorReference",
+            "sourceHeadSha",
+        }
+        assert re.fullmatch(r"[0-9a-f]{64}", evidence["evidenceBundleSha256"])
+        assert re.fullmatch(r"[0-9a-f]{64}", evidence["hostObservationSha256"])
+        assert re.fullmatch(r"[0-9a-f]{40}", evidence["sourceHeadSha"])
+
+    # Development qualification never makes the profile fully qualified.
     assert runtime["qualificationStatus"] == "partial"
 
 

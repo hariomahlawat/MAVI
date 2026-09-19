@@ -66,25 +66,25 @@ off the build host and treat it as a controlled input. Production qualification
 is separate and may impose stronger reproducibility and provenance
 requirements.
 
-Still required before Gate C2:
+Completed on the host:
 
-- [ ] authoritative `+cu124` wheels acquired from the dedicated index **with `--no-deps`**
+- [x] authoritative `+cu124` wheels acquired from the dedicated index **with `--no-deps`**
 - [x] C2.2a run on the **A2/A3 wheels** (same source tree): `divergent-content` / `unexplained-native-difference`, 183,339 residual bytes. **Recorded as diagnostic evidence; not a gate**
-- [ ] C2.2a run on the A/B wheels for the relocatability record (optional; A2/A3 already establishes non-reproducibility)
+- [x] C2.2a run on the A/B wheels for the relocatability record (optional; A2/A3 already establishes non-reproducibility)
 - [x] C2.2b run on the preserved A2/A3 object trees: 129 of 136 unparsable as `bigobj_anon_object_header_unsupported`. Consistent with `/GL` IL objects, which carry no machine code. **Not applicable as evidence; closed, no rebuild**
 - [x] the BIGOBJ `36:40` question is **closed as not applicable**: the objects are IL, so the field never described emitted code. No further forensics
-- [ ] canonical MMCV wheel chosen, named, its SHA-256 recorded **together with** the reproducibility verdict, and the wheel archived off the build host
-- [ ] requirements projection **derived** (not hand-written) and used to drive acquisition — the frozen closure is 21 pinned roots, not a remembered subset
-- [ ] every Torch/torchvision wheel in the wheelhouse verified to carry `+cu124`
-- [ ] wheelhouse manifest produced
-- [ ] `windows-x86_64-cuda.lock` frozen and committed
-- [ ] `windows-x86_64-cuda.requirements.txt` derived and committed
-- [ ] clean `--no-index --require-hashes` install proven with the network blackholed
-- [ ] imports and `mmcv.ops` verified
+- [x] canonical MMCV wheel chosen, named, its SHA-256 recorded **together with** the reproducibility verdict, and the wheel archived off the build host
+- [x] requirements projection **derived** (not hand-written) and used to drive acquisition — the frozen closure is 21 pinned roots, not a remembered subset
+- [x] every Torch/torchvision wheel in the wheelhouse verified to carry `+cu124`
+- [x] wheelhouse manifest produced
+- [x] `windows-x86_64-cuda.lock` frozen and committed
+- [x] `windows-x86_64-cuda.requirements.txt` derived and committed
+- [x] clean `--no-index --require-hashes` install proven with the network blackholed
+- [x] imports and `mmcv.ops` verified
 
-**Not BUILD-VERIFIED.** A partially executed phase is not a passed gate, and
-four successful builds are not a closure. What remains is the closure and the
-functional proof — C2.3 through C2.5 — not more binary forensics.
+**BUILD-VERIFIED.** The closure was assembled, the lock frozen and committed,
+and C2.5 proved a clean `--no-index --require-hashes` offline install with
+`pip check` clean and CUDA imports and native ops passing on the host.
 
 **Reproducibility is not achievable on this toolchain and is not claimed**, in
 any form: not byte-identical, and not semantically equivalent after
@@ -92,30 +92,53 @@ normalisation either. That was measured, not assumed, and the analyser still
 refuses to call the two wheels equivalent. C2 Development accepts a pinned,
 functionally validated canonical artefact instead.
 
-## 3. Runtime Pack verification (C3) — PENDING
+## 3. Runtime Pack verification (C3) — COMPLETE ON THE HOST
 
-- [ ] pack built from the frozen C2 inputs with the derived native ABI
-- [ ] manifests and artefact hashes validated
-- [ ] CUDA Toolkit and MSVC proven **not** to be runtime prerequisites
-- [ ] pack identity reproduced from a second build
+- [x] pack built from the frozen C2 inputs with the derived native ABI
+- [x] manifests and artefact hashes validated
+- [x] CUDA Toolkit and MSVC proven **not** to be runtime prerequisites (`nvcc` and `cl` absent)
+- [x] pack identity reproduced from an independent second build
 
-**Not RUNTIME-PACK-VERIFIED.**
+| | |
+| --- | --- |
+| Runtime Pack ID | `mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d` |
+| CUDA lock SHA-256 | `f95a7970168eaa903b8acbfd3c8fcc2fb3a9838f5b52ca8a1fc0fcb843b72c64` |
+| Requirements SHA-256 | `aef75d1960c0fc07483b5ffba4b6ba1471efde8fdf06d4bae3d0e3275b30b981` |
+| Native ABI | `win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75` |
+| Installed at | `C:\ProgramData\MAVI\Development\VisionRuntime\windows-x86_64-cuda` |
 
-## 4. Hardware qualification (C4) — PENDING
+**RUNTIME-PACK-VERIFIED.** The artefacts are external to the repository; the
+repository binding is C5's job.
 
-- [ ] fresh sanitised host observation captured
-- [ ] toolchain observation captured on the host
-- [ ] on-device run: `mmcvNmsExecutedOnCuda` and `torchMatmulExecutedOnCuda` true, non-zero peak allocation
-- [ ] physical GPU identity verified (salted digest, driver, memory, compute capability 7.5)
-- [ ] Development hardware evidence bundle assembled
-- [ ] `runtime.json` variant moved to `qualified-development-hardware` using the bundle's `variantPatch` verbatim
+## 4. Hardware qualification (C4) — COMPLETE
 
-**Not HARDWARE-QUALIFIED.** `windows-x86_64-cuda` remains
-`pending-hardware-qualification` in the committed runtime profile.
+- [x] fresh sanitised host observation captured
+- [x] toolchain observation captured on the host
+- [x] on-device run on a GTX 1650 Ti through the installed Runtime Pack's interpreter: Torch CUDA matmul and `mmcv.ops` NMS
+- [x] physical GPU identity verified (salted digest, driver, memory, compute capability 7.5)
+- [x] Development hardware evidence bundle assembled
+- [x] `runtime.json` variant moved to `qualified-development-hardware` using the bundle's `variantPatch` verbatim (commit `6889bf4`)
 
-## 5. C5 activation — PENDING
+**HARDWARE-QUALIFIED for Development**, and only that.
+`windows-x86_64-cuda` is `qualified-development-hardware` in the committed
+runtime profile. Per ADR-009 this can never satisfy Production, and the
+release record still lists the `windows-x86_64-cuda` gate as `pending` with
+`overallResult` `pending` — a test pins that pairing so a later edit cannot
+tidy the gate to `passed` because the variant looks qualified.
 
-Blocked on a real C3 pack identity; there is nothing to bind to yet.
+**Consequence handled here:** the qualification record binds the runtime
+profile by whole-file digest, so the CUDA-only promotion moved that digest and
+`verify_repo` refused with `qualification_identity_mismatch`. The binding is a
+deliberate tripwire and was not loosened; the record's `runtimeProfileSha256`
+was re-derived from the file, and a test now derives it rather than trusting
+it.
+
+## 5. C5 activation — IN PROGRESS
+
+The C3 pack identity now exists, so the binding has something real to point
+at. In progress on the host, uncommitted at the time of writing: the CUDA
+runtime-pack binding in `mmdetection-phase1-v1.json`, and the CUDA row in the
+boundary-gate workflow.
 
 - [ ] component overlay declares `windows-x86_64-cuda` with real identities
 - [ ] boundary-gate matrix row added

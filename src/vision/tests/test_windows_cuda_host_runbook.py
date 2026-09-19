@@ -167,17 +167,56 @@ def test_the_readiness_checklist_exists():
 
 
 def test_nothing_is_claimed_verified_that_the_repository_contradicts():
-    """The three pending states must still read pending."""
-    text = C8.read_text(encoding="utf-8")
+    """Claims must agree with what the repository can actually speak to.
 
-    assert "**Not BUILD-VERIFIED.**" in text
-    assert "**Not RUNTIME-PACK-VERIFIED.**" in text
-    assert "**Not HARDWARE-QUALIFIED.**" in text
+    This used to pin three "Not X-VERIFIED" literals. That was right while all
+    three were pending, and wrong the moment C3 and C4 passed on the host: the
+    test began requiring the checklist to deny things that had happened.
+
+    What is worth enforcing is the direction that can go wrong silently -- a
+    claim the repository contradicts -- so each claim is now checked against
+    the committed artefact that would falsify it. External artefacts (wheels,
+    the Runtime Pack) are outside the repository and are not second-guessed
+    here; only the bindings that live in git are.
+    """
+    import json
+
+    text = C8.read_text(encoding="utf-8")
+    profile = json.loads(
+        (REPOSITORY_ROOT / "src/vision/runtime/mmdetection-phase1-v1/runtime.json")
+        .read_text(encoding="utf-8")
+    )
+    components = json.loads(
+        (REPOSITORY_ROOT / "src/vision/config/components/mmdetection-phase1-v1.json")
+        .read_text(encoding="utf-8")
+    )
+    variant_status = profile["platformVariants"]["windows-x86_64-cuda"]["status"]
+    cuda_bound = "windows-x86_64-cuda" in components.get("runtimePacks", {})
+
+    if "**HARDWARE-QUALIFIED for Development**" in text:
+        assert variant_status == "qualified-development-hardware"
+    if "**Not HARDWARE-QUALIFIED.**" in text:
+        assert variant_status == "pending-hardware-qualification"
+
+    # C5 is the repository binding. A checklist claiming it is done while the
+    # component overlay carries no CUDA pack is the contradiction that matters.
+    if "## 5. C5 activation — COMPLETE" in text:
+        assert cuda_bound
+
+    # Production is out of scope regardless of how far Development gets.
     assert "Production qualification — OUT OF SCOPE" in text
+    assert "can never satisfy Production" in text
 
 
 def test_the_checklist_agrees_with_the_committed_runtime_profile():
-    """It claims the CUDA variant is still pending; check the profile says so."""
+    """The checklist must state the variant's real state, whatever it is.
+
+    It previously asserted `pending-hardware-qualification` on both sides.
+    That pairing was correct until Gate C4 passed, at which point it began
+    asserting that C4 had not happened. The invariant worth keeping is the
+    agreement, not the value -- so the value is read from the profile and the
+    checklist is required to say the same thing.
+    """
     import json
 
     profile = json.loads(
@@ -187,11 +226,16 @@ def test_the_checklist_agrees_with_the_committed_runtime_profile():
         ).read_text(encoding="utf-8")
     )
     status = profile["platformVariants"]["windows-x86_64-cuda"]["status"]
+    checklist = C8.read_text(encoding="utf-8")
 
-    assert status == "pending-hardware-qualification"
-    assert "remains\n`pending-hardware-qualification`" in C8.read_text(
-        encoding="utf-8"
-    )
+    assert status in {
+        "pending-hardware-qualification",
+        "qualified-development-hardware",
+    }
+    assert f"`{status}`" in checklist
+
+    # Whatever the state, Development never reaches Production.
+    assert "can never satisfy Production" in checklist
 
 
 def test_the_checklist_agrees_with_the_declared_failure_case_count():
@@ -398,14 +442,52 @@ def test_the_plan_records_that_pack_identity_binds_to_the_canonical_wheel():
     assert "not** substitutable into an existing pack" in plan
 
 
-def test_the_checklist_does_not_mark_c2_complete():
-    text = CHECKLIST.read_text(encoding="utf-8")
-    section = text[text.index("## 2. Build verification") : text.index("## 3. ")]
+def test_a_build_verified_claim_is_backed_by_committed_artefacts():
+    """C2's claim must be falsifiable from the repository.
 
-    assert "**Not BUILD-VERIFIED.**" in section
-    # Executed steps may be ticked; the gate items may not be.
-    assert "- [ ] wheelhouse manifest produced" in section
-    assert "- [ ] `windows-x86_64-cuda.lock` frozen and committed" in section
+    This began life asserting `**Not BUILD-VERIFIED.**` and unticked gate
+    items, which was right while C2 was open and became wrong the moment the
+    host closed it. The durable check is the other direction: if the checklist
+    says BUILD-VERIFIED, the two artefacts Gate C2 produces must actually be
+    committed, canonical, and derived from the repository rather than typed.
+    """
+    import hashlib
+    import json
+
+    text = CHECKLIST.read_text(encoding="utf-8")
+    runtime_dir = REPOSITORY_ROOT / "src/vision/runtime/mmdetection-phase1-v1"
+    lock = runtime_dir / "windows-x86_64-cuda.lock"
+    projection = runtime_dir / "windows-x86_64-cuda.requirements.txt"
+
+    if "**Not BUILD-VERIFIED.**" in text:
+        assert not lock.is_file()
+        return
+
+    assert "**BUILD-VERIFIED.**" in text
+    assert lock.is_file(), "BUILD-VERIFIED claimed with no committed CUDA lock"
+    assert projection.is_file()
+
+    sys.path.insert(0, str(REPOSITORY_ROOT / "src/vision"))
+    from mavi_vision.runtime import offline_lock as ol
+    from mavi_vision.runtime import requirements_projection as rp
+
+    parsed = ol.load_offline_runtime_lock(lock)
+    assert ol.serialize_offline_runtime_lock(parsed) == lock.read_bytes()
+    assert not any(item.name == "mavi-vision" for item in parsed.distributions)
+
+    versions = {item.name: item.version for item in parsed.distributions}
+    assert versions["torch"].endswith("+cu124")
+    assert versions["torchvision"].endswith("+cu124")
+
+    derived = rp.build_runtime_requirements_projection(
+        REPOSITORY_ROOT / "src/vision/pyproject.toml",
+        platform_variant="windows-x86_64-cuda",
+        python_version="3.12.10",
+    )
+    assert (
+        rp.serialize_runtime_requirements_projection(derived)
+        == projection.read_bytes()
+    )
 
 
 def test_the_undocumented_bigobj_field_is_recorded_as_open():

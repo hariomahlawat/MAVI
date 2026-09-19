@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tomllib
 from pathlib import Path
@@ -72,9 +73,20 @@ def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -
     assert payload["platformVariants"]["linux-x86_64-cuda"]["status"] == (
         "pending-hardware-qualification"
     )
-    assert payload["platformVariants"]["windows-x86_64-cuda"]["status"] == (
-        "pending-hardware-qualification"
-    )
+    # Windows CUDA reached `qualified-development-hardware` at Gate C4. Linux
+    # CUDA above is still pending, which is what keeps this assertion honest:
+    # the two are not promoted together, and the profile stays `partial`
+    # either way because Development qualification never completes it.
+    cuda = payload["platformVariants"]["windows-x86_64-cuda"]
+    assert cuda["status"] == "qualified-development-hardware"
+    assert cuda["binaryVersions"] == {
+        "torch": "2.6.0+cu124",
+        "torchvision": "0.21.0+cu124",
+    }
+    assert cuda["resolvedConfigSha256"] == payload["resolvedConfig"]["sha256"]
+    assert cuda["pythonIdentity"]["version"] == "3.12.10"
+    assert cuda["developmentEvidence"]["sourceHeadSha"]
+    assert cuda["developmentEvidence"]["evidenceBundleSha256"]
 
 
 def test_pyproject_qualified_runtime_extra_matches_frozen_semantic_graph() -> None:
@@ -173,3 +185,57 @@ def test_pyproject_declares_packaging_runtime_dependency() -> None:
     pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
 
     assert "packaging>=26,<27" in pyproject["project"]["dependencies"]
+
+
+def test_the_qualification_record_binds_the_runtime_profile_it_ships_with() -> None:
+    """`runtimeProfileSha256` must be the digest of the tracked profile.
+
+    Nothing in the repository *produces* this record -- `verify_repo`,
+    `promote_phase1_release` and `phase1_e2e_check` all only consume it -- so
+    the field is maintained by hand and had no mechanical check. Gate C4
+    changed one variant's status, the profile's digest moved, and the binding
+    silently went stale until `verify_repo` refused with
+    `qualification_identity_mismatch` in CI.
+
+    The whole-file binding is deliberate and is not loosened here: it is the
+    tripwire that forces this record to be re-examined whenever the runtime
+    profile changes, which is exactly what a variant promotion should trigger.
+    What was missing was a check that says so before CI does. The fix when
+    this fails is to re-derive the field from the file, never to type a digest.
+    """
+    record = json.loads(
+        (Path(__file__).parents[3] / "models/qualifications/rtmdet-m-coco-phase1-v1.json")
+        .read_text(encoding="utf-8")
+    )
+    expected = hashlib.sha256(RUNTIME_PATH.read_bytes()).hexdigest()
+
+    assert record["runtimeProfileId"] == "mmdetection-phase1-v1"
+    assert record["runtimeProfileSha256"] == expected, (
+        "re-derive with: "
+        "payload['runtimeProfileSha256'] = sha256(runtime.json); "
+        "do not type the digest"
+    )
+
+
+def test_development_qualification_does_not_satisfy_a_release_gate() -> None:
+    """ADR-009: Development never completes a gate Production depends on.
+
+    The Windows CUDA variant is `qualified-development-hardware` in the
+    runtime profile, and the release record still calls that gate `pending`.
+    Those two facts have to coexist, and a future edit that "tidies" the gate
+    to `passed` because the variant looks qualified is the exact collapse the
+    qualification vocabulary exists to prevent.
+    """
+    record = json.loads(
+        (Path(__file__).parents[3] / "models/qualifications/rtmdet-m-coco-phase1-v1.json")
+        .read_text(encoding="utf-8")
+    )
+    profile = json.loads(RUNTIME_PATH.read_text(encoding="utf-8"))
+
+    assert (
+        profile["platformVariants"]["windows-x86_64-cuda"]["status"]
+        == "qualified-development-hardware"
+    )
+    assert record["requiredGates"]["windows-x86_64-cuda"] == "pending"
+    assert record["overallResult"] == "pending"
+    assert profile["qualificationStatus"] == "partial"
