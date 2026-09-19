@@ -23,6 +23,10 @@ foreach($forbidden in @("Assert-MaviVisionRuntimeSourceCompatible","state.source
 # lived inside the launcher and closed over script variables, so nothing could
 # call it and nothing did: the only coverage was grepping the launcher's text
 # for fragments. Every branch below runs here with no GPU present.
+#
+# The fixture must pass the full installed-state preflight, because that runs
+# before any later check -- a thinner one returns cuda_pack_integrity_failed for
+# every case and exercises exactly one branch while appearing to cover nine.
 $autoRoot = Join-Path ([IO.Path]::GetTempPath()) ("mavi-auto-" + [Guid]::NewGuid().ToString("N"))
 $autoPackRoot = Join-Path $autoRoot "windows-x86_64-cuda"
 $autoComponentPath = Join-Path $autoRoot "mmdetection-phase1-v1.json"
@@ -30,15 +34,51 @@ function New-AutoFixture {
     param([string]$PlatformVariant = "windows-x86_64-cuda",[string]$DeclaredPackId = $null)
     if (Test-Path -LiteralPath $autoRoot) { Remove-Item -LiteralPath $autoRoot -Recurse -Force }
     [void](New-Item -ItemType Directory -Path (Join-Path $autoPackRoot "venv\Scripts") -Force)
+    [void](New-Item -ItemType Directory -Path (Join-Path $autoPackRoot "runtime") -Force)
     Set-Content -LiteralPath (Join-Path $autoPackRoot "venv\Scripts\python.exe") -Value "stub" -NoNewline
+    Set-Content -LiteralPath (Join-Path $autoPackRoot "venv\pyvenv.cfg") -Value "home = stub" -NoNewline
+    $lockPath = Join-Path $autoPackRoot "runtime\third-party.lock"
+    $requirementsPath = Join-Path $autoPackRoot "runtime\requirements.txt"
+    Set-Content -LiteralPath $lockPath -Value "# fixture lock" -NoNewline
+    Set-Content -LiteralPath $requirementsPath -Value "# fixture requirements" -NoNewline
+    $lockSha = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $requirementsSha = (Get-FileHash -LiteralPath $requirementsPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $packId = "mavi-runtime-v2-" + ("a" * 64)
-    $manifest = @{schemaVersion="mavi-vision-runtime-pack-v2";runtimePackId=$packId;platformVariant=$PlatformVariant;pythonVersion="3.12.10";nativeAbi="win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75";thirdPartyLockSha256=("b"*64);runtimeRequirementsSha256=("c"*64);assembledFromCommit=("1"*40);artifacts=@()}
-    Set-Content -LiteralPath (Join-Path $autoPackRoot "runtime-pack-manifest.json") -Value ($manifest | ConvertTo-Json -Depth 6)
-    $state = @{schemaVersion="mavi-vision-runtime-install-v2";runtimePackId=$packId}
-    Set-Content -LiteralPath (Join-Path $autoPackRoot "runtime-install.json") -Value ($state | ConvertTo-Json -Depth 6)
-    if ($null -eq $DeclaredPackId) { $DeclaredPackId = $packId }
-    $component = @{schemaVersion="mavi-vision-component-requirements-v1";runtimeProfileId="mmdetection-phase1-v1";runtimePacks=@{"windows-x86_64-cuda"=@{runtimePackId=$DeclaredPackId}}}
-    Set-Content -LiteralPath $autoComponentPath -Value ($component | ConvertTo-Json -Depth 6)
+    $manifest = [ordered]@{
+        schemaVersion = "mavi-vision-runtime-pack-v2"
+        runtimePackId = $packId
+        platformVariant = $PlatformVariant
+        pythonVersion = "3.12.10"
+        nativeAbi = "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75"
+        thirdPartyLockSha256 = $lockSha
+        runtimeRequirementsSha256 = $requirementsSha
+        assembledFromCommit = ("1" * 40)
+        artifacts = @(
+            [ordered]@{purpose="third-party-runtime-lock";relativePath="runtime/third-party.lock";sha256=$lockSha},
+            [ordered]@{purpose="application-runtime-requirements";relativePath="runtime/requirements.txt";sha256=$requirementsSha}
+        )
+    }
+    $manifestPath = Join-Path $autoPackRoot "runtime-pack-manifest.json"
+    Set-Content -LiteralPath $manifestPath -Value ($manifest | ConvertTo-Json -Depth 8)
+    $manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $state = [ordered]@{
+        schemaVersion = "mavi-vision-runtime-install-v2"
+        runtimePackId = $packId
+        runtimePackManifestSha256 = $manifestSha
+        thirdPartyLockSha256 = $lockSha
+        runtimeRequirementsSha256 = $requirementsSha
+        platformVariant = $PlatformVariant
+        pythonVersion = "3.12.10"
+        nativeAbi = $manifest.nativeAbi
+    }
+    Set-Content -LiteralPath (Join-Path $autoPackRoot "runtime-install.json") -Value ($state | ConvertTo-Json -Depth 8)
+    if ([string]::IsNullOrEmpty($DeclaredPackId)) { $DeclaredPackId = $packId }
+    $component = [ordered]@{
+        schemaVersion = "mavi-vision-component-requirements-v1"
+        runtimeProfileId = "mmdetection-phase1-v1"
+        runtimePacks = [ordered]@{"windows-x86_64-cuda" = [ordered]@{runtimePackId = $DeclaredPackId}}
+    }
+    Set-Content -LiteralPath $autoComponentPath -Value ($component | ConvertTo-Json -Depth 8)
     return $packId
 }
 function Assert-AutoReason {
@@ -53,9 +93,22 @@ function Assert-AutoReason {
     return $resolution
 }
 try {
-    # An absent pack is the default answer, and it is not usable.
+    # The fixture itself must reach the driver probe, or nothing below is
+    # testing what it claims.
     [void](New-AutoFixture)
+    Assert-AutoReason -Expected "cuda_selected" -DriverProbe { param($i) return [string]$i } | Out-Null
+
+    # An absent pack is the default answer, and it is not usable.
     Assert-AutoReason -Expected "cuda_pack_absent" -Root (Join-Path $autoRoot "no-such-pack") | Out-Null
+
+    # A pack whose installed state no longer binds its manifest fails integrity,
+    # and fails it before the driver is ever probed.
+    [void](New-AutoFixture)
+    $tamperedStatePath = Join-Path $autoPackRoot "runtime-install.json"
+    $tamperedState = Get-Content -LiteralPath $tamperedStatePath -Raw | ConvertFrom-Json
+    $tamperedState.runtimePackManifestSha256 = ("0" * 64)
+    Set-Content -LiteralPath $tamperedStatePath -Value ($tamperedState | ConvertTo-Json -Depth 8)
+    Assert-AutoReason -Expected "cuda_pack_integrity_failed" -DriverProbe { param($i) throw "driver must not be probed" } | Out-Null
 
     # A pack built for another variant is refused before the driver is probed.
     [void](New-AutoFixture -PlatformVariant "windows-x86_64-cpu")
@@ -78,7 +131,7 @@ try {
     Assert-AutoReason -Expected "cuda_device_unavailable" -DriverProbe { param($i) return "3" } | Out-Null
     Assert-AutoReason -Expected "cuda_driver_probe_failed" -DriverProbe { param($i) throw "nvml exploded" } | Out-Null
 
-    # The only path that selects CUDA.
+    # The only path that selects CUDA names the root it selected.
     $selected = Assert-AutoReason -Expected "cuda_selected" -DriverProbe { param($i) return [string]$i }
     if ([string]$selected.RuntimeRoot -ne $autoPackRoot) { throw "cuda_selected must name the pack root it selected." }
 }
