@@ -39,7 +39,7 @@ This is product-feature work on the operator plane. It consumes the Task-14/15 A
 
 - Tokens in `src/web/mavi-web/src/styles/tokens.css` (surfaces, text, accent, semantic status colours, evidence overlay colours, 4 px spacing scale, radii, control heights, type scale) with `base`, `layout`, `components` and `features` stylesheets. No UI framework was added.
 - Shared primitives: `Button`/`ButtonLink`, `Icon`, `Panel`, `StatusBadge`, `Alert`, `EmptyState`, `KeyValue`, `Progress`, `Tabs`, `LoadingState`, `PageHeader`. One status vocabulary (`shared/status/status.ts`) decides tone and label for video, run and review statuses.
-- Accessibility: keyboard-reachable results (`listbox`/`option` with `aria-selected`), icon-only controls carry visible-to-AT names, status is never colour-only, focus rings are explicit, reduced motion is honoured.
+- Accessibility: result rows are list items with a select button and a review link as sibling controls (no nested interactive content), icon-only controls carry accessible names, status is never colour-only, muted text and primary buttons meet WCAG AA contrast, focus rings are explicit, reduced motion is honoured. An axe-core scan (wcag2a/aa + best-practice) of every page reports no violations.
 
 ## Decisions
 
@@ -57,7 +57,7 @@ This is product-feature work on the operator plane. It consumes the Task-14/15 A
 
 ## Validation
 
-- `npm test` (132 tests), `npm run typecheck`, `npm run build` in `src/web/mavi-web`.
+- `npm test` (140 tests), `npm run typecheck`, `npm run build` in `src/web/mavi-web`.
 - `dotnet build MAVI.sln -c Release`, `dotnet test tests/Mavi.Application.Tests`, `dotnet test tests/Mavi.Domain.Tests`.
 - `python tools/verify_repo.py` (project virtualenv).
 

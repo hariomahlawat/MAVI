@@ -506,14 +506,14 @@ describe('VisualSearchPage', () => {
     it('selects a result into the URL, shows its evidence in place and closes on Escape', async () => {
       const user = userEvent.setup();
       renderWithApp(<SearchHistoryHarness />, { route: '/search' });
-      const rows = within(await screen.findByRole('listbox', { name: 'Track results' })).getAllByRole('option');
+      const rows = within(await screen.findByRole('list', { name: 'Track results' })).getAllByRole('listitem');
       expect(rows).toHaveLength(2);
 
-      await user.click(rows[0]);
+      await user.click(within(rows[0]).getByRole('button', { name: /^Select / }));
 
       expect(await screen.findByRole('heading', { name: 'Person · Track 7' })).toBeInTheDocument();
       expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search?track=' + first.id);
-      expect(rows[0]).toHaveAttribute('aria-selected', 'true');
+      expect(rows[0]).toHaveAttribute('aria-current', 'true');
       expect(screen.getByLabelText('Source video evidence')).toHaveAttribute('src', first.videoContentUrl);
       expect(vi.mocked(getTrack).mock.calls[0][0]).toBe(first.id);
 

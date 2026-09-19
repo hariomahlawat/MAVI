@@ -33,7 +33,7 @@
 .filter-rail { display: grid; gap: var(--s-3); align-content: start; }
 .filter-rail__section { display: grid; gap: var(--s-2); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border); }
 .filter-rail__section:last-child { border-bottom: 0; }
-.filter-rail__section h3 { color: var(--text-3); font-size: var(--fs-0); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.filter-rail__section h2 { color: var(--text-3); font-size: var(--fs-0); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
 .filter-rail label { display: grid; gap: 4px; color: var(--text-2); font-size: var(--fs-1); font-weight: 500; }
 .filter-rail__actions { display: flex; gap: var(--s-2); padding: var(--s-3) var(--s-4); }
 .filter-rail__actions .btn { flex: 1; }
@@ -44,11 +44,14 @@
 .results__list { overflow-y: auto; min-height: 0; }
 .result-row {
   display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center;
-  padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--border); cursor: pointer; width: 100%; text-align: left;
+  padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--border); width: 100%; text-align: left;
   background: transparent; border-left: 0; border-right: 0; border-top: 0; color: inherit;
 }
 .result-row:hover { background: var(--surface-2); }
-.result-row[aria-selected="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.result-row[aria-current="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.result-row__select { display: contents; }
+.result-row__select:focus-visible { outline: none; }
+.result-row:has(.result-row__select:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
 .result-row__title { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-2); font-weight: 500; min-width: 0; }
 .result-row__title .truncate { flex: 1; }
 .result-row__meta { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); color: var(--text-3); font-size: var(--fs-1); margin-top: 2px; }
@@ -118,3 +121,6 @@
 .results-end { color: var(--text-3); font-size: var(--fs-1); }
 .search-workspace--inspecting .results__head .hints { display: none; }
 .results__head .video-title strong { white-space: nowrap; }
+.results__list { list-style: none; margin: 0; padding: 0; }
+.result-row__select { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; cursor: pointer; text-align: left; }
+.result-row:hover { background: var(--surface-2); }

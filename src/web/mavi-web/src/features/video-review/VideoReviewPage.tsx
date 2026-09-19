@@ -112,7 +112,7 @@ export default function VideoReviewPage() {
             </div>
           </Panel>
 
-          <aside className="stack">
+          <div className="stack">
             <Panel title="Representative evidence" description="Persisted representative frame and stable Track identity.">
               <div className="stack">
                 <RepresentativeEvidence detail={detail} />
@@ -120,7 +120,7 @@ export default function VideoReviewPage() {
               </div>
             </Panel>
             <ProvenancePanel detail={detail} displayTimeZoneId={displayTimeZoneId} />
-          </aside>
+          </div>
         </div>
       ) : null}
     </section>

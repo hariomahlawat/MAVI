@@ -32,7 +32,7 @@
 }
 .btn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--border-strong); text-decoration: none; }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.5; }
-.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+.btn--primary { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--text-on-accent); }
 .btn--primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn--ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn--ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); border-color: transparent; }

@@ -17,13 +17,14 @@
   /* Text: primary, secondary, tertiary (labels), inverse on accent. */
   --text: #e6ebf2;
   --text-2: #9aa7b8;
-  --text-3: #66738a;
+  --text-3: #8592a8;
   --text-on-accent: #f4f8ff;
 
   /* Accent is used for exactly two things: the primary action and the
      selected state. Status has its own semantic set below. */
   --accent: #3b82f6;
-  --accent-hover: #2f6fe0;
+  --accent-strong: #2563eb;
+  --accent-hover: #1d4ed8;
   --accent-soft: #1b2a45;
   --accent-text: #9cc2ff;
 

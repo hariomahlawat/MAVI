@@ -69,7 +69,7 @@ export default function SearchFilterRail({
   return (
     <form className="panel filter-rail" onSubmit={onSubmit} noValidate aria-label="Search filters">
       <div className="filter-rail__section">
-        <h3>Scope</h3>
+        <h2>Scope</h2>
         <label>
           Camera
           <select value={draft.cameraId} onChange={(event) => onDraftChange({ cameraId: event.target.value })}>
@@ -111,7 +111,7 @@ export default function SearchFilterRail({
       </div>
 
       <div className="filter-rail__section">
-        <h3>Time</h3>
+        <h2>Time</h2>
         <label>
           From
           <input
@@ -136,7 +136,7 @@ export default function SearchFilterRail({
       </div>
 
       <div className="filter-rail__section">
-        <h3>Thresholds</h3>
+        <h2>Thresholds</h2>
         <label>
           Minimum duration (seconds)
           <input
