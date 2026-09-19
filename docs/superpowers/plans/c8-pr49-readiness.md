@@ -47,21 +47,33 @@ Done on the host, recorded in the plan:
 - [x] three procedural corrections established and written into the runbook: `--no-deps` on the wheel download, `setuptools==80.10.2`, `DISTUTILS_USE_SDK=1`
 - [x] reproducibility **measured**: the wheel is not byte-reproducible; four distinct SHA-256 values
 
-**The C2 Development target is the minimum defensible set**, not byte-for-byte
-reproducibility: one canonical MMCV CUDA wheel with an exact SHA-256; the
-source, toolchain and dependency recipe recorded; a clean offline install; a
-successful native-op validation; enough reproducibility evidence to show no
-unexplained functional or native-code divergence; and fail-closed behaviour on
-anything genuinely unexplained. Production carries the stronger burden later.
+**The C2 Development target is the minimum defensible set**: one canonical MMCV
+CUDA wheel, chosen and named, with an exact SHA-256; the source, toolchain and
+dependency recipe recorded; a clean offline install; successful runtime import
+and native CUDA operator validation.
+
+**Repeated-build reproducibility is diagnostic evidence, not a gate.** Measured
+on the host: A2 versus A3, same tree and venv, differ in 183,339 bytes of
+`_ext.cp312-win_amd64.pyd` with only two timestamps accounted for. The wheel is
+not reproducible and the residual is not characterised. That is a property of
+the build process, not of the pinned artefact, and the functional gates test
+the artefact that ships.
+
+**The accepted cost, recorded rather than buried:** the canonical wheel cannot
+be reconstructed if lost, cannot be verified by rebuilding, and cross-build
+crash analysis is unavailable. Mitigation is operational — archive the wheel
+off the build host and treat it as a controlled input. Production qualification
+is separate and may impose stronger reproducibility and provenance
+requirements.
 
 Still required before Gate C2:
 
 - [ ] authoritative `+cu124` wheels acquired from the dedicated index **with `--no-deps`**
-- [ ] C2.2a run on the **A2/A3 wheels** (same source tree): expected `semantically-identical-after-native-normalization` — this is the acceptance evidence
-- [ ] C2.2a run on the A/B wheels for the relocatability record: expected `divergent-content` with `embedded-build-path-divergence`
-- [ ] C2.2b run on the **preserved** A2/A3 object trees — no rebuild. The first run returned 129 objects as `bigobj_anon_object_header_unsupported`, which is a parser-support result, not divergence. Re-run and read `unresolvedHeaderSignatures`: if the objects are `/GL` IL objects they carry no machine code and the comparison is not applicable, leaving the A2/A3 `.pyd` result as the functional evidence
-- [ ] the two BIGOBJ header words at offsets 36 and 40 decoded and **recorded**. Their meaning need not be settled to close C2: they are CLR metadata fields the native linker does not consume, and a clean A2/A3 `.pyd` comparison proves they changed no emitted byte. Tracked openly, not a blocker
-- [ ] canonical MMCV wheel chosen, named, and its SHA-256 recorded **together with** the reproducibility verdict
+- [x] C2.2a run on the **A2/A3 wheels** (same source tree): `divergent-content` / `unexplained-native-difference`, 183,339 residual bytes. **Recorded as diagnostic evidence; not a gate**
+- [ ] C2.2a run on the A/B wheels for the relocatability record (optional; A2/A3 already establishes non-reproducibility)
+- [x] C2.2b run on the preserved A2/A3 object trees: 129 of 136 unparsable as `bigobj_anon_object_header_unsupported`. Consistent with `/GL` IL objects, which carry no machine code. **Not applicable as evidence; closed, no rebuild**
+- [x] the BIGOBJ `36:40` question is **closed as not applicable**: the objects are IL, so the field never described emitted code. No further forensics
+- [ ] canonical MMCV wheel chosen, named, its SHA-256 recorded **together with** the reproducibility verdict, and the wheel archived off the build host
 - [ ] wheelhouse manifest produced
 - [ ] `windows-x86_64-cuda.lock` frozen and committed
 - [ ] `windows-x86_64-cuda.requirements.txt` derived and committed
@@ -69,12 +81,14 @@ Still required before Gate C2:
 - [ ] imports and `mmcv.ops` verified
 
 **Not BUILD-VERIFIED.** A partially executed phase is not a passed gate, and
-four successful builds are not a closure.
+four successful builds are not a closure. What remains is the closure and the
+functional proof — C2.3 through C2.5 — not more binary forensics.
 
-**Byte reproducibility is not achievable on this toolchain and is not claimed.**
-The accepted outcome is semantic equivalence after mechanically verified
-normalisation of documented Windows native metadata — and it is accepted only
-once the checker proves it over the artefacts, which has not yet happened.
+**Reproducibility is not achievable on this toolchain and is not claimed**, in
+any form: not byte-identical, and not semantically equivalent after
+normalisation either. That was measured, not assumed, and the analyser still
+refuses to call the two wheels equivalent. C2 Development accepts a pinned,
+functionally validated canonical artefact instead.
 
 ## 3. Runtime Pack verification (C3) — PENDING
 

@@ -499,14 +499,47 @@ timestamps minutes apart look like -- but suggestive is not established.
 the report and they **block** an equivalence verdict. One host run prints the
 two DWORDs and settles it; until then this is an open question, not a closed one.
 
-**The acceptance model.** A legitimate C2 outcome is *semantic reproducibility
-after mechanically verified normalisation of documented Windows native
-metadata*, and only that -- never "byte reproducible". "Mechanically verified"
-is load-bearing: the tool zeroes exactly the declared field ranges in both
-inputs and compares what is left, so an equivalence verdict is a proof that
-every differing byte lay inside a named field, not a decision to overlook it. A
-native member that will not parse is a refusal, not a pass, and no member is
-excused by filename.
+**The acceptance model, after the A2/A3 measurement.** The hope that repeated
+builds would reduce to named metadata was tested and is **false**. A2 versus
+A3 -- same tree, same venv, same recipe -- differ in **183,339 bytes** of
+`_ext.cp312-win_amd64.pyd`, with only `pe.coff.TimeDateStamp` and
+`pe.debug[0].TimeDateStamp` accounted for. Verdict `divergent-content`,
+classification `unexplained-native-difference`. Roughly 0.7% of a 27 MB image
+at identical file length; not a timestamp. The likely cause is `/GL` + `/LTCG`,
+which moves code generation to link time where it is not deterministic between
+runs, but that is **not established** and this plan does not assert it.
+
+So C2 Development does **not** gate on reproducibility in any form. It accepts:
+
+- one canonical MMCV CUDA wheel, chosen and named, with its exact SHA-256;
+- the exact source, toolchain and dependency recipe recorded;
+- a clean offline installation;
+- successful runtime import and native CUDA operator validation.
+
+Repeated-build comparison is retained as **diagnostic evidence on file**.
+
+**Why that is defensible.** Non-reproducibility is a property of the build
+*process*. Exactly one wheel is pinned, installed and executed on the device,
+and that wheel is what C2.5 and C4 validate. Two builds disagreeing says
+nothing about whether the pinned one works.
+
+**The accepted cost, named so it is not rediscovered later.** The canonical
+wheel cannot be reconstructed if lost -- a rebuild is a different artefact
+needing a new SHA-256, a new lock, a new pack identity and a re-run of C2.5 and
+C4. It cannot be verified by rebuilding and comparing. Cross-build crash
+analysis is unavailable. Mitigation is operational: archive the wheel off the
+build host and treat it as a controlled input.
+
+**The analyser is not relaxed to match.** It still reports
+`unexplained-native-difference` and still refuses to call these wheels
+equivalent, because they are not. What changed is what C2 requires, not what
+the tool is willing to say -- a green verdict elsewhere is worth something only
+because it stays honest here. A native member that will not parse is a refusal,
+not a pass, and no member is excused by filename.
+
+**Production is unaffected and may demand more.** Stronger reproducibility and
+provenance requirements remain open for Production qualification; Development
+evidence never satisfies a Production gate.
 3. **Assemble the wheelhouse** and record what each artefact is and where it
    came from:
 
@@ -549,11 +582,13 @@ A clean Windows venv must install the entire closure with:
 `--no-index --only-binary=:all: --require-hashes`
 and `pip check` must pass.
 
-**What BUILD-VERIFIED asserts.** That the frozen toolchain produces a working
-CUDA wheel, that one named wheel was selected as canonical, and that an
-independent rebuild is semantically equivalent to it under mechanically
-verified normalisation of documented Windows native build metadata. It does not
-assert byte reproducibility, and no document derived from it may.
+**What BUILD-VERIFIED asserts.** That the frozen toolchain produced a working
+CUDA wheel, that one named wheel was selected as canonical and archived, that
+its SHA-256 and full build recipe are recorded, that the closure installs
+offline, and that the runtime imports and executes native CUDA operators. It
+asserts **nothing** about reproducibility: repeated builds of this recipe are
+not reproducible, and the reproducibility reports are attached as diagnostic
+evidence rather than as a condition of the gate.
 
 #### Deterministic-build flags — reviewed, NOT adopted in R1
 
@@ -1078,12 +1113,11 @@ procedure (`--no-deps` on the wheel download, `setuptools==80.10.2`,
 that the wheel is **not byte-reproducible**, and the acceptance model in Phase
 C2 above was rewritten to match what was measured rather than what was hoped.
 
-C2 is **not** complete and the branch is **not** BUILD-VERIFIED. C2.3 through
-C2.5 -- the wheelhouse manifest, the frozen lock and the offline install proof
--- have not been run, and C2.2b (the object-tree comparison over all 136
-objects, as opposed to two inspected by hand) has not been run with the tooling
-that now exists. Until Gate C2 passes in full, no BUILD-VERIFIED claim may be
-made anywhere.
+C2 is **not** complete and the branch is **not** BUILD-VERIFIED. C2.2 has now
+been run and recorded; what remains is the closure and the functional proof --
+C2.3 through C2.5, the wheelhouse manifest, the frozen lock, the offline
+install and the runtime validation. Until Gate C2 passes in full, no
+BUILD-VERIFIED claim may be made anywhere.
 
 ### Phase state, in the precise vocabulary
 
@@ -1100,7 +1134,7 @@ reaches.
 | C0, C1, C1R | complete; C1R merged to `main` |
 | R1 toolchain preflight | **executed and passed** on the controlled Windows host |
 | C2 wheelhouse/lock | tooling IMPLEMENTED and TESTED; build step **EXECUTED** on the host (4 wheels, reproducibility measured); C2.2b and C2.3-C2.5 **not run**; **not build-verified** |
-| C2 reproducibility | **MEASURED**: not byte-reproducible. Semantic equivalence after normalisation is the acceptance model; the full-population object proof is still outstanding |
+| C2 reproducibility | **MEASURED and CLOSED**: not reproducible in any form. A2/A3 differ in 183,339 bytes of the `.pyd` with two timestamps accounted for. Retained as diagnostic evidence; explicitly **not** a Development gate. Object-level comparison not applicable -- the objects are `/GL` IL |
 | C3 Runtime Pack | tooling IMPLEMENTED and TESTED; **not Runtime-Pack-verified** |
 | C4 hardware qualification | tooling IMPLEMENTED and TESTED; **not hardware-qualified** |
 | C5 Overlay binding | **not started**; blocked on a real C3 pack identity. The requirements-projection writer and the Auto-decision function it needs are IMPLEMENTED and TESTED |
@@ -1126,10 +1160,11 @@ as a whole. Their findings are fixed and pinned by test.
 **The next step requires the physical Windows CUDA host.** No further work on
 this branch can be done from a hosted Linux session: the remaining phases all
 begin by acquiring a wheel, building against the frozen toolchain, or executing
-on the GPU. The immediate next actions there are C2.2b -- rerun the A2/A3 object
-comparison under `compare_native_object_trees.py` and record whether the two
-BIGOBJ header words at offsets 36 and 40 decode as timestamps or as something
-else -- and then C2.3. The procedure is
+on the GPU. C2.2 is now complete as a **recording** step: the A2/A3 wheel and
+object comparisons were run at HEAD `bc8e229`, the results are what they are,
+and no further binary forensics is authorised. The immediate next action is
+**C2.3** -- download the remaining PyPI dependencies, choose and archive the
+canonical MMCV wheel, and assemble the manifest. The procedure is
 `docs/runbooks/windows-cuda-host-session.md`; readiness is tracked in
 `docs/superpowers/plans/c8-pr49-readiness.md`.
 

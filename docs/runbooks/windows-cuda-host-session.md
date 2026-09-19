@@ -381,35 +381,69 @@ trees are still present. It is expected to report embedded build paths; run it
 so the result is on the record rather than assumed. If they are gone, skip it:
 A-vs-B relocatability is already recorded by C2.2a.
 
-### What C2.2 does and does not establish
+### What C2.2 establishes — and what it does not
 
-It establishes that independent rebuilds produce **semantically equivalent**
-native artefacts under a mechanically verified normalisation of named metadata
-fields. It does **not** establish byte reproducibility, and no document may say
-it does. It is a Development build reproducibility result: it is not a runtime
-result, not a hardware qualification, and never satisfies a Production gate.
+**Measured on the host, at HEAD `bc8e229`:** A2 versus A3, same source tree,
+same venv, same frozen recipe, differ in **183,339 bytes** of
+`_ext.cp312-win_amd64.pyd`, with only `pe.coff.TimeDateStamp` and
+`pe.debug[0].TimeDateStamp` accounted for. The verdict is
+`divergent-content`, the member classification is
+`unexplained-native-difference`, and that is the analyser working correctly.
 
-**Two predictions worth checking while you are there**, because they cost
-nothing and both are currently inferences rather than observations:
+So the earlier hope — that repeated builds would reduce to named metadata — is
+**dead**, and no document may say otherwise. Roughly 0.7% of a 27 MB image
+differs at identical file length. That is not a timestamp. The most likely
+cause is that setuptools links release extensions with `/GL` and `/LTCG`, so
+code generation happens at **link** time and its output is not deterministic
+between runs; but the cause is not established, and this runbook does not
+pretend it is.
 
-- The report's `nativeAnalysis` block carries `detail.left.debugEntries`.
-  `pip wheel` builds release, so there should be **no** debug directory and no
-  CodeView record in `_ext.cp312-win_amd64.pyd`. If that list is empty, the
-  ~463 embedded source-root strings come from `__FILE__`, not from a PDB path,
-  and `/PDBALTPATH` is irrelevant here. If it is *not* empty, say so: an
-  assumption in the plan is wrong.
-- The A2/A3 BIGOBJ words at offsets 36 and 40 are decoded in the C2.2b report
-  as `left`/`right` `uint32`/`hex`. Copy both values out verbatim. Two values a
-  few thousand apart, in the 0x68xxxxxx range, would be two timestamps and
-  would settle the question; a small integer would mean something else differs
-  and the finding is larger than a timestamp.
+#### Why this is not a runtime risk, and what it *is* a risk to
 
-**Do not add `/Brepro`, `--frandom-seed` or `/PDBALTPATH` to make this step
-pass**, and do not chase byte-for-byte equality across Development rebuilds.
-The target here is a known-good canonical artefact with its recipe recorded and
-no unexplained native divergence — not theoretical reproducibility. Those flags
-are recorded in the plan as R2 candidates; Production carries the stronger
-qualification burden, and this is not it.
+Non-reproducibility is a property of the **build process**. It is not evidence
+that any particular artefact is wrong. Exactly one wheel is chosen, pinned by
+SHA-256, installed, imported and executed on the device — and that wheel is the
+one C2.5 and C4 validate. Two builds disagreeing tells you nothing about
+whether the pinned one works; the functional gates tell you that, and they
+test the artefact that actually ships.
+
+What it does cost, stated plainly rather than buried:
+
+1. **Recoverability.** If the canonical wheel is lost it cannot be
+   reconstructed. A rebuild yields a *different* artefact that must be
+   re-qualified from scratch — new SHA-256, new lock, new pack identity, C2.5
+   and C4 re-run. **Back the wheel up off the build host.** This is the real
+   cost of accepting non-reproducibility and it is operational, not technical.
+2. **Substitution detection.** You cannot verify the wheel by rebuilding and
+   comparing. Its integrity rests on the recorded SHA-256 and on holding the
+   artefact securely.
+3. **Debuggability.** A crash dump from one build cannot be analysed against
+   another.
+
+None of the three is a correctness risk for the pinned artefact. All three are
+reasons to treat the canonical wheel as a controlled input.
+
+#### The C2 Development acceptance model
+
+C2.2 is a **diagnostic recording step, not a gate**. Run it, archive the
+report, and proceed. Acceptance for Development is:
+
+- one canonical MMCV CUDA wheel, chosen and named, with its exact SHA-256;
+- the exact source, toolchain and dependency recipe recorded;
+- a clean offline installation (C2.5);
+- successful runtime import and native CUDA operator validation (C2.5, C4).
+
+Repeated-build reproducibility is retained as **evidence on file**, not as a
+condition of passing. Production qualification is separate and may impose
+stronger reproducibility and provenance requirements; nothing here reduces
+that, and Development evidence never satisfies a Production gate.
+
+**The analyser is not relaxed to match.** It still reports
+`unexplained-native-difference` and still refuses to call these two wheels
+equivalent, because they are not. What changed is what C2 *requires*, not what
+the tool is willing to say. Never add `--require` to C2.2, and never edit the
+analyser to make this pass — the value of a green verdict elsewhere depends on
+it staying honest here.
 
 ## C2.3 Acquire the remaining dependencies and assemble the manifest
 

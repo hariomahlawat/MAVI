@@ -279,7 +279,14 @@ CHECKLIST = REPOSITORY_ROOT / "docs/superpowers/plans/c8-pr49-readiness.md"
 
 
 @pytest.mark.parametrize("document", [RUNBOOK, PLAN, CHECKLIST])
-def test_no_document_claims_the_wheel_is_byte_reproducible(document):
+def test_no_document_claims_the_wheel_is_reproducible(document):
+    """Not byte-identical, and not equivalent-after-normalisation either.
+
+    The second claim was the plausible one and it was measured false: A2 and
+    A3 differ in 183,339 bytes of the `.pyd` with two timestamps accounted
+    for. A document that quietly restores the weaker-sounding version of the
+    claim is restoring a claim the evidence killed.
+    """
     text = document.read_text(encoding="utf-8")
     lowered = text.lower()
 
@@ -287,6 +294,8 @@ def test_no_document_claims_the_wheel_is_byte_reproducible(document):
         "is byte-reproducible",
         "byte reproducibility is achieved",
         "byte-identical rebuild",
+        "no unexplained native divergence",
+        "no unexplained functional",
     ):
         assert claim not in lowered, f"{document.name}: {claim}"
 
@@ -368,7 +377,7 @@ def test_the_runbook_does_not_enforce_a_tier_the_expected_result_cannot_reach():
     exit 3.
     """
     text = _runbook_text()
-    section = text[text.index("### C2.2a") : text.index("### What C2.2 does")]
+    section = text[text.index("### C2.2a") : text.index("### What C2.2 establishes")]
 
     # The prose says "no `--require`"; what must not appear is an invocation
     # that actually passes one.
