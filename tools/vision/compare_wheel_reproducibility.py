@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
 """Compare two wheels built from the same frozen inputs.
 
-C2 must establish whether the MMCV CUDA wheel is byte-reproducible before C3
-commits to an identity contract. `nvcc` has no `/Brepro` equivalent for device
-code, so a negative answer is a legitimate result -- but it must be a measured
-one, naming the exact source of variance rather than being assumed either way.
+C2 must establish whether the MMCV CUDA wheel is reproducible before C3 commits
+to an identity contract. A negative answer is a legitimate result -- but it must
+be a measured one, naming the exact source of variance rather than being assumed
+either way.
+
+Empirically, on the frozen R1 Windows toolchain, two builds of the same MMCV
+commit are *not* byte-identical: MSVC stamps a build timestamp into every object
+and into the linked image, and the linker mints a fresh PDB GUID on every link.
+That is metadata, not machine code -- but "that is only metadata" is a claim,
+and a gate may not rest on a claim. So the native members are handed to
+`native_binary_metadata`, which zeroes exactly the documented metadata fields
+and compares what is left. An equivalence verdict is therefore a proof that
+every differing byte lay inside a named field, not a decision to overlook the
+difference.
+
+Nothing is whitelisted by filename. `mmcv/_ext.cp312-win_amd64.pyd` gets the
+same structural treatment as any other native member, and a native member that
+will not parse is a refusal rather than a pass.
 
 The tool is offline and reads only the two wheels it is given.
 """
@@ -12,12 +26,23 @@ The tool is offline and reads only the two wheels it is given.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import re
+import sys
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from native_binary_metadata import (  # noqa: E402
+    ACCEPTABLE_CLASSIFICATIONS,
+    compare_native_payloads,
+    embedded_build_paths,
+)
 
 
 class WheelComparisonError(ValueError):
@@ -38,12 +63,10 @@ _IDENTITY_MEMBERS = re.compile(
 # that is an installable defect, so it is reported in its own right.
 _RECORD_MEMBER = re.compile(r"\.dist-info/RECORD$", re.IGNORECASE)
 # Absolute build paths embedded in artefacts defeat relocatable reproduction.
-# Deliberately general: the GitHub Windows runner workspace is `D:\a\<repo>`,
-# and an allow-list of familiar roots misses exactly the layouts in scope.
-_EMBEDDED_PATH = re.compile(
-    rb"[A-Za-z]:[\\/][^\x00-\x1f\"<>|*?]{6,120}"
-    rb"|/(?:home|build|tmp|work|opt|usr|root|var|mnt|Users)/[\w./+-]{4,120}"
-)
+# The scan itself lives in `native_binary_metadata` because the object-tree
+# comparator needs the same answer, and because the first version of it read
+# `https://github.com/...` as a drive letter followed by a separator and
+# reported every documentation URL in MMCV as a build path.
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +87,11 @@ class _Archive:
     members: dict[str, _Member]
     order: tuple[str, ...]
     comment: bytes
+    # Native members are kept in memory so the structural comparison can run.
+    # Only native members: `_ext.cp312-win_amd64.pyd` is 27 MB and the pure
+    # Python members are already decided by their hashes.
+    native_payloads: dict[str, bytes]
+    record: bytes | None
 
 
 def _read_archive(path: Path) -> _Archive:
@@ -76,6 +104,8 @@ def _read_archive(path: Path) -> _Archive:
     with archive:
         members: dict[str, _Member] = {}
         order: list[str] = []
+        native_payloads: dict[str, bytes] = {}
+        record: bytes | None = None
         for info in archive.infolist():
             if info.is_dir():
                 continue
@@ -110,10 +140,16 @@ def _read_archive(path: Path) -> _Archive:
                 compress_type=info.compress_type,
             )
             order.append(info.filename)
+            if _is_native(info.filename):
+                native_payloads[info.filename] = data
+            if _RECORD_MEMBER.search(info.filename) is not None:
+                record = data
         return _Archive(
             members=members,
             order=tuple(order),
             comment=archive.comment or b"",
+            native_payloads=native_payloads,
+            record=record,
         )
 
 
@@ -153,13 +189,60 @@ def _embedded_paths(path: Path) -> dict[str, list[str]]:
                 raise WheelComparisonError(
                     f"wheel_member_unreadable:{path.name}:{info.filename}"
                 ) from exc
-            matches = {
-                match.decode("utf-8", "replace").rstrip("\x00")
-                for match in _EMBEDDED_PATH.findall(data)
-            }
+            matches = embedded_build_paths(data)
             if matches:
-                found[info.filename] = sorted(matches)
+                found[info.filename] = matches
     return found
+
+
+def _record_consistency(archive: _Archive) -> dict[str, object]:
+    """Check RECORD against the members it lists, inside one wheel.
+
+    RECORD restating a member's hash means it differs whenever that member
+    does. That is a consequence, not an independent defect -- but only when
+    RECORD actually agrees with the wheel it ships in. A RECORD that disagrees
+    installs something other than what it describes, so the two questions are
+    separated here rather than collapsed into "RECORD differs".
+    """
+    if archive.record is None:
+        return {"present": False, "consistent": None, "disagreements": []}
+    disagreements: list[str] = []
+    try:
+        text = archive.record.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"present": True, "consistent": False, "disagreements": ["record_not_utf8"]}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        parts = line.rsplit(",", 2)
+        if len(parts) != 3:
+            disagreements.append(f"record_row_malformed:{line[:80]}")
+            continue
+        name, digest, size = parts
+        member = archive.members.get(name)
+        if member is None:
+            # RECORD lists itself and the .dist-info dir with empty fields.
+            if digest == "" and size == "":
+                continue
+            disagreements.append(f"record_member_missing:{name}")
+            continue
+        if digest == "" and size == "":
+            continue
+        if not digest.startswith("sha256="):
+            disagreements.append(f"record_hash_algorithm_unsupported:{name}")
+            continue
+        expected = base64.urlsafe_b64encode(
+            bytes.fromhex(member.sha256)
+        ).rstrip(b"=").decode()
+        if digest[len("sha256=") :] != expected:
+            disagreements.append(f"record_hash_mismatch:{name}")
+        if size != str(member.size):
+            disagreements.append(f"record_size_mismatch:{name}")
+    return {
+        "present": True,
+        "consistent": not disagreements,
+        "disagreements": sorted(disagreements)[:32],
+    }
 
 
 def compare_wheels(left: Path, right: Path) -> dict[str, object]:
@@ -212,6 +295,29 @@ def compare_wheels(left: Path, right: Path) -> dict[str, object]:
         if name not in native_differs and name not in identity_differs
     ]
 
+    # Every native member that differs is analysed structurally. Nothing is
+    # excused by name: a member is either proved to differ only in documented
+    # metadata fields, or it counts against the verdict.
+    native_analysis: dict[str, object] = {}
+    native_normalized: list[str] = []
+    native_unresolved: list[str] = []
+    for name in native_differs:
+        analysis = compare_native_payloads(
+            left_archive.native_payloads[name],
+            right_archive.native_payloads[name],
+        )
+        native_analysis[name] = analysis
+        if analysis["classification"] in ACCEPTABLE_CLASSIFICATIONS:
+            native_normalized.append(name)
+        else:
+            native_unresolved.append(name)
+
+    left_record = _record_consistency(left_archive)
+    right_record = _record_consistency(right_archive)
+    record_inconsistent = (
+        left_record["consistent"] is False or right_record["consistent"] is False
+    )
+
     order_differs = left_archive.order != right_archive.order and not (
         only_left or only_right
     )
@@ -220,14 +326,18 @@ def compare_wheels(left: Path, right: Path) -> dict[str, object]:
     variance_sources: list[str] = []
     if only_left or only_right:
         variance_sources.append("member-inventory")
-    if native_differs:
+    if native_unresolved:
         variance_sources.append("native-binary-content")
+    if native_normalized:
+        variance_sources.append("native-build-metadata")
     if identity_differs:
         variance_sources.append("distribution-metadata")
     if other_differs:
         variance_sources.append("member-content")
     if record_differs:
         variance_sources.append("record-metadata")
+    if record_inconsistent:
+        variance_sources.append("record-inconsistent")
     if permission_differs:
         variance_sources.append("member-permissions")
     if compression_differs:
@@ -239,10 +349,20 @@ def compare_wheels(left: Path, right: Path) -> dict[str, object]:
     if timestamp_only:
         variance_sources.append("archive-timestamps")
 
-    # A RECORD that disagrees with the members it lists, or permissions that
-    # differ, change what an installer produces. Neither is container noise.
+    # Differences that no structural analysis accounts for. A RECORD row that
+    # disagrees with the member it describes counts here: it changes what an
+    # installer produces. A RECORD that merely differs *between* the two wheels
+    # while agreeing with each does not -- it is restating the native metadata
+    # difference one line further down.
+    unresolved_members = (
+        list(only_left)
+        + list(only_right)
+        + other_differs
+        + identity_differs
+        + native_unresolved
+    )
     installed_differs = bool(
-        only_left or only_right or substantive or record_differs or permission_differs
+        unresolved_members or record_inconsistent or permission_differs
     )
 
     if left_sha == right_sha:
@@ -251,6 +371,12 @@ def compare_wheels(left: Path, right: Path) -> dict[str, object]:
         verdict = "divergent-inventory"
     elif installed_differs:
         verdict = "divergent-content"
+    elif native_normalized:
+        # Every differing native byte was proved to lie inside a documented
+        # build-metadata field. This is weaker than `semantically-identical`,
+        # which requires the installed members to be byte-equal, and it is
+        # named differently so no reader can mistake one for the other.
+        verdict = "semantically-identical-after-native-normalization"
     else:
         # Same members, same bytes, same modes: the variance is in the
         # container, not in what gets installed.
@@ -259,6 +385,8 @@ def compare_wheels(left: Path, right: Path) -> dict[str, object]:
     if (
         left_sha != right_sha
         and not installed_differs
+        and not native_normalized
+        and not record_differs
         and not timestamp_only
         and not compression_differs
         and not order_differs
@@ -287,7 +415,10 @@ def compare_wheels(left: Path, right: Path) -> dict[str, object]:
         "onlyInLeft": only_left,
         "onlyInRight": only_right,
         "contentDiffers": substantive,
-        "nativeContentDiffers": native_differs,
+        "nativeContentDiffers": native_unresolved,
+        "nativeMetadataNormalized": native_normalized,
+        "nativeAnalysis": native_analysis,
+        "recordConsistency": {"left": left_record, "right": right_record},
         "metadataDiffers": identity_differs,
         "recordDiffers": record_differs,
         "permissionDiffers": permission_differs,
@@ -301,10 +432,17 @@ def compare_wheels(left: Path, right: Path) -> dict[str, object]:
             "identicalInBoth": shared_paths,
         },
         "note": (
-            "A byte-identical or semantically-identical verdict is a build "
-            "reproducibility result only. It is not a runtime, hardware or "
-            "Production qualification. Absolute build paths present identically "
-            "in both wheels still defeat relocatable reproduction."
+            "A byte-identical, semantically-identical or "
+            "semantically-identical-after-native-normalization verdict is a "
+            "Development build reproducibility result only. It is not a "
+            "runtime, hardware or Production qualification, and Development "
+            "evidence never satisfies a Production gate. "
+            "`semantically-identical-after-native-normalization` means every "
+            "differing byte in every native member was proved to lie inside a "
+            "documented build-metadata field named in `nativeAnalysis`; it "
+            "does not mean the wheels are interchangeable by hash. Absolute "
+            "build paths present identically in both wheels still defeat "
+            "relocatable reproduction."
         ),
     }
 
@@ -316,7 +454,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument(
         "--require",
-        choices=("byte-identical", "semantically-identical"),
+        choices=(
+            "byte-identical",
+            "semantically-identical",
+            "semantically-identical-after-native-normalization",
+        ),
         help=(
             "Exit non-zero unless the verdict is at least this strong. "
             "Omit to report without enforcing."
@@ -361,6 +503,11 @@ def main() -> int:
     accepted = {
         "byte-identical": {"byte-identical"},
         "semantically-identical": {"byte-identical", "semantically-identical"},
+        "semantically-identical-after-native-normalization": {
+            "byte-identical",
+            "semantically-identical",
+            "semantically-identical-after-native-normalization",
+        },
     }[args.require]
     return 0 if result["verdict"] in accepted else 3
 

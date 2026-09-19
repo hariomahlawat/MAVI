@@ -501,3 +501,264 @@ def test_output_file_is_written_and_never_overwritten(
 
     monkeypatch.setattr("sys.argv", argv)
     assert module.main() == 2
+
+
+# ---------------------------------------------------------------------------
+# Windows native metadata
+#
+# The empirical C2 result: two MMCV builds of the same commit are not
+# byte-identical because MSVC stamps a timestamp into the image and the linker
+# mints a fresh PDB GUID. The gate must be able to say that reduces to
+# equality -- and must refuse to say it whenever the proof does not hold.
+# ---------------------------------------------------------------------------
+
+import native_binary_fixtures as fixtures  # noqa: E402
+
+
+def _native_members(pyd: bytes) -> list[tuple[str, bytes]]:
+    return [
+        ("mmcv/__init__.py", b"__version__ = '2.1.0'\n"),
+        ("mmcv/_ext.cp312-win_amd64.pyd", pyd),
+        (
+            "mmcv-2.1.0.dist-info/METADATA",
+            b"Metadata-Version: 2.1\nName: mmcv\nVersion: 2.1.0\n",
+        ),
+        (
+            "mmcv-2.1.0.dist-info/WHEEL",
+            b"Wheel-Version: 1.0\nTag: cp312-cp312-win_amd64\n",
+        ),
+    ]
+
+
+def test_link_metadata_alone_yields_the_normalized_verdict(tmp_path: Path) -> None:
+    module = _load()
+    left = _wheel(
+        tmp_path / "a.whl",
+        members=_native_members(fixtures.pe_image(timestamp=1, checksum=1)),
+    )
+    right = _wheel(
+        tmp_path / "b.whl",
+        members=_native_members(
+            fixtures.pe_image(
+                timestamp=2, checksum=2, codeview_guid=bytes(range(16, 32))
+            )
+        ),
+    )
+
+    result = module.compare_wheels(left, right)
+
+    assert result["verdict"] == "semantically-identical-after-native-normalization"
+    assert result["nativeContentDiffers"] == []
+    assert result["nativeMetadataNormalized"] == ["mmcv/_ext.cp312-win_amd64.pyd"]
+    assert "native-build-metadata" in result["varianceSources"]
+    assert "native-binary-content" not in result["varianceSources"]
+
+
+def test_the_normalized_verdict_names_the_fields_it_excused(tmp_path: Path) -> None:
+    module = _load()
+    left = _wheel(tmp_path / "a.whl", members=_native_members(fixtures.pe_image(timestamp=1)))
+    right = _wheel(tmp_path / "b.whl", members=_native_members(fixtures.pe_image(timestamp=2)))
+
+    analysis = module.compare_wheels(left, right)["nativeAnalysis"][
+        "mmcv/_ext.cp312-win_amd64.pyd"
+    ]
+
+    assert analysis["classification"] == "metadata-normalized-identical"
+    assert {field["name"] for field in analysis["normalizedFields"]} == {
+        "pe.coff.TimeDateStamp",
+        "pe.export.TimeDateStamp",
+        "pe.debug[0].TimeDateStamp",
+    }
+    assert analysis["residualDifferenceCount"] == 0
+
+
+def test_a_changed_instruction_byte_still_diverges(tmp_path: Path) -> None:
+    module = _load()
+    left = _wheel(tmp_path / "a.whl", members=_native_members(fixtures.pe_image()))
+    right = _wheel(
+        tmp_path / "b.whl",
+        members=_native_members(fixtures.pe_image(body=b"\x90" * 1023 + b"\xcc")),
+    )
+
+    result = module.compare_wheels(left, right)
+
+    assert result["verdict"] == "divergent-content"
+    assert result["nativeContentDiffers"] == ["mmcv/_ext.cp312-win_amd64.pyd"]
+    assert result["nativeMetadataNormalized"] == []
+
+
+def test_a_native_member_that_will_not_parse_is_never_excused(tmp_path: Path) -> None:
+    """Fail-closed: an unreadable format is a refusal, not a pass.
+
+    This is what stops the tool from degenerating into a filename whitelist the
+    first time a build produces something the parser has not seen.
+    """
+    module = _load()
+    left = _wheel(
+        tmp_path / "a.whl",
+        members=_native_members(b"MZ" + b"\x00" * 64 + b"\x01" * 128),
+    )
+    right = _wheel(
+        tmp_path / "b.whl",
+        members=_native_members(b"MZ" + b"\x00" * 64 + b"\x02" * 128),
+    )
+
+    result = module.compare_wheels(left, right)
+
+    assert result["verdict"] == "divergent-content"
+    analysis = result["nativeAnalysis"]["mmcv/_ext.cp312-win_amd64.pyd"]
+    assert analysis["classification"] == "unparsable-native-format"
+
+
+def test_the_pyd_is_not_whitelisted_by_name(tmp_path: Path) -> None:
+    """Rename the member and the answer must not change.
+
+    A whitelist keyed on `mmcv/_ext*.pyd` would pass the divergent case here
+    and fail the benign one; structural analysis gives the same answer to both
+    regardless of what the member is called.
+    """
+    module = _load()
+
+    def wheel(path: Path, name: str, pyd: bytes) -> Path:
+        members = _native_members(pyd)
+        members[1] = (name, pyd)
+        return _wheel(path, members=members)
+
+    benign_left = wheel(tmp_path / "a.whl", "mmcv/other_ext.pyd", fixtures.pe_image(timestamp=1))
+    benign_right = wheel(tmp_path / "b.whl", "mmcv/other_ext.pyd", fixtures.pe_image(timestamp=2))
+    assert (
+        module.compare_wheels(benign_left, benign_right)["verdict"]
+        == "semantically-identical-after-native-normalization"
+    )
+
+    real_left = wheel(tmp_path / "c.whl", "mmcv/_ext.cp312-win_amd64.pyd", fixtures.pe_image())
+    real_right = wheel(
+        tmp_path / "d.whl",
+        "mmcv/_ext.cp312-win_amd64.pyd",
+        fixtures.pe_image(body=b"\x90" * 1023 + b"\xcc"),
+    )
+    assert module.compare_wheels(real_left, real_right)["verdict"] == "divergent-content"
+
+
+def test_a_differing_build_path_inside_the_image_diverges(tmp_path: Path) -> None:
+    module = _load()
+    left = _wheel(
+        tmp_path / "a.whl",
+        members=_native_members(
+            fixtures.pe_image(pdb_path=rb"C:\mavi-c2\mmcv-src-a\build\_ext.pdb")
+        ),
+    )
+    right = _wheel(
+        tmp_path / "b.whl",
+        members=_native_members(
+            fixtures.pe_image(pdb_path=rb"C:\mavi-c2\mmcv-src-b\build\_ext.pdb")
+        ),
+    )
+
+    result = module.compare_wheels(left, right)
+
+    assert result["verdict"] == "divergent-content"
+    analysis = result["nativeAnalysis"]["mmcv/_ext.cp312-win_amd64.pyd"]
+    assert analysis["classification"] == "embedded-build-path-divergence"
+
+
+def test_record_restating_normalized_members_does_not_block_the_verdict(
+    tmp_path: Path,
+) -> None:
+    module = _load()
+    left = _wheel(tmp_path / "a.whl", members=_native_members(fixtures.pe_image(timestamp=1)))
+    right = _wheel(tmp_path / "b.whl", members=_native_members(fixtures.pe_image(timestamp=2)))
+
+    result = module.compare_wheels(left, right)
+
+    assert result["recordDiffers"] == ["mmcv-2.1.0.dist-info/RECORD"]
+    assert result["recordConsistency"]["left"]["consistent"] is True
+    assert result["recordConsistency"]["right"]["consistent"] is True
+    assert result["verdict"] == "semantically-identical-after-native-normalization"
+
+
+def test_a_record_that_disagrees_with_its_own_wheel_is_a_defect(tmp_path: Path) -> None:
+    module = _load()
+    members = _native_members(fixtures.pe_image(timestamp=1))
+    left = _wheel(tmp_path / "a.whl", members=members)
+    right = _wheel(
+        tmp_path / "b.whl",
+        members=_native_members(fixtures.pe_image(timestamp=2)),
+        record_body=(
+            "mmcv/_ext.cp312-win_amd64.pyd,sha256=" + "A" * 43 + ",1\n"
+            "mmcv-2.1.0.dist-info/RECORD,,\n"
+        ),
+    )
+
+    result = module.compare_wheels(left, right)
+
+    assert result["recordConsistency"]["right"]["consistent"] is False
+    assert "record-inconsistent" in result["varianceSources"]
+    assert result["verdict"] == "divergent-content"
+
+
+def test_documentation_urls_are_not_reported_as_build_paths(tmp_path: Path) -> None:
+    module = _load()
+    members = _native_members(fixtures.pe_image())
+    members.append(
+        (
+            "mmcv/ops/nms.py",
+            b"# See https://github.com/open-mmlab/mmcv\n"
+            b"# Paper: https://arxiv.org/abs/1904.07850\n"
+            b"# Licence: http://www.apache.org/licenses/LICENSE-2.0\n",
+        )
+    )
+    left = _wheel(tmp_path / "a.whl", members=members)
+    right = _wheel(tmp_path / "b.whl", members=members)
+
+    paths = module.compare_wheels(left, right)["embeddedBuildPaths"]["left"]
+
+    assert "mmcv/ops/nms.py" not in paths
+
+
+def test_a_real_build_path_in_a_member_is_still_reported(tmp_path: Path) -> None:
+    module = _load()
+    members = _native_members(fixtures.pe_image())
+    members.append(("mmcv/ops/build.log", b"\x00C:\\mavi-c2\\mmcv-src-a\\setup.py\x00"))
+    left = _wheel(tmp_path / "a.whl", members=members)
+    right = _wheel(tmp_path / "b.whl", members=members)
+
+    paths = module.compare_wheels(left, right)["embeddedBuildPaths"]["left"]
+
+    assert paths["mmcv/ops/build.log"] == ["C:\\mavi-c2\\mmcv-src-a\\setup.py"]
+
+
+def test_the_normalized_verdict_is_weaker_than_semantic_identity(tmp_path: Path) -> None:
+    """`--require semantically-identical` must not accept the new tier.
+
+    The tiers answer different questions: `semantically-identical` means the
+    installed members are byte-equal, the new tier means they are not. Folding
+    them together would let a C3 contract that was written against byte-equal
+    members silently accept members that are not.
+    """
+    module = _load()
+    left = _wheel(tmp_path / "a.whl", members=_native_members(fixtures.pe_image(timestamp=1)))
+    right = _wheel(tmp_path / "b.whl", members=_native_members(fixtures.pe_image(timestamp=2)))
+
+    strict = _run_cli(module, left, right, "semantically-identical")
+    relaxed = _run_cli(module, left, right, "semantically-identical-after-native-normalization")
+
+    assert strict == 3
+    assert relaxed == 0
+
+
+def _run_cli(module, left: Path, right: Path, require: str) -> int:
+    argv = sys.argv
+    sys.argv = [
+        "compare_wheel_reproducibility.py",
+        "--left",
+        str(left),
+        "--right",
+        str(right),
+        "--require",
+        require,
+    ]
+    try:
+        return module.main()
+    finally:
+        sys.argv = argv
