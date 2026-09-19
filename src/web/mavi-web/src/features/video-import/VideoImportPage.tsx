@@ -12,8 +12,10 @@ import {
 } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
+import Button from '../../shared/components/Button';
 import LoadingState from '../../shared/components/LoadingState';
 import PageHeader from '../../shared/components/PageHeader';
+import Panel from '../../shared/components/Panel';
 
 type ImportWorkflowInput = {
   cameraId: string;
@@ -153,13 +155,14 @@ export default function VideoImportPage() {
   }
 
   return (
-    <section className="page-stack">
+    <section className="page">
       <PageHeader
         title="Import video"
         description="Register source MP4 media and queue authoritative processing without converting camera-local wall time in the browser."
       />
 
-      <section className="panel panel--form panel--narrow">
+      <Panel title="New import" description="One MP4 per import. Processing is queued automatically." className="panel--narrow">
+        <div className="stack">
         {cameras.isPending ? <LoadingState label="Loading active cameras…" /> : null}
         {cameras.isError ? <Alert tone="error">Camera inventory is unavailable.</Alert> : null}
         {validationError ? <Alert tone="warning">{validationError}</Alert> : null}
@@ -205,11 +208,14 @@ export default function VideoImportPage() {
           </label>
           <p className="field-help">Phase-1 single-request import limit: 3 GiB. Backend media validation remains authoritative.</p>
 
-          <button className="button button--primary" type="submit" disabled={workflow.isPending || cameras.isPending}>
-            {workflow.isPending ? 'Importing and queueing…' : 'Import and process'}
-          </button>
+          <div className="row">
+            <Button variant="primary" type="submit" icon="upload" disabled={workflow.isPending || cameras.isPending}>
+              {workflow.isPending ? 'Importing and queueing…' : 'Import and process'}
+            </Button>
+          </div>
         </form>
-      </section>
+        </div>
+      </Panel>
     </section>
   );
 }
