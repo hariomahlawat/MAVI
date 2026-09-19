@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -41,6 +42,7 @@ for _candidate in (
         sys.path.insert(0, str(_candidate))
 
 from mavi_vision.common.control_plane import (  # noqa: E402
+    CUDA_DEVICE_PATTERN,
     is_cuda_device,
     validate_device_resolution_wire_relationship,
 )
@@ -54,6 +56,7 @@ _SOURCE_HEAD_SHA = re.compile(r"^[0-9a-f]{40}$", re.ASCII)
 _SHA256 = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 _CANONICAL_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", re.ASCII)
 _OPERATOR_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._@/-]{0,127}$", re.ASCII)
+_SHA256 = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 
 # One case per thing C6 asks to be proven. A bundle missing any of these has
 # not finished the phase, whatever its other runs show.
@@ -107,8 +110,14 @@ def _sha256_bytes(data: bytes) -> str:
 
 
 def _canonical(value: object) -> bytes:
+    # allow_nan=False: a bundle carrying NaN or Infinity is not valid JSON, and
+    # a strict reader would reject the whole artefact after it was committed.
     return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
     ).encode("utf-8")
 
 
@@ -153,7 +162,12 @@ def _memory_reading(value: object, code: str) -> dict[str, int]:
     }
 
 
-def _check_run(case_id: str, run: dict, expectation: dict[str, object]) -> dict:
+def _check_run(
+    case_id: str,
+    run: dict,
+    expectation: dict[str, object],
+    corroboration: dict | None = None,
+) -> dict:
     """Check one run against the case it claims to prove."""
     policy = _text(
         run.get("configuredDevicePolicy"), "e2e_run_device_policy_missing"
@@ -189,7 +203,7 @@ def _check_run(case_id: str, run: dict, expectation: dict[str, object]) -> dict:
     if run.get("progressPercent") != 100:
         raise DevelopmentE2eError("e2e_run_incomplete:" + case_id)
     _positive_int(run.get("detectionCount"), "e2e_run_no_detections:" + case_id)
-    _non_negative_int(run.get("trackCount"), "e2e_run_track_count_invalid")
+    _positive_int(run.get("trackCount"), "e2e_run_no_tracks:" + case_id)
     _positive_int(run.get("framesProcessed"), "e2e_run_no_frames:" + case_id)
 
     media_sha = run.get("mediaSha256")
@@ -199,7 +213,9 @@ def _check_run(case_id: str, run: dict, expectation: dict[str, object]) -> dict:
     elapsed = run.get("elapsedSeconds")
     if not isinstance(elapsed, (int, float)) or isinstance(elapsed, bool):
         raise DevelopmentE2eError("e2e_run_timing_missing:" + case_id)
-    if elapsed <= 0:
+    # NaN <= 0 is False, so a bare `NaN` in the record would pass a naive guard
+    # and then be written into the artefact as invalid JSON.
+    if not math.isfinite(elapsed) or elapsed <= 0:
         raise DevelopmentE2eError("e2e_run_timing_missing:" + case_id)
 
     provenance = run.get("provenance")
@@ -278,6 +294,34 @@ def _check_run(case_id: str, run: dict, expectation: dict[str, object]) -> dict:
         # Work on the device shows up as device memory in use while it runs.
         raise DevelopmentE2eError("e2e_run_no_device_utilisation:" + case_id)
 
+    if corroboration is not None:
+        # The run must be on the card C4 qualified, at the ordinal C4 attested,
+        # with kernels for that card. Without this the bundle's only statement
+        # about which GPU ran the work is the literal ordinal string.
+        observed_gpu = run.get("gpuUuidSha256")
+        if not isinstance(observed_gpu, str) or _SHA256.fullmatch(
+            observed_gpu
+        ) is None:
+            raise DevelopmentE2eError("e2e_run_gpu_identity_missing:" + case_id)
+        if observed_gpu != corroboration.get("gpuUuidSha256"):
+            raise DevelopmentE2eError("e2e_run_gpu_identity_mismatch:" + case_id)
+        match = CUDA_DEVICE_PATTERN.fullmatch(device)
+        if match is None or int(match.group(1)) != corroboration.get("deviceIndex"):
+            raise DevelopmentE2eError("e2e_run_device_index_mismatch:" + case_id)
+        target = corroboration.get("targetArchitecture")
+        if target not in arch_list:
+            # A run that fell back to PTX JIT is not the artefact C4 qualified.
+            raise DevelopmentE2eError(
+                "e2e_run_architecture_not_in_build:" + case_id
+            )
+        if cuda.get("runtimeVersion") != corroboration.get(
+            "torchCudaRuntimeVersion"
+        ):
+            raise DevelopmentE2eError(
+                "e2e_run_cuda_runtime_version_mismatch:" + case_id
+            )
+        checked["gpuUuidSha256"] = observed_gpu
+
     checked.update(
         {
             "cuda": {
@@ -324,12 +368,33 @@ def build_e2e_evidence(
         "e2e_development_evidence",
     )
     block = hardware.get("developmentEvidence")
-    if not isinstance(block, dict):
+    corroboration = hardware.get("corroboration")
+    variant_patch = hardware.get("variantPatch")
+    if (
+        not isinstance(block, dict)
+        or not isinstance(corroboration, dict)
+        or not isinstance(variant_patch, dict)
+    ):
         raise DevelopmentE2eError("e2e_development_evidence_schema_invalid")
     # C6 runs describe the same source revision the hardware was qualified at;
     # otherwise the bundle joins a run to a qualification of something else.
     if block.get("sourceHeadSha") != source_head_sha:
         raise DevelopmentE2eError("e2e_source_revision_mismatch")
+    # A C4 record that did not itself reach the Development state cannot be the
+    # base of a Development E2E bundle.
+    if variant_patch.get("status") != "qualified-development-hardware":
+        raise DevelopmentE2eError("e2e_development_evidence_not_qualified")
+    # C4's digest is recomputable by design, and C7 declares a case for tampered
+    # qualification evidence -- so the one tool that consumes C4 must check it.
+    claimed = block.get("evidenceBundleSha256")
+    restated = json.loads(json.dumps(hardware))
+    restated["developmentEvidence"]["evidenceBundleSha256"] = ""
+    if not isinstance(claimed, str) or claimed != _sha256_bytes(
+        _canonical(restated)
+    ):
+        raise DevelopmentE2eError("e2e_development_evidence_digest_mismatch")
+    if not isinstance(corroboration.get("gpuUuidSha256"), str):
+        raise DevelopmentE2eError("e2e_development_evidence_schema_invalid")
 
     missing = sorted(set(REQUIRED_CASES) - set(runs))
     if missing:
@@ -344,13 +409,31 @@ def build_e2e_evidence(
         run, run_sha = _load(
             runs[case_id], RUN_SCHEMA_VERSION, "e2e_run"
         )
-        checked_runs.append(_check_run(case_id, run, REQUIRED_CASES[case_id]))
+        checked_runs.append(
+            _check_run(
+                case_id,
+                run,
+                REQUIRED_CASES[case_id],
+                corroboration if REQUIRED_CASES[case_id]["cuda"] else None,
+            )
+        )
         run_digests[case_id] = run_sha
+
+    media = {run["mediaSha256"] for run in checked_runs}
+    if len(media) != 1:
+        # A CPU-versus-CUDA characterisation between two different videos
+        # characterises nothing.
+        raise DevelopmentE2eError("e2e_runs_describe_different_media")
+    frames = {run["framesProcessed"] for run in checked_runs}
+    if len(frames) != 1:
+        raise DevelopmentE2eError("e2e_runs_processed_different_frame_counts")
 
     evidence: dict[str, object] = {
         "schemaVersion": SCHEMA_VERSION,
         "developmentE2e": {
             "developmentEvidenceSha256": hardware_sha,
+            "gpuUuidSha256": corroboration.get("gpuUuidSha256"),
+            "mediaSha256": sorted(media)[0],
             "evidenceBundleSha256": "",
             "sourceHeadSha": source_head_sha,
             "capturedAtUtc": captured_at_utc,
@@ -396,6 +479,9 @@ def main() -> int:
                 flush=True,
             )
             return 2
+        if case_id in runs:
+            print(json.dumps({"ok": False, "code": "e2e_run_argument_duplicate"}))
+            return 2
         runs[case_id] = Path(path)
 
     try:
@@ -420,7 +506,8 @@ def main() -> int:
             return 2
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
-            json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+            json.dumps(evidence, indent=2, sort_keys=True, allow_nan=False)
+            + "\n",
             encoding="utf-8",
             newline="\n",
         )

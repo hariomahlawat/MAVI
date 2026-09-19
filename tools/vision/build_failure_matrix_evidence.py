@@ -48,16 +48,111 @@ from mavi_vision.common.control_plane import (  # noqa: E402
     DEVICE_RESOLUTION_REASONS,
     is_cuda_device,
 )
+from mavi_vision.runtime.launch_failures import (  # noqa: E402
+    LAUNCH_FAILURE_CODES,
+)
+
+# Codes raised as inline literals by the worker-side refusal paths. They are not
+# importable as a set -- they exist only at their raise sites -- so the honest
+# option is to restate the ones this matrix cites and pin them with a test that
+# scrapes those sites. A restatement nothing checks would drift.
+_OFFLINE_LOCK_CODES = frozenset(
+    {
+        "offline_lock_unreadable",
+        "offline_lock_utf8_invalid",
+        "offline_lock_bom_forbidden",
+        "offline_lock_cr_forbidden",
+        "offline_lock_header_invalid",
+        "offline_lock_schema_invalid",
+        "offline_lock_hash_invalid",
+        "offline_lock_not_sorted",
+        "offline_lock_requirement_invalid",
+    }
+)
+_RELEASE_METADATA_CODES = frozenset(
+    {
+        "qualification_identity_mismatch",
+        "qualification_record_invalid",
+        "qualification_record_required",
+        "runtime_checkpoint_hash_mismatch",
+        "runtime_config_hash_mismatch",
+        "checkpoint_hash_mismatch",
+        "resolved_config_hash_mismatch",
+        "runtime_release_lock_hash_mismatch",
+        "runtime_profile_id_mismatch",
+        "runtime_profile_invalid",
+        "runtime_profile_not_qualified",
+        "runtime_profile_variant_not_qualified",
+        "release_artifact_missing",
+    }
+)
+_GPU_IDENTITY_CODES = frozenset(
+    {
+        "gpu_identity_uuid_mismatch",
+        "gpu_identity_memory_mismatch",
+        "gpu_identity_compute_capability_mismatch",
+        "gpu_identity_device_order_unstable",
+        "gpu_identity_visible_devices_ambiguous",
+        "gpu_identity_index_unavailable",
+    }
+)
+_RUNTIME_VERIFICATION_CODES = frozenset(
+    {
+        "cuda_unavailable",
+        "cuda_device_index_invalid",
+        "torch_cuda_architecture_missing",
+        "mmcv_cuda_op_executed_off_device",
+        "torch_cuda_matmul_executed_off_device",
+        "cuda_runtime_verification_failed",
+    }
+)
+_WORKER_CODES = frozenset(
+    {
+        "vision_runtime_incompatible",
+        "vision_gpu_out_of_memory",
+        "vision_gpu_runtime_failed",
+        "vision_inference_watchdog_expired",
+    }
+)
+_PROVENANCE_CODES = frozenset(
+    {
+        "actual_device_policy_mismatch",
+        "device_resolution_reason_unknown",
+        "device_resolution_reason_invalid",
+        "auto_device_resolution_reason_required",
+        "runtime_platform_variant_not_qualified",
+        "production_runtime_not_qualified",
+        "production_release_not_verified",
+        "unverified_release_forbidden",
+    }
+)
+
+#: Every code any declared case may legitimately cite.
+CITABLE_FAILURE_CODES = frozenset(
+    LAUNCH_FAILURE_CODES
+    | _OFFLINE_LOCK_CODES
+    | _RELEASE_METADATA_CODES
+    | _GPU_IDENTITY_CODES
+    | _RUNTIME_VERIFICATION_CODES
+    | _WORKER_CODES
+    | _PROVENANCE_CODES
+)
 
 SCHEMA_VERSION = "mavi-windows-cuda-failure-matrix-v1"
 CASE_SCHEMA_VERSION = "mavi-windows-cuda-failure-case-v1"
 
-SCOPES = ("linux-observable", "hardware")
+SCOPES = ("linux-observable", "windows-host", "hardware")
 
 _SOURCE_HEAD_SHA = re.compile(r"^[0-9a-f]{40}$", re.ASCII)
 _CANONICAL_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", re.ASCII)
 _OPERATOR_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._@/-]{0,127}$", re.ASCII)
 _FAILURE_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$", re.ASCII)
+_SHA256 = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
+# C7 is entirely a phase of failure artefacts, and the natural NVML or driver
+# message for a wrong-GPU refusal *is* the card's UUID. The operator is asked to
+# paste that message in here, so it is redacted on the way through, exactly as
+# the runtime verifier already redacts its own failure detail.
+_RAW_GPU_UUID = re.compile(r"GPU-[0-9A-Fa-f][0-9A-Fa-f-]{7,}")
 
 
 class FailureMatrixError(ValueError):
@@ -66,8 +161,15 @@ class FailureMatrixError(ValueError):
         super().__init__(code)
 
 
-def _auto_fallback_case(reason: str, invariant: str, *, hardware: bool) -> dict:
-    """One permitted Development Auto fallback, named by its stable reason."""
+def _auto_fallback_case(
+    reason: str, invariant: str, *, hardware: bool, windows: bool = True
+) -> dict:
+    """One permitted Development Auto fallback, named by its stable reason.
+
+    All of these are resolved by the Windows launcher's `Test-CudaRuntimeUsable`
+    except the one the worker's own Auto branch produces, so nearly all of them
+    need a Windows host even when they need no GPU.
+    """
     return {
         "invariant": invariant,
         "stage": "device-resolution",
@@ -77,6 +179,8 @@ def _auto_fallback_case(reason: str, invariant: str, *, hardware: bool) -> dict:
         "fallbackPermitted": True,
         "retryPermitted": False,
         "requiresHardware": hardware,
+        "requiresWindowsHost": windows,
+        "expectedFailureCodes": None,
     }
 
 
@@ -87,7 +191,18 @@ def _fail_closed_case(
     policy: str = "cuda",
     retry: bool = False,
     hardware: bool = False,
+    windows: bool = False,
+    codes: frozenset[str] | None = None,
 ) -> dict:
+    """One fail-closed refusal.
+
+    `codes` names the stable failure codes that may legitimately report this
+    case, where such codes exist. Several refusals still live in PowerShell
+    modules that carry no coded vocabulary; those cases declare none rather
+    than pretend to a code the system cannot emit.
+    """
+    if codes is not None and not codes <= CITABLE_FAILURE_CODES:
+        raise FailureMatrixError("failure_matrix_declared_code_unknown")
     return {
         "invariant": invariant,
         "stage": stage,
@@ -97,6 +212,8 @@ def _fail_closed_case(
         "fallbackPermitted": False,
         "retryPermitted": retry,
         "requiresHardware": hardware,
+        "requiresWindowsHost": windows,
+        "expectedFailureCodes": None if codes is None else sorted(codes),
     }
 
 
@@ -114,11 +231,17 @@ _AUTO_FALLBACK_INVARIANTS = {
     "cuda_driver_probe_failed": "the driver probe itself failed",
 }
 
+# `cuda_pack_not_declared` is the one reason the worker's own Auto branch
+# produces (supervisor.py), so it is observable without a Windows launcher. The
+# rest come from `Test-CudaRuntimeUsable` and need the host.
+_WORKER_RESOLVED_FALLBACKS = frozenset({"cuda_pack_not_declared"})
+
 FAILURE_CASES: dict[str, dict] = {
     f"auto-{reason.removeprefix('cuda_').replace('_', '-')}": _auto_fallback_case(
         reason,
         invariant,
         hardware=reason in {"cuda_device_unavailable", "cuda_driver_probe_failed"},
+        windows=reason not in _WORKER_RESOLVED_FALLBACKS,
     )
     for reason, invariant in _AUTO_FALLBACK_INVARIANTS.items()
 }
@@ -130,105 +253,244 @@ FAILURE_CASES.update(
         "explicit-cuda-pack-absent": _fail_closed_case(
             "explicit CUDA refuses to start without its Runtime Pack",
             stage="device-resolution",
+            windows=True,
+            codes=frozenset({"launch_runtime_pack_not_installed"}),
         ),
         "explicit-cuda-pack-integrity-failed": _fail_closed_case(
             "explicit CUDA refuses a pack that fails integrity",
             stage="device-resolution",
+            windows=True,
+            codes=frozenset({"launch_runtime_manifest_fingerprint_mismatch"}),
         ),
         "explicit-cuda-pack-identity-mismatch": _fail_closed_case(
             "explicit CUDA refuses a pack that is not the declared identity",
             stage="device-resolution",
+            windows=True,
+            codes=frozenset(
+                {
+                    "launch_component_pack_requirement_missing",
+                    "launch_runtime_native_abi_binding_stale",
+                    "launch_cuda_policy_requires_cuda_pack",
+                }
+            ),
         ),
         "explicit-cuda-device-unavailable": _fail_closed_case(
             "explicit CUDA refuses when no CUDA device is present",
             stage="startup",
             hardware=True,
+            codes=frozenset({"cuda_unavailable", "vision_gpu_runtime_failed"}),
         ),
         "explicit-cuda-invalid-device-index": _fail_closed_case(
             "explicit CUDA refuses a device index the host does not have",
             stage="startup",
             hardware=True,
+            codes=frozenset(
+                {"cuda_device_index_invalid", "gpu_identity_index_unavailable"}
+            ),
         ),
         "explicit-cuda-driver-insufficient": _fail_closed_case(
             "explicit CUDA refuses a driver older than the packed CUDA family",
             stage="startup",
             hardware=True,
+            codes=frozenset(
+                {"cuda_unavailable", "vision_gpu_runtime_failed"}
+            ),
         ),
         "explicit-cuda-wrong-architecture": _fail_closed_case(
             "explicit CUDA refuses a device the pack has no kernels for",
             stage="startup",
             hardware=True,
+            codes=frozenset(
+                {
+                    "torch_cuda_architecture_missing",
+                    "gpu_identity_compute_capability_mismatch",
+                }
+            ),
         ),
         "explicit-cuda-wrong-physical-gpu": _fail_closed_case(
             "the attested physical GPU must be the one that ran the work",
             stage="startup",
             hardware=True,
+            codes=frozenset(
+                {
+                    "gpu_identity_uuid_mismatch",
+                    "gpu_identity_memory_mismatch",
+                    "gpu_identity_device_order_unstable",
+                    "gpu_identity_visible_devices_ambiguous",
+                }
+            ),
         ),
         "explicit-cuda-native-extension-import-failed": _fail_closed_case(
             "a native extension that cannot import fails closed, never to CPU",
             stage="startup",
+            windows=True,
+            codes=frozenset({"vision_runtime_incompatible"}),
         ),
         "explicit-cuda-mmcv-ops-failed": _fail_closed_case(
             "mmcv.ops failing on device fails closed, never to CPU",
             stage="startup",
             hardware=True,
+            codes=frozenset(
+                {"mmcv_cuda_op_executed_off_device", "vision_runtime_incompatible"}
+            ),
         ),
         "explicit-cuda-torch-cuda-mismatch": _fail_closed_case(
             "a Torch CUDA runtime other than the qualified one fails closed",
             stage="startup",
+            windows=True,
+            codes=frozenset({"vision_runtime_incompatible"}),
         ),
         "explicit-cuda-torchvision-binary-mismatch": _fail_closed_case(
             "a torchvision build other than the qualified one fails closed",
             stage="startup",
+            windows=True,
+            codes=frozenset({"vision_runtime_incompatible"}),
         ),
         "explicit-cuda-python-abi-mismatch": _fail_closed_case(
             "a Python ABI other than the qualified one fails closed",
             stage="startup",
+            windows=True,
+            codes=frozenset(
+                {
+                    "launch_runtime_python_identity_state_mismatch",
+                    "launch_runtime_python_identity_manifest_mismatch",
+                }
+            ),
         ),
         # The forbidden transition itself. This case exists so the matrix
         # records that the system refuses it, not that it was observed working.
         "explicit-cuda-resolved-to-cpu-refused": _fail_closed_case(
             "explicit CUDA may never silently resolve to CPU",
             stage="device-resolution",
+            windows=True,
+            codes=frozenset({"launch_cuda_policy_requires_cuda_pack"}),
         ),
         "auto-unknown-reason-refused": _fail_closed_case(
             "a device-resolution reason outside the closed vocabulary is refused",
             stage="device-resolution",
             policy="auto",
+            codes=frozenset(
+                {
+                    "device_resolution_reason_unknown",
+                    "device_resolution_reason_invalid",
+                    "auto_device_resolution_reason_required",
+                }
+            ),
+        ),
+        # The four remaining Auto-CPU conditions, mirrored under explicit CUDA.
+        # Auto is permitted to answer CPU for each of these; explicit CUDA is
+        # not, and these are the highest-risk places for a silent fallback
+        # precisely because a legitimate CPU answer exists next door.
+        "explicit-cuda-pack-not-declared": _fail_closed_case(
+            "explicit CUDA refuses when no CUDA pack is declared",
+            stage="device-resolution",
+            windows=True,
+            codes=frozenset({"launch_component_pack_requirement_missing"}),
+        ),
+        "explicit-cuda-pack-variant-mismatch": _fail_closed_case(
+            "explicit CUDA refuses a pack built for another variant",
+            stage="device-resolution",
+            windows=True,
+            codes=frozenset({"launch_cuda_policy_requires_cuda_pack"}),
+        ),
+        "explicit-cuda-driver-probe-unavailable": _fail_closed_case(
+            "explicit CUDA refuses when the driver cannot be probed",
+            stage="startup",
+            hardware=True,
+            windows=True,
+            codes=frozenset({"cuda_unavailable", "vision_gpu_runtime_failed"}),
+        ),
+        "explicit-cuda-driver-probe-failed": _fail_closed_case(
+            "explicit CUDA refuses when the driver probe itself fails",
+            stage="startup",
+            hardware=True,
+            windows=True,
+            codes=frozenset({"cuda_unavailable", "vision_gpu_runtime_failed"}),
         ),
         # Evidence and identity integrity.
         "stale-qualification-evidence": _fail_closed_case(
             "qualification evidence for another source revision is refused",
             stage="release-selection",
+            windows=True,
+            codes=frozenset(
+                {
+                    "launch_model_manifest_qualification_mismatch",
+                    "launch_pipeline_qualification_mismatch",
+                    "launch_runtime_profile_qualification_mismatch",
+                }
+            ),
         ),
         "tampered-qualification-evidence": _fail_closed_case(
             "qualification evidence whose digest does not match is refused",
             stage="release-selection",
+            windows=True,
+            codes=frozenset(
+                {
+                    "launch_model_manifest_qualification_mismatch",
+                    "launch_pipeline_qualification_mismatch",
+                    "launch_runtime_profile_qualification_mismatch",
+                }
+            ),
         ),
         "qualification-bundle-mismatch": _fail_closed_case(
             "an evidence bundle that does not bind its own artefacts is refused",
             stage="release-selection",
+            codes=frozenset(
+                {
+                    "qualification_record_invalid",
+                    "qualification_record_required",
+                    "qualification_identity_mismatch",
+                    "runtime_profile_id_mismatch",
+                }
+            ),
         ),
         "corrupted-lock": _fail_closed_case(
             "an offline lock that does not parse or hash is refused",
             stage="release-selection",
+            codes=frozenset(
+                _OFFLINE_LOCK_CODES | {"launch_runtime_lock_binding_stale"}
+            ),
         ),
         "corrupted-manifest": _fail_closed_case(
             "a Runtime Pack manifest that does not parse or hash is refused",
             stage="release-selection",
+            windows=True,
+            codes=frozenset(
+                {
+                    "launch_runtime_manifest_fingerprint_mismatch",
+                    "launch_model_manifest_fingerprint_mismatch",
+                }
+            ),
         ),
         "missing-model-identity": _fail_closed_case(
             "a missing model, config or checkpoint identity is refused",
             stage="release-selection",
+            windows=True,
+            codes=frozenset(
+                {
+                    "launch_model_pack_binding_stale",
+                    "launch_overlay_file_missing",
+                }
+            ),
         ),
         "runtime-profile-mismatch": _fail_closed_case(
             "a runtime profile other than the bound one is refused",
             stage="release-selection",
+            windows=True,
+            codes=frozenset({"launch_component_runtime_profile_mismatch"}),
         ),
         "development-evidence-presented-to-production": _fail_closed_case(
             "Development evidence can never satisfy Production qualification",
             stage="release-selection",
             policy="cuda",
+            codes=frozenset(
+                {
+                    "runtime_platform_variant_not_qualified",
+                    "production_runtime_not_qualified",
+                    "production_release_not_verified",
+                    "unverified_release_forbidden",
+                }
+            ),
         ),
         # Recovery, where retry is the correct behaviour rather than refusal.
         "cuda-out-of-memory-recovered": {
@@ -240,6 +502,8 @@ FAILURE_CASES.update(
             "fallbackPermitted": False,
             "retryPermitted": True,
             "requiresHardware": True,
+            "requiresWindowsHost": True,
+            "expectedFailureCodes": ["vision_gpu_out_of_memory"],
         },
         "worker-restart-recovered": {
             "invariant": "a worker restart resumes without losing the lease contract",
@@ -250,6 +514,11 @@ FAILURE_CASES.update(
             "fallbackPermitted": False,
             "retryPermitted": True,
             "requiresHardware": True,
+            "requiresWindowsHost": True,
+            "expectedFailureCodes": [
+                "vision_gpu_runtime_failed",
+                "vision_inference_watchdog_expired",
+            ],
         },
     }
 )
@@ -285,7 +554,13 @@ def _load(path: Path, schema: str, code: str) -> tuple[dict, str]:
     return value, _sha256_bytes(raw)
 
 
-def _check_case(case_id: str, observation: dict, declared: dict) -> dict:
+def _check_case(
+    case_id: str,
+    observation: dict,
+    declared: dict,
+    *,
+    gpu_uuid_sha256: str | None = None,
+) -> dict:
     """Check one observed failure against the case it claims to exercise."""
     policy = _text(
         observation.get("configuredDevicePolicy"),
@@ -298,12 +573,29 @@ def _check_case(case_id: str, observation: dict, declared: dict) -> dict:
     if outcome != declared["outcome"]:
         raise FailureMatrixError("failure_case_outcome_mismatch:" + case_id)
 
-    failure_code = _text(
-        observation.get("failureCode"),
-        "failure_case_failure_code_missing:" + case_id,
-    )
-    if _FAILURE_CODE.fullmatch(failure_code) is None:
-        raise FailureMatrixError("failure_case_failure_code_invalid:" + case_id)
+    # A permitted Auto fallback is not a failure: the run succeeded on CPU, and
+    # the resolution reason is the whole record. Only a refusal or a recovery
+    # has a failure code, and then it must be one this case can legitimately
+    # produce -- otherwise the case was reported by some other path.
+    failure_code = observation.get("failureCode")
+    if declared["outcome"] == "auto-fallback-cpu":
+        if failure_code is not None:
+            raise FailureMatrixError(
+                "failure_case_fallback_has_failure_code:" + case_id
+            )
+    else:
+        failure_code = _text(
+            failure_code, "failure_case_failure_code_missing:" + case_id
+        )
+        if _FAILURE_CODE.fullmatch(failure_code) is None:
+            raise FailureMatrixError(
+                "failure_case_failure_code_invalid:" + case_id
+            )
+        expected_codes = declared["expectedFailureCodes"]
+        if expected_codes is not None and failure_code not in expected_codes:
+            raise FailureMatrixError(
+                "failure_case_failure_code_unexpected:" + case_id
+            )
 
     diagnostic = _text(
         observation.get("operatorDiagnostic"),
@@ -313,6 +605,7 @@ def _check_case(case_id: str, observation: dict, declared: dict) -> dict:
         raise FailureMatrixError(
             "failure_case_operator_diagnostic_invalid:" + case_id
         )
+    diagnostic = _RAW_GPU_UUID.sub("GPU-<redacted>", diagnostic)
 
     reason = observation.get("deviceResolutionReason")
     device = observation.get("actualDevice")
@@ -322,21 +615,21 @@ def _check_case(case_id: str, observation: dict, declared: dict) -> dict:
         # is the failure the case exists to detect.
         if device is not None:
             raise FailureMatrixError("failure_case_not_fail_closed:" + case_id)
-        if observation.get("processingCompleted") is True:
+        if observation.get("processingCompleted") is not False:
+            # Stating it is the point: silence is not evidence that nothing ran.
             raise FailureMatrixError("failure_case_not_fail_closed:" + case_id)
         if reason is not None:
             raise FailureMatrixError(
                 "failure_case_unexpected_resolution_reason:" + case_id
             )
     else:
-        expected_reason = declared["deviceResolutionReason"]
-        if reason != expected_reason:
-            raise FailureMatrixError(
-                "failure_case_resolution_reason_mismatch:" + case_id
-            )
         if reason not in DEVICE_RESOLUTION_REASONS:
             raise FailureMatrixError(
                 "failure_case_resolution_reason_unknown:" + case_id
+            )
+        if reason != declared["deviceResolutionReason"]:
+            raise FailureMatrixError(
+                "failure_case_resolution_reason_mismatch:" + case_id
             )
         device = _text(device, "failure_case_actual_device_missing:" + case_id)
 
@@ -367,8 +660,35 @@ def _check_case(case_id: str, observation: dict, declared: dict) -> dict:
             # A recovery that never retried did not exercise recovery.
             raise FailureMatrixError("failure_case_recovery_not_exercised:" + case_id)
 
-    if not declared["retryPermitted"] and observation.get("recovered") is True:
+    if not declared["retryPermitted"] and observation.get("recovered") not in (
+        None,
+        False,
+    ):
         raise FailureMatrixError("failure_case_retry_not_permitted:" + case_id)
+
+    if declared["requiresHardware"]:
+        # A case that needs a GPU must carry something only a GPU host could
+        # have produced. Without this, a full `hardware` bundle assembles on a
+        # machine with no device and is indistinguishable from one that ran --
+        # which is exactly the tooling-is-not-execution line this phase exists
+        # to hold. The identity is the salted digest, never the raw UUID.
+        observed_gpu = observation.get("gpuUuidSha256")
+        if not isinstance(observed_gpu, str) or _SHA256.fullmatch(
+            observed_gpu
+        ) is None:
+            raise FailureMatrixError(
+                "failure_case_gpu_identity_missing:" + case_id
+            )
+        if gpu_uuid_sha256 is not None and observed_gpu != gpu_uuid_sha256:
+            raise FailureMatrixError(
+                "failure_case_gpu_identity_mismatch:" + case_id
+            )
+        if not isinstance(observation.get("driverVersion"), str) or not str(
+            observation.get("driverVersion")
+        ).strip():
+            raise FailureMatrixError(
+                "failure_case_driver_version_missing:" + case_id
+            )
 
     return {
         "caseId": case_id,
@@ -383,19 +703,36 @@ def _check_case(case_id: str, observation: dict, declared: dict) -> dict:
         "retryPermitted": declared["retryPermitted"],
         "fallbackPermitted": declared["fallbackPermitted"],
         "requiresHardware": declared["requiresHardware"],
+        "requiresWindowsHost": declared["requiresWindowsHost"],
+        "gpuUuidSha256": observation.get("gpuUuidSha256")
+        if declared["requiresHardware"]
+        else None,
     }
 
 
 def expected_cases(scope: str) -> set[str]:
-    """Which cases a bundle of this scope must carry."""
+    """Which cases a bundle of this scope must carry.
+
+    Two axes, not one. A case can need the Windows launcher without needing a
+    GPU -- most of the permitted Auto fallbacks are resolved by
+    `Test-CudaRuntimeUsable` before Python starts, and PowerShell does not run
+    in hosted CI at all. Treating "no GPU required" as "observable here" would
+    have put those cases in a bundle no hosted machine can honestly produce.
+    """
     if scope not in SCOPES:
         raise FailureMatrixError("failure_matrix_scope_invalid")
     if scope == "hardware":
         return set(FAILURE_CASES)
+    if scope == "windows-host":
+        return {
+            case_id
+            for case_id, declared in FAILURE_CASES.items()
+            if not declared["requiresHardware"]
+        }
     return {
         case_id
         for case_id, declared in FAILURE_CASES.items()
-        if not declared["requiresHardware"]
+        if not declared["requiresHardware"] and not declared["requiresWindowsHost"]
     }
 
 
@@ -406,6 +743,7 @@ def build_failure_matrix(
     source_head_sha: str,
     captured_at_utc: str,
     operator_reference: str,
+    development_evidence: Path | None = None,
 ) -> dict[str, object]:
     if scope not in SCOPES:
         raise FailureMatrixError("failure_matrix_scope_invalid")
@@ -423,14 +761,47 @@ def build_failure_matrix(
     unknown = sorted(set(cases) - set(FAILURE_CASES))
     if unknown:
         raise FailureMatrixError("failure_matrix_unknown_case:" + ",".join(unknown))
-    if scope == "linux-observable":
-        # A bundle assembled without a GPU may not carry a case that needs one;
-        # otherwise its scope label would understate what it claims.
-        hardware_only = sorted(set(cases) - required)
-        if hardware_only:
+    if scope != "hardware":
+        # A bundle may not carry a case its scope says it cannot have observed;
+        # otherwise the scope label understates what the bundle claims.
+        out_of_scope = sorted(set(cases) - required)
+        if out_of_scope:
             raise FailureMatrixError(
-                "failure_matrix_hardware_case_out_of_scope:" + ",".join(hardware_only)
+                "failure_matrix_hardware_case_out_of_scope:" + ",".join(out_of_scope)
             )
+
+    # A hardware bundle names the card its cases were observed on, and binds to
+    # the C4 record that qualified it. Otherwise the bundle asserts nothing
+    # about which machine produced it.
+    gpu_uuid_sha256: str | None = None
+    development_sha: str | None = None
+    if scope == "hardware":
+        if development_evidence is None:
+            raise FailureMatrixError("failure_matrix_development_evidence_required")
+        hardware, development_sha = _load(
+            development_evidence,
+            "mavi-windows-cuda-development-evidence-v2",
+            "failure_matrix_development_evidence",
+        )
+        corroboration = hardware.get("corroboration")
+        if not isinstance(corroboration, dict):
+            raise FailureMatrixError(
+                "failure_matrix_development_evidence_schema_invalid"
+            )
+        gpu_uuid_sha256 = corroboration.get("gpuUuidSha256")
+        if not isinstance(gpu_uuid_sha256, str) or _SHA256.fullmatch(
+            gpu_uuid_sha256
+        ) is None:
+            raise FailureMatrixError(
+                "failure_matrix_development_evidence_schema_invalid"
+            )
+        block = hardware.get("developmentEvidence")
+        if not isinstance(block, dict) or block.get("sourceHeadSha") != source_head_sha:
+            raise FailureMatrixError("failure_matrix_source_revision_mismatch")
+    elif development_evidence is not None:
+        # A non-hardware bundle that cited hardware evidence would imply the
+        # very thing its scope denies.
+        raise FailureMatrixError("failure_matrix_development_evidence_out_of_scope")
 
     checked = []
     digests = {}
@@ -438,7 +809,14 @@ def build_failure_matrix(
         observation, digest = _load(
             cases[case_id], CASE_SCHEMA_VERSION, "failure_case"
         )
-        checked.append(_check_case(case_id, observation, FAILURE_CASES[case_id]))
+        checked.append(
+            _check_case(
+                case_id,
+                observation,
+                FAILURE_CASES[case_id],
+                gpu_uuid_sha256=gpu_uuid_sha256,
+            )
+        )
         digests[case_id] = digest
 
     evidence: dict[str, object] = {
@@ -450,6 +828,8 @@ def build_failure_matrix(
             "capturedAtUtc": captured_at_utc,
             "operatorReference": operator_reference,
             "caseCount": len(checked),
+            "developmentEvidenceSha256": development_sha,
+            "gpuUuidSha256": gpu_uuid_sha256,
         },
         "cases": checked,
         "caseSha256": digests,
@@ -469,6 +849,11 @@ def build_failure_matrix(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scope", choices=SCOPES, required=True)
+    parser.add_argument(
+        "--development-evidence",
+        type=Path,
+        help="the C4 hardware evidence bundle; required for --scope hardware",
+    )
     parser.add_argument(
         "--case",
         action="append",
@@ -503,6 +888,9 @@ def main() -> int:
         if not separator or not case_id or not path:
             print(json.dumps({"ok": False, "code": "failure_case_argument_invalid"}))
             return 2
+        if case_id in cases:
+            print(json.dumps({"ok": False, "code": "failure_case_argument_duplicate"}))
+            return 2
         cases[case_id] = Path(path)
 
     try:
@@ -512,6 +900,7 @@ def main() -> int:
             source_head_sha=args.source_head_sha,
             captured_at_utc=args.captured_at_utc,
             operator_reference=args.operator_reference,
+            development_evidence=args.development_evidence,
         )
     except FailureMatrixError as exc:
         print(json.dumps({"ok": False, "code": exc.code}, sort_keys=True))

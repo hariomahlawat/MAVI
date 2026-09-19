@@ -741,8 +741,9 @@ Explicit `CUDA` must always fail closed.
 ### C7 tooling and execution order
 
 The matrix is declared as data in `tools/vision/build_failure_matrix_evidence.py`
--- 33 cases, each naming the invariant it defends, the expected outcome, whether
-retry is permitted and whether fallback is permitted. Print it before the
+-- 37 cases, each naming the invariant it defends, the expected outcome, whether
+retry is permitted, whether fallback is permitted, and the stable failure codes
+that may legitimately report it. Print it before the
 session to prepare the run sheet:
 
 ```
@@ -764,10 +765,23 @@ python tools/vision/build_failure_matrix_evidence.py --scope hardware \
     --output failure-matrix-evidence.json
 ```
 
-**Scope is explicit and never implied.** `--scope linux-observable` covers the
-23 cases that need no GPU and may not carry a hardware case; `--scope hardware`
-requires all 33. Neither is hardware qualification: the bundle says so in its
-own note, and a linux-observable bundle asserts nothing about any GPU.
+**Scope is explicit and never implied, on two axes.** A case can need the
+Windows launcher without needing a GPU: most permitted Auto fallbacks are
+resolved by `Test-CudaRuntimeUsable` before Python starts, and PowerShell does
+not run in hosted CI at all. So:
+
+- `--scope linux-observable` -- the 5 cases the worker itself produces, needing
+  neither a GPU nor the launcher;
+- `--scope windows-host` -- the 25 cases needing the Windows launcher but no
+  GPU;
+- `--scope hardware` -- all 37, and it additionally requires
+  `--development-evidence`: every hardware case must carry the salted GPU
+  identity digest and driver version, and all of them must match the card the
+  C4 bundle qualified. Without that a full hardware bundle would assemble on a
+  machine with no device and be indistinguishable from one that ran.
+
+None of the three is hardware qualification. The bundle says so in its own note,
+and a bundle may never carry a case its scope says it cannot have observed.
 
 The distinction the matrix exists to protect is between a **permitted** fallback
 and a **silent** one:
@@ -787,11 +801,17 @@ restated, so the matrix cannot certify against codes the runtime no longer
 emits. A test asserts the eight fallback cases are exactly
 `AUTO_CPU_DEVICE_RESOLUTION_REASONS`.
 
-Ten cases require the real host: the four that need a present or absent physical
-device, the driver and architecture refusals, the physical-GPU identity refusal,
-`mmcv.ops` failing on device, and the two recovery cases. The other 23 are
-exercisable on any machine and should be recorded before the host session, so
-the session spends its time on what only it can do.
+Where Auto is permitted to answer CPU, explicit CUDA has its own refusal case --
+all eight, not only the obvious four. Those are the highest-risk places for a
+silent fallback precisely because a legitimate CPU answer exists next door.
+
+Twelve cases require a real GPU; twenty more require the Windows launcher; the
+remaining five are exercisable on any machine and should be recorded before the
+host session, so the session spends its time on what only it can do.
+
+Operator diagnostics are redacted on the way in: the natural NVML or driver
+message for a wrong-GPU refusal *is* the card's UUID, and the operator is being
+asked to paste that message into the record.
 
 ## Phase C8 — review and merge
 
