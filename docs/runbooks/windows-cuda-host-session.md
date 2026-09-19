@@ -968,6 +968,91 @@ python tools\vision\build_development_e2e_evidence.py `
 
 ---
 
+## C6.P Host power preconditions (read before any C6 run)
+
+A C6 run is several minutes of native GPU work with no keyboard or mouse
+activity, which is exactly the shape Windows idle timers are built to read as
+an idle machine. If the host suspends mid-attempt every thread in the worker
+process is frozen, and what the worker observes on resume is not distinguishable
+from work that stopped progressing. Establish the host's power behaviour
+**before** the run, not after a failure.
+
+**Run on AC power** for any qualification or C6 run. Battery power changes the
+active plan's idle timers on most laptops, so a run on battery is not
+comparable with a run on AC.
+
+**Read what this host can do and what it is set to do:**
+
+```powershell
+powercfg /a
+powercfg /q SCHEME_CURRENT SUB_VIDEO VIDEOIDLE
+powercfg /q SCHEME_CURRENT SUB_SLEEP STANDBYIDLE
+powercfg /q SCHEME_CURRENT SUB_SLEEP HIBERNATEIDLE
+```
+
+- `powercfg /a` states whether this host supports **Standby (S0 Low Power
+  Idle)** — Modern Standby — or classic **S3**. The two behave differently on
+  resume and the distinction belongs in the run record.
+- The three `/q` readings give the display, standby and hibernate idle timeouts
+  in seconds for the **active** plan (`Current AC Power Setting Index`, hex).
+  A standby timeout shorter than the expected run duration is a precondition
+  failure, not a detail.
+- Record all four readings alongside the run. They are cheap to take and
+  impossible to reconstruct afterwards.
+
+**What MAVI now does about it.** For the duration of **one processing attempt**
+— and only that — the worker asks Windows for
+`PowerRequestSystemRequired` and, where supported, `PowerRequestExecutionRequired`
+(`src/vision/mavi_vision/runtime/host_power.py`). Confirm it while a job is
+running:
+
+```powershell
+powercfg /requests
+```
+
+The active attempt appears under `SYSTEM` (and `EXECUTION` where granted) as
+`MAVI vision processing active (job <id> attempt <n>)`. An **idle** worker holds
+nothing, so an empty listing between jobs is correct and expected.
+
+**What that request does not promise.** It defeats **idle-triggered** sleep
+only. It does not prevent a closed lid, a pressed power button, an operator
+choosing Sleep or Hibernate, or every Modern Standby transition — Windows
+honours explicit user intent over any process's request. It is a robustness
+improvement, not a guarantee that the host cannot suspend, and it is
+best-effort: if the Windows power API refuses, the worker logs one warning and
+processes the job anyway. Nothing in C6 acceptance depends on the request being
+granted.
+
+**Do not** run `powercfg /change` or otherwise edit the host's saved power plan
+for a run. A permanent change to an operator's workstation outlives the test
+and is not something this runbook asks for.
+
+### Empirical record (correlation, not causation)
+
+| Run | Conditions | Outcome |
+| --- | --- | --- |
+| `c6-explicit-cuda-01` | Host power unconstrained | `vision_inference_watchdog_expired`, ≈71 %, 3486 frames, source offset ≈116161 ms, `threshold_seconds` 120, variant `windows-x86_64-cuda` |
+| `c6-explicit-cuda-02` | AC power, display kept awake, sleep/hibernate disabled, `nvidia-smi` monitored | `Completed` / `Processed`; crossed the previous failure region; no new watchdog incident |
+
+The controlled rerun changed four variables at once, so it establishes only that
+the failure is **not deterministic** in the asset, the frame region, the model,
+the CUDA Runtime Pack or the 120 s threshold — a fixed stall at that offset
+would have recurred. It does **not** identify which variable mattered, and it is
+equally consistent with a low-probability GPU-side stall that did not fire on
+the second run.
+
+A closely similar observation is already on record from the CPU qualification
+session: `docs/reviews/2026-09-17-pr44-final-cold-review.md` records an attempt
+reaching ≈70 % before the host entered sleep/standby, followed by exit 70, and
+explicitly declines to assign a cause. Two independent observations of the same
+association raise the prior on a host-level cause; neither is proof.
+
+Therefore: the power request above is **robustness**, not a defect fix, and
+nothing here is evidence that the CUDA path was defective. No qualification
+state changes on account of this section.
+
+---
+
 ## C6.D Isolating a watchdog exit 70 (diagnostic, not a gate)
 
 Use this only when a C6 run has died with fatal supervisor exit **70**. It
@@ -1047,9 +1132,14 @@ evidence document, and does not change what C6 accepts. `--no-explicit-sync`
 reproduces production's timing profile exactly but hides where a GPU stall
 surfaces; leave it off unless comparing against the worker's own numbers.
 
-**Also worth one command**, because the failure landed at ≈420 s on a laptop
-GPU: `powercfg /q` and read `VIDEOIDLE` (Turn off display after) on the active
-plan. Modern Standby was excluded; display-off is a separate power event.
+**Rule out the host before blaming the device.** Take the C6.P readings first
+(`powercfg /a`, and the display/standby/hibernate idle timeouts), and check
+whether `powercfg /requests` shows MAVI's request while a job runs. A suspended
+host and a stalled GPU produce the same watchdog failure code, and only the
+first is cheap to exclude. Display-off, Modern Standby, session lock and a
+WDDM/GPU power-state change are four different events: only a transition that
+actually suspends the process can freeze an attempt, so a display timeout alone
+does not explain a 120 s stall.
 
 # C7 — failure matrix
 

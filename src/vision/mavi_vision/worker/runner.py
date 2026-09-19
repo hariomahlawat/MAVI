@@ -4,6 +4,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
+from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import isfinite
@@ -17,6 +18,7 @@ from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.process_video import VideoProcessingError
 from mavi_vision.runtime.errors import ProcessingDependencyError
 from mavi_vision.runtime.execution_lane import ProcessExecutor
+from mavi_vision.runtime.host_power import keep_host_awake
 from mavi_vision.runtime.progress import (
     RUNNING_MAX_PERCENT,
     ProcessingProgress,
@@ -139,6 +141,9 @@ class WorkerRunner:
         monotonic_clock: Callable[[], float] = time.monotonic,
         runtime_provenance_provider: Callable[[], RuntimeProvenance | None] | None = None,
         duration_clock: Callable[[], float] = time.perf_counter,
+        host_power_request: Callable[[str], AbstractContextManager[object]] = (
+            keep_host_awake
+        ),
     ) -> None:
         if heartbeat_interval_seconds <= 0:
             raise ValueError("heartbeat_interval_seconds must be positive")
@@ -172,6 +177,7 @@ class WorkerRunner:
         self._monotonic_clock = monotonic_clock
         self._runtime_provenance_provider = runtime_provenance_provider
         self._duration_clock = duration_clock
+        self._host_power_request = host_power_request
         self._fatal_termination_active = False
 
     @property
@@ -355,9 +361,19 @@ class WorkerRunner:
         current_deadline = heartbeat.lease_expires_at_utc
         lease_guard = LeaseGuard(current_deadline)
         process_task: asyncio.Task[VisionProcessingResult] | None = None
+        # Scoped to exactly this attempt's native work, so an idle worker never
+        # keeps a workstation awake. Best-effort and Windows-only: see
+        # mavi_vision.runtime.host_power for what it does not promise.
+        power_scope = ExitStack()
 
         try:
             lease_guard.check_owned()
+            power_scope.enter_context(
+                self._host_power_request(
+                    "MAVI vision processing active "
+                    f"(job {lease.job_id} attempt {lease.attempt_count})"
+                )
+            )
             process_task = asyncio.create_task(
                 self._process_executor.run(
                     self._processor.process,
@@ -464,6 +480,11 @@ class WorkerRunner:
                 )
             raise
         finally:
+            # Released first because it cannot raise and must not be able to
+            # displace the ownership containment that follows. The watchdog's
+            # os._exit path runs no finally at all; Windows reclaims a dead
+            # process's power requests, which is what covers it.
+            power_scope.close()
             if process_task is not None and not process_task.done():
                 lease_guard.mark_lost()
 
