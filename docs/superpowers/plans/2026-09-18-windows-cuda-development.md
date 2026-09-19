@@ -398,7 +398,19 @@ The C2 build environment must set:
 - `MMCV_WITH_OPS=1`;
 - `FORCE_CUDA=1`;
 - `TORCH_CUDA_ARCH_LIST=7.5+PTX`;
+- `MAX_JOBS=2`;
+- `DISTUTILS_USE_SDK=1`;
 - the exact toolchain frozen by R1.
+
+It must also pin `setuptools==80.10.2`. Three of these were established
+empirically on the host and are recorded in the runbook with the failure each
+one prevents: `--no-deps` on the Torch/torchvision download (without it the
+cu124 index deposits NumPy and Pillow into the wheelhouse and contaminates the
+closure), the setuptools pin (MMCV 2.1.0 imports `pkg_resources`, which
+setuptools 84 no longer ships), and `DISTUTILS_USE_SDK=1` (PyTorch 2.6 aborts
+the extension build when a Visual Studio developer environment is already
+active). The MMCV wheel build is
+`pip wheel . --no-build-isolation --no-deps`.
 
 The authoritative C2 wheel build occurs on a controlled Windows build host. The Development laptop is the C4/C6 hardware-execution target, not the authoritative wheel build host.
 
@@ -421,21 +433,80 @@ identity contract rather than just delaying it.
    ```
    python tools/vision/compare_wheel_reproducibility.py \
        --left build-a/mmcv-....whl --right build-b/mmcv-....whl \
-       --output mmcv-reproducibility.json --require semantically-identical
+       --output mmcv-reproducibility-ab.json \
+       --require semantically-identical-after-native-normalization
    ```
 
    The verdict decides C3's identity contract:
    - `byte-identical` -- C3 may enforce exact hash identity on rebuild;
-   - `semantically-identical` -- the installed members are equal and only the
-     container varies; C3 enforces the documented deterministic member
-     identity, and the variance source must be recorded;
+   - `semantically-identical` -- the installed members are byte-equal and only
+     the container varies;
+   - `semantically-identical-after-native-normalization` -- the installed
+     members are **not** byte-equal, and every byte by which they differ was
+     proved to lie inside a documented build-metadata field that the report
+     names. **This is the observed R1 outcome** (see below);
    - `divergent-*` -- stop. Identify the variance source before proceeding;
      an ADR is required if it proves irreducible.
+
+   Then compare the **intermediate objects**, which the linked image's own
+   variance would otherwise hide:
+
+   ```
+   python tools/vision/compare_native_object_trees.py \
+       --left obj-a --right obj-a2 \
+       --output mmcv-objects-a-a2.json --require normalized-identical
+   ```
 
    Note the tool reports absolute build paths embedded in **both** wheels.
    Identical embedded paths still defeat relocatable reproduction: two builds
    from the same directory will be byte-identical and still not reproducible
    elsewhere.
+
+#### What the host measured, and the acceptance model it forces
+
+The first host session built the wheel four times: A and B from two separately
+cloned trees, then A2 and A3 from the *same* tree and the same virtual
+environment after a clean rebuild. All four wheels have different SHA-256
+values and sizes within ~200 bytes of each other. The MMCV CUDA wheel is
+therefore **not byte-reproducible** on this toolchain, and this plan does not
+claim it is.
+
+A-versus-B additionally embeds each tree's absolute source root roughly 463
+times in `_ext.cp312-win_amd64.pyd`. That is a real non-relocatability finding;
+it is also why A-versus-B cannot answer whether the compiler agrees, and why
+the A2-versus-A3 object comparison exists.
+
+Across A2 and A3, all 136 intermediate objects differ by raw hash. Two were
+inspected by hand: a CUDA object differing in 2 bytes that reduced to zero
+after the COFF `TimeDateStamp` at offset 4:8 was zeroed, and an 18 MB `/bigobj`
+CPU object differing at offsets 8, 9, 36 and 37.
+
+**Two corrections to that reading, both now enforced by the tooling.**
+
+*The sample is not the population.* Two of 136 inspected by hand establishes the
+claim for two. `compare_native_object_trees.py` runs the same reduction over
+every object and fails on any one that does not reduce, which is what the gate
+needs.
+
+*Offset 36 is not a timestamp.* In the documented `ANON_OBJECT_HEADER_BIGOBJ`
+layout, 8:12 is `TimeDateStamp` and 36:40 is `MetaDataSize` (LLVM's reader calls
+it `unused3`). Normalising 36:40 alongside the timestamp reached byte equality
+by excusing a field whose meaning nobody had established. The pattern is
+suggestive -- both differences sit in the low half of a DWORD, which is what two
+timestamps minutes apart look like -- but suggestive is not established.
+`native_binary_metadata.py` therefore declares `MetaDataSize` and
+`MetaDataOffset` as *observed, not normalised*: their values are decoded into
+the report and they **block** an equivalence verdict. One host run prints the
+two DWORDs and settles it; until then this is an open question, not a closed one.
+
+**The acceptance model.** A legitimate C2 outcome is *semantic reproducibility
+after mechanically verified normalisation of documented Windows native
+metadata*, and only that -- never "byte reproducible". "Mechanically verified"
+is load-bearing: the tool zeroes exactly the declared field ranges in both
+inputs and compares what is left, so an equivalence verdict is a proof that
+every differing byte lay inside a named field, not a decision to overlook it. A
+native member that will not parse is a refusal, not a pass, and no member is
+excused by filename.
 3. **Assemble the wheelhouse** and record what each artefact is and where it
    came from:
 
@@ -477,6 +548,134 @@ test:
 A clean Windows venv must install the entire closure with:
 `--no-index --only-binary=:all: --require-hashes`
 and `pip check` must pass.
+
+**What BUILD-VERIFIED asserts.** That the frozen toolchain produces a working
+CUDA wheel, that one named wheel was selected as canonical, and that an
+independent rebuild is semantically equivalent to it under mechanically
+verified normalisation of documented Windows native build metadata. It does not
+assert byte reproducibility, and no document derived from it may.
+
+#### Deterministic-build flags — reviewed, NOT adopted in R1
+
+The obvious response to a non-reproducible wheel is to add MSVC's `/Brepro` and
+force the timestamps to agree. The review says no, for R1. The reasoning is
+recorded here because "we never tried it" and "we tried it and it does not
+apply" are different states, and the next reader should not have to redo the
+investigation.
+
+Each claim below is marked **[documented]** with its source, or **[unverified]**
+where only a host experiment can settle it. Nothing here is asserted from
+recollection.
+
+**What is documented.**
+
+- `IMAGE_DEBUG_TYPE_REPRO` (type 16) is a real PE convention: the entry marks an
+  image whose date/time fields carry bits of a content hash rather than a build
+  time, and its raw data is either empty or a length-prefixed hash.
+  **[documented — Microsoft PE/COFF specification]**
+- `/PDBALTPATH:%_PDB%` replaces the absolute PDB path the linker writes into the
+  image with the bare filename. It does not move the PDB and does not touch the
+  CodeView GUID or Age. **[documented — MSVC linker reference]**
+- `CL`/`_CL_` and `LINK`/`_LINK_` prepend and append options to every cl.exe and
+  link.exe invocation. These are the only supported way to inject a flag into
+  this build without editing the pinned MMCV commit.
+  **[documented — MSVC environment-variable reference]**
+- nvcc forwards host options through `-Xcompiler`. **[documented — nvcc guide]**
+- nvcc `--frandom-seed` is documented as producing deterministically identical
+  PTX and object files by fixing the seed behind generated symbol names.
+  **[documented — nvcc guide; presence in CUDA 12.4 specifically is unverified]**
+
+**What is not documented.**
+
+- `/Brepro` appears nowhere in Microsoft's compiler or linker option reference,
+  for either `cl` or `link`. It is an **undocumented, unsupported switch**.
+  Its only documented footprint is LLVM's reimplementation of it and the PE
+  spec's REPRO debug type. **[documented as absent]**
+- What MSVC 14.44 actually writes into a `.obj` `TimeDateStamp` under `/Brepro`
+  — a path hash, zero, or `0xFFFFFFFF` — is **[unverified]**. So is whether
+  MSVC's linker emits the type-16 entry at all.
+- MSVC is **not** known to make the CodeView RSDS GUID and Age deterministic.
+  The widely quoted "GUID is calculated deterministically" text describes the
+  .NET/Roslyn convention, not native MSVC. The existence of third-party
+  post-link canonicalisers for MSVC PE+PDB pairs is circumstantial evidence the
+  other way. **[unverified, probably false]**
+
+**Why it is not adopted now.**
+
+1. **Two of its three usual rationales are already moot here.** setuptools links
+   release extensions with `/INCREMENTAL:NO`, so the `/Brepro`-versus-
+   incremental-linking conflict cannot arise; and `pip wheel` builds non-debug,
+   so there is no PDB and no CodeView record in `_ext.cp312-win_amd64.pyd` for
+   `/PDBALTPATH` to clean up. **[documented — setuptools `_msvccompiler`
+   defaults]** This also predicts that the ~463 embedded source-root strings the
+   host observed are `__FILE__`-derived, not a PDB path — which is a testable
+   prediction, not a conclusion.
+2. **It collides with the configuration this build actually uses.** The same
+   setuptools defaults compile with `/GL` and link with `/LTCG`. Under
+   link-time code generation the compiler does not write the object timestamps
+   `/Brepro` targets, and `/Brepro` is reported to be ignored or unreliable
+   there. **[the setuptools flags are documented; the `/Brepro`-under-LTO
+   behaviour is unverified]** Adopting a flag that is probably a no-op in our
+   configuration, to fix a problem we have already measured and characterised,
+   is the worst kind of green.
+3. **It cannot be injected cleanly.** MMCV 2.1.0 hardcodes
+   `extra_compile_args['cxx'] = ['/std:c++17']` and never reads the environment
+   for it; the only env hook is `MMCV_CUDA_ARGS`, which reaches nvcc only and
+   arrives as a single list element that PyTorch's Windows path then quotes as
+   one token. `extra_link_args` is empty and unreachable. **[documented — MMCV
+   setup.py at the pinned commit, PyTorch 2.6.0 `cpp_extension`]** The remaining
+   route is `set CL=/Brepro` and `set LINK=/Brepro`, which is supported but
+   applies to every cl.exe in the build including the ones nvcc spawns.
+4. **It cannot address device code.** Whatever `/Brepro` does to the host
+   toolchain, the fatbin nvcc embeds is outside its reach; `--frandom-seed` is
+   the candidate there and is separately unverified.
+5. **It would invalidate the measurements already taken.** Changing compile or
+   link flags changes the artefact. Builds A, B, A2 and A3, and any pack
+   identity reasoned from them, would have to be redone. Doing that to make a
+   gate green, before the gate's acceptance model is even correct, is the
+   inversion this workstream exists to avoid.
+
+**The decision.** R1 keeps the frozen build recipe unchanged and accepts
+semantic equivalence after mechanically verified normalisation as the C2
+outcome. `/Brepro`, `--frandom-seed` and `/PDBALTPATH:%_PDB%` are recorded as
+**R2 candidates**, to be evaluated only by experiment on the host and only after
+Gate C2 has passed on the current recipe. An R2 experiment would: build twice
+with `set CL=/Brepro` and `set LINK=/Brepro`; confirm from the object and image
+headers whether the timestamps actually changed; check whether a type-16 debug
+entry appeared; and rerun `compare_native_object_trees.py` and
+`compare_wheel_reproducibility.py` to see whether the residual set shrank. If it
+did not shrink, the flag is not doing anything here and the file closes.
+
+**What must not happen:** adding any of these flags to force a green verdict.
+The checker was built so that a green verdict means something; a flag added to
+produce one, without evidence that it changes the artefact in the way claimed,
+empties it again.
+
+### Consequence for C3 identity — reviewed, no change required
+
+`runtime_pack_id` is derived from the platform variant, the Python version, the
+native ABI, the third-party lock digest and the requirements-projection digest.
+The lock pins each wheel as `name==version --hash=sha256:...`. Runtime Pack
+identity therefore **already binds to the selected canonical MMCV wheel's
+SHA-256**, not to the ability to rebuild that wheel bit for bit. The
+non-reproducibility finding does not invalidate the identity model and no
+identity change is required.
+
+Two things it does change, both in what must be recorded rather than in how
+identity is computed:
+
+1. **The canonical wheel must be named as a choice.** Two wheels were built; one
+   becomes the artefact the lock binds to. Which one, and why, is part of C2's
+   record. The other is reproducibility evidence.
+2. **The SHA-256 must travel with the reproducibility verdict.** A hash recorded
+   alone implies it can be re-derived. It cannot. The C2.2a and C2.2b reports
+   are what qualify it, and they belong beside it.
+
+The rule that follows, and that nothing downstream may violate: a rebuilt MMCV
+wheel is **not** substitutable into an existing pack. Semantic equivalence is
+not artefact identity. If the canonical wheel is ever lost, the pack identity is
+lost with it and a new pack must be minted -- which is the correct behaviour for
+a hash-pinned closure, not a defect to engineer around.
 
 ## Phase C3 — Runtime Pack
 
@@ -861,6 +1060,20 @@ toolchain is CUDA 12.4 + MSVC 14.44.35207 + Windows SDK 10.0.26100.0; MSVC 14.39
 is not required. The evidence is recorded above and frozen in the build
 contract.
 
+**C2 has started.** The first Windows host session ran the build half of C2:
+four successful MMCV CUDA wheel builds, three empirical corrections to the
+procedure (`--no-deps` on the wheel download, `setuptools==80.10.2`,
+`DISTUTILS_USE_SDK=1`), and the reproducibility measurement. Its outcome is
+that the wheel is **not byte-reproducible**, and the acceptance model in Phase
+C2 above was rewritten to match what was measured rather than what was hoped.
+
+C2 is **not** complete and the branch is **not** BUILD-VERIFIED. C2.3 through
+C2.5 -- the wheelhouse manifest, the frozen lock and the offline install proof
+-- have not been run, and C2.2b (the object-tree comparison over all 136
+objects, as opposed to two inspected by hand) has not been run with the tooling
+that now exists. Until Gate C2 passes in full, no BUILD-VERIFIED claim may be
+made anywhere.
+
 ### Phase state, in the precise vocabulary
 
 These states are not interchangeable and this plan does not collapse them.
@@ -875,7 +1088,8 @@ reaches.
 | --- | --- |
 | C0, C1, C1R | complete; C1R merged to `main` |
 | R1 toolchain preflight | **executed and passed** on the controlled Windows host |
-| C2 wheelhouse/lock | tooling IMPLEMENTED and TESTED; **not build-verified** |
+| C2 wheelhouse/lock | tooling IMPLEMENTED and TESTED; build step **EXECUTED** on the host (4 wheels, reproducibility measured); C2.2b and C2.3-C2.5 **not run**; **not build-verified** |
+| C2 reproducibility | **MEASURED**: not byte-reproducible. Semantic equivalence after normalisation is the acceptance model; the full-population object proof is still outstanding |
 | C3 Runtime Pack | tooling IMPLEMENTED and TESTED; **not Runtime-Pack-verified** |
 | C4 hardware qualification | tooling IMPLEMENTED and TESTED; **not hardware-qualified** |
 | C5 Overlay binding | **not started**; blocked on a real C3 pack identity. The requirements-projection writer and the Auto-decision function it needs are IMPLEMENTED and TESTED |
@@ -883,9 +1097,10 @@ reaches.
 | C7 failure matrix | tooling IMPLEMENTED and TESTED; 37 declared cases, 7 exercisable without a Windows host, **none yet recorded** |
 | Production | **not entered**, and not reachable from anything above |
 
-No C2 artefact has been produced. Nothing in this branch acquires wheels,
-builds MMCV CUDA, freezes a lock or promotes any qualification state, and none
-of that can happen from a hosted Linux session. The tooling exists first so the
+No C2 artefact is committed to this branch, and none should be: the wheels are
+external and the lock is not frozen until Gate C2 passes. Nothing in this branch
+acquires wheels, builds MMCV CUDA, freezes a lock or promotes any qualification
+state, and none of that can happen from a hosted Linux session. The tooling exists first so the
 host session executes a reviewed procedure rather than improvising one, and so
 the artefacts it produces are checked by code rather than read by eye.
 
@@ -900,7 +1115,10 @@ as a whole. Their findings are fixed and pinned by test.
 **The next step requires the physical Windows CUDA host.** No further work on
 this branch can be done from a hosted Linux session: the remaining phases all
 begin by acquiring a wheel, building against the frozen toolchain, or executing
-on the GPU. The procedure is
+on the GPU. The immediate next actions there are C2.2b -- rerun the A2/A3 object
+comparison under `compare_native_object_trees.py` and record whether the two
+BIGOBJ header words at offsets 36 and 40 decode as timestamps or as something
+else -- and then C2.3. The procedure is
 `docs/runbooks/windows-cuda-host-session.md`; readiness is tracked in
 `docs/superpowers/plans/c8-pr49-readiness.md`.
 

@@ -22,7 +22,7 @@ The vocabulary is not interchangeable:
 | Item | State | Evidence |
 | --- | --- | --- |
 | R1 toolchain preflight | **executed and passed** on the controlled Windows host | frozen in `config/vision/windows-cuda-development-build-v1.json`, `verificationStatus: verified` |
-| C2 tooling (wheel inspection, reproducibility comparison, wheelhouse manifest, lock freeze) | IMPLEMENTED, TESTED | `tools/vision/`, vision suite |
+| C2 tooling (wheel inspection, reproducibility comparison, native metadata analysis, object-tree comparison, wheelhouse manifest, lock freeze) | IMPLEMENTED, TESTED | `tools/vision/`, vision suite; 57 tests on the native analyser, 42 on the wheel comparator, 13 on the object-tree comparator |
 | C3 tooling (Runtime Pack build, native-ABI derivation) | IMPLEMENTED, TESTED | `build_runtime_pack.derive_native_abi`, pinned against the committed contract |
 | C4 tooling (host probe, toolchain verify, runtime verify, evidence assembler) | IMPLEMENTED, TESTED | 88 tests on the assembler, 16 on the verifier |
 | C5 tooling (requirements projection writer, Auto-decision function) | IMPLEMENTED, TESTED | reproduces both tracked CPU projections byte for byte; 9 Auto branches on Windows CI |
@@ -30,26 +30,43 @@ The vocabulary is not interchangeable:
 | C7 tooling (failure matrix, 37 declared cases) | IMPLEMENTED, TESTED | 72 tests |
 | Published schemas for all five record types | COMPLETE | `tools/vision/*.schema.json`, validated on load |
 | Launcher failure-code vocabulary | COMPLETE | 38 codes, mirror-checked, exercised on Windows CI |
-| Guard-coverage harness | COMPLETE | `check_guard_coverage.py`, 16/16 caught, runs in the quality gate |
+| Guard-coverage harness | COMPLETE | `check_guard_coverage.py`, runs in the quality gate |
 | Operator procedure | COMPLETE | `docs/runbooks/windows-cuda-host-session.md`, flag-drift tested |
 | Hosted CI on exact head | GREEN | all five workflows |
 | CPU baseline untouched | VERIFIED | three protected blobs byte-identical to `main@0225779` |
 
-## 2. Build verification (C2) — PENDING
+## 2. Build verification (C2) — PARTIALLY EXECUTED, GATE PENDING
 
-Requires the Windows host. Nothing in this branch has acquired a wheel, built
-MMCV, compared two builds, assembled a wheelhouse or frozen a lock.
+The first Windows host session ran the build half. The closure half has not
+run, and the reproducibility proof has not been run over the full object
+population with the tooling that now exists.
 
-- [ ] authoritative `+cu124` wheels acquired from the dedicated index
-- [ ] MMCV built twice from clean trees against CUDA 12.4 / MSVC 14.44.35207 / SDK 10.0.26100.0
-- [ ] reproducibility verdict recorded (`byte-identical` or `semantically-identical`)
+Done on the host, recorded in the plan:
+
+- [x] MMCV built four times against CUDA 12.4 / MSVC 14.44.35207 / SDK 10.0.26100.0 — A and B from separate clean trees, A2 and A3 from the same tree and venv
+- [x] three procedural corrections established and written into the runbook: `--no-deps` on the wheel download, `setuptools==80.10.2`, `DISTUTILS_USE_SDK=1`
+- [x] reproducibility **measured**: the wheel is not byte-reproducible; four distinct SHA-256 values
+
+Still required before Gate C2:
+
+- [ ] authoritative `+cu124` wheels acquired from the dedicated index **with `--no-deps`**
+- [ ] C2.2a verdict recorded from `compare_wheel_reproducibility.py` (expected `semantically-identical-after-native-normalization`; anything else is a finding)
+- [ ] C2.2b run: `compare_native_object_trees.py` over all 136 A2/A3 objects with `unresolvedCount` 0 — the hand inspection covered two
+- [ ] the two BIGOBJ header words at offsets 36 and 40 decoded and their meaning settled; they currently block equivalence by design
+- [ ] canonical MMCV wheel chosen, named, and its SHA-256 recorded **together with** the reproducibility verdict
 - [ ] wheelhouse manifest produced
 - [ ] `windows-x86_64-cuda.lock` frozen and committed
 - [ ] `windows-x86_64-cuda.requirements.txt` derived and committed
 - [ ] clean `--no-index --require-hashes` install proven with the network blackholed
 - [ ] imports and `mmcv.ops` verified
 
-**Not BUILD-VERIFIED.**
+**Not BUILD-VERIFIED.** A partially executed phase is not a passed gate, and
+four successful builds are not a closure.
+
+**Byte reproducibility is not achievable on this toolchain and is not claimed.**
+The accepted outcome is semantic equivalence after mechanically verified
+normalisation of documented Windows native metadata — and it is accepted only
+once the checker proves it over the artefacts, which has not yet happened.
 
 ## 3. Runtime Pack verification (C3) — PENDING
 

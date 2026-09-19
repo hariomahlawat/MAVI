@@ -78,22 +78,42 @@ assemblers require them to agree, so if you re-checkout, start over.
 **Run step C2.2 (reproducibility) early.** A negative result changes C3's
 identity contract rather than merely delaying it.
 
+**What the first host session established, and what it changed.** The three
+corrections below were paid for on the machine, not derived here; follow them
+literally.
+
+1. `pip download` without `--no-deps` pulls ordinary dependencies (NumPy,
+   Pillow) from the PyTorch index into the wheelhouse and contaminates the
+   closure C2.3 is supposed to describe.
+2. MMCV 2.1.0 imports `pkg_resources`, which setuptools removed. Setuptools 84
+   therefore fails the build outright. The pin below is part of the frozen build
+   environment, not a convenience.
+3. With a Visual Studio developer environment already activated, PyTorch 2.6
+   aborts the extension build unless `DISTUTILS_USE_SDK=1` is set.
+
+It also established that the MMCV CUDA wheel is **not byte-reproducible** on
+this toolchain, and why. See C2.2.
+
 ## C2.1 Acquire the authoritative CUDA wheels
 
 ```powershell
 python -m pip download torch==2.6.0+cu124 torchvision==0.21.0+cu124 `
     --index-url https://download.pytorch.org/whl/cu124 `
-    --only-binary=:all: --dest $work\wheelhouse
+    --only-binary=:all: --no-deps --dest $work\wheelhouse
 ```
 
-- **Success:** two `.whl` files whose versions carry the `+cu124` local segment.
+- **Success:** exactly two `.whl` files, whose versions carry the `+cu124` local
+  segment and nothing else.
 - **Output:** `C:\mavi-c2\wheelhouse\*.whl` — **external**. Never committed; the
   Torch wheel alone is ~2.5 GB.
 - **Record:** SHA-256 of each wheel.
-- **Must NOT change:** the index. Use `--index-url`, never `--extra-index-url`,
-  and never a PyPI fallback. A bare `2.6.0` is a **different artefact** from
-  `2.6.0+cu124` and will answer a different question while appearing to satisfy
-  the gate.
+- **Must NOT change:** the index, or `--no-deps`. Use `--index-url`, never
+  `--extra-index-url`, and never a PyPI fallback. A bare `2.6.0` is a
+  **different artefact** from `2.6.0+cu124` and will answer a different question
+  while appearing to satisfy the gate. Without `--no-deps`, pip resolves Torch's
+  ordinary dependencies against the cu124 index and deposits whatever it finds
+  there beside the two wheels; those strays then enter the C2.3 manifest as if
+  they were part of the CUDA closure.
 - **Failure:** STOP. A wheel that will not download from the cu124 index is not
   substitutable.
 
@@ -113,6 +133,20 @@ python tools\vision\inspect_windows_cuda_torch_wheel.py `
 
 ## C2.2 Build MMCV twice, from clean trees, and compare
 
+### The build environment
+
+Open an **x64 Native Tools Command Prompt for VS 2022** so the frozen toolset is
+the active one, then, in each build's virtual environment:
+
+```powershell
+python -m pip install "setuptools==80.10.2" wheel
+```
+
+- **Must NOT change:** the setuptools pin. MMCV 2.1.0 imports `pkg_resources`,
+  which newer setuptools no longer ships, so setuptools 84 fails the build. This
+  is a property of the pinned MMCV commit; do not "fix" it by taking a newer
+  MMCV.
+
 Both builds use the frozen toolchain and these exact variables:
 
 ```powershell
@@ -120,39 +154,147 @@ $env:MMCV_WITH_OPS = "1"
 $env:FORCE_CUDA = "1"
 $env:TORCH_CUDA_ARCH_LIST = "7.5+PTX"
 $env:MAX_JOBS = "2"
+$env:DISTUTILS_USE_SDK = "1"
 ```
 
-Build into `$work\build-a` and `$work\build-b` from **separately cloned clean
-trees** at MMCV commit `57c4e25e06e2d4f8a9357c84bcd24089a284dc88`, then:
+- **Must NOT change:** `DISTUTILS_USE_SDK=1`. With the developer environment
+  already activated, PyTorch 2.6 refuses to run the extension build without it.
+  Do not work around the refusal by launching from a plain shell: that builds
+  against whatever toolset happens to be first on `PATH`, which is exactly the
+  substitution the frozen contract forbids.
+
+Clone MMCV at commit `57c4e25e06e2d4f8a9357c84bcd24089a284dc88` into **two
+separate clean trees**, `$work\mmcv-src-a` and `$work\mmcv-src-b`, and in each:
+
+```powershell
+python -m pip wheel . --no-build-isolation --no-deps --wheel-dir $work\build-a
+```
+
+- **Success:** `mmcv-2.1.0-cp312-cp312-win_amd64.whl`, roughly 9.5 MB.
+- **Output:** `$work\build-a\*.whl`, `$work\build-b\*.whl` — **external**.
+- **Record:** SHA-256 and byte size of each wheel.
+- **Must NOT change:** `--no-build-isolation` (isolation would install an
+  unpinned setuptools and defeat the pin above) or `--no-deps`.
+- **Failure:** STOP.
+
+**Preserve the intermediate objects before anything cleans them.** Each tree's
+`build\temp.win-amd64-cpython-312` holds the 136 objects; copy the two aside as
+`$work\obj-a` and `$work\obj-b`. They are the evidence for C2.2b and they are
+deleted by a rebuild.
+
+### C2.2a Compare the two wheels
 
 ```powershell
 python tools\vision\compare_wheel_reproducibility.py `
-    --left  $work\build-a\mmcv-...whl `
-    --right $work\build-b\mmcv-...whl `
-    --output $work\mmcv-reproducibility.json `
-    --require semantically-identical
+    --left  $work\build-a\mmcv-2.1.0-cp312-cp312-win_amd64.whl `
+    --right $work\build-b\mmcv-2.1.0-cp312-cp312-win_amd64.whl `
+    --output $work\mmcv-reproducibility-ab.json `
+    --require semantically-identical-after-native-normalization
 ```
 
-- **Success:** verdict `byte-identical` or `semantically-identical`.
-- **Output:** `$work\mmcv-reproducibility.json` — **external** (the filename is
-  also gitignored if written into the tree).
-- **Record:** the verdict, and the embedded build paths the tool reports for
-  **both** wheels.
+- **Success:** verdict `byte-identical`, `semantically-identical`, or
+  `semantically-identical-after-native-normalization`.
+- **Output:** `$work\mmcv-reproducibility-ab.json` — **external** (the filename
+  is also gitignored if written into the tree).
+- **Record:** the verdict, every entry of `varianceSources`, the
+  `nativeAnalysis` block for `mmcv/_ext.cp312-win_amd64.pyd`, and the embedded
+  build paths the tool reports for **both** wheels.
 - **Verdict meaning:**
   - `byte-identical` — C3 may enforce exact hash identity on rebuild;
-  - `semantically-identical` — installed members are equal and only the
-    container varies; C3 enforces deterministic member identity and the variance
-    source must be recorded;
-  - `divergent-*` — **STOP.** Identify the variance source. An ADR is required
-    if it proves irreducible.
-- **Note:** identical embedded paths still defeat relocatable reproduction — two
-  builds from the same directory can be byte-identical and still not
-  reproducible elsewhere. That is why the tool reports paths from both.
+  - `semantically-identical` — the installed members are byte-equal and only the
+    container varies;
+  - `semantically-identical-after-native-normalization` — the installed members
+    are **not** byte-equal, and every byte by which they differ was proved to
+    lie inside a documented build-metadata field, each of which the report
+    names. This is the expected R1 outcome and it is **weaker** than the tier
+    above it: the wheel cannot be re-derived by hash, so C3 binds to the
+    selected canonical wheel plus this evidence, not to reproducibility;
+  - `divergent-*` — **STOP.** The report names the cause. Two cases to read
+    carefully before concluding anything:
+    - `embedded-build-path-divergence` on the A-versus-B comparison is
+      **expected and is not a failure of the compiler.** The two trees have
+      different absolute paths and MSVC embeds them. It means the build is not
+      relocatable, which is a real finding, but C2.2b is what tells you whether
+      the *code* agrees. Record it and run C2.2b.
+    - `undocumented-header-field-divergence` means a header word differs that
+      this repository has not established the meaning of. The report decodes
+      both values. **Do not normalise it locally.** Record the two values and
+      stop; they are the input to the decision, not a step to get past.
+- **Failure:** STOP for anything other than `embedded-build-path-divergence`.
+
+### C2.2b Compare the intermediate objects
+
+The wheel comparison sees the linked image, which carries the linker's variance
+on top of the compiler's. This step asks the narrower question the A-versus-B
+paths make unanswerable: did the **compiler** produce the same code?
+
+Rebuild `$work\mmcv-src-a` a second time into `$work\obj-a2` — same path, same
+virtual environment, same flags — so the only variable left is time.
+
+```powershell
+python tools\vision\compare_native_object_trees.py `
+    --left  $work\obj-a `
+    --right $work\obj-a2 `
+    --output $work\mmcv-objects-a-a2.json `
+    --require normalized-identical
+```
+
+- **Success:** verdict `identical` or `metadata-normalized-identical`, with
+  `unresolvedCount` **0**.
+- **Output:** `$work\mmcv-objects-a-a2.json` — **external**.
+- **Record:** `comparedCount` (expected 136), `metadataNormalizedCount`,
+  `unresolvedCount`, and the whole `normalizedFieldCounts` map. That map is the
+  evidence: it names which field excused each object and how many objects it
+  excused.
+- **Must NOT change:** the source path or the virtual environment between the
+  two builds. Changing either reintroduces embedded-path variance and the step
+  stops answering its question.
+- **Failure:** STOP. A non-zero `unresolvedCount` means the compiler is not
+  deterministic on this toolchain, which is a far larger finding than a
+  timestamp and changes C3, not just C2.
+
+Also run the same comparison across `$work\obj-a` and `$work\obj-b`. It is
+expected to report embedded build paths; run it so the result is on the record
+rather than assumed.
+
+### What C2.2 does and does not establish
+
+It establishes that independent rebuilds produce **semantically equivalent**
+native artefacts under a mechanically verified normalisation of named metadata
+fields. It does **not** establish byte reproducibility, and no document may say
+it does. It is a Development build reproducibility result: it is not a runtime
+result, not a hardware qualification, and never satisfies a Production gate.
+
+**Two predictions worth checking while you are there**, because they cost
+nothing and both are currently inferences rather than observations:
+
+- The report's `nativeAnalysis` block carries `detail.left.debugEntries`.
+  `pip wheel` builds release, so there should be **no** debug directory and no
+  CodeView record in `_ext.cp312-win_amd64.pyd`. If that list is empty, the
+  ~463 embedded source-root strings come from `__FILE__`, not from a PDB path,
+  and `/PDBALTPATH` is irrelevant here. If it is *not* empty, say so: an
+  assumption in the plan is wrong.
+- The A2/A3 BIGOBJ words at offsets 36 and 40 are decoded in the C2.2b report
+  as `left`/`right` `uint32`/`hex`. Copy both values out verbatim. Two values a
+  few thousand apart, in the 0x68xxxxxx range, would be two timestamps and
+  would settle the question; a small integer would mean something else differs
+  and the finding is larger than a timestamp.
+
+**Do not add `/Brepro`, `--frandom-seed` or `/PDBALTPATH` to make this step
+pass.** They are recorded in the plan as R2 candidates with the experiment that
+would evaluate them. Adding a flag to change a verdict, before knowing whether
+it changes the artefact, is what the checker exists to prevent.
 
 ## C2.3 Assemble the wheelhouse manifest
 
-Collect every wheel (Torch, torchvision, MMCV, and the ordinary PyPI
-dependencies) into one directory, and write an origins file recording where each
+Choose **one** of the two MMCV wheels as the canonical artefact and record which
+and why. Build A is the conventional choice; whichever it is, its SHA-256 is
+what the lock, and through the lock the Runtime Pack identity, will bind to.
+The other wheel is reproducibility evidence, not a substitute: the C2.2a report
+establishes that they are semantically equivalent, not interchangeable by hash.
+
+Collect every wheel (Torch, torchvision, the canonical MMCV wheel, and the
+ordinary PyPI dependencies) into one directory, and write an origins file recording where each
 came from:
 
 ```powershell
@@ -220,7 +362,16 @@ $work\verify-venv\Scripts\python.exe -c "import torch, torchvision, mmengine, mm
 
 ### Gate C2
 
-All of C2.1–C2.5 passed. Only now is the branch **BUILD-VERIFIED**.
+All of C2.1–C2.5 passed, including both halves of C2.2. Only now is the branch
+**BUILD-VERIFIED**.
+
+**What BUILD-VERIFIED asserts here.** That the frozen toolchain produces a
+working CUDA wheel, that one named wheel was selected as canonical, and that an
+independent rebuild is semantically equivalent to it under a mechanically
+verified normalisation of documented Windows native build metadata. It does
+**not** assert byte reproducibility. Write the reproducibility verdict down
+beside the canonical wheel's SHA-256: the verdict is what qualifies the SHA, and
+a SHA recorded without it claims more than was measured.
 
 ---
 
@@ -284,8 +435,21 @@ Rebuild the pack from the same inputs into a second output directory and compare
 `runtimePackId`.
 
 - **Success:** identical IDs.
-- **Failure:** STOP unless C2.2 returned `semantically-identical`, in which case
-  record the variance source and continue.
+- **Failure:** STOP, unconditionally.
+
+This step is **not** a rebuild of MMCV, and C2.2's verdict does not soften it.
+`runtimePackId` is derived from the platform variant, the Python version, the
+native ABI, the lock digest and the requirements-projection digest — and the
+lock pins the canonical MMCV wheel by SHA-256. The same inputs therefore must
+produce the same identity, whatever the compiler does on a different day. If
+they do not, the pack builder is non-deterministic, which is a defect in this
+repository rather than a property of MSVC.
+
+The converse is the thing to keep straight: because identity binds to the
+canonical wheel's hash and not to the ability to reproduce that hash, a rebuilt
+MMCV wheel is **not** substitutable into a pack. C2.2's evidence says the two
+wheels are semantically equivalent; it does not make them the same artefact, and
+nothing downstream may treat them as interchangeable.
 
 ### Gate C3
 

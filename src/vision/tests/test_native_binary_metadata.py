@@ -474,3 +474,24 @@ def test_paths_are_deduplicated_and_sorted() -> None:
         "C:\\a\\first\\file.cpp",
         "C:\\b\\second\\file.cpp",
     ]
+
+
+def test_an_ipv6_url_authority_does_not_smuggle_a_rooted_path() -> None:
+    """The case the lexical guards cannot reach.
+
+    An IPv6 literal authority ends in `]`, which is neither a word character
+    nor a path character, so `/usr/...` after it passes the lookbehind. The
+    URL-overlap drop is what catches it, and this is the test that makes that
+    check earn its place rather than being redundant cover.
+    """
+    assert MODULE.embedded_build_paths(b"http://[::1]/usr/share/doc/readme") == []
+    assert (
+        MODULE.embedded_build_paths(b"https://[2001:db8::1]/home/runner/work") == []
+    )
+
+
+def test_a_file_url_still_reports_the_local_path_it_wraps() -> None:
+    """Excluding URLs must not become a way to hide an absolute build path."""
+    assert MODULE.embedded_build_paths(b"file:///C:/mavi-c2/build-a/_ext.pdb") == [
+        "C:/mavi-c2/build-a/_ext.pdb"
+    ]

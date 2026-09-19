@@ -762,3 +762,83 @@ def _run_cli(module, left: Path, right: Path, require: str) -> int:
         return module.main()
     finally:
         sys.argv = argv
+
+
+def test_a_record_differing_on_its_own_is_not_waved_through(tmp_path: Path) -> None:
+    """RECORD is an installed file, so it may only be excused for a reason.
+
+    When a normalized native member explains why RECORD differs, it is a
+    consequence. With every other member byte-equal there is no such reason,
+    and calling it container noise would pass a wheel whose installed bytes
+    differ for a cause this tool never identified.
+    """
+    module = _load()
+    members = _native_members(fixtures.pe_image(timestamp=1))
+    left = _wheel(tmp_path / "a.whl", members=members)
+    right = _wheel(
+        tmp_path / "b.whl",
+        members=members,
+        record_body="\n".join(_record_line(name, data) for name, data in members)
+        + "\nmmcv-2.1.0.dist-info/RECORD,,\n\n",
+    )
+
+    result = module.compare_wheels(left, right)
+
+    assert result["recordDiffers"] == ["mmcv-2.1.0.dist-info/RECORD"]
+    assert result["recordConsistency"]["right"]["consistent"] is True
+    assert "record-unexplained" in result["varianceSources"]
+    assert result["verdict"] == "divergent-content"
+
+
+def test_a_member_record_omits_is_an_inconsistency(tmp_path: Path) -> None:
+    """An unlisted member installs with no hash to check it against."""
+    module = _load()
+    members = _native_members(fixtures.pe_image(timestamp=1))
+    left = _wheel(tmp_path / "a.whl", members=members)
+    right = _wheel(
+        tmp_path / "b.whl",
+        members=_native_members(fixtures.pe_image(timestamp=2)),
+        record_body="\n".join(
+            _record_line(name, data)
+            for name, data in _native_members(fixtures.pe_image(timestamp=2))
+            if name != "mmcv/__init__.py"
+        )
+        + "\nmmcv-2.1.0.dist-info/RECORD,,\n",
+    )
+
+    result = module.compare_wheels(left, right)
+
+    right_record = result["recordConsistency"]["right"]
+    assert right_record["consistent"] is False
+    assert "record_member_unlisted:mmcv/__init__.py" in right_record["disagreements"]
+    assert result["verdict"] == "divergent-content"
+
+
+def test_a_member_whose_path_contains_a_comma_is_read_correctly(tmp_path: Path) -> None:
+    """RECORD is CSV. Splitting on the last two commas misreads a quoted path.
+
+    Hand-splitting would report `record_row_malformed` for a wheel that is
+    perfectly well formed, which fails the gate on a file nobody had a problem
+    with.
+    """
+    module = _load()
+    members = _native_members(fixtures.pe_image(timestamp=1))
+    members.append(("mmcv/data/table,with,commas.txt", b"payload\n"))
+    # A real wheel writer quotes such a path, so the fixture must too --
+    # otherwise the row is genuinely malformed and the test would be checking
+    # that a broken RECORD is accepted.
+    rows = []
+    for name, data in members:
+        row = _record_line(name, data)
+        if "," in name:
+            row = f'"{name}"' + row[len(name) :]
+        rows.append(row)
+    record = "\n".join(rows) + "\nmmcv-2.1.0.dist-info/RECORD,,\n"
+    left = _wheel(tmp_path / "a.whl", members=members, record_body=record)
+    right = _wheel(tmp_path / "b.whl", members=members, record_body=record)
+
+    result = module.compare_wheels(left, right)
+
+    assert result["recordConsistency"]["left"]["consistent"] is True
+    assert result["recordConsistency"]["left"]["disagreements"] == []
+    assert result["verdict"] == "byte-identical"

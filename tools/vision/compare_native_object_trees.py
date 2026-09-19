@@ -36,10 +36,16 @@ from native_binary_metadata import (  # noqa: E402
 
 SCHEMA_VERSION = "mavi-native-object-tree-comparison-v1"
 
-#: Extensions the MSVC/NVCC toolchain writes as linkable native input. Anything
-#: else in the tree (`.cpp`, `.log`, `.tlog`, `.rsp`) is build bookkeeping and
-#: is not what the linker consumes.
-_OBJECT_SUFFIXES = (".obj", ".o", ".lib", ".a")
+#: What the compiler emits per translation unit, which is the question this
+#: tool asks. Deliberately *not* `.lib`/`.a`: an archive is a linker-stage
+#: artefact with its own container format and its own timestamps, and MSVC
+#: drops the import library for `_ext` into the same temp directory. Treating
+#: it as an object would fail every run on a file the compiler did not write.
+_OBJECT_SUFFIXES = (".obj", ".o")
+#: Native artefacts that are present but out of scope. Counted and named in the
+#: report rather than passed over in silence, so "we did not look at that" is
+#: visible to whoever reads the evidence.
+_OUT_OF_SCOPE_SUFFIXES = (".lib", ".a", ".exp", ".pdb", ".dll", ".pyd")
 
 #: Unresolved pairs to name in the report before truncating. A build where
 #: every object diverges is one situation, not two hundred.
@@ -52,17 +58,21 @@ class ObjectTreeError(ValueError):
         super().__init__(code)
 
 
-def _collect(root: Path) -> dict[str, Path]:
+def _collect(root: Path, out_of_scope: list[str]) -> dict[str, Path]:
     if not root.is_dir():
         raise ObjectTreeError("object_tree_missing:" + root.name)
     found: dict[str, Path] = {}
+    skipped: list[str] = []
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.is_symlink():
             continue
-        if not path.name.casefold().endswith(_OBJECT_SUFFIXES):
-            continue
         relative = path.relative_to(root).as_posix()
+        if not path.name.casefold().endswith(_OBJECT_SUFFIXES):
+            if path.name.casefold().endswith(_OUT_OF_SCOPE_SUFFIXES):
+                skipped.append(relative)
+            continue
         found[relative] = path
+    out_of_scope.extend(sorted(skipped))
     if not found:
         # An empty tree would otherwise report "every object agrees", which is
         # true and useless: the most likely cause is a wrong directory.
@@ -71,8 +81,10 @@ def _collect(root: Path) -> dict[str, Path]:
 
 
 def compare_object_trees(left_root: Path, right_root: Path) -> dict[str, object]:
-    left = _collect(left_root)
-    right = _collect(right_root)
+    left_out_of_scope: list[str] = []
+    right_out_of_scope: list[str] = []
+    left = _collect(left_root, left_out_of_scope)
+    right = _collect(right_root, right_out_of_scope)
 
     only_left = sorted(set(left) - set(right))
     only_right = sorted(set(right) - set(left))
@@ -138,12 +150,18 @@ def compare_object_trees(left_root: Path, right_root: Path) -> dict[str, object]
         "metadataNormalizedObjects": normalized,
         "unresolved": unresolved[:_UNRESOLVED_REPORT_LIMIT],
         "normalizedFieldCounts": dict(sorted(fields_seen.items())),
+        "outOfScopeNativeFiles": {
+            "left": left_out_of_scope,
+            "right": right_out_of_scope,
+        },
         "formatCounts": dict(sorted(formats_seen.items())),
         "note": (
             "Object-level agreement is evidence about the compiler, not about "
             "the wheel: the linker contributes its own variance afterwards. "
             "This is a Development build reproducibility result only and never "
-            "satisfies a hardware or Production gate."
+            "satisfies a hardware or Production gate. Archives and linked "
+            "images found in the tree are listed under outOfScopeNativeFiles "
+            "and were not compared; compare the wheel for those."
         ),
     }
 

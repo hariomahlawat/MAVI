@@ -432,9 +432,20 @@ def _decode_dword(data: bytes, offset: int) -> dict[str, object]:
 #   * a drive letter must not be the tail of a longer word, and the separator
 #     after it must not be doubled -- `C:\x` and `C:/x` match, `s://x` does not;
 #   * any match overlapping a `scheme://...` token is dropped outright, which
-#     catches the residue regardless of how the scheme is spelled.
+#     catches the residue the lexical guards cannot reach -- an IPv6 literal
+#     authority ends in `]`, so `http://[::1]/usr/share/doc` puts a `]` in front
+#     of a rooted path and slips both guards above.
+#
+# `file:` is deliberately excluded from the scheme pattern. `file:///C:/build/x`
+# *is* an absolute local path, whatever it is wrapped in, and suppressing it
+# would be the detector losing a real finding to its own false-positive fix.
 
-_URL_TOKEN = re.compile(rb"[A-Za-z][A-Za-z0-9+.\-]{1,31}://[^\x00-\x20\"<>|]{1,400}")
+_URL_TOKEN = re.compile(
+    # The scheme must start at a boundary, or `file:` is dodged by matching the
+    # `ile:` inside it and the exclusion silently stops working.
+    rb"(?<![A-Za-z0-9+.\-])(?!file:)[A-Za-z][A-Za-z0-9+.\-]{1,31}://"
+    rb"[^\x00-\x20\"<>|]{1,400}"
+)
 _EMBEDDED_PATH = re.compile(
     # Windows: a bare drive letter, not preceded by a word character (which
     # would make it the last letter of `https`), and not followed by `//`.

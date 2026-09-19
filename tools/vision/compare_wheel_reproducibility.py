@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import csv
 import hashlib
+import io
 import json
 import re
 import sys
@@ -211,14 +213,18 @@ def _record_consistency(archive: _Archive) -> dict[str, object]:
         text = archive.record.decode("utf-8")
     except UnicodeDecodeError:
         return {"present": True, "consistent": False, "disagreements": ["record_not_utf8"]}
-    for line in text.splitlines():
-        if not line.strip():
+    # RECORD is CSV, not three fields split on the last two commas: a member
+    # whose path contains a comma is quoted, and splitting by hand would report
+    # a malformed row for a wheel that is perfectly well formed.
+    listed: set[str] = set()
+    for row in csv.reader(io.StringIO(text)):
+        if not row or not any(field.strip() for field in row):
             continue
-        parts = line.rsplit(",", 2)
-        if len(parts) != 3:
-            disagreements.append(f"record_row_malformed:{line[:80]}")
+        if len(row) != 3:
+            disagreements.append(f"record_row_malformed:{','.join(row)[:80]}")
             continue
-        name, digest, size = parts
+        name, digest, size = row
+        listed.add(name)
         member = archive.members.get(name)
         if member is None:
             # RECORD lists itself and the .dist-info dir with empty fields.
@@ -238,6 +244,12 @@ def _record_consistency(archive: _Archive) -> dict[str, object]:
             disagreements.append(f"record_hash_mismatch:{name}")
         if size != str(member.size):
             disagreements.append(f"record_size_mismatch:{name}")
+    # A member the wheel ships and RECORD does not describe is installed
+    # without a hash to check it against.
+    for name in sorted(set(archive.members) - listed):
+        if _RECORD_MEMBER.search(name) is not None:
+            continue
+        disagreements.append(f"record_member_unlisted:{name}")
     return {
         "present": True,
         "consistent": not disagreements,
@@ -317,6 +329,11 @@ def compare_wheels(left: Path, right: Path) -> dict[str, object]:
     record_inconsistent = (
         left_record["consistent"] is False or right_record["consistent"] is False
     )
+    # RECORD is itself an installed file. It is excused only when a normalized
+    # native member explains why it differs; a RECORD that differs on its own,
+    # with every other member byte-equal, differs for a reason this tool has not
+    # accounted for and must not be waved through as container noise.
+    record_unexplained = bool(record_differs) and not native_normalized
 
     order_differs = left_archive.order != right_archive.order and not (
         only_left or only_right
@@ -338,6 +355,8 @@ def compare_wheels(left: Path, right: Path) -> dict[str, object]:
         variance_sources.append("record-metadata")
     if record_inconsistent:
         variance_sources.append("record-inconsistent")
+    if record_unexplained:
+        variance_sources.append("record-unexplained")
     if permission_differs:
         variance_sources.append("member-permissions")
     if compression_differs:
@@ -362,7 +381,10 @@ def compare_wheels(left: Path, right: Path) -> dict[str, object]:
         + native_unresolved
     )
     installed_differs = bool(
-        unresolved_members or record_inconsistent or permission_differs
+        unresolved_members
+        or record_inconsistent
+        or record_unexplained
+        or permission_differs
     )
 
     if left_sha == right_sha:

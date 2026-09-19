@@ -58,14 +58,22 @@ def test_every_weakening_actually_changes_the_source(mutation=None):
         assert entry.original != entry.weakened, entry.label
 
 
-def test_the_catalogue_covers_all_three_assemblers():
-    """C4, C6 and C7 each hold fail-closed guards worth pinning."""
+def test_the_catalogue_covers_every_fail_closed_tool():
+    """C4, C6, C7 and the C2 reproducibility checkers all hold such guards.
+
+    Set equality rather than a subset: a tool that grows a fail-closed guard
+    and is not added here is exactly the gap this harness exists to close, and
+    a subset assertion would not notice.
+    """
     covered = {mutation.path for mutation in MODULE.MUTATIONS}
 
     assert covered == {
         "tools/vision/build_development_hardware_evidence.py",
         "tools/vision/build_development_e2e_evidence.py",
         "tools/vision/build_failure_matrix_evidence.py",
+        "tools/vision/native_binary_metadata.py",
+        "tools/vision/compare_wheel_reproducibility.py",
+        "tools/vision/compare_native_object_trees.py",
     }
 
 

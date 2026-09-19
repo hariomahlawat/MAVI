@@ -262,3 +262,127 @@ def test_every_artefact_the_runbook_writes_is_gitignored():
 
     missing = [name for name in written if name not in ignored]
     assert not missing, f"not gitignored: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# The C2 acceptance model
+#
+# The host measured that the MMCV CUDA wheel is not byte-reproducible. The
+# danger now is drift in the other direction: a later edit that rounds
+# "semantically equivalent after normalisation" back up to "reproducible",
+# which is the claim the evidence does not support.
+# ---------------------------------------------------------------------------
+
+PLAN = REPOSITORY_ROOT / "docs/superpowers/plans/2026-09-18-windows-cuda-development.md"
+CHECKLIST = REPOSITORY_ROOT / "docs/superpowers/plans/c8-pr49-readiness.md"
+
+
+@pytest.mark.parametrize("document", [RUNBOOK, PLAN, CHECKLIST])
+def test_no_document_claims_the_wheel_is_byte_reproducible(document):
+    text = document.read_text(encoding="utf-8")
+    lowered = text.lower()
+
+    for claim in (
+        "is byte-reproducible",
+        "byte reproducibility is achieved",
+        "byte-identical rebuild",
+    ):
+        assert claim not in lowered, f"{document.name}: {claim}"
+
+    # And the negative is stated somewhere, not merely left unsaid.
+    assert "not byte-reproducible" in lowered or "not byte reproducibility" in lowered
+
+
+def test_the_runbook_carries_the_three_empirical_corrections():
+    """Each was paid for on the host; each prevents a specific silent failure."""
+    text = _runbook_text()
+
+    assert "--no-deps" in text
+    assert "setuptools==80.10.2" in text
+    assert "DISTUTILS_USE_SDK" in text
+    assert "pkg_resources" in text
+
+
+def test_the_runbook_requires_the_object_tree_comparison():
+    """Two of 136 objects inspected by hand is evidence about two objects."""
+    text = _runbook_text()
+
+    assert "compare_native_object_trees.py" in text
+    assert "136" in text
+
+
+@pytest.mark.parametrize(
+    ("tool", "value"),
+    [
+        (
+            "compare_wheel_reproducibility.py",
+            "semantically-identical-after-native-normalization",
+        ),
+        ("compare_native_object_trees.py", "normalized-identical"),
+    ],
+)
+def test_every_require_value_the_runbook_names_is_accepted_by_its_tool(tool, value):
+    """A flag that exists with a value the tool rejects still strands the operator."""
+    text = _runbook_text()
+    assert f"--require {value}" in text
+
+    spec = importlib.util.spec_from_file_location(
+        "require_" + tool.removesuffix(".py"), TOOLS / tool
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    captured: list[tuple] = []
+    original = argparse.ArgumentParser.add_argument
+
+    def record(self, *args, **kwargs):
+        if "--require" in args:
+            captured.append(tuple(kwargs.get("choices", ())))
+        return original(self, *args, **kwargs)
+
+    argparse.ArgumentParser.add_argument = record
+    try:
+        parser_argv, sys.argv = sys.argv, [tool, "--help"]
+        try:
+            module.main()
+        except SystemExit:
+            pass
+        finally:
+            sys.argv = parser_argv
+    finally:
+        argparse.ArgumentParser.add_argument = original
+
+    assert captured, f"{tool} declares no --require"
+    assert value in captured[0]
+
+
+def test_the_plan_records_that_pack_identity_binds_to_the_canonical_wheel():
+    """The reviewed answer to "does identity assume reproducibility?" -- it does not.
+
+    If this paragraph ever disappears, the next reader has to re-derive it from
+    `component_identity.runtime_pack_id`, and the likeliest wrong turn is
+    deciding that a rebuilt wheel may be substituted into an existing pack.
+    """
+    plan = PLAN.read_text(encoding="utf-8")
+
+    assert "already binds to the selected canonical MMCV wheel's\nSHA-256" in plan
+    assert "not** substitutable into an existing pack" in plan
+
+
+def test_the_checklist_does_not_mark_c2_complete():
+    text = CHECKLIST.read_text(encoding="utf-8")
+    section = text[text.index("## 2. Build verification") : text.index("## 3. ")]
+
+    assert "**Not BUILD-VERIFIED.**" in section
+    # Executed steps may be ticked; the gate items may not be.
+    assert "- [ ] wheelhouse manifest produced" in section
+    assert "- [ ] `windows-x86_64-cuda.lock` frozen and committed" in section
+
+
+def test_the_undocumented_bigobj_field_is_recorded_as_open():
+    """It blocks equivalence by design; a doc that forgets that will normalise it."""
+    plan = PLAN.read_text(encoding="utf-8")
+
+    assert "MetaDataSize" in plan
+    assert "observed, not normalised" in plan or "observed, not normalized" in plan

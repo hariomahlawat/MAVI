@@ -271,3 +271,46 @@ def test_the_written_report_is_canonical_json(tmp_path: Path) -> None:
     assert payload["schemaVersion"] == "mavi-native-object-tree-comparison-v1"
     assert payload["verdict"] == "metadata-normalized-identical"
     assert "Production" in payload["note"]
+
+
+def test_an_import_library_is_not_compared_as_an_object(tmp_path: Path) -> None:
+    """MSVC drops `_ext.lib` into the same temp directory as the objects.
+
+    An archive has its own container format, so parsing it as a COFF object
+    fails -- and a fail-closed parser turns that into a divergent verdict on
+    every single run, for a file the compiler did not write. It is listed as
+    out of scope instead, which keeps "we did not look at that" visible.
+    """
+    left_objects = _build(1)
+    left_objects["mmcv/ops/_ext.cp312-win_amd64.lib"] = b"!<arch>\nleft-archive"
+    right_objects = _build(2)
+    right_objects["mmcv/ops/_ext.cp312-win_amd64.lib"] = b"!<arch>\nright-archive"
+
+    result = MODULE.compare_object_trees(
+        _tree(tmp_path / "a", left_objects), _tree(tmp_path / "b", right_objects)
+    )
+
+    assert result["verdict"] == "metadata-normalized-identical"
+    assert result["comparedCount"] == 7
+    assert result["outOfScopeNativeFiles"]["left"] == [
+        "mmcv/ops/_ext.cp312-win_amd64.lib"
+    ]
+    assert result["outOfScopeNativeFiles"]["right"] == [
+        "mmcv/ops/_ext.cp312-win_amd64.lib"
+    ]
+
+
+def test_out_of_scope_files_are_named_not_merely_counted(tmp_path: Path) -> None:
+    left_objects = _build(1)
+    for name in ("mmcv/ops/_ext.exp", "mmcv/ops/_ext.pdb", "mmcv/ops/_ext.pyd"):
+        left_objects[name] = b"whatever"
+    result = MODULE.compare_object_trees(
+        _tree(tmp_path / "a", left_objects), _tree(tmp_path / "b", _build(2))
+    )
+
+    assert result["outOfScopeNativeFiles"]["left"] == [
+        "mmcv/ops/_ext.exp",
+        "mmcv/ops/_ext.pdb",
+        "mmcv/ops/_ext.pyd",
+    ]
+    assert result["outOfScopeNativeFiles"]["right"] == []

@@ -197,12 +197,106 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    ) != host_sha:",
         "    ) != host_sha and False:",
     ),
+    # C2 native reproducibility. The whole value of this analyser is that an
+    # equivalence verdict is a proof rather than a courtesy, so every guard
+    # that stands between "the bytes differ" and "that is fine" belongs here.
+    Mutation(
+        "C2 accepts an unparsable native payload",
+        "tools/vision/native_binary_metadata.py",
+        '            "classification": "unparsable-native-format",\n'
+        '            "format": left_format,',
+        '            "classification": "metadata-normalized-identical",\n'
+        '            "format": left_format,',
+    ),
+    Mutation(
+        "C2 treats a truncated residual sample as conclusive",
+        "tools/vision/native_binary_metadata.py",
+        '    if truncated or "unexplained" in categories or not categories:',
+        '    if "unexplained" in categories or not categories:',
+    ),
+    Mutation(
+        "C2 stops refusing payloads of different lengths",
+        "tools/vision/native_binary_metadata.py",
+        "    if len(left) != len(right):",
+        "    if False:",
+    ),
+    Mutation(
+        "C2 normalises the undocumented BIGOBJ header words",
+        "tools/vision/native_binary_metadata.py",
+        '            ObservedField("bigobj.MetaDataSize", 36, 4),',
+        '            ObservedField("bigobj.MetaDataSize", 36, 0),',
+    ),
+    Mutation(
+        "C2 stops excluding URLs from the build-path scan",
+        "tools/vision/native_binary_metadata.py",
+        "        if _overlaps(span, urls):",
+        "        if False:",
+    ),
+    Mutation(
+        "C2 accepts a BIGOBJ header without the MSVC class id",
+        "tools/vision/native_binary_metadata.py",
+        "    if data[12:28] != _BIGOBJ_CLASS_ID:",
+        "    if False:",
+    ),
+    Mutation(
+        "C2 accepts a CodeView record that is not RSDS",
+        "tools/vision/native_binary_metadata.py",
+        '            if data[pointer : pointer + 4] != b"RSDS":',
+        "            if False:",
+    ),
+    Mutation(
+        "C2 wheel gate accepts an unresolved native member",
+        "tools/vision/compare_wheel_reproducibility.py",
+        '        if analysis["classification"] in ACCEPTABLE_CLASSIFICATIONS:',
+        "        if True:",
+    ),
+    Mutation(
+        "C2 wheel gate stops checking RECORD against its own wheel",
+        "tools/vision/compare_wheel_reproducibility.py",
+        "    record_inconsistent = (\n"
+        '        left_record["consistent"] is False or right_record["consistent"] is False\n'
+        "    )",
+        "    record_inconsistent = False",
+    ),
+    Mutation(
+        "C2 object gate accepts an unresolved object",
+        "tools/vision/compare_native_object_trees.py",
+        "    reproducible = not (only_left or only_right or unresolved)",
+        "    reproducible = not (only_left or only_right)",
+    ),
+    Mutation(
+        "C2 object gate accepts an empty tree as agreement",
+        "tools/vision/compare_native_object_trees.py",
+        "    if not found:",
+        "    if False:",
+    ),
+    Mutation(
+        "C2 object gate compares archives as if they were objects",
+        "tools/vision/compare_native_object_trees.py",
+        '_OBJECT_SUFFIXES = (".obj", ".o")',
+        '_OBJECT_SUFFIXES = (".obj", ".o", ".lib", ".a")',
+    ),
+    Mutation(
+        "C2 wheel gate excuses a RECORD difference with no cause",
+        "tools/vision/compare_wheel_reproducibility.py",
+        "    record_unexplained = bool(record_differs) and not native_normalized",
+        "    record_unexplained = False",
+    ),
+    Mutation(
+        "C2 wheel gate stops noticing a member RECORD omits",
+        "tools/vision/compare_wheel_reproducibility.py",
+        "    for name in sorted(set(archive.members) - listed):",
+        "    for name in sorted(set()):",
+    ),
 )
 
 SUITES = (
     "tests/test_development_e2e_evidence.py",
     "tests/test_failure_matrix_evidence.py",
     "tests/test_development_hardware_evidence.py",
+    "tests/test_native_binary_metadata.py",
+    "tests/test_wheel_reproducibility_comparison.py",
+    "tests/test_native_object_tree_comparison.py",
 )
 
 
