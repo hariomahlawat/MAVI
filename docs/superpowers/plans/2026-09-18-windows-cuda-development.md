@@ -540,8 +540,15 @@ not a pass, and no member is excused by filename.
 **Production is unaffected and may demand more.** Stronger reproducibility and
 provenance requirements remain open for Production qualification; Development
 evidence never satisfies a Production gate.
-3. **Assemble the wheelhouse** and record what each artefact is and where it
-   came from:
+3. **Derive the closure, then assemble the wheelhouse.** The acquisition list
+   is produced by `write_requirements_projection.py` from
+   `src/vision/pyproject.toml`, never typed. A hand-written subset resolved
+   `Pillow==12.3.0` against a frozen `pillow==11.3.0` on the host and omitted
+   `av`, `trackers`, `supervision` and eleven other pinned roots. Acquire with
+   `pip download -r <projection> --only-binary=:all: --find-links <wheelhouse>`
+   so the `+cu124` Torch and the canonical MMCV wheel already present are
+   reused rather than replaced from PyPI. Then record what each artefact is
+   and where it came from:
 
    ```
    python tools/vision/build_wheelhouse_manifest.py \

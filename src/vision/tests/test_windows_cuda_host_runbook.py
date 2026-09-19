@@ -414,3 +414,45 @@ def test_the_undocumented_bigobj_field_is_recorded_as_open():
 
     assert "MetaDataSize" in plan
     assert "observed, not normalised" in plan or "observed, not normalized" in plan
+
+
+def test_acquisition_is_derived_from_the_repository_not_typed():
+    """C2.3 must not name packages by hand.
+
+    The hand-written `pip download mmengine mmdet numpy pillow` resolved
+    Pillow 12.3.0 against a frozen `pillow==11.3.0` and omitted fifteen pinned
+    roots. A subset someone remembered is not a closure, and this is the one
+    step where typing a package list produces a wheelhouse that describes a
+    runtime nobody specified.
+    """
+    text = _runbook_text()
+    section = text[text.index("## C2.3") : text.index("## C2.4")]
+
+    assert "write_requirements_projection.py" in section
+    assert "pip download `\n    -r " in section or "pip download -r" in section
+    assert "--find-links" in section
+
+    # No bare package names on a download command anywhere in the runbook.
+    for match in re.finditer(r"pip download([^\n`]*)", text):
+        tail = match.group(1)
+        assert not re.search(r"\s(mmengine|mmdet|numpy|pillow|scipy|av)\b", tail), (
+            f"hand-written package list in: pip download{tail}"
+        )
+
+
+def test_the_projection_is_derived_once_and_then_checked():
+    """Deriving the same artefact twice is how two copies come to disagree."""
+    text = _runbook_text()
+    writes = re.findall(r"write_requirements_projection\.py", text)
+
+    assert len(writes) == 2, "expected one write at C2.3a and one --check at C2.4"
+    assert "--check" in text[text.index("## C2.4") :]
+
+
+def test_the_runbook_requires_the_canonical_wheel_to_be_archived():
+    """Non-reproducible plus unarchived is unrecoverable, and that is the risk."""
+    # Whitespace-insensitive: the runbook is hard-wrapped, so the phrase spans
+    # a line break and a literal substring match would pin the wrapping.
+    collapsed = " ".join(_runbook_text().split())
+    assert "Archive it off the build host now" in collapsed
+    assert "cannot be reconstructed" in collapsed

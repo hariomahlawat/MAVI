@@ -74,6 +74,8 @@ Still required before Gate C2:
 - [x] C2.2b run on the preserved A2/A3 object trees: 129 of 136 unparsable as `bigobj_anon_object_header_unsupported`. Consistent with `/GL` IL objects, which carry no machine code. **Not applicable as evidence; closed, no rebuild**
 - [x] the BIGOBJ `36:40` question is **closed as not applicable**: the objects are IL, so the field never described emitted code. No further forensics
 - [ ] canonical MMCV wheel chosen, named, its SHA-256 recorded **together with** the reproducibility verdict, and the wheel archived off the build host
+- [ ] requirements projection **derived** (not hand-written) and used to drive acquisition — the frozen closure is 21 pinned roots, not a remembered subset
+- [ ] every Torch/torchvision wheel in the wheelhouse verified to carry `+cu124`
 - [ ] wheelhouse manifest produced
 - [ ] `windows-x86_64-cuda.lock` frozen and committed
 - [ ] `windows-x86_64-cuda.requirements.txt` derived and committed

@@ -5,6 +5,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from mavi_vision.runtime.component_identity import (
     ModelPackIdentityInputs,
     RuntimePackIdentityInputs,
@@ -157,3 +159,81 @@ def test_every_setup_powershell_module_is_parsed_by_the_acceptance_gate():
     assert modules, "no PowerShell modules found to check"
     for module in sorted(modules):
         assert f'"tools/setup/{module}"' in workflow, module
+
+
+# ---------------------------------------------------------------------------
+# The CUDA acquisition closure
+#
+# C2.3 originally named four packages by hand. On the host that resolved
+# Pillow 12.3.0 against a frozen pillow==11.3.0 and silently omitted fifteen
+# other pinned roots. These pin that the derivation -- which is what the
+# runbook now drives acquisition from -- actually carries them.
+# ---------------------------------------------------------------------------
+
+import importlib.util as _importlib_util
+import sys as _sys
+
+
+def _cuda_projection():
+    root = Path(__file__).resolve().parents[3]
+    spec = _importlib_util.spec_from_file_location(
+        "_projection_for_acquisition",
+        root / "src/vision/mavi_vision/runtime/requirements_projection.py",
+    )
+    module = _importlib_util.module_from_spec(spec)
+    _sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.build_runtime_requirements_projection(
+        root / "src/vision/pyproject.toml",
+        platform_variant="windows-x86_64-cuda",
+        python_version="3.12.10",
+    )
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "av==16.1.0",
+        "trackers==2.6.0",
+        "supervision==0.30.2",
+        "pillow==11.3.0",
+        "scipy==1.18.1",
+        "opencv-python==5.0.0.93",
+        "numpy==2.5.3",
+        "mmcv==2.1.0",
+        "mmdet==3.3.0",
+        "mmengine==0.10.7",
+        "torch==2.6.0",
+        "torchvision==0.21.0",
+    ],
+)
+def test_the_cuda_projection_carries_every_frozen_root(requirement: str) -> None:
+    """Each of these was either missing from, or contradicted by, the hand list."""
+    assert requirement in _cuda_projection().requirements
+
+
+def test_the_cuda_projection_pins_pillow_below_twelve() -> None:
+    """The exact contradiction the host hit: PyPI offered 12.3.0."""
+    pillow = [
+        item
+        for item in _cuda_projection().requirements
+        if item.startswith("pillow")
+    ]
+    assert "pillow==11.3.0" in pillow
+    assert any("<12" in item for item in pillow)
+
+
+def test_the_hand_written_subset_was_not_a_closure() -> None:
+    """Names the regression rather than merely preventing it.
+
+    Four packages against twenty-one roots. If a later edit shrinks the
+    derivation back towards that, this says so.
+    """
+    derived = {
+        item.split("=")[0].split("<")[0].split(">")[0]
+        for item in _cuda_projection().requirements
+    }
+    hand_written = {"mmengine", "mmdet", "numpy", "pillow"}
+
+    assert hand_written < derived
+    assert len(derived - hand_written) >= 10

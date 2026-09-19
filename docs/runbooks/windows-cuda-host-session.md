@@ -445,39 +445,78 @@ the tool is willing to say. Never add `--require` to C2.2, and never edit the
 analyser to make this pass — the value of a green verdict elsewhere depends on
 it staying honest here.
 
-## C2.3 Acquire the remaining dependencies and assemble the manifest
+## C2.3 Derive the closure, acquire it, and assemble the manifest
 
 C2.1 used `--no-deps`, so the wheelhouse holds only Torch and torchvision. The
-rest of the closure -- `mmengine`, `mmdet`, `numpy`, `pillow` and their
-transitive dependencies -- must be downloaded from PyPI into the *same*
-directory, or the manifest, the lock's closure check and the offline install
-all fail for want of them.
+rest of the closure must be acquired — and **the package list is derived from
+the repository, never typed.**
+
+An earlier version of this step named four packages by hand
+(`mmengine mmdet numpy pillow`). On the host it resolved `Pillow==12.3.0`
+against a frozen `pillow==11.3.0`, and silently omitted `av==16.1.0`,
+`trackers==2.6.0`, `supervision==0.30.2` and eleven other pinned roots. A
+hand-written subset is not a closure, and a wheelhouse assembled from one
+describes a runtime nobody specified.
+
+### C2.3a Derive the authoritative requirements projection
 
 ```powershell
-python -m pip download mmengine mmdet numpy pillow `
-    --only-binary=:all: --dest $work\wheelhouse
+python tools\vision\write_requirements_projection.py `
+    --platform-variant windows-x86_64-cuda --python-version 3.12.10 `
+    --output src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cuda.requirements.txt
 ```
 
-- **Success:** the wheelhouse now holds the full set.
-- **Must NOT change:** the index. These come from PyPI; only Torch,
-  torchvision and MMCV are special. If a dependency resolves to a `+cu124`
-  version here, stop: it belongs to the CUDA set and should have come from
-  C2.1.
+- **Success:** `{"ok": true, "written": ...}`.
+- **Output:** **committed**. Derived from `src/vision/pyproject.toml` by the
+  same functions the boundary gate uses, so never hand-edit it; the gate
+  regenerates it and requires byte equality.
+- **Record:** its SHA-256.
+- **Failure:** STOP. The tool refuses to overwrite a differing file
+  (`runtime_requirement_projection_conflict`) rather than clobbering it.
+
+This is the authoritative root set for the variant — currently 21 pinned roots
+including `av`, `trackers`, `supervision`, `scipy`, `opencv-python`, `httpx`,
+`msgpack`, `pydantic` and `pydantic-settings`, none of which a hand-written
+list is likely to remember.
+
+### C2.3b Place the canonical MMCV wheel
+
+Choose **one** of the MMCV wheels as the canonical artefact, record which and
+why, and copy it into `$work\wheelhouse`. Its SHA-256 is what the lock — and
+through the lock, the Runtime Pack identity — will bind to. **Archive it off
+the build host now**: repeated builds are not reproducible, so a lost canonical
+wheel cannot be reconstructed and everything downstream must be re-qualified.
+
+### C2.3c Acquire the rest of the closure
+
+```powershell
+python -m pip download `
+    -r src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cuda.requirements.txt `
+    --only-binary=:all: `
+    --find-links $work\wheelhouse `
+    --dest $work\wheelhouse
+```
+
+- **Success:** the wheelhouse holds the full transitive closure.
+- **Must run after C2.3a and C2.3b.** `--find-links` is what makes pip reuse
+  the `+cu124` Torch and torchvision and the canonical MMCV wheel already
+  there instead of fetching substitutes from PyPI. The projection pins
+  `torch==2.6.0`, and under PEP 440 a local version such as `2.6.0+cu124`
+  both satisfies that specifier and sorts above the bare public version, so
+  the local wheel wins — but verify rather than trust:
+
+```powershell
+Get-ChildItem $work\wheelhouse -Filter "torch*-*.whl" | Select-Object Name
+Get-ChildItem $work\wheelhouse -Filter "torchvision*-*.whl" | Select-Object Name
+```
+
+  Every Torch and torchvision wheel must carry `+cu124`. A bare `2.6.0` means
+  pip fetched a CPU build; delete it and re-run with the cu124 wheels present.
 - **Failure:** STOP.
 
-Copy the **canonical** MMCV wheel into the wheelhouse as well -- one of the two,
-chosen and recorded per the paragraph below.
+### C2.3d Assemble the manifest
 
-
-Choose **one** of the two MMCV wheels as the canonical artefact and record which
-and why. Build A is the conventional choice; whichever it is, its SHA-256 is
-what the lock, and through the lock the Runtime Pack identity, will bind to.
-The other wheel is reproducibility evidence, not a substitute: the C2.2a report
-establishes that they are semantically equivalent, not interchangeable by hash.
-
-Collect every wheel (Torch, torchvision, the canonical MMCV wheel, and the
-ordinary PyPI dependencies) into one directory, and write an origins file recording where each
-came from:
+Write an origins file recording where each artefact came from, then:
 
 ```powershell
 python tools\vision\build_wheelhouse_manifest.py `
@@ -492,7 +531,10 @@ python tools\vision\build_wheelhouse_manifest.py `
 - **Output:** `$work\wheelhouse-manifest.json` — **external**.
 - **Record:** the manifest SHA-256.
 - **Failure:** STOP. The manifest refuses symlinks, subdirectories and strays;
-  a refusal means the wheelhouse is not a clean set.
+  a refusal means the wheelhouse is not a clean set. It also refuses a Torch
+  without a `+cu124` local version under a CUDA variant
+  (`wheelhouse_cuda_binary_build_required`), which is the backstop against a
+  CPU wheel reaching a CUDA closure.
 
 `origins.json` maps every wheel filename to where it came from:
 
@@ -536,13 +578,14 @@ Also generate the tracked requirements projection C5 will bind to:
 ```powershell
 python tools\vision\write_requirements_projection.py `
     --platform-variant windows-x86_64-cuda --python-version 3.12.10 `
-    --output src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cuda.requirements.txt
+    --output src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cuda.requirements.txt `
+    --check
 ```
 
-- **Success:** `{"ok": true, "written": ...}`.
-- **Output:** **committed**. It is derived from `src/vision/pyproject.toml`, so
-  never hand-edit it; the boundary gate regenerates it and requires byte
-  equality.
+- **Success:** the projection written at C2.3a still matches the derivation.
+- **Why `--check` and not a second write:** deriving the same artefact twice is
+  how two copies come to disagree. It was written once, at C2.3a, and is the
+  file the acquisition was driven from; this confirms nothing has moved since.
 - **Record:** its SHA-256.
 
 ## C2.5 Prove the offline install
