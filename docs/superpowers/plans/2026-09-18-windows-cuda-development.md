@@ -827,6 +827,20 @@ Before merge to `main`:
 
 Merge the milestone back to `main` promptly rather than allowing another long-lived integration branch.
 
+## Guard coverage
+
+The evidence assemblers are almost entirely fail-closed guards, and a guard no
+test can distinguish is not a guard. Adversarial review found ten at once in the
+C6 and C7 assemblers: every weakening applied to them left the suites green.
+
+`tools/vision/check_guard_coverage.py` makes that check mechanical. It names
+each guard by the exact source line that implements it, neutralises that line,
+and requires the suites to fail; a survivor means the guard is untested or
+redundant, and both are worth knowing. The quality gate runs it. The ordinary
+suite runs the cheap half -- that every named guard still exists exactly once --
+because a harness that cannot find its targets looks identical to one whose
+targets are all well tested.
+
 ## Operator procedure for the host session
 
 Everything in this plan that a hosted session cannot do is consolidated, in
