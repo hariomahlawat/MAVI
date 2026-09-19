@@ -116,3 +116,5 @@
 .track-card.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .track-card.is-selectable { cursor: pointer; }
 .results-end { color: var(--text-3); font-size: var(--fs-1); }
+.search-workspace--inspecting .results__head .hints { display: none; }
+.results__head .video-title strong { white-space: nowrap; }

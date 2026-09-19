@@ -174,7 +174,7 @@ export default function ProcessingPage() {
                     { label: 'Queued', value: safeFormatTimestamp(run.queuedAtUtc, displayZone) },
                     { label: 'Started', value: safeFormatTimestamp(run.startedAtUtc, displayZone) },
                     { label: 'Completed', value: safeFormatTimestamp(run.completedAtUtc, displayZone) },
-                    { label: 'Frames processed', value: run.status === 'Completed' ? run.framesProcessed.toLocaleString() : '—' },
+                    { label: 'Frames processed', value: run.status === 'Running' || run.status === 'Completed' ? run.framesProcessed.toLocaleString() : '—' },
                     { label: 'Tracks created', value: run.status === 'Completed' ? run.tracksCreated.toLocaleString() : '—' },
                   ]}
                 />
