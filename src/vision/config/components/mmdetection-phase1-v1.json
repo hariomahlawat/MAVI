@@ -20,6 +20,12 @@
       "thirdPartyLockSha256": "b1d0970df273538feceff678bb27a3722140c7c3c7317aadfbf83a88103b3a6b",
       "runtimeRequirementsSha256": "991d07a5d2b6d04aae387c1d5c029c3f3407f460447f1a1477adb7cf410f0094",
       "nativeAbi": "glibc-2.39-libstdcxx-GLIBCXX_3.4.33-gcc-14.2.0-linux_x86_64"
+    },
+    "windows-x86_64-cuda": {
+      "runtimePackId": "mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d",
+      "thirdPartyLockSha256": "f95a7970168eaa903b8acbfd3c8fcc2fb3a9838f5b52ca8a1fc0fcb843b72c64",
+      "runtimeRequirementsSha256": "aef75d1960c0fc07483b5ffba4b6ba1471efde8fdf06d4bae3d0e3275b30b981",
+      "nativeAbi": "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75"
     }
   }
 }

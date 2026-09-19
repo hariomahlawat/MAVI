@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/windows-cuda-development-e2e-run-v1.json",
+  "title": "MAVI Windows CUDA Development E2E run record (v1)",
+  "description": "One C6 processing run, authored by the operator from what the worker reported. The assembler applies the cross-run and cross-artefact policy; this schema owns the shape, so a malformed record is refused with the offending path named rather than by whichever field the assembler happened to read first.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "configuredDevicePolicy",
+    "actualDevice",
+    "status",
+    "progressPercent",
+    "mediaSha256",
+    "framesProcessed",
+    "detectionCount",
+    "trackCount",
+    "elapsedSeconds",
+    "hostRamPeakBytes",
+    "provenance"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-windows-cuda-development-e2e-run-v1" },
+    "configuredDevicePolicy": { "enum": ["cpu", "cuda", "auto"] },
+    "actualDevice": {
+      "type": "string",
+      "pattern": "^(cpu|cuda:[0-9]+)$"
+    },
+    "deviceResolutionReason": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "status": { "type": "string", "minLength": 1 },
+    "progressPercent": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "mediaSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "framesProcessed": { "type": "integer", "minimum": 0 },
+    "detectionCount": { "type": "integer", "minimum": 0 },
+    "trackCount": { "type": "integer", "minimum": 0 },
+    "elapsedSeconds": { "type": "number", "exclusiveMinimum": 0 },
+    "hostRamPeakBytes": { "type": "integer", "minimum": 0 },
+    "gpuUuidSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "recoveredFromCudaOutOfMemory": { "type": "boolean" },
+    "restartCount": { "type": "integer", "minimum": 0 },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actualDevice",
+        "deviceResolutionReason",
+        "verificationStatus"
+      ],
+      "properties": {
+        "actualDevice": { "type": "string", "pattern": "^(cpu|cuda:[0-9]+)$" },
+        "deviceResolutionReason": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "verificationStatus": {
+          "description": "Development never inherits the release's verified label, so a run record claiming `verified` did not come from this runtime.",
+          "const": "unverified"
+        }
+      }
+    },
+    "cuda": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxMemoryAllocatedBytes",
+        "maxMemoryReservedBytes",
+        "archList",
+        "runtimeVersion",
+        "mmcvNmsExecutedOnCuda"
+      ],
+      "properties": {
+        "maxMemoryAllocatedBytes": { "type": "integer", "minimum": 0 },
+        "maxMemoryReservedBytes": { "type": "integer", "minimum": 0 },
+        "archList": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^sm_[0-9]{2,3}(\\+PTX)?$" }
+        },
+        "runtimeVersion": { "type": "string", "minLength": 1 },
+        "mmcvNmsExecutedOnCuda": { "type": "boolean" }
+      }
+    },
+    "nvidiaSmi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before", "during", "after"],
+      "properties": {
+        "before": { "$ref": "#/$defs/memoryReading" },
+        "during": { "$ref": "#/$defs/memoryReading" },
+        "after": { "$ref": "#/$defs/memoryReading" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "description": "A run on a CUDA device must carry the device telemetry that shows it happened there.",
+      "if": {
+        "properties": { "actualDevice": { "pattern": "^cuda:[0-9]+$" } },
+        "required": ["actualDevice"]
+      },
+      "then": { "required": ["cuda", "nvidiaSmi", "gpuUuidSha256"] }
+    },
+    {
+      "description": "A CPU run has no device telemetry to report.",
+      "if": {
+        "properties": { "actualDevice": { "const": "cpu" } },
+        "required": ["actualDevice"]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            { "required": ["cuda"] },
+            { "required": ["nvidiaSmi"] },
+            { "required": ["gpuUuidSha256"] }
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "memoryReading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["freeMiB", "usedMiB"],
+      "properties": {
+        "freeMiB": { "type": "integer", "minimum": 0 },
+        "usedMiB": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

@@ -111,6 +111,10 @@ jobs:
         working-directory: src/vision
         run: python -m pytest -q
 
+      - name: Check evidence-assembler guard coverage
+        working-directory: ${{ github.workspace }}
+        run: python tools/vision/check_guard_coverage.py
+
       - name: Test Task 17 acceptance tooling
         run: python -m pytest -q tools/phase1/tests
 

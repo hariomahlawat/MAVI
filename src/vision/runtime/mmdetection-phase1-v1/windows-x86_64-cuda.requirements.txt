@@ -1,0 +1,23 @@
+# schema: mavi-vision-runtime-requirements-v1
+# platform-variant: windows-x86_64-cuda
+# python-version: 3.12.10
+av<17,>=15
+av==16.1.0
+httpx<0.29,>=0.28
+mmcv==2.1.0
+mmdet==3.3.0
+mmengine==0.10.7
+msgpack<2,>=1.1
+numpy<3,>=2.2
+numpy==2.5.3
+opencv-python==5.0.0.93
+packaging<27,>=26
+pillow<12,>=11
+pillow==11.3.0
+pydantic-settings<3,>=2.10
+pydantic<3,>=2.11
+scipy==1.18.1
+supervision==0.30.2
+torch==2.6.0
+torchvision==0.21.0
+trackers==2.6.0

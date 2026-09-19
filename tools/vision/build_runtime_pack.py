@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -28,6 +27,18 @@ from freeze_offline_lock import (  # noqa: E402
     validate_wheel_record_for_target,
     validate_wheelhouse_dependency_closure,
 )
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from vision_package_bootstrap import (  # noqa: E402
+    install_lightweight_vision_package,
+)
+
+# Must run before the first `mavi_vision` import: the package's eager
+# re-exports would otherwise pull in NumPy and Torch, which this tool
+# exists to help acquire.
+install_lightweight_vision_package()
+
 from mavi_vision.runtime.component_identity import (  # noqa: E402
     RuntimePackIdentityInputs,
     runtime_pack_id,
@@ -179,6 +190,68 @@ def _load_runtime_inputs(
         raise RuntimePackError(exc.code) from exc
 
     return lock, projection, records
+
+
+class NativeAbiDerivationError(RuntimePackError):
+    """The build contract cannot produce a native ABI identity."""
+
+
+_CUDA_TOOLKIT_SHAPE = re.compile(r"^\d+\.\d+$")
+_MSVC_TOOLSET_SHAPE = re.compile(r"^\d+\.\d+\.\d+$")
+_WINDOWS_SDK_SHAPE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
+_COMPUTE_CAPABILITY_SHAPE = re.compile(r"^\d+\.\d+$")
+
+
+def derive_native_abi(contract: dict) -> str:
+    """Derive the CUDA Runtime Pack's native ABI from the frozen build contract.
+
+    The native ABI exists to make a pack's identity reflect the facts that
+    decide whether its native ops will actually run: the platform, the host
+    compiler that compiled them, the SDK, the CUDA runtime family and the
+    target GPU architecture. Hand-typing that string in a workflow is how it
+    drifts away from the toolchain that was actually verified, so it is derived
+    from the contract and never written by hand.
+
+    The MSVC toolset is carried at full precision, unlike the CPU pack's
+    two-component form, because a CUDA pack's native ops depend on the exact
+    toolset build that R1 proved.
+    """
+    toolchain = contract.get("toolchain")
+    if not isinstance(toolchain, dict):
+        raise NativeAbiDerivationError("native_abi_contract_toolchain_missing")
+    if toolchain.get("verificationStatus") != "verified":
+        # An unverified toolchain has no proven identity to name.
+        raise NativeAbiDerivationError("native_abi_toolchain_not_verified")
+
+    target = contract.get("targetGpu")
+    if not isinstance(target, dict):
+        raise NativeAbiDerivationError("native_abi_contract_target_missing")
+
+    fields = {
+        "cudaToolkitVersion": (toolchain.get("cudaToolkitVersion"), _CUDA_TOOLKIT_SHAPE),
+        "msvcToolset": (toolchain.get("msvcToolset"), _MSVC_TOOLSET_SHAPE),
+        "windowsSdkVersion": (toolchain.get("windowsSdkVersion"), _WINDOWS_SDK_SHAPE),
+        "computeCapability": (target.get("computeCapability"), _COMPUTE_CAPABILITY_SHAPE),
+    }
+    for name, (value, shape) in fields.items():
+        if not isinstance(value, str) or shape.fullmatch(value) is None:
+            raise NativeAbiDerivationError("native_abi_contract_field_invalid:" + name)
+
+    platform_variant = contract.get("platformVariant")
+    if platform_variant != "windows-x86_64-cuda":
+        raise NativeAbiDerivationError("native_abi_platform_variant_unsupported")
+
+    major, minor = fields["computeCapability"][0].split(".")
+    native_abi = (
+        "win_amd64"
+        f"-msvc-{fields['msvcToolset'][0]}"
+        f"-sdk-{fields['windowsSdkVersion'][0]}"
+        f"-cuda{fields['cudaToolkitVersion'][0]}"
+        f"-sm{major}{minor}"
+    )
+    # The derived string must satisfy the same rule any supplied one does.
+    _validate_native_abi_for_variant(native_abi, platform_variant)
+    return native_abi
 
 
 def _validate_native_abi_for_variant(
@@ -336,15 +409,47 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--requirements", dest="requirements_path", type=Path, required=True)
     parser.add_argument("--platform-variant", required=True)
     parser.add_argument("--python-version", required=True)
-    parser.add_argument("--native-abi", required=True)
+    # The ABI is derived from the frozen build contract, not typed. A `-cuda`
+    # pack's identity is a hash over this string, so a hand-typed one that
+    # happens to spell the qualified toolchain while the build used another is
+    # a Runtime Pack ID that is wrong about what it identifies.
+    parser.add_argument("--native-abi")
+    parser.add_argument(
+        "--contract",
+        type=Path,
+        help="build contract to derive --native-abi from; required for a "
+        "-cuda variant",
+    )
     parser.add_argument("--python-installer", type=Path)
     parser.add_argument("--assembled-from-commit", required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
 
+def _resolve_native_abi(args: argparse.Namespace) -> str:
+    if args.contract is not None:
+        contract = json.loads(args.contract.read_text(encoding="utf-8"))
+        derived = derive_native_abi(contract)
+        if args.native_abi is not None and args.native_abi != derived:
+            # Both were supplied and they disagree. Silently preferring either
+            # one would hide exactly the drift this argument exists to catch.
+            raise NativeAbiDerivationError("native_abi_contract_conflict")
+        return derived
+    if args.native_abi is None:
+        raise NativeAbiDerivationError("native_abi_not_supplied")
+    if args.platform_variant.endswith("-cuda"):
+        raise NativeAbiDerivationError("native_abi_contract_required_for_cuda")
+    return args.native_abi
+
+
 def main() -> int:
     args = _parse_args()
+    try:
+        native_abi = _resolve_native_abi(args)
+    except (NativeAbiDerivationError, OSError, json.JSONDecodeError) as exc:
+        code = getattr(exc, "code", "native_abi_contract_unreadable")
+        print(code, file=sys.stderr)
+        return 2
     try:
         manifest = build_runtime_pack(
             wheelhouse=args.wheelhouse,
@@ -352,7 +457,7 @@ def main() -> int:
             requirements_path=args.requirements_path,
             platform_variant=args.platform_variant,
             python_version=args.python_version,
-            native_abi=args.native_abi,
+            native_abi=native_abi,
             python_installer=args.python_installer,
             assembled_from_commit=args.assembled_from_commit,
             output=args.output,

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "mavi-windows-cuda-development-build-v1",
-  "status": "pre-c2-toolchain-verification-required",
+  "status": "r1-toolchain-verified-pre-c2",
   "platformVariant": "windows-x86_64-cuda",
   "pythonVersion": "3.12.10",
   "torchBinaryVersion": "2.6.0+cu124",
@@ -25,10 +25,28 @@
   },
   "toolchain": {
     "cudaToolkitVersion": "12.4",
-    "msvcToolset": null,
-    "windowsSdkVersion": null,
-    "verificationStatus": "pending-r1-preflight",
-    "rule": "No Windows CUDA lock or Runtime Pack may be frozen until nvcc successfully compiles a trivial .cu file with the selected MSVC toolset and Windows SDK."
+    "msvcToolset": "14.44.35207",
+    "windowsSdkVersion": "10.0.26100.0",
+    "verificationStatus": "verified",
+    "rule": "No Windows CUDA lock or Runtime Pack may be frozen until nvcc successfully compiles a trivial .cu file with the selected MSVC toolset and Windows SDK.",
+    "cudaToolkitBuild": "V12.4.99",
+    "cudaCompilerBuild": "cuda_12.4.r12.4/compiler.33961263_0",
+    "msvcCompilerVersion": "19.44.35222",
+    "evidence": {
+      "observationSchema": "mavi-windows-cuda-toolchain-observation-v1",
+      "verifiedAtSourceHeadSha": "426195ddf72ae18b31f8d0faa7bb1a50ea906720",
+      "probeArchitecture": "-arch=sm_75",
+      "probeExitCode": 0,
+      "probeObjectBytes": 39957,
+      "hostHardware": "NVIDIA GeForce GTX 1650 Ti",
+      "hostDriverVersion": "576.83",
+      "hostObservationSchema": "mavi-windows-cuda-host-observation-v2",
+      "hostObservationSha256": "cb7031911e2e71c4990b72260a2f2df974e68d44725d9702b07401a6e43132d4",
+      "torchWheelFilename": "torch-2.6.0+cu124-cp312-cp312-win_amd64.whl",
+      "torchWheelSha256": "3313061c1fec4c7310cf47944e84513dcd27b6173b72a349bb7ca68d0ee6e9c0",
+      "torchWheelSizeBytes": 2532302369,
+      "note": "Development engineering evidence only. This verifies the native build toolchain; it does not qualify any CUDA Runtime Pack, Development hardware state or Production profile."
+    }
   },
   "buildHost": {
     "policy": "controlled-windows-build-host",
@@ -41,5 +59,8 @@
     "compilerRequiredAtRuntime": false,
     "inductorEnabled": false,
     "explicitCudaMayFallbackToCpu": false
-  }
+  },
+  "statusNote": "status is a human-readable phase label and is never proof of anything. The authoritative machine-checked proof is toolchain.verificationStatus together with the frozen toolchain identities, which tools/verify_repo.py validates by shape and cross-checks against the offline catalogue.",
+  "nativeAbi": "win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75",
+  "nativeAbiNote": "Derived from toolchain and targetGpu by tools/vision/build_runtime_pack.py:derive_native_abi, never hand-typed. C3 passes this value to --native-abi so the Runtime Pack's identity reflects the toolchain R1 actually verified."
 }

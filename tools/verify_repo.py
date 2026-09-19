@@ -176,22 +176,31 @@ def check_project_references(errors: list[str]) -> None:
             )
 
 
-_CUDA_TOOLCHAIN_PLACEHOLDER = re.compile(r"^(?:pending|tbd|unknown)\b", re.IGNORECASE)
+# Each frozen toolchain identity is validated by shape, not by the absence of
+# known placeholder words. A deny-list only rejects the sentinels someone
+# thought of: "TODO", "n/a" or "-" would pass one and let a CUDA lock through.
+_CUDA_TOOLCHAIN_IDENTITY_SHAPES = {
+    # CUDA Toolkit, e.g. "12.4"
+    "cudaToolkitVersion": re.compile(r"^\d+\.\d+$"),
+    "cudaToolkit": re.compile(r"^\d+\.\d+$"),
+    # MSVC toolset, e.g. "14.44.35207"
+    "msvcToolset": re.compile(r"^\d+\.\d+\.\d+$"),
+    # Windows SDK, e.g. "10.0.26100.0"
+    "windowsSdkVersion": re.compile(r"^\d+\.\d+\.\d+\.\d+$"),
+    "windowsSdk": re.compile(r"^\d+\.\d+\.\d+\.\d+$"),
+}
 
 
-def _frozen_toolchain_value(value: object) -> bool:
-    """A toolchain identity counts as frozen only when it is explicitly stated.
+def _frozen_toolchain_value(name: str, value: object) -> bool:
+    """A toolchain identity counts as frozen only when it has a real identity.
 
-    Absence, null and any placeholder must fail closed: a gate that only knows
-    how to reject one sentinel string silently opens as soon as that sentinel
-    is renamed or removed.
+    Absence, null, and anything that is not a version of the expected shape
+    must fail closed.
     """
-    return (
-        isinstance(value, str)
-        and bool(value.strip())
-        and value == value.strip()
-        and _CUDA_TOOLCHAIN_PLACEHOLDER.match(value) is None
-    )
+    shape = _CUDA_TOOLCHAIN_IDENTITY_SHAPES.get(name)
+    if shape is None:
+        raise KeyError(f"unknown toolchain identity field: {name}")
+    return isinstance(value, str) and shape.fullmatch(value) is not None
 
 
 def check_windows_cuda_build_contract(errors: list[str]) -> None:
@@ -235,7 +244,7 @@ def check_windows_cuda_build_contract(errors: list[str]) -> None:
 
     contract_verified = contract_toolchain.get("verificationStatus") == "verified"
     contract_frozen = contract_verified and all(
-        _frozen_toolchain_value(contract_toolchain.get(name))
+        _frozen_toolchain_value(name, contract_toolchain.get(name))
         for name in ("msvcToolset", "windowsSdkVersion", "cudaToolkitVersion")
     )
     if contract_verified and not contract_frozen:
@@ -258,29 +267,40 @@ def check_windows_cuda_build_contract(errors: list[str]) -> None:
     if not isinstance(candidate_toolchain, dict):
         candidate_toolchain = {}
 
-    if contract_frozen and candidate_toolchain:
-        # One frozen toolchain identity, not two that can drift apart.
-        for contract_name, candidate_name in (
-            ("msvcToolset", "msvcToolset"),
-            ("windowsSdkVersion", "windowsSdk"),
-            ("cudaToolkitVersion", "cudaToolkit"),
-        ):
-            if contract_toolchain.get(contract_name) != candidate_toolchain.get(
-                candidate_name
+    catalogue_frozen = all(
+        _frozen_toolchain_value(name, candidate_toolchain.get(name))
+        for name in ("msvcToolset", "windowsSdk", "cudaToolkit")
+    )
+
+    if contract_frozen:
+        # One frozen toolchain identity, not two that can drift apart. This
+        # holds as soon as the contract is verified, not only once a lock
+        # exists, so the catalogue cannot quietly lack the identity.
+        if not catalogue_frozen:
+            fail(
+                "Windows CUDA build contract is verified but the offline "
+                "catalogue does not carry the frozen toolchain identity.",
+                errors,
+            )
+        else:
+            for contract_name, candidate_name in (
+                ("msvcToolset", "msvcToolset"),
+                ("windowsSdkVersion", "windowsSdk"),
+                ("cudaToolkitVersion", "cudaToolkit"),
             ):
-                fail(
-                    "Windows CUDA build contract and offline catalogue disagree "
-                    f"on the frozen toolchain field '{contract_name}'.",
-                    errors,
-                )
+                if contract_toolchain.get(
+                    contract_name
+                ) != candidate_toolchain.get(candidate_name):
+                    fail(
+                        "Windows CUDA build contract and offline catalogue "
+                        "disagree on the frozen toolchain field "
+                        f"'{contract_name}'.",
+                        errors,
+                    )
 
     if not cuda_lock.exists():
         return
 
-    catalogue_frozen = all(
-        _frozen_toolchain_value(candidate_toolchain.get(name))
-        for name in ("msvcToolset", "windowsSdk", "cudaToolkit")
-    )
     if not contract_frozen or not catalogue_frozen:
         fail(
             "A Windows CUDA lock cannot be committed before the MSVC/CUDA "

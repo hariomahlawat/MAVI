@@ -12,7 +12,7 @@ from packaging.version import InvalidVersion, Version
 
 _SCHEMA = "mavi-offline-lock-v1"
 _REQUIREMENTS_SCHEMA = "mavi-vision-runtime-requirements-v1"
-_SUPPORTED_VARIANTS = frozenset(
+SUPPORTED_PLATFORM_VARIANTS = frozenset(
     {
         "linux-x86_64-cpu",
         "windows-x86_64-cpu",
@@ -20,6 +20,7 @@ _SUPPORTED_VARIANTS = frozenset(
         "windows-x86_64-cuda",
     }
 )
+_SUPPORTED_VARIANTS = SUPPORTED_PLATFORM_VARIANTS
 _PYTHON_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 _NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
 _VERSION_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.+!_-]*[A-Za-z0-9])?$")
@@ -437,6 +438,7 @@ def _valid_exact_version(version: str) -> bool:
 
 
 __all__ = [
+    "SUPPORTED_PLATFORM_VARIANTS",
     "LockedDistribution",
     "OfflineLockError",
     "OfflineRuntimeLock",

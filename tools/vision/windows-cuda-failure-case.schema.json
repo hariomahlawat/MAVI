@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/windows-cuda-failure-case-v1.json",
+  "title": "MAVI Windows CUDA failure-case observation (v1)",
+  "description": "One C7 failure case as observed. The assembler decides whether the observation matches the case it claims; this schema owns the shape. Note `processingCompleted` is required for a refusal: silence is not evidence that nothing ran.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "configuredDevicePolicy", "outcome", "operatorDiagnostic"],
+  "properties": {
+    "schemaVersion": { "const": "mavi-windows-cuda-failure-case-v1" },
+    "configuredDevicePolicy": { "enum": ["cpu", "cuda", "auto"] },
+    "outcome": { "enum": ["fail-closed", "auto-fallback-cpu", "recovered"] },
+    "failureCode": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+    "operatorDiagnostic": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "actualDevice": {
+      "type": ["string", "null"],
+      "pattern": "^(cpu|cuda:[0-9]+)$"
+    },
+    "deviceResolutionReason": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "refusedResolutionReason": {
+      "description": "The out-of-vocabulary reason that was refused. Separate from deviceResolutionReason because nothing was resolved.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "processingCompleted": { "type": "boolean" },
+    "fallbackLogged": { "type": "boolean" },
+    "fallbackPersistedInProvenance": { "type": "boolean" },
+    "recovered": { "type": "boolean" },
+    "attemptCount": { "type": "integer", "minimum": 1 },
+    "gpuUuidSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "driverVersion": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "description": "A refusal must state that nothing ran, and must say what refused.",
+      "if": { "properties": { "outcome": { "const": "fail-closed" } } },
+      "then": {
+        "required": ["failureCode", "processingCompleted"],
+        "properties": {
+          "processingCompleted": { "const": false },
+          "actualDevice": { "type": "null" },
+          "deviceResolutionReason": { "type": "null" }
+        }
+      }
+    },
+    {
+      "description": "A permitted fallback succeeded on CPU: it has a reason, is logged and persisted, and is not a failure.",
+      "if": { "properties": { "outcome": { "const": "auto-fallback-cpu" } } },
+      "then": {
+        "required": [
+          "actualDevice",
+          "deviceResolutionReason",
+          "fallbackLogged",
+          "fallbackPersistedInProvenance"
+        ],
+        "not": { "required": ["failureCode"] },
+        "properties": {
+          "actualDevice": { "const": "cpu" },
+          "fallbackLogged": { "const": true },
+          "fallbackPersistedInProvenance": { "const": true }
+        }
+      }
+    },
+    {
+      "description": "A recovery ran on the device and retried at least once.",
+      "if": { "properties": { "outcome": { "const": "recovered" } } },
+      "then": {
+        "required": ["failureCode", "actualDevice", "recovered", "attemptCount"],
+        "properties": {
+          "actualDevice": { "pattern": "^cuda:[0-9]+$" },
+          "recovered": { "const": true },
+          "attemptCount": { "minimum": 2 }
+        }
+      }
+    }
+  ]
+}

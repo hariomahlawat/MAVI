@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from dataclasses import replace
 from types import MappingProxyType
 
 import pytest
@@ -10,7 +11,10 @@ from mavi_vision.common.analytical import ObjectClass
 from mavi_vision.runtime.interfaces import RuntimeMetadata
 from mavi_vision.runtime.manifest import ArtifactRef, ModelManifest
 from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
-from mavi_vision.common.control_plane import DEVICE_RESOLUTION_REASONS
+from mavi_vision.common.control_plane import (
+    AUTO_CPU_DEVICE_RESOLUTION_REASONS,
+    DEVICE_RESOLUTION_REASONS,
+)
 from mavi_vision.runtime.provenance import (
     GpuIdentity,
     PlatformIdentity,
@@ -718,12 +722,23 @@ def test_device_resolution_reason_vocabulary_is_closed() -> None:
 
 
 def test_windows_launcher_emits_only_contracted_resolution_reasons() -> None:
-    """PowerShell and Python must not silently diverge on reason codes."""
-    launcher = (
-        Path(__file__).resolve().parents[3]
-        / "tools/setup/Start-MaviVisionWorker.ps1"
+    """PowerShell and Python must not silently diverge on reason codes.
+
+    The Auto decision moved into `Mavi.VisionRuntime.Common.psm1` so it could be
+    called and therefore tested; the explicit policies are still decided in the
+    launcher. Both files are read, because the contract is about what the
+    Windows side can emit, not about which file happens to hold it.
+    """
+    setup = Path(__file__).resolve().parents[3] / "tools/setup"
+    text = "\n".join(
+        (setup / name).read_text(encoding="utf-8")
+        for name in (
+            "Start-MaviVisionWorker.ps1",
+            "Mavi.VisionRuntime.Common.psm1",
+        )
     )
-    text = launcher.read_text(encoding="utf-8")
+    # `Reason = "` is a suffix of `deviceResolutionReason = "`, so one scrape
+    # captures both the Auto result object and the explicit assignments.
     emitted = {
         line.split('Reason = "', 1)[1].split('"', 1)[0]
         for line in text.splitlines()
@@ -734,6 +749,22 @@ def test_windows_launcher_emits_only_contracted_resolution_reasons() -> None:
     # verified against the vocabulary, so it fails this assertion too.
     assert emitted >= {"explicit_cpu", "explicit_cuda", "cuda_selected"}
     assert emitted <= DEVICE_RESOLUTION_REASONS
+
+
+def test_every_auto_cpu_reason_is_reachable_from_the_windows_auto_decision() -> None:
+    """A reason the vocabulary contracts but nothing emits cannot be observed."""
+    module = (
+        Path(__file__).resolve().parents[3]
+        / "tools/setup/Mavi.VisionRuntime.Common.psm1"
+    ).read_text(encoding="utf-8")
+    emitted = {
+        line.split('Reason = "', 1)[1].split('"', 1)[0]
+        for line in module.splitlines()
+        if 'Reason = "' in line
+    }
+
+    assert AUTO_CPU_DEVICE_RESOLUTION_REASONS <= emitted
+    assert "cuda_selected" in emitted
 
 
 @pytest.mark.parametrize(
@@ -907,3 +938,57 @@ def test_resolution_reason_is_carried_into_runtime_provenance() -> None:
         provenance.device_resolution_reason
         == "cuda_pack_integrity_failed"
     )
+
+
+def test_development_cuda_execution_is_recorded_but_never_labelled_verified(
+    monkeypatch,
+) -> None:
+    """Where the supervisor's widened Auto check deliberately stops.
+
+    `RuntimeSupervisor` now lets Development `Auto` select a GPU whose variant
+    is `qualified-development-hardware` (ADR-009's Development state). Provenance
+    is not widened to match: its `-cuda` bar stays `qualified-hardware`, and a
+    profile carrying any Development-qualified variant is `partial` anyway, so
+    the record is `unverified`. That is the intended asymmetry -- Development may
+    run on the GPU, and the run is fully described, but it never inherits the
+    release's verified label. The C6 evidence is the description, not the label.
+    """
+    selection = _selection(verified=True)
+    variants = dict(selection.runtime_platform_variants)
+    variants["windows-x86_64-cuda"] = replace(
+        variants["windows-x86_64-cuda"],
+        status="qualified-development-hardware",
+    )
+    selection = replace(
+        selection,
+        runtime_platform_variants=MappingProxyType(variants),
+        runtime_qualification_status="partial",
+    )
+
+    provenance = build_runtime_provenance(
+        selection=selection,
+        runtime_metadata=_metadata(device="cuda:0"),
+        configured_device_policy="auto",
+        device_resolution_reason="cuda_selected",
+        configured_device_index=0,
+        production_mode=False,
+        platform_identity=_platform(),
+        gpu=GpuIdentity(
+            name="NVIDIA GeForce RTX 2080 Ti",
+            index=0,
+            vram_bytes=11 * 1024**3,
+            driver_version="560.94",
+            cuda_runtime_version="12.4",
+            uuid="GPU-3f2b1c4d-0000-0000-0000-000000000001",
+            pci_bus_id="00000000:01:00.0",
+            compute_capability="7.5",
+        ),
+    )
+
+    assert provenance.verification_status == "unverified"
+    assert provenance.platform_lock_sha256 is None
+    # The execution itself is still fully described.
+    assert provenance.actual_device == "cuda:0"
+    assert provenance.device_resolution_reason == "cuda_selected"
+    assert provenance.gpu is not None
+    assert provenance.gpu.compute_capability == "7.5"

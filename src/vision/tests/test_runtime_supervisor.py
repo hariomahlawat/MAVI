@@ -826,6 +826,137 @@ def test_development_auto_falls_back_to_cpu_when_cuda_unavailable(
     asyncio.run(scenario())
 
 
+def test_development_auto_accepts_a_development_qualified_gpu(
+    monkeypatch,
+) -> None:
+    """ADR-009's Development state is the one the laptop will actually carry.
+
+    `qualified-hardware` is the Production state; a Development host that has
+    passed C4 carries `qualified-development-hardware`. Requiring the former
+    here would make the plan's C6 requirement -- Auto selects CUDA when the
+    qualified pack and device are available -- unreachable on the only kind of
+    host that phase runs on.
+    """
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        runtime = _Runtime("cuda", device="cuda:2")
+        harness = _Harness(
+            runtimes=[runtime],
+            device_policy="auto",
+            cuda_available=True,
+        )
+        harness.selection.runtime_platform_variants[
+            "windows-x86_64-cuda"
+        ].status = "qualified-development-hardware"
+
+        await harness.supervisor.start()
+
+        assert harness.supervisor.state is module.RuntimeState.READY
+        assert harness.factory_calls[0][1] == "cuda:2"
+
+    asyncio.run(scenario())
+
+
+def test_development_auto_still_chooses_cpu_against_the_committed_profile(
+    monkeypatch,
+) -> None:
+    """What the repository as committed actually resolves to, on Auto.
+
+    Every other Auto test here supplies synthetic variant statuses, so nothing
+    else asserts this. Changed on purpose at Gate C5, as its previous wording
+    required -- but the outcome did not change and the reason it did not is
+    the point.
+
+    Before C5 the answer was CPU because no CUDA Runtime Pack was declared.
+    C5 declared one, and Gate C4 moved the variant to
+    `qualified-development-hardware`, so both of those now favour CUDA. Auto
+    still selects CPU because the CUDA entry in `releaseLocks` is
+    `pending-hardware-qualification`, and `cuda_runtime_ready` requires
+    `qualified-offline-lock`.
+
+    The reported reason is still `cuda_pack_not_declared`, which is the
+    catch-all for a not-ready CUDA runtime and now under-describes the cause:
+    a pack *is* declared. That is left alone deliberately. The reason
+    vocabulary is closed and mirrored in the JSON schema, the .NET parser and
+    the PowerShell launcher, so a more precise member is a four-place change
+    for a diagnostic string, and the selection itself is correct.
+    """
+    from mavi_vision.runtime.qualification import load_runtime_profile
+
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        profile = load_runtime_profile(
+            Path(__file__).resolve().parents[1]
+            / "runtime"
+            / "mmdetection-phase1-v1"
+            / "runtime.json"
+        )
+        harness = _Harness(device_policy="auto", cuda_available=True)
+        harness.selection.runtime_platform_variants = {
+            name: SimpleNamespace(status=variant.status)
+            for name, variant in profile.platform_variants.items()
+        }
+        harness.selection.runtime_release_locks = {
+            name: SimpleNamespace(status=lock.status)
+            for name, lock in profile.release_locks.items()
+        }
+
+        await harness.supervisor.start()
+
+        # The two things that changed at C4/C5, asserted so this test fails if
+        # either is ever quietly reverted.
+        assert (
+            profile.platform_variants["windows-x86_64-cuda"].status
+            == "qualified-development-hardware"
+        )
+        # ...and the one that has not, which is why CPU is still correct.
+        assert (
+            profile.release_locks["windows-x86_64-cuda"].status
+            == "pending-hardware-qualification"
+        )
+
+        assert harness.supervisor.state is module.RuntimeState.READY
+        assert harness.factory_calls[0][1] == "cpu"
+        assert (
+            harness.supervisor._resolved_device_resolution_reason
+            == "cuda_pack_not_declared"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_production_auto_is_refused_whatever_the_cuda_variant_state(
+    monkeypatch,
+) -> None:
+    """Development qualification must never become a Production capability."""
+    async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
+
+        harness = _Harness(
+            production_mode=True,
+            device_policy="auto",
+            cuda_available=True,
+        )
+        harness.selection.runtime_platform_variants[
+            "windows-x86_64-cuda"
+        ].status = "qualified-development-hardware"
+
+        await harness.supervisor.start()
+
+        assert harness.supervisor.state is module.RuntimeState.UNAVAILABLE
+        assert harness.factory_calls == []
+
+    asyncio.run(scenario())
+
+
 def test_development_auto_falls_back_when_cuda_runtime_is_not_qualified(
     monkeypatch,
 ) -> None:
@@ -1019,5 +1150,132 @@ def test_explicit_policy_preserves_launcher_resolution_reason(
         assert harness.provenance_calls[0][
             "device_resolution_reason"
         ] == "cuda_pack_absent"
+
+    asyncio.run(scenario())
+
+
+# Device telemetry after an attempt
+def test_device_telemetry_is_nothing_on_a_cpu_runtime() -> None:
+    async def scenario() -> None:
+        harness = _Harness()
+        await harness.supervisor.start()
+
+        assert await harness.supervisor.device_telemetry() is None
+
+    asyncio.run(scenario())
+
+
+def test_device_telemetry_is_nothing_before_a_device_is_resolved() -> None:
+    async def scenario() -> None:
+        harness = _Harness(device_policy="cuda", device_resolution_reason="explicit_cuda")
+
+        assert await harness.supervisor.device_telemetry() is None
+
+    asyncio.run(scenario())
+
+
+def test_device_telemetry_reads_the_resolved_cuda_device_on_the_lane(monkeypatch) -> None:
+    async def scenario() -> None:
+        class _CountingLane(_Lane):
+            def __init__(self) -> None:
+                super().__init__()
+                self.calls: list[str] = []
+
+            async def run(self, func, /, *args, **kwargs):
+                self.calls.append(getattr(func, "__name__", repr(func)))
+                return func(*args, **kwargs)
+
+        lane = _CountingLane()
+        harness = _Harness(
+            runtimes=[_Runtime("cuda", device="cuda:2")],
+            device_policy="cuda",
+            device_resolution_reason="explicit_cuda",
+            cuda_available=True,
+            lane=lane,
+        )
+        seen: list[str] = []
+
+        def fake_collect(device: str):
+            seen.append(device)
+            return {"device": device, "mmcvNmsExecutedOnCuda": True}
+
+        monkeypatch.setattr(
+            harness.module, "collect_cuda_device_telemetry", fake_collect
+        )
+        await harness.supervisor.start()
+
+        reading = await harness.supervisor.device_telemetry()
+
+        assert reading == {"device": "cuda:2", "mmcvNmsExecutedOnCuda": True}
+        assert seen == ["cuda:2"]
+        # The CUDA context is touched on the lane, never on the event loop.
+        assert "fake_collect" in lane.calls
+
+    asyncio.run(scenario())
+
+
+def test_device_telemetry_failure_is_swallowed(monkeypatch) -> None:
+    async def scenario() -> None:
+        harness = _Harness(
+            runtimes=[_Runtime("cuda", device="cuda:2")],
+            device_policy="cuda",
+            device_resolution_reason="explicit_cuda",
+            cuda_available=True,
+        )
+
+        def exploding(device: str):
+            raise RuntimeError("CUDA error: unspecified launch failure")
+
+        monkeypatch.setattr(harness.module, "collect_cuda_device_telemetry", exploding)
+        await harness.supervisor.start()
+
+        assert await harness.supervisor.device_telemetry() is None
+        assert harness.supervisor.state is harness.module.RuntimeState.READY
+
+    asyncio.run(scenario())
+
+
+# A startup refusal must say which check refused, not only its family
+def test_a_startup_refusal_logs_the_detail_code_beside_the_stable_one(caplog) -> None:
+    """`vision_runtime_incompatible` covers every compatibility check.
+
+    The check that refused is the exception message, itself a code such as
+    `cuda_unavailable`; without it an operator cannot record which refusal
+    happened, and the C7 matrix declares those detail codes.
+    """
+    import logging
+
+    from mavi_vision.runtime.errors import RuntimeCompatibilityError
+
+    async def scenario() -> None:
+        harness = _Harness(verifier_error=RuntimeCompatibilityError("cuda_unavailable"))
+        with caplog.at_level(logging.ERROR, logger=harness.module.__name__):
+            await harness.supervisor.start()
+
+        assert harness.supervisor.unavailable_reason == "vision_runtime_incompatible"
+        assert any(
+            "vision_runtime_incompatible (cuda_unavailable)" in record.message
+            for record in caplog.records
+        )
+
+    asyncio.run(scenario())
+
+
+def test_a_startup_refusal_never_renders_a_message_that_is_not_a_code(caplog) -> None:
+    import logging
+
+    from mavi_vision.runtime.errors import RuntimeCompatibilityError
+
+    async def scenario() -> None:
+        harness = _Harness(
+            verifier_error=RuntimeCompatibilityError(
+                "could not open C:\\Users\\someone\\secret\\config.py"
+            )
+        )
+        with caplog.at_level(logging.ERROR, logger=harness.module.__name__):
+            await harness.supervisor.start()
+
+        assert not any("secret" in record.message for record in caplog.records)
+        assert harness.supervisor.unavailable_reason == "vision_runtime_incompatible"
 
     asyncio.run(scenario())

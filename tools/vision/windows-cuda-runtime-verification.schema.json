@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/windows-cuda-runtime-verification-v2.json",
+  "title": "MAVI Windows CUDA runtime verification (v2)",
+  "description": "What verify_windows_cuda_runtime.py records about one on-device run. Only the salted GPU identity digest ever appears here; the raw UUID identifies a specific workstation card and must never reach an artefact.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "result"],
+  "properties": {
+    "schemaVersion": {
+      "const": "mavi-windows-cuda-runtime-verification-v2"
+    },
+    "result": { "enum": ["passed", "failed"] },
+    "failureCode": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "failureDetail": { "type": "string", "maxLength": 4000 },
+    "resolvedConfigPath": { "type": "string" },
+    "cudaDeviceOrder": { "type": ["string", "null"] },
+    "cudaVisibleDevices": { "type": ["string", "null"] },
+    "hostObservationSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "deviceIndex": { "type": "integer", "minimum": 0 },
+    "deviceName": { "type": "string", "minLength": 1 },
+    "computeCapability": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+    "gpuUuidSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "driverVersion": { "type": "string", "minLength": 1 },
+    "pythonIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "implementation", "build", "compiler"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "implementation": { "const": "CPython" },
+        "build": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "compiler": { "type": "string", "minLength": 1 }
+      }
+    },
+    "binaryVersions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["torch", "torchvision"],
+      "properties": {
+        "torch": { "type": "string", "pattern": "^[^+]+\\+[^+]+$" },
+        "torchvision": { "type": "string", "pattern": "^[^+]+\\+[^+]+$" }
+      }
+    },
+    "resolvedConfigSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "torchVersion": { "type": "string", "minLength": 1 },
+    "torchCudaRuntimeVersion": { "type": "string", "minLength": 1 },
+    "torchCudaArchList": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^sm_[0-9]{2,3}(\\+PTX)?$" }
+    },
+    "totalMemoryBytes": { "type": "integer", "minimum": 1 },
+    "peakMemoryAllocatedBytes": { "type": "integer", "minimum": 0 },
+    "peakMemoryReservedBytes": { "type": "integer", "minimum": 0 },
+    "mmcvNmsExecutedOnCuda": { "type": "boolean" },
+    "torchMatmulExecutedOnCuda": { "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "description": "A passed record must carry the full on-device evidence, the identity of the card that ran it, and the observation it was produced against. Whether that evidence actually attests execution is policy the evidence builder applies, with its own specific codes; this schema describes shape only.",
+      "if": { "properties": { "result": { "const": "passed" } } },
+      "then": {
+        "required": [
+          "hostObservationSha256",
+          "deviceIndex",
+          "deviceName",
+          "computeCapability",
+          "gpuUuidSha256",
+          "driverVersion",
+          "pythonIdentity",
+          "binaryVersions",
+          "resolvedConfigSha256",
+          "torchVersion",
+          "torchCudaRuntimeVersion",
+          "torchCudaArchList",
+          "totalMemoryBytes",
+          "peakMemoryAllocatedBytes",
+          "peakMemoryReservedBytes",
+          "mmcvNmsExecutedOnCuda",
+          "torchMatmulExecutedOnCuda"
+        ],
+        "not": { "required": ["failureCode"] }
+      }
+    },
+    {
+      "description": "A failed record must say why, and may never claim on-device execution.",
+      "if": { "properties": { "result": { "const": "failed" } } },
+      "then": {
+        "required": ["failureCode", "mmcvNmsExecutedOnCuda", "torchMatmulExecutedOnCuda"],
+        "properties": {
+          "mmcvNmsExecutedOnCuda": { "const": false },
+          "torchMatmulExecutedOnCuda": { "const": false }
+        }
+      }
+    }
+  ]
+}
