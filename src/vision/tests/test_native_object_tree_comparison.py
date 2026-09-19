@@ -314,3 +314,52 @@ def test_out_of_scope_files_are_named_not_merely_counted(tmp_path: Path) -> None
         "mmcv/ops/_ext.pyd",
     ]
     assert result["outOfScopeNativeFiles"]["right"] == []
+
+
+def test_a_shared_parser_gap_is_summarised_not_buried(tmp_path: Path) -> None:
+    """129 objects sharing one parser gap is a different situation from 129
+    divergent objects, and the report has to say which without the reader
+    opening every entry.
+    """
+    left_objects = {
+        f"mmcv/ops/cpu/op{index}.obj": fixtures.bigobj_object(
+            version=1, timestamp=0x68A00001, body=bytes([index]) * 128
+        )
+        for index in range(30)
+    }
+    right_objects = {
+        f"mmcv/ops/cpu/op{index}.obj": fixtures.bigobj_object(
+            version=1, timestamp=0x68A00999, body=bytes([index]) * 128
+        )
+        for index in range(30)
+    }
+    result = MODULE.compare_object_trees(
+        _tree(tmp_path / "a", left_objects), _tree(tmp_path / "b", right_objects)
+    )
+
+    assert result["verdict"] == "divergent-content"
+    assert result["unresolvedCount"] == 30
+    assert result["unresolvedReasonCounts"] == {
+        "bigobj_anon_object_header_unsupported": 30
+    }
+    signatures = result["unresolvedHeaderSignatures"]
+    assert len(signatures) == 1
+    signature, count = next(iter(signatures.items()))
+    assert count == 30
+    assert "version=1" in signature
+    assert "D1BAA1C7" in signature
+
+
+def test_a_parser_gap_is_never_reported_as_agreement(tmp_path: Path) -> None:
+    """Fail-closed: an unsupported variant must not pass as reproducible."""
+    objects = {
+        "mmcv/ops/cpu/op0.obj": fixtures.bigobj_object(version=1, timestamp=1),
+    }
+    other = {
+        "mmcv/ops/cpu/op0.obj": fixtures.bigobj_object(version=1, timestamp=2),
+    }
+    result = MODULE.compare_object_trees(
+        _tree(tmp_path / "a", objects), _tree(tmp_path / "b", other)
+    )
+    assert result["verdict"] == "divergent-content"
+    assert result["metadataNormalizedCount"] == 0

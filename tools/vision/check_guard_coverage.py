@@ -235,7 +235,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "C2 accepts a BIGOBJ header without the MSVC class id",
         "tools/vision/native_binary_metadata.py",
-        "    if data[12:28] != _BIGOBJ_CLASS_ID:",
+        '    if not header["classIdIsBigObj"]:',
         "    if False:",
     ),
     Mutation(

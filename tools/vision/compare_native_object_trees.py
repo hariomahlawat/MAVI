@@ -99,6 +99,11 @@ def compare_object_trees(left_root: Path, right_root: Path) -> dict[str, object]
     unresolved: list[dict[str, object]] = []
     fields_seen: dict[str, int] = {}
     formats_seen: dict[str, int] = {}
+    # Why the unresolved ones were unresolved, counted. With 136 objects, the
+    # difference between "one is divergent" and "129 share one parser gap" is
+    # the whole diagnosis, and it should not require reading 129 entries.
+    reasons_seen: dict[str, int] = {}
+    headers_seen: dict[str, int] = {}
 
     for name in shared:
         # A multi-gigabyte object would otherwise raise `MemoryError`, which is
@@ -121,6 +126,18 @@ def compare_object_trees(left_root: Path, right_root: Path) -> dict[str, object]
                     key = str(field["name"])
                     fields_seen[key] = fields_seen.get(key, 0) + 1
             else:
+                reason = str(
+                    analysis.get("reason") or analysis["classification"]
+                )
+                reasons_seen[reason] = reasons_seen.get(reason, 0) + 1
+                detail = analysis.get("reasonDetail") or {}
+                if detail:
+                    signature = (
+                        f"version={detail.get('version')} "
+                        f"machine={detail.get('machine')} "
+                        f"classId={detail.get('classId')}"
+                    )
+                    headers_seen[signature] = headers_seen.get(signature, 0) + 1
                 if len(unresolved) < _UNRESOLVED_REPORT_LIMIT:
                     unresolved.append({"object": name, "analysis": analysis})
                 else:
@@ -160,6 +177,8 @@ def compare_object_trees(left_root: Path, right_root: Path) -> dict[str, object]
         "metadataNormalizedObjects": normalized,
         "unresolved": unresolved[:_UNRESOLVED_REPORT_LIMIT],
         "normalizedFieldCounts": dict(sorted(fields_seen.items())),
+        "unresolvedReasonCounts": dict(sorted(reasons_seen.items())),
+        "unresolvedHeaderSignatures": dict(sorted(headers_seen.items())),
         "outOfScopeNativeFiles": {
             "left": left_out_of_scope,
             "right": right_out_of_scope,

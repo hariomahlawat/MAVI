@@ -215,7 +215,7 @@ def test_bigobj_normalization_excuses_only_four_bytes() -> None:
 @pytest.mark.parametrize(
     ("payload", "code"),
     [
-        (fixtures.bigobj_object(version=1), "bigobj_version_unsupported"),
+        (fixtures.bigobj_object(version=1), "bigobj_anon_object_header_unsupported"),
         (fixtures.bigobj_object(machine=0x1234), "bigobj_machine_unknown"),
         (fixtures.bigobj_object(class_id=bytes(16)), "bigobj_class_id_invalid"),
         (fixtures.bigobj_object()[:40], "native_format_unrecognised"),
@@ -647,3 +647,80 @@ def test_a_directory_mentioned_in_prose_is_not_a_build_path(prose: bytes) -> Non
 def test_ci_and_unc_build_roots_are_detected(payload: bytes, expected: str) -> None:
     """The roots real builds run under, which the first allow-list missed."""
     assert MODULE.embedded_build_paths(payload) == [expected]
+
+
+# ---------------------------------------------------------------------------
+# The `00 00 FF FF` family
+#
+# Three different structures share that signature and are told apart by the
+# `Version` word alone. They have different header lengths, so reading BIGOBJ's
+# `NumberOfSections` at offset 44 out of a 32-byte ANON_OBJECT_HEADER reads
+# whatever happens to follow it. Each is refused by name, and every refusal
+# carries the decoded header -- the object trees this has to run against live
+# on a build host, and "unsupported" with no values forces a hex editor.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("version", "code"),
+    [
+        (0, "bigobj_import_object_header_unsupported"),
+        (1, "bigobj_anon_object_header_unsupported"),
+    ],
+)
+def test_each_anonymous_header_variant_is_refused_by_name(
+    version: int, code: str
+) -> None:
+    with pytest.raises(MODULE.NativeFormatError) as excinfo:
+        MODULE.describe_native_layout(fixtures.bigobj_object(version=version))
+    assert excinfo.value.code == code
+
+
+def test_every_bigobj_refusal_carries_the_decoded_header() -> None:
+    """The report must identify the variant without access to the build host."""
+    with pytest.raises(MODULE.NativeFormatError) as excinfo:
+        MODULE.describe_native_layout(fixtures.bigobj_object(version=1))
+
+    detail = excinfo.value.detail
+    assert detail["version"] == 1
+    assert detail["machine"] == "0x8664"
+    assert detail["classIdIsBigObj"] is True
+    assert detail["classId"] == "{D1BAA1C7-BAEE-4BA9-AF20-FAF66AA4DCB8}"
+
+
+def test_a_foreign_class_id_is_reported_as_well_as_refused() -> None:
+    """An LTCG/IL object carries a different CLSID; the report must show it."""
+    foreign = bytes.fromhex("359acc0a" + "00" * 12)
+    with pytest.raises(MODULE.NativeFormatError) as excinfo:
+        MODULE.describe_native_layout(
+            fixtures.bigobj_object(version=2, class_id=foreign)
+        )
+    assert excinfo.value.code == "bigobj_class_id_invalid"
+    assert excinfo.value.detail["classIdIsBigObj"] is False
+    assert excinfo.value.detail["classId"].startswith("{0ACC9A35-")
+
+
+def test_the_unparsable_result_carries_the_reason_detail() -> None:
+    """It has to survive into the JSON, or the diagnosis never reaches anyone."""
+    left = fixtures.bigobj_object(version=1, timestamp=1)
+    right = fixtures.bigobj_object(version=1, timestamp=2)
+    result = MODULE.compare_native_payloads(left, right)
+
+    assert result["classification"] == "unparsable-native-format"
+    assert result["reason"] == "bigobj_anon_object_header_unsupported"
+    assert result["reasonDetail"]["version"] == 1
+    assert result["reasonDetail"]["classId"]
+
+
+def test_the_guid_renderer_matches_the_on_disk_spelling() -> None:
+    assert (
+        MODULE._guid_text(fixtures.BIGOBJ_CLASS_ID)
+        == "{D1BAA1C7-BAEE-4BA9-AF20-FAF66AA4DCB8}"
+    )
+
+
+def test_a_supported_bigobj_still_parses() -> None:
+    """The change must not have moved the version this analyser does support."""
+    layout = MODULE.describe_native_layout(fixtures.bigobj_object(version=2))
+    assert layout.native_format == "bigobj-object"
+    assert layout.detail["version"] == 2

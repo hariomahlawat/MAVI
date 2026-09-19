@@ -59,7 +59,7 @@ Still required before Gate C2:
 - [ ] authoritative `+cu124` wheels acquired from the dedicated index **with `--no-deps`**
 - [ ] C2.2a run on the **A2/A3 wheels** (same source tree): expected `semantically-identical-after-native-normalization` — this is the acceptance evidence
 - [ ] C2.2a run on the A/B wheels for the relocatability record: expected `divergent-content` with `embedded-build-path-divergence`
-- [ ] C2.2b run on the **preserved** A2/A3 object trees — no rebuild. Expect `unresolvedCount` > 0 on `bigobj.MetaDataSize`; STOP only on `unexplained-native-difference`, `native-size-mismatch` or `unparsable-native-format`
+- [ ] C2.2b run on the **preserved** A2/A3 object trees — no rebuild. The first run returned 129 objects as `bigobj_anon_object_header_unsupported`, which is a parser-support result, not divergence. Re-run and read `unresolvedHeaderSignatures`: if the objects are `/GL` IL objects they carry no machine code and the comparison is not applicable, leaving the A2/A3 `.pyd` result as the functional evidence
 - [ ] the two BIGOBJ header words at offsets 36 and 40 decoded and **recorded**. Their meaning need not be settled to close C2: they are CLR metadata fields the native linker does not consume, and a clean A2/A3 `.pyd` comparison proves they changed no emitted byte. Tracked openly, not a blocker
 - [ ] canonical MMCV wheel chosen, named, and its SHA-256 recorded **together with** the reproducibility verdict
 - [ ] wheelhouse manifest produced

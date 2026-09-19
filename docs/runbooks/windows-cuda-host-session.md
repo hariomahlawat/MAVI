@@ -329,6 +329,33 @@ tool reports it rather than excusing it — which means a **non-zero**
   is not 136. Those would mean the compiler itself differs, which changes C3
   rather than just C2.
 
+#### If most objects will not parse
+
+The first re-validation run returned `unresolvedCount: 129` with those objects
+classified `unparsable-native-format` / `bigobj_anon_object_header_unsupported`.
+That is a **parser-support result, not a divergence result**, and the two must
+not be confused: nothing about it says the compiler disagreed.
+
+Read `unresolvedReasonCounts` and `unresolvedHeaderSignatures` in the report.
+They summarise why, and print the decoded `version`, `machine` and `classId` of
+the headers involved, so the variant is identifiable from the JSON without
+opening the objects.
+
+The likely explanation is that setuptools compiles release extensions with
+`/GL`, so most translation units are emitted as link-time-code-generation
+objects: a 32-byte `ANON_OBJECT_HEADER` (version 1) carrying compiler IL rather
+than machine code. If `classId` is **not** `{D1BAA1C7-BAEE-4BA9-AF20-FAF66AA4DCB8}`,
+that is confirmed.
+
+**If it is confirmed, the object comparison stops being the right instrument.**
+An IL object contains no machine code — codegen happens at link time — so
+object-level agreement would say little about the final binary either way. The
+functional evidence then rests entirely on the **A2-vs-A3 `.pyd` comparison**,
+which is where it should rest in any case: that is the artefact that executes.
+Record the object result as "not applicable, objects are IL" and move on. Do
+not rebuild with different flags to obtain parseable objects; changing the
+recipe to make a measurement easier invalidates the measurement.
+
 #### How much this question is worth
 
 `MetaDataSize` and `MetaDataOffset` are CLR metadata fields. A native object

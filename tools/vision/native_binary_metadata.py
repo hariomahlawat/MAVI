@@ -83,10 +83,17 @@ ACCEPTABLE_CLASSIFICATIONS = frozenset(
 
 
 class NativeFormatError(ValueError):
-    """The payload is not the native format it appears to claim."""
+    """The payload is not the native format it appears to claim.
 
-    def __init__(self, code: str) -> None:
+    ``detail`` carries whatever the parser managed to decode before it
+    refused. A refusal that says only "unsupported" forces whoever hit it to
+    go and read the bytes by hand on a machine this session cannot reach, so
+    the decoded header travels with the refusal instead.
+    """
+
+    def __init__(self, code: str, detail: dict[str, object] | None = None) -> None:
         self.code = code
+        self.detail = detail or {}
         super().__init__(code)
 
 
@@ -181,27 +188,84 @@ def _coff_object_layout(data: bytes) -> NativeLayout:
     )
 
 
+#: Three distinct structures begin with `Sig1=0x0000, Sig2=0xFFFF`, and the
+#: `Version` word is what tells them apart. They are not interchangeable: each
+#: has a different header length, so reading BIGOBJ's `NumberOfSections` at
+#: offset 44 out of a 32-byte ANON_OBJECT_HEADER reads whatever follows it.
+_BIGOBJ_VERSION_IMPORT_OBJECT = 0
+_BIGOBJ_VERSION_ANON_OBJECT = 1
+_BIGOBJ_MIN_VERSION = 2
+
+
+def _guid_text(raw: bytes) -> str:
+    """Render an on-disk CLSID in the usual mixed-endian GUID spelling."""
+    if len(raw) != 16:
+        return ""
+    first = int.from_bytes(raw[0:4], "little")
+    second = int.from_bytes(raw[4:6], "little")
+    third = int.from_bytes(raw[6:8], "little")
+    rest = raw[8:16].hex().upper()
+    return f"{{{first:08X}-{second:04X}-{third:04X}-{rest[:4]}-{rest[4:]}}}"
+
+
+def decode_anonymous_object_header(data: bytes) -> dict[str, object]:
+    """Decode the fields every `00 00 FF FF` header shares, for diagnostics.
+
+    Only the first twenty-eight bytes, which all three variants agree on. This
+    is what a refusal carries so the variant can be identified from the report
+    rather than from a hex editor on the build host.
+    """
+    if len(data) < 28:
+        return {"truncated": True, "sizeBytes": len(data)}
+    class_id = data[12:28]
+    return {
+        "version": _u16(data, 4),
+        "machine": f"0x{_u16(data, 6):04x}",
+        "timeDateStamp": f"0x{_u32(data, 8):08x}",
+        "classId": _guid_text(class_id),
+        "classIdIsBigObj": class_id == _BIGOBJ_CLASS_ID,
+        "sizeBytes": len(data),
+    }
+
+
 def _bigobj_object_layout(data: bytes) -> NativeLayout:
-    if len(data) < _BIGOBJ_HEADER_SIZE:
+    if len(data) < 28:
         raise NativeFormatError("native_format_truncated")
     if data[:4] != _BIGOBJ_SIGNATURE:
         raise NativeFormatError("bigobj_signature_invalid")
-    version = _u16(data, 4)
-    if version < 2:
-        raise NativeFormatError("bigobj_version_unsupported")
-    machine = _u16(data, 6)
-    if machine not in _KNOWN_MACHINES:
-        raise NativeFormatError("bigobj_machine_unknown")
-    if data[12:28] != _BIGOBJ_CLASS_ID:
+
+    # Decode first, refuse second. Every refusal below carries this, so one
+    # re-run of an existing comparison identifies the variant.
+    header = decode_anonymous_object_header(data)
+    version = int(header["version"])  # type: ignore[arg-type]
+
+    if version == _BIGOBJ_VERSION_IMPORT_OBJECT:
+        # IMPORT_OBJECT_HEADER: a short-import record from a library, not a
+        # compiled translation unit.
+        raise NativeFormatError("bigobj_import_object_header_unsupported", header)
+    if version == _BIGOBJ_VERSION_ANON_OBJECT:
+        # ANON_OBJECT_HEADER: a 32-byte header with no section or symbol
+        # counts. MSVC emits these for `/GL` link-time code generation, where
+        # the object holds compiler IL rather than machine code.
+        raise NativeFormatError("bigobj_anon_object_header_unsupported", header)
+    if version < _BIGOBJ_MIN_VERSION:
+        raise NativeFormatError(f"bigobj_version_unsupported:{version}", header)
+    if not header["classIdIsBigObj"]:
         # Without the CLSID this is not MSVC's anonymous-object header and the
         # field offsets below would be guesses.
-        raise NativeFormatError("bigobj_class_id_invalid")
+        raise NativeFormatError("bigobj_class_id_invalid", header)
+    if len(data) < _BIGOBJ_HEADER_SIZE:
+        raise NativeFormatError("native_format_truncated", header)
+
+    machine = _u16(data, 6)
+    if machine not in _KNOWN_MACHINES:
+        raise NativeFormatError("bigobj_machine_unknown", header)
     sections = _u32(data, 44)
     symbol_table = _u32(data, 48)
     if symbol_table > len(data):
-        raise NativeFormatError("bigobj_symbol_table_out_of_range")
+        raise NativeFormatError("bigobj_symbol_table_out_of_range", header)
     if _BIGOBJ_HEADER_SIZE + sections * 40 > len(data):
-        raise NativeFormatError("bigobj_section_table_out_of_range")
+        raise NativeFormatError("bigobj_section_table_out_of_range", header)
     return NativeLayout(
         native_format=FORMAT_BIGOBJ_OBJECT,
         normalized=(NormalizedField("bigobj.TimeDateStamp", 8, 4),),
@@ -702,6 +766,7 @@ def compare_native_payloads(
             "classification": "unparsable-native-format",
             "format": left_format,
             "reason": exc.code,
+            "reasonDetail": exc.detail,
             "byteIdentical": False,
             "normalizedFields": [],
             "residualDifferences": [],
@@ -860,6 +925,7 @@ __all__ = [
     "NormalizedField",
     "ObservedField",
     "compare_native_payloads",
+    "decode_anonymous_object_header",
     "describe_native_layout",
     "detect_native_format",
     "embedded_build_path_spans",
