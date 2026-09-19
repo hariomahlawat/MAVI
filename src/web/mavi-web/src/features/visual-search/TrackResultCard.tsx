@@ -1,24 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { TrackSearchItem } from '../../api/tracks';
+import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
-import { formatDateTime } from '../../shared/time/time';
-
-function displayTimestamp(value: string, displayTimeZoneId?: string): string {
-  if (!displayTimeZoneId) return value + ' UTC';
-  try {
-    return formatDateTime(value, displayTimeZoneId);
-  } catch {
-    return 'Invalid timestamp';
-  }
-}
+import { displayTimestamp, formatConfidence } from '../../shared/format/format';
+import { reviewPath } from './TrackResultList';
 
 export default function TrackResultCard({
   track,
   displayTimeZoneId,
+  selected = false,
+  onSelect,
 }: {
   track: TrackSearchItem;
   displayTimeZoneId?: string;
+  selected?: boolean;
+  onSelect?: (id: string) => void;
 }) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
 
@@ -26,8 +23,14 @@ export default function TrackResultCard({
     setThumbnailFailed(false);
   }, [track.thumbnailContentUrl]);
 
+  const className = ['track-card', onSelect ? 'is-selectable' : '', selected ? 'is-selected' : ''].filter(Boolean).join(' ');
+
   return (
-    <article className="track-card">
+    <article
+      className={className}
+      aria-current={selected ? 'true' : undefined}
+      onClick={onSelect ? () => onSelect(track.id.toLowerCase()) : undefined}
+    >
       <div className="track-card__media">
         {track.thumbnailContentUrl && !thumbnailFailed ? (
           <img
@@ -46,7 +49,7 @@ export default function TrackResultCard({
       <div className="track-card__body">
         <div className="track-card__title-row">
           <strong>{track.objectClass}</strong>
-          <span className="status-pill status-pill--muted">{track.reviewStatus}</span>
+          <StatusBadge status={track.reviewStatus} />
         </div>
         <div className="track-card__camera">{track.cameraCode} · {track.cameraName}</div>
         <time dateTime={track.startTimestampUtc}>
@@ -55,13 +58,14 @@ export default function TrackResultCard({
 
         <dl className="track-card__metrics">
           <div><dt>Duration</dt><dd>{formatDuration(track.durationMs)}</dd></div>
-          <div><dt>Mean confidence</dt><dd>{(track.meanConfidence * 100).toFixed(1)}%</dd></div>
+          <div><dt>Mean confidence</dt><dd>{formatConfidence(track.meanConfidence)}</dd></div>
           <div><dt>Detections</dt><dd>{track.detectionCount}</dd></div>
         </dl>
 
         <Link
-          className="button button--secondary track-card__action"
-          to={'/review/video/' + track.videoAssetId.toLowerCase() + '?trackId=' + encodeURIComponent(track.id.toLowerCase())}
+          className="btn btn--sm track-card__action"
+          to={reviewPath(track)}
+          onClick={(event) => event.stopPropagation()}
         >
           Review evidence
         </Link>
