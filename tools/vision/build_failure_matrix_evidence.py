@@ -632,6 +632,26 @@ def _check_case(
     reason = observation.get("deviceResolutionReason")
     device = observation.get("actualDevice")
 
+    refused_reason = observation.get("refusedResolutionReason")
+    if case_id == "auto-unknown-reason-refused":
+        # The case exists to prove an out-of-vocabulary reason is rejected, so
+        # the observation has to be able to say which one. It is deliberately a
+        # separate field: `deviceResolutionReason` is forbidden here because
+        # nothing was resolved.
+        if not isinstance(refused_reason, str) or not refused_reason.strip():
+            raise FailureMatrixError(
+                "failure_case_refused_reason_missing:" + case_id
+            )
+        if refused_reason in DEVICE_RESOLUTION_REASONS:
+            # A reason inside the vocabulary is not the thing being refused.
+            raise FailureMatrixError(
+                "failure_case_refused_reason_is_contracted:" + case_id
+            )
+    elif refused_reason is not None:
+        raise FailureMatrixError(
+            "failure_case_refused_reason_out_of_place:" + case_id
+        )
+
     if declared["outcome"] == "fail-closed":
         # Nothing ran, so nothing may be reported as having run. A device here
         # is the failure the case exists to detect.
@@ -726,6 +746,7 @@ def _check_case(
         "fallbackPermitted": declared["fallbackPermitted"],
         "requiresHardware": declared["requiresHardware"],
         "requiresWindowsHost": declared["requiresWindowsHost"],
+        "refusedResolutionReason": refused_reason,
         "gpuUuidSha256": observation.get("gpuUuidSha256")
         if declared["requiresHardware"]
         else None,

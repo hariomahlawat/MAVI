@@ -658,3 +658,25 @@ def test_check_run_refuses_a_non_dict_block_without_the_schema(block):
         MODULE._check_run("explicit-cuda", run, _expectation("explicit-cuda"))
 
     assert _code(excinfo).startswith("e2e_run_")
+
+
+def test_a_run_that_did_not_release_the_device_is_refused(tmp_path):
+    """The `after` reading was recorded and never read until now."""
+    run = _run("explicit-cuda")
+    run["nvidiaSmi"]["after"] = {"freeMiB": 8800, "usedMiB": 2464}
+
+    with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
+        _build(tmp_path, runs={"explicit-cuda": run})
+
+    assert _code(excinfo) == "e2e_run_device_not_released:explicit-cuda"
+
+
+def test_smi_readings_of_different_cards_are_refused(tmp_path):
+    """free + used must describe one consistent device across all three phases."""
+    run = _run("explicit-cuda")
+    run["nvidiaSmi"]["after"] = {"freeMiB": 23000, "usedMiB": 314}
+
+    with pytest.raises(MODULE.DevelopmentE2eError) as excinfo:
+        _build(tmp_path, runs={"explicit-cuda": run})
+
+    assert _code(excinfo) == "e2e_run_nvidia_smi_inconsistent:explicit-cuda"

@@ -92,6 +92,8 @@ def _observation(case_id: str, **overrides) -> dict:
         )
     if declared["requiresHardware"]:
         value.update({"gpuUuidSha256": _GPU_DIGEST, "driverVersion": "560.94"})
+    if case_id == "auto-unknown-reason-refused":
+        value["refusedResolutionReason"] = "cuda_looked_fine"
     value.update(overrides)
     if value.get("failureCode") is None:
         value.pop("failureCode", None)
@@ -818,3 +820,48 @@ def test_check_case_redacts_a_raw_uuid_without_the_schema():
     checked = MODULE._check_case(case, observation, MODULE.FAILURE_CASES[case])
 
     assert "GPU-6c1f0a3e" not in checked["operatorDiagnostic"]
+
+
+def test_the_unknown_reason_case_must_say_what_it_refused(tmp_path):
+    """The case exists to prove a reason was rejected; name it."""
+    case = "auto-unknown-reason-refused"
+    observation = _observation(case)
+    del observation["refusedResolutionReason"]
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        _build(tmp_path, cases={case: observation})
+
+    assert _code(excinfo) == "failure_case_refused_reason_missing:" + case
+
+
+def test_a_contracted_reason_is_not_what_that_case_refuses(tmp_path):
+    case = "auto-unknown-reason-refused"
+    observation = _observation(case, refusedResolutionReason="cuda_pack_absent")
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        _build(tmp_path, cases={case: observation})
+
+    assert _code(excinfo) == (
+        "failure_case_refused_reason_is_contracted:" + case
+    )
+
+
+def test_a_refused_reason_on_any_other_case_is_refused(tmp_path):
+    case = "corrupted-lock"
+    observation = _observation(case, refusedResolutionReason="cuda_looked_fine")
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        _build(tmp_path, cases={case: observation})
+
+    assert _code(excinfo) == (
+        "failure_case_refused_reason_out_of_place:" + case
+    )
+
+
+def test_the_refused_reason_is_carried_into_the_bundle(tmp_path):
+    evidence = _build(tmp_path)
+    by_case = {case["caseId"]: case for case in evidence["cases"]}
+
+    assert by_case["auto-unknown-reason-refused"][
+        "refusedResolutionReason"
+    ] == "cuda_looked_fine"

@@ -20,6 +20,12 @@
       "type": ["string", "null"],
       "pattern": "^[a-z][a-z0-9_]{0,63}$"
     },
+    "refusedResolutionReason": {
+      "description": "The out-of-vocabulary reason that was refused. Separate from deviceResolutionReason because nothing was resolved.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
     "processingCompleted": { "type": "boolean" },
     "fallbackLogged": { "type": "boolean" },
     "fallbackPersistedInProvenance": { "type": "boolean" },

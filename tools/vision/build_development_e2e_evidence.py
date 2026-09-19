@@ -315,6 +315,20 @@ def _check_run(
     if readings["during"]["usedMiB"] <= readings["before"]["usedMiB"]:
         # Work on the device shows up as device memory in use while it runs.
         raise DevelopmentE2eError("e2e_run_no_device_utilisation:" + case_id)
+    # The `after` reading was recorded and never read. A run that finished
+    # holding most of the device is not the clean completion this case claims,
+    # and the three readings must at least describe one consistent card.
+    totals = {
+        phase: reading["freeMiB"] + reading["usedMiB"]
+        for phase, reading in readings.items()
+    }
+    if max(totals.values()) - min(totals.values()) > 64:
+        raise DevelopmentE2eError("e2e_run_nvidia_smi_inconsistent:" + case_id)
+    if (
+        readings["after"]["usedMiB"] - readings["before"]["usedMiB"]
+        > (readings["during"]["usedMiB"] - readings["before"]["usedMiB"]) // 2
+    ):
+        raise DevelopmentE2eError("e2e_run_device_not_released:" + case_id)
 
     if corroboration is not None:
         # The run must be on the card C4 qualified, at the ordinal C4 attested,
