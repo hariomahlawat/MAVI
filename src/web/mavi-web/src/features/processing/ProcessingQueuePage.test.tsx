@@ -114,4 +114,13 @@ describe('ProcessingQueuePage', () => {
     await user.click(within(rows[1]).getByRole('button', { name: /retry/i }));
     expect(await within(rows[1]).findByText('worker_watchdog_timeout')).toBeInTheDocument();
   });
+
+  it('does not claim to be loading or show zero counts when the inventory request failed', async () => {
+    vi.mocked(listVideos).mockRejectedValue(new ApiError({ status: 500, code: 'api_error', detail: 'The request could not be completed.' }));
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    expect(await screen.findByText(/could not be completed/)).toBeInTheDocument();
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3);
+  });
 });

@@ -223,4 +223,33 @@ describe('VisualSearchPage pagination and navigation guards', () => {
     await waitFor(() => expect(screen.getByLabelText('Current search location'))
       .toHaveTextContent('/review/video/' + B.videoAssetId + '?trackId=' + B.id + '&from=' + expectedFrom));
   });
+
+  it('opens the full review on Enter while the selected row button still has focus', async () => {
+    vi.mocked(searchTracks).mockResolvedValue({ items: [A, B], nextCursor: null });
+    const user = userEvent.setup();
+    renderWithApp(<Harness />, { route: '/search' });
+    const list = await screen.findByRole('list', { name: 'Track results' });
+    const rows = within(list).getAllByRole('listitem');
+
+    await user.click(within(rows[1]).getByRole('button', { name: /^Select / }));
+    await screen.findByRole('heading', { name: 'Person · Track 7' });
+    expect(within(rows[1]).getByRole('button', { name: /^Select / })).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(screen.getByLabelText('Current search location'))
+      .toHaveTextContent('/review/video/' + B.videoAssetId + '?trackId=' + B.id));
+  });
+
+  it('leaves Enter alone on other controls such as the Search button', async () => {
+    vi.mocked(searchTracks).mockResolvedValue({ items: [A, B], nextCursor: null });
+    const user = userEvent.setup();
+    renderWithApp(<Harness />, { route: '/search?track=' + B.id });
+    await screen.findByRole('heading', { name: 'Person · Track 7' });
+
+    screen.getByRole('button', { name: 'Search' }).focus();
+    await user.keyboard('{Enter}');
+    await settle();
+    // Enter activated the Search button (a new committed search, selection cleared) and did not open the review.
+    expect(screen.getByLabelText('Current search location')).toHaveTextContent(/^\/search$/);
+  });
 });

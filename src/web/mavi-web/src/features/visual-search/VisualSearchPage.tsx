@@ -242,12 +242,24 @@ export default function VisualSearchPage() {
           event.preventDefault();
           goPrevious();
           break;
-        case 'Enter':
-          if (selectedId && !(event.target instanceof HTMLElement && event.target.closest('a, button'))) {
-            event.preventDefault();
-            openSelected();
+        case 'Enter': {
+          // Enter opens the full review of the selected Track. It must not
+          // steal Enter from other controls (links, filter buttons), but the
+          // focused select button of the already-selected row is exactly the
+          // place an operator presses Enter after clicking a result.
+          if (!selectedId) break;
+          const target = event.target instanceof HTMLElement ? event.target : null;
+          const control = target?.closest('a, button');
+          if (control) {
+            const row = control.closest('[data-track-id]');
+            const isSelectedRowButton = control.classList.contains('result-row__select')
+              && row?.getAttribute('data-track-id') === selectedId;
+            if (!isSelectedRowButton) break;
           }
+          event.preventDefault();
+          openSelected();
           break;
+        }
         case 'Escape':
           if (selectedId) selectTrack(null);
           break;

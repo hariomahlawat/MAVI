@@ -75,12 +75,12 @@ export default function ProcessingQueuePage() {
       ) : null}
 
       <div className="stats">
-        <div className="stat"><span className="stat__label">Active</span><span className="stat__value">{counts.active}</span><span className="stat__meta">queued or running</span></div>
-        <div className="stat"><span className="stat__label">Failed</span><span className="stat__value">{counts.failed}</span><span className="stat__meta">need attention</span></div>
-        <div className="stat"><span className="stat__label">Completed</span><span className="stat__value">{counts.completed}</span><span className="stat__meta">results available</span></div>
+        <div className="stat"><span className="stat__label">Active</span><span className="stat__value">{videos.data ? counts.active : '—'}</span><span className="stat__meta">queued or running</span></div>
+        <div className="stat"><span className="stat__label">Failed</span><span className="stat__value">{videos.data ? counts.failed : '—'}</span><span className="stat__meta">need attention</span></div>
+        <div className="stat"><span className="stat__label">Completed</span><span className="stat__value">{videos.data ? counts.completed : '—'}</span><span className="stat__meta">results available</span></div>
       </div>
 
-      <Panel body="flush" title="Latest run per video" description={videos.data ? `${rows.length} video${rows.length === 1 ? '' : 's'} with a processing run` : 'Loading…'}>
+      <Panel body="flush" title="Latest run per video" description={videos.data ? `${rows.length} video${rows.length === 1 ? '' : 's'} with a processing run` : videos.isError ? 'Unavailable' : 'Loading…'}>
         {videos.isPending ? <div className="panel__body"><LoadingState label="Loading processing state…" /></div> : null}
 
         {videos.data && rows.length === 0 ? (

@@ -43,13 +43,14 @@
 .results__foot { display: flex; align-items: center; justify-content: center; gap: var(--s-3); padding: var(--s-2) var(--s-4); border-top: 1px solid var(--border); min-height: 40px; color: var(--text-3); font-size: var(--fs-1); }
 .results__list { overflow-y: auto; min-height: 0; }
 .result-row {
-  display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s-3); align-items: center;
   padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--border); width: 100%; text-align: left;
   background: transparent; border-left: 0; border-right: 0; border-top: 0; color: inherit;
 }
 .result-row:hover { background: var(--surface-2); }
 .result-row[aria-current="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-.result-row__select { display: contents; }
+/* Not display: contents — Chromium drops such buttons from the accessibility tree. */
+.result-row__select { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--s-3); align-items: center; min-width: 0; width: 100%; }
 .result-row__select:focus-visible { outline: none; }
 .result-row:has(.result-row__select:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
 .result-row__title { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-2); font-weight: 500; min-width: 0; }

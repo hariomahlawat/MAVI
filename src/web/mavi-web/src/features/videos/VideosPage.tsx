@@ -103,7 +103,7 @@ export default function VideosPage() {
         description={
           videos.data
             ? `${rows.length} of ${total} video${total === 1 ? '' : 's'}${filtered ? ' match the filters' : ''}`
-            : 'Loading…'
+            : videos.isError ? 'Unavailable' : 'Loading…'
         }
         actions={(
           <div className="toolbar">
