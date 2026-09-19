@@ -15,6 +15,14 @@ So the launcher now emits `mavi_launch_failed:<code>: <message>` and this module
 is the authoritative set of codes it may use. The message stays, because a code
 alone does not tell an operator which file to look at.
 
+The integrity and compatibility assertions live in the shared setup modules and
+raise prose of their own. The launcher wraps each family of them, keeping the
+message verbatim as the diagnostic and adding the stable code, so a refusal that
+originates in a module is still classifiable. Those module functions are also
+called from installers and contract scripts, where they are not launcher
+failures at all; the code is attached at the launcher boundary rather than
+inside them for that reason.
+
 This is a mirror-checked contract, like the device-resolution reasons: a test
 scrapes the launcher and requires the two to agree exactly, so a code cannot be
 added on one side alone.
@@ -36,6 +44,10 @@ LAUNCH_FAILURE_CODES = frozenset(
         "launch_repository_head_unknown",
         # Runtime Pack installation and identity.
         "launch_runtime_pack_not_installed",
+        "launch_runtime_metadata_unreadable",
+        "launch_runtime_pack_manifest_invalid",
+        "launch_runtime_pack_preflight_failed",
+        "launch_runtime_closure_failed",
         "launch_runtime_state_schema_unsupported",
         "launch_runtime_manifest_fingerprint_mismatch",
         "launch_runtime_interpreter_missing",
@@ -45,6 +57,9 @@ LAUNCH_FAILURE_CODES = frozenset(
         "launch_runtime_python_identity_manifest_mismatch",
         # Model Pack installation and identity.
         "launch_model_pack_not_installed",
+        "launch_model_metadata_unreadable",
+        "launch_model_pack_manifest_invalid",
+        "launch_model_pack_integrity_failed",
         "launch_model_state_schema_unsupported",
         "launch_model_manifest_fingerprint_mismatch",
         # Application overlay and its bindings to qualification metadata.
@@ -59,6 +74,7 @@ LAUNCH_FAILURE_CODES = frozenset(
         "launch_runtime_requirements_binding_stale",
         "launch_runtime_native_abi_binding_stale",
         "launch_model_pack_binding_stale",
+        "launch_component_compatibility_failed",
         # The resolved policy and the installed pack must be the same thing.
         # These two are where explicit CUDA fails closed rather than running on
         # a pack that is not the CUDA one.

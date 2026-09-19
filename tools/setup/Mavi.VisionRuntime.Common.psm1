@@ -444,7 +444,17 @@ function Resolve-MaviVisionCudaAvailability {
         $result.Reason = "cuda_pack_not_declared"
         return [pscustomobject]$result
     }
-    if ([string]$cudaRequirement.Value.runtimePackId -ne [string]$manifestValue.runtimePackId) {
+    # Guarded for the same reason `runtimePacks` is: under Set-StrictMode a
+    # declared entry that is missing `runtimePackId` would throw out of this
+    # function instead of returning a reason, and the launcher would die with
+    # raw .NET prose rather than a stable code. Leaving one sibling guarded and
+    # the other not is worse than having guarded neither.
+    $declaredPackId = $cudaRequirement.Value.PSObject.Properties["runtimePackId"]
+    if (-not $declaredPackId) {
+        $result.Reason = "cuda_pack_not_declared"
+        return [pscustomobject]$result
+    }
+    if ([string]$declaredPackId.Value -ne [string]$manifestValue.runtimePackId) {
         $result.Reason = "cuda_pack_id_mismatch"
         return [pscustomobject]$result
     }

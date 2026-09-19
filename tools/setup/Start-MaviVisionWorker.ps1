@@ -37,6 +37,19 @@ function Stop-MaviLaunch {
     throw "mavi_launch_failed:${Code}: $Message"
 }
 
+# The integrity and compatibility assertions live in the shared modules and
+# throw English prose of their own. Their messages are the useful diagnostic and
+# are kept verbatim, but a refusal that reaches an operator or the C7 failure
+# matrix needs a stable code too, so each family of them is given one here.
+function Invoke-MaviLaunchStep {
+    param(
+        [Parameter(Mandatory = $true, Position = 0)][string]$Code,
+        [Parameter(Mandatory = $true, Position = 1)][scriptblock]$Step
+    )
+    try { return & $Step }
+    catch { Stop-MaviLaunch $Code $_.Exception.Message }
+}
+
 $RepositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot.Trim().Trim('"'))
 $git = Get-Command git.exe -ErrorAction SilentlyContinue
 if (-not $git) { Stop-MaviLaunch launch_git_unavailable "git.exe is required to identify the application revision." }
@@ -67,7 +80,7 @@ $deviceResolutionReason = $null
 if ($DevicePolicy -eq "auto") {
     # The decision itself lives in Mavi.VisionRuntime.Common.psm1 so it can be
     # called, and therefore tested, outside this script.
-    $cudaResolution = Resolve-MaviVisionCudaAvailability -Root $runtimeCudaRoot -ComponentRequirementsPath (Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json") -DeviceIndex $DeviceIndex
+    $cudaResolution = Resolve-MaviVisionCudaAvailability -Root ([IO.Path]::GetFullPath($runtimeCudaRoot.Trim().Trim('"'))) -ComponentRequirementsPath (Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json") -DeviceIndex $DeviceIndex
     if ($cudaResolution.Usable) {
         $runtimeRoot = $runtimeCudaRoot
         $resolvedDevicePolicy = "cuda"
@@ -95,10 +108,10 @@ $runtimeManifestPath = Join-Path $runtimeRoot "runtime-pack-manifest.json"
 if (-not (Test-Path -LiteralPath $runtimeStatePath -PathType Leaf) -or -not (Test-Path -LiteralPath $runtimeManifestPath -PathType Leaf)) {
     Stop-MaviLaunch launch_runtime_pack_not_installed "MAVI Vision Runtime Pack for requested device policy '$DevicePolicy' is not installed at '$runtimeRoot'."
 }
-$runtimeState = Get-Content -LiteralPath $runtimeStatePath -Raw | ConvertFrom-Json
-$runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw | ConvertFrom-Json
-[void](Assert-MaviVisionRuntimePackManifest -Manifest $runtimeManifest)
-[void](Assert-MaviVisionRuntimeInstalledStatePreflight -RuntimeRoot $runtimeRoot -InstalledState $runtimeState -Manifest $runtimeManifest -RuntimePackManifestPath $runtimeManifestPath)
+$runtimeState = Invoke-MaviLaunchStep launch_runtime_metadata_unreadable { Get-Content -LiteralPath $runtimeStatePath -Raw | ConvertFrom-Json }
+$runtimeManifest = Invoke-MaviLaunchStep launch_runtime_metadata_unreadable { Get-Content -LiteralPath $runtimeManifestPath -Raw | ConvertFrom-Json }
+[void](Invoke-MaviLaunchStep launch_runtime_pack_manifest_invalid { Assert-MaviVisionRuntimePackManifest -Manifest $runtimeManifest })
+[void](Invoke-MaviLaunchStep launch_runtime_pack_preflight_failed { Assert-MaviVisionRuntimeInstalledStatePreflight -RuntimeRoot $runtimeRoot -InstalledState $runtimeState -Manifest $runtimeManifest -RuntimePackManifestPath $runtimeManifestPath })
 if ([string]$runtimeState.schemaVersion -ne "mavi-vision-runtime-install-v2") { Stop-MaviLaunch launch_runtime_state_schema_unsupported "Vision runtime installed state schema is unsupported; reinstall the v2 Runtime Pack." }
 if ((Get-Sha256 $runtimeManifestPath) -ne ([string]$runtimeState.runtimePackManifestSha256).ToLowerInvariant()) { Stop-MaviLaunch launch_runtime_manifest_fingerprint_mismatch "Installed Vision Runtime Pack manifest fingerprint does not match runtime-install.json." }
 $python = Join-Path $runtimeRoot "venv\Scripts\python.exe"
@@ -108,7 +121,7 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($identityJson)) { Stop-
 try { $livePythonIdentity = $identityJson | ConvertFrom-Json } catch { Stop-MaviLaunch launch_runtime_python_identity_malformed "Live Vision Runtime Pack Python identity probe returned malformed data." }
 if (-not $runtimeState.PSObject.Properties["pythonIdentity"] -or -not (Test-MaviVisionPythonIdentityEqual -Left $runtimeState.pythonIdentity -Right $livePythonIdentity)) { Stop-MaviLaunch launch_runtime_python_identity_state_mismatch "Live Vision Runtime Pack Python identity does not match runtime-install.json; reinstall the qualified Runtime Pack." }
 if ([string]$livePythonIdentity.version -ne [string]$runtimeManifest.pythonVersion -or [string]$livePythonIdentity.implementation -ne "CPython") { Stop-MaviLaunch launch_runtime_python_identity_manifest_mismatch "Live Vision Runtime Pack Python identity does not match the Runtime Pack manifest." }
-[void](Assert-MaviVisionInstalledRuntimeClosure -RuntimeRoot $runtimeRoot -Manifest $runtimeManifest -PythonPath $python)
+[void](Invoke-MaviLaunchStep launch_runtime_closure_failed { Assert-MaviVisionInstalledRuntimeClosure -RuntimeRoot $runtimeRoot -Manifest $runtimeManifest -PythonPath $python })
 
 # Model Pack: do not trust installation-time state alone. Re-hash every declared
 # model artifact at worker startup and reject missing, changed or undeclared files.
@@ -118,12 +131,12 @@ $modelRoot = [IO.Path]::GetFullPath($modelRoot.Trim().Trim('"'))
 $modelStatePath = Join-Path $modelRoot "model-install.json"
 $modelPackManifestPath = Join-Path $modelRoot "model-pack-manifest.json"
 if (-not (Test-Path -LiteralPath $modelStatePath -PathType Leaf) -or -not (Test-Path -LiteralPath $modelPackManifestPath -PathType Leaf)) { Stop-MaviLaunch launch_model_pack_not_installed "MAVI Vision Model Pack is not installed. Install the qualified rtmdet-m-coco-phase1 Model Pack first." }
-$modelState = Get-Content -LiteralPath $modelStatePath -Raw | ConvertFrom-Json
-$modelPackManifest = Get-Content -LiteralPath $modelPackManifestPath -Raw | ConvertFrom-Json
-[void](Assert-MaviVisionModelPackManifest -Manifest $modelPackManifest)
+$modelState = Invoke-MaviLaunchStep launch_model_metadata_unreadable { Get-Content -LiteralPath $modelStatePath -Raw | ConvertFrom-Json }
+$modelPackManifest = Invoke-MaviLaunchStep launch_model_metadata_unreadable { Get-Content -LiteralPath $modelPackManifestPath -Raw | ConvertFrom-Json }
+[void](Invoke-MaviLaunchStep launch_model_pack_manifest_invalid { Assert-MaviVisionModelPackManifest -Manifest $modelPackManifest })
 if ([string]$modelState.schemaVersion -ne "mavi-vision-model-install-v1") { Stop-MaviLaunch launch_model_state_schema_unsupported "Vision model installed state schema is unsupported; reinstall the Model Pack." }
 if ((Get-Sha256 $modelPackManifestPath) -ne ([string]$modelState.modelPackManifestSha256).ToLowerInvariant()) { Stop-MaviLaunch launch_model_manifest_fingerprint_mismatch "Installed Vision Model Pack manifest fingerprint does not match model-install.json." }
-[void](Assert-MaviVisionInstalledModelPackIntegrity -ModelRoot $modelRoot -Manifest $modelPackManifest)
+[void](Invoke-MaviLaunchStep launch_model_pack_integrity_failed { Assert-MaviVisionInstalledModelPackIntegrity -ModelRoot $modelRoot -Manifest $modelPackManifest })
 
 # Application/Release Overlay is authoritative for the current checkout.
 $modelManifestPath = Join-Path $RepositoryRoot "models\manifests\rtmdet-m-coco-phase1-v1.json"
@@ -153,7 +166,7 @@ if ([string]$runtimeRequirement.nativeAbi -ne [string]$runtimeManifest.nativeAbi
 if ([string]$modelSourceManifest.modelId -ne [string]$modelRequirement.modelId -or [string]$modelSourceManifest.checkpoint.sha256 -ne [string]$modelRequirement.checkpointSha256 -or [string]$modelSourceManifest.resolvedConfig.sha256 -ne [string]$modelRequirement.resolvedConfigSha256) { Stop-MaviLaunch launch_model_pack_binding_stale "Vision application Model Pack binding is stale." }
 if ($resolvedDevicePolicy -eq "cuda" -and $runtimeVariant -ne "windows-x86_64-cuda") { Stop-MaviLaunch launch_cuda_policy_requires_cuda_pack "Resolved CUDA device policy requires the Windows CUDA Runtime Pack." }
 if ($resolvedDevicePolicy -eq "cpu" -and $runtimeVariant -ne "windows-x86_64-cpu") { Stop-MaviLaunch launch_cpu_policy_requires_cpu_pack "Resolved CPU device policy requires the Windows CPU Runtime Pack." }
-[void](Assert-MaviVisionWorkerComponentCompatibility -RuntimeState $runtimeState -RuntimeManifest $runtimeManifest -RequiredRuntimePackId ([string]$runtimeRequirement.runtimePackId) -RequiredThirdPartyLockSha256 ([string]$runtimeRequirement.thirdPartyLockSha256) -RequiredRuntimeRequirementsSha256 ([string]$runtimeRequirement.runtimeRequirementsSha256) -ModelState $modelState -ModelManifest $modelPackManifest -RequiredModelPackId ([string]$modelRequirement.modelPackId) -RequiredModelId ([string]$modelRequirement.modelId) -RequiredCheckpointSha256 ([string]$modelRequirement.checkpointSha256) -RequiredResolvedConfigSha256 ([string]$modelRequirement.resolvedConfigSha256))
+[void](Invoke-MaviLaunchStep launch_component_compatibility_failed { Assert-MaviVisionWorkerComponentCompatibility -RuntimeState $runtimeState -RuntimeManifest $runtimeManifest -RequiredRuntimePackId ([string]$runtimeRequirement.runtimePackId) -RequiredThirdPartyLockSha256 ([string]$runtimeRequirement.thirdPartyLockSha256) -RequiredRuntimeRequirementsSha256 ([string]$runtimeRequirement.runtimeRequirementsSha256) -ModelState $modelState -ModelManifest $modelPackManifest -RequiredModelPackId ([string]$modelRequirement.modelPackId) -RequiredModelId ([string]$modelRequirement.modelId) -RequiredCheckpointSha256 ([string]$modelRequirement.checkpointSha256) -RequiredResolvedConfigSha256 ([string]$modelRequirement.resolvedConfigSha256) })
 
 $env:MAVI_API_BASE_URL=$ApiBaseUrl;$env:MAVI_WORKER_ID=$WorkerId;$env:MAVI_MEDIA_ROOT=$MediaRoot;$env:MAVI_DEVICE_POLICY=$resolvedDevicePolicy;$env:MAVI_DEVICE_RESOLUTION_REASON=$deviceResolutionReason;$env:MAVI_DEVICE_INDEX=[string]$DeviceIndex;$env:MAVI_PRODUCTION_MODE="false";$env:MAVI_MODEL_ROOT=$modelRoot;$env:MAVI_MODEL_MANIFEST_PATH=$modelManifestPath;$env:MAVI_PIPELINE_PROFILE_PATH=$pipelinePath;$env:MAVI_RUNTIME_PROFILE_PATH=$runtimeProfilePath;$env:MAVI_QUALIFICATION_RECORD_PATH=$qualificationPath;$env:MAVI_BUILD_ID="development";$env:MAVI_COMMIT_SHA=$head
 $visionSourceRoot = Join-Path $RepositoryRoot "src\vision"

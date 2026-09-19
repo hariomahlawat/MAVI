@@ -737,15 +737,12 @@ def test_windows_launcher_emits_only_contracted_resolution_reasons() -> None:
             "Mavi.VisionRuntime.Common.psm1",
         )
     )
+    # `Reason = "` is a suffix of `deviceResolutionReason = "`, so one scrape
+    # captures both the Auto result object and the explicit assignments.
     emitted = {
         line.split('Reason = "', 1)[1].split('"', 1)[0]
         for line in text.splitlines()
         if 'Reason = "' in line
-    }
-    emitted |= {
-        line.split('deviceResolutionReason = "', 1)[1].split('"', 1)[0]
-        for line in text.splitlines()
-        if 'deviceResolutionReason = "' in line
     }
 
     # An interpolated literal such as "explicit_$DevicePolicy" cannot be

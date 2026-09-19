@@ -98,8 +98,9 @@ try {
     [void](New-AutoFixture)
     Assert-AutoReason -Expected "cuda_selected" -DriverProbe { param($i) return [string]$i } | Out-Null
 
-    # An absent pack is the default answer, and it is not usable.
-    Assert-AutoReason -Expected "cuda_pack_absent" -Root (Join-Path $autoRoot "no-such-pack") | Out-Null
+    # An absent pack is the default answer, it is not usable, and it does not
+    # reach the driver.
+    Assert-AutoReason -Expected "cuda_pack_absent" -Root (Join-Path $autoRoot "no-such-pack") -DriverProbe { param($i) throw "driver must not be probed" } | Out-Null
 
     # A pack whose installed state no longer binds its manifest fails integrity,
     # and fails it before the driver is ever probed.
@@ -114,11 +115,21 @@ try {
     [void](New-AutoFixture -PlatformVariant "windows-x86_64-cpu")
     Assert-AutoReason -Expected "cuda_pack_variant_mismatch" -DriverProbe { param($i) throw "driver must not be probed" } | Out-Null
 
-    # An undeclared pack, and an unparseable component file, are both refused.
+    # Every shape of "no CUDA pack declared" is refused, and none of them
+    # reaches the driver. The middle three are the guards the module move added:
+    # under Set-StrictMode each would otherwise throw out of the function and
+    # kill the launcher with raw .NET prose instead of a stable reason.
     [void](New-AutoFixture)
-    Assert-AutoReason -Expected "cuda_pack_not_declared" -ComponentPath (Join-Path $autoRoot "absent.json") | Out-Null
+    $noDriver = { param($i) throw "driver must not be probed" }
+    Assert-AutoReason -Expected "cuda_pack_not_declared" -ComponentPath (Join-Path $autoRoot "absent.json") -DriverProbe $noDriver | Out-Null
     Set-Content -LiteralPath $autoComponentPath -Value "{ not json"
-    Assert-AutoReason -Expected "cuda_pack_not_declared" | Out-Null
+    Assert-AutoReason -Expected "cuda_pack_not_declared" -DriverProbe $noDriver | Out-Null
+    Set-Content -LiteralPath $autoComponentPath -Value (([ordered]@{schemaVersion="mavi-vision-component-requirements-v1";runtimeProfileId="mmdetection-phase1-v1"}) | ConvertTo-Json -Depth 4)
+    Assert-AutoReason -Expected "cuda_pack_not_declared" -DriverProbe $noDriver | Out-Null
+    Set-Content -LiteralPath $autoComponentPath -Value (([ordered]@{schemaVersion="mavi-vision-component-requirements-v1";runtimeProfileId="mmdetection-phase1-v1";runtimePacks=[ordered]@{"windows-x86_64-cpu"=[ordered]@{runtimePackId="mavi-runtime-v2-$("5"*64)"}}}) | ConvertTo-Json -Depth 6)
+    Assert-AutoReason -Expected "cuda_pack_not_declared" -DriverProbe $noDriver | Out-Null
+    Set-Content -LiteralPath $autoComponentPath -Value (([ordered]@{schemaVersion="mavi-vision-component-requirements-v1";runtimeProfileId="mmdetection-phase1-v1";runtimePacks=[ordered]@{"windows-x86_64-cuda"=[ordered]@{nativeAbi="present-but-no-pack-id"}}}) | ConvertTo-Json -Depth 6)
+    Assert-AutoReason -Expected "cuda_pack_not_declared" -DriverProbe $noDriver | Out-Null
 
     # A declared identity that is not the installed one is refused.
     [void](New-AutoFixture -DeclaredPackId ("mavi-runtime-v2-" + ("9" * 64)))

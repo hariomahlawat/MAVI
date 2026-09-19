@@ -30,7 +30,20 @@ LAUNCHER = (
     / "Start-MaviVisionWorker.ps1"
 )
 
-_CALL = re.compile(r"Stop-MaviLaunch\s+([a-z][a-z0-9_]*)\s+\"", re.ASCII)
+# PowerShell accepts several spellings of the same call -- a quoted code, named
+# parameters, a backtick continuation before the message. A regex that only
+# understands the current spelling would let a brand-new uncoded refusal through
+# in any of the others, so the parsed count is cross-checked against every
+# occurrence of the helper's name.
+# `Invoke-MaviLaunchStep` forwards a code it was given, so its own call site
+# names a variable rather than a literal and is deliberately not counted.
+_ANY_CALL = re.compile(r"(?<!function )Stop-MaviLaunch\b(?!\s*\$)", re.ASCII)
+_CALL = re.compile(
+    r"Stop-MaviLaunch\s+(?:-Code\s+)?['\"]?(launch_[a-z0-9_]+)", re.ASCII
+)
+_STEP = re.compile(
+    r"Invoke-MaviLaunchStep\s+(?:-Code\s+)?['\"]?(launch_[a-z0-9_]+)", re.ASCII
+)
 
 
 def _launcher_text() -> str:
@@ -38,7 +51,8 @@ def _launcher_text() -> str:
 
 
 def _emitted_codes() -> set[str]:
-    return set(_CALL.findall(_launcher_text()))
+    text = _launcher_text()
+    return set(_CALL.findall(text)) | set(_STEP.findall(text))
 
 
 def test_the_launcher_emits_only_contracted_codes():
@@ -56,13 +70,31 @@ def test_the_vocabulary_is_closed_and_syntactically_stable():
         assert re.fullmatch(r"launch_[a-z][a-z0-9_]{0,63}", code, re.ASCII), code
 
 
+def test_every_helper_call_site_is_parsed_by_the_contract_scraper():
+    """A call the scraper cannot read is a code the contract cannot police."""
+    text = _launcher_text()
+
+    parsed = len(_CALL.findall(text))
+    present = len(_ANY_CALL.findall(text))
+
+    assert parsed == present, (
+        f"{present - parsed} Stop-MaviLaunch call(s) are written in a form the "
+        "contract scraper does not recognise"
+    )
+
+
 def test_no_fail_closed_refusal_bypasses_the_coded_helper():
-    """A bare `throw` would reintroduce exactly the uncoded prose this replaced."""
+    """A bare `throw` would reintroduce exactly the uncoded prose this replaced.
+
+    PowerShell is case-insensitive, so `Throw` runs just as well as `throw`, and
+    a bare `throw` rethrow carries no code at all.
+    """
     text = _launcher_text()
     throws = [
         line.strip()
         for line in text.splitlines()
-        if re.search(r"(^|[;{}\s])throw\s", line)
+        if not line.strip().startswith("#")
+        and re.search(r"(^|[;{}\s])throw\b", line, re.IGNORECASE)
     ]
 
     # The only `throw` left is the one inside Stop-MaviLaunch itself.
@@ -77,14 +109,39 @@ def test_the_emitted_form_is_machine_parseable():
 
 
 def test_every_refusal_still_carries_an_operator_message():
-    """A code alone does not tell an operator which file to look at."""
+    """A code alone does not tell an operator which file to look at.
+
+    Counted as a set, not a total: emitting one code from two call sites is
+    legitimate, and this test is about message quality rather than arity.
+    """
     calls = re.findall(
-        r"Stop-MaviLaunch\s+[a-z][a-z0-9_]*\s+\"([^\"]+)\"", _launcher_text()
+        r"Stop-MaviLaunch\s+([a-z][a-z0-9_]*)\s+\"([^\"]+)\"", _launcher_text()
     )
 
-    assert len(calls) == len(LAUNCH_FAILURE_CODES)
-    for message in calls:
-        assert len(message.strip()) > 20, message
+    assert {code for code, _ in calls}
+    for code, message in calls:
+        assert len(message.strip()) > 20, code
+
+
+def test_module_originated_refusals_are_coded_at_the_launcher_boundary():
+    """The setup modules raise prose; the launcher is where it gains a code."""
+    text = _launcher_text()
+    wrapped = set(_STEP.findall(text))
+
+    assert wrapped, "no module refusal is wrapped with a stable code"
+    assert wrapped <= LAUNCH_FAILURE_CODES
+    for assertion in (
+        "Assert-MaviVisionRuntimePackManifest",
+        "Assert-MaviVisionRuntimeInstalledStatePreflight",
+        "Assert-MaviVisionInstalledRuntimeClosure",
+        "Assert-MaviVisionModelPackManifest",
+        "Assert-MaviVisionInstalledModelPackIntegrity",
+        "Assert-MaviVisionWorkerComponentCompatibility",
+    ):
+        call = text.index(assertion)
+        preceding = text.rfind("Invoke-MaviLaunchStep", 0, call)
+        line_start = text.rfind("\n", 0, call)
+        assert preceding > line_start, assertion
 
 
 def test_the_two_policy_refusals_are_the_explicit_cuda_fail_closed_path():
