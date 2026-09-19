@@ -112,5 +112,112 @@ def test_the_runbook_requires_a_sanitised_host_observation():
 def test_the_runbook_states_what_the_session_cannot_establish():
     text = _runbook_text()
 
-    assert "cannot produce Production qualification" in text
+    assert "It cannot establish **PRODUCTION-QUALIFIED**" in text
     assert "no `qualified-development-hardware` without a genuine C4 bundle" in text
+
+
+def test_the_runbook_uses_the_precise_qualification_vocabulary():
+    """These states are not interchangeable and the runbook must not blur them."""
+    text = _runbook_text()
+
+    for state in (
+        "BUILD-VERIFIED",
+        "RUNTIME-PACK-VERIFIED",
+        "HARDWARE-QUALIFIED",
+        "PRODUCTION-QUALIFIED",
+    ):
+        assert state in text, state
+
+    # Each of the three achievable states is claimed only behind its own gate.
+    assert text.index("### Gate C2") < text.index("### Gate C3")
+    assert text.index("### Gate C3") < text.index("### Gate C4")
+
+
+def test_the_runbook_records_the_protected_cpu_baseline_hashes():
+    """An operator on the host must be able to check them without this session."""
+    text = _runbook_text()
+
+    for blob in (
+        "aed2dd2e382cd6bb4a2c581b549a44378fca490b",
+        "4af6574a27f27d87f72f2061a5f6d2d2d0252d78",
+        "3a0c210353940809c44ff50fca178a63d7b157ab",
+    ):
+        assert blob in text, blob
+
+
+def test_every_step_states_where_its_output_goes():
+    """committed / gitignored / external is the difference between a leak and not."""
+    text = _runbook_text()
+
+    for term in ("**committed**", "**gitignored**", "**external**"):
+        assert text.count(term) >= 3, term
+
+
+# --- The C8 readiness checklist ------------------------------------------
+#
+# A readiness checklist that drifts is worse than none: it is read precisely
+# when someone is deciding whether to merge. These tests pin the claims that
+# would be dangerous if they went stale.
+
+C8 = REPOSITORY_ROOT / "docs/superpowers/plans/c8-pr49-readiness.md"
+
+
+def test_the_readiness_checklist_exists():
+    assert C8.is_file()
+
+
+def test_nothing_is_claimed_verified_that_the_repository_contradicts():
+    """The three pending states must still read pending."""
+    text = C8.read_text(encoding="utf-8")
+
+    assert "**Not BUILD-VERIFIED.**" in text
+    assert "**Not RUNTIME-PACK-VERIFIED.**" in text
+    assert "**Not HARDWARE-QUALIFIED.**" in text
+    assert "Production qualification — OUT OF SCOPE" in text
+
+
+def test_the_checklist_agrees_with_the_committed_runtime_profile():
+    """It claims the CUDA variant is still pending; check the profile says so."""
+    import json
+
+    profile = json.loads(
+        (
+            REPOSITORY_ROOT
+            / "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
+        ).read_text(encoding="utf-8")
+    )
+    status = profile["platformVariants"]["windows-x86_64-cuda"]["status"]
+
+    assert status == "pending-hardware-qualification"
+    assert "remains\n`pending-hardware-qualification`" in C8.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_the_checklist_agrees_with_the_declared_failure_case_count():
+    """37 cases is quoted in three places; one source of truth decides it."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "failure_matrix_for_c8",
+        REPOSITORY_ROOT / "tools/vision/build_failure_matrix_evidence.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    declared = len(module.FAILURE_CASES)
+
+    assert f"{declared} C7 cases recorded" in C8.read_text(encoding="utf-8")
+    assert f"{declared} declared cases" in C8.read_text(encoding="utf-8")
+
+
+def test_the_plan_no_longer_says_the_pre_c2_review_is_pending():
+    plan = (
+        REPOSITORY_ROOT
+        / "docs/superpowers/plans/2026-09-18-windows-cuda-development.md"
+    ).read_text(encoding="utf-8")
+    current = plan[plan.index("## Current execution point") :]
+
+    assert "The next step remains **independent review" not in current
+    assert "requires the physical Windows CUDA host" in current

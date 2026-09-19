@@ -878,9 +878,9 @@ reaches.
 | C2 wheelhouse/lock | tooling IMPLEMENTED and TESTED; **not build-verified** |
 | C3 Runtime Pack | tooling IMPLEMENTED and TESTED; **not Runtime-Pack-verified** |
 | C4 hardware qualification | tooling IMPLEMENTED and TESTED; **not hardware-qualified** |
-| C5 Overlay binding | **not started**; blocked on a real C3 pack identity |
+| C5 Overlay binding | **not started**; blocked on a real C3 pack identity. The requirements-projection writer and the Auto-decision function it needs are IMPLEMENTED and TESTED |
 | C6 Development E2E | evidence tooling IMPLEMENTED and TESTED; **no run executed** |
-| C7 failure matrix | tooling IMPLEMENTED and TESTED; 23 of 33 cases exercisable without a GPU, **none yet recorded** |
+| C7 failure matrix | tooling IMPLEMENTED and TESTED; 37 declared cases, 5 exercisable without a Windows host, **none yet recorded** |
 | Production | **not entered**, and not reachable from anything above |
 
 No C2 artefact has been produced. Nothing in this branch acquires wheels,
@@ -893,8 +893,16 @@ the artefacts it produces are checked by code rather than read by eye.
 that a bundle will be checked when one exists; it is not a build, not a pack,
 not a run and not a qualification.
 
-The next step remains **independent review of the R1/pre-C2 evidence**, on
-Draft PR #49, before C2 execution begins on the Windows host.
+**The pre-C2 evidence review is complete**, as are several further rounds of
+adversarial review over the C2-C7 tooling, the launcher refactor and the branch
+as a whole. Their findings are fixed and pinned by test.
+
+**The next step requires the physical Windows CUDA host.** No further work on
+this branch can be done from a hosted Linux session: the remaining phases all
+begin by acquiring a wheel, building against the frozen toolchain, or executing
+on the GPU. The procedure is
+`docs/runbooks/windows-cuda-host-session.md`; readiness is tracked in
+`docs/superpowers/plans/c8-pr49-readiness.md`.
 
 ### Owner decisions recorded
 
