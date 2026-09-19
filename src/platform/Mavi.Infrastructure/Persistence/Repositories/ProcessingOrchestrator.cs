@@ -46,7 +46,8 @@ public sealed class ProcessingOrchestrator(
                          orderby run.QueuedAtUtc descending, run.Id descending
                          select new ProcessingRunStatusView(run.Id, run.Status.ToString(), job.Pipeline, run.PipelineVersion,
                              run.WorkerId, run.QueuedAtUtc, run.StartedAtUtc, run.CompletedAtUtc,
-                             job.ProgressPercent, job.AttemptCount, job.FailureCode ?? run.ErrorCode)).FirstOrDefaultAsync(cancellationToken);
+                             job.ProgressPercent, job.AttemptCount, job.FailureCode ?? run.ErrorCode,
+                             run.FramesProcessed, run.TracksCreated)).FirstOrDefaultAsync(cancellationToken);
         return new(true, video.ProcessingStatus.ToString(), row);
     }
 

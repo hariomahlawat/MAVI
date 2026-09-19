@@ -66,6 +66,8 @@ describe('ProcessingPage', () => {
         progressPercent: 42.5,
         attemptCount: 1,
         failureCode: null,
+        framesProcessed: 0,
+        tracksCreated: 0,
       },
     });
     vi.mocked(queueProcessing).mockResolvedValue({ processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21432' });

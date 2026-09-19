@@ -56,7 +56,9 @@ public sealed class Task15ApiContractTests
                 null,
                 42.5,
                 1,
-                null));
+                null,
+                1_250,
+                7));
 
         using var factory = CreateFactory(status);
         using var client = factory.CreateClient();
@@ -71,6 +73,8 @@ public sealed class Task15ApiContractTests
         Assert.Equal("Running", contract.LatestRun.Status);
         Assert.Equal(42.5, contract.LatestRun.ProgressPercent);
         Assert.Equal(1, contract.LatestRun.AttemptCount);
+        Assert.Equal(1_250, contract.LatestRun.FramesProcessed);
+        Assert.Equal(7, contract.LatestRun.TracksCreated);
 
         var json = await response.Content.ReadAsStringAsync();
         Assert.DoesNotContain("leaseToken", json, StringComparison.OrdinalIgnoreCase);
