@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import importlib.util
 import json
 import sys
@@ -526,3 +528,90 @@ def test_native_abi_derivation_refuses_a_non_cuda_variant() -> None:
         match="native_abi_platform_variant_unsupported",
     ):
         module.derive_native_abi(contract)
+
+
+def _load_builder():
+    import importlib.util
+    import sys
+
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "tools/vision/build_runtime_pack.py"
+    )
+    spec = importlib.util.spec_from_file_location("build_runtime_pack_abi", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# --- The native ABI must be derived, not typed ----------------------------
+
+
+def test_a_cuda_pack_may_not_be_built_from_a_typed_native_abi(tmp_path):
+    """The docs claimed derivation; until now `main()` only accepted a string.
+
+    A `-cuda` pack's Runtime Pack ID is a hash over this value, so a hand-typed
+    string that happens to spell the qualified toolchain while the build used
+    another produces an ID that is wrong about what it identifies.
+    """
+    module = _load_builder()
+    args = SimpleNamespace(
+        contract=None,
+        native_abi="win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75",
+        platform_variant="windows-x86_64-cuda",
+    )
+
+    with pytest.raises(module.NativeAbiDerivationError) as excinfo:
+        module._resolve_native_abi(args)
+
+    assert excinfo.value.code == "native_abi_contract_required_for_cuda"
+
+
+def test_the_contract_derives_the_native_abi(tmp_path):
+    module = _load_builder()
+    contract = (
+        Path(__file__).resolve().parents[3]
+        / "config/vision/windows-cuda-development-build-v1.json"
+    )
+    args = SimpleNamespace(
+        contract=contract,
+        native_abi=None,
+        platform_variant="windows-x86_64-cuda",
+    )
+
+    assert module._resolve_native_abi(args) == json.loads(
+        contract.read_text(encoding="utf-8")
+    )["nativeAbi"]
+
+
+def test_a_typed_abi_disagreeing_with_the_contract_is_refused():
+    """Preferring either silently would hide the drift this exists to catch."""
+    module = _load_builder()
+    args = SimpleNamespace(
+        contract=(
+            Path(__file__).resolve().parents[3]
+            / "config/vision/windows-cuda-development-build-v1.json"
+        ),
+        native_abi="win_amd64-msvc-14.39.33519-sdk-10.0.22621.0-cuda12.1-sm75",
+        platform_variant="windows-x86_64-cuda",
+    )
+
+    with pytest.raises(module.NativeAbiDerivationError) as excinfo:
+        module._resolve_native_abi(args)
+
+    assert excinfo.value.code == "native_abi_contract_conflict"
+
+
+def test_a_cpu_variant_may_still_supply_its_abi_directly():
+    """CPU ABIs are workflow literals and have no contract to derive from."""
+    module = _load_builder()
+    args = SimpleNamespace(
+        contract=None,
+        native_abi="win_amd64-msvc-14.44-sdk-10.0.26100.0",
+        platform_variant="windows-x86_64-cpu",
+    )
+
+    assert module._resolve_native_abi(args) == (
+        "win_amd64-msvc-14.44-sdk-10.0.26100.0"
+    )

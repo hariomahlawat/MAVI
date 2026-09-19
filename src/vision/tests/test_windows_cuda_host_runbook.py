@@ -221,3 +221,44 @@ def test_the_plan_no_longer_says_the_pre_c2_review_is_pending():
 
     assert "The next step remains **independent review" not in current
     assert "requires the physical Windows CUDA host" in current
+
+
+def test_every_artefact_the_runbook_writes_is_gitignored():
+    """The operator pastes a driver message into these by hand.
+
+    `build_failure_matrix_evidence` redacts a raw GPU UUID out of the assembled
+    bundle, but the case record the operator pastes it into is not redacted. If
+    that file is not ignored, one `git add -A` on the host commits the raw
+    workstation GPU UUID -- the exact leak the salted-digest design prevents
+    everywhere else.
+    """
+    import subprocess
+
+    written = [
+        "host-observation.json",
+        "toolchain-observation.json",
+        "runtime-verification.json",
+        "development-evidence.json",
+        "development-e2e-evidence.json",
+        "failure-matrix-evidence.json",
+        "mmcv-reproducibility.json",
+        "wheelhouse-manifest.json",
+        "run-explicit-cuda.json",
+        "run-auto-cuda.json",
+        "run-explicit-cpu.json",
+        "run-restart-recovery.json",
+        "run-cuda-oom-recovery.json",
+        "case-explicit-cuda-wrong-physical-gpu.json",
+        "case-auto-pack-absent.json",
+    ]
+
+    result = subprocess.run(
+        ["git", "check-ignore", "--no-index", *written],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    ignored = set(result.stdout.split())
+
+    missing = [name for name in written if name not in ignored]
+    assert not missing, f"not gitignored: {missing}"

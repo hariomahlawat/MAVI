@@ -128,6 +128,63 @@ MUTATIONS: tuple[Mutation, ...] = (
         "        if not isinstance(observed_gpu, str) or _SHA256.fullmatch(",
         "        if False and _SHA256.fullmatch(",
     ),
+    # The headline guard of each assembler. These were the last entries added,
+    # which is the wrong way round: a catalogue that covers the peripheral
+    # guards and not the central ones answers a question nobody asked.
+    Mutation(
+        "C6 stops refusing a CUDA case that ran on CPU",
+        "tools/vision/build_development_e2e_evidence.py",
+        "    if on_cuda and not is_cuda_device(device):",
+        "    if False:",
+    ),
+    Mutation(
+        "C6 stops requiring device utilisation",
+        "tools/vision/build_development_e2e_evidence.py",
+        '    if readings["during"]["usedMiB"] <= readings["before"]["usedMiB"]:',
+        "    if False:",
+    ),
+    Mutation(
+        "C4 stops requiring on-device native ops",
+        "tools/vision/build_development_hardware_evidence.py",
+        '    if runtime.get("mmcvNmsExecutedOnCuda") is not True:',
+        "    if False:",
+    ),
+    Mutation(
+        "C4 stops refusing an unsanitised host observation",
+        "tools/vision/build_development_hardware_evidence.py",
+        '    if any("uuid" in gpu for gpu in gpus):',
+        "    if False:",
+    ),
+    Mutation(
+        "C7 stops refusing a fail-closed case that reports a device",
+        "tools/vision/build_failure_matrix_evidence.py",
+        "        if device is not None:",
+        "        if False:",
+    ),
+    Mutation(
+        "C7 stops requiring a fallback to be logged",
+        "tools/vision/build_failure_matrix_evidence.py",
+        '        if observation.get("fallbackLogged") is not True:',
+        "        if False:",
+    ),
+    Mutation(
+        "C7 stops requiring a recovery to have retried",
+        "tools/vision/build_failure_matrix_evidence.py",
+        "        if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts < 2:",
+        "        if False:",
+    ),
+    Mutation(
+        "C7 stops keeping a case inside its declared scope",
+        "tools/vision/build_failure_matrix_evidence.py",
+        "        out_of_scope = sorted(set(cases) - required)",
+        "        out_of_scope = []",
+    ),
+    Mutation(
+        "C7 stops verifying the C4 bundle digest",
+        "tools/vision/build_failure_matrix_evidence.py",
+        "        if not isinstance(claimed, str) or claimed != _sha256_bytes(",
+        "        if False and claimed != _sha256_bytes(",
+    ),
     Mutation(
         "C4 stops requiring on-device allocation",
         "tools/vision/build_development_hardware_evidence.py",

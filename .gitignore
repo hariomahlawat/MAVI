@@ -67,6 +67,10 @@ windows-cuda-toolchain-observation.json
 /host-observation.json
 /toolchain-observation.json
 /development-evidence.json
+/development-e2e-evidence.json
+/failure-matrix-evidence.json
+/run-*.json
+/case-*.json
 /mmcv-reproducibility.json
 /wheelhouse-manifest.json
 /data/

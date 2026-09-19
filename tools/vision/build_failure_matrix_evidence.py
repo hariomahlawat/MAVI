@@ -240,16 +240,23 @@ _AUTO_FALLBACK_INVARIANTS = {
     "cuda_driver_probe_failed": "the driver probe itself failed",
 }
 
-# `cuda_pack_not_declared` is the one reason the worker's own Auto branch
-# produces (supervisor.py), so it is observable without a Windows launcher. The
-# rest come from `Test-CudaRuntimeUsable` and need the host.
-_WORKER_RESOLVED_FALLBACKS = frozenset({"cuda_pack_not_declared"})
+# Three reasons come from the worker's own Auto branch (supervisor.py), so they
+# are observable without a Windows launcher; all three are already exercised on
+# Linux with no GPU by test_runtime_supervisor.py. The other five come from
+# `Test-CudaRuntimeUsable` and need the host.
+_WORKER_RESOLVED_FALLBACKS = frozenset(
+    {
+        "cuda_pack_not_declared",
+        "cuda_device_unavailable",
+        "cuda_driver_probe_failed",
+    }
+)
 
 FAILURE_CASES: dict[str, dict] = {
     f"auto-{reason.removeprefix('cuda_').replace('_', '-')}": _auto_fallback_case(
         reason,
         invariant,
-        hardware=reason in {"cuda_device_unavailable", "cuda_driver_probe_failed"},
+        hardware=False,
         windows=reason not in _WORKER_RESOLVED_FALLBACKS,
     )
     for reason, invariant in _AUTO_FALLBACK_INVARIANTS.items()
@@ -827,9 +834,34 @@ def build_failure_matrix(
             "failure_matrix_development_evidence",
         )
         corroboration = hardware.get("corroboration")
-        if not isinstance(corroboration, dict):
+        variant_patch = hardware.get("variantPatch")
+        if not isinstance(corroboration, dict) or not isinstance(
+            variant_patch, dict
+        ):
             raise FailureMatrixError(
                 "failure_matrix_development_evidence_schema_invalid"
+            )
+        # The same two checks C6 applies to the same artefact. C7 declares
+        # `tampered-qualification-evidence` as a case it exercises, so a C7
+        # bundle that trusts an unverified C4 digest claims to have tested the
+        # very thing it skipped.
+        if variant_patch.get("status") != "qualified-development-hardware":
+            raise FailureMatrixError(
+                "failure_matrix_development_evidence_not_qualified"
+            )
+        block_for_digest = hardware.get("developmentEvidence")
+        if not isinstance(block_for_digest, dict):
+            raise FailureMatrixError(
+                "failure_matrix_development_evidence_schema_invalid"
+            )
+        claimed = block_for_digest.get("evidenceBundleSha256")
+        restated = json.loads(json.dumps(hardware))
+        restated["developmentEvidence"]["evidenceBundleSha256"] = ""
+        if not isinstance(claimed, str) or claimed != _sha256_bytes(
+            _canonical(restated)
+        ):
+            raise FailureMatrixError(
+                "failure_matrix_development_evidence_digest_mismatch"
             )
         gpu_uuid_sha256 = corroboration.get("gpuUuidSha256")
         if not isinstance(gpu_uuid_sha256, str) or _SHA256.fullmatch(

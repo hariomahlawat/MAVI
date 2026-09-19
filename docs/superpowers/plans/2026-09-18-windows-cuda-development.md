@@ -771,9 +771,9 @@ Windows launcher without needing a GPU: most permitted Auto fallbacks are
 resolved by `Test-CudaRuntimeUsable` before Python starts, and PowerShell does
 not run in hosted CI at all. So:
 
-- `--scope linux-observable` -- the 5 cases the worker itself produces, needing
+- `--scope linux-observable` -- the 7 cases the worker itself produces, needing
   neither a GPU nor the launcher;
-- `--scope windows-host` -- the 25 cases needing the Windows launcher but no
+- `--scope windows-host` -- the 27 cases needing the Windows launcher but no
   GPU;
 - `--scope hardware` -- all 37, and it additionally requires
   `--development-evidence`: every hardware case must carry the salted GPU
@@ -807,7 +807,7 @@ all eight, not only the obvious four. Those are the highest-risk places for a
 silent fallback precisely because a legitimate CPU answer exists next door.
 
 Twelve cases require a real GPU; twenty more require the Windows launcher; the
-remaining five are exercisable on any machine and should be recorded before the
+remaining seven are exercisable on any machine and should be recorded before the
 host session, so the session spends its time on what only it can do.
 
 Operator diagnostics are redacted on the way in: the natural NVML or driver
@@ -880,7 +880,7 @@ reaches.
 | C4 hardware qualification | tooling IMPLEMENTED and TESTED; **not hardware-qualified** |
 | C5 Overlay binding | **not started**; blocked on a real C3 pack identity. The requirements-projection writer and the Auto-decision function it needs are IMPLEMENTED and TESTED |
 | C6 Development E2E | evidence tooling IMPLEMENTED and TESTED; **no run executed** |
-| C7 failure matrix | tooling IMPLEMENTED and TESTED; 37 declared cases, 5 exercisable without a Windows host, **none yet recorded** |
+| C7 failure matrix | tooling IMPLEMENTED and TESTED; 37 declared cases, 7 exercisable without a Windows host, **none yet recorded** |
 | Production | **not entered**, and not reachable from anything above |
 
 No C2 artefact has been produced. Nothing in this branch acquires wheels,

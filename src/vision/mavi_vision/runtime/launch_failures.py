@@ -64,6 +64,7 @@ LAUNCH_FAILURE_CODES = frozenset(
         "launch_model_manifest_fingerprint_mismatch",
         # Application overlay and its bindings to qualification metadata.
         "launch_overlay_file_missing",
+        "launch_overlay_metadata_unreadable",
         "launch_component_schema_unsupported",
         "launch_component_runtime_profile_mismatch",
         "launch_component_pack_requirement_missing",

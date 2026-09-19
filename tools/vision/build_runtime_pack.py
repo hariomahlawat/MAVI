@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -398,15 +397,47 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--requirements", dest="requirements_path", type=Path, required=True)
     parser.add_argument("--platform-variant", required=True)
     parser.add_argument("--python-version", required=True)
-    parser.add_argument("--native-abi", required=True)
+    # The ABI is derived from the frozen build contract, not typed. A `-cuda`
+    # pack's identity is a hash over this string, so a hand-typed one that
+    # happens to spell the qualified toolchain while the build used another is
+    # a Runtime Pack ID that is wrong about what it identifies.
+    parser.add_argument("--native-abi")
+    parser.add_argument(
+        "--contract",
+        type=Path,
+        help="build contract to derive --native-abi from; required for a "
+        "-cuda variant",
+    )
     parser.add_argument("--python-installer", type=Path)
     parser.add_argument("--assembled-from-commit", required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
 
+def _resolve_native_abi(args: argparse.Namespace) -> str:
+    if args.contract is not None:
+        contract = json.loads(args.contract.read_text(encoding="utf-8"))
+        derived = derive_native_abi(contract)
+        if args.native_abi is not None and args.native_abi != derived:
+            # Both were supplied and they disagree. Silently preferring either
+            # one would hide exactly the drift this argument exists to catch.
+            raise NativeAbiDerivationError("native_abi_contract_conflict")
+        return derived
+    if args.native_abi is None:
+        raise NativeAbiDerivationError("native_abi_not_supplied")
+    if args.platform_variant.endswith("-cuda"):
+        raise NativeAbiDerivationError("native_abi_contract_required_for_cuda")
+    return args.native_abi
+
+
 def main() -> int:
     args = _parse_args()
+    try:
+        native_abi = _resolve_native_abi(args)
+    except (NativeAbiDerivationError, OSError, json.JSONDecodeError) as exc:
+        code = getattr(exc, "code", "native_abi_contract_unreadable")
+        print(code, file=sys.stderr)
+        return 2
     try:
         manifest = build_runtime_pack(
             wheelhouse=args.wheelhouse,
@@ -414,7 +445,7 @@ def main() -> int:
             requirements_path=args.requirements_path,
             platform_variant=args.platform_variant,
             python_version=args.python_version,
-            native_abi=args.native_abi,
+            native_abi=native_abi,
             python_installer=args.python_installer,
             assembled_from_commit=args.assembled_from_commit,
             output=args.output,

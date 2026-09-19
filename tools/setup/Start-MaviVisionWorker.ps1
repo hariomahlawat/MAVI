@@ -148,9 +148,9 @@ $runtimeVariant = [string]$runtimeManifest.platformVariant
 $runtimeLockPath = Join-Path $RepositoryRoot ("src\vision\runtime\mmdetection-phase1-v1\" + $runtimeVariant + ".lock")
 $runtimeRequirementsPath = Join-Path $RepositoryRoot ("src\vision\runtime\mmdetection-phase1-v1\" + $runtimeVariant + ".requirements.txt")
 foreach ($path in @($modelManifestPath,$qualificationPath,$pipelinePath,$runtimeProfilePath,$componentRequirementsPath,$runtimeLockPath,$runtimeRequirementsPath)) { if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Stop-MaviLaunch launch_overlay_file_missing "Required Vision application overlay file is missing: $path" } }
-$modelSourceManifest = Get-Content -LiteralPath $modelManifestPath -Raw | ConvertFrom-Json
-$qualification = Get-Content -LiteralPath $qualificationPath -Raw | ConvertFrom-Json
-$components = Get-Content -LiteralPath $componentRequirementsPath -Raw | ConvertFrom-Json
+$modelSourceManifest = Invoke-MaviLaunchStep launch_overlay_metadata_unreadable { Get-Content -LiteralPath $modelManifestPath -Raw | ConvertFrom-Json }
+$qualification = Invoke-MaviLaunchStep launch_overlay_metadata_unreadable { Get-Content -LiteralPath $qualificationPath -Raw | ConvertFrom-Json }
+$components = Invoke-MaviLaunchStep launch_overlay_metadata_unreadable { Get-Content -LiteralPath $componentRequirementsPath -Raw | ConvertFrom-Json }
 if ([string]$components.schemaVersion -ne "mavi-vision-component-requirements-v1") { Stop-MaviLaunch launch_component_schema_unsupported "Unsupported Vision component-requirements schema '$($components.schemaVersion)'." }
 if ([string]$components.runtimeProfileId -ne [string]$qualification.runtimeProfileId) { Stop-MaviLaunch launch_component_runtime_profile_mismatch "Vision component requirements target the wrong runtime profile." }
 $runtimeRequirementProperty = $components.runtimePacks.PSObject.Properties[$runtimeVariant]

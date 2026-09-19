@@ -72,3 +72,20 @@ def test_the_catalogue_covers_all_three_assemblers():
 def test_the_suites_it_runs_exist():
     for suite in MODULE.SUITES:
         assert (ROOT / "src" / "vision" / suite).is_file(), suite
+
+
+def test_the_catalogue_names_each_assemblers_headline_guard():
+    """A catalogue that covers the periphery and not the centre asks nothing.
+
+    These four are the rules each tool's own docstring leads with, and each was
+    unnamed until an integrated review pointed it out.
+    """
+    labels = {mutation.label for mutation in MODULE.MUTATIONS}
+
+    for headline in (
+        "C6 stops refusing a CUDA case that ran on CPU",
+        "C4 stops requiring on-device native ops",
+        "C4 stops refusing an unsanitised host observation",
+        "C7 stops refusing a fail-closed case that reports a device",
+    ):
+        assert headline in labels, headline

@@ -260,6 +260,25 @@ def verify_toolchain(
             "cuda_toolchain_windows_sdk_identity_missing"
         )
 
+    # The CUDA version was compared to the contract; the toolset and SDK were
+    # only recorded. R1 froze a specific MSVC build and a specific SDK, and the
+    # Runtime Pack's native ABI spells both -- so an observation from a drifted
+    # host would otherwise pass here and be carried into a Development
+    # qualification for an artefact built by a toolchain nobody qualified.
+    expected_toolset = str(contract["toolchain"]["msvcToolset"])
+    if vc_tools != expected_toolset:
+        raise ToolchainVerificationError(
+            "cuda_toolchain_msvc_toolset_mismatch:"
+            + vc_tools
+            + "!="
+            + expected_toolset
+        )
+    expected_sdk = str(contract["toolchain"]["windowsSdkVersion"])
+    if sdk != expected_sdk:
+        raise ToolchainVerificationError(
+            "cuda_toolchain_windows_sdk_mismatch:" + sdk + "!=" + expected_sdk
+        )
+
     with tempfile.TemporaryDirectory(prefix="mavi-cuda-toolchain-") as temp:
         root = Path(temp)
         source = root / "probe.cu"

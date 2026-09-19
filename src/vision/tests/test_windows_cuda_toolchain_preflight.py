@@ -422,3 +422,58 @@ def test_preflight_refuses_to_overwrite_existing_evidence(
 
     assert module.main() == 2
     assert output.read_text(encoding="utf-8") == "{}\n"
+
+
+# --- The observation must match the toolchain R1 froze --------------------
+#
+# The CUDA version was always compared to the contract; the MSVC toolset and
+# the Windows SDK were only recorded. R1 froze specific builds of both, and the
+# Runtime Pack's native ABI spells them, so an observation from a drifted host
+# would otherwise pass and be carried into a Development qualification for an
+# artefact built by a toolchain nobody qualified.
+
+
+def test_a_drifted_msvc_toolset_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load()
+    fake = _FakeToolchain()
+    _windows_host(monkeypatch, module, fake)
+    monkeypatch.setenv("VCToolsVersion", "14.39.33519\\")
+
+    with pytest.raises(module.ToolchainVerificationError) as excinfo:
+        module.verify_toolchain(CONTRACT, source_head_sha="a" * 40)
+
+    assert excinfo.value.code.startswith("cuda_toolchain_msvc_toolset_mismatch")
+    assert "14.39.33519" in excinfo.value.code
+
+
+def test_a_drifted_windows_sdk_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load()
+    fake = _FakeToolchain()
+    _windows_host(monkeypatch, module, fake)
+    monkeypatch.setenv("WindowsSDKVersion", "10.0.22621.0\\")
+
+    with pytest.raises(module.ToolchainVerificationError) as excinfo:
+        module.verify_toolchain(CONTRACT, source_head_sha="a" * 40)
+
+    assert excinfo.value.code.startswith("cuda_toolchain_windows_sdk_mismatch")
+
+
+def test_the_frozen_toolchain_still_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The comparison must not reject the toolchain it is meant to accept."""
+    module = _load()
+    fake = _FakeToolchain()
+    _windows_host(monkeypatch, module, fake)
+
+    result = module.verify_toolchain(CONTRACT, source_head_sha="a" * 40)
+
+    frozen = json.loads(CONTRACT.read_text(encoding="utf-8"))["toolchain"]
+
+    assert result["status"] == "passed"
+    assert result["vcToolsVersion"] == frozen["msvcToolset"]
+    assert result["windowsSdkVersion"] == frozen["windowsSdkVersion"]

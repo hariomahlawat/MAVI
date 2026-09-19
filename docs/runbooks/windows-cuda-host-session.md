@@ -232,25 +232,28 @@ The `--native-abi` is **not hand-typed**. It is the `nativeAbi` field of the
 build contract, derived from the verified toolchain and pinned by test:
 
 ```powershell
-$abi = (Get-Content config\vision\windows-cuda-development-build-v1.json -Raw | ConvertFrom-Json).nativeAbi
 python tools\vision\build_runtime_pack.py `
     --wheelhouse $work\wheelhouse `
     --lock src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cuda.lock `
     --requirements src\vision\runtime\mmdetection-phase1-v1\windows-x86_64-cuda.requirements.txt `
     --platform-variant windows-x86_64-cuda `
     --python-version 3.12.10 `
-    --native-abi $abi `
+    --contract config\vision\windows-cuda-development-build-v1.json `
     --assembled-from-commit $head `
     --output $work\runtime-pack
 ```
+
+`--contract` derives the ABI; there is no `--native-abi` to type. A `-cuda`
+pack refuses to build without it.
 
 - **Success:** `{"ok": true, ...}` and a `runtime-pack-manifest.json` in the
   output directory.
 - **Output:** `$work\runtime-pack\` — **external**.
 - **Record:** the `runtimePackId`, the manifest SHA-256, and the pack's
   `thirdPartyLockSha256` / `runtimeRequirementsSha256`.
-- **Must NOT change:** the ABI string. If `$abi` is empty, the contract is not
-  marked verified and C3 must not proceed.
+- **Must NOT change:** the ABI. It is derived, and supplying `--native-abi`
+  alongside `--contract` is refused when the two disagree
+  (`native_abi_contract_conflict`) rather than silently preferring one.
 - **Failure:** STOP.
 
 ## C3.2 Validate manifests and hashes
@@ -319,6 +322,10 @@ python tools\vision\verify_windows_cuda_toolchain.py `
 - **Success:** `"status": "passed"`.
 - **Output:** **gitignored**.
 - **Record:** its SHA-256.
+- **What it now compares:** the CUDA toolkit version, the MSVC toolset **and**
+  the Windows SDK against the frozen contract. A refusal reading
+  `cuda_toolchain_msvc_toolset_mismatch:<observed>!=<frozen>` means the shell
+  is not the qualified one -- fix the environment, do not edit the contract.
 - **Note:** this compiles; it does **not** touch a GPU. Passing it is not
   hardware evidence.
 
@@ -481,7 +488,7 @@ python tools\vision\build_failure_matrix_evidence.py --print-matrix `
     --scope hardware --source-head-sha x --captured-at-utc x --operator-reference x
 ```
 
-37 cases: **5** exercisable anywhere (record before the session), **20** needing
+37 cases: **7** exercisable anywhere (record before the session), **18** needing
 the Windows launcher but no GPU, **12** needing a real device.
 
 Record each as a `mavi-windows-cuda-failure-case-v1` document (schema:

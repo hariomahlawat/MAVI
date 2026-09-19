@@ -101,18 +101,30 @@ def _observation(case_id: str, **overrides) -> dict:
 
 
 def _hardware_evidence(**overrides) -> dict:
+    """A faithful C4 record, whose self-digest actually recomputes.
+
+    The earlier fixture carried a placeholder digest and no `variantPatch`, and
+    every hardware-scope test passed with it -- which is exactly how the missing
+    verification stayed invisible.
+    """
     value = {
         "schemaVersion": "mavi-windows-cuda-development-evidence-v2",
         "developmentEvidence": {
             "hostObservationSha256": "ab" * 32,
-            "evidenceBundleSha256": "cd" * 32,
+            "evidenceBundleSha256": "",
             "sourceHeadSha": _SOURCE_HEAD_SHA,
             "capturedAtUtc": "2026-09-18T04:11:52Z",
             "operatorReference": _OPERATOR,
         },
+        "variantPatch": {"status": "qualified-development-hardware"},
         "corroboration": {"gpuUuidSha256": _GPU_DIGEST},
     }
     value.update(overrides)
+    value["developmentEvidence"]["evidenceBundleSha256"] = hashlib.sha256(
+        json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    ).hexdigest()
     return value
 
 
@@ -673,8 +685,15 @@ def test_a_hardware_case_must_state_the_driver_it_ran_under(tmp_path):
 
 
 def test_a_hardware_bundle_from_another_source_revision_is_refused(tmp_path):
-    hardware = _hardware_evidence()
-    hardware["developmentEvidence"]["sourceHeadSha"] = "f" * 40
+    hardware = _hardware_evidence(
+        developmentEvidence={
+            "hostObservationSha256": "ab" * 32,
+            "evidenceBundleSha256": "",
+            "sourceHeadSha": "f" * 40,
+            "capturedAtUtc": "2026-09-18T04:11:52Z",
+            "operatorReference": _OPERATOR,
+        }
+    )
 
     with pytest.raises(MODULE.FailureMatrixError) as excinfo:
         _build(tmp_path, scope="hardware", hardware=hardware)
@@ -729,8 +748,8 @@ def test_the_declared_scope_counts_are_pinned():
     """The plan and the operator run sheet quote these numbers."""
     assert len(MODULE.FAILURE_CASES) == 37
     assert len(MODULE.expected_cases("hardware")) == 37
-    assert len(MODULE.expected_cases("windows-host")) == 25
-    assert len(MODULE.expected_cases("linux-observable")) == 5
+    assert len(MODULE.expected_cases("windows-host")) == 27
+    assert len(MODULE.expected_cases("linux-observable")) == 7
 
 
 def test_a_launcher_stage_case_is_not_claimed_to_be_linux_observable():
@@ -741,7 +760,12 @@ def test_a_launcher_stage_case_is_not_claimed_to_be_linux_observable():
     refused by the worker's contract layer. Those are genuinely observable
     here; everything else at this stage is `Test-CudaRuntimeUsable`.
     """
-    worker_resolved = {"auto-pack-not-declared", "auto-unknown-reason-refused"}
+    worker_resolved = {
+        "auto-pack-not-declared",
+        "auto-device-unavailable",
+        "auto-driver-probe-failed",
+        "auto-unknown-reason-refused",
+    }
 
     for case_id, declared in MODULE.FAILURE_CASES.items():
         if declared["stage"] != "device-resolution" or case_id in worker_resolved:
@@ -865,3 +889,106 @@ def test_the_refused_reason_is_carried_into_the_bundle(tmp_path):
     assert by_case["auto-unknown-reason-refused"][
         "refusedResolutionReason"
     ] == "cuda_looked_fine"
+
+
+def test_a_hardware_bundle_verifies_the_c4_digest_like_c6_does(tmp_path):
+    """One invariant, one answer: C6 checked this and C7 did not."""
+    hardware = _hardware_evidence()
+    hardware["developmentEvidence"]["evidenceBundleSha256"] = "00" * 32
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        _build(tmp_path, scope="hardware", hardware=hardware)
+
+    assert _code(excinfo) == (
+        "failure_matrix_development_evidence_digest_mismatch"
+    )
+
+
+def test_a_hardware_bundle_refuses_an_unqualified_c4_record(tmp_path):
+    """C7 declares `stale-qualification-evidence`; it must not rest on one."""
+    hardware = _hardware_evidence()
+    hardware["variantPatch"]["status"] = "pending-hardware-qualification"
+    hardware["developmentEvidence"]["evidenceBundleSha256"] = ""
+    hardware["developmentEvidence"]["evidenceBundleSha256"] = hashlib.sha256(
+        json.dumps(
+            hardware, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    ).hexdigest()
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        _build(tmp_path, scope="hardware", hardware=hardware)
+
+    assert _code(excinfo) == (
+        "failure_matrix_development_evidence_not_qualified"
+    )
+
+
+def test_a_hardware_bundle_refuses_a_c4_record_with_no_variant_patch(tmp_path):
+    hardware = _hardware_evidence()
+    del hardware["variantPatch"]
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        _build(tmp_path, scope="hardware", hardware=hardware)
+
+    assert _code(excinfo) == (
+        "failure_matrix_development_evidence_schema_invalid"
+    )
+
+
+def test_the_three_worker_resolved_fallbacks_need_no_windows_host():
+    """All three are exercised today on Linux by the supervisor suite."""
+    for case_id in (
+        "auto-pack-not-declared",
+        "auto-device-unavailable",
+        "auto-driver-probe-failed",
+    ):
+        declared = MODULE.FAILURE_CASES[case_id]
+        assert declared["requiresWindowsHost"] is False, case_id
+        assert declared["requiresHardware"] is False, case_id
+        assert case_id in MODULE.expected_cases("linux-observable")
+
+
+def test_check_case_refuses_a_fail_closed_case_reporting_a_device():
+    """Reachable without the schema, so it needs a test without the schema."""
+    case = "corrupted-lock"
+    observation = _observation(case, actualDevice="cuda:0")
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        MODULE._check_case(case, observation, MODULE.FAILURE_CASES[case])
+
+    assert _code(excinfo) == "failure_case_not_fail_closed:" + case
+
+
+def test_check_case_requires_a_fallback_to_be_logged_and_persisted():
+    case = "auto-pack-absent"
+    for field, code in (
+        ("fallbackLogged", "failure_case_fallback_not_logged:"),
+        ("fallbackPersistedInProvenance", "failure_case_fallback_not_persisted:"),
+    ):
+        observation = _observation(case)
+        del observation[field]
+
+        with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+            MODULE._check_case(case, observation, MODULE.FAILURE_CASES[case])
+
+        assert _code(excinfo) == code + case
+
+
+@pytest.mark.parametrize("value", (None, 1, 0))
+def test_check_case_requires_a_recovery_to_have_retried(value):
+    case = "cuda-out-of-memory-recovered"
+    observation = _observation(case)
+    if value is None:
+        del observation["attemptCount"]
+    else:
+        observation["attemptCount"] = value
+
+    with pytest.raises(MODULE.FailureMatrixError) as excinfo:
+        MODULE._check_case(
+            case,
+            observation,
+            MODULE.FAILURE_CASES[case],
+            gpu_uuid_sha256=_GPU_DIGEST,
+        )
+
+    assert _code(excinfo) == "failure_case_recovery_not_exercised:" + case
