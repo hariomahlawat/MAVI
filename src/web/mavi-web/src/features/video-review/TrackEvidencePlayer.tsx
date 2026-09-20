@@ -220,7 +220,7 @@ export default function TrackEvidencePlayer({ detail, trajectory, trajectoryErro
       </div>
       <div className="timeline__labels" aria-hidden="true">
         <span>0:00</span>
-        <span>{formatOffset(currentMs)} / {formatOffset(totalMs)}</span>
+        <span>{formatOffset(currentMs, 'tenths')} / {formatOffset(totalMs, 'tenths')}</span>
       </div>
 
       <div className="player-controls">

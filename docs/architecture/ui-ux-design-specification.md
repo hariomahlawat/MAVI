@@ -285,7 +285,7 @@ Contrast obligations differ by role: interactive boundaries, state indicators an
 
 ### 8.3 Evidence and spatial colours
 
-A **separate namespace** (`--evidence-*`, `--geo-*`). Roles are **frozen**; **exact hues are open** (§32, open decision 2).
+A **separate namespace** (`--evidence-*`, `--geo-*`). Roles are **frozen**. The hues of every role the product renders were frozen in UI-1; the event marker, the similarity rank and the heatmap scale remain open as sub-decisions 2a–2c (§32).
 
 | Role | Frozen constraint |
 |---|---|
@@ -301,7 +301,9 @@ A **separate namespace** (`--evidence-*`, `--geo-*`). Roles are **frozen**; **ex
 | **selected geometry** | **The UI accent, as stroke and handles only.** This is the single sanctioned crossover: on canvas, accent still means "selected", consistent with §8.1. Accent MUST NOT be a resting geometry fill. |
 | halo | One theme-invariant halo token applied to every overlay layer. |
 
-**Hue selection is deferred to the UI-1 visual-validation pass** and MUST be validated against bright footage, dark footage, high-saturation footage, low-contrast footage, letterboxed footage, and the three common colour-vision deficiencies. Every evidence distinction MUST also carry a non-colour cue (glyph, dash pattern, letter, numeral, arrowhead).
+**Hues chosen in UI-1** (§32, open decision 2) for every role the product renders today: zone `--geo-zone` `#fb923c`, trip line `--geo-line` `#22d3ee`, A→B `--geo-dir-ab` `#f0abfc`, B→A `--geo-dir-ba` `#e879f9`, bounding box `--evidence-box` `#a78bfa`, trajectory `--evidence-track` `#2dd4bf`. They were selected by constrained optimisation for mutual separation under normal vision and protan/deuteran/tritan simulation, then validated over the §26 footage conditions. The event marker (2a), similarity rank (2b) and heatmap scale (2c) remain **open**: they have no surface that draws them, and this section requires a hue to be validated against real evidence. Each takes its value from the same namespace in the slice that first renders it.
+
+A hue identifies a role; it cannot also be guaranteed to contrast with footage the product does not control. **The halo is what makes an overlay legible**, which is why it applies to every overlay layer and not per surface. Every evidence distinction MUST also carry a non-colour cue (glyph, dash pattern, letter, numeral, arrowhead): eight simultaneous overlay roles cannot be told apart by colour alone under colour-vision deficiency, and UI-1 measured that ceiling rather than assuming it away.
 
 ---
 
@@ -315,14 +317,14 @@ A **separate namespace** (`--evidence-*`, `--geo-*`). Roles are **frozen**; **ex
 - All numeric columns and readouts use tabular figures.
 - Negative letter-spacing on headings at 16px and below is removed.
 
-**Open — resolved in UI-1 (§32, open decision 1):** the UI font stack.
+**Resolved in UI-1 — option A, a curated system stack.** The reasoning is recorded in §32 and in `tokens.css`.
 
 | Option | Consequence |
 |---|---|
 | **A — curated system stack** (Segoe UI first, for the Windows deployment target) | Zero dependency, zero licence/catalogue work, zero offline risk. Rendering differs between the Windows target and the Linux CI/screenshot environment, so visual QA baselines are not pixel-comparable to production. |
 | **B — bundled offline font** | Identical rendering everywhere including CI; guaranteed tabular figures. Requires licence retention, offline-dependency-policy and binary-catalogue entries, and packaging qualification. |
 
-The token at the design baseline names "Inter" but ships no `@font-face`, so the product silently renders Segoe UI on Windows. That inconsistency MUST be resolved either way. **A bundled font is not inherently more professional**; the decision turns on rendering determinism versus offline dependency cost.
+The token at the design baseline named "Inter" and shipped no `@font-face`, so the product silently rendered Segoe UI on Windows. UI-1 removed that claim: `--font-ui` now leads with Segoe UI and lists only families that exist on their platform, and no font is bundled. The determinism option B buys is worth nothing here, because §26 forbids committing screenshots and there are consequently no pixel baselines to keep stable.
 
 ---
 
@@ -766,12 +768,16 @@ Deliberately deferred until a concrete operator need is recorded. **Deferral mea
 
 ## 32. Open design decisions
 
-Only these remain open.
+Only these remain open. A struck-through row is closed and kept for the record;
+a decision that is only partly settled stays un-struck until every part of it is.
 
 | # | Decision | Closed in | Notes |
 |---|---|---|---|
-| **1** | **UI font: curated system stack versus bundled offline font** | **UI-1** | §9. Decide narrowly on rendering determinism versus offline dependency cost. A bundled font is not inherently more professional. The token currently names a font the product does not ship; that must be resolved either way. |
-| **2** | **Exact evidence and spatial hues** (zone, A→B, B→A, event, similarity, heatmap scale) | **UI-1 visual-validation pass** | §8.3. Roles are frozen; hues are chosen against the six footage conditions and colour-vision deficiencies. |
+| ~~**1**~~ | ~~UI font~~ — **closed in UI-1: curated system stack (option A)** | Closed | §9. Bundling buys identical rendering in CI, but §26 forbids committing screenshots, so there are no pixel baselines to keep stable and the determinism was worth nothing against a real licence, catalogue and packaging cost. `--font-ui` now leads with Segoe UI for the Windows target and names only families that genuinely exist on their platform; "Inter", which the product never shipped, is gone. |
+| **2** | **Exact evidence and spatial hues** — **partially resolved in UI-1** | **Rendered roles frozen in UI-1; the three below stay open** | §8.3. **Frozen now, and no longer open:** zone `#fb923c`, trip line `#22d3ee`, A→B `#f0abfc`, B→A `#e879f9`, bounding box `#a78bfa`, trajectory `#2dd4bf`. Chosen by constrained optimisation for mutual separation under normal vision and protan/deuteran/tritan simulation, then validated over the §26 footage conditions; minimum separation ΔE 9.0 on the Scene Editor canvas and ΔE 14.3 on the Review overlay. **Still open:** sub-decisions 2a–2c below. §8.3 requires a hue to be validated against real evidence, and those three roles have no surface that draws any; inventing values for them now would be a decision made against nothing. |
+| **2a** | Event-marker hue | **Scene Analytics Slice 5** (evidence overlays and explanation) | §8.3. From the `--geo-*` namespace, with its own glyph. Closed when Slice 5 first draws an event marker over real evidence. |
+| **2b** | Similarity / ReID candidate hue | **Capability stage 5** (Visual Similarity / Find Similar) | §8.3. Own hue plus a rank numeral, never a success hue. Closed when the similarity UI exists. |
+| **2c** | Heatmap scale | **Scene Analytics Slice 6** (aggregates and heatmap) | §8.3. A perceptually-uniform sequential scale with a legend; red-to-green is prohibited. Closed when the heatmap surface exists. |
 | **3** | Investigation in-place-inspector threshold (1500px default) | **UI-4** | §4.4. Validate at 1440 and across 1500–1600; may amend to 1600. |
 | **4** | Ultra-wide Investigation split ratio (results cap versus inspector growth) | UI-4 | §4.4. Default: results capped at approximately 900px, surplus to the inspector. |
 | **5** | Ledger sorting scope — which columns, client or server | UI-3 | §16. |
@@ -807,6 +813,7 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 
 ### 33.2 UI-1 — Design Foundation
 
+- **Status.** Implemented; see the UI-1 PR. Open decision 1 (font) is **closed** there. Open decision 2 is **partially resolved**: the six rendered evidence roles are frozen, and sub-decisions 2a–2c remain open against the slices that first draw them (§32).
 - **Objective.** Establish the semantic design foundation and correct systemic defects, without recomposing pages.
 - **Scope.** Primitive and semantic token architecture with narrowly scoped component tokens (§7); semantic UI state tokens including `stale` and `unavailable`; separate evidence/spatial token namespace with roles frozen and hues selected by visual validation; focus-ring and contrast corrections (the missing `--focus` reference, text on accent); `page--full` and ultra-wide structural correction; shared time, duration and confidence formatting; the **async-state boundary** (§14.1); Alert, Empty and Loading refinements; **font decision resolved and implemented**; visual QA harness and process formalised (§26); removal of clearly obsolete duplicate styles where provably safe.
 - **Exclusions.** No page recomposition; no archetype layout classes; no light palette; no player work; no navigation change.

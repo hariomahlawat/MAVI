@@ -6,6 +6,8 @@ import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { listVideos, queueProcessing } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
+import AsyncBoundary from '../../shared/async/AsyncBoundary';
+import { fromQuery } from '../../shared/async/fromQuery';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
@@ -85,11 +87,6 @@ export default function VideosPage() {
         actions={<ButtonLink to="/import" variant="primary" icon="upload">Import video</ButtonLink>}
       />
 
-      {videos.isError ? (
-        <Alert tone="error">
-          {videos.error instanceof ApiError ? `${videos.error.detail} (${videos.error.code})` : 'Video inventory is unavailable.'}
-        </Alert>
-      ) : null}
       {cameras.isError ? <Alert tone="warning">Camera metadata is unavailable; videos are listed by camera identifier.</Alert> : null}
       {queue.isError && !(queue.error instanceof ApiError && queue.error.code === 'processing_already_active') ? (
         <Alert tone="error">
@@ -103,7 +100,7 @@ export default function VideosPage() {
         description={
           videos.data
             ? `${rows.length} of ${total} video${total === 1 ? '' : 's'}${filtered ? ' match the filters' : ''}`
-            : videos.isError ? 'Unavailable' : 'Loading…'
+            : undefined
         }
         actions={(
           <div className="toolbar">
@@ -133,19 +130,28 @@ export default function VideosPage() {
           </div>
         )}
       >
-        {videos.isPending ? <div className="panel__body"><LoadingState label="Loading videos…" /></div> : null}
-
-        {videos.data && videos.data.length === 0 ? (
-          <EmptyState icon="video" title="No videos imported yet" actions={<ButtonLink to="/import" variant="primary">Import the first video</ButtonLink>}>
-            Import an MP4 recording against a registered camera to begin.
-          </EmptyState>
-        ) : null}
-
-        {videos.data && videos.data.length > 0 && rows.length === 0 ? (
-          <EmptyState icon="filter" title="No videos match these filters" compact actions={<Button size="sm" onClick={() => setParams(new URLSearchParams(), { replace: true })}>Clear filters</Button>} />
-        ) : null}
-
-        {rows.length > 0 ? (
+        <AsyncBoundary
+          state={fromQuery(videos)}
+          loading={<div className="panel__body"><LoadingState label="Loading videos…" rows={4} /></div>}
+          isEmpty={(all) => all.length === 0}
+          empty={(
+            <EmptyState icon="video" title="No videos imported yet" actions={<ButtonLink to="/import" variant="primary">Import the first video</ButtonLink>}>
+              Import an MP4 recording against a registered camera to begin.
+            </EmptyState>
+          )}
+          unavailable={(error) => (
+            <div className="panel__body">
+              <Alert tone="error" actions={<Button size="sm" onClick={() => videos.refetch()}>Retry</Button>}>
+                {error instanceof ApiError ? `${error.detail} (${error.code})` : 'Video inventory is unavailable.'}
+              </Alert>
+            </div>
+          )}
+          degradedLabel="Showing the last known media inventory; refreshing failed."
+          onRetry={() => videos.refetch()}
+        >
+          {() => rows.length === 0 ? (
+            <EmptyState icon="filter" title="No videos match these filters" compact actions={<Button size="sm" onClick={() => setParams(new URLSearchParams(), { replace: true })}>Clear filters</Button>} />
+          ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
@@ -225,7 +231,8 @@ export default function VideosPage() {
               </tbody>
             </table>
           </div>
-        ) : null}
+          )}
+        </AsyncBoundary>
       </Panel>
 
       {activeIds.length > 0 ? (

@@ -103,7 +103,7 @@ export default function OverviewPage() {
                       <span className="faint small">{track.cameraCode} · {track.cameraName}</span>
                     </span>
                     <span className="overview-recent__meta">
-                      {displayTimestamp(track.startTimestampUtc, displayZone)} · {formatDuration(track.durationMs)} · {formatConfidence(track.meanConfidence)}
+                      {displayTimestamp(track.startTimestampUtc, displayZone)} · {formatDuration(track.durationMs)} · {formatConfidence(track.meanConfidence, 'list')}
                     </span>
                   </span>
                   <StatusBadge status={track.reviewStatus} />

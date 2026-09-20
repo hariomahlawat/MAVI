@@ -1,7 +1,17 @@
 // One place decides what a status string means visually and in words. Screens
 // never map 'Processed' to green on their own.
 
-export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'active' | 'neutral';
+/**
+ * The operational-state vocabulary (section 8.2). One place decides what a
+ * state means, so two screens cannot disagree about it.
+ *
+ * `stale` and `unavailable` are not hues on their own: stale carries a dashed
+ * edge and unavailable a diagonal hatch, because section 23 forbids colour as
+ * the only carrier of a status. `disabled` is deliberately absent — it is an
+ * opacity, not a tone, and giving it a colour would make it look like a state
+ * the system is in rather than a control the operator cannot use.
+ */
+export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'active' | 'neutral' | 'stale' | 'unavailable';
 
 /** Video processing statuses the API emits (VideoProcessingStatus). */
 export const VIDEO_STATUSES = ['NotQueued', 'Queued', 'Processing', 'Processed', 'Failed'] as const;
@@ -26,6 +36,10 @@ export function toneForStatus(status: string | null | undefined): Tone {
       return 'active';
     case 'Cancelled':
       return 'warn';
+    case 'Stale':
+      return 'stale';
+    case 'Unavailable':
+      return 'unavailable';
     default:
       return 'neutral';
   }
@@ -34,6 +48,8 @@ export function toneForStatus(status: string | null | undefined): Tone {
 export function labelForStatus(status: string | null | undefined): string {
   switch (status) {
     case 'NotQueued': return 'Not queued';
+    case 'Stale': return 'Stale';
+    case 'Unavailable': return 'Unavailable';
     case 'Unreviewed': return 'Unreviewed';
     case undefined:
     case null:
