@@ -79,6 +79,12 @@ PR #44 provides useful Windows CPU subsystem evidence:
 
 This evidence reduces uncertainty but does not replace clean-machine Production installation or final Production-topology acceptance.
 
+## Capability-development sequencing
+
+Task 18 remains the independent Production-qualification stream. It does **not** define the order of new product capabilities.
+
+For capability development, `docs/superpowers/plans/2026-09-20-capability-roadmap-reconciliation.md` is authoritative. The current product sequence is capability-first: finish PR #49, then Spatial & Temporal Track Analytics, Visual Attributes, expanded object classes, ANPR/OCR, visual similarity/ReID and event analytics. Audited review/cases are deferred until the underlying intelligence is rich enough to make those workflows useful; live RTSP/VMS integration remains later.
+
 ## Source of truth
 
 For current Phase-1 sequencing:
