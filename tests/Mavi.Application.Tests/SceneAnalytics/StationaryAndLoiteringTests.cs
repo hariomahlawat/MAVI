@@ -88,6 +88,28 @@ public sealed class StationaryAndLoiteringTests
     }
 
     [Fact]
+    public void TwoDistantEarlierSamplesInTheWindowKeepTheTrackMoving()
+    {
+        // The two samples before the stay are 0.028 apart, well beyond a person's
+        // tolerance, and the stay sits between them. Measuring only from the current
+        // sample would find both within tolerance and start the interval while the
+        // Track was still settling; the rule asks for the largest movement anywhere
+        // in the window, which these two make.
+        var samples = SceneFixture.Concat(
+            SceneFixture.Held(5, 200, (0.486, 0.5)),
+            SceneFixture.Held(5, 200, (0.514, 0.5), startMs: 1_000),
+            SceneFixture.Held(50, 200, (0.500, 0.5), startMs: 2_000));
+
+        var interval = Assert.Single(StationaryDetector.Detect(Path(samples), ObjectClass.Person, Parameters));
+
+        // The Track looks settled from 2000 ms if only its distance from the current
+        // sample is measured, because 0.500 is within tolerance of both groups. The
+        // pair itself is not, so the stay is credited only once the earlier group
+        // leaves the window, three seconds after its last sample at 800 ms.
+        Assert.Equal(4_000, interval.StartOffsetMs);
+    }
+
+    [Fact]
     public void SmoothingNeverReachesAcrossALongGap()
     {
         // Four samples drifting towards 0.42, a ten-second gap, then a long stay at

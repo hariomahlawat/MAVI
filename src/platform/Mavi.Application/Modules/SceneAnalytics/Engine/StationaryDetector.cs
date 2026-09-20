@@ -30,6 +30,7 @@ public static class StationaryDetector
 
         var (displacementLimit, minimumMs) = parameters.StationaryThresholdsFor(objectClass);
         var smoothed = Smooth(path, parameters.SmoothingWindowSamples);
+        var firstTooFar = FindFirstTooFar(path, smoothed, displacementLimit, parameters.StationaryWindowMs);
         var intervals = new List<StationaryIntervalFact>();
 
         foreach (var run in path.Runs)
@@ -37,7 +38,7 @@ public static class StationaryDetector
             var candidateStart = -1;
             for (var index = run.Start; index <= run.End; index++)
             {
-                if (IsCandidate(path, smoothed, run, index, displacementLimit, parameters.StationaryWindowMs))
+                if (IsCandidate(path, firstTooFar, run, index, parameters.StationaryWindowMs))
                 {
                     if (candidateStart < 0)
                     {
@@ -140,8 +141,54 @@ public static class StationaryDetector
     }
 
     /// <summary>
-    /// True when the smoothed point has stayed within the displacement limit across
-    /// the trailing window.
+    /// For each sample, the first later sample inside its own window that lies at
+    /// least the displacement limit away, or <see cref="int.MaxValue"/> when there is
+    /// none.
+    /// </summary>
+    /// <remarks>
+    /// This is what turns the candidacy test into the rule section L actually states:
+    /// the <em>maximum</em> displacement anywhere inside the trailing window, not just
+    /// the distance from its last sample. Measuring only from the current point would
+    /// accept a window whose earlier samples are far apart but happen to straddle it,
+    /// which can start an interval up to a window before the Track truly settled.
+    /// Any two samples inside one window are themselves within the window's duration
+    /// of each other, so recording each sample's first distant partner is enough to
+    /// answer the question for every window in one pass.
+    /// </remarks>
+    private static int[] FindFirstTooFar(
+        TrajectoryPath path,
+        NormalizedPoint[] smoothed,
+        double displacementLimit,
+        long windowMs)
+    {
+        var firstTooFar = new int[path.Count];
+        foreach (var run in path.Runs)
+        {
+            for (var index = run.Start; index <= run.End; index++)
+            {
+                firstTooFar[index] = int.MaxValue;
+                for (var later = index + 1; later <= run.End; later++)
+                {
+                    if (path[later].OffsetMs - path[index].OffsetMs > windowMs)
+                    {
+                        break;
+                    }
+
+                    if (smoothed[index].DistanceTo(smoothed[later]) >= displacementLimit)
+                    {
+                        firstTooFar[index] = later;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return firstTooFar;
+    }
+
+    /// <summary>
+    /// True when no two samples in the trailing window are as far apart as the
+    /// displacement limit.
     /// </summary>
     /// <remarks>
     /// Near the start of a run the window uses only the samples that exist, the same
@@ -154,10 +201,9 @@ public static class StationaryDetector
     /// </remarks>
     private static bool IsCandidate(
         TrajectoryPath path,
-        NormalizedPoint[] smoothed,
+        int[] firstTooFar,
         TrajectoryPath.SampleRun run,
         int index,
-        double displacementLimit,
         long windowMs)
     {
         var current = path[index].OffsetMs;
@@ -168,7 +214,7 @@ public static class StationaryDetector
                 break;
             }
 
-            if (smoothed[index].DistanceTo(smoothed[inner]) >= displacementLimit)
+            if (firstTooFar[inner] <= index)
             {
                 return false;
             }

@@ -416,6 +416,36 @@ public sealed class SceneApiContractTests(PostgresFixture database)
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("{\"zones\":[null],\"tripLines\":[]}")]
+    [InlineData("{\"zones\":[],\"tripLines\":[null]}")]
+    public async Task NullGeometryEntryIsRejected(string json)
+    {
+        using var factory = await CreateFactoryAsync();
+        using var client = factory.CreateClient();
+        var cameraId = await CreateCameraAsync(client, "CAM-S025");
+
+        using var response = await PostRawAsync(client, cameraId, json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("scene_geometry_missing", await ReadProblemCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task NullVertexEntryIsRejected()
+    {
+        using var factory = await CreateFactoryAsync();
+        using var client = factory.CreateClient();
+        var cameraId = await CreateCameraAsync(client, "CAM-S026");
+
+        using var response = await PostRawAsync(client, cameraId, """
+            {"zones":[{"name":"Gate","vertices":[null,{"x":0.4,"y":0.1},{"x":0.4,"y":0.4}]}],"tripLines":[]}
+            """);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("scene_zone_vertex_range", await ReadProblemCodeAsync(response));
+    }
+
     [Fact]
     public async Task CoordinateSentAsAStringIsRejected()
     {

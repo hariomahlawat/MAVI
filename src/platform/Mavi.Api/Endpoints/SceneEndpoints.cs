@@ -102,6 +102,11 @@ public static class SceneEndpoints
     }
 
     // Request mapping
+    //
+    // A non-nullable element type is an annotation, not a guarantee: a JSON array may
+    // still carry a null entry, and the deserializer will put it in the list. Every
+    // element is therefore checked before it is read, so a null zone or line is a
+    // validation failure rather than a dereference.
     private static SceneRevisionDraft ToDraft(SaveSceneRequest request) => new(
         request.Note,
         request.ReferenceFrameVideoAssetId,
@@ -109,23 +114,41 @@ public static class SceneEndpoints
         [.. (request.Zones ?? []).Select(ToDraft)],
         [.. (request.TripLines ?? []).Select(ToDraft)]);
 
-    private static SceneZoneDraft ToDraft(SaveSceneZoneRequest request) => new(
-        request.ZoneId,
-        request.Name,
-        request.Kind,
-        request.Enabled ?? true,
-        request.Vertices is null ? null : [.. request.Vertices.Select(ToVertexDraft)],
-        request.LoiteringThresholdSeconds);
+    private static SceneZoneDraft ToDraft(SaveSceneZoneRequest? request)
+    {
+        Require(request);
+        return new SceneZoneDraft(
+            request.ZoneId,
+            request.Name,
+            request.Kind,
+            request.Enabled ?? true,
+            request.Vertices is null ? null : [.. request.Vertices.Select(ToVertexDraft)],
+            request.LoiteringThresholdSeconds);
+    }
 
-    private static TripLineDraft ToDraft(SaveSceneTripLineRequest request) => new(
-        request.LineId,
-        request.Name,
-        request.Enabled ?? true,
-        ToEndpointDraft(request.A),
-        ToEndpointDraft(request.B),
-        request.Directed ?? false,
-        request.AToBLabel,
-        request.BToALabel);
+    private static TripLineDraft ToDraft(SaveSceneTripLineRequest? request)
+    {
+        Require(request);
+        return new TripLineDraft(
+            request.LineId,
+            request.Name,
+            request.Enabled ?? true,
+            ToEndpointDraft(request.A),
+            ToEndpointDraft(request.B),
+            request.Directed ?? false,
+            request.AToBLabel,
+            request.BToALabel);
+    }
+
+    private static void Require([System.Diagnostics.CodeAnalysis.NotNull] object? element)
+    {
+        if (element is null)
+        {
+            throw new DomainValidationException(
+                SceneErrorCodes.GeometryMissing,
+                "A zone or trip line entry was empty.");
+        }
+    }
 
     /// <summary>A zone vertex; a missing component is a coordinate out of range.</summary>
     private static ScenePointDraft ToVertexDraft(ScenePointRequest? request) =>

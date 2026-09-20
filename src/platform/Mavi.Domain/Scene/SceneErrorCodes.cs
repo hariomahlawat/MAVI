@@ -27,6 +27,7 @@ public static class SceneErrorCodes
 
     // Revision
     public const string GeometryCount = "scene_geometry_count";
+    public const string GeometryMissing = "scene_geometry_missing";
     public const string IdentityUnknown = "scene_identity_unknown";
     public const string IdentityDuplicate = "scene_identity_duplicate";
     public const string NoteTooLong = "scene_note_too_long";
