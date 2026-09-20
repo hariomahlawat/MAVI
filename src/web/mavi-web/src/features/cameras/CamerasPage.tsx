@@ -5,8 +5,12 @@ import { createCamera, listCameras, type CreateCameraInput } from '../../api/cam
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
+import Button from '../../shared/components/Button';
+import EmptyState from '../../shared/components/EmptyState';
 import LoadingState from '../../shared/components/LoadingState';
 import PageHeader from '../../shared/components/PageHeader';
+import Panel from '../../shared/components/Panel';
+import StatusBadge from '../../shared/components/StatusBadge';
 
 function cameraError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -57,40 +61,37 @@ export default function CamerasPage() {
   }
 
   return (
-    <section className="page-stack">
+    <section className="page">
       <PageHeader
         title="Cameras"
-        description="Register and review the authoritative camera inventory used to interpret recording-local timestamps."
+        description="The authoritative camera inventory used to interpret recording-local timestamps."
       />
 
-      <div className="two-column-grid">
-        <section className="panel" aria-labelledby="camera-list-title">
-          <div className="panel__header">
-            <div>
-              <h2 id="camera-list-title">Camera inventory</h2>
-              <p>{cameras.data?.length ?? 0} registered</p>
-            </div>
-          </div>
-
+      <div className="split">
+        <Panel
+          headingId="camera-list-title"
+          title="Camera inventory"
+          description={`${cameras.data?.length ?? 0} registered`}
+          body="flush"
+        >
           {cameras.isPending ? <LoadingState label="Loading cameras…" /> : null}
           {cameras.isError ? (
-            <Alert tone="error">
-              {cameras.error instanceof ApiError
-                ? `${cameras.error.detail} (${cameras.error.code})`
-                : 'Camera inventory is unavailable.'}
-            </Alert>
+            <div className="panel__body">
+              <Alert tone="error">
+                {cameras.error instanceof ApiError
+                  ? `${cameras.error.detail} (${cameras.error.code})`
+                  : 'Camera inventory is unavailable.'}
+              </Alert>
+            </div>
           ) : null}
 
           {cameras.data && cameras.data.length === 0 ? (
-            <div className="empty-state">
-              <strong>No cameras registered</strong>
-              <span>Add the first camera using the form.</span>
-            </div>
+            <EmptyState icon="camera" title="No cameras registered">Add the first camera using the form.</EmptyState>
           ) : null}
 
           {cameras.data && cameras.data.length > 0 ? (
             <div className="table-wrap">
-              <table>
+              <table className="table">
                 <thead>
                   <tr>
                     <th scope="col">Code</th>
@@ -106,9 +107,7 @@ export default function CamerasPage() {
                       <td>{camera.name}</td>
                       <td><code>{camera.timeZoneId}</code></td>
                       <td>
-                        <span className={`status-pill ${camera.isActive ? 'status-pill--ok' : 'status-pill--muted'}`}>
-                          {camera.isActive ? 'Active' : 'Inactive'}
-                        </span>
+                        <StatusBadge tone={camera.isActive ? 'ok' : 'neutral'}>{camera.isActive ? 'Active' : 'Inactive'}</StatusBadge>
                       </td>
                     </tr>
                   ))}
@@ -116,60 +115,57 @@ export default function CamerasPage() {
               </table>
             </div>
           ) : null}
-        </section>
+        </Panel>
 
-        <section className="panel panel--form" aria-labelledby="add-camera-title">
-          <div className="panel__header">
-            <div>
-              <h2 id="add-camera-title">Add camera</h2>
-              <p>Code, name and IANA timezone are required.</p>
-            </div>
+        <Panel headingId="add-camera-title" title="Add camera" description="Code, name and IANA timezone are required.">
+          <div className="stack">
+            {createMutation.isError ? <Alert tone="error">{cameraError(createMutation.error)}</Alert> : null}
+            {createMutation.isSuccess ? <Alert tone="success">Camera registered.</Alert> : null}
+
+            <form className="form-stack" onSubmit={submit}>
+              <label>
+                Camera code
+                <input
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  required
+                  maxLength={64}
+                  autoComplete="off"
+                  placeholder="CAM-01"
+                />
+              </label>
+              <label>
+                Camera name
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                  maxLength={128}
+                  autoComplete="off"
+                  placeholder="North Gate"
+                />
+              </label>
+              <label>
+                Camera timezone (IANA, e.g. Asia/Kolkata)
+                <input
+                  value={resolvedTimeZone}
+                  onChange={(event) => setTimeZoneId(event.target.value)}
+                  required
+                  autoComplete="off"
+                  placeholder="Asia/Kolkata"
+                />
+              </label>
+              <p className="field-help">
+                Recording local time will be interpreted using this camera timezone. Browser timezone is not used as authority.
+              </p>
+              <div className="row">
+                <Button variant="primary" type="submit" disabled={createMutation.isPending}>
+                  {createMutation.isPending ? 'Adding…' : 'Add camera'}
+                </Button>
+              </div>
+            </form>
           </div>
-
-          {createMutation.isError ? <Alert tone="error">{cameraError(createMutation.error)}</Alert> : null}
-          {createMutation.isSuccess ? <Alert tone="success">Camera registered.</Alert> : null}
-
-          <form className="form-stack" onSubmit={submit}>
-            <label>
-              Camera code
-              <input
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                required
-                maxLength={64}
-                autoComplete="off"
-                placeholder="CAM-01"
-              />
-            </label>
-            <label>
-              Camera name
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                required
-                maxLength={128}
-                autoComplete="off"
-                placeholder="North Gate"
-              />
-            </label>
-            <label>
-              Camera timezone (IANA, e.g. Asia/Kolkata)
-              <input
-                value={resolvedTimeZone}
-                onChange={(event) => setTimeZoneId(event.target.value)}
-                required
-                autoComplete="off"
-                placeholder="Asia/Kolkata"
-              />
-            </label>
-            <p className="field-help">
-              Recording local time will be interpreted using this camera timezone. Browser timezone is not used as authority.
-            </p>
-            <button className="button button--primary" type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Adding…' : 'Add camera'}
-            </button>
-          </form>
-        </section>
+        </Panel>
       </div>
     </section>
   );

@@ -11,25 +11,21 @@ import {
 } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
+import Button, { ButtonLink } from '../../shared/components/Button';
+import EmptyState from '../../shared/components/EmptyState';
+import KeyValue from '../../shared/components/KeyValue';
 import LoadingState from '../../shared/components/LoadingState';
 import PageHeader from '../../shared/components/PageHeader';
+import Panel from '../../shared/components/Panel';
+import Progress from '../../shared/components/Progress';
+import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
-import { formatDateTime } from '../../shared/time/time';
+import { displayTimestamp, frameRateText } from '../../shared/format/format';
+import { isActiveStatus, toneForStatus } from '../../shared/status/status';
 
 function safeFormatTimestamp(value: string | null | undefined, timeZoneId: string | undefined): string {
   if (!value || !timeZoneId) return '—';
-  try {
-    return formatDateTime(value, timeZoneId);
-  } catch {
-    return 'Invalid timestamp';
-  }
-}
-
-function statusTone(status: string): string {
-  if (status === 'Processed' || status === 'Completed') return 'status-pill--ok';
-  if (status === 'Failed') return 'status-pill--error';
-  if (status === 'Queued' || status === 'Processing' || status === 'Running') return 'status-pill--active';
-  return 'status-pill--muted';
+  return displayTimestamp(value, timeZoneId);
 }
 
 export default function ProcessingPage() {
@@ -72,6 +68,7 @@ export default function ProcessingPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.video(videoAssetId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.videoProcessing(videoAssetId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.videos }),
       ]);
     },
     onError: async (error) => {
@@ -86,7 +83,7 @@ export default function ProcessingPage() {
 
   if (!validId) {
     return (
-      <section className="page-stack">
+      <section className="page">
         <PageHeader title="Processing" />
         <Alert tone="error">The video identifier in this route is invalid.</Alert>
       </section>
@@ -98,7 +95,7 @@ export default function ProcessingPage() {
 
   if (notFound) {
     return (
-      <section className="page-stack">
+      <section className="page">
         <PageHeader title="Processing" />
         <Alert tone="error">Video was not found.</Alert>
       </section>
@@ -107,12 +104,10 @@ export default function ProcessingPage() {
 
   const state = processing.data;
   const run = state?.latestRun;
-  const progress = Math.min(100, Math.max(0, run?.progressPercent ?? 0));
   const canRetry = state
-    ? state.videoStatus === 'NotQueued'
-      || state.videoStatus === 'Failed'
-      || run?.status === 'Failed'
+    ? state.videoStatus === 'NotQueued' || state.videoStatus === 'Failed' || run?.status === 'Failed'
     : false;
+  const processed = state?.videoStatus === 'Processed';
   const displayZone = systemConfig.data?.displayTimeZoneId;
   const navigationNotice = typeof location.state === 'object'
     && location.state !== null
@@ -120,17 +115,30 @@ export default function ProcessingPage() {
     && typeof location.state.notice === 'string'
       ? location.state.notice
       : null;
+  const lowerId = videoAssetId.toLowerCase();
 
   return (
-    <section className="page-stack">
+    <section className="page">
       <PageHeader
-        title="Processing"
-        description="Authoritative queue and processing state for the selected source video."
-        actions={canRetry ? (
-          <button className="button button--primary" type="button" onClick={() => retry.mutate()} disabled={retry.isPending}>
-            {retry.isPending ? 'Queueing…' : state?.videoStatus === 'Failed' ? 'Retry processing' : 'Queue processing'}
-          </button>
-        ) : undefined}
+        title={video.data?.originalFileName ?? 'Processing'}
+        description={video.data ? (
+          <>
+            {camera.data ? `${camera.data.code} · ${camera.data.name}` : 'Loading camera…'} · recorded {safeFormatTimestamp(video.data.recordingStartUtc, displayZone)}
+          </>
+        ) : 'Authoritative queue and processing state for the selected source video.'}
+        actions={(
+          <>
+            <ButtonLink to="/processing" variant="ghost" icon="chevronLeft">All processing</ButtonLink>
+            {processed ? (
+              <ButtonLink to={`/search?videoAssetId=${lowerId}`} variant="primary" icon="search">Open results</ButtonLink>
+            ) : null}
+            {canRetry ? (
+              <Button variant={processed ? 'secondary' : 'primary'} icon="play" onClick={() => retry.mutate()} disabled={retry.isPending}>
+                {retry.isPending ? 'Queueing…' : state?.videoStatus === 'Failed' ? 'Retry processing' : 'Queue processing'}
+              </Button>
+            ) : null}
+          </>
+        )}
       />
 
       {navigationNotice ? <Alert tone="info">{navigationNotice}</Alert> : null}
@@ -145,71 +153,81 @@ export default function ProcessingPage() {
       {(video.isPending || processing.isPending) ? <LoadingState label="Loading processing state…" /> : null}
 
       {video.data && state ? (
-        <>
-          <div className="summary-grid">
-            <section className="panel metric-card">
-              <span className="metric-card__label">Video</span>
-              <strong>{video.data.originalFileName}</strong>
-              <span>{formatDuration(video.data.durationMs)} · {video.data.width}×{video.data.height}</span>
-            </section>
-            <section className="panel metric-card">
-              <span className="metric-card__label">Camera</span>
-              <strong>{camera.data ? `${camera.data.code} · ${camera.data.name}` : 'Loading camera…'}</strong>
-              <span>{camera.data?.timeZoneId ?? video.data.recordingTimeZoneId}</span>
-            </section>
-            <section className="panel metric-card">
-              <span className="metric-card__label">Video state</span>
-              <strong><span className={`status-pill ${statusTone(state.videoStatus)}`}>{state.videoStatus}</span></strong>
-              <span>{run ? `Latest run: ${run.status}` : 'No processing run yet'}</span>
-            </section>
-          </div>
-
-          <section className="panel">
-            <div className="panel__header">
-              <div>
-                <h2>Processing run</h2>
-                <p>{run ? `${run.pipeline} · ${run.pipelineVersion}` : 'No run has been queued.'}</p>
-              </div>
-              {run ? <span className={`status-pill ${statusTone(run.status)}`}>{run.status}</span> : null}
-            </div>
-
+        <div className="split">
+          <Panel
+            title="Processing run"
+            description={run ? `${run.pipeline} · ${run.pipelineVersion}` : 'No run has been queued.'}
+            actions={run ? <StatusBadge status={run.status} /> : undefined}
+          >
             {run ? (
-              <>
-                <div className="progress-block">
-                  <div className="progress-block__label">
-                    <span>Progress</span>
-                    <strong>{progress.toFixed(progress % 1 === 0 ? 0 : 1)}%</strong>
-                  </div>
-                  <progress max="100" value={progress}>{progress}%</progress>
-                </div>
+              <div className="stack">
+                <Progress
+                  value={run.progressPercent}
+                  label={isActiveStatus(run.status) ? 'Progress' : run.status}
+                  tone={run.status === 'Failed' ? 'err' : run.status === 'Completed' ? 'ok' : 'info'}
+                />
 
-                <dl className="detail-grid">
-                  <div><dt>Attempt</dt><dd>{run.attemptCount}</dd></div>
-                  <div><dt>Queued</dt><dd>{safeFormatTimestamp(run.queuedAtUtc, displayZone)}</dd></div>
-                  <div><dt>Started</dt><dd>{safeFormatTimestamp(run.startedAtUtc, displayZone)}</dd></div>
-                  <div><dt>Completed</dt><dd>{safeFormatTimestamp(run.completedAtUtc, displayZone)}</dd></div>
-                  <div><dt>Display timezone</dt><dd><code>{displayZone ?? 'Loading…'}</code></dd></div>
-                  <div><dt>Failure code</dt><dd>{run.failureCode ?? '—'}</dd></div>
-                </dl>
+                <KeyValue
+                  grid
+                  items={[
+                    { label: 'Attempt', value: run.attemptCount },
+                    { label: 'Queued', value: safeFormatTimestamp(run.queuedAtUtc, displayZone) },
+                    { label: 'Started', value: safeFormatTimestamp(run.startedAtUtc, displayZone) },
+                    { label: 'Completed', value: safeFormatTimestamp(run.completedAtUtc, displayZone) },
+                    { label: 'Frames processed', value: run.status === 'Completed' ? run.framesProcessed.toLocaleString() : 'Final count after completion' },
+                    { label: 'Tracks created', value: run.status === 'Completed' ? run.tracksCreated.toLocaleString() : 'Final count after completion' },
+                  ]}
+                />
 
-                {run.workerId ? (
-                  <details className="diagnostics">
-                    <summary>Diagnostics</summary>
-                    <dl className="detail-grid">
-                      <div><dt>Processing run ID</dt><dd><code>{run.processingRunId}</code></dd></div>
-                      <div><dt>Worker ID</dt><dd><code>{run.workerId}</code></dd></div>
-                    </dl>
-                  </details>
+                {run.failureCode ? (
+                  <Alert tone="error">
+                    <div className="inline-alert-actions">
+                      <span>Processing failed with <code>{run.failureCode}</code>. Retrying queues a new run for this video.</span>
+                    </div>
+                  </Alert>
                 ) : null}
-              </>
-            ) : (
-              <div className="empty-state">
-                <strong>Not queued</strong>
-                <span>Use Queue processing to start the authoritative pipeline.</span>
+
+                <details className="disclosure">
+                  <summary>Diagnostics</summary>
+                  <div className="disclosure__body">
+                    <KeyValue
+                      items={[
+                        { label: 'Processing run', value: run.processingRunId, mono: true },
+                        { label: 'Worker', value: run.workerId ?? '—', mono: true },
+                        { label: 'Video', value: video.data.id, mono: true },
+                        { label: 'Display timezone', value: displayZone ?? 'Loading…', mono: true },
+                      ]}
+                    />
+                  </div>
+                </details>
               </div>
+            ) : (
+              <EmptyState icon="activity" title="Not queued" compact>
+                Use Queue processing to start the authoritative pipeline for this video.
+              </EmptyState>
             )}
-          </section>
-        </>
+          </Panel>
+
+          <div className="stack">
+            <Panel title="Video" actions={<StatusBadge status={state.videoStatus} />}>
+              <KeyValue
+                items={[
+                  { label: 'File', value: video.data.originalFileName },
+                  { label: 'Camera', value: camera.data ? `${camera.data.code} · ${camera.data.name}` : 'Loading camera…' },
+                  { label: 'Recorded', value: safeFormatTimestamp(video.data.recordingStartUtc, displayZone) },
+                  { label: 'Duration', value: formatDuration(video.data.durationMs) },
+                  { label: 'Resolution', value: `${video.data.width}×${video.data.height} · ${frameRateText(video.data.frameRateNumerator, video.data.frameRateDenominator)}` },
+                  { label: 'Codec', value: video.data.codecName ?? '—' },
+                  { label: 'Camera timezone', value: camera.data?.timeZoneId ?? video.data.recordingTimeZoneId, mono: true },
+                ]}
+              />
+            </Panel>
+            <p className="small faint">
+              Video state is <StatusBadge status={state.videoStatus} plain tone={toneForStatus(state.videoStatus)} />
+              {run ? <> · latest run <StatusBadge status={run.status} plain /></> : ' · no processing run yet'}
+            </p>
+          </div>
+        </div>
       ) : null}
     </section>
   );
