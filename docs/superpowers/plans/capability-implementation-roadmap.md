@@ -283,8 +283,8 @@ Reading the matrix: stages 1, 6, 7, 8 and 10 leave every qualified vision artefa
 
 | Decision | ADR? | When |
 |---|---|---|
-| Analytics lifecycle: separate application-side post-processing stage with an analysis unit bound to (run, scene revision, algorithm version); search readiness semantics | **Yes** (next free ADR number when written; the deferred review/cases plan already names ADR-010 for operator identity, so this ADR takes the following number) | Stage 1 Slice 0 |
-| Scene-configuration revision semantics (whole-configuration revisions, stable ids, activation) | Yes, in the same ADR as above | Stage 1 Slice 0 |
+| Analytics lifecycle: separate application-side post-processing stage with an analysis unit bound to (run, scene revision, algorithm version); search readiness semantics | **Accepted as ADR-011** (ADR-010 stays reserved by the deferred review/cases plan for operator identity) | Stage 1 Slice 0 — done |
+| Scene-configuration revision semantics (whole-configuration revisions, stable ids, activation, empty revision disables analytics) | Accepted in ADR-011 | Stage 1 Slice 0 — done |
 | Worker boundary for model-based stages (in detector/tracker worker vs separate worker over sealed evidence) | Yes, one ADR when stage 2 begins; stages 4 and 5 reference it | Stage 2 entry |
 | Embedding storage and index (pgvector column, index type, model versioning) | Yes | Stage 5 entry |
 | ReID / Entity semantics (candidate states, confirmation, `EntityId` write rules) | Yes | Stage 6 entry |
