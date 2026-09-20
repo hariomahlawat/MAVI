@@ -2,6 +2,7 @@ using Mavi.Domain.Cameras;
 using Mavi.Domain.Intelligence;
 using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
+using Mavi.Domain.Scene;
 using Microsoft.EntityFrameworkCore;
 
 namespace Mavi.Infrastructure.Persistence;
@@ -18,6 +19,8 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<Observation> Observations => Set<Observation>();
     public DbSet<VisualAttribute> VisualAttributes => Set<VisualAttribute>();
     public DbSet<Entity> Entities => Set<Entity>();
+    public DbSet<SceneConfiguration> SceneConfigurations => Set<SceneConfiguration>();
+    public DbSet<SceneConfigurationRevision> SceneConfigurationRevisions => Set<SceneConfigurationRevision>();
 
     // Model configuration
     protected override void OnModelCreating(ModelBuilder modelBuilder)
