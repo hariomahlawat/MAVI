@@ -104,15 +104,15 @@ Given `processing = Completed` and analytics readiness other than `Ready`:
 | Ordinary Track search (no analytic predicate) | Unchanged. The Track is visible. Analytics readiness does not gate Track visibility. |
 | Zone, line, dwell, direction, stationary predicates | The query is evaluated **only over runs whose analysis unit for the requested revision is `Completed` and visible in the snapshot**. Every other run in the query's scope is reported, never dropped silently, in the response's `analyticsCoverage` block. |
 | Loitering | Same as zone predicates (loitering is a persisted per-Track flag with its thresholds). |
-| Aggregates | Computed over covered runs only; the same `analyticsCoverage` block with the same `complete` rule is returned; a request whose scope has **zero** covered runs returns `200` with empty series and `coverage.evaluatedRuns = 0`, plus the pending/failed/stale/not-configured counts, so the UI renders "Not analysed yet" or "Analytics disabled for this camera", never a zero-valued chart. |
+| Aggregates | Computed over covered runs only; the same `analyticsCoverage` block with the same `complete` rule is returned; a request whose scope has **zero** covered runs returns `200` with empty series and `coverage.evaluatedRuns = 0`, plus the pending/failed/stale/not-configured/disabled counts, so the UI renders "Not analysed yet" or "Analytics disabled for this camera", never a zero-valued chart. |
 
 **Decision: partial-results metadata, not an error.** Every response to a query that used at least one analytic predicate carries:
 
 ```
 analyticsCoverage: {
   sceneRevisionId, algorithmVersion,
-  evaluatedRuns, pendingRuns, failedRuns, notConfiguredRuns, staleRuns,
-  complete: bool   // pendingRuns == 0 && failedRuns == 0 && staleRuns == 0 && notConfiguredRuns == 0
+  evaluatedRuns, pendingRuns, failedRuns, notConfiguredRuns, disabledRuns, staleRuns,
+  complete: bool   // every unevaluated bucket is zero
 }
 ```
 
@@ -231,7 +231,7 @@ Persisted on the zone-visit summary for the Track: `Loitering = true`, `Loiterin
 | `scene_configuration_revisions` | revision | `id`, `scene_configuration_id`, `revision_number` (unique per configuration), `created_at_utc`, `created_by`, `note`, `reference_frame_*` | Immutable |
 | `scene_zones` | zone × revision | (`revision_id`, `zone_id`), `name`, `kind`, `enabled`, `vertices` jsonb, `loitering_threshold_seconds` | Immutable |
 | `trip_lines` | line × revision | (`revision_id`, `line_id`), `name`, `enabled`, `ax, ay, bx, by`, `directed`, labels | Immutable |
-| `scene_analyses` | analysis unit | `id`, `processing_run_id`, `revision_id`, `algorithm_version`, `parameters_sha256`, `status`, `attempt_count`, `claim_token_hash` (32 bytes, null when not `Running`), `lease_expires_at_utc`, `queued/started/completed_at_utc`, `visibility_sequence`, `analysed_track_count`, `unavailable_track_count`, `duration_ms`, `failure_code`, `failure_details` | Unique (`processing_run_id`, `revision_id`, `algorithm_version`) |
+| `scene_analyses` | analysis unit | `id`, `processing_run_id`, `revision_id`, `algorithm_version`, `parameters_sha256`, `status`, `attempt_count`, `claim_token_hash` (32 bytes, null when not `Running`), `lease_expires_at_utc`, `queued/started/completed_at_utc`, `visibility_sequence`, `analysed_track_count`, `unavailable_track_count`, `failure_code`, `failure_details` | Unique (`processing_run_id`, `revision_id`, `algorithm_version`) |
 | `track_analysis_outcomes` | Track × analysis | (`analysis_id`, `track_id`), `outcome` (`Analysed`/`Unavailable`), `reason`, `reference_point`, `sample_count`, `gap_count`, `gap_total_ms` | One row per Track per unit, always |
 | `track_zone_visits` | visit | `id`, `analysis_id`, `track_id`, `zone_id`, `visit_index`, `entry_offset_ms`, `exit_offset_ms`, `entry_timestamp_utc`, `exit_timestamp_utc`, `dwell_ms`, `began_inside`, `ended_inside`, `closed_by_gap`, `entry_heading`, `exit_heading` | Searchable |
 | `track_zone_summaries` | Track × zone × analysis | (`analysis_id`, `track_id`, `zone_id`), `visit_count`, `total_dwell_ms`, `first_entry_timestamp_utc`, `last_exit_timestamp_utc`, `loitering`, `loitering_threshold_seconds`, `loitering_dwell_ms` | The row search predicates hit |
@@ -295,9 +295,12 @@ Additions to `TrackSearchQuery`, the endpoint whitelist, `searchState.ts` and th
 
 Rules: a query that uses any analytic key is an **analytic query**; the repository joins the fact tables through `scene_analyses` filtered by `revision_id`, `algorithm_version`, `status = 'Completed'` and `visibility_sequence ≤ snapshotVisibilitySequence`.
 
+**Analytic predicates require a single-camera scope (Decision).** A zone, a line and a revision only mean anything for one camera, and one coverage block names one revision, so a query using any analytic key must resolve to exactly one camera through `cameraId`, `videoAssetId` or `processingRunId`; anything else is `400 track_search_invalid`. Multi-camera analytic search would need per-camera coverage and pinning and is out of this increment.
+
 **Revision-pinned cursors (Decision).** The cursor represents a stable snapshot, so the scene revision and algorithm version are resolved once and pinned:
 - **First page:** resolve the effective `sceneRevisionId` (the explicit query value, else the camera's active revision at that instant) and the current `algorithmVersion`; allocate the visibility snapshot as today; compute the filter fingerprint over the client-supplied keys **plus the resolved revision id and algorithm version**; issue a cursor whose payload (a new cursor version) carries snapshot time, snapshot sequence, keyset position, fingerprint, `sceneRevisionId` and `algorithmVersion`. The response's `analyticsCoverage` names the pinned pair.
 - **Continuation:** pages are evaluated against the pinned revision, the pinned algorithm version and the pinned snapshot sequence, whatever the camera's active revision is now. Activating a new revision between pages does **not** invalidate the cursor; the pinned revision's facts are persisted (§P) and remain queryable, and even if the pinned unit has since been marked `Superseded` its facts still exist and its visibility sequence is still ≤ the snapshot, so continuation stays consistent.
+- **Resolving to no revision is pinned too:** for a never-configured or disabled camera the first page pins the absence, and continuation keeps returning the same empty analytic result with the same coverage, so a mid-pagination activation cannot make later pages start matching.
 - **A new search** (no cursor) after activation resolves the new active revision.
 - **A cursor is genuinely invalid** only when: it fails to decode; its fingerprint differs from the fingerprint recomputed from the supplied keys plus the *pinned* pair (the client changed filters); it is older than the one-hour limit or ahead of the clock; or it names a revision id that does not belong to the query's camera. Revisions are immutable and never deleted, so a pinned revision cannot disappear.
 
@@ -462,7 +465,7 @@ A malformed Track never fails a unit. A unit fails only when the whole attempt c
 
 ## AF. Observability
 
-On the unit and in `GET …/analytics`: state, attempt count and current lease expiry (never the claim token), queued/started/completed times, duration, algorithm version and parameters hash, revision number, analysed and unavailable Track counts, failure code; `analytics_attempt_stale` rejections are logged with unit id and attempt number. In the Processing page's run detail: one line "Scene analytics: Ready (revision 4, 212 Tracks, 3 unavailable)" or "Pending / Failed (code) [Retry]" with a link to the scene page; the queue view adds a readiness badge. Structured logs from the hosted service at unit start/completion/failure with unit id, run id, revision, duration. No engineering diagnostics in the operator UI beyond the disclosure in §N.
+On the unit and in `GET …/analytics`: state, attempt count and current lease expiry (never the claim token), queued/started/completed times (elapsed time is derived from them rather than carried as a `DurationMs`, which AGENTS.md reserves for media-relative values), algorithm version and parameters hash, revision number, analysed and unavailable Track counts, failure code; `analytics_attempt_stale` rejections are logged with unit id and attempt number. In the Processing page's run detail: one line "Scene analytics: Ready (revision 4, 212 Tracks, 3 unavailable)" or "Pending / Failed (code) [Retry]" with a link to the scene page; the queue view adds a readiness badge. Structured logs from the hosted service at unit start/completion/failure with unit id, run id, revision, duration. No engineering diagnostics in the operator UI beyond the disclosure in §N.
 
 ---
 

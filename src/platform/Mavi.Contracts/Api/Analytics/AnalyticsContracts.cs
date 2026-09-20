@@ -4,9 +4,11 @@ namespace Mavi.Contracts.Api.Analytics;
 
 // Scene-analytics status and coverage projections (ADR-011).
 //
-// These contracts are deliberately free of every internal ownership secret: a
-// running attempt is fenced by an opaque claim token whose hash alone is
-// persisted, and neither the token nor its hash is ever projected here.
+// A running attempt is fenced by an opaque claim token whose hash alone is
+// persisted. Neither the token nor its hash is ever projected here; that is the
+// secret. The attempt number and the lease expiry are not secrets and are
+// projected deliberately, because an operator looking at a Running unit needs to
+// know whether it is progressing or has been abandoned.
 
 /// <summary>One analysis unit: a run analysed against one scene revision by one algorithm version.</summary>
 public sealed record SceneAnalysisStatusResponse(
@@ -21,7 +23,6 @@ public sealed record SceneAnalysisStatusResponse(
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
     DateTimeOffset? LeaseExpiresAtUtc,
-    long? DurationMs,
     int AnalysedTrackCount,
     int UnavailableTrackCount,
     string? FailureCode);
@@ -50,9 +51,10 @@ public sealed record ProcessingRunAnalyticsResponse(
 /// resolved for the query's scope, which happens when the camera has never been
 /// configured; every run in scope then falls into
 /// <paramref name="NotConfiguredRuns"/> and the answer is not complete.
-/// Runs whose camera has analytics disabled by an empty active revision are
-/// counted in <paramref name="NotConfiguredRuns"/> as well: in both cases the
-/// run was not evaluated, which is what the bucket means.
+/// A camera that was never configured and one whose active revision disables
+/// analytics are counted separately, because an operator is owed the difference
+/// between a gap and a deliberate switch-off, and the UI names each non-zero
+/// bucket. Neither was evaluated, so either makes the answer incomplete.
 /// </remarks>
 public sealed record AnalyticsCoverageResponse(
     Guid? SceneRevisionId,
@@ -61,6 +63,7 @@ public sealed record AnalyticsCoverageResponse(
     int PendingRuns,
     int FailedRuns,
     int NotConfiguredRuns,
+    int DisabledRuns,
     int StaleRuns)
 {
     /// <summary>
@@ -72,11 +75,12 @@ public sealed record AnalyticsCoverageResponse(
         PendingRuns == 0 &&
         FailedRuns == 0 &&
         NotConfiguredRuns == 0 &&
+        DisabledRuns == 0 &&
         StaleRuns == 0;
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record RequestSceneReanalysisRequest(string? Scope);
+public sealed record SceneReanalysisRequest(string? Scope);
 
 public sealed record SceneReanalysisAcceptedResponse(
     Guid CameraId,

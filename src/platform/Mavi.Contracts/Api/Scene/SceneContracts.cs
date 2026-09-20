@@ -30,9 +30,6 @@ public sealed record SceneTripLineResponse(
 
 /// <summary>One immutable revision of a camera's scene configuration.</summary>
 /// <remarks>
-/// <paramref name="AnalyticsEnabled"/> is false exactly when the revision
-/// carries no enabled zone and no enabled trip line: an empty active revision
-/// means analytics are intentionally disabled for the camera (ADR-011).
 /// <paramref name="CreatedBy"/> is server-controlled; see
 /// <see cref="SceneContractRules.UnattributedDevelopmentActor"/>.
 /// </remarks>
@@ -45,9 +42,18 @@ public sealed record SceneRevisionResponse(
     string? Note,
     Guid? ReferenceFrameVideoAssetId,
     long? ReferenceFrameOffsetMs,
-    bool AnalyticsEnabled,
     IReadOnlyList<SceneZoneResponse> Zones,
-    IReadOnlyList<SceneTripLineResponse> TripLines);
+    IReadOnlyList<SceneTripLineResponse> TripLines)
+{
+    /// <summary>
+    /// False exactly when the revision carries no enabled zone and no enabled
+    /// trip line: an empty active revision is how analytics are intentionally
+    /// disabled for a camera (ADR-011). Computed from the geometry it describes,
+    /// so it cannot contradict it.
+    /// </summary>
+    public bool AnalyticsEnabled =>
+        Zones.Any(zone => zone.Enabled) || TripLines.Any(line => line.Enabled);
+}
 
 public sealed record SceneRevisionSummaryResponse(
     Guid RevisionId,

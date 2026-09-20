@@ -37,7 +37,6 @@ public sealed class SceneAnalyticsContractTests
         "Gate and forecourt",
         null,
         null,
-        AnalyticsEnabled: true,
         Zones:
         [
             new SceneZoneResponse(
@@ -129,8 +128,9 @@ public sealed class SceneAnalyticsContractTests
     public void AnEmptyActiveRevisionReportsAnalyticsDisabled()
     {
         // ADR-011: an empty active revision is how an operator switches analytics
-        // off. It is a real revision, not an absent configuration.
-        var revision = ConfiguredRevision() with { AnalyticsEnabled = false, Zones = [], TripLines = [] };
+        // off. It is a real revision, not an absent configuration. The flag is
+        // computed from the geometry, so it cannot be set to contradict it.
+        var revision = ConfiguredRevision() with { Zones = [], TripLines = [] };
         var scene = new CameraSceneResponse(CameraId, Configured: true, revision, []);
 
         var json = JsonSerializer.Serialize(scene, ApiJson);
@@ -140,6 +140,21 @@ public sealed class SceneAnalyticsContractTests
         Assert.True(document.RootElement.GetProperty("configured").GetBoolean());
         Assert.False(active.GetProperty("analyticsEnabled").GetBoolean());
         Assert.Equal(0, active.GetProperty("zones").GetArrayLength());
+    }
+
+    [Fact]
+    public void ARevisionWhoseGeometryIsAllDisabledIsAlsoDisabled()
+    {
+        // Geometry can be present but switched off; that is still "no analytics".
+        var revision = ConfiguredRevision();
+        var disabled = revision with
+        {
+            Zones = [revision.Zones[0] with { Enabled = false }],
+            TripLines = [revision.TripLines[0] with { Enabled = false }],
+        };
+
+        Assert.True(revision.AnalyticsEnabled);
+        Assert.False(disabled.AnalyticsEnabled);
     }
 
     // --- Requests: the server owns attribution and revision identity.
@@ -214,7 +229,7 @@ public sealed class SceneAnalyticsContractTests
     public void ReanalysisRequestRejectsUnknownMembers()
     {
         Assert.Throws<JsonException>(
-            () => JsonSerializer.Deserialize<RequestSceneReanalysisRequest>(
+            () => JsonSerializer.Deserialize<SceneReanalysisRequest>(
                 """{"scope":"allRuns","requestedBy":"a.operator"}""",
                 ApiJson));
     }
@@ -242,7 +257,6 @@ public sealed class SceneAnalyticsContractTests
                     CreatedAt.AddSeconds(2),
                     CreatedAt.AddSeconds(5),
                     LeaseExpiresAtUtc: null,
-                    DurationMs: 3_000,
                     AnalysedTrackCount: 212,
                     UnavailableTrackCount: 3,
                     FailureCode: null),
@@ -300,20 +314,22 @@ public sealed class SceneAnalyticsContractTests
     [Fact]
     public void CoverageIsCompleteOnlyWhenEveryRunInScopeWasEvaluated()
     {
-        var complete = new AnalyticsCoverageResponse(RevisionId, "scene-analytics-v1", 12, 0, 0, 0, 0);
+        var complete = new AnalyticsCoverageResponse(RevisionId, "scene-analytics-v1", 12, 0, 0, 0, 0, 0);
 
         Assert.True(complete.Complete);
     }
 
     [Theory]
-    [InlineData(1, 0, 0, 0)]
-    [InlineData(0, 1, 0, 0)]
-    [InlineData(0, 0, 1, 0)]
-    [InlineData(0, 0, 0, 1)]
+    [InlineData(1, 0, 0, 0, 0)]
+    [InlineData(0, 1, 0, 0, 0)]
+    [InlineData(0, 0, 1, 0, 0)]
+    [InlineData(0, 0, 0, 1, 0)]
+    [InlineData(0, 0, 0, 0, 1)]
     public void AnyUnevaluatedRunMakesCoverageIncomplete(
         int pending,
         int failed,
         int notConfigured,
+        int disabled,
         int stale)
     {
         var coverage = new AnalyticsCoverageResponse(
@@ -323,17 +339,18 @@ public sealed class SceneAnalyticsContractTests
             PendingRuns: pending,
             FailedRuns: failed,
             NotConfiguredRuns: notConfigured,
+            DisabledRuns: disabled,
             StaleRuns: stale);
 
         Assert.False(coverage.Complete);
     }
 
     [Fact]
-    public void DisabledAndUnconfiguredCamerasAreNeverReportedAsComplete()
+    public void DisabledAndUnconfiguredCamerasAreCountedApartAndNeverComplete()
     {
-        // A disabled camera's runs are counted as not configured: they were not
-        // evaluated, so the answer cannot be complete and must not read as
-        // "zero matches".
+        // A never-configured camera and a deliberately disabled one are different
+        // facts an operator is owed, so they occupy different buckets. Neither was
+        // evaluated, so neither may read as "zero matches".
         var coverage = new AnalyticsCoverageResponse(
             SceneRevisionId: null,
             "scene-analytics-v1",
@@ -341,6 +358,7 @@ public sealed class SceneAnalyticsContractTests
             PendingRuns: 0,
             FailedRuns: 0,
             NotConfiguredRuns: 4,
+            DisabledRuns: 2,
             StaleRuns: 0);
 
         Assert.False(coverage.Complete);
@@ -349,13 +367,14 @@ public sealed class SceneAnalyticsContractTests
         using var document = JsonDocument.Parse(json);
         Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("sceneRevisionId").ValueKind);
         Assert.Equal(4, document.RootElement.GetProperty("notConfiguredRuns").GetInt32());
+        Assert.Equal(2, document.RootElement.GetProperty("disabledRuns").GetInt32());
         Assert.False(document.RootElement.GetProperty("complete").GetBoolean());
     }
 
     [Fact]
     public void CoverageSerializesCompletenessRatherThanTrustingACaller()
     {
-        var coverage = new AnalyticsCoverageResponse(RevisionId, "scene-analytics-v1", 9, 2, 0, 0, 1);
+        var coverage = new AnalyticsCoverageResponse(RevisionId, "scene-analytics-v1", 9, 2, 0, 0, 0, 1);
 
         var json = JsonSerializer.Serialize(coverage, ApiJson);
         using var document = JsonDocument.Parse(json);
@@ -363,7 +382,8 @@ public sealed class SceneAnalyticsContractTests
         Assert.False(document.RootElement.GetProperty("complete").GetBoolean());
         Assert.Equal("scene-analytics-v1", document.RootElement.GetProperty("algorithmVersion").GetString());
 
-        // Round-tripping a hostile "complete": true cannot make it complete.
+        // "complete" has no setter, so a hostile payload asserting it is ignored
+        // and the value is recomputed from the buckets on the way back in.
         var tampered = json.Replace("\"complete\":false", "\"complete\":true", StringComparison.Ordinal);
         var parsed = JsonSerializer.Deserialize<AnalyticsCoverageResponse>(tampered, ApiJson);
         Assert.NotNull(parsed);

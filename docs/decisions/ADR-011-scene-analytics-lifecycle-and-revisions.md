@@ -68,17 +68,19 @@ Analytics execute outside a transaction, so a slow attempt can outlive its claim
 - **Ordinary Track search is unaffected** by analytics readiness. A Track is visible because its run is visible.
 - A query using any analytic predicate evaluates **only covered runs** — those whose analysis unit for the resolved revision is `Completed` and visible in the query's snapshot.
 - Such a query **must** return an `analyticsCoverage` block naming the resolved revision and algorithm version and counting evaluated, pending, failed, stale and not-configured runs.
-- `complete` is true **only** when pending, failed, stale and not-configured counts are all zero. A run whose camera is unconfigured or disabled was not evaluated, so it makes the answer incomplete exactly as a pending one does.
+- `complete` is true **only** when every unevaluated bucket is zero: pending, failed, stale, not-configured and disabled. A run whose camera is unconfigured or disabled was not evaluated, so it makes the answer incomplete exactly as a pending one does. Never-configured and deliberately disabled are counted **separately**, because an operator is owed the difference between a gap and a switch-off.
 - **Incomplete analytics must never be presented as zero matches**, in results or in aggregates.
 - A caller may demand completeness and receive `409` rather than a partial answer.
 
 ## Decision 6 — Analytic search cursors pin the revision and algorithm version
 
-- The **first** analytic page resolves the effective `SceneConfigurationRevision` and `AlgorithmVersion`.
+- **An analytic predicate requires a single-camera scope.** Track search is not camera-scoped in general, but a zone, a line and a revision only have meaning for one camera, and a coverage block names one revision. A query that uses an analytic predicate must therefore resolve to exactly one camera — through `cameraId`, or through a `videoAssetId` or `processingRunId` that determines one — and is otherwise refused as a malformed filter. Multi-camera analytic search would need a per-camera coverage and pinning model and is not in this increment.
+- The **first** analytic page resolves the effective `SceneConfigurationRevision` and `AlgorithmVersion` for that camera.
 - Both are **pinned into the canonical filter identity, the fingerprint and the cursor**, alongside the existing visibility snapshot.
 - **Continuation pages remain bound** to the pinned pair and snapshot. Activating a new revision mid-pagination does **not** invalidate an otherwise valid cursor: the pinned revision's facts are immutable and persisted, so later pages stay consistent with the first.
+- **Resolving to no revision is itself pinned.** When the camera has never been configured, or its active revision disables analytics, the first page resolves *no* revision and pins that absence. Continuation pages stay bound to the absence and keep returning the same empty analytic result with the same coverage, so activating a revision mid-pagination cannot make later pages start matching while earlier ones did not. A new search then resolves the newly active revision.
 - A **new search** resolves the newly active revision.
-- A cursor is invalid only for the existing reasons — decode failure, changed filters, age or clock skew — plus a revision that does not belong to the query's camera.
+- A cursor is invalid only for the existing reasons — decode failure, changed filters, age or clock skew — plus a pinned revision that does not belong to the query's resolved camera.
 
 ## Decision 7 — Implementation boundary
 
