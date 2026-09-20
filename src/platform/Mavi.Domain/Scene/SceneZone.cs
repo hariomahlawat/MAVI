@@ -45,21 +45,30 @@ public sealed class SceneZone
             points.Add(NormalizedPoint.Create(vertex.X, vertex.Y, SceneErrorCodes.ZoneVertexRange));
         }
 
-        if (SceneGeometry.HasZeroLengthEdge(points) ||
-            SceneGeometry.PolygonArea(points) < SceneGeometry.MinimumPolygonArea)
+        // Order matters here. A shape that has collapsed to a point or a line is
+        // degenerate, and saying so is more useful than the self-intersection its
+        // overlapping edges would also report. Only once those are excluded does a
+        // crossing boundary mean what it says: a bow tie encloses no net area either,
+        // and must not be mistaken for a flattened polygon.
+        if (SceneGeometry.HasZeroLengthEdge(points) || SceneGeometry.IsCollinear(points))
         {
             throw new DomainValidationException(
                 SceneErrorCodes.ZoneDegenerate,
                 "A zone must enclose an area and may not repeat a vertex.");
         }
 
-        // Ordered after the degeneracy check so that a collapsed polygon is reported
-        // as degenerate rather than as an incidental self-intersection.
         if (!SceneGeometry.IsSimple(points))
         {
             throw new DomainValidationException(
                 SceneErrorCodes.ZoneSelfIntersecting,
                 "A zone boundary may not cross itself.");
+        }
+
+        if (SceneGeometry.PolygonArea(points) < SceneGeometry.MinimumPolygonArea)
+        {
+            throw new DomainValidationException(
+                SceneErrorCodes.ZoneDegenerate,
+                "A zone must enclose more than a sliver of the frame.");
         }
 
         if (!Enum.IsDefined(kind))

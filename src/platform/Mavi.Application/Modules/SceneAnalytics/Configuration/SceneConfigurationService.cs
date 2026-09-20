@@ -129,7 +129,10 @@ public sealed class SceneConfigurationService(
         SceneRevisionDraft draft,
         CancellationToken cancellationToken)
     {
-        if (draft.ReferenceFrameVideoAssetId is not { } videoAssetId)
+        // A half-supplied reference frame is a malformed request, and the domain says
+        // so plainly. Looking the video up first would answer "not found" to a caller
+        // whose real mistake was leaving the offset out.
+        if (draft.ReferenceFrameVideoAssetId is not { } videoAssetId || draft.ReferenceFrameOffsetMs is null)
         {
             return;
         }

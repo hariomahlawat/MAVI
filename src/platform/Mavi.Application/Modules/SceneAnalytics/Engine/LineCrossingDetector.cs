@@ -135,9 +135,11 @@ public static class LineCrossingDetector
                 continue;
             }
 
-            var departing = sides[departingIndex];
+            // The confirmation window is measured from the crossing itself, not from
+            // the samples that happen to bracket it, so a Track that drifts into the
+            // band and lingers there is not credited with a crossing it never made.
             var arriving = sides[arrivingIndex];
-            if (!IsConfirmed(sides, departingIndex, arrivingIndex, departing, arriving, parameters, run))
+            if (!IsConfirmed(sides, index, sides[departingIndex], arriving, parameters, run))
             {
                 return null;
             }
@@ -163,8 +165,7 @@ public static class LineCrossingDetector
     /// </remarks>
     private static bool IsConfirmed(
         int[] sides,
-        int departingIndex,
-        int arrivingIndex,
+        int crossingIndex,
         int departing,
         int arriving,
         SceneAnalyticsParameters parameters,
@@ -173,8 +174,8 @@ public static class LineCrossingDetector
         var window = parameters.ConfirmationSamples;
 
         var departingConfirmed = false;
-        var from = Math.Max(run.Start, departingIndex - window + 1);
-        for (var index = from; index <= departingIndex; index++)
+        var from = Math.Max(run.Start, crossingIndex - window + 1);
+        for (var index = from; index <= crossingIndex; index++)
         {
             if (sides[index] == departing)
             {
@@ -184,8 +185,8 @@ public static class LineCrossingDetector
         }
 
         var arrivingConfirmed = false;
-        var to = Math.Min(run.End, arrivingIndex + window - 1);
-        for (var index = arrivingIndex; index <= to; index++)
+        var to = Math.Min(run.End, crossingIndex + window);
+        for (var index = crossingIndex + 1; index <= to; index++)
         {
             if (sides[index] == arriving)
             {

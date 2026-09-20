@@ -48,6 +48,46 @@ public static class SceneGeometry
         return Math.Abs(twiceArea) / 2;
     }
 
+    /// <summary>True when every vertex lies on one straight line, so the shape has no width.</summary>
+    /// <remarks>
+    /// Checked separately from the area because a self-intersecting polygon can also
+    /// enclose no net area, and the two deserve different answers.
+    /// </remarks>
+    public static bool IsCollinear(IReadOnlyList<NormalizedPoint> vertices)
+    {
+        ArgumentNullException.ThrowIfNull(vertices);
+        if (vertices.Count < 3)
+        {
+            return true;
+        }
+
+        var origin = vertices[0];
+        var direction = -1;
+        for (var index = 1; index < vertices.Count; index++)
+        {
+            if (vertices[index] != origin)
+            {
+                direction = index;
+                break;
+            }
+        }
+
+        if (direction < 0)
+        {
+            return true;
+        }
+
+        for (var index = 0; index < vertices.Count; index++)
+        {
+            if (Math.Abs(Cross(origin, vertices[direction], vertices[index])) > OrientationTolerance)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>Distance from <paramref name="point"/> to the segment <paramref name="a"/>–<paramref name="b"/>.</summary>
     public static double DistanceToSegment(NormalizedPoint point, NormalizedPoint a, NormalizedPoint b)
     {
@@ -168,10 +208,24 @@ public static class SceneGeometry
             {
                 var b1 = vertices[j];
                 var b2 = vertices[(j + 1) % count];
-                var adjacent = j == i + 1 || (i == 0 && j == count - 1);
-                if (adjacent)
+                // Adjacent edges legitimately meet at the vertex they share. What they
+                // may not do is double back, which shows up as the far endpoint of one
+                // lying on the other.
+                if (j == i + 1)
                 {
                     if (IsOnSegment(a1, b1, b2) || IsOnSegment(b2, a1, a2))
+                    {
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                if (i == 0 && j == count - 1)
+                {
+                    // These two share the first vertex, so the far endpoints are the
+                    // other end of each edge.
+                    if (IsOnSegment(a2, b1, b2) || IsOnSegment(b1, a1, a2))
                     {
                         return false;
                     }

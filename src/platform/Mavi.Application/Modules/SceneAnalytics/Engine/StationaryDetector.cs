@@ -132,12 +132,17 @@ public static class StationaryDetector
     }
 
     /// <summary>
-    /// True when the smoothed point has stayed within the displacement limit for a
-    /// whole trailing window.
+    /// True when the smoothed point has stayed within the displacement limit across
+    /// the trailing window.
     /// </summary>
     /// <remarks>
-    /// The window must be fully covered by observed samples; otherwise the opening
-    /// moments of every Track would qualify by having had no time to move.
+    /// Near the start of a run the window uses only the samples that exist, the same
+    /// way the smoothing filter treats its edges. The opening samples of a moving
+    /// Track therefore qualify briefly, which costs nothing: such a run is far shorter
+    /// than the minimum duration and is discarded. Requiring a fully covered window
+    /// instead would make every interval start a window late, so a Track that stood
+    /// still from its first sample would be reported as arriving three seconds after
+    /// it did.
     /// </remarks>
     private static bool IsCandidate(
         TrajectoryPath path,
@@ -148,11 +153,6 @@ public static class StationaryDetector
         long windowMs)
     {
         var current = path[index].OffsetMs;
-        if (current - path[run.Start].OffsetMs < windowMs)
-        {
-            return false;
-        }
-
         for (var inner = index; inner >= run.Start; inner--)
         {
             if (current - path[inner].OffsetMs > windowMs)
