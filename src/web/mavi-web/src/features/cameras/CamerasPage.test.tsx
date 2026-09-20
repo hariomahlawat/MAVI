@@ -84,4 +84,12 @@ describe('CamerasPage', () => {
       timeZoneId: 'Asia/Kolkata',
     }));
   });
+
+  it('links each camera to its scene editor', async () => {
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    renderWithApp(<CamerasPage />);
+
+    const link = await screen.findByRole('link', { name: 'Scene' });
+    expect(link).toHaveAttribute('href', `/cameras/${camera.id}/scene`);
+  });
 });

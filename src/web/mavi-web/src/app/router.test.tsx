@@ -35,6 +35,9 @@ vi.mock('../features/visual-search/VisualSearchPage', () => ({
 vi.mock('../features/video-review/VideoReviewPage', () => ({
   default: () => <h1>Review route</h1>,
 }));
+vi.mock('../features/scene-editor/SceneEditorPage', () => ({
+  default: () => <h1>Scene route</h1>,
+}));
 
 function renderRoute(initialEntry: string) {
   const queryClient = createMaviQueryClient();
@@ -90,6 +93,11 @@ describe('MAVI application routes', () => {
 
     renderRoute('/review/video/018f3f5a-2f70-7a2b-8a12-2d02f4c21421?trackId=018f3f5a-2f70-7a2b-8a12-2d02f4c21451');
     expect(await screen.findByRole('heading', { name: 'Review route' })).toBeInTheDocument();
+  });
+
+  it('resolves a camera scene deep link', async () => {
+    renderRoute('/cameras/018f3f5a-2f70-7a2b-8a12-2d02f4c21412/scene');
+    expect(await screen.findByRole('heading', { name: 'Scene route' })).toBeInTheDocument();
   });
 
   it('navigates to Search from the primary navigation', async () => {

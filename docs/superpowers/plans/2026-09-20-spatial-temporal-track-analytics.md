@@ -342,6 +342,56 @@ Route `cameras/:cameraId/scene` from the Cameras page.
 
 **Interactions.** Draw polygon (click to add vertices, close by clicking the first vertex or Enter), draw line (two clicks), select/move vertices, delete object, name, enabled toggle, zone kind, loitering threshold override, line direction arrow with labels; validation messages inline using the codes in §I; unsaved-changes guard on navigation; Cancel/Reset to the active revision; Save creates and activates a revision with an optional note; revision history list with "view" (read-only overlay of an older revision) and "Analyse existing runs with active revision". Keyboard: arrow keys nudge the selected vertex by 0.001, Delete removes, Tab cycles objects, Escape cancels drawing; every control reachable and labelled; canvas has an accessible list twin (objects and vertex coordinates) so the configuration is inspectable without a pointer.
 
+
+### V.1 Implementation note — slice 2, 2026-09-20
+
+Recorded after building the editor, as an addition to §V rather than an edit of it. The Decision above stands as
+written; these are the points where reality differed or needed spelling out.
+
+- **`GET /api/videos` has no `cameraId` query option.** §V assumed one. None was added for the editor's benefit; the
+  page filters the list it already holds by the `cameraId` each video carries.
+- **"Analyse existing runs with active revision" was deliberately not built.** The lifecycle it needs does not exist
+  until slice 3 (§G, §Q): there is no unit to queue and no endpoint to call. A control that did nothing, or a
+  placeholder endpoint that pretended, would both be worse than its absence. Nothing about the action was dropped.
+- **The reference instant is pinned by an explicit action.** Scrubbing explores; "Use current frame" decides. The
+  saved offset is read from the media element at that moment, so moving the playhead afterwards cannot change what is
+  saved, and the strip shows the playhead and the pinned reference as two separate readings.
+- **Crossing indicators are drawn perpendicular to the line**, and in the space the line is drawn in. A crossing
+  direction is a direction of travel *across* a line, so an arrow along the segment would say the wrong thing.
+  Projection scales x and y by different amounts, so a normal taken in normalised space and used as a pixel offset
+  would sit visibly off the perpendicular; because projection is a positive axis-aligned scaling it cannot move a
+  point across the line, so the side is still the one §K calls `aToB`. For a line drawn left to right that indicator
+  points upwards on screen.
+- **Media transport sits below the frame, not on it.** The canvas carries no native video controls, because a click
+  meant to scrub must never land as a polygon vertex.
+- **A historical revision is never loaded into the editable draft**, so an identity that has left the active revision
+  cannot be submitted (§I).
+- **A background refetch never adopts a revision over unsaved work.** If the scene changes elsewhere while an operator
+  is editing, the page says so and leaves the draft alone; a save from that state is refused by the server as the
+  conflict it is.
+- **The browser validates only what it can see for itself** — names, counts, endpoint separation, threshold range —
+  and blocks Save on those. Degeneracy, self-intersection, identity and concurrency remain the backend's to decide.
+- **The object list is a list of buttons, not a listbox.** A listbox option may not contain focusable children, and
+  each row carries its own name and delete controls; claiming the role would promise arrow-key navigation that does
+  not exist.
+- **The navigator is sized by the scene, the inspector by the selection.** The selected object's coordinates are in
+  the inspector, which is where everything else about it is. Listing them in the navigator made its height follow the
+  selection rather than the scene, so selecting an object pushed the rest of the scene out of view. They remain the
+  only way to reach a vertex without a pointer.
+- **Overlay geometry is drawn with a dark halo.** Footage is arbitrary; a pale stroke over a bright frame is not
+  visible, and the operator is being asked to place geometry against exactly that frame.
+- **Crossing indicators are drawn only for a directed line.** Drawing them on an undirected one would assert that
+  direction matters where the engine does not distinguish the two ways across.
+
+Three things §V describes that this slice does not do, recorded so the next one does not rediscover them as bugs:
+
+- **Tab does not cycle objects.** It walks the navigator's buttons in DOM order, which reaches every object but is
+  ordinary focus order rather than the cycle §V's wording suggests.
+- **A single vertex cannot be deleted.** Delete removes the selected object. Adding and removing individual vertices
+  of an existing polygon is not in this slice.
+- **A server failure that names one object is not attached to that object.** Codes such as `scene_zone_name_duplicate`
+  are reported as a page-level message; the offending zone or line is not highlighted.
+
 ---
 
 ## W. Evidence UI
@@ -499,7 +549,7 @@ No new authentication is introduced, and **no request may supply an identity**: 
 |---|---|---|---|---|---|---|---|
 | 0 (done) | ADR and contracts | ADR recording the §G, §I, §J, §K–§R decisions; `Mavi.Contracts/Api/Scene*` and analytics status/coverage records; strict-serialisation and information-exposure tests | `docs/decisions/ADR-011-*.md` (ADR-010 is reserved by the deferred review/cases plan for operator identity), `src/platform/Mavi.Contracts/Api/{Scene,Analytics}`, `tests/Mavi.Application.Tests/Contracts` | this plan reviewed | contract serialisation and strictness; coverage-completeness rule; no claim secret exposed | ADR accepted; `verify_repo` green; contracts compile with no project reference added | persistence, migrations, engine, hosted service, search, UI |
 | 1 (done) | Geometry engine and scene configuration backend | Pure deterministic engine (geometry primitives, visit/crossing/stationary/loitering detectors, `AnalysisEngine`, trajectory msgpack decoder, algorithm version and parameters, golden fixtures) **and** the scene domain (aggregates, revision rules, validation codes, repository, migration, `GET/PUT scene` and revision endpoints) | `Mavi.Application/Modules/SceneAnalytics/Engine/*`, `Mavi.Domain/Scene/*`, `Mavi.Infrastructure/Persistence/{Configurations,Repositories,Migrations}`, `Mavi.Api/Endpoints/SceneEndpoints.cs`, `tests/fixtures/scene-analytics/*` | 0 | §AC pure geometry and temporal layers with fixtures byte-identical on Windows and Linux; Domain revision invariants; DB integration; API contract | every frozen rule in §K–§M pinned by a test; save/activate/read/history with all §I codes, including the empty-revision (disable) path | scene editor UI, analytics lifecycle execution, derived-fact persistence |
-| 2 | Scene editor UI | Reference-frame workflow, polygon and trip-line editing, validation, enable/disable semantics, revision save and activate, empty-scene confirmation, revision history, accessibility, `unprojectPoint` | `src/web/mavi-web/src/features/scene-editor/*`, `api/scene.ts`, `features/video-review/overlay.ts` (additive) | 1 | Vitest editor suite; letterbox round-trip; empty-revision confirmation; a11y | an operator can define, disable and re-enable a camera's scene and read its history | analytics execution, search, overlays |
+| 2 (done) | Scene editor UI | Reference-frame workflow, polygon and trip-line editing, validation, enable/disable semantics, revision save and activate, empty-scene confirmation, revision history, accessibility, `unprojectPoint` | `src/web/mavi-web/src/features/scene-editor/*`, `api/scene.ts`, `features/video-review/overlay.ts` (additive) | 1 | Vitest editor suite; letterbox round-trip; empty-revision confirmation; a11y | an operator can define, disable and re-enable a camera's scene and read its history | analytics execution, search, overlays |
 | 3 | Analytics lifecycle and derived facts | `SceneAnalysis` aggregate with fenced attempt ownership (`RequireOwnership`), outcome rows, options, reconciler and executor hosted service, claim/lease/reclaim/retry, visibility-sequence integration, idempotent fact writes for zone visits, zone summaries, line crossings and motion summaries, Processing readiness, status and retry/re-analysis endpoints | `Mavi.Domain/SceneAnalytics/*`, `Mavi.Infrastructure/SceneAnalytics/SceneAnalyticsHostedService.cs`, repositories, migration, `ProcessingEndpoints`, `VideoEndpoints` (readiness field) | 1 | Domain state machine incl. ownership fencing; DB lifecycle suite incl. two-host claim, lease expiry and reclaim, the seven-step stale-completion scenario and stale failure rejection, retry, supersede; fact uniqueness and idempotent rewrite | units run end to end on the fixture harness and persist facts and outcomes; a stale attempt cannot alter a reclaimed unit; disabled and unconfigured cameras are never queued | search, UI, aggregates |
 | 4 | Search integration and analytics readiness | `TrackSearchQuery` and whitelist extension, revision- and algorithm-pinned fingerprint and cursor, repository joins gated by the snapshot, `analyticsCoverage` block and its completeness rule, item and detail `analytics`, `searchState.ts` keys, filter UI group and not-ready messaging | `TrackSearchQuery/Service/Repository`, `TrackCursorCodec`, `TrackEndpoints`, contracts, `searchState.ts`, `SearchFilterRail.tsx`, `VisualSearchPage.tsx` | 3 | search integration suite incl. revision-pinned continuation across activation; `searchState` tests; coverage notice UI tests | every §S predicate works with pagination; coverage is `complete` only when all five buckets are zero; incomplete analytics never render as zero matches | evidence overlays, aggregates |
 | 5 | Evidence overlays and explanation | Zone and line overlays, crossing markers and times, dwell and stationary intervals, matched-rule summary, scene revision and algorithm version disclosure, unavailable and not-analysed notices | `TrackInspector.tsx`, `VideoReviewPage.tsx`, `TrackEvidencePlayer.tsx`, `TrackDetailsPanels.tsx` | 4 | overlay alignment against fixture geometry; explanation content; seek-to-crossing | an operator can visually verify every analytic match and see which revision produced it | aggregates |
