@@ -39,6 +39,7 @@ What MAVI builds next is decided by `docs/superpowers/plans/capability-roadmap.m
 
 - `AGENTS.md` — binding engineering rules.
 - `docs/architecture/dependency-and-offline-packaging-policy.md` — dependency/change methodology.
+- `docs/architecture/ui-ux-design-specification.md` — adopted UI/UX design specification (v1.0): workspace archetypes, token/colour architecture, operational-state taxonomy, accessibility and visual QA standards, and the sequential UI-1 → UI-5 foundation programme. Normative for frontend work from UI-1 onward.
 - `docs/architecture/phase1-production-topology.md` — Development device policy and Production deployment profiles (ADR-008).
 - `docs/decisions/ADR-009-development-cuda-qualification-separation.md` — Development CUDA hardware evidence is explicitly non-Production and cannot satisfy P1/P2.
 - `docs/decisions/ADR-011-scene-analytics-lifecycle-and-revisions.md` — scene-configuration revisions and the deterministic scene-analytics post-processing stage, including attempt fencing and analytics search readiness.

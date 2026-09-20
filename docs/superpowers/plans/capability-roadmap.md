@@ -129,6 +129,7 @@ Consequences: a new Development capability does not become Production-qualified 
 | `docs/superpowers/plans/2026-09-13-phase1-roadmap-rebaseline.md` | Phase-1 task status (Tasks 13–17 complete, Task 18 active) |
 | `docs/superpowers/plans/2026-09-18-task-18-phase1-production-qualification-rebaseline.md` | Production qualification stream |
 | `docs/superpowers/plans/2026-09-18-windows-cuda-development.md`, `c8-pr49-readiness.md` | Windows CUDA Development record and readiness; remaining C5.4/C6/C7 host work |
+| `docs/architecture/ui-ux-design-specification.md` | Adopted UI/UX design specification (v1.0); normative for frontend work, and source of the UI-1 → UI-5 foundation programme |
 | `docs/architecture/README.md`, ADRs | Architecture baseline and decisions |
 | `docs/architecture/dependency-and-offline-packaging-policy.md` | Dependency and offline packaging discipline every stage follows |
 
@@ -138,7 +139,10 @@ Historical plans and evidence documents are never rewritten to match this roadma
 
 1. ~~Finish and merge PR #49~~ — merged as `ed1acf4`.
 2. ~~Establish the post-merge baseline~~ — §1.
-3. Spatial & Temporal Track Analytics: Slice 0 (ADR and contracts) then the bounded slices in its plan; stage dependencies and impacts per `capability-implementation-roadmap.md`.
+3. Spatial & Temporal Track Analytics: Slice 0 (ADR and contracts) then the bounded slices in its plan; stage dependencies and impacts per `capability-implementation-roadmap.md`. Slices 0–2 are done.
+
+   **UI Foundation programme — inserted after Scene Analytics Slice 2, before Slice 3.** Strictly sequential: **UI-1 → UI-2 → UI-3 → UI-4 → UI-5**, defined in §33 of `docs/architecture/ui-ux-design-specification.md`. **Scene Analytics Slice 3 does not begin until UI-2 has merged and post-merge `main` is green.** After that point backend/domain analytics work MAY proceed in parallel with UI-3/UI-4/UI-5 where it introduces no frontend surface; new user-facing analytics UI lands only on the established workspace grammar — UI-3 before Ledger readiness/coverage indicators (Slice 4), UI-4 before Investigation analytics UI, UI-5 before Slice 5 evidence-overlay UI, and Slice 6 heatmap UI on the UI-2 Workbench grammar. This programme is UI sequencing; it does not renumber Scene Analytics slices (0–7) or capability stages.
+
 4. Visual Attributes.
 5. Expanded operational object / vehicle classes where useful.
 6. ANPR / OCR.
