@@ -120,6 +120,14 @@ _REQUIRED_BUILD_ENVIRONMENT_NAMES = (
     "TORCH_CUDA_ARCH_LIST",
 )
 
+# nvcc reads these and prepends/appends their contents to every command it
+# runs, without echoing them. Either one can relax the host-compiler check or
+# redirect `-ccbin`, so the probe refuses to run while they are set.
+_NVCC_ENVIRONMENT_FLAG_VARIABLES = (
+    "NVCC_PREPEND_FLAGS",
+    "NVCC_APPEND_FLAGS",
+)
+
 
 def _required_build_environment(contract: dict[str, object]) -> dict[str, str]:
     """Take the expected build environment from the contract, not a copy of it.
@@ -213,6 +221,16 @@ def verify_toolchain(
             raise ToolchainVerificationError(
                 "cuda_build_environment_mismatch:" + name
             )
+    # nvcc splices these two variables into every command line it runs, and
+    # neither appears in the recorded `compile.command`. A probe that only
+    # compiled because one of them relaxed the host-compiler check or pointed
+    # `-ccbin` at another compiler would be recorded as a clean pass of the
+    # frozen toolchain, so the preflight refuses to run under either.
+    for name in _NVCC_ENVIRONMENT_FLAG_VARIABLES:
+        if os.environ.get(name):
+            raise ToolchainVerificationError(
+                "cuda_toolchain_nvcc_environment_flags_present:" + name
+            )
 
     nvcc = _run(
         ("nvcc", "--version"),
@@ -277,6 +295,24 @@ def verify_toolchain(
     if sdk != expected_sdk:
         raise ToolchainVerificationError(
             "cuda_toolchain_windows_sdk_mismatch:" + sdk + "!=" + expected_sdk
+        )
+
+    # `VCToolsVersion` and `WindowsSDKVersion` are set by the vcvars shell and
+    # describe the shell, not necessarily the `cl.exe` first on PATH. The
+    # compiler's self-reported version is the one identity above that was read
+    # from the binary itself; once R1 has frozen it in the contract, the two
+    # must agree or the observation describes a compiler nobody qualified.
+    # Before the freeze the contract carries no value and the version is
+    # recorded only, which is how the R1 observation itself was produced.
+    expected_compiler = contract["toolchain"].get("msvcCompilerVersion")
+    if expected_compiler is not None and msvc_compiler != str(
+        expected_compiler
+    ):
+        raise ToolchainVerificationError(
+            "cuda_toolchain_msvc_compiler_version_mismatch:"
+            + msvc_compiler
+            + "!="
+            + str(expected_compiler)
         )
 
     with tempfile.TemporaryDirectory(prefix="mavi-cuda-toolchain-") as temp:

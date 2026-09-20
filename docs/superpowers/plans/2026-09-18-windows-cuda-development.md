@@ -3,7 +3,7 @@
 **Date:** 2026-09-18  
 **Base:** `main@9b0b88f5c9d20ddfa8c4e835e454d24c69921b84`  
 **C1R merged to `main`:** PR #48 head `c80ce10b823443230e316fc2978116c73d703c8f`, merge commit `02257793556026a37238f06c13755c87da35f141`  
-**Active branch:** `feature/windows-cuda-pre-c2` (from `main@0225779`)  
+**Active branch:** `feature/windows-cuda-pre-c2` (from `main@0225779`; reconciled onto `main@bdf834a` on 2026-09-20)  
 **Objective:** make the Windows laptop GPU a first-class MAVI Development execution path without weakening the qualified Windows CPU path or prematurely claiming P1 Production acceptance.
 
 ## Decision boundary
@@ -1140,21 +1140,20 @@ reaches.
 | --- | --- |
 | C0, C1, C1R | complete; C1R merged to `main` |
 | R1 toolchain preflight | **executed and passed** on the controlled Windows host |
-| C2 wheelhouse/lock | tooling IMPLEMENTED and TESTED; build step **EXECUTED** on the host (4 wheels, reproducibility measured); C2.2b and C2.3-C2.5 **not run**; **not build-verified** |
+| C2 wheelhouse/lock | **BUILD-VERIFIED**: canonical MMCV CUDA wheel chosen and archived off-host; 21-root projection derived; `windows-x86_64-cuda.lock` and `.requirements.txt` frozen and committed (`3d73330`); clean `--no-index --require-hashes` install and `mmcv.ops` import proven on the host |
 | C2 reproducibility | **MEASURED and CLOSED**: not reproducible in any form. A2/A3 differ in 183,339 bytes of the `.pyd` with two timestamps accounted for. Retained as diagnostic evidence; explicitly **not** a Development gate. Object-level comparison not applicable -- the objects are `/GL` IL |
-| C3 Runtime Pack | tooling IMPLEMENTED and TESTED; **not Runtime-Pack-verified** |
-| C4 hardware qualification | tooling IMPLEMENTED and TESTED; **not hardware-qualified** |
-| C5 Overlay binding | **not started**; blocked on a real C3 pack identity. The requirements-projection writer and the Auto-decision function it needs are IMPLEMENTED and TESTED |
+| C3 Runtime Pack | **RUNTIME-PACK-VERIFIED** on the host: `mavi-runtime-v2-89fd8bf…`, native ABI `win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75`, identity reproduced from a second build; the pack is external to the repository |
+| C4 hardware qualification | **HARDWARE-QUALIFIED for Development** on a GTX 1650 Ti: `runtime.json` `windows-x86_64-cuda` is `qualified-development-hardware` with `developmentEvidence` bound to source head `3d73330` (`6889bf4`, `4e88c36`); the release lock entry stays `pending-hardware-qualification` |
+| C5 Overlay binding | **BOUND** (`4b54f4d`, `20babb0`): component overlay declares the CUDA pack with real identities; boundary-gate `windows-x86_64-cuda` row passes in CI; host-side C5.4 device-resolution checks (explicit CUDA fail-closed, Auto fallback) **not yet recorded** |
 | C6 Development E2E | evidence tooling IMPLEMENTED and TESTED; **no run executed** |
 | C7 failure matrix | tooling IMPLEMENTED and TESTED; 37 declared cases, 7 exercisable without a Windows host, **none yet recorded** |
 | Production | **not entered**, and not reachable from anything above |
 
-No C2 artefact is committed to this branch, and none should be: the wheels are
-external and the lock is not frozen until Gate C2 passes. Nothing in this branch
-acquires wheels, builds MMCV CUDA, freezes a lock or promotes any qualification
-state, and none of that can happen from a hosted Linux session. The tooling exists first so the
-host session executes a reviewed procedure rather than improvising one, and so
-the artefacts it produces are checked by code rather than read by eye.
+The committed C2 artefacts are the frozen lock and requirements projection;
+the wheels, the wheelhouse manifest and the Runtime Pack remain external. Every
+promotion recorded above was made by a host session executing the reviewed
+procedure and checked by the tooling, not typed by hand; the table's history
+(the earlier "not started" states) is preserved in this file's git log.
 
 **Tooling is not execution.** An implemented evidence assembler proves only
 that a bundle will be checked when one exists; it is not a build, not a pack,
@@ -1164,16 +1163,13 @@ not a run and not a qualification.
 adversarial review over the C2-C7 tooling, the launcher refactor and the branch
 as a whole. Their findings are fixed and pinned by test.
 
-**The next step requires the physical Windows CUDA host.** No further work on
-this branch can be done from a hosted Linux session: the remaining phases all
-begin by acquiring a wheel, building against the frozen toolchain, or executing
-on the GPU. C2.2 is now complete as a **recording** step: the A2/A3 wheel and
-object comparisons were run at HEAD `bc8e229`, the results are what they are,
-and no further binary forensics is authorised. The immediate next action is
-**C2.3** -- download the remaining PyPI dependencies, choose and archive the
-canonical MMCV wheel, and assemble the manifest. The procedure is
-`docs/runbooks/windows-cuda-host-session.md`; readiness is tracked in
-`docs/superpowers/plans/c8-pr49-readiness.md`.
+**Reconciled onto `main@bdf834a` on 2026-09-20** (PR #50 merged first; merge
+commit, no conflicts, no history rewrite). The cold review of the reconciled
+tree and the two P2 fixes it produced are recorded in
+`docs/superpowers/plans/c8-pr49-readiness.md` §8. **The next step requires the physical Windows CUDA host**: what remains is C6 (five E2E runs) and C7 (37 failure-matrix
+cases), plus the C5.4 device-resolution checks; the procedure is
+`docs/runbooks/windows-cuda-host-session.md`. Nothing on the host may promote
+the CUDA release lock without an owner decision (readiness §5).
 
 ### Owner decisions recorded
 

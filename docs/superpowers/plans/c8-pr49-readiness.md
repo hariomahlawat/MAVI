@@ -33,7 +33,7 @@ The vocabulary is not interchangeable:
 | Guard-coverage harness | COMPLETE | `check_guard_coverage.py`, runs in the quality gate |
 | Operator procedure | COMPLETE | `docs/runbooks/windows-cuda-host-session.md`, flag-drift tested |
 | Hosted CI on exact head | GREEN | all five workflows |
-| CPU baseline untouched | VERIFIED | three protected blobs byte-identical to `main@0225779` |
+| CPU baseline protected | VERIFIED | `windows-x86_64-cpu.lock` byte-identical to `main`; `runtime.json` and `mmdetection-phase1-v1.json` changed **additively only** (new `windows-x86_64-cuda` variant, lock and pack entries; both CPU entries byte-for-byte unchanged); the qualification record's `runtimeProfileSha256` was re-derived because it binds the whole runtime profile (the tripwire, §4) |
 
 ## 2. Build verification (C2) — PARTIALLY EXECUTED, GATE PENDING
 
@@ -144,14 +144,23 @@ boundary-gate workflow.
 - [x] boundary-gate matrix row added; the `windows-x86_64-cuda` boundary job passes in CI, which is the first workflow validation of the CUDA lock
 - [x] the two pre-C5 pinning tests updated deliberately
 
-**Auto still resolves to CPU, and that is correct.** The CUDA entry in
-`releaseLocks` is `pending-hardware-qualification`, and `cuda_runtime_ready`
-requires `qualified-offline-lock`. The variant status and the pack binding both
-now favour CUDA; the release lock is what gates it. The reported reason remains
-`cuda_pack_not_declared`, the catch-all for a not-ready CUDA runtime, which now
-under-describes the cause — left as is, because the reason vocabulary is closed
-and mirrored in the JSON schema, the .NET parser and the PowerShell launcher,
-and the selection itself is right.
+**The two Auto decisions now differ, and the difference is recorded rather than
+hidden.** The supervisor's Auto (`RuntimeSupervisor._resolve_device`) requires
+the CUDA entry in `releaseLocks` to be `qualified-offline-lock`; it is still
+`pending-hardware-qualification`, so any entry point that reaches Python with
+`MAVI_DEVICE_POLICY=auto` resolves to CPU. `test_development_auto_still_chooses_cpu_against_the_committed_profile`
+pins exactly that. The **launcher's** Auto (`Resolve-MaviVisionCudaAvailability`)
+does not read `releaseLocks`: it decides from the installed pack's integrity,
+the component's declared pack identity and the driver, so on the host with the
+C3 pack installed it selects CUDA and starts Python with an explicit `cuda`
+policy. That is the behaviour the runbook's C5.4 table and C6 `auto-cuda` case
+require, and it is why C6 can be executed at all before the lock is promoted.
+The supervisor-side reason remains `cuda_pack_not_declared`, the catch-all for
+a not-ready CUDA runtime, which under-describes the cause — left as is, because
+the reason vocabulary is closed and mirrored in the JSON schema, the .NET parser
+and the PowerShell launcher. Promoting the release lock (which re-aligns the two
+decisions and, per ADR-009 §5, changes Production bundle identity) is an owner
+decision that follows C6/C7, not something this branch does.
 - [ ] explicit CUDA fail-closed verified on the host
 - [ ] permitted Auto fallback verified with a stable, logged, persisted reason
 
@@ -175,18 +184,44 @@ keeps `qualified-development-hardware` structurally disjoint from
 Development state as pending. Production will require attestation, signing and
 CI-produced evidence with the operator out of the loop.
 
-**PR #49 must remain Draft and unmerged.**
+## 8. Reconciliation and cold review — 2026-09-20
+
+The branch was reconciled onto `main@bdf834a` (PR #50 merged) by a merge commit,
+with no conflicts and no history rewrite; every PR #49 file is byte-identical to
+the pre-merge head `b89acba`, and every PR #50 file is byte-identical to `main`.
+An independent cold review of the whole branch on the reconciled tree found no
+P1 and two P2, both fixed and pinned by test in the same pass:
+
+- `verify_windows_cuda_toolchain.py` compared the toolset and SDK identities
+  from `VCToolsVersion`/`WindowsSDKVersion` (shell variables) but only
+  *recorded* the compiler's self-reported version, and ran `nvcc` with
+  `NVCC_PREPEND_FLAGS`/`NVCC_APPEND_FLAGS` inherited and unrecorded. It now
+  refuses a compiler version that differs from the frozen
+  `toolchain.msvcCompilerVersion` and refuses to run while either nvcc hook is
+  set. The R1 observation already on record shows `19.44.35222`, the frozen
+  value, so it stands.
+- `build_runtime_pack.py` derived the native ABI from the contract without
+  checking that the contract described the lock being packed. It now refuses a
+  pack whose contract `platformVariant`, `pythonVersion`, `torchBinaryVersion`
+  or `torchvisionBinaryVersion` disagree with the inputs. The committed contract
+  and lock agree, so the C3 pack identity is unchanged.
+
+C6/C7 evidence still does not exist (§6). What that means for merge is stated in
+the pull request: the code, tooling, lock, pack binding and C4 Development
+evidence are what is being merged; C6/C7 remain operator-executed on the host.
+
+**Draft status ends with the C8 gate below**, not before.
 
 ## Merge criteria, for when the host session is done
 
 Plan Gate C8 requires, before merge to `main`:
 
-- [ ] full hosted CI green on the exact head
-- [ ] hardware evidence reviewed
-- [ ] CPU regression path green
-- [ ] independent cold review
-- [ ] documentation updated
-- [ ] no Production-support claim introduced
+- [ ] full hosted CI green on the exact head — confirmed in the pull request against its final SHA
+- [x] hardware evidence reviewed — the committed C4 record, its bindings and the assemblers that consume it were reviewed on the reconciled tree; the evidence bundle itself is external and was not re-executed
+- [x] CPU regression path green — Task 10 and Task 12 CPU matrices on the exact head, plus the byte-identical CPU lock
+- [x] independent cold review — §8
+- [x] documentation updated — §8, the plan's execution point, `docs/runbooks/local-development.md`
+- [x] no Production-support claim introduced — §7
 
-The first, the last and the CPU regression path hold today. The middle two
-cannot be satisfied until the evidence exists.
+C6/C7 execution evidence is not a C8 merge criterion in the plan and is not
+claimed here; it stays pending in §6 and is executed on the host after merge.

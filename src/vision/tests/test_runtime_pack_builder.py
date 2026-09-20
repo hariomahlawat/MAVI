@@ -191,3 +191,158 @@ def test_runtime_pack_manifest_file_is_deterministic_json(tmp_path: Path) -> Non
     assert payload.endswith(b"\n")
     assert b"\r" not in payload
     assert json.loads(payload) == manifest
+
+
+# --- the build contract must describe the inputs actually packed -----------
+#
+# The native ABI is derived from the contract, so a `-cuda` pack's identity
+# spells the contract's CUDA family. Until this check nothing tied the contract
+# to the lock being packed, so a lock refrozen on another Torch build would have
+# produced a pack whose identity named the qualified toolchain.
+
+REPOSITORY_ROOT = Path(__file__).parents[3]
+CUDA_CONTRACT = (
+    REPOSITORY_ROOT / "config" / "vision" / "windows-cuda-development-build-v1.json"
+)
+CUDA_LOCK = (
+    REPOSITORY_ROOT
+    / "src"
+    / "vision"
+    / "runtime"
+    / "mmdetection-phase1-v1"
+    / "windows-x86_64-cuda.lock"
+)
+
+
+def _cuda_lock(*, torch: str = "2.6.0+cu124", torchvision: str = "0.21.0+cu124"):
+    return OfflineRuntimeLock(
+        schema_version="mavi-offline-lock-v1",
+        platform_variant="windows-x86_64-cuda",
+        python_version="3.12.10",
+        distributions=(
+            LockedDistribution(name="torch", version=torch, sha256="a" * 64),
+            LockedDistribution(
+                name="torchvision", version=torchvision, sha256="b" * 64
+            ),
+        ),
+    )
+
+
+def _cuda_contract() -> dict:
+    return json.loads(CUDA_CONTRACT.read_text(encoding="utf-8"))
+
+
+def test_contract_cross_check_accepts_the_committed_cuda_inputs() -> None:
+    """The committed contract and the frozen CUDA lock must agree today."""
+    from mavi_vision.runtime.offline_lock import load_offline_runtime_lock
+
+    tool = _load_tool()
+    contract = _cuda_contract()
+
+    tool.validate_contract_binds_inputs(
+        contract,
+        platform_variant=contract["platformVariant"],
+        python_version=contract["pythonVersion"],
+        lock=load_offline_runtime_lock(CUDA_LOCK),
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (
+            lambda c, k: k.update(platform_variant="windows-x86_64-cpu"),
+            "runtime_pack_contract_platform_variant_mismatch",
+        ),
+        (
+            lambda c, k: k.update(python_version="3.12.14"),
+            "runtime_pack_contract_python_version_mismatch",
+        ),
+        (
+            lambda c, k: k.update(lock=_cuda_lock(torch="2.6.0+cu121")),
+            "runtime_pack_contract_binary_version_mismatch:torch",
+        ),
+        (
+            lambda c, k: k.update(lock=_cuda_lock(torchvision="0.21.0+cpu")),
+            "runtime_pack_contract_binary_version_mismatch:torchvision",
+        ),
+        (
+            lambda c, k: k.update(
+                lock=OfflineRuntimeLock(
+                    schema_version="mavi-offline-lock-v1",
+                    platform_variant="windows-x86_64-cuda",
+                    python_version="3.12.10",
+                    distributions=(
+                        LockedDistribution(
+                            name="torch", version="2.6.0+cu124", sha256="a" * 64
+                        ),
+                    ),
+                )
+            ),
+            "runtime_pack_contract_binary_version_mismatch:torchvision",
+        ),
+        (
+            lambda c, k: c.pop("torchBinaryVersion"),
+            "runtime_pack_contract_binary_version_missing:torch",
+        ),
+        (
+            lambda c, k: c.update(torchvisionBinaryVersion=""),
+            "runtime_pack_contract_binary_version_missing:torchvision",
+        ),
+    ],
+)
+def test_contract_cross_check_refuses_inputs_the_contract_does_not_describe(
+    mutate, expected: str
+) -> None:
+    tool = _load_tool()
+    contract = _cuda_contract()
+    kwargs = {
+        "platform_variant": "windows-x86_64-cuda",
+        "python_version": "3.12.10",
+        "lock": _cuda_lock(),
+    }
+    mutate(contract, kwargs)
+
+    with pytest.raises(tool.RuntimePackError) as excinfo:
+        tool.validate_contract_binds_inputs(contract, **kwargs)
+
+    assert excinfo.value.code == expected
+
+
+def test_contract_cross_check_refuses_a_contract_that_is_not_an_object() -> None:
+    tool = _load_tool()
+
+    with pytest.raises(tool.RuntimePackError) as excinfo:
+        tool.validate_contract_binds_inputs(
+            ["not", "an", "object"],
+            platform_variant="windows-x86_64-cuda",
+            python_version="3.12.10",
+            lock=_cuda_lock(),
+        )
+
+    assert excinfo.value.code == "runtime_pack_contract_invalid"
+
+
+def test_build_refuses_a_contract_that_describes_other_inputs(
+    tmp_path: Path,
+) -> None:
+    """The cross-check runs inside the build, before anything is published."""
+    tool, wheelhouse, lock_path, requirements_path, installer = _fixture(tmp_path)
+    output = tmp_path / "pack"
+
+    with pytest.raises(tool.RuntimePackError) as excinfo:
+        tool.build_runtime_pack(
+            wheelhouse=wheelhouse,
+            lock_path=lock_path,
+            requirements_path=requirements_path,
+            platform_variant="windows-x86_64-cpu",
+            python_version="3.12.10",
+            native_abi="win_amd64-msvc-14.44-sdk-10.0.26100.0",
+            python_installer=installer,
+            assembled_from_commit="1" * 40,
+            output=output,
+            contract=_cuda_contract(),
+        )
+
+    assert excinfo.value.code == "runtime_pack_contract_platform_variant_mismatch"
+    assert not output.exists()

@@ -45,6 +45,8 @@ from mavi_vision.runtime.component_identity import (  # noqa: E402
 )
 from mavi_vision.runtime.offline_lock import (  # noqa: E402
     OfflineLockError,
+    OfflineRuntimeLock,
+    canonicalize_distribution_name,
     load_offline_runtime_lock,
     validate_accelerator_distribution_versions,
     validate_offline_runtime_lock_for_runtime,
@@ -254,6 +256,53 @@ def derive_native_abi(contract: dict) -> str:
     return native_abi
 
 
+_CONTRACT_BOUND_BINARIES = (
+    ("torch", "torchBinaryVersion"),
+    ("torchvision", "torchvisionBinaryVersion"),
+)
+
+
+def validate_contract_binds_inputs(
+    contract: object,
+    *,
+    platform_variant: str,
+    python_version: str,
+    lock: OfflineRuntimeLock,
+) -> None:
+    """Refuse a pack whose build contract describes inputs other than its own.
+
+    The native ABI is derived from the contract, so the pack's identity says
+    `cuda12.4` because the contract does. Nothing else tied the contract to
+    the lock actually being packed: a lock refrozen on another CUDA family,
+    Python or variant would still have produced a pack whose identity named
+    the qualified toolchain. The contract's binary identities are the
+    frozen Torch and torchvision builds, so the lock must pin exactly those.
+    """
+    if not isinstance(contract, dict):
+        raise RuntimePackError("runtime_pack_contract_invalid")
+    if contract.get("platformVariant") != platform_variant:
+        raise RuntimePackError(
+            "runtime_pack_contract_platform_variant_mismatch"
+        )
+    if contract.get("pythonVersion") != python_version:
+        raise RuntimePackError("runtime_pack_contract_python_version_mismatch")
+
+    locked = {
+        canonicalize_distribution_name(item.name): item.version
+        for item in lock.distributions
+    }
+    for distribution, key in _CONTRACT_BOUND_BINARIES:
+        expected = contract.get(key)
+        if not isinstance(expected, str) or not expected.strip():
+            raise RuntimePackError(
+                "runtime_pack_contract_binary_version_missing:" + distribution
+            )
+        if locked.get(distribution) != expected:
+            raise RuntimePackError(
+                "runtime_pack_contract_binary_version_mismatch:" + distribution
+            )
+
+
 def _validate_native_abi_for_variant(
     native_abi: str,
     platform_variant: str,
@@ -290,6 +339,7 @@ def build_runtime_pack(
     python_installer: Path | None,
     assembled_from_commit: str,
     output: Path,
+    contract: object | None = None,
 ) -> dict[str, object]:
     _validate_native_abi_for_variant(
         native_abi,
@@ -309,6 +359,13 @@ def build_runtime_pack(
         platform_variant=platform_variant,
         python_version=python_version,
     )
+    if contract is not None:
+        validate_contract_binds_inputs(
+            contract,
+            platform_variant=platform_variant,
+            python_version=python_version,
+            lock=lock,
+        )
     lock_sha = sha256_file(lock_path)
     requirements_sha = runtime_requirements_sha256(projection)
     pack_id = runtime_pack_id(
@@ -426,9 +483,19 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _resolve_native_abi(args: argparse.Namespace) -> str:
-    if args.contract is not None:
-        contract = json.loads(args.contract.read_text(encoding="utf-8"))
+def _load_contract(args: argparse.Namespace) -> object | None:
+    if args.contract is None:
+        return None
+    return json.loads(args.contract.read_text(encoding="utf-8"))
+
+
+def _resolve_native_abi(
+    args: argparse.Namespace,
+    contract: object | None = None,
+) -> str:
+    if contract is None:
+        contract = _load_contract(args)
+    if contract is not None:
         derived = derive_native_abi(contract)
         if args.native_abi is not None and args.native_abi != derived:
             # Both were supplied and they disagree. Silently preferring either
@@ -445,7 +512,8 @@ def _resolve_native_abi(args: argparse.Namespace) -> str:
 def main() -> int:
     args = _parse_args()
     try:
-        native_abi = _resolve_native_abi(args)
+        contract = _load_contract(args)
+        native_abi = _resolve_native_abi(args, contract)
     except (NativeAbiDerivationError, OSError, json.JSONDecodeError) as exc:
         code = getattr(exc, "code", "native_abi_contract_unreadable")
         print(code, file=sys.stderr)
@@ -461,6 +529,7 @@ def main() -> int:
             python_installer=args.python_installer,
             assembled_from_commit=args.assembled_from_commit,
             output=args.output,
+            contract=contract,
         )
     except RuntimePackError as exc:
         print(exc.code, file=sys.stderr)

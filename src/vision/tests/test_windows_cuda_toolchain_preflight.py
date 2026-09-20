@@ -240,9 +240,16 @@ def test_required_build_environment_fails_closed(
 class _FakeToolchain:
     """A successful Windows CUDA build host, for exercising the evidence path."""
 
-    def __init__(self, *, compile_returncode: int = 0, compile_output: str = ""):
+    def __init__(
+        self,
+        *,
+        compile_returncode: int = 0,
+        compile_output: str = "",
+        cl_version: str = "19.44.35222",
+    ):
         self.compile_returncode = compile_returncode
         self.compile_output = compile_output
+        self.cl_version = cl_version
         self.commands: list[list[str]] = []
 
     def run(self, args, *, cwd=None, missing_code="cuda_toolchain_command_not_found"):
@@ -260,7 +267,7 @@ class _FakeToolchain:
             return SimpleNamespace(
                 stdout=(
                     "Microsoft (R) C/C++ Optimizing Compiler Version "
-                    "19.44.35207 for x64\n"
+                    f"{self.cl_version} for x64\n"
                 ),
                 stderr="",
                 returncode=0,
@@ -303,7 +310,7 @@ def test_successful_preflight_records_full_compile_evidence(
 
     assert result["status"] == "passed"
     assert result["cudaToolkitVersion"] == "12.4"
-    assert result["msvcCompilerVersion"] == "19.44.35207"
+    assert result["msvcCompilerVersion"] == "19.44.35222"
     assert result["vcToolsVersion"] == "14.44.35207"
     assert result["windowsSdkVersion"] == "10.0.26100.0"
     assert result["nvccArchitectureFlag"] == "-arch=sm_75"
@@ -477,3 +484,84 @@ def test_the_frozen_toolchain_still_passes(
     assert result["status"] == "passed"
     assert result["vcToolsVersion"] == frozen["msvcToolset"]
     assert result["windowsSdkVersion"] == frozen["windowsSdkVersion"]
+
+
+def test_a_drifted_host_compiler_is_refused_even_when_the_shell_identity_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The toolset and SDK checks read vcvars variables; the compiler is a binary.
+
+    A shell whose `VCToolsVersion` spells the frozen toolset while the `cl.exe`
+    first on PATH is another build would otherwise pass, and its observation
+    would describe a compiler nobody qualified.
+    """
+    module = _load()
+    fake = _FakeToolchain(cl_version="19.39.33523")
+    _windows_host(monkeypatch, module, fake)
+
+    with pytest.raises(module.ToolchainVerificationError) as excinfo:
+        module.verify_toolchain(CONTRACT, source_head_sha="a" * 40)
+
+    assert excinfo.value.code.startswith(
+        "cuda_toolchain_msvc_compiler_version_mismatch"
+    )
+    assert "19.39.33523" in excinfo.value.code
+    assert "19.44.35222" in excinfo.value.code
+    # Refused before any probe was compiled with the drifted compiler.
+    assert not any("-c" in command for command in fake.commands)
+
+
+def test_the_compiler_version_is_only_recorded_before_the_contract_freezes_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """R1 itself ran against a contract with no compiler version yet."""
+    module = _load()
+    fake = _FakeToolchain(cl_version="19.39.33523")
+    _windows_host(monkeypatch, module, fake)
+    contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    del contract["toolchain"]["msvcCompilerVersion"]
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+
+    result = module.verify_toolchain(path, source_head_sha="a" * 40)
+
+    assert result["status"] == "passed"
+    assert result["msvcCompilerVersion"] == "19.39.33523"
+
+
+@pytest.mark.parametrize("name", ["NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS"])
+def test_nvcc_environment_flag_hooks_are_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+) -> None:
+    """nvcc splices these into every command line without recording them.
+
+    A probe that compiled only because one of them relaxed the host-compiler
+    check would be a clean-looking pass of a toolchain that was never proven.
+    """
+    module = _load()
+    fake = _FakeToolchain()
+    _windows_host(monkeypatch, module, fake)
+    monkeypatch.setenv(name, "-ccbin C:\\other\\cl.exe")
+
+    with pytest.raises(module.ToolchainVerificationError) as excinfo:
+        module.verify_toolchain(CONTRACT, source_head_sha="a" * 40)
+
+    assert excinfo.value.code == (
+        "cuda_toolchain_nvcc_environment_flags_present:" + name
+    )
+    assert fake.commands == []
+
+
+def test_an_empty_nvcc_environment_flag_variable_is_not_a_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load()
+    fake = _FakeToolchain()
+    _windows_host(monkeypatch, module, fake)
+    monkeypatch.setenv("NVCC_APPEND_FLAGS", "")
+
+    assert module.verify_toolchain(CONTRACT, source_head_sha="a" * 40)[
+        "status"
+    ] == "passed"
