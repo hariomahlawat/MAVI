@@ -66,4 +66,8 @@ This is product-feature work on the operator plane. It consumes the Task-14/15 A
 
 ## Recommended next feature
 
-Review-status mutation: a small `PATCH /api/tracks/{id}/review` with an audit record, surfaced as Confirm/Reject actions in the inspector and Review page, so the search workspace becomes a complete triage loop.
+**Spatial & Temporal Track Analytics** is now the preferred next capability slice after PR #49. The product already has a usable recorded-video search/evidence workflow; the more important limitation is that a Track carries little semantic meaning beyond class, time, confidence and trajectory. The next increment should therefore derive deterministic scene intelligence from existing Track data before adding heavier workflow/reporting.
+
+Initial targets: zones/polygons, trip lines, zone entry/exit, line crossing, direction of travel, dwell duration, stationary/stopped-object duration, threshold-based loitering, class/zone/time counts, occupancy, repeated zone visits and movement heatmaps. Speed should be exposed only where camera calibration makes the estimate defensible.
+
+Review-status mutation, operator identity/audit and investigation cases remain useful later, but are intentionally deferred until MAVI has richer searchable intelligence to review and investigate. See `docs/superpowers/plans/2026-09-20-capability-roadmap-reconciliation.md`.
