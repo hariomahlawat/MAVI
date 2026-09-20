@@ -5,6 +5,9 @@
  * response, `'unavailable'` answers 503, and `'hang'` never answers, which is
  * how the loading state is held still long enough to look at.
  *
+ * `requireOverlay` makes a footage-condition state prove the overlay is drawn
+ * over a decoded frame before its capture counts.
+ *
  * `knownIssues` lists regexes for defects that exist at this baseline and
  * belong to a later UI PR (section 34.1). They are reported separately rather
  * than failing the pass, so the harness stays honest about them without
@@ -39,10 +42,15 @@ const TRACK = '55555550-5555-7555-8555-555555555550';
  * currentTime directly races the player's own seek handling.
  */
 const SEEK = `(() => {
+  const v = document.querySelector('.player video');
+  if (!v) return false;
+  // A paused element with only metadata will sit at readyState 1 forever, and
+  // the larger letterbox source hits that at the wide viewports. Nudge it into
+  // buffering, then put it back where the overlay is drawn.
+  if (v.readyState < 2) { try { v.load(); v.play().then(() => v.pause()).catch(() => {}); } catch { /* ignore */ } }
   const jump = Array.from(document.querySelectorAll('button')).find((b) => /Evidence/.test(b.textContent || ''));
   if (jump) jump.click();
-  const v = document.querySelector('.player video');
-  if (v) v.pause();
+  v.pause();
   return Boolean(jump);
 })()`;
 
@@ -125,9 +133,9 @@ export const STATES = [
   // The evidence overlay: where the bounding-box and trajectory hues have to
   // survive footage the product does not control (section 26).
   { name: 'review', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, expectText: 'North Gate' },
-  { name: 'review-bright', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, footage: 'bright', prepare: SEEK },
-  { name: 'review-dark', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, footage: 'dark', prepare: SEEK },
-  { name: 'review-saturated', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, footage: 'saturated', prepare: SEEK },
-  { name: 'review-lowcontrast', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, footage: 'lowcontrast', prepare: SEEK },
-  { name: 'review-letterbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, footage: 'letterbox', prepare: SEEK },
+  { name: 'review-bright', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, footage: 'bright', prepare: SEEK, requireOverlay: true },
+  { name: 'review-dark', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, footage: 'dark', prepare: SEEK, requireOverlay: true },
+  { name: 'review-saturated', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true },
+  { name: 'review-lowcontrast', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, footage: 'lowcontrast', prepare: SEEK, requireOverlay: true },
+  { name: 'review-letterbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, footage: 'letterbox', prepare: SEEK, requireOverlay: true },
 ];

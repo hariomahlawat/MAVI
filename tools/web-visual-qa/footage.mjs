@@ -27,7 +27,9 @@ export const CONDITIONS = {
   // Low contrast: mid-grey, where a mid-tone overlay disappears.
   lowcontrast: { size: '1920x1080', filter: "color=c=0x7a7d82:s=1920x1080:d=4,noise=alls=3:allf=t" },
   // 21:9 in a 16:9 element: letterbox bars the overlay must not be drawn into.
-  letterbox: { size: '2560x1080', filter: 'smptebars=s=2560x1080:d=4' },
+  // The aspect ratio is what is under test, not the resolution — a 2560-wide
+  // source only costs decode budget at the widest viewport.
+  letterbox: { size: '1680x720', filter: 'smptebars=s=1680x720:d=4' },
 };
 
 export function ensureFootage(mediaDir, condition = 'saturated') {

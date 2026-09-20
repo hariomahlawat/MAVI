@@ -31,6 +31,14 @@ const TYPES = {
  * @param {() => string} options.footage  path to the clip the current state uses
  */
 export function startServer({ distDir, fixtureDir, scenario, footage }) {
+  /**
+   * Responses deliberately left unanswered to hold a loading state. They must
+   * be released when that state ends: the browser allows only a handful of
+   * connections per origin, and leaving six hung requests open makes the next
+   * state's requests queue behind them — which looks exactly like the next
+   * state failing to render.
+   */
+  const hung = new Set();
   const server = createServer((req, res) => {
     try {
       handle(req, res);
@@ -57,7 +65,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
         res.end(JSON.stringify({ title: 'Service unavailable', detail: 'The upstream service did not respond.', code: 'upstream_unavailable' }));
         return;
       }
-      if (value === 'hang') return; // deliberately never answers, to hold the loading state
+      if (value === 'hang') { hung.add(res); res.on('close', () => hung.delete(res)); return; }
       if (value !== undefined) {
         res.writeHead(200, { 'content-type': TYPES['.json'] });
         res.end(JSON.stringify(value));
@@ -147,7 +155,14 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
-      resolve({ origin: `http://127.0.0.1:${port}`, close: () => new Promise((done) => server.close(done)) });
+      resolve({
+        origin: `http://127.0.0.1:${port}`,
+        releaseHung() {
+          for (const res of hung) { try { res.destroy(); } catch { /* already gone */ } }
+          hung.clear();
+        },
+        close: () => new Promise((done) => { for (const res of hung) { try { res.destroy(); } catch { /* gone */ } } server.close(done); }),
+      });
     });
   });
 }

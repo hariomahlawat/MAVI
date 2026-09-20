@@ -86,7 +86,11 @@
   /* --- Borders. Role decides the contrast obligation (section 8.1). ----- */
   --border-subtle: var(--p-steel-700);   /* decorative dividers and grouping edges;
                                             section 11 exempts these from 3:1 */
-  --border-panel: var(--p-steel-700);    /* scrollable / editable region edges */
+  --border-panel: var(--p-steel-450);    /* edges that identify a scrollable or
+                                            editable region. Section 11 makes
+                                            this one meaningful, not decorative,
+                                            so it carries the same 3:1 duty as a
+                                            control boundary. */
   --border-control: var(--p-steel-450);  /* interactive control boundary: reaches
                                             3.35:1 or better on every surface,
                                             as section 23 requires */

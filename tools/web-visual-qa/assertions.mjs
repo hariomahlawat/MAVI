@@ -137,3 +137,29 @@ export const TARGET_SIZE_REPORT = `(() => {
   }
   return small;
 })()`;
+
+/**
+ * Is the evidence overlay genuinely on screen, over a decoded frame?
+ *
+ * Section 26 asks for overlay visibility to be checked against each footage
+ * condition. A capture taken before the media decoded, or before the player
+ * reached the frame the overlay is drawn at, validates nothing while looking
+ * exactly like a pass.
+ */
+export const OVERLAY_READY = `(() => {
+  const video = document.querySelector('.player video');
+  if (!video) return { ok: false, why: 'no player video element' };
+  if (video.readyState < 2) return { ok: false, why: 'media not decoded (readyState ' + video.readyState + ')' };
+  if (!(video.videoWidth > 0)) return { ok: false, why: 'media reports no frame size' };
+  if (!(video.currentTime > 0)) return { ok: false, why: 'player never left the first frame' };
+
+  const marks = Array.from(document.querySelectorAll('.player__overlay rect, .player__overlay polyline'));
+  const drawn = marks.filter((m) => { const r = m.getBoundingClientRect(); return r.width > 1 && r.height > 1; });
+  if (drawn.length === 0) return { ok: false, why: 'no overlay geometry drawn at this frame' };
+
+  const overlay = document.querySelector('.player__overlay');
+  const filter = overlay ? getComputedStyle(overlay).filter : 'none';
+  if (!filter || filter === 'none') return { ok: false, why: 'overlay layer carries no halo' };
+
+  return { ok: true, why: '', drawn: drawn.length };
+})()`;

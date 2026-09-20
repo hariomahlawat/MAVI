@@ -17,8 +17,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launch } from './cdp.mjs';
 import { startServer } from './server.mjs';
-import { FOCUS_ASSERTIONS, PAGE_ASSERTIONS, TARGET_SIZE_REPORT } from './assertions.mjs';
-import { ensureFootage } from './footage.mjs';
+import { FOCUS_ASSERTIONS, OVERLAY_READY, PAGE_ASSERTIONS, TARGET_SIZE_REPORT } from './assertions.mjs';
+import { CONDITIONS, ensureFootage } from './footage.mjs';
 import { STATES, WIDTHS } from './states.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -47,9 +47,20 @@ rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
 const MEDIA = join(OUT, 'media');
+// Generate every clip before the browser starts. ffmpeg is invoked
+// synchronously, so encoding on first request would block the event loop
+// serving that request — and a media element that times out mid-load sits at
+// readyState 1 while everything else looks fine.
+const needed = new Set(STATES.map((state) => state.footage ?? 'saturated'));
+for (const condition of needed) {
+  if (!CONDITIONS[condition]) throw new Error(`unknown footage condition in states.mjs: ${condition}`);
+  process.stdout.write(`  preparing ${condition} footage…\r`);
+  ensureFootage(MEDIA, condition);
+}
+process.stdout.write(`  ${needed.size} footage condition(s) ready\n`);
 let current = {};
 let footage = 'saturated';
-const { origin, close } = await startServer({
+const { origin, close, releaseHung } = await startServer({
   distDir: join(WEB, 'dist'),
   fixtureDir: join(HERE, 'fixtures'),
   scenario: () => current,
@@ -67,14 +78,27 @@ try {
       current = state.api ?? {};
       footage = state.footage ?? 'saturated';
       await browser.viewport(viewport.width, viewport.height);
+      // Tear the previous document down first. Chromium holds media decoders
+      // across same-origin navigations, and after eighty-odd states a player
+      // that loaded fine in isolation sits at readyState 1 for want of a free
+      // decoder — which looks exactly like a product defect and is not one.
+      await browser.goto('about:blank');
       await browser.goto(origin + state.path);
       // Let the query client settle and any media element lay itself out.
       await browser.evaluate('new Promise((r) => setTimeout(r, ' + (state.settleMs ?? 700) + '))');
       // A state may drive the page into the condition it wants to be looked at
-      // in — seeking a player to where the overlay is actually drawn, say.
+      // in — seeking a player to where the overlay is actually drawn, say. The
+      // result is not decorative: a renamed control or a clip that will not
+      // decode would otherwise leave the harness photographing a blank first
+      // frame and reporting the footage condition as passing.
+      const where = `${state.name} @ ${viewport.label}`;
+      const before = findings.length;
+
+      let prepared = true;
       if (state.prepare) {
-        await browser.evaluate(state.prepare);
+        prepared = Boolean(await browser.evaluate(state.prepare));
         await browser.evaluate('new Promise((r) => setTimeout(r, 600))');
+        if (!prepared) findings.push(`${where}: prepare step did not run — the state was never reached`);
       }
 
       // A state must prove it reached the condition it claims. Without this a
@@ -92,13 +116,31 @@ try {
         }
       }
 
+      // An overlay state must prove the overlay is actually on screen, with a
+      // decoded frame under it, before its capture means anything.
+      if (state.requireOverlay && prepared) {
+        // Decoding and seeking take as long as they take; wait for the
+        // condition rather than guessing a settle time, and fail only when it
+        // genuinely never arrives.
+        // Decoding and seeking take as long as they take, and a clip is
+        // generated on its first use, so a seek can land before the media has
+        // loaded. Re-run the preparation on each attempt rather than guessing a
+        // settle time, and fail only when the condition genuinely never comes.
+        let overlay = { ok: false, why: 'not checked' };
+        for (let attempt = 0; attempt < 25; attempt += 1) {
+          overlay = await browser.evaluate(OVERLAY_READY);
+          if (overlay.ok) break;
+          if (state.prepare) await browser.evaluate(state.prepare);
+          await browser.evaluate('new Promise((r) => setTimeout(r, 500))');
+        }
+        if (!overlay.ok) findings.push(`${where}: overlay not ready for capture — ${overlay.why}`);
+      }
+
       const page = await browser.evaluate(PAGE_ASSERTIONS);
       const focus = await browser.evaluate(FOCUS_ASSERTIONS);
       const small = await browser.evaluate(TARGET_SIZE_REPORT);
       checks += 1;
 
-      const where = `${state.name} @ ${viewport.label}`;
-      const before = findings.length;
       // Known transitional defects (section 34.1) are recorded, not repaired
       // here: each belongs to the UI-n PR that owns that surface. Anything not
       // on the list is a finding.
@@ -132,6 +174,10 @@ try {
       writeFileSync(join(OUT, `${state.name}--${viewport.label}.png`), await browser.screenshot());
       const summary = { state: state.name, viewport: viewport.label, pageWidth: page.pageWidth, focusChecked: focus.checked, smallTargets: small };
       writeFileSync(join(OUT, `${state.name}--${viewport.label}.json`), JSON.stringify(summary, null, 2));
+
+      // Let go of anything this state deliberately left hanging before the
+      // next one needs the connection.
+      releaseHung();
 
       process.stdout.write(`  ${findings.length > before ? 'FAIL' : ' ok '}  ${where}\n`);
     }

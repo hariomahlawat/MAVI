@@ -100,6 +100,14 @@ describe('non-text contrast (3:1)', () => {
     expect(contrast('--border-control', surface)).toBeGreaterThanOrEqual(3);
   });
 
+  it.each(SURFACES)('a panel boundary that identifies a region is visible on %s', (surface) => {
+    // Section 11: a border that identifies an interactive or scrollable region
+    // is not decorative and carries the same 3:1 duty as a control boundary.
+    // Naming the role and leaving it at the decorative value would make the
+    // distinction nominal.
+    expect(contrast('--border-panel', surface)).toBeGreaterThanOrEqual(3);
+  });
+
   it.each(SURFACES)('the hover/emphasis boundary is visible on %s', (surface) => {
     expect(contrast('--border-strong', surface)).toBeGreaterThanOrEqual(3);
   });
