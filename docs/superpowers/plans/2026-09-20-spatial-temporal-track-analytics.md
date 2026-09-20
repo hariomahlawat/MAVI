@@ -372,8 +372,14 @@ written; these are the points where reality differed or needed spelling out.
 - **The browser validates only what it can see for itself** — names, counts, endpoint separation, threshold range —
   and blocks Save on those. Degeneracy, self-intersection, identity and concurrency remain the backend's to decide.
 - **The object list is a list of buttons, not a listbox.** A listbox option may not contain focusable children, and
-  each row carries its own name, delete and vertex controls; claiming the role would promise arrow-key navigation
-  that does not exist.
+  each row carries its own name and delete controls; claiming the role would promise arrow-key navigation that does
+  not exist.
+- **The navigator is sized by the scene, the inspector by the selection.** The selected object's coordinates are in
+  the inspector, which is where everything else about it is. Listing them in the navigator made its height follow the
+  selection rather than the scene, so selecting an object pushed the rest of the scene out of view. They remain the
+  only way to reach a vertex without a pointer.
+- **Overlay geometry is drawn with a dark halo.** Footage is arbitrary; a pale stroke over a bright frame is not
+  visible, and the operator is being asked to place geometry against exactly that frame.
 
 ---
 
