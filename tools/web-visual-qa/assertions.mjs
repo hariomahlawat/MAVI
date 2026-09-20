@@ -151,6 +151,30 @@ export const WORKSPACE_ASSERTIONS = `(() => {
   const working = workspace.getBoundingClientRect().width;
   const measured = { archetype: archetype.replace('workspace--', ''), workingWidth: round(working) };
 
+  // What the shell was told about this surface. The archetype declares it and
+  // the shell applies it to the content column; reading it back here checks the
+  // declaration actually arrived, rather than assuming it did.
+  const column = workspace.closest('.main');
+  measured.shellScroll = column ? column.getAttribute('data-scroll') : null;
+
+  // Containment must not become clipping. With the column set to contain it
+  // can no longer scroll, so content that overflows it is simply unreachable —
+  // and, unlike a scrolling column, nothing about the page says so. This is the
+  // check that keeps "the page does not scroll" from quietly becoming "the rest
+  // of the page is gone".
+  if (measured.shellScroll === 'contain' && column) {
+    measured.columnOverflow = round(column.scrollHeight - column.clientHeight);
+    if (column.scrollHeight > column.clientHeight + 1) {
+      problems.push('content is clipped: the shell column is contained but its content is '
+        + column.scrollHeight + 'px inside ' + column.clientHeight + 'px, so ' + measured.columnOverflow
+        + 'px cannot be reached');
+    }
+    if (workspace.scrollHeight > workspace.clientHeight + 1) {
+      problems.push('content is clipped: the workspace is ' + workspace.scrollHeight
+        + 'px inside ' + workspace.clientHeight + 'px with no scroll owner for the difference');
+    }
+  }
+
   // Which element owns vertical scroll, anywhere inside the workspace.
   const scrollers = Array.from(workspace.querySelectorAll('*')).filter((el) => {
     const style = getComputedStyle(el);
@@ -212,6 +236,13 @@ export const WORKSPACE_ASSERTIONS = `(() => {
     measured.scrolledAncestors = scrolledAncestors;
 
     if (doc.clientWidth >= 1150) {
+      // §4.3.2 is a rule about the architecture, not about whether today's
+      // fixtures happen to fit: the shell must have been told not to scroll
+      // this surface, whatever is in it.
+      if (measured.shellScroll !== 'contain') {
+        problems.push('Workbench did not declare no-page-scroll to the shell: the content column is "'
+          + measured.shellScroll + '", so it may scroll the canvas as soon as content grows');
+      }
       if (doc.scrollHeight > doc.clientHeight + 1) {
         problems.push('Workbench page scrolls: scrollHeight ' + doc.scrollHeight + ' > clientHeight ' + doc.clientHeight);
       }

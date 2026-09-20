@@ -141,7 +141,7 @@ export default function AppShell() {
       </aside>
 
       <SurfaceSlotProvider>
-        {(attachContextBar, claimed, tone) => (
+        {({ attachContextBar, claimed, tone, scroll }) => (
           <div className="content">
             {/* Section 5: the topbar *is* the Context Bar. One band, filled by
                 the surface through <ContextBar>; a surface that has not been
@@ -152,7 +152,13 @@ export default function AppShell() {
                 <Breadcrumbs crumbs={[{ label: sectionTitleFor(location.pathname) }]} />
               )}
             </header>
-            <main className="main" id="main">
+            {/* The archetype mounted below says whether this column may scroll
+                (§4). The shell applies what it is told and knows nothing about
+                which surface it is: no route names, no reading classes back out
+                of the rendered tree. A surface that declares nothing — every
+                page not yet migrated — keeps the page scrolling it has always
+                had. */}
+            <main className="main" id="main" data-scroll={scroll}>
               <Outlet />
             </main>
           </div>

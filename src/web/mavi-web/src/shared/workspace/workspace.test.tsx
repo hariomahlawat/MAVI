@@ -28,9 +28,9 @@ function Shell({ children }: { children: ReactNode }) {
   return (
     <MemoryRouter>
       <SurfaceSlotProvider>
-        {(attach, claimed, tone) => (
+        {({ attachContextBar, claimed, tone }) => (
           <div>
-            <header className={barClass(tone)} ref={attach}>
+            <header className={barClass(tone)} ref={attachContextBar}>
               {claimed ? null : <Breadcrumbs crumbs={[{ label: 'Section' }]} />}
             </header>
             <main>{children}</main>

@@ -10,4 +10,11 @@ export {
   ReviewLayout,
   WorkbenchLayout,
 } from './layouts';
-export { SurfaceSlotProvider, useSurfaceSlot, type ContextTone } from './surfaceSlot';
+export {
+  SurfaceSlotProvider,
+  useScrollPolicy,
+  useSurfaceSlot,
+  type ContextTone,
+  type ScrollPolicy,
+  type ShellSurface,
+} from './surfaceSlot';

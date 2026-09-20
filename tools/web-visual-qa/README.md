@@ -83,6 +83,14 @@ UI-2 adds two more:
   body owns scroll. The measurements land in the JSON beside each capture, so a
   reviewer can read the numbers rather than take the pass on trust.
 
+A surface that declares an archetype is also checked against the scroll policy
+the shell was told to apply: a Workbench that has not declared no-page-scroll
+is a finding whether or not today's content happens to fit, and a contained
+column whose content exceeds it is reported as clipped rather than passing
+quietly. `scene-editor-dense` is the state that exercises this — an inactive
+camera, an unavailable video list, a revision that will not load and the
+revision strip open, which is every fixed band this surface can have at once.
+
 The four widths are the §25 acceptance viewports, so the Workbench's drawer
 band — 1101 to 1149, where the inspector covers the stage — is outside them by
 construction. Check it deliberately with `--widths 1120`; the drawer's own

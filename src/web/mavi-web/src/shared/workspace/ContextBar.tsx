@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useId, useLayoutEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useSurfaceSlot, type ContextTone } from './surfaceSlot';
@@ -49,23 +49,27 @@ export default function ContextBar({
   tone?: ContextTone;
 }) {
   const slot = useSurfaceSlot();
-  const claim = slot?.claim;
-  const release = slot?.release;
-  const setTone = slot?.setTone;
+  const register = slot?.register;
+  const unregister = slot?.unregister;
+  const element = slot?.element ?? null;
+  const id = useId();
 
-  useEffect(() => {
-    if (!claim || !release) return undefined;
-    claim();
-    return release;
-  }, [claim, release]);
-
-  // The band is the shell's element, so the surface states the tone and the
-  // shell applies it rather than this component reaching in to set a class.
-  useEffect(() => {
-    if (!setTone) return undefined;
-    setTone(tone ?? null);
-    return () => setTone(null);
-  }, [setTone, tone]);
+  // Owning the band and publishing into it are the same fact, so they are
+  // decided by the same condition — there is somewhere to publish, and this
+  // surface is publishing there — and registered in one call.
+  //
+  // This is a layout effect, not a passive one, and that is the whole point.
+  // React flushes state updates scheduled during the layout phase before the
+  // browser paints, so the commit where the shell still believes it owns the
+  // band is never a painted frame. A passive effect carries no such guarantee,
+  // which is how the band came to show two crumb trails on the way in and none
+  // on the way out. The tone rides along rather than living in a second effect
+  // that could be a frame behind the ownership it describes.
+  useLayoutEffect(() => {
+    if (!register || !unregister || !element) return undefined;
+    register(id, tone ?? null);
+    return () => unregister(id);
+  }, [register, unregister, element, id, tone]);
 
   const content = (
     <>

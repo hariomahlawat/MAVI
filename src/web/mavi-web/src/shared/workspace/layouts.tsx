@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import Button from '../components/Button';
+import { useScrollPolicy } from './surfaceSlot';
 
 /**
  * The five workspace archetypes of §4, with exactly one implementation each.
@@ -10,9 +11,14 @@ import Button from '../components/Button';
  * mechanism for inventing the sixth. Each takes only the regions its archetype
  * actually has, which is what stops a page composing something else.
  *
- * Scroll ownership (§4, frozen and authoritative) is carried by the archetype
- * class, not by the page. A page cannot opt out of it, and `workspace.css` is
- * the single place it is expressed.
+ * Scroll ownership (§4, frozen and authoritative) is carried by the archetype,
+ * not by the page, in two halves that have to agree. `workspace.css` says which
+ * element inside the archetype scrolls; `useScrollPolicy` tells the shell
+ * whether its content column may scroll at all. The second half exists because
+ * the shell's `.main` is `overflow: auto` for every surface, so without it the
+ * Workbench's frozen no-page-scroll rule held only while its content happened
+ * to fit. Both halves are declared by the layout component itself, which is
+ * what a page cannot opt out of.
  *
  * Every archetype begins with the Context Bar, which the shell renders and an
  * archetype's page fills through `<ContextBar>` — so it is not a region here.
@@ -34,6 +40,8 @@ export function LedgerLayout({
   /** The table or list. Owns vertical scroll. */
   children: ReactNode;
 }) {
+  // §4.1: "The table body. The page does not scroll."
+  useScrollPolicy('contain');
   return (
     <section className="workspace workspace--ledger">
       {toolbar ? <div className="workspace__band">{toolbar}</div> : null}
@@ -59,6 +67,13 @@ export function LedgerSummaryLayout({
   notices?: ReactNode;
   children: ReactNode;
 }) {
+  // Deliberately `page`, not the Ledger's `contain`. §4.1.1 freezes a *width*
+  // exception for Overview and says nothing about its scroll owner, and this
+  // variant has no internal scrolling region to be one — so containing it would
+  // clip a summary with no way to reach the rest. UI-3 migrates Overview and
+  // settles its scroll grammar against §4.1.1; until then the honest policy is
+  // the one that cannot hide content.
+  useScrollPolicy('page');
   return (
     <section className="workspace workspace--ledger-summary">
       {notices ? <div className="workspace__notices">{notices}</div> : null}
@@ -84,6 +99,8 @@ export function RecordLayout({
   /** The facts rail, roughly 30%. Stacks below the primary at ≤1100 (§4.2). */
   facts?: ReactNode;
 }) {
+  // §4.2: the page is the scroll owner on a Record.
+  useScrollPolicy('page');
   return (
     <section className="workspace workspace--record">
       {notices ? <div className="workspace__notices">{notices}</div> : null}
@@ -131,6 +148,11 @@ export function WorkbenchLayout({
   // The state is only ever consulted inside that band, by CSS. At every other
   // width the inspector is in flow and this is inert, which is what stops a
   // drawer closed at 1120 from hiding the inspector at 1920.
+  // §4.3.2, the one archetype with a hard no-page-scroll rule: a scrolled
+  // canvas is a broken canvas, so the shell's content column must not be able
+  // to scroll this surface at desktop widths either.
+  useScrollPolicy('contain');
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const inspectorId = useId();
 
@@ -213,6 +235,8 @@ export function InvestigationLayout({
   /** Appears on selection; its body scrolls independently. */
   inspector?: ReactNode;
 }) {
+  // §4.4: results and inspector scroll independently; the page does not.
+  useScrollPolicy('contain');
   return (
     <section className={`workspace workspace--investigation${inspector ? ' has-inspector' : ''}`}>
       {notices ? <div className="workspace__notices">{notices}</div> : null}
@@ -250,6 +274,9 @@ export function ReviewLayout({
   /** Evidence content below the player, in the same column. */
   children?: ReactNode;
 }) {
+  // §4.5.1: the page owns scroll here deliberately — provenance and
+  // attestation legitimately run below the fold.
+  useScrollPolicy('page');
   return (
     <section className="workspace workspace--review">
       {notices ? <div className="workspace__notices">{notices}</div> : null}

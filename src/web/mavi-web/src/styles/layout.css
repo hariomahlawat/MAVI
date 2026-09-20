@@ -65,7 +65,20 @@
 
 .content { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
 
+/* The content column scrolls by default, as it always has. An archetype that
+   names its own scroll owner (§4) declares `contain`, and then it must not:
+   `.main` staying `overflow: auto` for every surface is what left the
+   Workbench's frozen no-page-scroll rule (§4.3.2) true only for as long as its
+   content happened to fit. The archetype declares the policy and the shell
+   applies it; the selector is an attribute the shell sets, not a class read
+   back out of the page. */
 .main { overflow: auto; min-height: 0; }
+.main[data-scroll="contain"] { overflow: hidden; }
+/* Section 25: at and below 1100 every archetype stacks and the page scrolls
+   again, so the containment is lifted with the layout that needed it. */
+@media (max-width: 1100px) {
+  .main[data-scroll="contain"] { overflow: auto; }
+}
 /* --content-max applies to Record and the Overview Ledger-summary variant
    (section 7). A surface that declares --page-full uses the width it is given.
    The baseline set `width: min(--content-max, 100%)` here and `max-width: none`

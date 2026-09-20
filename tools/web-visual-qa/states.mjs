@@ -83,6 +83,35 @@ const DIRTY_SCENE = `(async () => {
   return Boolean(document.querySelector('.scene-context__note input'));
 })()`;
 
+/**
+ * Drive the Scene Editor into its densest *real* fixed-chrome state.
+ *
+ * The other Workbench states are realistic, which is the point of them; this
+ * one is deliberately the worst arrangement the product can actually reach, so
+ * that "the page does not scroll" is tested against a Workbench that has every
+ * band it can have at once rather than against the geometry that happens to
+ * ship in the fixtures. Nothing here is invented UI: the notices come from an
+ * inactive camera, an unavailable video list and a revision that will not load,
+ * and the footer comes from the revision strip the operator can open.
+ */
+const DENSE_WORKBENCH = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const byName = (name) => Array.from(document.querySelectorAll('button'))
+    .find((b) => new RegExp(name).test((b.textContent || '').trim()));
+
+  // Open the revision strip, which is a real footer band on this surface.
+  const revisions = byName('^Revisions$');
+  if (!revisions) return false;
+  revisions.click();
+  await wait(250);
+
+  // Open a past revision whose fetch is answered 503, which is the third notice.
+  const view = byName('^View revision');
+  if (view) { view.click(); await wait(600); }
+
+  return document.querySelectorAll('.workspace__notices .alert, .workspace__notices p').length >= 2;
+})()`;
+
 export const WIDTHS = [
   { width: 1366, height: 768, label: '1366x768' },
   { width: 1440, height: 900, label: '1440x900' },
@@ -171,6 +200,38 @@ export const STATES = [
       },
     },
     expectText: 'Unsaved changes',
+  },
+  {
+    // The stress case for the frozen no-page-scroll rule (§4.3.2): every fixed
+    // band this surface can have, at once, above and below the stage.
+    name: 'scene-editor-dense',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    settleMs: 1400,
+    prepare: DENSE_WORKBENCH,
+    api: {
+      // A revision the operator can ask for and the server will not give,
+      // which is a real error notice rather than a contrived one.
+      [`/api/cameras/${CAM}/scene/revisions`]: 'unavailable',
+      [`/api/cameras/${CAM}/scene`]: 'fixture',
+      [`/api/cameras/${CAM}`]: {
+        id: CAM,
+        code: 'CAM-01',
+        name: 'North Gate',
+        description: 'Main vehicle entrance',
+        locationName: 'North perimeter',
+        timeZoneId: 'Asia/Kolkata',
+        // Inactive: a real warning notice, and the reason Save is refused.
+        isActive: false,
+        createdAtUtc: '2026-09-01T04:00:00Z',
+        updatedAtUtc: '2026-09-01T04:00:00Z',
+      },
+      // Unavailable video list: a second real warning notice, with its own
+      // retry control.
+      '/api/videos': 'unavailable',
+    },
+    expectText: ['This camera is inactive', 'video list is unavailable'],
   },
   {
     name: 'scene-editor-unavailable',
