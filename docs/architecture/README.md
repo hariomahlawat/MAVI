@@ -43,6 +43,7 @@ What MAVI builds next is decided by `docs/superpowers/plans/capability-roadmap.m
 - `docs/architecture/phase1-production-topology.md` — Development device policy and Production deployment profiles (ADR-008).
 - `docs/decisions/ADR-009-development-cuda-qualification-separation.md` — Development CUDA hardware evidence is explicitly non-Production and cannot satisfy P1/P2.
 - `docs/decisions/ADR-011-scene-analytics-lifecycle-and-revisions.md` — scene-configuration revisions and the deterministic scene-analytics post-processing stage, including attempt fencing and analytics search readiness.
+- `docs/decisions/ADR-012-operator-interface-design-architecture.md` — adopted operator-interface design architecture: workspace archetypes, colour-role and token architecture, accessibility and visual-QA obligations, the UI-1 → UI-5 programme and the Scene Analytics Slice 3 gate.
 - `docs/qualification/2026-09-18-windows-cuda-c1-compatibility-decision.md` — current sanitized Windows-CUDA Development engineering candidate and change-control boundary.
 - `docs/runbooks/local-development.md` — supported Development workflow.
 - `docs/runbooks/mavi-offline-setup.md` — offline media preparation and installation.

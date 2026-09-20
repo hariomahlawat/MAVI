@@ -72,7 +72,7 @@ Facts below were read from the code at the baseline SHA, not from earlier plans.
 | 1 Analytics ← trajectory v2 (bottom-centre per sample) | Soft | Stage 1 starts on v1 centre points; a worker-side trajectory v2 improves ground-contact geometry later without blocking stage 1 (see the stage-1 plan §J). |
 | Task 18 | Independent | Qualification of the frozen Production candidate; proceeds in parallel and is never gated by a roadmap stage. |
 | Frontend polish, historical-runs listing | Independent | May be scheduled between stages without changing the sequence. |
-| Stage 1 slice 3 ← UI Foundation UI-2 | Hard | The UI Foundation programme (UI-1 → UI-5, §33 of `docs/architecture/ui-ux-design-specification.md`) is inserted after stage-1 slice 2. Slice 3 does not begin until UI-2 has merged with green post-merge `main`; thereafter backend/domain work may run in parallel with UI-3/UI-4/UI-5 where it introduces no frontend surface. |
+| Stage 1 slice 3 ← UI Foundation UI-2 | Hard | The UI Foundation programme (UI-1 → UI-5, §33 of `docs/architecture/ui-ux-design-specification.md`, accepted by ADR-012) is inserted after stage-1 slice 2. Slice 3 does not begin until UI-2 has merged with green post-merge `main`; thereafter backend/domain work may run in parallel with UI-3/UI-4/UI-5 where it introduces no frontend surface. |
 
 No other dependencies are asserted; in particular stage 3 does not block stage 4, and stage 10 does not block anything.
 

@@ -4,6 +4,7 @@
 **Status:** Adopted. Normative for frontend work from UI-1 onward, subject to the transitional clause in §34.1.
 **Design baseline:** `main@b99ce26f041b3fff25094b8a5ac6a84f7305fc87`
 **Scope of authority:** the MAVI operator UI (`src/web/mavi-web`).
+**Decision record:** `docs/decisions/ADR-012-operator-interface-design-architecture.md` accepts the architecture this document specifies. The ADR records the decisions and the trade-offs; this document is the normative detail.
 
 Status markers used throughout:
 
@@ -810,7 +811,7 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 - **Scope.** Primitive and semantic token architecture with narrowly scoped component tokens (§7); semantic UI state tokens including `stale` and `unavailable`; separate evidence/spatial token namespace with roles frozen and hues selected by visual validation; focus-ring and contrast corrections (the missing `--focus` reference, text on accent); `page--full` and ultra-wide structural correction; shared time, duration and confidence formatting; the **async-state boundary** (§14.1); Alert, Empty and Loading refinements; **font decision resolved and implemented**; visual QA harness and process formalised (§26); removal of clearly obsolete duplicate styles where provably safe.
 - **Exclusions.** No page recomposition; no archetype layout classes; no light palette; no player work; no navigation change.
 - **Prerequisites.** None.
-- **Acceptance.** All token references resolve; no colour, radius, duration or spacing literals in feature CSS; every contrast obligation in §23 met on the surface where the element appears; ultra-wide surfaces occupy full width per §25; an async-state boundary exists and no call site can render empty while its request failed; full test suite, typecheck, build and `verify_repo` green; §26 visual QA pass across all four viewports; if a font is bundled, licence and offline catalogue entries land in the same PR.
+- **Acceptance.** All token references resolve; no colour, radius, duration or spacing literals in feature CSS; every contrast obligation in §23 met on the surface where the element appears; the `page--full` structural defect is corrected so that a surface declaring full width actually renders full width at approximately 2560 — verified on Workbench and Investigation, the only two surfaces declaring it at the baseline, with no surface widened that did not already declare it; §25's remaining ultra-wide obligations land with the migration that gives each surface its archetype (Ledgers at UI-3, Review at UI-5); an async-state boundary exists and no call site can render empty while its request failed; full test suite, typecheck, build and `verify_repo` green; §26 visual QA pass across all four viewports; if a font is bundled, licence and offline catalogue entries land in the same PR.
 - **Risks.** Broad CSS diff — mitigated by the existing test suite plus a full visual pass. Font bundling carries offline packaging cost, hence the narrow decision.
 - **Relation to Scene Analytics.** Does **not** lift the Slice 3 gate.
 
@@ -820,7 +821,7 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 - **Scope.** Shared ContextBar, Toolbar, Segmented control and Inspector shell (each subject to §27.1); archetype layout classes for all five archetypes including the Overview exception (§4.1.1); topbar to Context Bar relationship; navigation grouping architecture; scroll-ownership rules implemented per §4; responsive and ultra-wide behaviour per §25; **Scene Editor migrated onto the shared primitives with no behavioural change**.
 - **Exclusions.** No Ledger or table redesign; no Search rework; no player work; no new destinations.
 - **Prerequisites.** UI-1.
-- **Acceptance.** Each archetype has exactly one layout implementation; Workbench fits 1366×768 without page scroll with the stage at 65% or more of working width; Review shows player and primary summary in the initial viewport at 1366; Scene Editor behaviour and its test suite unchanged; §26 visual QA pass.
+- **Acceptance.** Each archetype has exactly one layout implementation; Workbench fits 1366×768 without page scroll with the stage at 65% or more of working width; the Review archetype layout class exists and composes the player and primary-summary regions per §4.5.1 — the Review page itself is migrated onto it and that composition verified at UI-5 (§33.6), because UI-2 excludes player work; Scene Editor behaviour and its test suite unchanged; §26 visual QA pass.
 - **Risks.** Scene Editor regression — covered by its existing tests plus visual QA.
 - **Relation to Scene Analytics.** **Merging UI-2 with green post-merge `main` lifts the Slice 3 gate** (§33.1).
 
@@ -850,7 +851,7 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 - **Scope.** Custom transport; one timeline with lane extension points; overlay and layer controls; keyboard playback; poster and reference behaviour; uncertainty rendering; Review migrated to the Review archetype including the sticky-player rule (§4.5.1); the Investigation inspector uses the same component.
 - **Exclusions.** **No analytical lanes for data that does not yet exist**; no Slice 5 overlay content; no event UI; no live or multi-camera work.
 - **Prerequisites.** **UI-4.** UI-5 migrates the Investigation inspector onto the Evidence Player, so the Investigation workspace must already be on its archetype.
-- **Acceptance.** Exactly one player implementation in the codebase; no native controls beneath overlays; one timeline; overlays correct under letterbox and pillarbox; §26 visual QA against bright, dark, saturated, low-contrast and letterboxed footage; existing player tests preserved or replaced with equivalents.
+- **Acceptance.** Exactly one player implementation in the codebase; no native controls beneath overlays; one timeline; overlays correct under letterbox and pillarbox; **at 1366×768 the migrated Review page shows the player and the primary evidence summary in the initial viewport** (§4.5.1, §25) — the check deferred here from UI-2; §26 visual QA against bright, dark, saturated, low-contrast and letterboxed footage; existing player tests preserved or replaced with equivalents.
 - **Risks.** Medium-high — media element lifecycle. The existing animation-frame and seek logic is tested and should be reused rather than rewritten.
 - **Relation to Scene Analytics.** **Must be in place before Slice 5 evidence-overlay/explanation UI is added.** Slice 5 draws into this player's lanes.
 

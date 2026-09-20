@@ -129,7 +129,7 @@ Consequences: a new Development capability does not become Production-qualified 
 | `docs/superpowers/plans/2026-09-13-phase1-roadmap-rebaseline.md` | Phase-1 task status (Tasks 13–17 complete, Task 18 active) |
 | `docs/superpowers/plans/2026-09-18-task-18-phase1-production-qualification-rebaseline.md` | Production qualification stream |
 | `docs/superpowers/plans/2026-09-18-windows-cuda-development.md`, `c8-pr49-readiness.md` | Windows CUDA Development record and readiness; remaining C5.4/C6/C7 host work |
-| `docs/architecture/ui-ux-design-specification.md` | Adopted UI/UX design specification (v1.0); normative for frontend work, and source of the UI-1 → UI-5 foundation programme |
+| `docs/architecture/ui-ux-design-specification.md`, ADR-012 | Adopted UI/UX design specification (v1.0) and the ADR accepting it; normative for frontend work, and source of the UI-1 → UI-5 foundation programme |
 | `docs/architecture/README.md`, ADRs | Architecture baseline and decisions |
 | `docs/architecture/dependency-and-offline-packaging-policy.md` | Dependency and offline packaging discipline every stage follows |
 
