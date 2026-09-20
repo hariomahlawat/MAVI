@@ -21,36 +21,3 @@ export type AsyncState<T> =
    * to be current, which is a different thing from having no data at all.
    */
   | { readonly kind: 'ready'; readonly data: T; readonly degraded?: { readonly error: unknown } };
-
-export const loading = (): AsyncState<never> => ({ kind: 'loading' });
-
-export const unavailable = (error: unknown): AsyncState<never> => ({ kind: 'unavailable', error });
-
-export function ready<T>(data: T, degradedError?: unknown): AsyncState<T> {
-  return degradedError === undefined
-    ? { kind: 'ready', data }
-    : { kind: 'ready', data, degraded: { error: degradedError } };
-}
-
-/** Map the payload of a ready state, leaving loading and unavailable untouched. */
-export function mapAsync<T, U>(state: AsyncState<T>, project: (data: T) => U): AsyncState<U> {
-  if (state.kind !== 'ready') return state;
-  return state.degraded === undefined
-    ? { kind: 'ready', data: project(state.data) }
-    : { kind: 'ready', data: project(state.data), degraded: state.degraded };
-}
-
-/**
- * Combine two states for a surface that cannot render until both have arrived.
- * Unavailable wins over loading: a surface that is partly broken is not still
- * loading, and pretending otherwise is how a failure becomes a spinner forever.
- */
-export function combineAsync<A, B>(a: AsyncState<A>, b: AsyncState<B>): AsyncState<[A, B]> {
-  if (a.kind === 'unavailable') return a;
-  if (b.kind === 'unavailable') return b;
-  if (a.kind === 'loading' || b.kind === 'loading') return { kind: 'loading' };
-  const degraded = a.degraded ?? b.degraded;
-  return degraded === undefined
-    ? { kind: 'ready', data: [a.data, b.data] }
-    : { kind: 'ready', data: [a.data, b.data], degraded };
-}

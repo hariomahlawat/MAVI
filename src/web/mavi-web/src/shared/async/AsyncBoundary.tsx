@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import Alert from '../components/Alert';
+import Button from '../components/Button';
 import LoadingState from '../components/LoadingState';
 import type { AsyncState } from './asyncState';
 
@@ -47,7 +48,7 @@ export default function AsyncBoundary<T>({
     return (
       <Alert
         tone="error"
-        actions={onRetry ? <button type="button" className="btn btn--sm" onClick={onRetry}>Retry</button> : undefined}
+        actions={onRetry ? <Button size="sm" onClick={onRetry}>Retry</Button> : undefined}
       >
         {unavailableLabel}
       </Alert>
@@ -61,7 +62,7 @@ export default function AsyncBoundary<T>({
       <>
         <Alert
           tone="warning"
-          actions={onRetry ? <button type="button" className="btn btn--sm" onClick={onRetry}>Retry</button> : undefined}
+          actions={onRetry ? <Button size="sm" onClick={onRetry}>Retry</Button> : undefined}
         >
           {degradedLabel}
         </Alert>

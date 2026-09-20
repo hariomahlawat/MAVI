@@ -24,12 +24,10 @@
   --p-steel-850: #161d29;
   --p-steel-800: #1c2533;
   --p-steel-700: #232d3c;
-  --p-steel-500: #2b3646;
   --p-steel-450: #647694;
   --p-steel-350: #7385a6;
   --p-steel-400: #8592a8;
   --p-steel-300: #9aa7b8;
-  --p-steel-200: #a3adbd;
   --p-steel-100: #e6ebf2;
   --p-steel-050: #f4f8ff;
 
@@ -37,7 +35,6 @@
   --p-blue-600: #1d4ed8;
   --p-blue-500: #2563eb;
   --p-blue-400: #3b82f6;
-  --p-blue-300: #7fb0ff;
   --p-blue-200: #9cc2ff;
   --p-blue-100: #dbeafe;
   --p-blue-950: #1b2a45;
@@ -197,6 +194,13 @@
   --control-h-sm: 26px;
   --control-px: 10px;
   --control-min-target: 24px;
+  /* The status dot every badge carries. A size, not a spacing step. */
+  --dot-size: 6px;
+  /* Icon ladder (section 10). Deliberately not the type scale: they coincide
+     at 16px today, and coupling them would make a type change resize icons. */
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
 
   /* --- Stroke widths. ---------------------------------------------------- */
   --stroke-hair: 1px;
@@ -233,34 +237,31 @@
   --topbar-h: 44px;
   --content-max: 1600px;
 
-  /* --- Elevation. Reserved for floating layers (section 11). ------------- */
-  --elevation-raised: 0 1px 2px rgb(0 0 0 / 30%);
-  --elevation-floating: 0 8px 24px rgb(0 0 0 / 35%);
+  /* Elevation is deliberately absent: section 11 reserves shadow for floating
+     layers, and the product has none until the UI-4 drawer. Resting containers
+     on a dark surface take a border. */
 
   /* --- Motion. Two durations, no others (section 13). -------------------- */
   --dur: 120ms;
-  --dur-drawer: 180ms;
   /* Looping activity, not state transition: section 13 permits the activity
      pulse and a spinner needs a period. Both are disabled by reduced motion. */
   --dur-pulse: 1.2s;
   --dur-spin: 0.8s;
 
-  /* --- Stacking order. --------------------------------------------------- */
-  --z-sticky: 10;
-  --z-overlay: 20;
-  --z-drawer: 30;
-  --z-popover: 40;
+  /* --- Stacking order. One level, because the product has one: a sticky
+     header inside a scrolling region. The drawer and popover levels arrive
+     with the drawer and the popover. --------------------------------------- */
+  --z-sticky: 1;
 }
 
 /* ------------------------------------------------------------------ *
  * 3. COMPONENT TOKENS — the narrow exception (section 7).
  * ------------------------------------------------------------------ */
 :root {
-  /* Inspector and toolbar padding differ from form padding because they are
-     dense, repeatedly nested chrome rather than content: a semantic spacing
-     step cannot express "this surface is chrome" without overloading the
-     scale. Section 10 fixes all three values independently. */
+  /* Form padding differs from the inspector and toolbar padding section 10
+     also fixes, because a semantic spacing step cannot express "this surface is
+     content rather than chrome" without overloading the scale. The inspector
+     and toolbar equivalents are not declared here: UI-2 promotes those shells
+     and will declare them when it has something that consumes them. */
   --c-form-pad: var(--s-4);
-  --c-inspector-pad: var(--s-3);
-  --c-toolbar-pad: var(--s-2);
 }

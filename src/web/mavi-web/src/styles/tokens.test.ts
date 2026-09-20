@@ -77,7 +77,7 @@ describe('token integrity', () => {
       'status-stale', 'status-unavailable', 'status-unavailable-hatch',
       'evidence-box', 'evidence-track', 'geo-zone', 'geo-line', 'geo-dir-ab', 'geo-dir-ba',
       'evidence-halo', 'evidence-matte',
-      's-1', 'r-1', 'fs-0', 'control-h', 'stroke-hair', 'elevation-raised', 'dur', 'z-drawer',
+      's-1', 'r-1', 'fs-0', 'control-h', 'stroke-hair', 'dur', 'z-sticky',
     ];
     const missing = required.filter((name) => !declared.has(`--${name}`));
     expect(missing).toEqual([]);

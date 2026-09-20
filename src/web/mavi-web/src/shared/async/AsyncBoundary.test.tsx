@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import AsyncBoundary from './AsyncBoundary';
-import { combineAsync, mapAsync, type AsyncState } from './asyncState';
+import type { AsyncState } from './asyncState';
 import { fromQuery } from './fromQuery';
 
 /**
@@ -99,28 +99,5 @@ describe('fromQuery', () => {
     const error = new Error('later');
     const state = fromQuery(query({ data: ['a'], isError: true, error }));
     expect(state).toEqual({ kind: 'ready', data: ['a'], degraded: { error } });
-  });
-});
-
-describe('state helpers', () => {
-  it('mapAsync projects ready data and passes other states through', () => {
-    expect(mapAsync({ kind: 'ready', data: [1, 2] }, (d) => d.length)).toEqual({ kind: 'ready', data: 2 });
-    expect(mapAsync({ kind: 'loading' }, () => 0)).toEqual({ kind: 'loading' });
-    const error = new Error('x');
-    expect(mapAsync({ kind: 'unavailable', error }, () => 0)).toEqual({ kind: 'unavailable', error });
-  });
-
-  it('combineAsync lets unavailable win over loading', () => {
-    // A half-broken surface is not still loading; reporting it as loading is
-    // how a failure becomes a spinner that never resolves.
-    const error = new Error('x');
-    expect(combineAsync({ kind: 'loading' }, { kind: 'unavailable', error })).toEqual({ kind: 'unavailable', error });
-    expect(combineAsync({ kind: 'unavailable', error }, { kind: 'loading' })).toEqual({ kind: 'unavailable', error });
-  });
-
-  it('combineAsync is ready only when both sides are', () => {
-    expect(combineAsync({ kind: 'ready', data: 'a' }, { kind: 'ready', data: 1 }))
-      .toEqual({ kind: 'ready', data: ['a', 1] });
-    expect(combineAsync({ kind: 'ready', data: 'a' }, { kind: 'loading' })).toEqual({ kind: 'loading' });
   });
 });

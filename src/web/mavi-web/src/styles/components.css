@@ -48,17 +48,15 @@
 .btn--ghost[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
 .btn--ghost:hover:not(:disabled) { background: var(--surface-raised); color: var(--text-primary); border-color: transparent; }
 .btn--danger { color: var(--status-err); border-color: var(--status-err-border); background: var(--status-err-soft); }
-/* Every button keeps at least the 24x24 effective target of section 10.1. */
-.btn--icon, .btn--sm { min-width: var(--control-min-target); min-height: var(--control-min-target); }
 .btn--sm { height: var(--control-h-sm); padding: 0 var(--s-2); font-size: var(--fs-1); }
 .btn--icon { width: var(--control-h); padding: 0; }
 .btn--icon.btn--sm { width: var(--control-h-sm); }
 .btn .icon { flex: 0 0 auto; }
 
 /* Icon */
-.icon { width: var(--fs-4); height: var(--fs-4); display: inline-block; vertical-align: middle; stroke: currentColor; fill: none; stroke-width: var(--stroke-icon); stroke-linecap: round; stroke-linejoin: round; }
-.icon--sm { width: var(--fs-3); height: var(--fs-3); }
-.icon--lg { width: var(--fs-5); height: var(--fs-5); }
+.icon { width: var(--icon-md); height: var(--icon-md); display: inline-block; vertical-align: middle; stroke: currentColor; fill: none; stroke-width: var(--stroke-icon); stroke-linecap: round; stroke-linejoin: round; }
+.icon--sm { width: var(--icon-sm); height: var(--icon-sm); }
+.icon--lg { width: var(--icon-lg); height: var(--icon-lg); }
 
 /* Badges. Status is never colour alone: every badge carries text and a glyph. */
 .badge {
@@ -67,7 +65,7 @@
   background: var(--status-neutral-soft); color: var(--status-neutral);
   font-size: var(--fs-0); font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; line-height: 1;
 }
-.badge::before { content: ""; width: var(--s-hair); height: var(--s-hair); border-radius: var(--r-pill); background: currentColor; flex: 0 0 auto; box-shadow: 0 0 0 var(--s-hair) currentColor; margin-inline: var(--s-hair); }
+.badge::before { content: ""; width: var(--dot-size); height: var(--dot-size); border-radius: var(--r-pill); background: currentColor; flex: 0 0 auto; }
 .badge--ok { color: var(--status-ok); background: var(--status-ok-soft); border-color: var(--status-ok-border); }
 .badge--warn { color: var(--status-warn); background: var(--status-warn-soft); border-color: var(--status-warn-border); }
 .badge--err { color: var(--status-err); background: var(--status-err-soft); border-color: var(--status-err-border); }
@@ -142,7 +140,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .field-help { color: var(--text-muted); font-size: var(--fs-0); line-height: 1.4; }
 .field-help--boxed { padding: var(--s-2) var(--s-3); border: var(--stroke-hair) dashed var(--border-subtle); border-radius: var(--r-2); background: var(--surface-raised); color: var(--text-secondary); }
 .checkbox { display: inline-flex; align-items: center; gap: var(--s-2); font-size: var(--fs-2); color: var(--text-secondary); }
-.checkbox input { width: var(--fs-3); height: var(--fs-3); margin: 0; accent-color: var(--accent); }
+.checkbox input { width: var(--icon-sm); height: var(--icon-sm); margin: 0; accent-color: var(--accent); }
 
 /* Toolbar */
 .toolbar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; min-height: var(--control-h); }
@@ -158,7 +156,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-2); }
 .table th, .table td { padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: middle; }
 .table th {
-  position: sticky; top: 0; z-index: 1; background: var(--surface-base);
+  position: sticky; top: 0; z-index: var(--z-sticky); background: var(--surface-base);
   color: var(--text-muted); font-size: var(--fs-0); font-weight: 600; letter-spacing: var(--label-tracking); text-transform: uppercase; white-space: nowrap;
 }
 .table th.num, .table td.num { text-align: right; }
@@ -181,7 +179,7 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-si
   display: grid; justify-items: center; text-align: center; gap: var(--s-2);
   padding: var(--s-8) var(--s-4); color: var(--text-secondary); font-size: var(--fs-2);
 }
-.empty .icon { width: var(--s-6); height: var(--s-6); color: var(--text-muted); }
+.empty .icon { width: var(--icon-lg); height: var(--icon-lg); color: var(--text-muted); }
 .empty strong { color: var(--text-primary); font-weight: 600; }
 .empty__actions { display: flex; gap: var(--s-2); margin-top: var(--s-1); }
 .empty--compact { padding: var(--s-4); }
@@ -193,7 +191,7 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-si
 }
 .loading-state { display: flex; align-items: center; gap: var(--s-2); color: var(--text-secondary); font-size: var(--fs-2); padding: var(--s-2) 0; }
 .spinner {
-  width: var(--fs-3); height: var(--fs-3); flex: 0 0 auto; border-radius: var(--r-pill);
+  width: var(--icon-sm); height: var(--icon-sm); flex: 0 0 auto; border-radius: var(--r-pill);
   border: var(--stroke-2) solid var(--border-strong); border-top-color: var(--accent-text);
   animation: spin var(--dur-spin) linear infinite;
 }
@@ -214,7 +212,7 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-si
 .progress__fill { height: 100%; background: var(--accent); transition: width var(--dur); }
 .progress__fill--err { background: var(--status-err); }
 .progress__fill--ok { background: var(--status-ok); }
-.progress--inline { min-width: var(--s-10); }
+.progress--inline { min-width: 120px; }
 
 /* Tabs */
 .tabs { display: flex; gap: var(--s-hair); border-bottom: var(--stroke-hair) solid var(--border-subtle); padding: 0 var(--s-2); }
@@ -248,13 +246,13 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-si
   border: var(--stroke-hair) solid var(--border-subtle); border-radius: var(--r-1); background: var(--surface-raised); color: var(--text-secondary); font-size: var(--fs-1);
 }
 .chip code { color: var(--text-secondary); }
-.chip button { width: var(--s-4); height: var(--s-4); min-width: var(--control-min-target); min-height: var(--control-min-target); padding: 0; border: 0; border-radius: var(--r-1); background: transparent; color: var(--text-muted); line-height: 1; }
+.chip button { width: var(--control-min-target); height: var(--control-min-target); padding: 0; border: 0; border-radius: var(--r-1); background: transparent; color: var(--text-muted); line-height: 1; }
 .chip button:hover { background: var(--surface-raised-2); color: var(--text-primary); }
 .chip-row { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 /* Thumbnails */
 .thumb { display: block; width: 100%; height: 100%; object-fit: cover; background: var(--evidence-matte); }
 .thumb-frame { position: relative; overflow: hidden; border-radius: var(--r-1); background: var(--evidence-matte); border: var(--stroke-hair) solid var(--border-subtle); }
-.thumb-frame--sm { width: 64px; height: var(--s-10); flex: 0 0 auto; }
+.thumb-frame--sm { width: 64px; height: 40px; flex: 0 0 auto; }
 .thumb-frame--md { width: 96px; height: 60px; flex: 0 0 auto; }
 .thumb-placeholder { display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-muted); font-size: var(--fs-0); text-align: center; padding: var(--s-1); }
 

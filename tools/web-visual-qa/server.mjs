@@ -32,6 +32,16 @@ const TYPES = {
  */
 export function startServer({ distDir, fixtureDir, scenario, footage }) {
   const server = createServer((req, res) => {
+    try {
+      handle(req, res);
+    } catch (error) {
+      process.stderr.write(`  visual-qa server error on ${req.url}: ${error}\n`);
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    }
+  });
+
+  function handle(req, res) {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     // A trailing slash is the same resource; the client builds some URLs that way.
     const raw = decodeURIComponent(url.pathname);
@@ -59,11 +69,28 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
         const clip = footage?.();
         if (clip && existsSync(clip)) {
           const total = statSync(clip).size;
+          // Chromium asks for ranges in several shapes, including the suffix
+          // form `bytes=-N`. Clamp rather than trust: an out-of-range start
+          // throws inside createReadStream and would take the harness down
+          // mid-pass.
           const range = /** @type {string | undefined} */ (req.headers.range);
-          if (range) {
-            const [from, to] = range.replace('bytes=', '').split('-');
-            const start = Number(from) || 0;
-            const end = to ? Number(to) : total - 1;
+          const match = range && /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+          if (match) {
+            const [, fromText, toText] = match;
+            let start;
+            let end;
+            if (fromText === '') {
+              const suffix = Math.min(Number(toText) || 0, total);
+              start = Math.max(total - suffix, 0);
+              end = total - 1;
+            } else {
+              start = Math.min(Number(fromText), total - 1);
+              end = toText === '' ? total - 1 : Math.min(Number(toText), total - 1);
+            }
+            if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+              res.writeHead(416, { 'content-range': `bytes */${total}` }).end();
+              return;
+            }
             res.writeHead(206, {
               'content-type': TYPES['.webm'],
               'content-range': `bytes ${start}-${end}/${total}`,
@@ -113,7 +140,9 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
     }
     res.writeHead(200, { 'content-type': TYPES['.html'] });
     createReadStream(join(distDir, 'index.html')).pipe(res);
-  });
+  }
+
+  server.on('clientError', (_error, socket) => socket.destroy());
 
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
