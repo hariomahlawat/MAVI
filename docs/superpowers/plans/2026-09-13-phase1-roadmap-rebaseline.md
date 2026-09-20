@@ -83,7 +83,7 @@ This evidence reduces uncertainty but does not replace clean-machine Production 
 
 Task 18 remains the independent Production-qualification stream. It does **not** define the order of new product capabilities.
 
-For capability development, `docs/superpowers/plans/2026-09-20-capability-roadmap-reconciliation.md` is authoritative. The current product sequence is capability-first: finish PR #49, then Spatial & Temporal Track Analytics, Visual Attributes, expanded object classes, ANPR/OCR, visual similarity/ReID and event analytics. Audited review/cases are deferred until the underlying intelligence is rich enough to make those workflows useful; live RTSP/VMS integration remains later.
+For capability development, `docs/superpowers/plans/capability-roadmap.md` is authoritative. With PR #49 merged (`ed1acf4`), the current product sequence is capability-first: Spatial & Temporal Track Analytics, then Visual Attributes, expanded object classes, ANPR/OCR, visual similarity/ReID and event analytics. Audited review/cases are deferred until the underlying intelligence is rich enough to make those workflows useful; live RTSP/VMS integration remains a later platform phase. Development capabilities merged under that roadmap do not become Production-qualified by being merged; Task 18 decides that separately.
 
 ## Source of truth
 

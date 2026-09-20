@@ -5,6 +5,8 @@
 **Branch:** `feature/visual-intelligence-workspace`  
 **Objective:** turn the Task-15/16 React foundation into a complete operator workflow: know what media exists and where it is in processing, search authoritative Tracks, and review the evidence for a Track without leaving the search context.
 
+> **Status note (2026-09-20):** delivered and merged to `main` as PR #50 (`bdf834a`). PR #49 has since merged as well (`ed1acf4`). Statements below about branch state describe the situation when this plan was written. The "Recommended next feature" section has been superseded by `docs/superpowers/plans/capability-roadmap.md`.
+
 This is product-feature work on the operator plane. It consumes the Task-14/15 APIs as published and does not change qualification semantics, checkpoint validation, device policy or anything on the Windows CUDA qualification branch (PR #49), which remains frozen and intact.
 
 ## Delivered capability
@@ -70,4 +72,4 @@ This is product-feature work on the operator plane. It consumes the Task-14/15 A
 
 Initial targets: zones/polygons, trip lines, zone entry/exit, line crossing, direction of travel, dwell duration, stationary/stopped-object duration, threshold-based loitering, class/zone/time counts, occupancy, repeated zone visits and movement heatmaps. Speed should be exposed only where camera calibration makes the estimate defensible.
 
-Review-status mutation, operator identity/audit and investigation cases remain useful later, but are intentionally deferred until MAVI has richer searchable intelligence to review and investigate. See `docs/superpowers/plans/2026-09-20-capability-roadmap-reconciliation.md`.
+Review-status mutation, operator identity/audit and investigation cases remain useful later, but are intentionally deferred until MAVI has richer searchable intelligence to review and investigate. See `docs/superpowers/plans/capability-roadmap.md`.

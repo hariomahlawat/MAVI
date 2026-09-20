@@ -3,7 +3,7 @@
 **Date:** 2026-09-20  
 **Status:** **Deferred — design retained, not the active next implementation increment.**  
 **Base:** `main` after PR #50 merge.  
-**Sequencing decision (20 Sep 2026):** MAVI currently has insufficient semantic richness to justify making cases/review workflow the next major product investment. Capability expansion now comes first: Spatial & Temporal Track Analytics → Visual Attributes → expanded object classes → ANPR/OCR → similarity/ReID → event analytics. This plan is retained so its identity/audit/concurrency design can be reused when human decisions and cases become operationally valuable.  
+**Sequencing decision (20 Sep 2026):** MAVI currently has insufficient semantic richness to justify making cases/review workflow the next major product investment. Capability expansion now comes first: Spatial & Temporal Track Analytics → Visual Attributes → expanded object classes → ANPR/OCR → similarity/ReID → event analytics. This plan is retained so its identity/audit/concurrency design can be reused when human decisions and cases become operationally valuable (stage 10 of `docs/superpowers/plans/capability-roadmap.md`).  
 **Out of scope for this deferred increment:** image similarity, automatic entity grouping, face recognition, mission rules, live ingestion.
 
 > **Do not start Slice 0 / ADR-010 solely because this file exists.** Identity/audit plumbing should be introduced when a concrete operator mutation requires attribution, or when this deferred plan is deliberately reactivated by the capability roadmap.
