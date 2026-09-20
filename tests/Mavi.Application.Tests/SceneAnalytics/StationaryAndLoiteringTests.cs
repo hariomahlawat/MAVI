@@ -88,6 +88,26 @@ public sealed class StationaryAndLoiteringTests
     }
 
     [Fact]
+    public void SmoothingNeverReachesAcrossALongGap()
+    {
+        // Four samples drifting towards 0.42, a ten-second gap, then a long stay at
+        // 0.42. If the window borrowed from the far side of the gap, the drifting
+        // tail would flatten onto 0.42 and the stop would be back-dated into motion
+        // the engine is forbidden to reason across.
+        var before = SceneFixture.Line(4, 200, (0.30, 0.5), (0.42, 0.5));
+        var after = SceneFixture.Held(60, 200, (0.42, 0.5), startMs: 10_600);
+        var path = Path(SceneFixture.Concat(before, after));
+
+        var smoothed = StationaryDetector.Smooth(path, Parameters.SmoothingWindowSamples);
+
+        Assert.True(smoothed[3].X < 0.42);
+        Assert.True(smoothed[2].X < 0.42);
+
+        var interval = Assert.Single(StationaryDetector.Detect(path, ObjectClass.Person, Parameters));
+        Assert.Equal(10_600, interval.StartOffsetMs);
+    }
+
+    [Fact]
     public void SmoothingUsesOnlyTheSamplesThatExistAtTheEdges()
     {
         var samples = SceneFixture.Line(5, 200, (0.1, 0.1), (0.5, 0.5));
@@ -173,7 +193,10 @@ public sealed class StationaryAndLoiteringTests
         var summary = Summarise(ObjectClass.Person, null, Visit(0, 119_999));
 
         Assert.False(summary.Loitering);
-        Assert.Equal(0, summary.LoiteringDwellMs);
+
+        // The observed dwell is still reported, so an inspector can say how close it
+        // came rather than showing a bare zero.
+        Assert.Equal(119_999, summary.LoiteringDwellMs);
         Assert.Empty(summary.LoiteringVisitIndexes);
     }
 

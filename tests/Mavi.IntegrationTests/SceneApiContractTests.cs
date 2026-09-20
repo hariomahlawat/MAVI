@@ -121,6 +121,18 @@ public sealed class SceneApiContractTests(PostgresFixture database)
     }
 
     [Fact]
+    public async Task ReadingARevisionOfAMissingCameraReportsTheCamera()
+    {
+        using var factory = await CreateFactoryAsync();
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync($"/api/cameras/{Guid.CreateVersion7()}/scene/revisions/1");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("camera_not_found", await ReadProblemCodeAsync(response));
+    }
+
+    [Fact]
     public async Task SavingAnEmptyRevisionDisablesAnalyticsWithoutDeletingAnything()
     {
         using var factory = await CreateFactoryAsync();

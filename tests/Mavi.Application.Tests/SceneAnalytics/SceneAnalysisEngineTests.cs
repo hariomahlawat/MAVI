@@ -11,6 +11,8 @@ public sealed class SceneAnalysisEngineTests
 
     private static readonly JsonSerializerOptions CanonicalOptions = new() { WriteIndented = false };
 
+    private static readonly JsonSerializerOptions GoldenOptions = new() { WriteIndented = true };
+
     // Composition
     [Fact]
     public void WalkThroughTheSceneProducesVisitsAndCrossings()
@@ -86,6 +88,21 @@ public sealed class SceneAnalysisEngineTests
     }
 
     // Determinism
+    [Fact]
+    public void ScriptedWalkMatchesTheCommittedGoldenFacts()
+    {
+        // The expected facts are committed, not computed here, so a change to
+        // rounding, to the median's even-count rule, to the ordering or to any
+        // threshold shows up as a diff rather than as silence. The scripted path
+        // enters a zone, stands still inside it long enough to loiter, leaves across
+        // the trip line, and is interrupted by a gap longer than the bridging limit.
+        var expected = File.ReadAllText(GoldenFixturePath).ReplaceLineEndings("\n").Trim();
+
+        var actual = GoldenReport();
+
+        Assert.Equal(expected, actual);
+    }
+
     [Fact]
     public void RepeatedAnalysisOfTheSameInputsIsByteIdentical()
     {
@@ -239,4 +256,101 @@ public sealed class SceneAnalysisEngineTests
     // Helpers
     private static string Canonical(TrackAnalysisResult result) =>
         JsonSerializer.Serialize(result, CanonicalOptions);
+
+    private static string GoldenFixturePath =>
+        TrajectoryDecoderTests.FixturePath("scripted-walk-expected-facts.json");
+
+    /// <summary>
+    /// The scripted scenario and its facts, rendered as canonical JSON.
+    /// </summary>
+    /// <remarks>
+    /// Zone and trip line identities are server-issued and differ on every run, so
+    /// the report names each one by the operator's own name instead. Everything the
+    /// algorithm actually decides, including ordering, is compared literally.
+    /// </remarks>
+    internal static string GoldenReport()
+    {
+        var revision = SceneFixture.Revision(
+            zones: [SceneFixture.CentreZone("Courtyard", loiteringThresholdSeconds: 5)],
+            lines: [SceneFixture.HorizontalLine("Kerb")]);
+        var result = SceneAnalysisEngine.Analyse(
+            ScriptedWalk(),
+            revision,
+            ObjectClass.Person,
+            Parameters);
+
+        var zoneNames = revision.Zones.ToDictionary(zone => zone.ZoneId, zone => zone.Name);
+        var lineNames = revision.TripLines.ToDictionary(line => line.LineId, line => line.Name);
+
+        var report = new
+        {
+            algorithmVersion = SceneAnalyticsAlgorithm.Version,
+            parametersSha256 = Parameters.ParametersSha256(),
+            referencePoint = result.ReferencePoint,
+            sampleCount = result.SampleCount,
+            gapCount = result.GapCount,
+            gapTotalMs = result.GapTotalMs,
+            zoneVisits = result.ZoneVisits.Select(visit => new
+            {
+                zone = zoneNames[visit.ZoneId],
+                visitIndex = visit.VisitIndex,
+                entryOffsetMs = visit.EntryOffsetMs,
+                exitOffsetMs = visit.ExitOffsetMs,
+                dwellMs = visit.DwellMs,
+                beganInside = visit.BeganInside,
+                endedInside = visit.EndedInside,
+                closedByGap = visit.ClosedByGap,
+                entryHeading = visit.EntryHeading,
+                exitHeading = visit.ExitHeading,
+            }),
+            zoneSummaries = result.ZoneSummaries.Select(summary => new
+            {
+                zone = zoneNames[summary.ZoneId],
+                visitCount = summary.VisitCount,
+                totalDwellMs = summary.TotalDwellMs,
+                firstEntryOffsetMs = summary.FirstEntryOffsetMs,
+                lastExitOffsetMs = summary.LastExitOffsetMs,
+                loitering = summary.Loitering,
+                loiteringThresholdSeconds = summary.LoiteringThresholdSeconds,
+                loiteringDwellMs = summary.LoiteringDwellMs,
+                loiteringVisitIndexes = summary.LoiteringVisitIndexes,
+            }),
+            lineCrossings = result.LineCrossings.Select(crossing => new
+            {
+                line = lineNames[crossing.LineId],
+                crossingIndex = crossing.CrossingIndex,
+                offsetMs = crossing.OffsetMs,
+                direction = crossing.Direction,
+                x = crossing.Point.X,
+                y = crossing.Point.Y,
+            }),
+            motion = new
+            {
+                heading = result.Motion.Heading,
+                pathLengthNormalised = result.Motion.PathLengthNormalised,
+                meanDisplacementRateNormalisedPerSecond =
+                    result.Motion.MeanDisplacementRateNormalisedPerSecond,
+                longestStationaryMs = result.Motion.LongestStationaryMs,
+                totalStationaryMs = result.Motion.TotalStationaryMs,
+                stationaryIntervals = result.Motion.StationaryIntervals.Select(interval => new
+                {
+                    startOffsetMs = interval.StartOffsetMs,
+                    endOffsetMs = interval.EndOffsetMs,
+                }),
+                stationaryZones = result.Motion.StationaryZoneIds.Select(id => zoneNames[id]),
+            },
+        };
+
+        return JsonSerializer.Serialize(report, GoldenOptions);
+    }
+
+    /// <summary>
+    /// Walks in from the top of the frame, stands still inside the zone above the
+    /// trip line for eight seconds, vanishes for six, then returns and leaves
+    /// downwards across both the line and the far edge of the zone.
+    /// </summary>
+    private static IReadOnlyList<TrajectorySample> ScriptedWalk() => SceneFixture.Concat(
+        SceneFixture.Line(7, 100, (0.5, 0.10), (0.5, 0.40)),
+        SceneFixture.Held(41, 200, (0.5, 0.40), startMs: 700),
+        SceneFixture.Line(11, 100, (0.5, 0.40), (0.5, 0.90), startMs: 15_000));
 }

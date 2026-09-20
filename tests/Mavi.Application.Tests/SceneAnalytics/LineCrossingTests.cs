@@ -15,7 +15,10 @@ public sealed class LineCrossingTests
 
         var crossing = Assert.Single(crossings);
         Assert.Equal(0, crossing.CrossingIndex);
-        Assert.Equal(CrossingDirection.AToB, crossing.Direction);
+
+        // The line is drawn left to right, so its left-hand side is the top of the
+        // frame; a Track moving downwards arrives on the right and crosses B to A.
+        Assert.Equal(CrossingDirection.BToA, crossing.Direction);
     }
 
     [Fact]
@@ -24,8 +27,8 @@ public sealed class LineCrossingTests
         var down = Assert.Single(Detect(SceneFixture.Line(9, 100, (0.5, 0.1), (0.5, 0.9))));
         var up = Assert.Single(Detect(SceneFixture.Line(9, 100, (0.5, 0.9), (0.5, 0.1))));
 
-        Assert.Equal(CrossingDirection.AToB, down.Direction);
-        Assert.Equal(CrossingDirection.BToA, up.Direction);
+        Assert.Equal(CrossingDirection.BToA, down.Direction);
+        Assert.Equal(CrossingDirection.AToB, up.Direction);
     }
 
     [Fact]
@@ -36,8 +39,8 @@ public sealed class LineCrossingTests
         var forward = Assert.Single(Detect(samples));
         var reversed = Assert.Single(Detect(samples, SceneFixture.ReversedHorizontalLine()));
 
-        Assert.Equal(CrossingDirection.AToB, forward.Direction);
-        Assert.Equal(CrossingDirection.BToA, reversed.Direction);
+        Assert.Equal(CrossingDirection.BToA, forward.Direction);
+        Assert.Equal(CrossingDirection.AToB, reversed.Direction);
         Assert.Equal(forward.OffsetMs, reversed.OffsetMs);
     }
 
@@ -146,7 +149,7 @@ public sealed class LineCrossingTests
             (600, 0.5, 0.40));
 
         Assert.Equal(
-            [CrossingDirection.AToB, CrossingDirection.BToA],
+            [CrossingDirection.BToA, CrossingDirection.AToB],
             Detect(samples).Select(crossing => crossing.Direction));
     }
 
@@ -181,7 +184,7 @@ public sealed class LineCrossingTests
 
         var directions = Detect(samples).Select(crossing => crossing.Direction).ToArray();
 
-        Assert.Equal([CrossingDirection.AToB, CrossingDirection.BToA], directions);
+        Assert.Equal([CrossingDirection.BToA, CrossingDirection.AToB], directions);
     }
 
     [Fact]
@@ -197,7 +200,7 @@ public sealed class LineCrossingTests
         Assert.Equal(3, crossings.Count);
         Assert.Equal([0, 1, 2], crossings.Select(crossing => crossing.CrossingIndex));
         Assert.Equal(
-            [CrossingDirection.AToB, CrossingDirection.BToA, CrossingDirection.AToB],
+            [CrossingDirection.BToA, CrossingDirection.AToB, CrossingDirection.BToA],
             crossings.Select(crossing => crossing.Direction));
     }
 

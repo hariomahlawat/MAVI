@@ -16,13 +16,14 @@ namespace Mavi.Application.Modules.SceneAnalytics.Engine;
 /// the line never leaves the band at all.
 /// </para>
 /// <para>
-/// <b>Direction convention.</b> The cross product of the line's direction with the
-/// vector to a point is positive on one fixed side; arriving on that side is
-/// <see cref="CrossingDirection.AToB"/>. In screen axes, with y growing downwards,
-/// that is the side visually below a left-to-right line: a Track moving down
-/// through a horizontal line drawn from left to right crosses A to B. Swapping the
-/// endpoints reverses every direction, which is exactly what an operator expects
-/// when they redraw the line the other way.
+/// <b>Direction convention.</b> Arriving on the left-hand side of A to B, as the
+/// plan freezes it, is <see cref="CrossingDirection.AToB"/>. Screen axes put y
+/// downwards, so the left of a line drawn left to right is the side visually
+/// above it, and the cross product of the line's direction with the vector to a
+/// point is negative there. A Track moving upwards through a horizontal line
+/// drawn from left to right therefore crosses A to B, and one moving downwards
+/// crosses B to A. Swapping the endpoints reverses every direction, which is what
+/// an operator expects when they redraw the line the other way.
 /// </para>
 /// </remarks>
 public static class LineCrossingDetector
@@ -148,7 +149,7 @@ public static class LineCrossingDetector
                 line.LineId,
                 CrossingIndex: 0,
                 path.InterpolateOffset(index, parameter),
-                arriving > 0 ? CrossingDirection.AToB : CrossingDirection.BToA,
+                arriving < 0 ? CrossingDirection.AToB : CrossingDirection.BToA,
                 from.Lerp(to, parameter));
         }
 

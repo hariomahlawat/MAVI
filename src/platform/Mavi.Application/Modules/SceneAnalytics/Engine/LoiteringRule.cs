@@ -52,7 +52,9 @@ public static class LoiteringRule
             visits.Count == 0 ? 0 : lastExit,
             loitering,
             threshold,
-            loitering ? totalDwell : 0,
+            // The observed dwell is reported whether or not it reached the threshold,
+            // so an inspector can show "118 s against 120 s" rather than a bare zero.
+            totalDwell,
             loitering ? contributing : []);
     }
 }

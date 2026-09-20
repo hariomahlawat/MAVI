@@ -364,6 +364,68 @@ public sealed class SceneConfigurationTests
         Assert.Equal("Main GATE", revision.Zones[0].Name);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ZoneWithoutANameIsRefused(string? name)
+    {
+        var exception = Assert.Throws<DomainValidationException>(
+            () => Save(NewConfiguration(), null, Draft(Zone(name!))));
+
+        Assert.Equal(SceneErrorCodes.ZoneNameRequired, exception.Code);
+    }
+
+    [Fact]
+    public void OverLongZoneNameIsRefused()
+    {
+        var exception = Assert.Throws<DomainValidationException>(() => Save(
+            NewConfiguration(),
+            null,
+            Draft(Zone(new string('z', SceneRules.MaximumNameLength + 1)))));
+
+        Assert.Equal(SceneErrorCodes.ZoneNameTooLong, exception.Code);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void TripLineWithoutANameIsRefused(string? name)
+    {
+        var exception = Assert.Throws<DomainValidationException>(() => Save(
+            NewConfiguration(),
+            null,
+            new SceneRevisionDraft(null, null, null, [], [Line(name!)])));
+
+        Assert.Equal(SceneErrorCodes.LineNameRequired, exception.Code);
+    }
+
+    [Fact]
+    public void OverLongTripLineNameIsRefused()
+    {
+        var exception = Assert.Throws<DomainValidationException>(() => Save(
+            NewConfiguration(),
+            null,
+            new SceneRevisionDraft(
+                null, null, null, [], [Line(new string('k', SceneRules.MaximumNameLength + 1))])));
+
+        Assert.Equal(SceneErrorCodes.LineNameTooLong, exception.Code);
+    }
+
+    [Fact]
+    public void TooManyTripLinesAreRefused()
+    {
+        var lines = Enumerable.Range(0, SceneRules.MaximumTripLinesPerRevision + 1)
+            .Select(index => Line($"Line {index}"))
+            .ToArray();
+
+        var exception = Assert.Throws<DomainValidationException>(
+            () => Save(NewConfiguration(), null, new SceneRevisionDraft(null, null, null, [], lines)));
+
+        Assert.Equal(SceneErrorCodes.GeometryCount, exception.Code);
+    }
+
     [Fact]
     public void UnknownZoneKindIsRefused()
     {

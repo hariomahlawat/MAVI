@@ -27,6 +27,28 @@ public sealed class AddSceneConfiguration : Migration
 
     protected override void Up(MigrationBuilder migrationBuilder)
     {
+        // Zone vertices live in jsonb, so the coordinate range that plain columns get
+        // from a simple check needs a function to express. It is immutable and reads
+        // only its argument, which is what lets a check constraint call it.
+        migrationBuilder.Sql("""
+            CREATE FUNCTION scene_vertices_in_range(vertices jsonb)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            STRICT
+            PARALLEL SAFE
+            AS $$
+                SELECT COALESCE(bool_and(
+                    jsonb_typeof(vertex) = 'array'
+                    AND jsonb_array_length(vertex) = 2
+                    AND jsonb_typeof(vertex -> 0) = 'number'
+                    AND jsonb_typeof(vertex -> 1) = 'number'
+                    AND (vertex ->> 0)::numeric BETWEEN 0 AND 1
+                    AND (vertex ->> 1)::numeric BETWEEN 0 AND 1), false)
+                FROM jsonb_array_elements(vertices) AS vertex;
+            $$;
+            """);
+
         migrationBuilder.CreateTable(
             name: "scene_configurations",
             columns: table => new
@@ -171,6 +193,12 @@ public sealed class AddSceneConfiguration : Migration
             table: "trip_lines",
             column: "line_id");
 
+        migrationBuilder.Sql("""
+            ALTER TABLE scene_zones
+            ADD CONSTRAINT ck_scene_zones_vertex_range
+            CHECK (scene_vertices_in_range(vertices));
+            """);
+
         // A configuration's active revision must be one of its own revisions. The
         // constraint is a cycle with the revision's own foreign key, so it is declared
         // deferrable and checked when the transaction commits rather than statement by
@@ -203,5 +231,7 @@ public sealed class AddSceneConfiguration : Migration
 
         migrationBuilder.DropTable(
             name: "scene_configurations");
+
+        migrationBuilder.Sql("DROP FUNCTION IF EXISTS scene_vertices_in_range(jsonb);");
     }
 }

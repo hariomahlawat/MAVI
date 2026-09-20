@@ -46,6 +46,14 @@ public static class TrajectoryDecoder
     private const byte Map16 = 0xde;
     private const byte Map32 = 0xdf;
 
+    /// <summary>
+    /// Most samples one Track may carry. Far above anything the worker produces: an
+    /// hour of 60 fps detections is a fifth of this. It is a ceiling on what a
+    /// malformed or hostile artefact can make the engine allocate, not a limit the
+    /// pipeline is expected to approach.
+    /// </summary>
+    public const int MaximumSamples = 1_000_000;
+
     /// <summary>Smallest number of bytes any encoded point array can occupy.</summary>
     /// <remarks>
     /// One array header plus three single-byte values. Used to reject an absurd
@@ -122,6 +130,11 @@ public static class TrajectoryDecoder
         if ((long)count * MinimumEncodedPointBytes > reader.Remaining)
         {
             throw Invalid("A trajectory declares more points than its payload can hold.");
+        }
+
+        if (count > MaximumSamples)
+        {
+            throw Invalid("A trajectory declares more samples than the engine will read.");
         }
 
         var samples = new List<TrajectorySample>(count);

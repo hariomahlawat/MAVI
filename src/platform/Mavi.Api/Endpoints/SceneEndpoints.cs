@@ -45,6 +45,13 @@ public static class SceneEndpoints
         SceneConfigurationService service,
         CancellationToken cancellationToken)
     {
+        // A missing camera is reported as such rather than as a missing revision, so
+        // the answer names what the caller actually got wrong.
+        if (await service.GetAsync(cameraId, cancellationToken) is null)
+        {
+            return Problem(StatusCodes.Status404NotFound, CameraErrorCodes.NotFound, "Camera was not found.");
+        }
+
         var revision = await service.GetRevisionAsync(cameraId, revisionNumber, cancellationToken);
         return revision is null
             ? Problem(
@@ -161,8 +168,9 @@ public static class SceneEndpoints
         revision.Note,
         revision.ReferenceFrameVideoAssetId,
         revision.ReferenceFrameOffsetMs,
-        // Ordered by stable identity, which for a UUIDv7 is the order the zones were
-        // first created, so a zone keeps its place in the list across revisions.
+        // Ordered by stable identity so that a zone or line keeps the same place in
+        // the list from one revision to the next. The order itself carries no meaning
+        // beyond being the same every time: a GUID does not sort chronologically.
         [.. revision.Zones.OrderBy(zone => zone.ZoneId).Select(ToResponse)],
         [.. revision.TripLines.OrderBy(line => line.LineId).Select(ToResponse)]);
 

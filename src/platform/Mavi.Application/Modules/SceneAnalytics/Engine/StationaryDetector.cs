@@ -93,30 +93,38 @@ public static class StationaryDetector
     /// coordinate independently so that a single mis-placed sample cannot drag the
     /// path the way a mean would.
     /// </summary>
+    /// <remarks>
+    /// The window never reaches across a long gap: each observed run is smoothed on
+    /// its own. Drawing a value from the far side of a gap would put a position the
+    /// engine is forbidden to infer into the evidence for an interval, and could
+    /// back-date a stop by up to half a window.
+    /// </remarks>
     internal static NormalizedPoint[] Smooth(TrajectoryPath path, int window)
     {
-        var count = path.Count;
-        var result = new NormalizedPoint[count];
+        var result = new NormalizedPoint[path.Count];
         var half = Math.Max(0, window / 2);
         var xs = new List<double>(window);
         var ys = new List<double>(window);
 
-        for (var index = 0; index < count; index++)
+        foreach (var run in path.Runs)
         {
-            xs.Clear();
-            ys.Clear();
-
-            // Edges use only the samples that exist, rather than padding with
-            // invented ones.
-            var from = Math.Max(0, index - half);
-            var to = Math.Min(count - 1, index + half);
-            for (var inner = from; inner <= to; inner++)
+            for (var index = run.Start; index <= run.End; index++)
             {
-                xs.Add(path[inner].Position.X);
-                ys.Add(path[inner].Position.Y);
-            }
+                xs.Clear();
+                ys.Clear();
 
-            result[index] = NormalizedPoint.FromRounded(Median(xs), Median(ys));
+                // Edges of a run use only the samples that exist inside it, rather
+                // than padding with invented ones or borrowing across the gap.
+                var from = Math.Max(run.Start, index - half);
+                var to = Math.Min(run.End, index + half);
+                for (var inner = from; inner <= to; inner++)
+                {
+                    xs.Add(path[inner].Position.X);
+                    ys.Add(path[inner].Position.Y);
+                }
+
+                result[index] = NormalizedPoint.FromRounded(Median(xs), Median(ys));
+            }
         }
 
         return result;

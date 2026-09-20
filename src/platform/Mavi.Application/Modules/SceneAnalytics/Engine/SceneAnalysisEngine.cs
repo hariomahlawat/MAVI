@@ -17,7 +17,9 @@ namespace Mavi.Application.Modules.SceneAnalytics.Engine;
 /// </para>
 /// <para>
 /// Results are emitted in a fixed order so that two runs of the engine are
-/// comparable byte for byte after serialisation.
+/// comparable byte for byte after serialisation. The order is chosen to be stable
+/// rather than meaningful: sorting by identity only guarantees that the same input
+/// yields the same sequence, since a GUID does not sort by age.
 /// </para>
 /// </remarks>
 public static class SceneAnalysisEngine

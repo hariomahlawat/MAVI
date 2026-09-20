@@ -34,7 +34,15 @@ public readonly record struct NormalizedPoint
     /// <see cref="MidpointRounding.ToEven"/> is stated explicitly rather than left to
     /// the default so the result cannot drift with a future platform default.
     /// </remarks>
-    public static double Round(double value) => Math.Round(value, Decimals, MidpointRounding.ToEven);
+    public static double Round(double value)
+    {
+        var rounded = Math.Round(value, Decimals, MidpointRounding.ToEven);
+
+        // A coordinate a hair below zero rounds to negative zero, which persists as
+        // "-0" and shows an operator a sign they never drew. It compares equal to
+        // zero, so normalising it costs nothing.
+        return rounded == 0 ? 0 : rounded;
+    }
 
     /// <summary>True when a raw component is finite and inside the unit interval once rounded.</summary>
     public static bool IsInRange(double value) => double.IsFinite(value) && Round(value) is >= 0 and <= 1;

@@ -254,6 +254,39 @@ public sealed class SceneConfigurationPersistenceTests(PostgresFixture fixture)
         Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
     }
 
+    [Theory]
+    [InlineData("[[1.4,0.1],[0.2,0.2],[0.3,0.3]]")]
+    [InlineData("[[-0.5,0.1],[0.2,0.2],[0.3,0.3]]")]
+    [InlineData("[[0.1,0.1],[0.2,2.0],[0.3,0.3]]")]
+    [InlineData("[[\"0.1\",0.1],[0.2,0.2],[0.3,0.3]]")]
+    [InlineData("[[0.1],[0.2,0.2],[0.3,0.3]]")]
+    public async Task TheDatabaseRefusesAZoneVertexOutsideTheFrame(string vertices)
+    {
+        await using var db = await FreshDatabaseAsync();
+        var camera = await AddCameraAsync(db);
+        var revision = await SaveAsync(db, camera.Id, Draft(Zone("Gate")));
+
+        var exception = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(
+            $"UPDATE scene_zones SET vertices = '{vertices}'::jsonb WHERE revision_id = @id;",
+            revision.Id));
+
+        Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
+    }
+
+    [Fact]
+    public async Task TheDatabaseAcceptsZoneVerticesAtTheEdgesOfTheFrame()
+    {
+        await using var db = await FreshDatabaseAsync();
+        var camera = await AddCameraAsync(db);
+        var revision = await SaveAsync(db, camera.Id, Draft(Zone("Gate")));
+
+        var updated = await ExecuteAsync(
+            "UPDATE scene_zones SET vertices = '[[0,0],[1,0],[1,1]]'::jsonb WHERE revision_id = @id;",
+            revision.Id);
+
+        Assert.Equal(1, updated);
+    }
+
     [Fact]
     public async Task TheDatabaseRefusesATripLineOutsideTheFrame()
     {
