@@ -53,6 +53,9 @@ describe('Context Bar', () => {
     expect(container.querySelectorAll('.context-bar')).toHaveLength(1);
     const bar = container.querySelector('.context-bar') as HTMLElement;
     expect(within(bar).getByText('CAM-01')).toBeInTheDocument();
+    // The title block is gone, but the surface still has a document heading:
+    // §4 removes the block, not the ability to ask "where am I?".
+    expect(within(bar).getByRole('heading', { level: 1 })).toHaveTextContent('Cameras — CAM-01 — Scene');
     // The shell's fallback is gone, not rendered underneath the surface's own.
     expect(within(bar).queryByText('Section')).not.toBeInTheDocument();
   });

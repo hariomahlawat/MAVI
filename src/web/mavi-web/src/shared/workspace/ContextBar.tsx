@@ -69,6 +69,12 @@ export default function ContextBar({
 
   const content = (
     <>
+      {/* §4 removes the large page title *block* from the product; it does not
+          remove the document's heading, and a surface with no h1 is harder to
+          orient in by keyboard, not simpler. So the trail is also stated once
+          as the heading — where a screen-reader user jumps to ask "where am
+          I?" — and takes no space on screen. */}
+      <h1 className="visually-hidden">{crumbs.map((crumb) => crumb.label).join(' — ')}</h1>
       <Breadcrumbs crumbs={crumbs} />
       {status ? <div className="context-bar__status">{status}</div> : null}
       <div className="context-bar__spacer" />

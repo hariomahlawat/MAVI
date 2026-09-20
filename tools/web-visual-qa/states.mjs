@@ -54,6 +54,35 @@ const SEEK = `(() => {
   return Boolean(jump);
 })()`;
 
+/**
+ * Dirty the scene, which is what fills the Context Bar.
+ *
+ * A clean Scene Editor shows crumbs, three badges and two buttons. Editing adds
+ * the revision note field and the unsaved-changes state, and that is the bar's
+ * busiest arrangement — so it is the one where controls collide at 1366 if they
+ * are going to. Renaming through the real field goes through the real reducer,
+ * so the state is reached rather than simulated.
+ */
+const DIRTY_SCENE = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const object = document.querySelector('.scene-navigator__name');
+  if (!object) return false;
+  object.click();
+  await wait(300);
+  const field = Array.from(document.querySelectorAll('input')).find((i) => {
+    const label = i.labels && i.labels[0];
+    return label && label.textContent.trim() === 'Name';
+  });
+  if (!field) return false;
+  // Through the native setter, so React sees a real change rather than a
+  // value assignment it never hears about.
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  setter.call(field, 'A considerably longer zone name');
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  await wait(300);
+  return Boolean(document.querySelector('.scene-context__note input'));
+})()`;
+
 export const WIDTHS = [
   { width: 1366, height: 768, label: '1366x768' },
   { width: 1440, height: 900, label: '1440x900' },
@@ -101,6 +130,19 @@ export const STATES = [
     archetype: 'workbench',
     settleMs: 1200,
     api: { [`/api/cameras/${CAM}/scene`]: { cameraId: CAM, configured: false, activeRevision: null, history: [] } },
+  },
+  {
+    // The bar at its fullest: identity, three badges, the note field, Reset and
+    // Save, all in 44px.
+    name: 'scene-editor-dirty',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    settleMs: 1200,
+    prepare: DIRTY_SCENE,
+    // A placeholder is not page text, so the note field is proven by the
+    // preparation's own return value instead — a failed prepare is a finding.
+    expectText: 'Unsaved changes',
   },
   {
     name: 'scene-editor-unavailable',
