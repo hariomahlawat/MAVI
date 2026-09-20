@@ -1,0 +1,36 @@
+[
+ {
+  "id": "22222222-2222-7222-8222-222222222222",
+  "cameraId": "11111111-1111-7111-8111-111111111111",
+  "originalFileName": "north-gate-0800.mp4",
+  "recordingStartUtc": "2026-09-14T02:30:00Z",
+  "recordingEndUtc": "2026-09-14T02:40:00Z",
+  "recordingTimeZoneId": "Asia/Kolkata",
+  "recordingUtcOffsetMinutes": 330,
+  "durationMs": 600000,
+  "width": 1920,
+  "height": 1080,
+  "frameRateNumerator": 25,
+  "frameRateDenominator": 1,
+  "codecName": "h264",
+  "processingStatus": "Processed",
+  "importedAtUtc": "2026-09-14T03:00:00Z"
+ },
+ {
+  "id": "44444444-4444-7444-8444-444444444444",
+  "cameraId": "11111111-1111-7111-8111-111111111111",
+  "originalFileName": "north-gate-0900-very-long-original-file-name-for-truncation.mp4",
+  "recordingStartUtc": "2026-09-14T03:30:00Z",
+  "recordingEndUtc": "2026-09-14T03:40:00Z",
+  "recordingTimeZoneId": "Asia/Kolkata",
+  "recordingUtcOffsetMinutes": 330,
+  "durationMs": 600000,
+  "width": 1920,
+  "height": 1080,
+  "frameRateNumerator": 25,
+  "frameRateDenominator": 1,
+  "codecName": "h264",
+  "processingStatus": "Processing",
+  "importedAtUtc": "2026-09-14T04:00:00Z"
+ }
+]

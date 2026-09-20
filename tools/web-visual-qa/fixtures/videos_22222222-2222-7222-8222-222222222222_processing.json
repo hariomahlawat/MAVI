@@ -1,0 +1,15 @@
+{
+ "videoStatus": "Processed",
+ "latestRun": {
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "status": "Completed",
+  "queuedAtUtc": "2026-09-14T03:05:00Z",
+  "startedAtUtc": "2026-09-14T03:05:10Z",
+  "completedAtUtc": "2026-09-14T03:09:40Z",
+  "progressPercent": 100,
+  "failureCode": null,
+  "failureDetail": null,
+  "trackCount": 6,
+  "observationCount": 244
+ }
+}
