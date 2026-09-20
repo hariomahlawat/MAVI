@@ -68,4 +68,44 @@ describe('trip line direction', () => {
     expect(bToANormal({ x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 })).toBeNull();
     expect(alongLine({ x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 })).toBeNull();
   });
+
+  it('stays perpendicular once the line is projected into pixels', () => {
+    // Projection scales x and y by different amounts, so the normal has to be
+    // taken in the space the line is drawn in. A normal computed in normalised
+    // space and used as a pixel offset would be visibly off the perpendicular.
+    const frame = { x: 0, y: 0, width: 640, height: 360 };
+    const from = { x: 0.2, y: 0.2 };
+    const to = { x: 0.8, y: 0.7 };
+    const drawnFrom = { x: frame.x + from.x * frame.width, y: frame.y + from.y * frame.height };
+    const drawnTo = { x: frame.x + to.x * frame.width, y: frame.y + to.y * frame.height };
+
+    const drawnDirection = alongLine(drawnFrom, drawnTo)!;
+    const drawnNormal = aToBNormal(drawnFrom, drawnTo)!;
+    expect(drawnDirection.x * drawnNormal.x + drawnDirection.y * drawnNormal.y).toBeCloseTo(0, 12);
+
+    // The naive normal, taken before projection, is not perpendicular once drawn.
+    const naive = aToBNormal(from, to)!;
+    expect(Math.abs(drawnDirection.x * naive.x + drawnDirection.y * naive.y)).toBeGreaterThan(0.1);
+  });
+
+  it('keeps the drawn normal on the side the engine calls A to B', () => {
+    // Projection is a positive axis-aligned scaling, so it cannot move a point
+    // across the line: the side a pixel-space normal points to is still the
+    // side the backend computes a negative cross product for.
+    const frame = { width: 640, height: 360 };
+    for (const [from, to] of [
+      [{ x: 0.2, y: 0.2 }, { x: 0.8, y: 0.7 }],
+      [{ x: 0.9, y: 0.1 }, { x: 0.1, y: 0.8 }],
+      [{ x: 0.1, y: 0.5 }, { x: 0.9, y: 0.5 }],
+    ] as const) {
+      const drawnFrom = { x: from.x * frame.width, y: from.y * frame.height };
+      const drawnTo = { x: to.x * frame.width, y: to.y * frame.height };
+      const normal = aToBNormal(drawnFrom, drawnTo)!;
+      const centre = midpoint(drawnFrom, drawnTo);
+      const arrival = { x: centre.x + normal.x * 20, y: centre.y + normal.y * 20 };
+      // Back into normalised space, where the engine's rule is stated.
+      const normalised = { x: arrival.x / frame.width, y: arrival.y / frame.height };
+      expect(crossProduct(from, to, normalised)).toBeLessThan(0);
+    }
+  });
 });

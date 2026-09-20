@@ -16,20 +16,20 @@ import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
 import LoadingState from '../../shared/components/LoadingState';
-import PageHeader from '../../shared/components/PageHeader';
-import Panel from '../../shared/components/Panel';
-import StatusBadge from '../../shared/components/StatusBadge';
 import { editorReducer, initialEditorState, NUDGE_STEP, type Selection } from './editorState';
-import ReferenceFramePicker from './ReferenceFramePicker';
+import ReferenceFrameBar from './ReferenceFrameBar';
 import RevisionHistory from './RevisionHistory';
 import SceneCanvas from './SceneCanvas';
+import SceneContextBar from './SceneContextBar';
 import { draftAnalyticsEnabled, draftFromRevision, saveRequestFromDraft, type SceneDraft } from './sceneDraft';
 import { isCameraMissing, isRevisionConflict, sceneErrorMessage } from './sceneErrors';
 import SceneObjectList from './SceneObjectList';
 import ScenePropertiesPanel from './ScenePropertiesPanel';
+import SceneToolbar from './SceneToolbar';
+import { issuesByKey, validateDraft } from './sceneValidation';
 import { useUnsavedChangesGuard } from './useUnsavedChangesGuard';
 
-/** The frame the canvas falls back to when no reference video is loaded. */
+/** The frame the stage falls back to when no reference video is loaded. */
 const NEUTRAL_FRAME = { width: 16, height: 9 };
 
 const UNSAVED_MESSAGE = 'You have unsaved scene changes. Leave without saving?';
@@ -41,12 +41,12 @@ export const sceneQueryKeys = {
 };
 
 /**
- * Configures the geometry a camera's future analytics will be evaluated
- * against.
+ * The scene configuration workstation.
  *
- * This page describes work that has not happened. It never reports analytics
- * readiness, matches or counts, because no analysis has run: the lifecycle that
- * would produce them arrives in a later slice.
+ * The frame is the work, so it takes the room; everything else is a compact
+ * band around it. The page describes work that has not happened: it never
+ * reports analytics readiness, matches or counts, because no analysis has run.
+ * The lifecycle that would produce them arrives in a later slice.
  */
 export default function SceneEditorPage() {
   const { cameraId = '' } = useParams<{ cameraId: string }>();
@@ -76,19 +76,43 @@ export default function SceneEditorPage() {
   const [previewVideoId, setPreviewVideoId] = useState<string | null>(null);
   const [mediaFailed, setMediaFailed] = useState(false);
   const [viewingRevisionNumber, setViewingRevisionNumber] = useState<number | null>(null);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [conflict, setConflict] = useState(false);
+  const [supersededRevision, setSupersededRevision] = useState<number | null>(null);
   const loadedRevisionRef = useRef<string | null>(null);
-  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Read inside an effect that must not re-run when it changes.
+  const dirtyRef = useRef(state.dirty);
+  dirtyRef.current = state.dirty;
 
   const activeRevision = scene.data?.activeRevision ?? null;
 
-  // The draft follows the active revision, but only when the server actually
-  // hands over a different one: re-rendering must never discard local edits.
+  // The draft follows the active revision, but never at the cost of the
+  // operator's work. A refetch can bring back a revision somebody else saved
+  // while this scene was being edited; adopting it would erase unsaved
+  // geometry with no prompt and no way back, so instead the page says what
+  // happened and leaves the decision, and the draft, alone. A save from here
+  // is refused by the server as a conflict, which is exactly right.
   useEffect(() => {
     const signature = activeRevision ? activeRevision.revisionId : 'none';
     if (loadedRevisionRef.current === signature) return;
+    if (dirtyRef.current) {
+      setSupersededRevision(activeRevision?.revisionNumber ?? null);
+      return;
+    }
     loadedRevisionRef.current = signature;
+    setSupersededRevision(null);
+    dispatch({ type: 'loadActive', revision: activeRevision });
+    setPreviewVideoId(activeRevision?.referenceFrameVideoAssetId ?? null);
+    setViewingRevisionNumber(null);
+  }, [activeRevision]);
+
+  /** Adopts the saved revision, discarding the local draft on purpose. */
+  const adoptActiveRevision = useCallback(() => {
+    loadedRevisionRef.current = activeRevision ? activeRevision.revisionId : 'none';
+    setSupersededRevision(null);
+    setConflict(false);
     dispatch({ type: 'loadActive', revision: activeRevision });
     setPreviewVideoId(activeRevision?.referenceFrameVideoAssetId ?? null);
     setViewingRevisionNumber(null);
@@ -114,7 +138,12 @@ export default function SceneEditorPage() {
     [historicalRevision.data],
   );
   const shownDraft = readOnly && historicalDraft ? historicalDraft : state.draft;
-  const shownSelection: Selection = readOnly ? { kind: 'none' } : state.selection;
+  const shownSelection: Selection = state.selection;
+
+  const issues = useMemo(() => (readOnly ? [] : validateDraft(state.draft)), [readOnly, state.draft]);
+  const issuesForKey = useMemo(() => issuesByKey(issues), [issues]);
+  const invalidKeys = useMemo(() => new Set(issuesForKey.keys()), [issuesForKey]);
+  const sceneIssues = issues.filter((issue) => issue.key === null);
 
   useUnsavedChangesGuard(state.dirty, UNSAVED_MESSAGE);
 
@@ -122,7 +151,7 @@ export default function SceneEditorPage() {
     mutationFn: (draft: SceneDraft) => saveCameraScene(cameraId, saveRequestFromDraft(draft)),
     onSuccess: async (revision: SceneRevision) => {
       setConflict(false);
-      setSaveMessage(`Saved revision ${revision.revisionNumber}.`);
+      setSaved(true);
       // The server-issued identities arrive with the response; the draft is
       // rebuilt from it rather than guessing what the server chose.
       loadedRevisionRef.current = revision.revisionId;
@@ -131,14 +160,10 @@ export default function SceneEditorPage() {
       await queryClient.invalidateQueries({ queryKey: sceneQueryKeys.scene(cameraId) });
     },
     onError: (error: unknown) => {
-      setSaveMessage(null);
+      setSaved(false);
       setConflict(isRevisionConflict(error));
     },
   });
-
-  const previewVideo: VideoAsset | undefined = previewVideoId
-    ? cameraVideos.find((video) => video.id === previewVideoId)
-    : undefined;
 
   const referenceOffsetForCanvas = readOnly
     ? historicalRevision.data?.referenceFrameOffsetMs ?? null
@@ -146,14 +171,9 @@ export default function SceneEditorPage() {
   const canvasVideoId = readOnly
     ? historicalRevision.data?.referenceFrameVideoAssetId ?? null
     : previewVideoId;
-  const canvasVideo = canvasVideoId ? cameraVideos.find((video) => video.id === canvasVideoId) : undefined;
-
-  const useCurrentFrame = useCallback(() => {
-    if (!previewVideoId) return;
-    const video = canvasRef.current?.querySelector('video');
-    const offsetMs = video && Number.isFinite(video.currentTime) ? Math.round(video.currentTime * 1000) : 0;
-    dispatch({ type: 'setReferenceFrame', videoAssetId: previewVideoId, offsetMs });
-  }, [previewVideoId]);
+  const canvasVideo: VideoAsset | undefined = canvasVideoId
+    ? cameraVideos.find((video) => video.id === canvasVideoId)
+    : undefined;
 
   const handleFrameClick = useCallback((point: { x: number; y: number }) => {
     if (state.tool === 'zone') {
@@ -171,8 +191,7 @@ export default function SceneEditorPage() {
   useEffect(() => {
     if (readOnly) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (isTextEntry(target)) return;
+      if (isTextEntry(event.target as HTMLElement | null)) return;
 
       if (event.key === 'Escape') {
         if (state.drawing.kind !== 'none') dispatch({ type: 'cancelDrawing' });
@@ -203,54 +222,65 @@ export default function SceneEditorPage() {
   }, [readOnly, state.drawing.kind, state.selection]);
 
   const analyticsEnabled = draftAnalyticsEnabled(state.draft);
-  const saveDisabled = saveMutation.isPending || readOnly || !camera.data?.isActive;
+  const cameraActive = camera.data?.isActive ?? false;
+  const blockedReason = !cameraActive
+    ? 'This camera is inactive, so its scene cannot be changed.'
+    : issues.length > 0
+      ? 'Fix the highlighted problems before saving.'
+      : !state.dirty
+        ? 'There are no changes to save.'
+        : null;
+  const canSave = !readOnly && !saveMutation.isPending && blockedReason === null;
 
   const submit = useCallback(() => {
-    if (saveDisabled) return;
+    if (!canSave) return;
     if (!analyticsEnabled) {
       const confirmed = window.confirm(
-        'Disable analytics for this camera?\n\n'
-          + 'This saves a new revision in which no geometry is enabled, so no future run of this camera will be '
-          + 'analysed. Earlier revisions and anything already derived from them are kept exactly as they are.',
+        'Disable scene analytics?\n\n'
+          + 'Disable analytics for this camera: this saves a new active revision in which no geometry is enabled, so '
+          + 'no future run of this camera will be analysed.\n\n'
+          + 'Earlier revisions are unchanged and nothing already derived from them is deleted.',
       );
       if (!confirmed) return;
     }
     saveMutation.mutate(state.draft);
-  }, [saveDisabled, analyticsEnabled, saveMutation, state.draft]);
+  }, [canSave, analyticsEnabled, saveMutation, state.draft]);
 
   const reset = useCallback(() => {
     if (state.dirty && !window.confirm('Discard unsaved scene changes and return to the active revision?')) return;
     dispatch({ type: 'reset' });
     setPreviewVideoId(activeRevision?.referenceFrameVideoAssetId ?? null);
     setConflict(false);
-    setSaveMessage(null);
+    setSaved(false);
   }, [state.dirty, activeRevision]);
 
   const reloadActive = useCallback(async () => {
+    if (state.dirty
+      && !window.confirm('Discard your unsaved scene changes and load the revision that is now saved?')) {
+      return;
+    }
     loadedRevisionRef.current = null;
+    setSupersededRevision(null);
     setConflict(false);
+    dirtyRef.current = false;
     await queryClient.invalidateQueries({ queryKey: sceneQueryKeys.scene(cameraId) });
-  }, [queryClient, cameraId]);
+  }, [queryClient, cameraId, state.dirty]);
 
-  if (!cameraId) {
-    return <NotFound />;
-  }
+  if (!cameraId) return <NotFound />;
 
   if (camera.isPending || scene.isPending) {
     return (
-      <section className="page">
+      <section className="page page--full page--workspace">
         <LoadingState label="Loading scene…" />
       </section>
     );
   }
 
-  if (isCameraMissing(camera.error) || isCameraMissing(scene.error)) {
-    return <NotFound />;
-  }
+  if (isCameraMissing(camera.error) || isCameraMissing(scene.error)) return <NotFound />;
 
   if (camera.isError) {
     return (
-      <section className="page">
+      <section className="page page--full">
         <Alert tone="error">{sceneErrorMessage(camera.error, 'Camera is unavailable.')}</Alert>
         <div className="row"><Button icon="refresh" onClick={() => camera.refetch()}>Retry</Button></div>
       </section>
@@ -260,8 +290,7 @@ export default function SceneEditorPage() {
   if (scene.isError) {
     // An unavailable scene API must never be presented as an empty scene.
     return (
-      <section className="page">
-        <PageHeader title="Scene" description={camera.data?.name} />
+      <section className="page page--full">
         <Alert tone="error">{sceneErrorMessage(scene.error, 'Scene configuration is unavailable.')}</Alert>
         <div className="row"><Button icon="refresh" onClick={() => scene.refetch()}>Retry</Button></div>
       </section>
@@ -269,226 +298,212 @@ export default function SceneEditorPage() {
   }
 
   const configured = scene.data?.configured ?? false;
+  const saveState = readOnly
+    ? 'readonly' as const
+    : saveMutation.isPending
+      ? 'saving' as const
+      : state.dirty
+        ? 'dirty' as const
+        : saved
+          ? 'saved' as const
+          : 'clean' as const;
 
-  return (
-    <section className="page scene-page">
-      <PageHeader
-        title={`Scene · ${camera.data?.name ?? 'Camera'}`}
-        description="Zones and trip lines this camera's future analytics will be evaluated against."
-        actions={<ButtonLink to="/cameras" icon="chevronLeft">Cameras</ButtonLink>}
-      />
-
-      {camera.data && !camera.data.isActive ? (
+  const notices = (
+    <>
+      {!cameraActive ? (
         <Alert tone="warning">This camera is inactive, so its scene cannot be changed.</Alert>
       ) : null}
-
-      {!configured ? (
-        <Alert tone="info">
-          No scene configured yet. Saving creates revision 1 and activates it.
-        </Alert>
-      ) : null}
-
       {conflict ? (
         <Alert tone="error">
           This scene changed since you started editing. Your edits are still here and have not been sent.
-          Reload the active revision to start from what is now saved.
+          Reload the active revision to start again from what is now saved.
           <div className="row">
             <Button size="sm" icon="refresh" onClick={reloadActive}>Reload active revision</Button>
           </div>
         </Alert>
       ) : null}
-
+      {supersededRevision !== null && !conflict ? (
+        <Alert tone="warning">
+          Somebody saved revision {supersededRevision} while you were editing. Your unsaved changes are untouched, but
+          saving them now will be refused as a conflict.
+          <div className="row">
+            <Button size="sm" icon="refresh" onClick={adoptActiveRevision}>
+              Discard my changes and load revision {supersededRevision}
+            </Button>
+          </div>
+        </Alert>
+      ) : null}
       {saveMutation.isError && !conflict ? (
         <Alert tone="error">{sceneErrorMessage(saveMutation.error, 'The scene could not be saved.')}</Alert>
       ) : null}
-
-      {saveMessage ? <Alert tone="success">{saveMessage}</Alert> : null}
-
-      {readOnly ? (
-        <Alert tone="info">
-          Viewing revision {viewingRevisionNumber} — read only. Changes always start from the active revision.
+      {mediaFailed ? (
+        <Alert tone="warning">
+          The reference video could not be loaded. The scene and its reference metadata are unchanged.
         </Alert>
       ) : null}
+      {historicalRevision.isError ? (
+        <Alert tone="error">
+          {sceneErrorMessage(historicalRevision.error, 'That revision could not be loaded.')}
+        </Alert>
+      ) : null}
+      {sceneIssues.length > 0 ? (
+        <Alert tone="warning">{sceneIssues.map((issue) => issue.message).join(' ')}</Alert>
+      ) : null}
+      {state.drawingError ? <Alert tone="warning">{state.drawingError}</Alert> : null}
+    </>
+  );
 
-      <div className="scene-workspace">
-        <div className="scene-workspace__main">
-          <Panel
-            headingId="scene-canvas-title"
-            title="Reference frame"
-            description={
-              readOnly
-                ? `Revision ${viewingRevisionNumber}`
-                : `Revision ${state.draft.baseRevisionNumber || 'none'}${state.dirty ? ' · unsaved changes' : ''}`
-            }
-            actions={
-              <div className="scene-toolbar" role="group" aria-label="Drawing tools">
-                <Button
-                  size="sm"
-                  icon="box"
-                  variant={state.tool === 'select' ? 'primary' : 'secondary'}
-                  aria-pressed={state.tool === 'select'}
-                  disabled={readOnly}
-                  onClick={() => dispatch({ type: 'setTool', tool: 'select' })}
-                >
-                  Select
-                </Button>
-                <Button
-                  size="sm"
-                  icon="layers"
-                  variant={state.tool === 'zone' ? 'primary' : 'secondary'}
-                  aria-pressed={state.tool === 'zone'}
-                  disabled={readOnly}
-                  onClick={() => dispatch({ type: 'setTool', tool: 'zone' })}
-                >
-                  Draw zone
-                </Button>
-                <Button
-                  size="sm"
-                  icon="path"
-                  variant={state.tool === 'line' ? 'primary' : 'secondary'}
-                  aria-pressed={state.tool === 'line'}
-                  disabled={readOnly}
-                  onClick={() => dispatch({ type: 'setTool', tool: 'line' })}
-                >
-                  Draw trip line
-                </Button>
-                {state.drawing.kind === 'zone' ? (
-                  <Button size="sm" icon="check" onClick={() => dispatch({ type: 'closeZone' })}>
-                    Close zone
-                  </Button>
-                ) : null}
-                {state.drawing.kind !== 'none' ? (
-                  <Button size="sm" variant="ghost" onClick={() => dispatch({ type: 'cancelDrawing' })}>
-                    Cancel drawing
-                  </Button>
-                ) : null}
-              </div>
-            }
-          >
-            <div ref={canvasRef}>
-              <SceneCanvas
-                draft={shownDraft}
-                tool={readOnly ? 'select' : state.tool}
-                selection={shownSelection}
-                drawing={readOnly ? { kind: 'none' } : state.drawing}
-                readOnly={readOnly}
-                videoSrc={canvasVideoId ? videoContentUrl(canvasVideoId) : null}
-                frameWidth={canvasVideo?.width ?? NEUTRAL_FRAME.width}
-                frameHeight={canvasVideo?.height ?? NEUTRAL_FRAME.height}
-                seekToMs={referenceOffsetForCanvas}
-                onMediaFailed={setMediaFailed}
-                onFrameClick={handleFrameClick}
-                onSelect={(selection) => dispatch({ type: 'select', selection })}
-                onMoveVertex={(key, vertexIndex, point) => dispatch({ type: 'moveVertex', key, vertexIndex, point })}
-                onMoveEndpoint={(key, endpoint, point) => dispatch({ type: 'moveEndpoint', key, endpoint, point })}
-              />
-            </div>
-            {state.tool === 'zone' && !readOnly ? (
-              <p className="field-help">
-                Click inside the frame to add vertices. Press Enter to close the zone once it has three, or Escape to
-                cancel.
-              </p>
-            ) : null}
-            {state.tool === 'line' && !readOnly ? (
-              <p className="field-help">Click once for endpoint A and once for endpoint B. Escape cancels.</p>
-            ) : null}
-            {!canvasVideoId ? (
-              <p className="field-help">
-                No reference frame selected. Geometry drawn on the neutral frame is still saved in normalised
-                coordinates, but it is harder to place accurately without a still from this camera.
-              </p>
-            ) : null}
-          </Panel>
+  return (
+    <section className="page page--full page--workspace scene-page">
+      <SceneContextBar
+        cameraCode={camera.data?.code ?? 'Camera'}
+        cameraName={camera.data?.name ?? ''}
+        revisionNumber={readOnly ? (viewingRevisionNumber as number) : state.draft.baseRevisionNumber}
+        saveState={saveState}
+        analyticsEnabled={readOnly ? (historicalRevision.data?.analyticsEnabled ?? false) : analyticsEnabled}
+        note={state.draft.note}
+        canSave={canSave}
+        blockedReason={blockedReason}
+        onNoteChange={(note) => dispatch({ type: 'setNote', note })}
+        onReset={reset}
+        onSave={submit}
+        onReturnToActive={() => setViewingRevisionNumber(null)}
+      />
 
-          <Panel headingId="scene-objects-title" title="Scene objects" body="padded">
+      {notices}
+
+      <SceneToolbar
+        tool={state.tool}
+        drawing={state.drawing}
+        readOnly={readOnly}
+        historyOpen={historyExpanded}
+        onToolChange={(tool) => dispatch({ type: 'setTool', tool })}
+        onCloseZone={() => dispatch({ type: 'closeZone' })}
+        onCancelDrawing={() => dispatch({ type: 'cancelDrawing' })}
+        onToggleHistory={() => setHistoryExpanded((value) => !value)}
+      />
+
+      <div className="scene-stage">
+        <div className="scene-stage__frame">
+          <SceneCanvas
+            draft={shownDraft}
+            tool={readOnly ? 'select' : state.tool}
+            selection={shownSelection}
+            drawing={readOnly ? { kind: 'none' } : state.drawing}
+            readOnly={readOnly}
+            videoSrc={canvasVideoId ? videoContentUrl(canvasVideoId) : null}
+            videoRef={videoRef}
+            frameWidth={canvasVideo?.width ?? NEUTRAL_FRAME.width}
+            frameHeight={canvasVideo?.height ?? NEUTRAL_FRAME.height}
+            seekToMs={referenceOffsetForCanvas}
+            invalidKeys={invalidKeys}
+            overlay={
+              <>
+                {readOnly ? (
+                  <div className="scene-stage__banner" role="status">
+                    Viewing revision {viewingRevisionNumber} — read only
+                  </div>
+                ) : null}
+                {/* The empty state invites the first object; once a tool is armed the
+                    operator has accepted the invitation, so it gets out of the way of
+                    the surface they are drawing on. */}
+                {!readOnly && !configured && state.tool === 'select'
+                  && shownDraft.zones.length === 0 && shownDraft.tripLines.length === 0 ? (
+                  <div className="scene-stage__intro">
+                    <strong>No scene configured</strong>
+                    <span>
+                      {cameraVideos.length > 0
+                        ? 'Choose a reference video below, scrub to a clear frame, then draw zones and trip lines.'
+                        : 'No imported video is available for this camera. You can still configure geometry on the '
+                          + 'normalised frame.'}
+                    </span>
+                    <div className="row">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => dispatch({ type: 'setTool', tool: 'zone' })}
+                      >
+                        Draw a zone
+                      </Button>
+                      <Button size="sm" onClick={() => dispatch({ type: 'setTool', tool: 'line' })}>
+                        Draw a trip line
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            }
+            onMediaFailed={setMediaFailed}
+            onFrameClick={handleFrameClick}
+            onCloseZone={() => dispatch({ type: 'closeZone' })}
+            onSelect={(selection) => dispatch({ type: 'select', selection })}
+            onMoveVertex={(key, vertexIndex, point) => dispatch({ type: 'moveVertex', key, vertexIndex, point })}
+            onMoveEndpoint={(key, endpoint, point) => dispatch({ type: 'moveEndpoint', key, endpoint, point })}
+          />
+
+          <ReferenceFrameBar
+            videos={cameraVideos}
+            videoRef={videoRef}
+            previewVideoId={readOnly ? canvasVideoId : previewVideoId}
+            savedVideoId={readOnly
+              ? historicalRevision.data?.referenceFrameVideoAssetId ?? null
+              : state.draft.referenceFrameVideoAssetId}
+            savedOffsetMs={readOnly
+              ? historicalRevision.data?.referenceFrameOffsetMs ?? null
+              : state.draft.referenceFrameOffsetMs}
+            readOnly={readOnly}
+            onPreviewVideo={setPreviewVideoId}
+            onUseCurrentFrame={(offsetMs) => {
+              if (!previewVideoId) return;
+              dispatch({ type: 'setReferenceFrame', videoAssetId: previewVideoId, offsetMs });
+            }}
+            onClear={() => dispatch({ type: 'clearReferenceFrame' })}
+          />
+        </div>
+
+        <aside className="scene-side" aria-label="Scene inspector">
+          <div className="scene-panel scene-panel--navigator">
             <SceneObjectList
               draft={shownDraft}
               selection={shownSelection}
               readOnly={readOnly}
+              invalidKeys={invalidKeys}
               onSelect={(selection) => dispatch({ type: 'select', selection })}
               onDelete={(key) => dispatch({ type: 'deleteObject', key })}
+              onAddZone={() => dispatch({ type: 'setTool', tool: 'zone' })}
+              onAddLine={() => dispatch({ type: 'setTool', tool: 'line' })}
             />
-          </Panel>
-        </div>
-
-        <div className="scene-workspace__side">
-          <Panel headingId="scene-properties-title" title="Properties">
+          </div>
+          <div className="scene-panel scene-panel--inspector">
             <ScenePropertiesPanel
               draft={shownDraft}
               selection={shownSelection}
               readOnly={readOnly}
+              issues={issuesForKey}
               onUpdateZone={(key, changes) => dispatch({ type: 'updateZone', key, changes })}
               onUpdateLine={(key, changes) => dispatch({ type: 'updateLine', key, changes })}
+              onSelect={(selection) => dispatch({ type: 'select', selection })}
             />
-          </Panel>
-
-          <Panel headingId="scene-reference-title" title="Reference frame">
-            <ReferenceFramePicker
-              videos={cameraVideos}
-              previewVideoId={previewVideoId}
-              savedVideoId={state.draft.referenceFrameVideoAssetId}
-              savedOffsetMs={state.draft.referenceFrameOffsetMs}
-              readOnly={readOnly}
-              mediaFailed={mediaFailed}
-              onPreviewVideo={setPreviewVideoId}
-              onUseCurrentFrame={useCurrentFrame}
-              onClear={() => dispatch({ type: 'clearReferenceFrame' })}
-            />
-          </Panel>
-
-          <Panel headingId="scene-save-title" title="Save revision">
-            <div className="form-stack">
-              <label htmlFor="scene-note">
-                Revision note (optional)
-                <textarea
-                  id="scene-note"
-                  rows={2}
-                  maxLength={500}
-                  value={state.draft.note}
-                  disabled={readOnly}
-                  onChange={(event) => dispatch({ type: 'setNote', note: event.target.value })}
-                />
-              </label>
-              <div className="row">
-                <StatusBadge tone={analyticsEnabled ? 'info' : 'neutral'}>
-                  {analyticsEnabled ? 'Analytics enabled' : 'Analytics disabled'}
-                </StatusBadge>
-              </div>
-              <div className="row">
-                <Button variant="primary" disabled={saveDisabled} onClick={submit}>
-                  {saveMutation.isPending ? 'Saving…' : 'Save and activate'}
-                </Button>
-                <Button variant="ghost" disabled={readOnly || saveMutation.isPending} onClick={reset}>
-                  Reset
-                </Button>
-              </div>
-            </div>
-          </Panel>
-
-          <Panel headingId="scene-history-title" title="Revision history" body="padded">
-            {historicalRevision.isError ? (
-              <Alert tone="error">
-                {sceneErrorMessage(historicalRevision.error, 'That revision could not be loaded.')}
-              </Alert>
-            ) : null}
-            <RevisionHistory
-              history={scene.data?.history ?? []}
-              displayTimeZoneId={systemConfig.data?.displayTimeZoneId}
-              activeRevisionNumber={activeRevision?.revisionNumber ?? null}
-              viewingRevisionNumber={viewingRevisionNumber}
-              onView={setViewingRevisionNumber}
-              onReturnToActive={() => setViewingRevisionNumber(null)}
-            />
-          </Panel>
-        </div>
+          </div>
+        </aside>
       </div>
+
+      <RevisionHistory
+        history={scene.data?.history ?? []}
+        displayTimeZoneId={systemConfig.data?.displayTimeZoneId}
+        activeRevisionNumber={activeRevision?.revisionNumber ?? null}
+        viewingRevisionNumber={viewingRevisionNumber}
+        expanded={historyExpanded}
+        onView={setViewingRevisionNumber}
+        onReturnToActive={() => setViewingRevisionNumber(null)}
+      />
     </section>
   );
 }
 
 function NotFound() {
   return (
-    <section className="page">
+    <section className="page page--full">
       <h1>Camera not found</h1>
       <EmptyState
         title="The requested camera does not exist."

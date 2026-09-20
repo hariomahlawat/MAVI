@@ -17,7 +17,15 @@ type RenderOptions = {
   dataRouter?: boolean;
 };
 
-export function renderWithApp(element: ReactElement, options: RenderOptions = {}) {
+type Rendered = ReturnType<typeof render> & { queryClient: ReturnType<typeof createMaviQueryClient> };
+type DataRendered = Rendered & { router: ReturnType<typeof createMemoryRouter> };
+
+export function renderWithApp(
+  element: ReactElement,
+  options: RenderOptions & { dataRouter: true },
+): DataRendered;
+export function renderWithApp(element: ReactElement, options?: RenderOptions): Rendered;
+export function renderWithApp(element: ReactElement, options: RenderOptions = {}): Rendered | DataRendered {
   const queryClient = createMaviQueryClient();
   queryClient.setDefaultOptions({
     queries: { retry: false, staleTime: 0, refetchOnWindowFocus: false },

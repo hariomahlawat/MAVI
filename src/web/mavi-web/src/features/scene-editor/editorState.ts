@@ -35,6 +35,8 @@ export type EditorState = {
   selection: Selection;
   drawing: Drawing;
   dirty: boolean;
+  /** Why the last drawing gesture was refused, so the refusal is never silent. */
+  drawingError: string | null;
 };
 
 export type EditorAction =
@@ -57,7 +59,8 @@ export type EditorAction =
   | { type: 'setNote'; note: string }
   | { type: 'setReferenceFrame'; videoAssetId: string; offsetMs: number }
   | { type: 'clearReferenceFrame' }
-  | { type: 'savedRevision'; revision: SceneRevision };
+  | { type: 'savedRevision'; revision: SceneRevision }
+  | { type: 'clearDrawingError' };
 
 /** One arrow-key press, in normalised units, as the plan freezes it. */
 export const NUDGE_STEP = 0.001;
@@ -71,6 +74,7 @@ export function initialEditorState(revision: SceneRevision | null): EditorState 
     selection: { kind: 'none' },
     drawing: { kind: 'none' },
     dirty: false,
+    drawingError: null,
   };
 }
 
@@ -78,8 +82,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
   switch (action.type) {
     case 'loadActive':
     case 'savedRevision': {
-      const revision = action.type === 'loadActive' ? action.revision : action.revision;
-      const draft = revision ? draftFromRevision(revision) : emptyDraft();
+      const draft = action.revision ? draftFromRevision(action.revision) : emptyDraft();
       return {
         baseline: draft,
         draft,
@@ -90,6 +93,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         selection: { kind: 'none' },
         drawing: { kind: 'none' },
         dirty: false,
+        drawingError: null,
       };
     }
 
@@ -101,11 +105,15 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         selection: { kind: 'none' },
         drawing: { kind: 'none' },
         dirty: false,
+        drawingError: null,
       };
 
     case 'setTool':
       // Changing tool abandons anything half-drawn but never touches the draft.
-      return { ...state, tool: action.tool, drawing: { kind: 'none' } };
+      return { ...state, tool: action.tool, drawing: { kind: 'none' }, drawingError: null };
+
+    case 'clearDrawingError':
+      return state.drawingError === null ? state : { ...state, drawingError: null };
 
     case 'select':
       return { ...state, selection: action.selection };
@@ -113,15 +121,31 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'addDrawingVertex': {
       if (state.tool !== 'zone') return state;
       const existing = state.drawing.kind === 'zone' ? state.drawing.vertices : [];
-      if (existing.length >= SCENE_LIMITS.maximumZoneVertices) return state;
-      return { ...state, drawing: { kind: 'zone', vertices: [...existing, clampPoint(action.point)] } };
+      if (existing.length >= SCENE_LIMITS.maximumZoneVertices) {
+        return {
+          ...state,
+          drawingError: `A zone may not exceed ${SCENE_LIMITS.maximumZoneVertices} vertices.`,
+        };
+      }
+      return {
+        ...state,
+        drawing: { kind: 'zone', vertices: [...existing, clampPoint(action.point)] },
+        drawingError: null,
+      };
     }
 
     case 'closeZone': {
       if (state.drawing.kind !== 'zone') return state;
       // Nothing becomes an object until it is at least a triangle.
-      if (state.drawing.vertices.length < SCENE_LIMITS.minimumZoneVertices) return state;
-      if (state.draft.zones.length >= SCENE_LIMITS.maximumZonesPerRevision) return state;
+      if (state.drawing.vertices.length < SCENE_LIMITS.minimumZoneVertices) {
+        return {
+          ...state,
+          drawingError: `A zone needs at least ${SCENE_LIMITS.minimumZoneVertices} vertices before it can be closed.`,
+        };
+      }
+      if (state.draft.zones.length >= SCENE_LIMITS.maximumZonesPerRevision) {
+        return { ...state, drawingError: `A revision may carry at most ${SCENE_LIMITS.maximumZonesPerRevision} zones.` };
+      }
 
       const zone: DraftZone = {
         key: nextLocalKey('zone'),
@@ -139,20 +163,31 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         tool: 'select',
         selection: { kind: 'zone', key: zone.key, vertexIndex: null },
         drawing: { kind: 'none' },
+        drawingError: null,
       });
     }
 
     case 'startLine':
       if (state.tool !== 'line') return state;
-      return { ...state, drawing: { kind: 'line', a: clampPoint(action.point) } };
+      return { ...state, drawing: { kind: 'line', a: clampPoint(action.point) }, drawingError: null };
 
     case 'finishLine': {
       if (state.drawing.kind !== 'line') return state;
-      if (state.draft.tripLines.length >= SCENE_LIMITS.maximumTripLinesPerRevision) return state;
+      if (state.draft.tripLines.length >= SCENE_LIMITS.maximumTripLinesPerRevision) {
+        return {
+          ...state,
+          drawingError: `A revision may carry at most ${SCENE_LIMITS.maximumTripLinesPerRevision} trip lines.`,
+        };
+      }
       const b = clampPoint(action.point);
-      // Too short to have a direction; the operator is told rather than
-      // silently given a line the backend would reject.
-      if (distance(state.drawing.a, b) < SCENE_LIMITS.minimumLineEndpointSeparation) return state;
+      // Too short to have a direction. The gesture is refused with a reason:
+      // a click that appears to do nothing is worse than a rejected save.
+      if (distance(state.drawing.a, b) < SCENE_LIMITS.minimumLineEndpointSeparation) {
+        return {
+          ...state,
+          drawingError: 'The two ends of a trip line must be further apart. Click further from the first point.',
+        };
+      }
 
       const line: DraftTripLine = {
         key: nextLocalKey('line'),
@@ -172,11 +207,12 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         tool: 'select',
         selection: { kind: 'line', key: line.key, endpoint: null },
         drawing: { kind: 'none' },
+        drawingError: null,
       });
     }
 
     case 'cancelDrawing':
-      return { ...state, drawing: { kind: 'none' } };
+      return { ...state, drawing: { kind: 'none' }, drawingError: null };
 
     case 'moveVertex': {
       const zones = state.draft.zones.map((zone) => {

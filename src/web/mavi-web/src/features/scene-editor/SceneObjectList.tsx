@@ -1,6 +1,5 @@
-import { SCENE_LIMITS } from '../../api/scene';
 import Button from '../../shared/components/Button';
-import EmptyState from '../../shared/components/EmptyState';
+import Icon from '../../shared/components/Icon';
 import type { Selection } from './editorState';
 import type { DraftTripLine, DraftZone, SceneDraft } from './sceneDraft';
 
@@ -8,45 +7,75 @@ type Props = {
   draft: SceneDraft;
   selection: Selection;
   readOnly: boolean;
+  invalidKeys: ReadonlySet<string>;
   onSelect: (selection: Selection) => void;
   onDelete: (key: string) => void;
+  onAddZone: () => void;
+  onAddLine: () => void;
 };
 
-function coordinate(value: number): string {
-  return value.toFixed(SCENE_LIMITS.coordinateDecimals);
-}
-
 /**
- * The scene as a list rather than a picture.
+ * The scene as a navigator rather than a picture.
  *
- * This is not a convenience: it is how a keyboard or screen-reader user reads
- * and edits the scene at all. Every object, its state and every coordinate the
- * canvas draws is reachable here, and selection is shared with the canvas so
- * the two never disagree about what is being edited.
+ * This is the same scene the canvas shows, listed: it shares one selection with
+ * the canvas and names every object and its state. That makes it a fast way to
+ * move around a busy scene with a pointer, and the only way to reach an object
+ * without a pointer at all. It is the same control serving both, not an
+ * accessibility annex.
+ *
+ * Its height follows the size of the scene, not the size of the selection: the
+ * selected object's coordinates live in the inspector below, so selecting
+ * something never pushes the rest of the scene out of view.
+ *
+ * It is a list of buttons rather than a listbox on purpose. A listbox option
+ * may not contain focusable children, and each row here carries its own name
+ * and delete controls; claiming the role would promise arrow-key
+ * navigation that does not exist and would leave a screen-reader user pressing
+ * Down against nothing. Selection is stated with `aria-pressed` on the control
+ * that does the selecting.
  */
-export default function SceneObjectList({ draft, selection, readOnly, onSelect, onDelete }: Props) {
+export default function SceneObjectList({
+  draft,
+  selection,
+  readOnly,
+  invalidKeys,
+  onSelect,
+  onDelete,
+  onAddZone,
+  onAddLine,
+}: Props) {
   const empty = draft.zones.length === 0 && draft.tripLines.length === 0;
 
-  if (empty) {
-    return (
-      <EmptyState icon="layers" title="No geometry yet" compact>
-        Draw a zone or a trip line, or save an empty scene to disable analytics for this camera.
-      </EmptyState>
-    );
-  }
-
   return (
-    <div className="scene-objects">
+    <div className="scene-navigator">
+      <div className="scene-panel__head">
+        <h2 id="scene-objects-title">Scene objects</h2>
+        {readOnly ? null : (
+          <div className="scene-panel__actions">
+            <Button size="sm" variant="ghost" onClick={onAddZone}>+ Zone</Button>
+            <Button size="sm" variant="ghost" onClick={onAddLine}>+ Line</Button>
+          </div>
+        )}
+      </div>
+
+      {empty ? (
+        <p className="scene-navigator__empty">
+          {readOnly
+            ? 'This revision has no geometry, so analytics were disabled while it was active.'
+            : 'Nothing drawn yet. Choose Zone or Trip line above, or draw on the frame.'}
+        </p>
+      ) : null}
+
       {draft.zones.length > 0 ? (
-        <section className="scene-objects__group" aria-labelledby="scene-objects-zones">
-          <h3 id="scene-objects-zones">Zones ({draft.zones.length})</h3>
-          <ul className="scene-objects__list" role="listbox" aria-label="Zones">
+        <section className="scene-navigator__group">
+          <h3>Zones<span>{draft.zones.length}</span></h3>
+          <ul aria-label="Zones">
             {draft.zones.map((zone) => (
               <ZoneRow
                 key={zone.key}
                 zone={zone}
                 selected={selection.kind === 'zone' && selection.key === zone.key}
-                selectedVertex={selection.kind === 'zone' && selection.key === zone.key ? selection.vertexIndex : null}
+                invalid={invalidKeys.has(zone.key)}
                 readOnly={readOnly}
                 onSelect={onSelect}
                 onDelete={onDelete}
@@ -57,15 +86,15 @@ export default function SceneObjectList({ draft, selection, readOnly, onSelect, 
       ) : null}
 
       {draft.tripLines.length > 0 ? (
-        <section className="scene-objects__group" aria-labelledby="scene-objects-lines">
-          <h3 id="scene-objects-lines">Trip lines ({draft.tripLines.length})</h3>
-          <ul className="scene-objects__list" role="listbox" aria-label="Trip lines">
+        <section className="scene-navigator__group">
+          <h3>Trip lines<span>{draft.tripLines.length}</span></h3>
+          <ul aria-label="Trip lines">
             {draft.tripLines.map((line) => (
               <LineRow
                 key={line.key}
                 line={line}
                 selected={selection.kind === 'line' && selection.key === line.key}
-                selectedEndpoint={selection.kind === 'line' && selection.key === line.key ? selection.endpoint : null}
+                invalid={invalidKeys.has(line.key)}
                 readOnly={readOnly}
                 onSelect={onSelect}
                 onDelete={onDelete}
@@ -78,63 +107,53 @@ export default function SceneObjectList({ draft, selection, readOnly, onSelect, 
   );
 }
 
+function StateDot({ enabled, invalid }: { enabled: boolean; invalid: boolean }) {
+  if (invalid) {
+    return <Icon name="alert" size="sm" className="scene-navigator__warn" />;
+  }
+  return (
+    <span
+      className={`scene-navigator__dot${enabled ? '' : ' is-off'}`}
+      aria-hidden="true"
+    />
+  );
+}
+
 function ZoneRow({
   zone,
   selected,
-  selectedVertex,
+  invalid,
   readOnly,
   onSelect,
   onDelete,
 }: {
   zone: DraftZone;
   selected: boolean;
-  selectedVertex: number | null;
+  invalid: boolean;
   readOnly: boolean;
   onSelect: (selection: Selection) => void;
   onDelete: (key: string) => void;
 }) {
+  const state = `${zone.kind}, ${zone.vertices.length} vertices, ${zone.enabled ? 'enabled' : 'disabled'}`;
   return (
-    <li className={`scene-objects__item${selected ? ' is-selected' : ''}`} role="option" aria-selected={selected}>
-      <div className="scene-objects__row">
+    <li className={`scene-navigator__item${selected ? ' is-selected' : ''}`}>
+      <div className="scene-navigator__row">
         <button
           type="button"
-          className="scene-objects__name"
+          className="scene-navigator__name"
+          aria-pressed={selected}
           onClick={() => onSelect({ kind: 'zone', key: zone.key, vertexIndex: null })}
         >
-          {zone.name}
-          <span className="scene-objects__meta">
-            {zone.kind} · {zone.vertices.length} vertices · {zone.enabled ? 'enabled' : 'disabled'}
-          </span>
+          <StateDot enabled={zone.enabled} invalid={invalid} />
+          <span className="truncate" title={zone.name}>{zone.name || 'Unnamed zone'}</span>
+          <span className="visually-hidden">{`, ${state}${invalid ? ', has a problem' : ''}`}</span>
         </button>
         {readOnly ? null : (
-          <Button
-            size="sm"
-            variant="ghost"
-            icon="x"
-            iconOnly
-            onClick={() => onDelete(zone.key)}
-          >
-            {`Delete zone ${zone.name}`}
+          <Button size="sm" variant="ghost" icon="x" iconOnly onClick={() => onDelete(zone.key)}>
+            {`Delete zone ${zone.name || 'Unnamed zone'}`}
           </Button>
         )}
       </div>
-
-      {selected ? (
-        <ul className="scene-objects__vertices" aria-label={`Vertices of ${zone.name}`}>
-          {zone.vertices.map((vertex, index) => (
-            <li key={`${zone.key}-vertex-${index}`}>
-              <button
-                type="button"
-                className={`scene-objects__vertex${selectedVertex === index ? ' is-selected' : ''}`}
-                aria-pressed={selectedVertex === index}
-                onClick={() => onSelect({ kind: 'zone', key: zone.key, vertexIndex: index })}
-              >
-                {`Vertex ${index + 1}: x ${coordinate(vertex.x)}, y ${coordinate(vertex.y)}`}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </li>
   );
 }
@@ -142,68 +161,38 @@ function ZoneRow({
 function LineRow({
   line,
   selected,
-  selectedEndpoint,
+  invalid,
   readOnly,
   onSelect,
   onDelete,
 }: {
   line: DraftTripLine;
   selected: boolean;
-  selectedEndpoint: 'a' | 'b' | null;
+  invalid: boolean;
   readOnly: boolean;
   onSelect: (selection: Selection) => void;
   onDelete: (key: string) => void;
 }) {
+  const state = `${line.directed ? 'directional' : 'undirected'}, ${line.enabled ? 'enabled' : 'disabled'}`;
   return (
-    <li className={`scene-objects__item${selected ? ' is-selected' : ''}`} role="option" aria-selected={selected}>
-      <div className="scene-objects__row">
+    <li className={`scene-navigator__item${selected ? ' is-selected' : ''}`}>
+      <div className="scene-navigator__row">
         <button
           type="button"
-          className="scene-objects__name"
+          className="scene-navigator__name"
+          aria-pressed={selected}
           onClick={() => onSelect({ kind: 'line', key: line.key, endpoint: null })}
         >
-          {line.name}
-          <span className="scene-objects__meta">
-            {line.directed ? 'directed' : 'undirected'} · {line.enabled ? 'enabled' : 'disabled'}
-          </span>
+          <StateDot enabled={line.enabled} invalid={invalid} />
+          <span className="truncate" title={line.name}>{line.name || 'Unnamed trip line'}</span>
+          <span className="visually-hidden">{`, ${state}${invalid ? ', has a problem' : ''}`}</span>
         </button>
         {readOnly ? null : (
-          <Button
-            size="sm"
-            variant="ghost"
-            icon="x"
-            iconOnly
-            onClick={() => onDelete(line.key)}
-          >
-            {`Delete trip line ${line.name}`}
+          <Button size="sm" variant="ghost" icon="x" iconOnly onClick={() => onDelete(line.key)}>
+            {`Delete trip line ${line.name || 'Unnamed trip line'}`}
           </Button>
         )}
       </div>
-
-      {selected ? (
-        <ul className="scene-objects__vertices" aria-label={`Endpoints of ${line.name}`}>
-          <li>
-            <button
-              type="button"
-              className={`scene-objects__vertex${selectedEndpoint === 'a' ? ' is-selected' : ''}`}
-              aria-pressed={selectedEndpoint === 'a'}
-              onClick={() => onSelect({ kind: 'line', key: line.key, endpoint: 'a' })}
-            >
-              {`Endpoint A: x ${coordinate(line.a.x)}, y ${coordinate(line.a.y)}`}
-            </button>
-          </li>
-          <li>
-            <button
-              type="button"
-              className={`scene-objects__vertex${selectedEndpoint === 'b' ? ' is-selected' : ''}`}
-              aria-pressed={selectedEndpoint === 'b'}
-              onClick={() => onSelect({ kind: 'line', key: line.key, endpoint: 'b' })}
-            >
-              {`Endpoint B: x ${coordinate(line.b.x)}, y ${coordinate(line.b.y)}`}
-            </button>
-          </li>
-        </ul>
-      ) : null}
     </li>
   );
 }

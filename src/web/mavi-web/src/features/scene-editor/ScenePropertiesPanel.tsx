@@ -1,56 +1,138 @@
 import { SCENE_LIMITS, SCENE_ZONE_KINDS, type SceneZoneKind } from '../../api/scene';
-import EmptyState from '../../shared/components/EmptyState';
-import type { Selection } from './editorState';
+import { findLine, findZone, type Selection } from './editorState';
 import type { DraftTripLine, DraftZone, SceneDraft } from './sceneDraft';
-import { findLine, findZone } from './editorState';
+import type { SceneIssue } from './sceneValidation';
 
 type Props = {
   draft: SceneDraft;
   selection: Selection;
   readOnly: boolean;
+  issues: Map<string, SceneIssue[]>;
   onUpdateZone: (key: string, changes: Partial<Omit<DraftZone, 'key' | 'zoneId' | 'vertices'>>) => void;
   onUpdateLine: (key: string, changes: Partial<Omit<DraftTripLine, 'key' | 'lineId' | 'a' | 'b'>>) => void;
+  onSelect: (selection: Selection) => void;
 };
 
-/**
- * Everything about the selected object that is not its shape.
- *
- * The canvas is for geometry; a name, a kind or a label should never require
- * pointing at a picture. Stable identities appear as read-only detail, because
- * they belong to the server and an operator has no reason to edit one.
- */
-export default function ScenePropertiesPanel({ draft, selection, readOnly, onUpdateZone, onUpdateLine }: Props) {
-  if (selection.kind === 'none') {
-    return <EmptyState title="Nothing selected" compact>Select a zone or trip line to edit its properties.</EmptyState>;
-  }
+function coordinate(value: number): string {
+  return value.toFixed(SCENE_LIMITS.coordinateDecimals);
+}
 
+/**
+ * The inspector: everything about the selected object that is not its shape.
+ *
+ * Geometry belongs on the canvas, but a name, a kind or a label should never
+ * require pointing at a picture, and nothing here opens a dialog. The selected
+ * object's own coordinates are here too: they are what it is, they are the only
+ * way to reach a vertex without a pointer, and keeping them out of the
+ * navigator keeps the navigator the size of the scene. When nothing is selected
+ * the panel reports the scene instead of going blank, because an empty panel
+ * wastes the space and answers nothing.
+ */
+export default function ScenePropertiesPanel({
+  draft,
+  selection,
+  readOnly,
+  issues,
+  onUpdateZone,
+  onUpdateLine,
+  onSelect,
+}: Props) {
   if (selection.kind === 'zone') {
     const zone = findZone(draft, selection.key);
-    if (!zone) return <EmptyState title="Nothing selected" compact>The selected zone no longer exists.</EmptyState>;
-    return <ZoneProperties zone={zone} readOnly={readOnly} onUpdate={onUpdateZone} />;
+    if (zone) {
+      return (
+        <ZoneProperties
+          zone={zone}
+          vertexIndex={selection.vertexIndex}
+          readOnly={readOnly}
+          issues={issues.get(zone.key) ?? []}
+          onUpdate={onUpdateZone}
+          onSelect={onSelect}
+        />
+      );
+    }
   }
 
-  const line = findLine(draft, selection.key);
-  if (!line) return <EmptyState title="Nothing selected" compact>The selected trip line no longer exists.</EmptyState>;
-  return <LineProperties line={line} readOnly={readOnly} onUpdate={onUpdateLine} />;
+  if (selection.kind === 'line') {
+    const line = findLine(draft, selection.key);
+    if (line) {
+      return (
+        <LineProperties
+          line={line}
+          endpoint={selection.endpoint}
+          readOnly={readOnly}
+          issues={issues.get(line.key) ?? []}
+          onUpdate={onUpdateLine}
+          onSelect={onSelect}
+        />
+      );
+    }
+  }
+
+  return <SceneSummary draft={draft} />;
+}
+
+function SceneSummary({ draft }: { draft: SceneDraft }) {
+  const enabledZones = draft.zones.filter((zone) => zone.enabled).length;
+  const enabledLines = draft.tripLines.filter((line) => line.enabled).length;
+  return (
+    <div className="scene-inspector">
+      <header className="scene-inspector__head">
+        <h2>Scene</h2>
+        <p>Nothing selected</p>
+      </header>
+      <dl className="scene-readout">
+        <dt>Zones</dt>
+        <dd>{draft.zones.length} ({enabledZones} enabled)</dd>
+        <dt>Trip lines</dt>
+        <dd>{draft.tripLines.length} ({enabledLines} enabled)</dd>
+        <dt>Analytics</dt>
+        <dd>{enabledZones + enabledLines > 0 ? 'Enabled by this scene' : 'Disabled by this scene'}</dd>
+      </dl>
+      <p className="scene-inspector__hint">Select an object on the frame or in the list to edit it.</p>
+    </div>
+  );
+}
+
+function Issues({ issues, id }: { issues: SceneIssue[]; id: string }) {
+  if (issues.length === 0) return null;
+  return (
+    <ul className="scene-inspector__issues" id={id}>
+      {issues.map((issue) => <li key={issue.message}>{issue.message}</li>)}
+    </ul>
+  );
 }
 
 function ZoneProperties({
   zone,
+  vertexIndex,
   readOnly,
+  issues,
   onUpdate,
+  onSelect,
 }: {
   zone: DraftZone;
+  vertexIndex: number | null;
   readOnly: boolean;
+  issues: SceneIssue[];
   onUpdate: Props['onUpdateZone'];
+  onSelect: Props['onSelect'];
 }) {
   const nameId = `zone-name-${zone.key}`;
+  const issuesId = `zone-issues-${zone.key}`;
   const nameInvalid = zone.name.trim().length === 0;
 
   return (
-    <div className="form-stack scene-properties">
-      <label htmlFor={nameId}>
-        Zone name
+    <div className="scene-inspector">
+      <header className="scene-inspector__head">
+        <h2 className="truncate" title={zone.name}>{zone.name || 'Unnamed zone'}</h2>
+        <p>Zone{vertexIndex !== null ? ` · vertex ${vertexIndex + 1} selected` : ''}</p>
+      </header>
+
+      <Issues issues={issues} id={issuesId} />
+
+      <div className="scene-fields">
+        <label htmlFor={nameId}>Name</label>
         <input
           id={nameId}
           value={zone.name}
@@ -58,14 +140,11 @@ function ZoneProperties({
           maxLength={SCENE_LIMITS.maximumNameLength}
           autoComplete="off"
           aria-invalid={nameInvalid || undefined}
-          aria-describedby={nameInvalid ? `${nameId}-error` : undefined}
+          aria-describedby={issues.length > 0 ? issuesId : undefined}
           onChange={(event) => onUpdate(zone.key, { name: event.target.value })}
         />
-      </label>
-      {nameInvalid ? <p className="field-error" id={`${nameId}-error`}>A zone needs a name.</p> : null}
 
-      <label htmlFor={`zone-kind-${zone.key}`}>
-        Kind
+        <label htmlFor={`zone-kind-${zone.key}`}>Type</label>
         <select
           id={`zone-kind-${zone.key}`}
           value={zone.kind}
@@ -74,47 +153,63 @@ function ZoneProperties({
         >
           {SCENE_ZONE_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
         </select>
-      </label>
 
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={zone.enabled}
-          disabled={readOnly}
-          onChange={(event) => onUpdate(zone.key, { enabled: event.target.checked })}
-        />
-        Enabled for analytics
-      </label>
+        <span className="scene-fields__label" id={`zone-enabled-${zone.key}`}>Enabled</span>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={zone.enabled}
+            disabled={readOnly}
+            aria-labelledby={`zone-enabled-${zone.key}`}
+            onChange={(event) => onUpdate(zone.key, { enabled: event.target.checked })}
+          />
+          Evaluate this zone
+        </label>
 
-      <label htmlFor={`zone-loitering-${zone.key}`}>
-        Loitering threshold (seconds, optional)
-        <input
-          id={`zone-loitering-${zone.key}`}
-          type="number"
-          inputMode="numeric"
-          min={1}
-          max={SCENE_LIMITS.maximumLoiteringThresholdSeconds}
-          value={zone.loiteringThresholdSeconds ?? ''}
-          disabled={readOnly}
-          placeholder="Engine default"
-          onChange={(event) => {
-            const raw = event.target.value.trim();
-            const parsed = raw === '' ? null : Number.parseInt(raw, 10);
-            onUpdate(zone.key, {
-              loiteringThresholdSeconds: parsed === null || Number.isNaN(parsed) ? null : parsed,
-            });
-          }}
-        />
-      </label>
-      <p className="field-help">
-        Leave empty to use the analytics engine default. Applies to persons dwelling in this zone.
-      </p>
+        <label htmlFor={`zone-loitering-${zone.key}`}>Loitering</label>
+        <div className="scene-fields__inline">
+          <input
+            id={`zone-loitering-${zone.key}`}
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={SCENE_LIMITS.maximumLoiteringThresholdSeconds}
+            value={zone.loiteringThresholdSeconds ?? ''}
+            disabled={readOnly}
+            placeholder="default"
+            onChange={(event) => {
+              const raw = event.target.value.trim();
+              const parsed = raw === '' ? null : Number.parseInt(raw, 10);
+              onUpdate(zone.key, {
+                loiteringThresholdSeconds: parsed === null || Number.isNaN(parsed) ? null : parsed,
+              });
+            }}
+          />
+          <span>seconds</span>
+        </div>
+      </div>
 
-      <dl className="scene-properties__detail">
-        <dt>Vertices</dt>
-        <dd>{zone.vertices.length}</dd>
-        <dt>Stable identity</dt>
-        <dd><code>{zone.zoneId ?? 'issued on save'}</code></dd>
+      <section className="scene-inspector__points">
+        <h3>Vertices<span>{zone.vertices.length}</span></h3>
+        <ul aria-label={`Vertices of ${zone.name || 'Unnamed zone'}`}>
+          {zone.vertices.map((vertex, index) => (
+            <li key={`${zone.key}-vertex-${index}`}>
+              <button
+                type="button"
+                className={`scene-inspector__point${vertexIndex === index ? ' is-selected' : ''}`}
+                aria-pressed={vertexIndex === index}
+                onClick={() => onSelect({ kind: 'zone', key: zone.key, vertexIndex: index })}
+              >
+                {`Vertex ${index + 1}: x ${coordinate(vertex.x)}, y ${coordinate(vertex.y)}`}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <dl className="scene-readout">
+        <dt>Identity</dt>
+        <dd className="scene-readout__id">{zone.zoneId ?? 'issued on save'}</dd>
       </dl>
     </div>
   );
@@ -122,20 +217,34 @@ function ZoneProperties({
 
 function LineProperties({
   line,
+  endpoint,
   readOnly,
+  issues,
   onUpdate,
+  onSelect,
 }: {
   line: DraftTripLine;
+  endpoint: 'a' | 'b' | null;
   readOnly: boolean;
+  issues: SceneIssue[];
   onUpdate: Props['onUpdateLine'];
+  onSelect: Props['onSelect'];
 }) {
   const nameId = `line-name-${line.key}`;
+  const issuesId = `line-issues-${line.key}`;
   const nameInvalid = line.name.trim().length === 0;
 
   return (
-    <div className="form-stack scene-properties">
-      <label htmlFor={nameId}>
-        Trip line name
+    <div className="scene-inspector">
+      <header className="scene-inspector__head">
+        <h2 className="truncate" title={line.name}>{line.name || 'Unnamed trip line'}</h2>
+        <p>Trip line{endpoint ? ` · endpoint ${endpoint.toUpperCase()} selected` : ''}</p>
+      </header>
+
+      <Issues issues={issues} id={issuesId} />
+
+      <div className="scene-fields">
+        <label htmlFor={nameId}>Name</label>
         <input
           id={nameId}
           value={line.name}
@@ -143,37 +252,35 @@ function LineProperties({
           maxLength={SCENE_LIMITS.maximumNameLength}
           autoComplete="off"
           aria-invalid={nameInvalid || undefined}
-          aria-describedby={nameInvalid ? `${nameId}-error` : undefined}
+          aria-describedby={issues.length > 0 ? issuesId : undefined}
           onChange={(event) => onUpdate(line.key, { name: event.target.value })}
         />
-      </label>
-      {nameInvalid ? <p className="field-error" id={`${nameId}-error`}>A trip line needs a name.</p> : null}
 
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={line.enabled}
-          disabled={readOnly}
-          onChange={(event) => onUpdate(line.key, { enabled: event.target.checked })}
-        />
-        Enabled for analytics
-      </label>
+        <span className="scene-fields__label" id={`line-enabled-${line.key}`}>Enabled</span>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={line.enabled}
+            disabled={readOnly}
+            aria-labelledby={`line-enabled-${line.key}`}
+            onChange={(event) => onUpdate(line.key, { enabled: event.target.checked })}
+          />
+          Evaluate this line
+        </label>
 
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={line.directed}
-          disabled={readOnly}
-          onChange={(event) => onUpdate(line.key, { directed: event.target.checked })}
-        />
-        Directed
-      </label>
-      <p className="field-help">
-        Crossings record a direction either way. Marking a line directed says the operator cares which way it was crossed.
-      </p>
+        <span className="scene-fields__label" id={`line-directed-${line.key}`}>Directional</span>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={line.directed}
+            disabled={readOnly}
+            aria-labelledby={`line-directed-${line.key}`}
+            onChange={(event) => onUpdate(line.key, { directed: event.target.checked })}
+          />
+          Direction matters
+        </label>
 
-      <label htmlFor={`line-atob-${line.key}`}>
-        A to B label
+        <label htmlFor={`line-atob-${line.key}`}>A to B</label>
         <input
           id={`line-atob-${line.key}`}
           value={line.aToBLabel}
@@ -182,10 +289,8 @@ function LineProperties({
           autoComplete="off"
           onChange={(event) => onUpdate(line.key, { aToBLabel: event.target.value })}
         />
-      </label>
 
-      <label htmlFor={`line-btoa-${line.key}`}>
-        B to A label
+        <label htmlFor={`line-btoa-${line.key}`}>B to A</label>
         <input
           id={`line-btoa-${line.key}`}
           value={line.bToALabel}
@@ -194,14 +299,33 @@ function LineProperties({
           autoComplete="off"
           onChange={(event) => onUpdate(line.key, { bToALabel: event.target.value })}
         />
-      </label>
-      <p className="field-help">
-        The A to B side is the left of the line from A towards B, which the canvas marks with an arrow.
+      </div>
+
+      <p className="scene-inspector__hint">
+        The arrows across the line show which way a Track must travel to count as each direction.
       </p>
 
-      <dl className="scene-properties__detail">
-        <dt>Stable identity</dt>
-        <dd><code>{line.lineId ?? 'issued on save'}</code></dd>
+      <section className="scene-inspector__points">
+        <h3>Endpoints<span>2</span></h3>
+        <ul aria-label={`Endpoints of ${line.name || 'Unnamed trip line'}`}>
+          {(['a', 'b'] as const).map((which) => (
+            <li key={which}>
+              <button
+                type="button"
+                className={`scene-inspector__point${endpoint === which ? ' is-selected' : ''}`}
+                aria-pressed={endpoint === which}
+                onClick={() => onSelect({ kind: 'line', key: line.key, endpoint: which })}
+              >
+                {`Endpoint ${which.toUpperCase()}: x ${coordinate(line[which].x)}, y ${coordinate(line[which].y)}`}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <dl className="scene-readout">
+        <dt>Identity</dt>
+        <dd className="scene-readout__id">{line.lineId ?? 'issued on save'}</dd>
       </dl>
     </div>
   );

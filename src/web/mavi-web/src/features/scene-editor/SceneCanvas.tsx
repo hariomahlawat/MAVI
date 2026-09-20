@@ -1,5 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import type { ScenePoint } from '../../api/scene';
+import { SCENE_LIMITS } from '../../api/scene';
 import { contentRect, isInsideFrame, projectPoint, unprojectPoint, type PixelRect } from '../video-review/overlay';
 import { aToBNormal, alongLine, bToANormal, midpoint } from './lineDirection';
 import type { Drawing, EditorTool, Selection } from './editorState';
@@ -10,15 +20,20 @@ type Props = {
   tool: EditorTool;
   selection: Selection;
   drawing: Drawing;
-  /** Read-only when a historical revision is on screen. */
+  /** Read-only while a historical revision is on screen. */
   readOnly?: boolean;
   videoSrc: string | null;
+  videoRef: RefObject<HTMLVideoElement | null>;
   /** Intrinsic frame size, used until the media reports its own. */
   frameWidth: number;
   frameHeight: number;
   seekToMs: number | null;
+  /** Keys of objects the browser already knows are invalid. */
+  invalidKeys: ReadonlySet<string>;
+  overlay: ReactNode;
   onMediaFailed?: (failed: boolean) => void;
   onFrameClick?: (point: ScenePoint) => void;
+  onCloseZone?: () => void;
   onSelect?: (selection: Selection) => void;
   onMoveVertex?: (key: string, vertexIndex: number, point: ScenePoint) => void;
   onMoveEndpoint?: (key: string, endpoint: 'a' | 'b', point: ScenePoint) => void;
@@ -28,14 +43,20 @@ type Drag =
   | { kind: 'vertex'; key: string; vertexIndex: number }
   | { kind: 'endpoint'; key: string; endpoint: 'a' | 'b' };
 
+/** How near the first vertex a click has to be, in rendered pixels, to close a polygon. */
+const CLOSE_RADIUS_PX = 12;
+
 /**
- * The reference frame with the scene drawn over it.
+ * The spatial working surface: the reference frame with the scene drawn over it.
  *
- * Geometry is projected through the same content rectangle the evidence player
- * uses, so a zone drawn here sits exactly where the engine will evaluate it
- * even when the video is letterboxed. Pointer positions travel the other way
- * through `unprojectPoint`; a click on a letterbox bar is ignored rather than
- * snapped to the nearest edge, because the operator did not click on the image.
+ * The video fills this element exactly and is letterboxed inside it by
+ * `object-fit: contain`, so the element box and the media box are the same
+ * rectangle and `contentRect` describes where the image really sits. Geometry
+ * is projected through that rectangle, the same one the evidence player uses,
+ * so a zone drawn here is evaluated where it was drawn.
+ *
+ * Media transport lives below the frame rather than on it. The canvas is for
+ * space, and scrubbing a video should never be a click that edits geometry.
  */
 export default function SceneCanvas({
   draft,
@@ -44,25 +65,27 @@ export default function SceneCanvas({
   drawing,
   readOnly = false,
   videoSrc,
+  videoRef,
   frameWidth,
   frameHeight,
   seekToMs,
+  invalidKeys,
+  overlay,
   onMediaFailed,
   onFrameClick,
+  onCloseZone,
   onSelect,
   onMoveVertex,
   onMoveEndpoint,
 }: Props) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<Drag | null>(null);
   const [box, setBox] = useState<PixelRect>({ x: 0, y: 0, width: 0, height: 0 });
   const [frame, setFrame] = useState<PixelRect>({ x: 0, y: 0, width: 0, height: 0 });
-  // Where the pointer is while a shape is being drawn, for the preview segment.
-  // Kept here so a pointer move re-renders the canvas and nothing else.
-  const [preview, setPreview] = useState<ScenePoint | null>(null);
+  const [pointer, setPointer] = useState<ScenePoint | null>(null);
+  const [nearFirstVertex, setNearFirstVertex] = useState(false);
 
-  // Overlay geometry follows the rendered surface, not the intrinsic frame.
+  // Overlay geometry follows the rendered surface, which the video fills exactly.
   const measure = useCallback(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
@@ -73,13 +96,14 @@ export default function SceneCanvas({
     const intrinsicHeight = video?.videoHeight || frameHeight;
     setBox({ x: 0, y: 0, width, height });
     setFrame(contentRect(width, height, intrinsicWidth, intrinsicHeight));
-  }, [frameWidth, frameHeight]);
+  }, [frameWidth, frameHeight, videoRef]);
 
   useLayoutEffect(() => {
     measure();
     const surface = surfaceRef.current;
     if (!surface) return;
     const video = videoRef.current;
+    // The intrinsic size only arrives with the metadata, so re-measure then.
     video?.addEventListener('loadedmetadata', measure);
     let observer: ResizeObserver | undefined;
     if (typeof ResizeObserver !== 'undefined') {
@@ -93,14 +117,17 @@ export default function SceneCanvas({
       observer?.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [measure, videoSrc]);
+  }, [measure, videoSrc, videoRef]);
 
   useEffect(() => {
     onMediaFailed?.(false);
   }, [videoSrc, onMediaFailed]);
 
   useEffect(() => {
-    if (drawing.kind === 'none') setPreview(null);
+    if (drawing.kind === 'none') {
+      setPointer(null);
+      setNearFirstVertex(false);
+    }
   }, [drawing.kind]);
 
   // Seek to the revision's own reference instant when one is persisted.
@@ -120,7 +147,7 @@ export default function SceneCanvas({
       active = false;
       video.removeEventListener('loadedmetadata', apply);
     };
-  }, [seekToMs, videoSrc]);
+  }, [seekToMs, videoSrc, videoRef]);
 
   const pixelFromEvent = useCallback((event: ReactPointerEvent<Element>) => {
     const surface = surfaceRef.current;
@@ -129,6 +156,11 @@ export default function SceneCanvas({
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }, []);
 
+  const firstVertexPixel = useCallback(() => {
+    if (drawing.kind !== 'zone' || drawing.vertices.length < SCENE_LIMITS.minimumZoneVertices) return null;
+    return projectPoint(drawing.vertices[0].x, drawing.vertices[0].y, frame);
+  }, [drawing, frame]);
+
   const handleSurfacePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (readOnly || tool === 'select') return;
     const pixel = pixelFromEvent(event);
@@ -136,8 +168,17 @@ export default function SceneCanvas({
     // A click on a letterbox bar is not a click on the image.
     if (!isInsideFrame(pixel.x, pixel.y, frame)) return;
     event.preventDefault();
+
+    // Clicking the first vertex closes the polygon, which is the gesture the
+    // preview has been advertising.
+    const first = firstVertexPixel();
+    if (first && Math.hypot(pixel.x - first.x, pixel.y - first.y) <= CLOSE_RADIUS_PX) {
+      onCloseZone?.();
+      return;
+    }
+
     onFrameClick?.(unprojectPoint(pixel.x, pixel.y, frame));
-  }, [readOnly, tool, pixelFromEvent, frame, onFrameClick]);
+  }, [readOnly, tool, pixelFromEvent, frame, firstVertexPixel, onCloseZone, onFrameClick]);
 
   const handleSurfacePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
@@ -155,8 +196,11 @@ export default function SceneCanvas({
     }
 
     if (drawing.kind === 'none') return;
-    setPreview(isInsideFrame(pixel.x, pixel.y, frame) ? unprojectPoint(pixel.x, pixel.y, frame) : null);
-  }, [pixelFromEvent, frame, drawing.kind, onMoveVertex, onMoveEndpoint]);
+    const inside = isInsideFrame(pixel.x, pixel.y, frame);
+    setPointer(inside ? unprojectPoint(pixel.x, pixel.y, frame) : null);
+    const first = firstVertexPixel();
+    setNearFirstVertex(Boolean(inside && first && Math.hypot(pixel.x - first.x, pixel.y - first.y) <= CLOSE_RADIUS_PX));
+  }, [pixelFromEvent, frame, drawing.kind, firstVertexPixel, onMoveVertex, onMoveEndpoint]);
 
   const endDrag = useCallback((event: ReactPointerEvent<Element>) => {
     if (!dragRef.current) return;
@@ -172,9 +216,10 @@ export default function SceneCanvas({
     event.stopPropagation();
     event.preventDefault();
     dragRef.current = drag;
-    // Pointer capture keeps the drag alive outside the element and guarantees
-    // the matching up event, so no listener outlives the gesture.
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    // Capture on the surface, which is where the move and up handlers live, so
+    // the drag survives the pointer leaving the handle or the window and the
+    // matching up event is guaranteed. No listener outlives the gesture.
+    surfaceRef.current?.setPointerCapture?.(event.pointerId);
     if (drag.kind === 'vertex') onSelect?.({ kind: 'zone', key: drag.key, vertexIndex: drag.vertexIndex });
     else onSelect?.({ kind: 'line', key: drag.key, endpoint: drag.endpoint });
   }, [readOnly, onSelect]);
@@ -184,7 +229,12 @@ export default function SceneCanvas({
 
   return (
     <div
-      className={`scene-canvas${readOnly ? ' scene-canvas--readonly' : ''} scene-canvas--${tool}`}
+      className={[
+        'scene-stage__surface',
+        readOnly ? 'is-readonly' : '',
+        drawing.kind !== 'none' ? 'is-drawing' : '',
+        `tool-${tool}`,
+      ].filter(Boolean).join(' ')}
       ref={surfaceRef}
       onPointerDown={handleSurfacePointerDown}
       onPointerMove={handleSurfacePointerMove}
@@ -197,22 +247,22 @@ export default function SceneCanvas({
         <video
           key={videoSrc}
           ref={videoRef}
-          className="scene-canvas__video"
+          className="scene-stage__video"
           src={videoSrc}
-          controls
           preload="metadata"
+          playsInline
           aria-label="Reference frame video"
           onError={() => onMediaFailed?.(true)}
         >
           Your browser does not support HTML video playback.
         </video>
       ) : (
-        <div className="scene-canvas__placeholder" aria-hidden="true" />
+        <div className="scene-stage__placeholder" aria-hidden="true" />
       )}
 
       {hasSurface ? (
         <svg
-          className="scene-canvas__overlay"
+          className="scene-stage__overlay"
           viewBox={`0 0 ${box.width} ${box.height}`}
           width={box.width}
           height={box.height}
@@ -226,6 +276,7 @@ export default function SceneCanvas({
               project={project}
               selected={selection.kind === 'zone' && selection.key === zone.key}
               selectedVertex={selection.kind === 'zone' && selection.key === zone.key ? selection.vertexIndex : null}
+              invalid={invalidKeys.has(zone.key)}
               readOnly={readOnly}
               onSelect={() => onSelect?.({ kind: 'zone', key: zone.key, vertexIndex: null })}
               onVertexPointerDown={(event, vertexIndex) => startDrag(event, { kind: 'vertex', key: zone.key, vertexIndex })}
@@ -239,26 +290,39 @@ export default function SceneCanvas({
               project={project}
               selected={selection.kind === 'line' && selection.key === line.key}
               selectedEndpoint={selection.kind === 'line' && selection.key === line.key ? selection.endpoint : null}
+              invalid={invalidKeys.has(line.key)}
               readOnly={readOnly}
               onSelect={() => onSelect?.({ kind: 'line', key: line.key, endpoint: null })}
               onEndpointPointerDown={(event, endpoint) => startDrag(event, { kind: 'endpoint', key: line.key, endpoint })}
             />
           ))}
 
-          <DrawingPreview drawing={drawing} pointer={preview} project={project} />
+          <DrawingPreview
+            drawing={drawing}
+            pointer={pointer}
+            nearFirstVertex={nearFirstVertex}
+            project={project}
+          />
         </svg>
       ) : null}
+
+      {overlay}
     </div>
   );
 }
 
 type Projector = (point: ScenePoint) => { x: number; y: number };
 
+/** The visible marker, and the larger area a pointer may grab it by. */
+const HANDLE_R = 3.5;
+const HANDLE_HIT_R = 11;
+
 function ZoneShape({
   zone,
   project,
   selected,
   selectedVertex,
+  invalid,
   readOnly,
   onSelect,
   onVertexPointerDown,
@@ -267,6 +331,7 @@ function ZoneShape({
   project: Projector;
   selected: boolean;
   selectedVertex: number | null;
+  invalid: boolean;
   readOnly: boolean;
   onSelect: () => void;
   onVertexPointerDown: (event: ReactPointerEvent<SVGElement>, vertexIndex: number) => void;
@@ -276,6 +341,7 @@ function ZoneShape({
     'scene-zone',
     selected ? 'is-selected' : '',
     zone.enabled ? '' : 'is-disabled',
+    invalid ? 'is-invalid' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -290,14 +356,16 @@ function ZoneShape({
       />
       {selected && !readOnly
         ? points.map((point, index) => (
-          <circle
-            key={`${zone.key}-vertex-${index}`}
-            className={`scene-handle${selectedVertex === index ? ' is-selected' : ''}`}
-            cx={point.x}
-            cy={point.y}
-            r={6}
-            onPointerDown={(event) => onVertexPointerDown(event, index)}
-          />
+          <g key={`${zone.key}-vertex-${index}`} className={`scene-handle${selectedVertex === index ? ' is-selected' : ''}`}>
+            <circle
+              className="scene-handle__hit"
+              cx={point.x}
+              cy={point.y}
+              r={HANDLE_HIT_R}
+              onPointerDown={(event) => onVertexPointerDown(event, index)}
+            />
+            <circle className="scene-handle__mark" cx={point.x} cy={point.y} r={HANDLE_R} />
+          </g>
         ))
         : null}
     </g>
@@ -309,6 +377,7 @@ function LineShape({
   project,
   selected,
   selectedEndpoint,
+  invalid,
   readOnly,
   onSelect,
   onEndpointPointerDown,
@@ -317,6 +386,7 @@ function LineShape({
   project: Projector;
   selected: boolean;
   selectedEndpoint: 'a' | 'b' | null;
+  invalid: boolean;
   readOnly: boolean;
   onSelect: () => void;
   onEndpointPointerDown: (event: ReactPointerEvent<SVGElement>, endpoint: 'a' | 'b') => void;
@@ -324,22 +394,30 @@ function LineShape({
   const a = project(line.a);
   const b = project(line.b);
   const centre = project(midpoint(line.a, line.b));
-  const toB = aToBNormal(line.a, line.b);
-  const toA = bToANormal(line.a, line.b);
-  const along = alongLine(line.a, line.b);
+  // The normal is taken in the space the line is drawn in. Projection scales x
+  // and y by different amounts, so a normal computed in normalised space and
+  // used as a pixel offset would sit visibly off the perpendicular for any
+  // line that is not axis-aligned. Projection is a positive axis-aligned
+  // scaling, so the side the normal points to is unchanged: this stays the
+  // side the engine calls A to B.
+  const toB = aToBNormal(a, b);
+  const toA = bToANormal(a, b);
+  const along = alongLine(a, b);
   const classes = [
     'scene-line',
     selected ? 'is-selected' : '',
     line.enabled ? '' : 'is-disabled',
+    invalid ? 'is-invalid' : '',
   ].filter(Boolean).join(' ');
 
-  // The crossing indicators are perpendicular to the line, because a direction
-  // of crossing is a direction of travel across it, never along it.
-  const arrowLength = 26;
+  // Two different things, never conflated: the orientation A to B runs *along*
+  // the segment, while a crossing direction runs *across* it.
+  const arrow = 22;
 
   return (
     <g className={classes} data-testid={`scene-line-${line.key}`}>
       <line
+        className="scene-line__segment"
         x1={a.x}
         y1={a.y}
         x2={b.x}
@@ -350,73 +428,110 @@ function LineShape({
           onSelect();
         }}
       />
-      {along ? (
-        <text className="scene-line__endpoint-label" x={a.x} y={a.y - 8}>A</text>
-      ) : null}
-      {along ? (
-        <text className="scene-line__endpoint-label" x={b.x} y={b.y - 8}>B</text>
+
+      {selected && along ? (
+        <>
+          <text className="scene-line__endpoint" x={a.x - along.x * 12} y={a.y - along.y * 12}>A</text>
+          <text className="scene-line__endpoint" x={b.x + along.x * 12} y={b.y + along.y * 12}>B</text>
+        </>
       ) : null}
 
       {toB ? (
         <g className="scene-line__crossing scene-line__crossing--atob" data-testid={`scene-line-atob-${line.key}`}>
-          <line x1={centre.x} y1={centre.y} x2={centre.x + toB.x * arrowLength} y2={centre.y + toB.y * arrowLength} />
-          <text x={centre.x + toB.x * (arrowLength + 12)} y={centre.y + toB.y * (arrowLength + 12)}>
-            {line.aToBLabel}
-          </text>
+          <line x1={centre.x} y1={centre.y} x2={centre.x + toB.x * arrow} y2={centre.y + toB.y * arrow} />
+          <polygon
+            points={arrowHead(centre.x + toB.x * arrow, centre.y + toB.y * arrow, toB.x, toB.y)}
+          />
+          {selected ? (
+            <text x={centre.x + toB.x * (arrow + 14)} y={centre.y + toB.y * (arrow + 14)}>{line.aToBLabel}</text>
+          ) : null}
         </g>
       ) : null}
       {toA ? (
         <g className="scene-line__crossing scene-line__crossing--btoa" data-testid={`scene-line-btoa-${line.key}`}>
-          <line x1={centre.x} y1={centre.y} x2={centre.x + toA.x * arrowLength} y2={centre.y + toA.y * arrowLength} />
-          <text x={centre.x + toA.x * (arrowLength + 12)} y={centre.y + toA.y * (arrowLength + 12)}>
-            {line.bToALabel}
-          </text>
+          <line x1={centre.x} y1={centre.y} x2={centre.x + toA.x * arrow} y2={centre.y + toA.y * arrow} />
+          <polygon
+            points={arrowHead(centre.x + toA.x * arrow, centre.y + toA.y * arrow, toA.x, toA.y)}
+          />
+          {selected ? (
+            <text x={centre.x + toA.x * (arrow + 14)} y={centre.y + toA.y * (arrow + 14)}>{line.bToALabel}</text>
+          ) : null}
         </g>
       ) : null}
 
       {selected && !readOnly ? (
         <>
-          <circle
-            className={`scene-handle${selectedEndpoint === 'a' ? ' is-selected' : ''}`}
-            cx={a.x}
-            cy={a.y}
-            r={6}
-            onPointerDown={(event) => onEndpointPointerDown(event, 'a')}
-          />
-          <circle
-            className={`scene-handle${selectedEndpoint === 'b' ? ' is-selected' : ''}`}
-            cx={b.x}
-            cy={b.y}
-            r={6}
-            onPointerDown={(event) => onEndpointPointerDown(event, 'b')}
-          />
+          <g className={`scene-handle${selectedEndpoint === 'a' ? ' is-selected' : ''}`}>
+            <circle
+              className="scene-handle__hit"
+              cx={a.x}
+              cy={a.y}
+              r={HANDLE_HIT_R}
+              onPointerDown={(event) => onEndpointPointerDown(event, 'a')}
+            />
+            <circle className="scene-handle__mark" cx={a.x} cy={a.y} r={HANDLE_R} />
+          </g>
+          <g className={`scene-handle${selectedEndpoint === 'b' ? ' is-selected' : ''}`}>
+            <circle
+              className="scene-handle__hit"
+              cx={b.x}
+              cy={b.y}
+              r={HANDLE_HIT_R}
+              onPointerDown={(event) => onEndpointPointerDown(event, 'b')}
+            />
+            <circle className="scene-handle__mark" cx={b.x} cy={b.y} r={HANDLE_R} />
+          </g>
         </>
       ) : null}
     </g>
   );
 }
 
+/** A small filled head at the tip of a direction indicator. */
+function arrowHead(x: number, y: number, dx: number, dy: number): string {
+  const size = 5;
+  const nx = -dy;
+  const ny = dx;
+  return [
+    `${x + dx * size},${y + dy * size}`,
+    `${x - dx * size + nx * size * 0.7},${y - dy * size + ny * size * 0.7}`,
+    `${x - dx * size - nx * size * 0.7},${y - dy * size - ny * size * 0.7}`,
+  ].join(' ');
+}
+
 function DrawingPreview({
   drawing,
   pointer,
+  nearFirstVertex,
   project,
 }: {
   drawing: Drawing;
   pointer: ScenePoint | null;
+  nearFirstVertex: boolean;
   project: Projector;
 }) {
   if (drawing.kind === 'zone' && drawing.vertices.length > 0) {
     const points = drawing.vertices.map(project);
     const last = points[points.length - 1];
     const cursor = pointer ? project(pointer) : null;
+    const closeable = drawing.vertices.length >= SCENE_LIMITS.minimumZoneVertices;
     return (
       <g className="scene-drawing" data-testid="scene-drawing">
         <polyline points={points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')} />
         {cursor ? (
-          <line className="scene-drawing__preview" x1={last.x} y1={last.y} x2={cursor.x} y2={cursor.y} />
+          <line className="scene-drawing__lead" x1={last.x} y1={last.y} x2={cursor.x} y2={cursor.y} />
+        ) : null}
+        {closeable && cursor ? (
+          <line className="scene-drawing__close" x1={cursor.x} y1={cursor.y} x2={points[0].x} y2={points[0].y} />
         ) : null}
         {points.map((point, index) => (
-          <circle key={`draw-${index}`} cx={point.x} cy={point.y} r={4} />
+          <circle
+            key={`draw-${index}`}
+            className={index === 0 && closeable && nearFirstVertex ? 'scene-drawing__anchor is-armed' : 'scene-drawing__anchor'}
+            cx={point.x}
+            cy={point.y}
+            r={index === 0 && closeable ? 6 : 3.5}
+          />
         ))}
       </g>
     );
@@ -427,10 +542,8 @@ function DrawingPreview({
     const cursor = pointer ? project(pointer) : null;
     return (
       <g className="scene-drawing" data-testid="scene-drawing">
-        {cursor ? (
-          <line className="scene-drawing__preview" x1={a.x} y1={a.y} x2={cursor.x} y2={cursor.y} />
-        ) : null}
-        <circle cx={a.x} cy={a.y} r={4} />
+        {cursor ? <line className="scene-drawing__lead" x1={a.x} y1={a.y} x2={cursor.x} y2={cursor.y} /> : null}
+        <circle className="scene-drawing__anchor" cx={a.x} cy={a.y} r={3.5} />
       </g>
     );
   }
