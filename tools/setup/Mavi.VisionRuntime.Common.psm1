@@ -366,4 +366,129 @@ function Assert-MaviVisionWorkerComponentCompatibility {
     return $true
 }
 
+function Resolve-MaviVisionCudaAvailability {
+    <#
+    .SYNOPSIS
+    Decide whether Development `Auto` may use the Windows CUDA Runtime Pack.
+
+    .DESCRIPTION
+    This is the whole of the Auto decision on Windows: it runs before Python
+    starts, and whichever reason it returns is what the worker records as
+    `deviceResolutionReason`. Every literal below belongs to the closed
+    vocabulary in src/vision/mavi_vision/common/control_plane.py.
+
+    It lived inside Start-MaviVisionWorker.ps1 and closed over the script's
+    $RepositoryRoot and $DeviceIndex, which is why it could never be tested:
+    nothing could call it. Both are parameters now, and the driver probe is
+    injectable, so every branch is exercisable on a machine with no GPU.
+
+    Note the trust order is deliberate and must not be rearranged: integrity
+    and declared identity are checked before the driver is probed, so a pack
+    that fails its preflight is never executed just to ask what device exists.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$ComponentRequirementsPath,
+        [int]$DeviceIndex = 0,
+        [scriptblock]$DriverProbe
+    )
+
+    $result = [ordered]@{
+        Usable = $false
+        Reason = "cuda_pack_absent"
+        RuntimeRoot = $Root
+    }
+
+    $pythonPath = Join-Path $Root "venv\Scripts\python.exe"
+    $manifestPath = Join-Path $Root "runtime-pack-manifest.json"
+    $statePath = Join-Path $Root "runtime-install.json"
+    if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+        return [pscustomobject]$result
+    }
+
+    try {
+        $manifestValue = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $stateValue = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+        [void](Assert-MaviVisionRuntimeInstalledStatePreflight -RuntimeRoot $Root -InstalledState $stateValue -Manifest $manifestValue -RuntimePackManifestPath $manifestPath)
+    }
+    catch {
+        $result.Reason = "cuda_pack_integrity_failed"
+        return [pscustomobject]$result
+    }
+
+    if ([string]$manifestValue.platformVariant -ne "windows-x86_64-cuda") {
+        $result.Reason = "cuda_pack_variant_mismatch"
+        return [pscustomobject]$result
+    }
+
+    if (-not (Test-Path -LiteralPath $ComponentRequirementsPath -PathType Leaf)) {
+        $result.Reason = "cuda_pack_not_declared"
+        return [pscustomobject]$result
+    }
+    try {
+        $componentValue = Get-Content -LiteralPath $ComponentRequirementsPath -Raw | ConvertFrom-Json
+        $runtimePacks = $componentValue.PSObject.Properties["runtimePacks"]
+        if (-not $runtimePacks) {
+            $result.Reason = "cuda_pack_not_declared"
+            return [pscustomobject]$result
+        }
+        $cudaRequirement = $runtimePacks.Value.PSObject.Properties["windows-x86_64-cuda"]
+    }
+    catch {
+        $result.Reason = "cuda_pack_not_declared"
+        return [pscustomobject]$result
+    }
+    if (-not $cudaRequirement) {
+        $result.Reason = "cuda_pack_not_declared"
+        return [pscustomobject]$result
+    }
+    # Guarded for the same reason `runtimePacks` is: under Set-StrictMode a
+    # declared entry that is missing `runtimePackId` would throw out of this
+    # function instead of returning a reason, and the launcher would die with
+    # raw .NET prose rather than a stable code. Leaving one sibling guarded and
+    # the other not is worse than having guarded neither.
+    $declaredPackId = $cudaRequirement.Value.PSObject.Properties["runtimePackId"]
+    if (-not $declaredPackId) {
+        $result.Reason = "cuda_pack_not_declared"
+        return [pscustomobject]$result
+    }
+    if ([string]$declaredPackId.Value -ne [string]$manifestValue.runtimePackId) {
+        $result.Reason = "cuda_pack_id_mismatch"
+        return [pscustomobject]$result
+    }
+
+    if (-not $DriverProbe) {
+        $DriverProbe = {
+            param([int]$Index)
+            $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
+            if (-not $nvidiaSmi) { return $null }
+            $probe = (& $nvidiaSmi.Source -i $Index --query-gpu=index --format=csv,noheader,nounits 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { return "" }
+            return $probe
+        }
+    }
+
+    try {
+        $probe = & $DriverProbe $DeviceIndex
+    }
+    catch {
+        $result.Reason = "cuda_driver_probe_failed"
+        return [pscustomobject]$result
+    }
+    if ($null -eq $probe) {
+        $result.Reason = "cuda_driver_probe_unavailable"
+        return [pscustomobject]$result
+    }
+    if ([string]$probe -ne [string]$DeviceIndex) {
+        $result.Reason = "cuda_device_unavailable"
+        return [pscustomobject]$result
+    }
+
+    $result.Usable = $true
+    $result.Reason = "cuda_selected"
+    return [pscustomobject]$result
+}
+
 Export-ModuleMember -Function *

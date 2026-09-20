@@ -18,7 +18,7 @@ from mavi_vision.runtime.errors import (
     RuntimeDisposition,
     TrackerError,
 )
-from mavi_vision.runtime.progress import ProcessingProgressSink
+from mavi_vision.runtime.progress import ProcessingProgress, ProcessingProgressSink
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiError
@@ -673,3 +673,298 @@ def test_injected_vision_lane_executes_processing_on_its_dedicated_thread(
         assert processor.thread_id != event_loop_thread
 
     asyncio.run(scenario())
+
+
+# Host power request lifetime
+class RecordingPowerRequest:
+    """Stands in for the Windows idle-sleep inhibition at the runner seam.
+
+    Records enter/exit against the processing timeline so the tests can assert
+    the request is held for exactly the attempt and nothing wider.
+    """
+
+    def __init__(self, timeline: list[str], *, enter_error: Exception | None = None) -> None:
+        self.timeline = timeline
+        self.enter_error = enter_error
+        self.reasons: list[str] = []
+        self.entered = 0
+        self.exited = 0
+
+    def __call__(self, reason: str):
+        self.reasons.append(reason)
+        return self
+
+    def __enter__(self):
+        if self.enter_error is not None:
+            raise self.enter_error
+        self.entered += 1
+        self.timeline.append("power:acquire")
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self.exited += 1
+        self.timeline.append("power:release")
+        return False
+
+
+class TimelineProcessor(RecordingProcessor):
+    def __init__(self, timeline: list[str], result: VisionProcessingResult, error: Exception | None = None) -> None:
+        super().__init__(result, error)
+        self.timeline = timeline
+
+    def process(self, **kwargs) -> VisionProcessingResult:
+        self.timeline.append("process")
+        return super().process(**kwargs)
+
+
+def _run_with_power(tmp_path: Path, power, processor_error: Exception | None = None):
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    processor = TimelineProcessor(power.timeline, make_result(lease), processor_error)
+    runner = WorkerRunner(
+        client,
+        LocalMediaStore(tmp_path),
+        2.0,
+        processor,
+        runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+        host_power_request=power,
+    )
+    return asyncio.run(runner.run_once()), client, processor
+
+
+def test_power_request_is_held_for_exactly_the_processing_attempt(tmp_path: Path) -> None:
+    timeline: list[str] = []
+    power = RecordingPowerRequest(timeline)
+
+    result, client, _ = _run_with_power(tmp_path, power)
+
+    assert result is True
+    assert "complete" in client.events
+    # Acquired before native work starts, released after it finishes.
+    assert timeline == ["power:acquire", "process", "power:release"]
+    assert power.entered == 1
+    assert power.exited == 1
+
+
+def test_power_request_names_the_job_it_is_held_for(tmp_path: Path) -> None:
+    timeline: list[str] = []
+    power = RecordingPowerRequest(timeline)
+    lease = make_lease()
+
+    _run_with_power(tmp_path, power)
+
+    assert len(power.reasons) == 1
+    reason = power.reasons[0]
+    assert reason.startswith("MAVI vision processing active")
+    assert str(lease.job_id) in reason
+    # A reason string is read out of `powercfg /requests`; no filesystem path
+    # of any kind belongs in it.
+    assert "\\" not in reason and "/" not in reason
+
+
+def test_power_request_is_released_when_processing_raises(tmp_path: Path) -> None:
+    timeline: list[str] = []
+    power = RecordingPowerRequest(timeline)
+
+    result, client, _ = _run_with_power(
+        tmp_path, power, processor_error=VideoProcessingError("decode_failed")
+    )
+
+    assert result is True
+    assert power.exited == 1
+    assert timeline[-1] == "power:release"
+
+
+def test_power_request_is_released_when_the_lease_is_lost(tmp_path: Path) -> None:
+    timeline: list[str] = []
+    power = RecordingPowerRequest(timeline)
+
+    with pytest.raises(WorkerApiError):
+        _run_with_power(tmp_path, power, processor_error=LeaseLostError())
+
+    assert power.entered == 1
+    assert power.exited == 1
+
+
+def test_an_idle_worker_never_requests_anything(tmp_path: Path) -> None:
+    """No lease, no attempt, no reason to keep a workstation awake."""
+    timeline: list[str] = []
+    power = RecordingPowerRequest(timeline)
+    client = FakeWorkerApiClient(None)
+
+    result = asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            RecordingProcessor(make_result(make_lease())),
+            host_power_request=power,
+        ).run_once()
+    )
+
+    assert result is False
+    assert power.entered == 0
+    assert power.reasons == []
+
+
+def test_processing_continues_when_the_power_request_cannot_be_established(
+    tmp_path: Path,
+) -> None:
+    """Best-effort means best-effort: a refused request never costs a job."""
+    timeline: list[str] = []
+    power = RecordingPowerRequest(timeline, enter_error=OSError("access denied"))
+
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    processor = TimelineProcessor(timeline, make_result(lease))
+
+    # The production context manager never raises; this asserts the runner does
+    # not silently swallow a contract violation if some future one ever does.
+    with pytest.raises(OSError):
+        asyncio.run(
+            WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                processor,
+                runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+                host_power_request=power,
+            )._process_with_lease_heartbeats(
+                lease,
+                media,
+                VisionJobHeartbeatResponse(
+                    schemaVersion="2.0",
+                    progressPercent=0.0,
+                    leaseExpiresAtUtc=datetime(2099, 9, 9, 3, 0, tzinfo=timezone.utc),
+                ),
+                ProcessingProgress(
+                    source_duration_ms=lease.duration_ms,
+                ).reader,
+                ProcessingProgress(
+                    source_duration_ms=lease.duration_ms,
+                ).sink,
+            )
+        )
+
+
+def test_the_default_runner_uses_the_real_best_effort_request(tmp_path: Path) -> None:
+    """The default must be the real mechanism, and must be inert on Linux."""
+    from mavi_vision.runtime.host_power import keep_host_awake
+    from mavi_vision.worker.runner import WorkerRunner as Runner
+
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    processor = RecordingProcessor(make_result(lease))
+    runner = Runner(
+        client,
+        LocalMediaStore(tmp_path),
+        2.0,
+        processor,
+        runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+    )
+
+    assert runner._host_power_request is keep_host_awake
+    # And an ordinary attempt on this (non-Windows) CI host completes normally.
+    assert asyncio.run(runner.run_once()) is True
+    assert "complete" in client.events
+
+
+# Attempt telemetry sink
+class RecordingSink:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.completions: list[object] = []
+        self.error = error
+
+    async def __call__(self, completion) -> None:
+        self.completions.append(completion)
+        if self.error is not None:
+            raise self.error
+
+
+def test_the_sink_receives_the_accepted_attempt_after_completion(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    result = make_result(lease)
+    processor = RecordingProcessor(result)
+    sink = RecordingSink()
+
+    outcome = asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            processor,
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            attempt_completed_sink=sink,
+        ).run_once()
+    )
+
+    assert outcome is True
+    assert client.events[-1] == "complete"
+    [completion] = sink.completions
+    assert completion.job_id == lease.job_id
+    assert completion.attempt_count == lease.attempt_count
+    assert completion.result is result
+    assert completion.provenance is PROVENANCE_SENTINEL
+    assert completion.processing_duration_ms == client.completions[0][1]
+
+
+def test_a_failing_sink_cannot_change_the_attempt_outcome(tmp_path: Path, caplog) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    sink = RecordingSink(error=OSError("disk full"))
+
+    with caplog.at_level(logging.WARNING):
+        outcome = asyncio.run(
+            WorkerRunner(
+                client,
+                LocalMediaStore(tmp_path),
+                2.0,
+                RecordingProcessor(make_result(lease)),
+                runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+                attempt_completed_sink=sink,
+            ).run_once()
+        )
+
+    assert outcome is True
+    assert "complete" in client.events
+    assert client.failures == []
+    assert any("telemetry sink failed" in r.message for r in caplog.records)
+
+
+def test_the_sink_is_not_called_for_a_failed_attempt(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    client = FakeWorkerApiClient(lease)
+    sink = RecordingSink()
+
+    asyncio.run(
+        WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            RecordingProcessor(error=VideoProcessingError("decode_failed")),
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            attempt_completed_sink=sink,
+        ).run_once()
+    )
+
+    assert sink.completions == []
+    assert client.failures[0][0] == "vision_processing_failed"

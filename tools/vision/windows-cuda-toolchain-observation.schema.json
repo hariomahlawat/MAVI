@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/schemas/windows-cuda-toolchain-observation-v1.json",
+  "title": "MAVI Windows CUDA toolchain observation (v1)",
+  "description": "What verify_windows_cuda_toolchain.py records about the native build toolchain. It describes a compile, not a GPU: nothing in this document is evidence that any CUDA code executed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "capturedAtUtc",
+    "sourceHeadSha",
+    "cudaToolkitVersion",
+    "msvcCompilerVersion",
+    "vcToolsVersion",
+    "windowsSdkVersion",
+    "nvccArchitectureFlag",
+    "buildEnvironment",
+    "compile"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "mavi-windows-cuda-toolchain-observation-v1" },
+    "status": { "enum": ["passed", "failed"] },
+    "failureCode": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "capturedAtUtc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "sourceHeadSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "cudaToolkitVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+    "msvcCompilerVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "vcToolsVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "windowsSdkVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "targetArchitecture": { "type": "string", "pattern": "^sm_?[0-9]{2,3}$" },
+    "nvccArchitectureFlag": { "type": "string", "minLength": 1 },
+    "buildEnvironment": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "compile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "exitCode",
+        "stdout",
+        "stderr",
+        "source",
+        "sourceSha256",
+        "objectProduced"
+      ],
+      "properties": {
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "exitCode": { "type": "integer" },
+        "stdout": { "type": "string" },
+        "stderr": { "type": "string" },
+        "source": { "type": "string", "minLength": 1 },
+        "sourceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "objectProduced": { "type": "boolean" },
+        "objectBytes": { "type": "integer", "minimum": 0 },
+        "objectSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "description": "A passed observation names the architecture it compiled for and produced an object; the failure code belongs only to a failure.",
+      "if": { "properties": { "status": { "const": "passed" } } },
+      "then": {
+        "required": ["targetArchitecture"],
+        "not": { "required": ["failureCode"] },
+        "properties": {
+          "compile": {
+            "required": ["objectBytes", "objectSha256"],
+            "properties": { "objectProduced": { "const": true } }
+          }
+        }
+      }
+    },
+    {
+      "description": "A failed observation must say why it failed.",
+      "if": { "properties": { "status": { "const": "failed" } } },
+      "then": { "required": ["failureCode"] }
+    }
+  ]
+}

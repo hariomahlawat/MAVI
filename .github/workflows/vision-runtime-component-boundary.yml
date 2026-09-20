@@ -37,6 +37,9 @@ jobs:
           - variant: windows-x86_64-cpu
             python-version: '3.12.10'
             native-abi: win_amd64-msvc-14.44-sdk-10.0.26100.0
+          - variant: windows-x86_64-cuda
+            python-version: '3.12.10'
+            native-abi: win_amd64-msvc-14.44.35207-sdk-10.0.26100.0-cuda12.4-sm75
           - variant: linux-x86_64-cpu
             python-version: '3.12.14'
             native-abi: glibc-2.39-libstdcxx-GLIBCXX_3.4.33-gcc-14.2.0-linux_x86_64

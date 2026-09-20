@@ -152,6 +152,7 @@ jobs:
             "tools/setup/Test-MaviVisionModelPackStateContracts.ps1",
             "tools/setup/Test-MaviVisionWorkerComponentContracts.ps1",
             "tools/setup/Mavi.VisionRuntime.Common.psm1",
+            "tools/setup/Mavi.VisionRuntime.Integrity.psm1",
             "tools/setup/Mavi.Setup.Common.psm1",
             "tools/setup/Mavi.Setup.Windows.psm1",
             "Prepare-MAVI-Offline-Binary-Kit.ps1"

@@ -16,6 +16,10 @@ from mavi_vision.runtime.supervisor import RuntimeState, RuntimeSupervisor
 from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshotProvider
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.local_media_store import LocalMediaStore
+from mavi_vision.worker.attempt_telemetry import (
+    AttemptCompletion,
+    JsonlAttemptTelemetryRecorder,
+)
 from mavi_vision.worker.client import WorkerApiClient, WorkerApiError
 from mavi_vision.worker.runner import VisionProcessor, WorkerRunner
 from mavi_vision.worker.watchdog_incident import (
@@ -49,6 +53,9 @@ def build_runner(
     watchdog_incident_recorder: WatchdogIncidentRecorder | None = None,
     watchdog_grace_seconds: float | None = None,
     runtime_provenance_provider: Callable[[], RuntimeProvenance | None] | None = None,
+    attempt_completed_sink: (
+        Callable[[AttemptCompletion], Awaitable[None]] | None
+    ) = None,
 ) -> WorkerRunner:
     """Compose the control-plane runner without granting it runtime ownership."""
     return WorkerRunner(
@@ -69,6 +76,7 @@ def build_runner(
             else watchdog_grace_seconds
         ),
         runtime_provenance_provider=runtime_provenance_provider,
+        attempt_completed_sink=attempt_completed_sink,
     )
 
 
@@ -207,6 +215,12 @@ async def _run_worker(
         incident_recorder = JsonlWatchdogIncidentRecorder(
             settings.media_root / "diagnostics" / "watchdog-incidents.jsonl"
         )
+        # Per-attempt telemetry is diagnostic evidence for C6 records; the
+        # device reading goes through the supervisor so it runs on the lane.
+        attempt_telemetry = JsonlAttemptTelemetryRecorder(
+            settings.media_root / "diagnostics" / "attempt-telemetry.jsonl",
+            device_telemetry=supervisor.device_telemetry,
+        )
         runner = runner_builder(
             settings,
             client,
@@ -218,6 +232,7 @@ async def _run_worker(
             watchdog_incident_recorder=incident_recorder,
             watchdog_grace_seconds=settings.watchdog_grace_seconds,
             runtime_provenance_provider=lambda: supervisor.provenance,
+            attempt_completed_sink=attempt_telemetry,
         )
 
         return await supervised_loop(

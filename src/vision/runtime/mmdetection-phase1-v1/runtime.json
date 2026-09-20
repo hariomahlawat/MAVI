@@ -68,7 +68,28 @@
       "status": "pending-hardware-qualification"
     },
     "windows-x86_64-cuda": {
-      "status": "pending-hardware-qualification"
+      "binaryVersions": {
+        "torch": "2.6.0+cu124",
+        "torchvision": "0.21.0+cu124"
+      },
+      "pythonIdentity": {
+        "build": [
+          "tags/v3.12.10:0cc8128",
+          "Apr  8 2025 12:21:36"
+        ],
+        "compiler": "MSC v.1943 64 bit (AMD64)",
+        "implementation": "CPython",
+        "version": "3.12.10"
+      },
+      "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+      "status": "qualified-development-hardware",
+      "developmentEvidence": {
+        "capturedAtUtc": "2026-09-19T10:46:36Z",
+        "evidenceBundleSha256": "b0b0af1a2e666608d7ef6c44154b494aa219d7f2714f73c5d71bed836b04ae77",
+        "hostObservationSha256": "e610102f544e91c87a6bc2594349dec404664853943d7a97df87ac28d4f94d22",
+        "operatorReference": "windows-cuda-dev-host-01",
+        "sourceHeadSha": "3d73330ea160899017a4083f0b5ac217dc76edd7"
+      }
     }
   },
   "releaseLocks": {
