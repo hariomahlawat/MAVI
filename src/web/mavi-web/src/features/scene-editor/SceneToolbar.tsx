@@ -1,4 +1,5 @@
 import Button from '../../shared/components/Button';
+import { Segmented, Toolbar } from '../../shared/workspace';
 import type { Drawing, EditorTool } from './editorState';
 
 type Props = {
@@ -19,8 +20,14 @@ const hints: Record<EditorTool, string | null> = {
   line: 'Click the start point, then the end point · Esc to cancel',
 };
 
+const TOOLS = [
+  { value: 'select', label: 'Select' },
+  { value: 'zone', label: 'Zone' },
+  { value: 'line', label: 'Trip line' },
+] as const satisfies ReadonlyArray<{ value: EditorTool; label: string }>;
+
 /**
- * The mode strip.
+ * The mode strip, on the shared toolbar band.
  *
  * Which tool is armed is the single most consequential piece of state on this
  * screen, so it is a segmented control that reads as one thing with one part
@@ -31,7 +38,8 @@ const hints: Record<EditorTool, string | null> = {
  * A refused gesture is answered here too, in place of the hint. The operator is
  * looking at the tool and the frame, not at a notice stack above both of them,
  * and a click that appeared to do nothing needs its explanation where the click
- * was aimed.
+ * was aimed. The band's `hint` slot is exactly that line, which is why the
+ * shared shell carries one.
  */
 export default function SceneToolbar({
   tool,
@@ -47,36 +55,33 @@ export default function SceneToolbar({
   const hint = readOnly ? null : hints[tool];
 
   return (
-    <div className="scene-toolbar">
+    <Toolbar
+      label="Scene tools"
+      hint={drawingError
+        ? <span className="scene-toolbar__refusal" role="alert">{drawingError}</span>
+        : hint ?? null}
+      actions={(
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="clock"
+          aria-controls="scene-revision-strip"
+          aria-expanded={historyOpen}
+          onClick={onToggleHistory}
+        >
+          Revisions
+        </Button>
+      )}
+    >
       {readOnly ? (
         <p className="scene-toolbar__readonly">Drawing tools are unavailable while a past revision is open.</p>
       ) : (
-        <div className="segmented" role="group" aria-label="Drawing tools">
-          <button
-            type="button"
-            className={`segmented__item${tool === 'select' ? ' is-active' : ''}`}
-            aria-pressed={tool === 'select'}
-            onClick={() => onToolChange('select')}
-          >
-            Select
-          </button>
-          <button
-            type="button"
-            className={`segmented__item${tool === 'zone' ? ' is-active' : ''}`}
-            aria-pressed={tool === 'zone'}
-            onClick={() => onToolChange('zone')}
-          >
-            Zone
-          </button>
-          <button
-            type="button"
-            className={`segmented__item${tool === 'line' ? ' is-active' : ''}`}
-            aria-pressed={tool === 'line'}
-            onClick={() => onToolChange('line')}
-          >
-            Trip line
-          </button>
-        </div>
+        <Segmented
+          label="Drawing tools"
+          value={tool}
+          options={TOOLS}
+          onChange={onToolChange}
+        />
       )}
 
       {drawing.kind === 'zone' ? (
@@ -85,23 +90,6 @@ export default function SceneToolbar({
       {drawing.kind !== 'none' ? (
         <Button size="sm" variant="ghost" onClick={onCancelDrawing}>Cancel</Button>
       ) : null}
-
-      {drawingError
-        ? <p className="scene-toolbar__refusal" role="alert">{drawingError}</p>
-        : hint ? <p className="scene-toolbar__hint">{hint}</p> : null}
-
-      <span className="grow" />
-
-      <Button
-        size="sm"
-        variant="ghost"
-        icon="clock"
-        aria-controls="scene-revision-strip"
-        aria-expanded={historyOpen}
-        onClick={onToggleHistory}
-      >
-        Revisions
-      </Button>
-    </div>
+    </Toolbar>
   );
 }

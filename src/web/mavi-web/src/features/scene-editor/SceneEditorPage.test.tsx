@@ -206,7 +206,13 @@ describe('scene editor', () => {
   it('shows the active revision with its geometry', async () => {
     render();
 
-    expect(await screen.findByRole('heading', { name: 'CAM-01' })).toBeInTheDocument();
+    // The page title block is gone (UI-2); the Context Bar's breadcrumb is what
+    // names the surface now, and it must name the object being edited rather
+    // than only its parent section.
+    const crumbs = await screen.findByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(crumbs).getByText('Cameras')).toBeInTheDocument();
+    expect(within(crumbs).getByText('CAM-01')).toBeInTheDocument();
+    expect(within(crumbs).getByText('Scene')).toHaveAttribute('aria-current', 'page');
     expect(screen.getByText('North Gate')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Gate/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Kerb/ })).toBeInTheDocument();

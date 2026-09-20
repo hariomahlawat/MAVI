@@ -27,6 +27,8 @@
 .sidebar__brand span { display: block; color: var(--text-muted); font-size: var(--fs-0); line-height: var(--lh-tight); }
 
 .sidebar__nav { display: grid; gap: var(--s-px); padding: var(--s-2); }
+.sidebar__group { display: grid; gap: var(--s-px); }
+.sidebar__group + .sidebar__group { margin-top: var(--s-2); }
 .sidebar__nav a {
   display: flex; align-items: center; gap: var(--s-3);
   height: var(--control-h); padding: 0 var(--s-3);
@@ -62,15 +64,6 @@
 .status-dot--pending { background: var(--status-warn); }
 
 .content { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
-.topbar {
-  display: flex; align-items: center; gap: var(--s-3);
-  height: var(--topbar-h); padding: 0 var(--s-5);
-  border-bottom: var(--stroke-hair) solid var(--border-subtle); background: var(--surface-base);
-}
-.topbar__crumbs { display: flex; align-items: center; gap: var(--s-2); min-width: 0; color: var(--text-secondary); font-size: var(--fs-2); }
-.topbar__crumbs a { color: var(--text-secondary); }
-.topbar__crumbs strong { color: var(--text-primary); font-weight: 600; }
-.topbar__spacer { flex: 1; }
 
 .main { overflow: auto; min-height: 0; }
 /* --content-max applies to Record and the Overview Ledger-summary variant
@@ -115,6 +108,6 @@
   .sidebar__brand div, .sidebar__nav a span, .sidebar__section, .api-health__text, .sidebar__toggle { display: none; }
   .sidebar__nav a { justify-content: center; padding: 0; }
   .page { padding: var(--s-3); }
-  .topbar { padding: 0 var(--s-3); }
+  .context-bar { padding: 0 var(--s-3); }
   .page-header { flex-direction: column; align-items: stretch; }
 }

@@ -59,13 +59,13 @@ export default function TrackInspector({
     <Panel
       fill
       body="scroll"
-      className="inspector"
+      className="track-inspector"
       title={title}
       description={detail ? `${detail.camera.code} · ${detail.camera.name}` : summary ? `${summary.cameraCode} · ${summary.cameraName}` : undefined}
       actions={(
-        <div className="inspector__nav">
+        <div className="track-inspector__nav">
           <Button size="sm" iconOnly icon="chevronLeft" onClick={onPrevious} disabled={!canPrevious} title="Previous result (k / ↑)">Previous result</Button>
-          <span className="inspector__pos" aria-live="polite">{position >= 0 ? `${position + 1} / ${total}${hasMore ? '+' : ''}` : '— / ' + total}</span>
+          <span className="track-inspector__pos" aria-live="polite">{position >= 0 ? `${position + 1} / ${total}${hasMore ? '+' : ''}` : '— / ' + total}</span>
           <Button size="sm" iconOnly icon="chevronRight" onClick={onNext} disabled={!canNext} title="Next result (j / ↓)">Next result</Button>
           {detail ? (
             <ButtonLink size="sm" to={reviewPath({ id: detail.id, videoAssetId: detail.videoAssetId }, searchContext)} icon="external" title="Open full review (Enter)">
