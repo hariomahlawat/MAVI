@@ -1,17 +1,24 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FormEvent } from 'react';
-import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
-import { ApiError } from '../../api/client';
+import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
-import { searchTracks, type TrackObjectClass } from '../../api/tracks';
+import { searchTracks } from '../../api/tracks';
+import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
+import Button from '../../shared/components/Button';
+import EmptyState from '../../shared/components/EmptyState';
 import LoadingState from '../../shared/components/LoadingState';
 import PageHeader from '../../shared/components/PageHeader';
 import { configuredUtcToWallTime, configuredWallTimeToUtc } from '../../shared/time/wallTime';
+import { isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
+import SearchFilterRail, { emptyDraft, type SearchDraft } from './SearchFilterRail';
+import TrackInspector from './TrackInspector';
 import TrackResultCard from './TrackResultCard';
+import TrackResultList, { reviewPath } from './TrackResultList';
 import {
   canonicalSearchParams,
   compareUtcInstants,
@@ -24,34 +31,12 @@ import {
 } from './searchState';
 
 const PAGE_SIZE = 24;
+const SELECTION_PARAM = 'track';
+const VIEW_STORAGE_KEY = 'mavi.search.view';
 
-type SearchDraft = {
-  cameraId: string;
-  objectClass: '' | TrackObjectClass;
-  fromLocal: string;
-  toLocal: string;
-  minimumDurationSeconds: string;
-  minimumConfidencePercent: string;
-};
-
-type TimeDirtyState = {
-  from: boolean;
-  to: boolean;
-};
-
-type NumericDirtyState = {
-  duration: boolean;
-  confidence: boolean;
-};
-
-const emptyDraft: SearchDraft = {
-  cameraId: '',
-  objectClass: '',
-  fromLocal: '',
-  toLocal: '',
-  minimumDurationSeconds: '',
-  minimumConfidencePercent: '',
-};
+type ResultView = 'list' | 'grid';
+type TimeDirtyState = { from: boolean; to: boolean };
+type NumericDirtyState = { duration: boolean; confidence: boolean };
 
 function wallValue(utc: string | undefined, timeZoneId: string | undefined): string {
   if (!utc || !timeZoneId) return '';
@@ -67,8 +52,22 @@ function shouldRetryQuery(failureCount: number, error: unknown): boolean {
   return failureCount < 1;
 }
 
+function readView(): ResultView {
+  try {
+    return window.localStorage.getItem(VIEW_STORAGE_KEY) === 'grid' ? 'grid' : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
+/**
+ * Search workspace: committed filters (URL) on the left, the result snapshot in
+ * the middle and, when a `track` is selected, the in-place inspector on the
+ * right. Selection is URL state too, so a deep link reopens the same view.
+ */
 export default function VisualSearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const searchString = searchParams.toString();
   const committed = useMemo(
     () => parseCommittedSearch(new URLSearchParams(searchString)),
@@ -79,11 +78,18 @@ export default function VisualSearchPage() {
   const trackQueryKey = queryKeys.trackSearch(fingerprint);
   const queryClient = useQueryClient();
 
+  const rawSelection = searchParams.get(SELECTION_PARAM);
+  const selectedId = rawSelection && isGuid(rawSelection) ? rawSelection.toLowerCase() : null;
+
   const cameras = useQuery({
     queryKey: queryKeys.cameras,
     queryFn: ({ signal }) => listCameras(signal),
   });
-
+  const videos = useQuery({
+    queryKey: queryKeys.videos,
+    queryFn: ({ signal }) => listVideos(signal),
+    staleTime: 30_000,
+  });
   const systemConfig = useQuery({
     queryKey: queryKeys.systemConfig,
     queryFn: ({ signal }) => getSystemConfig(signal),
@@ -95,11 +101,23 @@ export default function VisualSearchPage() {
   const [timeDirty, setTimeDirty] = useState<TimeDirtyState>({ from: false, to: false });
   const [numericDirty, setNumericDirty] = useState<NumericDirtyState>({ duration: false, confidence: false });
   const [formError, setFormError] = useState<string | null>(null);
+  const [view, setView] = useState<ResultView>(readView);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, view);
+    } catch {
+      // Losing the preference is harmless.
+    }
+  }, [view]);
+
+  // Committed filters own draft rehydration. Selecting a result changes the
+  // URL too, but must not discard what the operator has typed in the rail.
   useEffect(() => {
     const filters = committed.isValid ? committed.filters : {};
     setDraft({
       cameraId: filters.cameraId ?? '',
+      videoAssetId: filters.videoAssetId ?? '',
       objectClass: filters.objectClass ?? '',
       fromLocal: wallValue(filters.fromUtc, displayTimeZoneId),
       toLocal: wallValue(filters.toUtc, displayTimeZoneId),
@@ -109,20 +127,16 @@ export default function VisualSearchPage() {
     setTimeDirty({ from: false, to: false });
     setNumericDirty({ duration: false, confidence: false });
     setFormError(null);
-    // Route identity owns full draft rehydration. Config recovery is handled separately.
+    // Config recovery is handled separately below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchString]);
+  }, [fingerprint]);
 
   useEffect(() => {
     if (!displayTimeZoneId || !committed.isValid) return;
     setDraft((current) => ({
       ...current,
-      fromLocal: timeDirty.from
-        ? current.fromLocal
-        : wallValue(committed.filters.fromUtc, displayTimeZoneId),
-      toLocal: timeDirty.to
-        ? current.toLocal
-        : wallValue(committed.filters.toUtc, displayTimeZoneId),
+      fromLocal: timeDirty.from ? current.fromLocal : wallValue(committed.filters.fromUtc, displayTimeZoneId),
+      toLocal: timeDirty.to ? current.toLocal : wallValue(committed.filters.toUtc, displayTimeZoneId),
     }));
   }, [displayTimeZoneId, committed, timeDirty.from, timeDirty.to]);
 
@@ -139,14 +153,133 @@ export default function VisualSearchPage() {
     retry: shouldRetryQuery,
   });
 
-  const items = tracks.data?.pages.flatMap((page) => page.items) ?? [];
-  const selectedCameraKnown = draft.cameraId
-    ? cameras.data?.some((camera) => camera.id.toLowerCase() === draft.cameraId.toLowerCase()) ?? false
-    : true;
+  const items = useMemo(() => tracks.data?.pages.flatMap((page) => page.items) ?? [], [tracks.data]);
+  const position = selectedIndex(items, selectedId);
+  const hasMore = Boolean(tracks.hasNextPage);
+
+  // A next-page advance the operator asked for; see the effect below.
+  const pendingAdvance = useRef<{ fingerprint: string; fromId: string } | null>(null);
+
+  const selectTrack = useCallback((id: string | null) => {
+    if (id === null) pendingAdvance.current = null;
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (id) next.set(SELECTION_PARAM, id);
+      else next.delete(SELECTION_PARAM);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const { fetchNextPage, isFetchingNextPage, isFetchNextPageError } = tracks;
+  // Continuation is automatic only while it succeeds. After a failure the
+  // operator decides: "Retry load more" for a transient error, "Refresh
+  // results" for an expired snapshot. The query itself retries a 5xx once.
+  const canContinue = hasMore && !isFetchingNextPage && !isFetchNextPageError;
+
+  // Keep one page ahead of the operator while they step through results.
+  useEffect(() => {
+    if (canContinue && nearEnd(items, selectedId)) void fetchNextPage();
+  }, [items, selectedId, canContinue, fetchNextPage]);
+
+  // Stepping past the last loaded row asks for the next page and remembers
+  // where the operator was. The advance happens only when that page lands for
+  // the same committed search with the same Track still selected; a changed
+  // filter, a changed selection, a closed inspector or an unmount discards it.
+  useEffect(() => {
+    const pending = pendingAdvance.current;
+    if (!pending) return;
+    if (pending.fingerprint !== fingerprint || pending.fromId !== selectedId || isFetchNextPageError) {
+      pendingAdvance.current = null;
+      return;
+    }
+    const next = neighbourId(items, selectedId, 1);
+    if (next) {
+      pendingAdvance.current = null;
+      selectTrack(next);
+    }
+  }, [items, fingerprint, selectedId, isFetchNextPageError, selectTrack]);
+
+  const goPrevious = useCallback(() => {
+    pendingAdvance.current = null;
+    const previous = neighbourId(items, selectedId, -1);
+    if (previous) selectTrack(previous);
+  }, [items, selectedId, selectTrack]);
+
+  const goNext = useCallback(() => {
+    const next = neighbourId(items, selectedId, 1);
+    if (next) {
+      pendingAdvance.current = null;
+      selectTrack(next);
+      return;
+    }
+    if (!selectedId || !hasMore || isFetchNextPageError) return;
+    pendingAdvance.current = { fingerprint, fromId: selectedId };
+    if (!isFetchingNextPage) void fetchNextPage();
+  }, [items, selectedId, hasMore, isFetchingNextPage, isFetchNextPageError, fingerprint, fetchNextPage, selectTrack]);
+
+  // The committed search (without selection) travels with every review link so
+  // the Review page can hand back to exactly this search.
+  const searchContext = committed.isValid ? committed.canonicalQuery : '';
+
+  const openSelected = useCallback(() => {
+    const selected = position >= 0 ? items[position] : undefined;
+    if (selected) navigate(reviewPath(selected, searchContext));
+  }, [items, position, navigate, searchContext]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (!isNavigationTarget(event.target)) return;
+      switch (event.key) {
+        case 'j':
+        case 'ArrowDown':
+          event.preventDefault();
+          goNext();
+          break;
+        case 'k':
+        case 'ArrowUp':
+          event.preventDefault();
+          goPrevious();
+          break;
+        case 'Enter': {
+          // Enter opens the full review of the selected Track. It must not
+          // steal Enter from other controls (links, filter buttons), but the
+          // focused select button of the already-selected row is exactly the
+          // place an operator presses Enter after clicking a result.
+          if (!selectedId) break;
+          const target = event.target instanceof HTMLElement ? event.target : null;
+          const control = target?.closest('a, button');
+          if (control) {
+            const row = control.closest('[data-track-id]');
+            const isSelectedRowButton = control.classList.contains('result-row__select')
+              && row?.getAttribute('data-track-id') === selectedId;
+            if (!isSelectedRowButton) break;
+          }
+          event.preventDefault();
+          openSelected();
+          break;
+        }
+        case 'Escape':
+          if (selectedId) selectTrack(null);
+          break;
+        default:
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [items.length, selectedId, goNext, goPrevious, openSelected, selectTrack]);
 
   const commitFilters = (next: CommittedTrackSearch) => {
     setFormError(null);
+    // A new committed search is a new snapshot; the old selection no longer applies.
     setSearchParams(canonicalSearchParams(next));
+  };
+
+  const onDraftChange = (patch: Partial<SearchDraft>, touched?: { time?: 'from' | 'to'; numeric?: 'duration' | 'confidence' }) => {
+    setDraft((current) => ({ ...current, ...patch }));
+    if (touched?.time) setTimeDirty((current) => ({ ...current, [touched.time as 'from' | 'to']: true }));
+    if (touched?.numeric) setNumericDirty((current) => ({ ...current, [touched.numeric as 'duration' | 'confidence']: true }));
   };
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
@@ -155,6 +288,9 @@ export default function VisualSearchPage() {
 
     if (draft.cameraId) next.cameraId = draft.cameraId.toLowerCase();
     else delete next.cameraId;
+
+    if (draft.videoAssetId) next.videoAssetId = draft.videoAssetId.toLowerCase();
+    else delete next.videoAssetId;
 
     if (draft.objectClass) next.objectClass = draft.objectClass;
     else delete next.objectClass;
@@ -227,11 +363,19 @@ export default function VisualSearchPage() {
     && tracks.error instanceof ApiError
     && tracks.error.code === 'track_search_invalid';
 
+  const inspecting = selectedId !== null;
+
   return (
-    <section className="page-stack">
+    <section className="page page--full page--workspace">
       <PageHeader
         title="Visual Search"
         description="Search authoritative person and vehicle Tracks. Filters are bookmarkable; result pagination uses a stable backend snapshot."
+        actions={(
+          <div className="toolbar__group" role="group" aria-label="Result view">
+            <Button size="sm" iconOnly icon="list" aria-pressed={view === 'list'} onClick={() => setView('list')} title="List view">List view</Button>
+            <Button size="sm" iconOnly icon="grid" aria-pressed={view === 'grid'} onClick={() => setView('grid')} title="Grid view">Grid view</Button>
+          </div>
+        )}
       />
 
       {!committed.isValid ? <Alert tone="error">{committed.error}</Alert> : null}
@@ -242,9 +386,7 @@ export default function VisualSearchPage() {
             <span>
               Display timezone is unavailable. Existing UTC time scope remains active; time editing is disabled and result timestamps are shown explicitly in UTC.
             </span>
-            <button className="button button--secondary" type="button" onClick={() => void systemConfig.refetch()}>
-              Retry display config
-            </button>
+            <Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>
           </div>
         </Alert>
       ) : null}
@@ -254,211 +396,119 @@ export default function VisualSearchPage() {
         </Alert>
       ) : null}
 
-      <form className="panel search-panel" onSubmit={submitSearch} noValidate>
-        <div className="search-filter-grid">
-          <label>
-            Camera
-            <select
-              value={draft.cameraId}
-              onChange={(event) => setDraft((current) => ({ ...current, cameraId: event.target.value }))}
-            >
-              <option value="">Any camera</option>
-              {draft.cameraId && !selectedCameraKnown ? (
-                <option value={draft.cameraId}>Camera ID · {draft.cameraId}</option>
-              ) : null}
-              {cameras.data?.map((camera) => (
-                <option key={camera.id} value={camera.id.toLowerCase()}>
-                  {camera.code} · {camera.name}{camera.isActive ? '' : ' · Inactive'}
-                </option>
-              ))}
-            </select>
-          </label>
+      <div className={inspecting ? 'search-workspace search-workspace--inspecting' : 'search-workspace'}>
+        <SearchFilterRail
+          draft={draft}
+          onDraftChange={onDraftChange}
+          onSubmit={submitSearch}
+          onReset={resetSearch}
+          cameras={cameras.data}
+          videos={videos.data}
+          videosUnavailable={videos.isError}
+          displayTimeZoneId={displayTimeZoneId}
+          activeFilters={activeFilters}
+          onClearTimeScope={clearTimeScope}
+          onRemoveScope={removeAdvancedScope}
+        />
 
-          <label>
-            Object class
-            <select
-              value={draft.objectClass}
-              onChange={(event) => setDraft((current) => ({
-                ...current,
-                objectClass: event.target.value as '' | TrackObjectClass,
-              }))}
-            >
-              <option value="">Any class</option>
-              <option value="Person">Person</option>
-              <option value="Vehicle">Vehicle</option>
-            </select>
-          </label>
-
-          <label>
-            From
-            <input
-              type="datetime-local"
-              step="1"
-              value={draft.fromLocal}
-              disabled={!displayTimeZoneId}
-              onChange={(event) => {
-                setTimeDirty((current) => ({ ...current, from: true }));
-                setDraft((current) => ({ ...current, fromLocal: event.target.value }));
-              }}
-            />
-          </label>
-
-          <label>
-            To
-            <input
-              type="datetime-local"
-              step="1"
-              value={draft.toLocal}
-              disabled={!displayTimeZoneId}
-              onChange={(event) => {
-                setTimeDirty((current) => ({ ...current, to: true }));
-                setDraft((current) => ({ ...current, toLocal: event.target.value }));
-              }}
-            />
-          </label>
-
-          <label>
-            Minimum duration (seconds)
-            <input
-              inputMode="decimal"
-              value={draft.minimumDurationSeconds}
-              onChange={(event) => {
-                setNumericDirty((current) => ({ ...current, duration: true }));
-                setDraft((current) => ({
-                  ...current,
-                  minimumDurationSeconds: event.target.value,
-                }));
-              }}
-              placeholder="e.g. 2.5"
-            />
-          </label>
-
-          <label>
-            Minimum confidence (%)
-            <input
-              inputMode="decimal"
-              value={draft.minimumConfidencePercent}
-              onChange={(event) => {
-                setNumericDirty((current) => ({ ...current, confidence: true }));
-                setDraft((current) => ({
-                  ...current,
-                  minimumConfidencePercent: event.target.value,
-                }));
-              }}
-              placeholder="e.g. 80"
-            />
-          </label>
-        </div>
-
-        <div className="search-panel__meta">
-          <span>
-            Display timezone: <code>{displayTimeZoneId ?? 'Unavailable'}</code>
-          </span>
-          <span>Page size: {PAGE_SIZE}</span>
-        </div>
-
-        {(activeFilters.fromUtc || activeFilters.toUtc) ? (
-          <div className="scope-row" aria-label="Active time scope">
-            <span className="scope-chip">
-              Time · {activeFilters.fromUtc ?? 'open start'} → {activeFilters.toUtc ?? 'open end'}
-              <button type="button" onClick={clearTimeScope} aria-label="Remove time scope">×</button>
-            </span>
-          </div>
-        ) : null}
-
-        {(activeFilters.videoAssetId || activeFilters.processingRunId) ? (
-          <div className="scope-row" aria-label="Active advanced scopes">
-            {activeFilters.videoAssetId ? (
-              <span className="scope-chip">
-                Video · {activeFilters.videoAssetId}
-                <button type="button" onClick={() => removeAdvancedScope('videoAssetId')} aria-label="Remove video scope">×</button>
-              </span>
-            ) : null}
-            {activeFilters.processingRunId ? (
-              <span className="scope-chip">
-                Run · {activeFilters.processingRunId}
-                <button type="button" onClick={() => removeAdvancedScope('processingRunId')} aria-label="Remove processing run scope">×</button>
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-
-        <div className="button-row">
-          <button className="button button--primary" type="submit">Search</button>
-          <button className="button button--secondary" type="button" onClick={resetSearch}>Reset</button>
-        </div>
-      </form>
-
-      {committed.isValid && tracks.isPending ? <LoadingState label="Searching visual intelligence…" /> : null}
-
-      {tracks.isError && items.length === 0 ? (
-        <Alert tone="error">
-          {tracks.error instanceof ApiError
-            ? tracks.error.detail + ' (' + tracks.error.code + ')'
-            : 'Visual search could not be completed.'}
-        </Alert>
-      ) : null}
-
-      {!tracks.isPending && !tracks.isError && committed.isValid && items.length === 0 ? (
-        <div className="panel empty-state">
-          <strong>No Tracks matched this search.</strong>
-          <span>Adjust the committed filters or reset to view the newest available Tracks.</span>
-        </div>
-      ) : null}
-
-      {items.length > 0 ? (
-        <>
-          <div className="results-header">
-            <div>
-              <strong>{items.length} Track{items.length === 1 ? '' : 's'} loaded</strong>
-              <span>Newest Tracks first · stable cursor snapshot</span>
+        <section className="panel results" aria-label="Search results">
+          <div className="results__head">
+            <div className="video-title">
+              <strong>
+                {items.length > 0
+                  ? `${items.length} Track${items.length === 1 ? '' : 's'} loaded${hasMore ? ' · more available' : ''}`
+                  : 'Results'}
+              </strong>
+              <span>Newest Tracks first · stable cursor snapshot · page size {PAGE_SIZE}</span>
             </div>
+            {items.length > 0 ? (
+              <span className="hints" aria-hidden="true">
+                <kbd>j</kbd>/<kbd>k</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close
+              </span>
+            ) : null}
           </div>
 
-          <div className="track-grid">
-            {items.map((track) => (
-              <TrackResultCard
-                key={track.id}
-                track={track}
-                displayTimeZoneId={displayTimeZoneId}
-              />
-            ))}
-          </div>
+          {committed.isValid && tracks.isPending ? <LoadingState label="Searching visual intelligence…" /> : null}
 
-          {tracks.isFetchNextPageError ? (
-            <Alert tone={continuationInvalid ? 'warning' : 'error'}>
-              {continuationInvalid
-                ? 'This result snapshot can no longer continue. Refresh results to start a new snapshot with the same committed filters.'
-                : 'The next page could not be loaded. Existing results remain available.'}
-            </Alert>
+          {tracks.isError && items.length === 0 ? (
+            <div className="panel__body">
+              <Alert tone="error">
+                {tracks.error instanceof ApiError
+                  ? tracks.error.detail + ' (' + tracks.error.code + ')'
+                  : 'Visual search could not be completed.'}
+              </Alert>
+            </div>
           ) : null}
 
-          <div className="load-more-row">
-            {continuationInvalid ? (
-              <button
-                className="button button--secondary"
-                type="button"
-                onClick={() => void queryClient.resetQueries({ queryKey: trackQueryKey, exact: true })}
-              >
-                Refresh results
-              </button>
-            ) : tracks.hasNextPage ? (
-              <button
-                className="button button--secondary"
-                type="button"
-                disabled={tracks.isFetchingNextPage}
-                onClick={() => void tracks.fetchNextPage()}
-              >
-                {tracks.isFetchingNextPage
-                  ? 'Loading…'
-                  : tracks.isFetchNextPageError ? 'Retry load more' : 'Load more'}
-              </button>
+          {!tracks.isPending && !tracks.isError && committed.isValid && items.length === 0 ? (
+            <EmptyState icon="search" title="No Tracks matched this search.">
+              Adjust the committed filters or reset to view the newest available Tracks.
+            </EmptyState>
+          ) : null}
+
+          {items.length > 0 ? (
+            view === 'list' ? (
+              <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} searchContext={searchContext} onSelect={selectTrack} />
             ) : (
-              <span className="results-end">End of this result snapshot.</span>
-            )}
-          </div>
-        </>
-      ) : null}
+              <div className="results__list">
+                <div className="track-grid">
+                  {items.map((track) => (
+                    <TrackResultCard
+                      key={track.id}
+                      track={track}
+                      displayTimeZoneId={displayTimeZoneId}
+                      selected={selectedId !== null && track.id.toLowerCase() === selectedId}
+                      searchContext={searchContext}
+                      onSelect={selectTrack}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          ) : null}
+
+          {items.length > 0 ? (
+            <div className="results__foot">
+              {tracks.isFetchNextPageError ? (
+                <Alert tone={continuationInvalid ? 'warning' : 'error'}>
+                  {continuationInvalid
+                    ? 'This result snapshot can no longer continue. Refresh results to start a new snapshot with the same committed filters.'
+                    : 'The next page could not be loaded. Existing results remain available.'}
+                </Alert>
+              ) : null}
+              {continuationInvalid ? (
+                <Button icon="refresh" onClick={() => void queryClient.resetQueries({ queryKey: trackQueryKey, exact: true })}>
+                  Refresh results
+                </Button>
+              ) : tracks.hasNextPage ? (
+                <Button disabled={tracks.isFetchingNextPage} onClick={() => void tracks.fetchNextPage()}>
+                  {tracks.isFetchingNextPage
+                    ? 'Loading…'
+                    : tracks.isFetchNextPageError ? 'Retry load more' : 'Load more'}
+                </Button>
+              ) : (
+                <span className="results-end">End of this result snapshot.</span>
+              )}
+            </div>
+          ) : null}
+        </section>
+
+        {inspecting && selectedId ? (
+          <TrackInspector
+            key={selectedId}
+            trackId={selectedId}
+            position={position}
+            total={items.length}
+            hasMore={hasMore}
+            displayTimeZoneId={displayTimeZoneId}
+            searchContext={searchContext}
+            summary={position >= 0 ? items[position] : undefined}
+            onPrevious={goPrevious}
+            onNext={goNext}
+            onClose={() => selectTrack(null)}
+          />
+        ) : null}
+      </div>
     </section>
   );
 }

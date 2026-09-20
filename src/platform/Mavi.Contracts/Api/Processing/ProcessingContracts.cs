@@ -17,4 +17,6 @@ public sealed record ProcessingRunStatusResponse(
     DateTimeOffset? CompletedAtUtc,
     double ProgressPercent,
     int AttemptCount,
-    string? FailureCode);
+    string? FailureCode,
+    long FramesProcessed,
+    int TracksCreated);

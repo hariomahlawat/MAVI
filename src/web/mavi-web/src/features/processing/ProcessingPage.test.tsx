@@ -66,6 +66,8 @@ describe('ProcessingPage', () => {
         progressPercent: 42.5,
         attemptCount: 1,
         failureCode: null,
+        framesProcessed: 0,
+        tracksCreated: 0,
       },
     });
     vi.mocked(queueProcessing).mockResolvedValue({ processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21432' });
@@ -81,5 +83,59 @@ describe('ProcessingPage', () => {
     await waitFor(() => expect(getCamera).toHaveBeenCalledWith(cameraId, expect.any(AbortSignal)));
     expect(screen.getByText('Asia/Kolkata')).toBeInTheDocument();
     expect(screen.getAllByText(/08:00:0[02]/).length).toBeGreaterThan(0);
+  });
+
+  it('shows frame and Track counts only once a run has completed, never as live progress', async () => {
+    vi.mocked(getProcessingStatus).mockResolvedValue({
+      videoStatus: 'Processing',
+      latestRun: {
+        processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431',
+        status: 'Running',
+        pipeline: 'phase1-detection-tracking',
+        pipelineVersion: 'phase1-v1',
+        workerId: 'worker-a',
+        queuedAtUtc: '2026-09-09T02:30:00Z',
+        startedAtUtc: '2026-09-09T02:30:02Z',
+        completedAtUtc: null,
+        progressPercent: 42.5,
+        attemptCount: 1,
+        failureCode: null,
+        framesProcessed: 6_000,
+        tracksCreated: 3,
+      },
+    });
+    const running = renderWithApp(<ProcessingPage />, {
+      route: `/processing/${videoId}`,
+      routePath: '/processing/:videoAssetId',
+    });
+    await screen.findByText('Progress');
+    expect(screen.queryByText('6,000')).not.toBeInTheDocument();
+    expect(screen.getByText('Frames processed').parentElement).toHaveTextContent(/final count after completion/i);
+    running.unmount();
+
+    vi.mocked(getProcessingStatus).mockResolvedValue({
+      videoStatus: 'Processed',
+      latestRun: {
+        processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431',
+        status: 'Completed',
+        pipeline: 'phase1-detection-tracking',
+        pipelineVersion: 'phase1-v1',
+        workerId: 'worker-a',
+        queuedAtUtc: '2026-09-09T02:30:00Z',
+        startedAtUtc: '2026-09-09T02:30:02Z',
+        completedAtUtc: '2026-09-09T02:40:02Z',
+        progressPercent: 100,
+        attemptCount: 1,
+        failureCode: null,
+        framesProcessed: 15_000,
+        tracksCreated: 42,
+      },
+    });
+    renderWithApp(<ProcessingPage />, {
+      route: `/processing/${videoId}`,
+      routePath: '/processing/:videoAssetId',
+    });
+    expect(await screen.findByText('15,000')).toBeInTheDocument();
+    expect(screen.getByText('42')).toBeInTheDocument();
   });
 });
