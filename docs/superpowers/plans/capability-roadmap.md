@@ -121,8 +121,9 @@ Consequences: a new Development capability does not become Production-qualified 
 
 | Document | Role |
 |---|---|
-| `docs/superpowers/plans/capability-roadmap.md` (this file) | Authoritative current capability roadmap |
-| `docs/superpowers/plans/2026-09-20-spatial-temporal-track-analytics.md` | Plan for the next feature (stage 1) |
+| `docs/superpowers/plans/capability-roadmap.md` (this file) | Authoritative current capability roadmap: what we build next and why |
+| `docs/superpowers/plans/capability-implementation-roadmap.md` | Authoritative implementation roadmap: stage dependencies, per-stage technical impact, qualification-preservation matrix, risks, ADR needs |
+| `docs/superpowers/plans/2026-09-20-spatial-temporal-track-analytics.md` | Implementation-grade plan for the next feature (stage 1) |
 | `docs/superpowers/plans/2026-09-20-audited-review-and-cases-plan.md` | Deferred design for stage 10; not active |
 | `docs/superpowers/plans/2026-09-19-visual-intelligence-workspace.md` | Record of the delivered operator workspace (PR #50); its original "next feature" is superseded here |
 | `docs/superpowers/plans/2026-09-13-phase1-roadmap-rebaseline.md` | Phase-1 task status (Tasks 13–17 complete, Task 18 active) |
@@ -137,7 +138,7 @@ Historical plans and evidence documents are never rewritten to match this roadma
 
 1. ~~Finish and merge PR #49~~ — merged as `ed1acf4`.
 2. ~~Establish the post-merge baseline~~ — §1.
-3. Spatial & Temporal Track Analytics: Slice 0 (design/ADR) then implementation per its plan.
+3. Spatial & Temporal Track Analytics: Slice 0 (ADR and contracts) then the bounded slices in its plan; stage dependencies and impacts per `capability-implementation-roadmap.md`.
 4. Visual Attributes.
 5. Expanded operational object / vehicle classes where useful.
 6. ANPR / OCR.

@@ -47,6 +47,7 @@ What MAVI builds next is decided by `docs/superpowers/plans/capability-roadmap.m
 - `docs/runbooks/offline-readiness.md` — milestone/release offline-readiness checks.
 - `docs/runbooks/phase1-acceptance.md` — formal Phase-1 qualification.
 - `docs/superpowers/plans/capability-roadmap.md` — authoritative capability-first development roadmap and documentation index.
+- `docs/superpowers/plans/capability-implementation-roadmap.md` — implementation-level roadmap: stage dependencies, technical impact per stage, qualification-preservation matrix.
 - `docs/superpowers/plans/2026-09-18-task-18-phase1-production-qualification-rebaseline.md` — Production qualification stream (independent of the capability roadmap).
 
 
