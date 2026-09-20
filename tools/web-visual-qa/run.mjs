@@ -58,6 +58,7 @@ const { origin, close } = await startServer({
 
 const browser = await launch();
 const findings = [];
+const knownSeen = [];
 let checks = 0;
 
 try {
@@ -97,7 +98,16 @@ try {
       checks += 1;
 
       const where = `${state.name} @ ${viewport.label}`;
-      for (const problem of page.problems) findings.push(`${where}: ${problem}`);
+      const before = findings.length;
+      // Known transitional defects (section 34.1) are recorded, not repaired
+      // here: each belongs to the UI-n PR that owns that surface. Anything not
+      // on the list is a finding.
+      const known = (state.knownIssues ?? []).map((k) => new RegExp(k));
+      const isKnown = (problem) => known.some((k) => k.test(problem));
+      for (const problem of page.problems) {
+        if (isKnown(problem)) { knownSeen.push(`${where}: ${problem}`); continue; }
+        findings.push(`${where}: ${problem}`);
+      }
       for (const problem of focus.problems) findings.push(`${where}: ${problem}`);
       for (const problem of browser.problems()) findings.push(`${where}: uncaught page error: ${problem}`);
       // A resource error is a finding only where the state did not ask for one.
@@ -123,7 +133,7 @@ try {
       const summary = { state: state.name, viewport: viewport.label, pageWidth: page.pageWidth, focusChecked: focus.checked, smallTargets: small };
       writeFileSync(join(OUT, `${state.name}--${viewport.label}.json`), JSON.stringify(summary, null, 2));
 
-      process.stdout.write(`  ${page.problems.length + focus.problems.length ? 'FAIL' : ' ok '}  ${where}\n`);
+      process.stdout.write(`  ${findings.length > before ? 'FAIL' : ' ok '}  ${where}\n`);
     }
   }
 } finally {
@@ -132,6 +142,10 @@ try {
 }
 
 process.stdout.write(`\n${checks} state/viewport combinations checked; captures in ${OUT}\n`);
+if (knownSeen.length) {
+  process.stdout.write(`${knownSeen.length} known transitional defect(s) seen (section 34.1, owned by a later UI PR):\n` +
+    [...new Set(knownSeen.map((k) => k.replace(/ @ \S+/, '')))].map((k) => '  - ' + k).join('\n') + '\n');
+}
 if (findings.length) {
   process.stdout.write(`\n${findings.length} finding(s):\n` + findings.map((f) => '  - ' + f).join('\n') + '\n');
   if (!flag('keep')) process.exitCode = 1;

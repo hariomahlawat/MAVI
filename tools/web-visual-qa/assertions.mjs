@@ -41,6 +41,31 @@ export const PAGE_ASSERTIONS = `(() => {
     }
   }
 
+  // 2b. Text that collides with other text. Controls alone are not enough: a
+  //     section heading landing on top of a field label is just as unusable,
+  //     and only a rendered page can show it.
+  const leaves = Array.from(document.querySelectorAll('h1, h2, h3, h4, label, p, span, strong, dt, dd'))
+    .filter((el) => {
+      if (el.querySelector('h1, h2, h3, h4, label, p, span, strong, dt, dd')) return false;
+      const text = (el.textContent || '').trim();
+      if (!text) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+    });
+  for (let i = 0; i < leaves.length; i++) {
+    for (let j = i + 1; j < leaves.length; j++) {
+      const a = leaves[i], b = leaves[j];
+      if (a.contains(b) || b.contains(a)) continue;
+      const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+      const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+      const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+      if (ox > 4 && oy > 4) {
+        problems.push('overlapping text: "' + (a.textContent || '').trim().slice(0, 28) +
+          '" and "' + (b.textContent || '').trim().slice(0, 28) + '"');
+      }
+    }
+  }
+
   // 3. Every custom property a stylesheet asks for must resolve. An unresolved
   //    one renders as nothing at all, which is how the baseline shipped an
   //    invisible focus ring.

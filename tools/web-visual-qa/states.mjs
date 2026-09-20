@@ -5,6 +5,11 @@
  * response, `'unavailable'` answers 503, and `'hang'` never answers, which is
  * how the loading state is held still long enough to look at.
  *
+ * `knownIssues` lists regexes for defects that exist at this baseline and
+ * belong to a later UI PR (section 34.1). They are reported separately rather
+ * than failing the pass, so the harness stays honest about them without
+ * blocking work that does not own them. Anything not listed is a finding.
+ *
  * `expectText` / `forbidText` make a state prove it rendered what it claims.
  * Unavailable states need a long settle because the query client retries once
  * before failing terminally; without the assertion a slow retry would quietly
@@ -18,6 +23,14 @@
 
 const CAM = '11111111-1111-7111-8111-111111111111';
 const VIDEO = '22222222-2222-7222-8222-222222222222';
+
+/**
+ * The Investigation filter rail's section headings land on the labels beneath
+ * them at 1366. Verified identical on main at the UI-1 baseline, so this is not
+ * a UI-1 regression; the rail's layout is UI-4's, and section 34.1 leaves it
+ * non-conformant until then rather than pulling that work forward.
+ */
+const RAIL_OVERLAP = ['overlapping text: .*(THRESHOLDS|Thresholds|Display timezone|Minimum duration)'];
 const TRACK = '55555550-5555-7555-8555-555555555550';
 
 /**
@@ -89,14 +102,23 @@ export const STATES = [
   },
 
   // --- Investigation: declares full width, and must actually use it. ---
-  { name: 'search', path: '/search', fullWidth: true, settleMs: 900 },
+  {
+    name: 'search', path: '/search', fullWidth: true, settleMs: 900,
+    // Pre-existing at the UI-1 baseline and verified identical on main: the
+    // THRESHOLDS heading lands on the timezone hint and the duration label.
+    // The Investigation filter rail is UI-4's to lay out; section 34.1 leaves
+    // it non-conformant until then rather than pulling that work forward.
+    knownIssues: RAIL_OVERLAP,
+  },
   {
     name: 'search-empty', path: '/search', fullWidth: true,
     api: { '/api/tracks': { items: [], nextCursor: null, totalCount: 0 } },
+    knownIssues: RAIL_OVERLAP,
   },
   {
     name: 'search-unavailable', path: '/search', fullWidth: true, settleMs: 4000,
     api: { '/api/tracks': 'unavailable' }, expectText: 'unavailable',
+    knownIssues: RAIL_OVERLAP,
   },
 
   // --- Review: capped today; its archetype migration is UI-5, not UI-1. ---
