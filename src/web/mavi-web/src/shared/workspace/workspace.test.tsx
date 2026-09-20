@@ -201,6 +201,55 @@ describe('archetypes', () => {
     expect(container.querySelector('.workspace--ledger .workspace__body--scroll')).toBeInTheDocument();
   });
 
+  it('makes the Workbench inspector a drawer that can actually be shut', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} inspectorLabel="Scene inspector" />,
+    );
+    const workbench = container.querySelector('.workspace--workbench') as HTMLElement;
+    const toggle = screen.getByRole('button', { name: 'Scene inspector' });
+
+    // Between 1101 and 1149 the inspector covers the stage (§4.3.1). It starts
+    // shut, because a drawer parked open over the canvas is the thing that rule
+    // exists to prevent.
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls', container.querySelector('.workspace__inspector')?.id);
+    expect(workbench).not.toHaveClass('has-open-drawer');
+
+    await user.click(toggle);
+    expect(workbench).toHaveClass('has-open-drawer');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Close scene inspector' }));
+    expect(workbench).not.toHaveClass('has-open-drawer');
+  });
+
+  it('lets Escape shut the drawer, and only while it is open', async () => {
+    const user = userEvent.setup();
+    const onEscape = vi.fn();
+    window.addEventListener('keydown', onEscape);
+    try {
+      const { container } = render(<WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} />);
+      const workbench = container.querySelector('.workspace--workbench') as HTMLElement;
+
+      // Shut, Escape is the surface's own: cancelling a drawing, clearing a
+      // selection. The drawer must not eat it.
+      await user.keyboard('{Escape}');
+      expect(onEscape).toHaveBeenCalledTimes(1);
+
+      await user.click(screen.getByRole('button', { name: 'Inspector' }));
+      expect(workbench).toHaveClass('has-open-drawer');
+
+      // Open, closing what covers the canvas is what the operator meant, so the
+      // drawer takes it first and the surface never sees it.
+      await user.keyboard('{Escape}');
+      expect(workbench).not.toHaveClass('has-open-drawer');
+      expect(onEscape).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('keydown', onEscape);
+    }
+  });
+
   it('gives the Workbench a stage and an inspector that are not interchangeable', () => {
     const { container } = render(
       <WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} modes={<div>modes</div>} />,

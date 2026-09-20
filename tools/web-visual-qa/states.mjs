@@ -145,6 +145,34 @@ export const STATES = [
     expectText: 'Unsaved changes',
   },
   {
+    // The worst identity the domain permits: `Camera.Create` allows a 32-character
+    // code, and a long name beside it. A 44px band cannot grow, so this is where
+    // the crumb trail either truncates or pushes the controls off the end.
+    name: 'scene-editor-long-identity',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    settleMs: 1200,
+    prepare: DIRTY_SCENE,
+    api: {
+      // The scene must keep its own fixture: a broader camera override would
+      // otherwise answer this path too.
+      [`/api/cameras/${CAM}/scene`]: 'fixture',
+      [`/api/cameras/${CAM}`]: {
+        id: CAM,
+        code: 'NORTH-PERIMETER-GATE-CAM-00042',
+        name: 'North perimeter vehicle entrance, outer gate',
+        description: null,
+        locationName: null,
+        timeZoneId: 'Asia/Kolkata',
+        isActive: true,
+        createdAtUtc: '2026-09-01T04:00:00Z',
+        updatedAtUtc: '2026-09-01T04:00:00Z',
+      },
+    },
+    expectText: 'Unsaved changes',
+  },
+  {
     name: 'scene-editor-unavailable',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,

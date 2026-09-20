@@ -83,6 +83,12 @@ UI-2 adds two more:
   body owns scroll. The measurements land in the JSON beside each capture, so a
   reviewer can read the numbers rather than take the pass on trust.
 
+The four widths are the §25 acceptance viewports, so the Workbench's drawer
+band — 1101 to 1149, where the inspector covers the stage — is outside them by
+construction. Check it deliberately with `--widths 1120`; the drawer's own
+behaviour (starts shut, toggles, closes, takes Escape only while open) is held
+by `workspace.test.tsx`.
+
 Overlap detection clips before it compares. `getBoundingClientRect` reports
 where an element *would* be, so a row scrolled out of an inspector body still
 reports a rect over whatever is painted there — which reads as an overlap

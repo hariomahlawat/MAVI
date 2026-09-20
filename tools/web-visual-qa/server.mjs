@@ -57,16 +57,26 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
 
     if (path.startsWith('/api/')) {
       const overrides = scenario();
-      const match = Object.keys(overrides).find((key) => path === key || path.startsWith(key + '/'));
+      // An exact override wins over a prefix one, and the longest prefix wins
+      // over a shorter one. Declaration order used to decide it, so overriding
+      // `/api/cameras/{id}` silently answered `/api/cameras/{id}/scene` with a
+      // camera — the state then failed to render for a reason that looked
+      // nothing like its cause.
+      const match = Object.keys(overrides)
+        .filter((key) => path === key || path.startsWith(key + '/'))
+        .sort((a, b) => b.length - a.length)[0];
       const value = match ? overrides[match] : undefined;
 
+      // `'fixture'` re-exposes the normal fixture for a path that a broader
+      // override would otherwise have swallowed, so it deliberately answers
+      // none of the branches below and falls through to fixture handling.
       if (value === 'unavailable') {
         res.writeHead(503, { 'content-type': 'application/problem+json' });
         res.end(JSON.stringify({ title: 'Service unavailable', detail: 'The upstream service did not respond.', code: 'upstream_unavailable' }));
         return;
       }
       if (value === 'hang') { hung.add(res); res.on('close', () => hung.delete(res)); return; }
-      if (value !== undefined) {
+      if (value !== undefined && value !== 'fixture') {
         res.writeHead(200, { 'content-type': TYPES['.json'] });
         res.end(JSON.stringify(value));
         return;

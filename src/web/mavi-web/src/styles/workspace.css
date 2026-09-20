@@ -27,15 +27,28 @@
 /* A surface that is not the live thing it usually is — a past revision open
    for reading. One chip was judged too quiet for the mistake it prevents. */
 .context-bar--caution { border-bottom-color: var(--status-warn-border); background: var(--status-warn-soft); }
-.context-bar__crumbs { min-width: 0; }
+/* The trail has to fit a band that cannot grow. `Camera.Create` permits a
+   32-character code, so on a narrow workspace the crumbs either truncate or
+   push the state badges and actions off the end — and the second is what a
+   44px bar looks like when it breaks. Earlier crumbs give way first; the last
+   one names where the operator is and keeps its width, because the crumb that
+   answers "where am I?" is the wrong one to lose. The full text stays on the
+   element's `title`, and on the bar's heading. */
+.context-bar__crumbs { min-width: 0; flex: 0 1 auto; }
 .context-bar__crumbs ol { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
-.context-bar__crumbs li { display: flex; align-items: center; gap: var(--s-2); min-width: 0; font-size: var(--fs-2); }
+.context-bar__crumbs li { display: flex; align-items: center; gap: var(--s-2); min-width: 0; flex: 0 1 auto; font-size: var(--fs-2); }
+.context-bar__crumbs li:last-child { flex: 0 0 auto; }
+.context-bar__crumbs li > a, .context-bar__crumbs li > span {
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;
+}
+/* The status group gives way before the actions do: a badge that has been
+   shortened still reads, a Save button that has been pushed off cannot. */
 /* The separator is decoration between crumbs, so it is not announced. */
 .context-bar__crumbs li + li::before { content: "›"; color: var(--text-muted); }
 .context-bar__crumbs a { color: var(--text-secondary); }
 .context-bar__crumbs a:hover { color: var(--text-primary); }
 .context-bar__crumbs [aria-current="page"] { color: var(--text-primary); font-weight: 600; }
-.context-bar__status { display: flex; align-items: center; gap: var(--s-2); flex: 0 0 auto; }
+.context-bar__status { display: flex; align-items: center; gap: var(--s-2); flex: 0 1 auto; }
 .context-bar__spacer { flex: 1 1 auto; min-width: 0; }
 .context-bar__actions { display: flex; align-items: center; gap: var(--s-2); flex: 0 0 auto; }
 
@@ -183,12 +196,26 @@
  * overlay so the stage keeps the working width rather than being compressed
  * below its floor; below 1100 every archetype stacks and the page scrolls.
  * ------------------------------------------------------------------ */
-@media (max-width: 1149px) {
+/* The drawer's controls exist only where there is a drawer. `display: none`
+   rather than a hidden attribute, so they are out of the tab order at every
+   width where the inspector is simply a column. */
+.workspace__drawer-toggle, .workspace__drawer-close, .workspace__band--drawer-only { display: none; }
+.workspace__drawer-toggle { flex: 0 0 auto; margin-left: auto; }
+
+@media (min-width: 1101px) and (max-width: 1149px) {
+  .workspace__drawer-toggle, .workspace__drawer-close { display: inline-flex; }
+  .workspace__band--drawer-only { display: flex; }
+  /* In flow above the panels, not floating over their heads: the first panel
+     already has controls in its top-right corner. */
+  .workspace__drawer-close { align-self: flex-end; flex: 0 0 auto; }
   .workspace--workbench .workspace__stage-grid { grid-template-columns: minmax(0, 1fr); position: relative; }
   .workspace--workbench .workspace__inspector {
     position: absolute; inset: 0 0 0 auto; width: min(360px, 100%); z-index: var(--z-drawer);
     box-shadow: var(--elevation-floating);
   }
+  /* Shut by default: the stage keeps the working width the drawer exists to
+     protect, and nothing covers the canvas until it is asked for. */
+  .workspace--workbench:not(.has-open-drawer) .workspace__inspector { display: none; }
 }
 @media (max-width: 1100px) {
   .workspace--ledger, .workspace--workbench, .workspace--investigation { height: auto; }
@@ -197,7 +224,6 @@
   .workspace__review-grid,
   .workspace__investigation-grid,
   .workspace--workbench .workspace__stage-grid { grid-template-columns: minmax(0, 1fr); }
-  .workspace--workbench .workspace__inspector,
   .workspace--investigation.has-inspector .workspace__inspector {
     position: static; width: auto; box-shadow: none;
   }

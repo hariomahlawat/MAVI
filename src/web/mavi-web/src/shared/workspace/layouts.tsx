@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
+import Button from '../components/Button';
 
 /**
  * The five workspace archetypes of §4, with exactly one implementation each.
@@ -107,6 +108,7 @@ export function WorkbenchLayout({
   notices,
   stage,
   inspector,
+  inspectorLabel = 'Inspector',
   footer,
 }: {
   /** The mode strip: which tool is armed. */
@@ -116,16 +118,72 @@ export function WorkbenchLayout({
   stage: ReactNode;
   /** Fixed 300–360px. Its body owns the only scroll on this surface. */
   inspector: ReactNode;
+  /** Names the drawer's toggle in the narrow band where it becomes one. */
+  inspectorLabel?: string;
   /** Optional strip below the stage, such as revision history. */
   footer?: ReactNode;
 }) {
+  // Between 1101 and 1149 the inspector is a drawer over the stage (§4.3.1):
+  // the stage keeps the full working width instead of being compressed below
+  // its floor. A drawer that cannot be shut is not a drawer — it is a panel
+  // parked on top of the canvas — so it starts closed and has a way out.
+  //
+  // The state is only ever consulted inside that band, by CSS. At every other
+  // width the inspector is in flow and this is inert, which is what stops a
+  // drawer closed at 1120 from hiding the inspector at 1920.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const inspectorId = useId();
+
+  useEffect(() => {
+    if (!drawerOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // Captured at the window, so an open drawer takes Escape before the
+      // surface's own handler does: closing what is covering the canvas is
+      // what the operator meant, not cancelling what they were drawing on it.
+      event.stopPropagation();
+      setDrawerOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [drawerOpen]);
+
+  const toggle = (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="workspace__drawer-toggle"
+      aria-expanded={drawerOpen}
+      aria-controls={inspectorId}
+      onClick={() => setDrawerOpen((open) => !open)}
+    >
+      {inspectorLabel}
+    </Button>
+  );
+
   return (
-    <section className="workspace workspace--workbench">
-      {modes ? <div className="workspace__band">{modes}</div> : null}
+    <section className={`workspace workspace--workbench${drawerOpen ? ' has-open-drawer' : ''}`}>
+      {modes ? (
+        <div className="workspace__band">{modes}{toggle}</div>
+      ) : (
+        <div className="workspace__band workspace__band--drawer-only">{toggle}</div>
+      )}
       {notices ? <div className="workspace__notices">{notices}</div> : null}
       <div className="workspace__stage-grid">
         <div className="workspace__stage">{stage}</div>
-        <div className="workspace__inspector">{inspector}</div>
+        <div className="workspace__inspector" id={inspectorId}>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon="x"
+            iconOnly
+            className="workspace__drawer-close"
+            onClick={() => setDrawerOpen(false)}
+          >
+            {`Close ${inspectorLabel.toLowerCase()}`}
+          </Button>
+          {inspector}
+        </div>
       </div>
       {footer ? <div className="workspace__footer">{footer}</div> : null}
     </section>

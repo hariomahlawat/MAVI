@@ -453,6 +453,7 @@ export default function SceneEditorPage() {
       />
 
       <WorkbenchLayout
+        inspectorLabel="Scene inspector"
         notices={notices}
         modes={(
           <SceneToolbar

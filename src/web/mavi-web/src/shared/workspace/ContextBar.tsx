@@ -107,10 +107,12 @@ export function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
           const last = index === crumbs.length - 1;
           return (
             <li key={`${crumb.label}-${index}`}>
+              {/* A crumb truncates rather than pushing the bar's controls off
+                  the end, so the full text stays reachable on the title. */}
               {crumb.to && !last ? (
-                <Link to={crumb.to}>{crumb.label}</Link>
+                <Link to={crumb.to} title={crumb.label}>{crumb.label}</Link>
               ) : (
-                <span aria-current={last ? 'page' : undefined}>{crumb.label}</span>
+                <span aria-current={last ? 'page' : undefined} title={crumb.label}>{crumb.label}</span>
               )}
             </li>
           );
