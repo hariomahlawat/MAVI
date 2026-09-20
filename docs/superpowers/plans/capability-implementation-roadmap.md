@@ -89,6 +89,7 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 - **API.** Scene configuration CRUD and activation; analysis status and retry; analytic predicates on `GET /api/tracks`; aggregate endpoints; Track detail gains analytic facts.
 - **UI.** Camera scene editor; disclosed analytics filter group; evidence explanation overlays; aggregate views.
 - **Persistence.** New tables only; existing data untouched; historical Tracks receive analytics only when a run is analysed (initial policy: future runs automatically, past runs on demand). Scene edits create revisions; facts stay bound to the revision that produced them.
+- **Control plane.** Analysis units are fenced like `VisionJob` leases (attempt count, claim-token hash, lease expiry, ownership re-validated inside the final transaction); search cursors pin the resolved scene revision and algorithm version; an empty active revision means analytics disabled for that camera; Development mutations are recorded as `development-unattributed` until stage 10 supplies a real principal.
 - **Offline/dependency.** None. In-house geometry in .NET.
 - **Qualification.** RTMDet, ByteTrack, CPU and CUDA runtime evidence untouched; new analytics evidence is deterministic golden fixtures plus a small staged-video corpus.
 - **Performance risks.** Fact-table growth linear in Tracks × zones; aggregate queries over long windows; heatmap computation over many trajectories.

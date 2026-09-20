@@ -103,7 +103,7 @@ A profile is supported only when its exact evidence is complete.
 | Profile | Current architectural status | Qualification status |
 |---|---|---|
 | Development Windows CPU | supported | real functional evidence exists |
-| Development Windows CUDA | supported by design | pending compatible CUDA runtime/hardware qualification |
+| Development Windows CUDA | supported; runtime merged (PR #49, `ed1acf4`) | **C4 Development hardware evidence** on the controlled Development host (`qualified-development-hardware`, ADR-009); C5.4 device-resolution checks, C6 E2E runs and C7 failure matrix outstanding on the host; CUDA release lock still `pending-hardware-qualification`. This is Development evidence only and is **not** P1/P2 Production qualification. |
 | P1 Windows GPU | approved Production profile | pending Windows CUDA + Production acceptance |
 | P2 Windows + Linux GPU | approved Production profile | pending Linux CUDA + Production acceptance |
 | P3 Windows CPU | approved Production profile | pending Production performance/acceptance even though CPU subsystem evidence exists |

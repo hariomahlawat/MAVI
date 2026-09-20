@@ -73,6 +73,7 @@ Do not make normal operator setup depend on manual PATH edits, package-manager c
 - Run `python tools/verify_repo.py` before committing.
 - Run language-specific tests/builds for every affected subsystem.
 - Document architectural changes as ADRs before implementation.
+- For feature sequencing and stage prerequisites, use the two current roadmap documents — `docs/superpowers/plans/capability-roadmap.md` (what and in which order) and `docs/superpowers/plans/capability-implementation-roadmap.md` (technical dependencies, impact and qualification preservation) — not dated historical task plans, which record the state at the time they were written.
 
 ## Time naming and semantics
 
