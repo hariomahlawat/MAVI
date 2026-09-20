@@ -164,7 +164,7 @@ export default function ReferenceFrameBar({
 
       <span className="scene-reference__time">
         <span className="visually-hidden">Playhead </span>
-        {formatOffset(playheadMs)}
+        {formatOffset(playheadMs, 'tenths')}
       </span>
 
       <Button
@@ -186,7 +186,7 @@ export default function ReferenceFrameBar({
         {referencePinned ? (
           <>
             <span className={`scene-reference__badge${showingReference ? ' is-current' : ''}`}>
-              Reference · {formatOffset(savedOffsetMs as number)}
+              Reference · {formatOffset(savedOffsetMs as number, 'tenths')}
             </span>
             <span className="scene-reference__file">{savedVideo?.originalFileName ?? 'video unavailable'}</span>
           </>

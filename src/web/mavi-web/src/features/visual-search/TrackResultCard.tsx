@@ -60,7 +60,7 @@ export default function TrackResultCard({
 
         <dl className="track-card__metrics">
           <div><dt>Duration</dt><dd>{formatDuration(track.durationMs)}</dd></div>
-          <div><dt>Mean confidence</dt><dd>{formatConfidence(track.meanConfidence)}</dd></div>
+          <div><dt>Mean confidence</dt><dd>{formatConfidence(track.meanConfidence, 'list')}</dd></div>
           <div><dt>Detections</dt><dd>{track.detectionCount}</dd></div>
         </dl>
 

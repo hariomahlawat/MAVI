@@ -60,7 +60,7 @@ describe('OverviewPage', () => {
     const recent = (await screen.findByText('Vehicle')).closest('a') as HTMLAnchorElement;
     expect(recent).toHaveAttribute('href', `/search?videoAssetId=${track.videoAssetId}&track=${track.id}`);
     expect(recent).toHaveTextContent('CAM-01 · North Gate');
-    expect(recent).toHaveTextContent('14 Sept 2026, 08:00:00 · 8s · 91.0%');
+    expect(recent).toHaveTextContent('14 Sept 2026, 08:00:00 · 8s · 91%');
     expect(within(recent).getByText('Unreviewed')).toBeInTheDocument();
     expect(vi.mocked(searchTracks).mock.calls[0][0]).toEqual({ limit: 8 });
   });

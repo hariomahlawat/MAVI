@@ -65,7 +65,7 @@ export function TrackIdentity({ detail, displayTimeZoneId }: { detail: TrackDeta
         ...(detail.representative
           ? [
             { label: 'Source frame', value: detail.representative.sourceFrameNumber },
-            { label: 'Video offset', value: formatDuration(detail.representative.videoOffsetMs) },
+            { label: 'Video offset', value: formatOffset(detail.representative.videoOffsetMs, 'tenths') },
             { label: 'Representative confidence', value: formatConfidence(detail.representative.confidence) },
             { label: 'Quality score', value: detail.representative.qualityScore.toFixed(3) },
           ]

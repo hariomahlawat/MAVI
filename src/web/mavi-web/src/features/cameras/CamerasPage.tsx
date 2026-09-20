@@ -4,10 +4,11 @@ import { ApiError } from '../../api/client';
 import { createCamera, listCameras, type CreateCameraInput } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
+import AsyncBoundary from '../../shared/async/AsyncBoundary';
+import { fromQuery } from '../../shared/async/fromQuery';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
-import LoadingState from '../../shared/components/LoadingState';
 import PageHeader from '../../shared/components/PageHeader';
 import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
@@ -71,25 +72,25 @@ export default function CamerasPage() {
         <Panel
           headingId="camera-list-title"
           title="Camera inventory"
-          description={`${cameras.data?.length ?? 0} registered`}
+          description={cameras.data ? `${cameras.data.length} registered` : undefined}
           body="flush"
         >
-          {cameras.isPending ? <LoadingState label="Loading cameras…" /> : null}
-          {cameras.isError ? (
-            <div className="panel__body">
-              <Alert tone="error">
-                {cameras.error instanceof ApiError
-                  ? `${cameras.error.detail} (${cameras.error.code})`
-                  : 'Camera inventory is unavailable.'}
-              </Alert>
-            </div>
-          ) : null}
-
-          {cameras.data && cameras.data.length === 0 ? (
-            <EmptyState icon="camera" title="No cameras registered">Add the first camera using the form.</EmptyState>
-          ) : null}
-
-          {cameras.data && cameras.data.length > 0 ? (
+          <AsyncBoundary
+            state={fromQuery(cameras)}
+            loadingLabel="Loading cameras…"
+            isEmpty={(rows) => rows.length === 0}
+            empty={<EmptyState icon="camera" title="No cameras registered">Add the first camera using the form.</EmptyState>}
+            unavailable={(error) => (
+              <div className="panel__body">
+                <Alert tone="error" actions={<Button size="sm" onClick={() => cameras.refetch()}>Retry</Button>}>
+                  {error instanceof ApiError ? `${error.detail} (${error.code})` : 'Camera inventory is unavailable.'}
+                </Alert>
+              </div>
+            )}
+            degradedLabel="Showing the last known camera inventory; refreshing failed."
+            onRetry={() => cameras.refetch()}
+          >
+            {(rows) => (
             <div className="table-wrap">
               <table className="table">
                 <thead>
@@ -102,7 +103,7 @@ export default function CamerasPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {cameras.data.map((camera) => (
+                  {rows.map((camera) => (
                     <tr key={camera.id}>
                       <td><strong>{camera.code}</strong></td>
                       <td>{camera.name}</td>
@@ -120,7 +121,8 @@ export default function CamerasPage() {
                 </tbody>
               </table>
             </div>
-          ) : null}
+            )}
+          </AsyncBoundary>
         </Panel>
 
         <Panel headingId="add-camera-title" title="Add camera" description="Code, name and IANA timezone are required.">

@@ -68,7 +68,7 @@ function ResultRow({
           </span>
           <span className="result-row__meta">
             <span><b>{formatDuration(track.durationMs)}</b> from {formatOffset(track.startOffsetMs)}</span>
-            <span><b>{formatConfidence(track.meanConfidence)}</b> mean</span>
+            <span><b>{formatConfidence(track.meanConfidence, 'list')}</b> mean</span>
             <span><b>{track.detectionCount}</b> detections</span>
           </span>
         </span>
