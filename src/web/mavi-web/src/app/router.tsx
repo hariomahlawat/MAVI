@@ -4,6 +4,7 @@ import CamerasPage from '../features/cameras/CamerasPage';
 import OverviewPage from '../features/overview/OverviewPage';
 import ProcessingPage from '../features/processing/ProcessingPage';
 import ProcessingQueuePage from '../features/processing/ProcessingQueuePage';
+import SceneEditorPage from '../features/scene-editor/SceneEditorPage';
 import VideoImportPage from '../features/video-import/VideoImportPage';
 import VideoReviewPage from '../features/video-review/VideoReviewPage';
 import VideosPage from '../features/videos/VideosPage';
@@ -18,6 +19,7 @@ export const appRoutes: RouteObject[] = [
     children: [
       { index: true, element: <OverviewPage /> },
       { path: 'cameras', element: <CamerasPage /> },
+      { path: 'cameras/:cameraId/scene', element: <SceneEditorPage /> },
       { path: 'videos', element: <VideosPage /> },
       { path: 'import', element: <VideoImportPage /> },
       { path: 'processing', element: <ProcessingQueuePage /> },

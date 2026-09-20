@@ -5,7 +5,7 @@ import { createCamera, listCameras, type CreateCameraInput } from '../../api/cam
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
-import Button from '../../shared/components/Button';
+import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
 import LoadingState from '../../shared/components/LoadingState';
 import PageHeader from '../../shared/components/PageHeader';
@@ -98,6 +98,7 @@ export default function CamerasPage() {
                     <th scope="col">Name</th>
                     <th scope="col">Timezone</th>
                     <th scope="col">State</th>
+                    <th scope="col"><span className="visually-hidden">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -108,6 +109,11 @@ export default function CamerasPage() {
                       <td><code>{camera.timeZoneId}</code></td>
                       <td>
                         <StatusBadge tone={camera.isActive ? 'ok' : 'neutral'}>{camera.isActive ? 'Active' : 'Inactive'}</StatusBadge>
+                      </td>
+                      <td>
+                        <ButtonLink size="sm" variant="ghost" icon="layers" to={`/cameras/${camera.id}/scene`}>
+                          Scene
+                        </ButtonLink>
                       </td>
                     </tr>
                   ))}

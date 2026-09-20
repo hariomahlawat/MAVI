@@ -125,3 +125,69 @@
 .results__list { list-style: none; margin: 0; padding: 0; }
 .result-row__select { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; cursor: pointer; text-align: left; }
 .result-row:hover { background: var(--surface-2); }
+
+/* Scene editor */
+.scene-page { display: grid; gap: var(--s-4); align-content: start; }
+.scene-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: var(--s-4); align-items: start; }
+.scene-workspace__main, .scene-workspace__side { display: grid; gap: var(--s-4); align-content: start; min-width: 0; }
+.scene-toolbar { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+.scene-canvas { position: relative; width: 100%; background: #000; border-radius: var(--r-2); overflow: hidden; touch-action: none; }
+.scene-canvas__video { display: block; width: 100%; max-height: 58vh; background: #000; }
+.scene-canvas__placeholder { width: 100%; aspect-ratio: 16 / 9; max-height: 58vh; background: repeating-linear-gradient(45deg, #0d131c, #0d131c 12px, #111927 12px, #111927 24px); }
+.scene-canvas__overlay { position: absolute; inset: 0; }
+.scene-canvas--zone .scene-canvas__overlay, .scene-canvas--line .scene-canvas__overlay { cursor: crosshair; }
+.scene-canvas--readonly .scene-canvas__overlay { pointer-events: none; }
+
+.scene-zone polygon { fill: rgb(59 130 246 / 14%); stroke: var(--accent-text); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: pointer; }
+.scene-zone.is-selected polygon { fill: rgb(59 130 246 / 24%); stroke: var(--accent); stroke-width: 3; }
+.scene-zone.is-disabled polygon { fill: rgb(163 173 189 / 8%); stroke: var(--neutral); stroke-dasharray: 6 4; }
+
+.scene-line line { stroke: var(--evidence); stroke-width: 2.5; vector-effect: non-scaling-stroke; cursor: pointer; }
+.scene-line.is-selected line { stroke-width: 3.5; }
+.scene-line.is-disabled line { stroke: var(--neutral); stroke-dasharray: 6 4; }
+.scene-line__endpoint-label { fill: var(--evidence); font: 600 11px var(--font-ui); paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round; }
+.scene-line__crossing line { stroke-width: 2; stroke-dasharray: none; cursor: default; marker-end: none; }
+.scene-line__crossing text { font: 600 10px var(--font-ui); paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round; text-anchor: middle; dominant-baseline: middle; }
+.scene-line__crossing--atob line { stroke: var(--ok); }
+.scene-line__crossing--atob text { fill: var(--ok); }
+.scene-line__crossing--btoa line { stroke: var(--warn); }
+.scene-line__crossing--btoa text { fill: var(--warn); }
+
+.scene-handle { fill: var(--surface); stroke: var(--accent); stroke-width: 2; cursor: grab; }
+.scene-handle.is-selected { fill: var(--accent); stroke: var(--text-on-accent); }
+
+.scene-drawing polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.scene-drawing circle { fill: var(--accent); }
+.scene-drawing__preview { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+
+.scene-objects { display: grid; gap: var(--s-4); }
+.scene-objects__group h3 { color: var(--text-3); font-size: var(--fs-0); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: var(--s-2); }
+.scene-objects__list { display: grid; gap: 2px; list-style: none; }
+.scene-objects__item { border: 1px solid transparent; border-radius: var(--r-1); }
+.scene-objects__item.is-selected { border-color: var(--border-strong); background: var(--accent-soft); }
+.scene-objects__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--s-2); }
+.scene-objects__name { display: grid; gap: 2px; padding: var(--s-2); background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: var(--r-1); }
+.scene-objects__name:hover { background: var(--surface-2); }
+.scene-objects__meta { color: var(--text-3); font-size: var(--fs-1); }
+.scene-objects__vertices { display: grid; gap: 1px; list-style: none; padding: 0 var(--s-2) var(--s-2) var(--s-4); }
+.scene-objects__vertex { background: none; border: 0; color: var(--text-2); font: var(--fs-0)/1.6 var(--font-mono); text-align: left; cursor: pointer; padding: 1px var(--s-2); border-radius: var(--r-1); }
+.scene-objects__vertex:hover { background: var(--surface-2); color: var(--text); }
+.scene-objects__vertex.is-selected { background: var(--accent); color: var(--text-on-accent); }
+
+.scene-properties__detail { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px var(--s-3); font-size: var(--fs-1); }
+.scene-properties__detail dt { color: var(--text-3); }
+.scene-properties__detail dd { color: var(--text-2); overflow-wrap: anywhere; }
+
+.scene-history { display: grid; gap: var(--s-2); list-style: none; }
+.scene-history__item { display: grid; gap: 4px; padding: var(--s-2); border: 1px solid var(--border); border-radius: var(--r-1); }
+.scene-history__item.is-selected { border-color: var(--accent); background: var(--accent-soft); }
+.scene-history__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); font-size: var(--fs-2); }
+.scene-history__meta { color: var(--text-3); font-size: var(--fs-1); }
+.scene-history__note { color: var(--text-2); font-size: var(--fs-1); }
+
+.field-error { color: var(--err); font-size: var(--fs-1); }
+
+@media (max-width: 1100px) {
+  .scene-workspace { grid-template-columns: minmax(0, 1fr); }
+}
