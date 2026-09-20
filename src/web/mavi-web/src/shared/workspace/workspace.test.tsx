@@ -330,6 +330,17 @@ describe('the archetype set is closed', () => {
     expect(importers.filter((path) => !path.includes('/features/overview/'))).toEqual([]);
   });
 
+  it('lets only the archetypes declare how a surface scrolls', () => {
+    // §4's scroll ownership is a property of the archetype, so the archetype
+    // states it. If a page could call this, a page could opt out of the rule —
+    // which is the whole thing the declaration exists to prevent.
+    const callers = Object.entries(SOURCES)
+      .filter(([path]) => !isThisTest(path) && path !== '/src/shared/workspace/surfaceSlot.tsx')
+      .filter(([, source]) => /\buseScrollPolicy\s*\(/.test(withoutComments(source)))
+      .map(([path]) => path);
+    expect(callers).toEqual(['/src/shared/workspace/layouts.tsx']);
+  });
+
   it('gives every surface one Context Bar implementation', () => {
     // The band's markup belongs to the shell and the primitive. A feature that
     // wrote its own `.context-bar` would produce the two-bar page §5 forbids,
