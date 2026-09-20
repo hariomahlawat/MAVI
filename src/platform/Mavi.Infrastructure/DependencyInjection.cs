@@ -6,6 +6,7 @@ using Mavi.Application.Modules.Cameras;
 using Mavi.Application.Modules.Media;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Application.Modules.Evidence;
+using Mavi.Application.Modules.SceneAnalytics.Configuration;
 using Mavi.Infrastructure.Media;
 using Mavi.Infrastructure.Security;
 using Mavi.Infrastructure.Persistence;
@@ -40,6 +41,8 @@ public static class DependencyInjection
         services.AddScoped<IProcessingResultStore, ProcessingResultStore>();
         services.AddScoped<ITrackSearchRepository, TrackSearchRepository>();
         services.AddScoped<TrackSearchService>();
+        services.AddScoped<ISceneConfigurationRepository, SceneConfigurationRepository>();
+        services.AddScoped<SceneConfigurationService>();
         services.AddScoped<IContentCatalog, ContentCatalog>();
         services.AddScoped<ContentReadService>();
         services.AddSingleton<VisionRuntimeProvenanceParser>();

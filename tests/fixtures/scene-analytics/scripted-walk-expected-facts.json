@@ -1,0 +1,76 @@
+{
+  "algorithmVersion": "scene-analytics-v1",
+  "parametersSha256": "30f33ddf6bb46eac6acfc45da52ca23a5de57b8ac0825e24db4ad90d028403e1",
+  "referencePoint": "bbox-centre",
+  "sampleCount": 59,
+  "gapCount": 1,
+  "gapTotalMs": 6300,
+  "zoneVisits": [
+    {
+      "zone": "Courtyard",
+      "visitIndex": 0,
+      "entryOffsetMs": 400,
+      "exitOffsetMs": 8700,
+      "dwellMs": 8300,
+      "beganInside": false,
+      "endedInside": false,
+      "closedByGap": true,
+      "entryHeading": "S",
+      "exitHeading": "None"
+    },
+    {
+      "zone": "Courtyard",
+      "visitIndex": 1,
+      "entryOffsetMs": 15000,
+      "exitOffsetMs": 15600,
+      "dwellMs": 600,
+      "beganInside": true,
+      "endedInside": false,
+      "closedByGap": false,
+      "entryHeading": "None",
+      "exitHeading": "S"
+    }
+  ],
+  "zoneSummaries": [
+    {
+      "zone": "Courtyard",
+      "visitCount": 2,
+      "totalDwellMs": 8900,
+      "firstEntryOffsetMs": 400,
+      "lastExitOffsetMs": 15600,
+      "loitering": true,
+      "loiteringThresholdSeconds": 5,
+      "loiteringDwellMs": 8900,
+      "loiteringVisitIndexes": [
+        0,
+        1
+      ]
+    }
+  ],
+  "lineCrossings": [
+    {
+      "line": "Kerb",
+      "crossingIndex": 0,
+      "offsetMs": 15200,
+      "direction": "BToA",
+      "x": 0.5,
+      "y": 0.5
+    }
+  ],
+  "motion": {
+    "heading": "S",
+    "pathLengthNormalised": 0.8,
+    "meanDisplacementRateNormalisedPerSecond": 0.082474,
+    "longestStationaryMs": 5000,
+    "totalStationaryMs": 5000,
+    "stationaryIntervals": [
+      {
+        "startOffsetMs": 3700,
+        "endOffsetMs": 8700
+      }
+    ],
+    "stationaryZones": [
+      "Courtyard"
+    ]
+  }
+}

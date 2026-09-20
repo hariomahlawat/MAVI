@@ -63,6 +63,7 @@ app.MapStorageTopologyEndpoints();
 app.MapVisionJobEndpoints();
 app.MapTrackEndpoints();
 app.MapArtifactEndpoints();
+app.MapSceneEndpoints();
 app.MapGet("/api/system/config", (Microsoft.Extensions.Options.IOptions<LocalizationOptions> options) =>
     Results.Ok(new { displayTimeZoneId = options.Value.DefaultDisplayTimeZoneId }));
 
