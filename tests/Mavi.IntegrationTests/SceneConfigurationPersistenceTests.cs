@@ -206,7 +206,7 @@ public sealed class SceneConfigurationPersistenceTests(PostgresFixture fixture)
         var exception = await Assert.ThrowsAsync<PostgresException>(() =>
             ExecuteAsync("DELETE FROM cameras WHERE id = @id;", camera.Id));
 
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, exception.SqlState);
+        AssertReferenceRefused(exception);
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public sealed class SceneConfigurationPersistenceTests(PostgresFixture fixture)
         var exception = await Assert.ThrowsAsync<PostgresException>(() =>
             ExecuteAsync("DELETE FROM scene_configurations WHERE camera_id = @id;", camera.Id));
 
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, exception.SqlState);
+        AssertReferenceRefused(exception);
     }
 
     [Fact]
@@ -329,8 +329,24 @@ public sealed class SceneConfigurationPersistenceTests(PostgresFixture fixture)
         var exception = await Assert.ThrowsAsync<PostgresException>(() =>
             ExecuteAsync("DELETE FROM video_assets WHERE id = @id;", video.Id));
 
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, exception.SqlState);
+        AssertReferenceRefused(exception);
     }
+
+    /// <summary>
+    /// Asserts that PostgreSQL refused a delete because a row still references the
+    /// target.
+    /// </summary>
+    /// <remarks>
+    /// PostgreSQL 18 reports an <c>ON DELETE RESTRICT</c> refusal as
+    /// <c>restrict_violation</c>, where earlier versions used
+    /// <c>foreign_key_violation</c> for both. The behaviour is the same and the test
+    /// is about the refusal, so either code is accepted rather than pinning the test
+    /// to one server version.
+    /// </remarks>
+    private static void AssertReferenceRefused(PostgresException exception) =>
+        Assert.Contains(
+            exception.SqlState,
+            new[] { PostgresErrorCodes.RestrictViolation, PostgresErrorCodes.ForeignKeyViolation });
 
     // Test infrastructure
     private async Task<MaviDbContext> FreshDatabaseAsync()
