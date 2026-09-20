@@ -140,6 +140,11 @@ export function WorkbenchLayout({
   /** Optional strip below the stage, such as revision history. */
   footer?: ReactNode;
 }) {
+  // §4.3.2, the one archetype with a hard no-page-scroll rule: a scrolled
+  // canvas is a broken canvas, so the shell's content column must not be able
+  // to scroll this surface at desktop widths either.
+  useScrollPolicy('contain');
+
   // Between 1101 and 1149 the inspector is a drawer over the stage (§4.3.1):
   // the stage keeps the full working width instead of being compressed below
   // its floor. A drawer that cannot be shut is not a drawer — it is a panel
@@ -148,11 +153,6 @@ export function WorkbenchLayout({
   // The state is only ever consulted inside that band, by CSS. At every other
   // width the inspector is in flow and this is inert, which is what stops a
   // drawer closed at 1120 from hiding the inspector at 1920.
-  // §4.3.2, the one archetype with a hard no-page-scroll rule: a scrolled
-  // canvas is a broken canvas, so the shell's content column must not be able
-  // to scroll this surface at desktop widths either.
-  useScrollPolicy('contain');
-
   const [drawerOpen, setDrawerOpen] = useState(false);
   const inspectorId = useId();
 
