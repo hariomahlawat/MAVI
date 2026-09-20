@@ -121,6 +121,52 @@ describe('feature CSS carries no design literals', () => {
     expect(offenders).toEqual([]);
   });
 
+  /**
+   * Spacing is the fourth literal the UI-1 acceptance criterion names, and the
+   * hardest to check: a stylesheet is full of legitimate numbers. The rule here
+   * is deliberately narrow — a *length literal in a spacing property* — so that
+   * panel widths, control heights, grid tracks, breakpoints and glyph geometry
+   * stay plain numbers, which is what they are.
+   *
+   * A genuinely structural value in a spacing property (a negative margin doing
+   * border alignment, padding that clears a painted glyph) is allowed only when
+   * the rule says why, in a `structural:` comment on or just above it. The cost
+   * of the exception is having to justify it in writing.
+   */
+  const SPACING_PROPERTY = String.raw`padding|padding-(?:top|right|bottom|left|inline|block)(?:-start|-end)?`
+    + String.raw`|margin|margin-(?:top|right|bottom|left|inline|block)(?:-start|-end)?`
+    + String.raw`|gap|row-gap|column-gap|inset|inset-(?:inline|block)(?:-start|-end)?`;
+
+  it('declares no spacing literal in a spacing property', () => {
+    const offenders: string[] = [];
+    for (const file of featureCss) {
+      const raw = read(file);
+      // Blank comments out so prose about pixels is not read as a declaration,
+      // while keeping every offset and line number identical to the source.
+      const scannable = raw.replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '));
+      const declaration = new RegExp(String.raw`(?<![-\w])(${SPACING_PROPERTY})\s*:\s*([^;{}]+)`, 'g');
+
+      for (const match of scannable.matchAll(declaration)) {
+        const value = match[2];
+        if (!/-?\d*\.?\d+(px|rem|em)\b/.test(value)) continue;
+
+        // A structural value is allowed only where the source says why. Look at
+        // the declaration's own line plus the comment immediately preceding it:
+        // anchoring to the line start matters because a rule may be written on
+        // one long line, putting the declaration far from its comment.
+        const at = match.index ?? 0;
+        const lineStart = raw.lastIndexOf('\n', at) + 1;
+        const lineEnd = raw.indexOf('\n', at) === -1 ? raw.length : raw.indexOf('\n', at);
+        const justification = raw.slice(Math.max(0, lineStart - 320), lineEnd);
+        if (justification.includes('structural:')) continue;
+
+        const line = raw.slice(0, at).split('\n').length;
+        offenders.push(`${file}:${line}: ${match[1]}: ${value.trim()}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('declares no transition or animation duration literal', () => {
     const offenders: string[] = [];
     for (const file of featureCss) {

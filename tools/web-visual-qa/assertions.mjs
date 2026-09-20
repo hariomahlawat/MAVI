@@ -94,27 +94,65 @@ export const PAGE_ASSERTIONS = `(() => {
 })()`;
 
 /**
- * Focus visibility, checked by actually walking focus through the page rather
- * than by reading CSS: a ring that is painted but clipped is still invisible.
+ * Focus visibility, checked by actually focusing every practical control on the
+ * surface rather than reading CSS: a ring that is painted but clipped is still
+ * invisible, and a cap on how many controls are checked is a coverage claim the
+ * harness cannot back.
+ *
+ * Every focusable element is accounted for. A control is either checked or
+ * skipped with a named reason, and the caller fails the pass when those two do
+ * not add up to what was discovered — so a control can never fall out of the
+ * count silently.
+ *
+ * Focus is left on the first checked control rather than blurred, so each
+ * capture carries one real focus ring for the human half of section 26 without
+ * adding a state to the matrix.
  */
 export const FOCUS_ASSERTIONS = `(() => {
   const problems = [];
-  const targets = Array.from(document.querySelectorAll('button, a[href], input, select, textarea'))
-    .filter((el) => !el.disabled && el.getBoundingClientRect().width > 0)
-    .slice(0, 40);
-  for (const el of targets) {
-    el.focus();
-    if (document.activeElement !== el) continue;
+  const skipped = {};
+  const skip = (reason) => { skipped[reason] = (skipped[reason] || 0) + 1; };
+
+  const candidates = Array.from(document.querySelectorAll(
+    'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"]), [contenteditable="true"]'
+  ));
+  const discovered = candidates.length;
+  let checked = 0;
+  let first = null;
+
+  for (const el of candidates) {
+    // Disabled controls are not in the focus order and have no ring to show.
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true') { skip('disabled'); continue; }
+    if (el.closest('[inert]')) { skip('inside an inert subtree'); continue; }
+
+    const rect = el.getBoundingClientRect();
     const style = getComputedStyle(el);
-    const ring = style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0;
-    const shadow = style.boxShadow && style.boxShadow !== 'none';
+    if (rect.width === 0 || rect.height === 0) { skip('zero-sized'); continue; }
+    if (style.visibility === 'hidden' || style.display === 'none') { skip('not visible'); continue; }
+    // The visually-hidden skip link and its kin are reachable and do have a
+    // ring, but it is painted off-screen where a capture cannot judge it.
+    if (rect.width <= 1 && rect.height <= 1) { skip('visually hidden'); continue; }
+
+    el.focus();
+    if (document.activeElement !== el) { skip('refused focus'); continue; }
+
+    checked += 1;
+    if (!first) first = el;
+
+    const focused = getComputedStyle(el);
+    const ring = focused.outlineStyle !== 'none' && parseFloat(focused.outlineWidth) > 0;
+    const shadow = focused.boxShadow && focused.boxShadow !== 'none';
     if (!ring && !shadow) {
       problems.push('no visible focus on <' + el.tagName.toLowerCase() + '> "' +
-        (el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 32) + '"');
+        (el.textContent || el.getAttribute('aria-label') || el.getAttribute('name') || '').trim().slice(0, 32) + '"');
     }
   }
-  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-  return { problems, checked: targets.length };
+
+  // Leave one real focus state on screen for the capture.
+  if (first) first.focus();
+  else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+
+  return { problems, discovered, checked, skipped };
 })()`;
 
 /**

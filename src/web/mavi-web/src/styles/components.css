@@ -136,6 +136,9 @@ input::file-selector-button {
   border: var(--stroke-hair) solid var(--border-control); border-radius: var(--r-1);
   background: var(--surface-raised); color: var(--text-primary); cursor: pointer;
 }
+/* structural: padding-right clears the arrow glyph this rule paints at
+   calc(100% - 14px) and calc(100% - 9px). It follows that geometry, not the
+   spacing scale, and must not be tied to a spacing step. */
 select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%); background-position: calc(100% - 14px) 13px, calc(100% - 9px) 13px; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 26px; }
 .field-help { color: var(--text-muted); font-size: var(--fs-0); line-height: 1.4; }
 .field-help--boxed { padding: var(--s-2) var(--s-3); border: var(--stroke-hair) dashed var(--border-subtle); border-radius: var(--r-2); background: var(--surface-raised); color: var(--text-secondary); }
@@ -217,6 +220,8 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-si
 /* Tabs */
 .tabs { display: flex; gap: var(--s-hair); border-bottom: var(--stroke-hair) solid var(--border-subtle); padding: 0 var(--s-2); }
 .tabs button {
+  /* structural: -1px pulls the tab's own border over the strip's, so the two
+     read as one line. Border alignment, not design spacing. */
   height: var(--control-h); padding: 0 var(--s-3); border: 0; border-bottom: var(--stroke-2) solid transparent; margin-bottom: -1px;
   background: transparent; color: var(--text-secondary); font-size: var(--fs-2); font-weight: 500;
 }

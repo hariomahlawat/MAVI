@@ -70,6 +70,7 @@ const { origin, close, releaseHung } = await startServer({
 const browser = await launch();
 const findings = [];
 const knownSeen = [];
+const focusTotals = { discovered: 0, checked: 0, skipped: {} };
 let checks = 0;
 
 try {
@@ -151,6 +152,14 @@ try {
         findings.push(`${where}: ${problem}`);
       }
       for (const problem of focus.problems) findings.push(`${where}: ${problem}`);
+      // Coverage has to add up. A control that is neither checked nor skipped
+      // for a named reason is a control the harness quietly did not look at,
+      // which is exactly the claim this check exists to be able to make.
+      const skippedTotal = Object.values(focus.skipped).reduce((sum, count) => sum + count, 0);
+      if (focus.discovered !== focus.checked + skippedTotal) {
+        findings.push(`${where}: focus coverage does not account for every control — ` +
+          `${focus.discovered} discovered, ${focus.checked} checked, ${skippedTotal} skipped`);
+      }
       for (const problem of browser.problems()) findings.push(`${where}: uncaught page error: ${problem}`);
       // A resource error is a finding only where the state did not ask for one.
       if (!state.api || !Object.values(state.api).includes('unavailable')) {
@@ -172,7 +181,16 @@ try {
       }
 
       writeFileSync(join(OUT, `${state.name}--${viewport.label}.png`), await browser.screenshot());
-      const summary = { state: state.name, viewport: viewport.label, pageWidth: page.pageWidth, focusChecked: focus.checked, smallTargets: small };
+      const summary = {
+        state: state.name, viewport: viewport.label, pageWidth: page.pageWidth,
+        focus: { discovered: focus.discovered, checked: focus.checked, skipped: focus.skipped },
+        smallTargets: small,
+      };
+      focusTotals.discovered += focus.discovered;
+      focusTotals.checked += focus.checked;
+      for (const [reason, count] of Object.entries(focus.skipped)) {
+        focusTotals.skipped[reason] = (focusTotals.skipped[reason] ?? 0) + count;
+      }
       writeFileSync(join(OUT, `${state.name}--${viewport.label}.json`), JSON.stringify(summary, null, 2));
 
       // Let go of anything this state deliberately left hanging before the
@@ -188,6 +206,10 @@ try {
 }
 
 process.stdout.write(`\n${checks} state/viewport combinations checked; captures in ${OUT}\n`);
+const skippedTotal = Object.values(focusTotals.skipped).reduce((sum, count) => sum + count, 0);
+process.stdout.write(
+  `focus: ${focusTotals.discovered} controls discovered, ${focusTotals.checked} checked, ${skippedTotal} skipped` +
+  (skippedTotal ? ' (' + Object.entries(focusTotals.skipped).map(([r, c]) => `${c} ${r}`).join(', ') + ')' : '') + '\n');
 if (knownSeen.length) {
   process.stdout.write(`${knownSeen.length} known transitional defect(s) seen (section 34.1, owned by a later UI PR):\n` +
     [...new Set(knownSeen.map((k) => k.replace(/ @ \S+/, '')))].map((k) => '  - ' + k).join('\n') + '\n');

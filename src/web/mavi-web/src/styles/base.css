@@ -66,6 +66,7 @@ textarea:focus-visible, [tabindex]:focus-visible {
 }
 
 .visually-hidden {
+  /* structural: the -1px is part of the clip-rect technique, not design spacing. */
   position: absolute !important; width: var(--s-px); height: var(--s-px); margin: -1px; padding: 0;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }

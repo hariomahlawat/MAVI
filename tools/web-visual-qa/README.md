@@ -51,7 +51,16 @@ interactive controls. Plus four the UI-1 acceptance criteria need:
 - every `var()` a stylesheet references resolves at run time (the baseline
   shipped a `var(--focus)` that did not, so keyboard focus on a search result
   row was invisible while every unit test passed);
-- visible focus on every focusable control, checked by actually focusing them;
+- **focus visibility on every focusable control the surface can show**, checked
+  by actually focusing each one. Coverage is accounted for rather than capped:
+  each state reports how many controls were discovered, how many were checked
+  and how many were skipped for which named reason, and the pass fails when
+  those do not add up. Controls are skipped only when they are disabled, inside
+  an `inert` subtree, zero-sized, not visible, positioned off-screen (the
+  visually-hidden pattern, where a capture cannot judge a ring), or when they
+  refuse focus. Focus is then left on the first checked control, so every
+  capture carries one real focus ring for the human pass without adding a state
+  to the matrix;
 - **width discipline in both directions** — a surface that declares
   `page--full` uses the viewport at 2560, and a surface that does not stays
   capped. The second half matters as much as the first: UI-1 must fix the cap
@@ -70,6 +79,10 @@ Everything §26 lists that a machine cannot judge: weak text, unexpected bright
 borders, wrapping that destroys density, oversized whitespace, colour-role
 collisions, nested cards, and whether evidence geometry is actually readable
 over each footage condition. Look at `.captures/`.
+
+The focus check proves a ring is *painted*; whether it is legible against the
+surface it lands on is the contrast suite's job for the token, and the capture's
+job for the rendered result.
 
 ## Fixtures and footage
 
