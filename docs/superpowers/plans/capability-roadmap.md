@@ -1,0 +1,151 @@
+# MAVI Capability-First Development Roadmap
+
+**Status:** Authoritative current capability-development roadmap. This file controls *what MAVI builds next*. It does not control Production qualification (Task 18) and it does not restate or reinterpret historical evidence.  
+**Adopted:** 2026-09-20  
+**Baseline:** `main@ed1acf4b66a6b60e19593e2cf806316ab2a1fc3e` (PR #50 merged as `bdf834a`, PR #49 merged as `ed1acf4`)  
+**Product direction:** recorded-video intelligence capability first; heavier investigation/reporting workflow only once the data is rich enough to justify it; live cameras and VMS integration last. Offline operation and the Development-evidence / Production-qualification distinction (ADR-003, ADR-008, ADR-009) are mandatory throughout.  
+**Supersedes:** the sequencing in `2026-09-20-audited-review-and-cases-plan.md` (now deferred) and the "Recommended next feature" originally written in `2026-09-19-visual-intelligence-workspace.md`. Both files are retained as records and carry a status note.
+
+## 1. Baseline: what exists on `main` today
+
+| Area | State on `main@ed1acf4` | Qualification status | Record |
+|---|---|---|---|
+| Recorded-video operator workflow (Cameras, Import, Videos, Processing, Search, inspector, Review with evidence playback and overlays) | Present | Development evidence: component tests, real API + PostgreSQL workflow with the fixture worker, mocked-API screenshots and axe scan | PR #50, `docs/reviews/2026-09-20-pr50-correctness-review.md` |
+| RTMDet + ByteTrack person/vehicle detection and tracking, Windows CPU Development runtime | Present | **Protected qualified CPU Development path**: `windows-x86_64-cpu.lock` unchanged by PR #49; Task 10 / Task 12 CPU matrices green on every head | Task 10, Task 12, `docs/qualification/` |
+| Windows CUDA Development runtime | Present: frozen build contract (CUDA 12.4, MSVC 14.44.35207, SDK 10.0.26100.0, `sm_75`), `windows-x86_64-cuda.lock`, contract-derived runtime pack, component binding, worker/launcher hardening, evidence tooling | **C4 Development hardware evidence** on a GTX 1650 Ti (`runtime.json` variant `qualified-development-hardware`). **Outstanding on the physical host:** C5.4 device-resolution checks, C6 five E2E runs, C7 37 failure-matrix cases; CUDA release lock remains `pending-hardware-qualification` (owner decision after C6/C7) | PR #49, `2026-09-18-windows-cuda-development.md`, `c8-pr49-readiness.md` |
+| Durable processing lifecycle (lease, heartbeat, watchdog, recovery), atomic sealed Track/observation/trajectory persistence, structured search with stable cursor snapshot, run attestation | Present | Task 13–17 acceptance evidence | Task 13–17 plans |
+| Production profiles P1 / P2 / P3 | Machinery present (Offline Binary Kit, setup, profile-aware qualification tooling) | **Not qualified.** No Production profile is advertised as supported. Development CUDA evidence cannot satisfy P1/P2 (ADR-009) | `2026-09-18-task-18-phase1-production-qualification-rebaseline.md` |
+| `VisualAttribute` table, `Entity` table, `Track.EntityId`, `ReviewStatus` enum, `Audit`/`Identity`/`Investigations` module boundaries, pgvector extension | Groundwork only; unpopulated or display-only | — | `docs/superpowers/specs/2026-09-08-visual-intelligence-memory-design.md` |
+
+Two things this table deliberately does **not** say: that Windows CUDA is Production-qualified (it is not; it has Development evidence through C4 only), and that any Production profile is supported (none is).
+
+## 2. Sequencing decision — 20 September 2026
+
+MAVI today understands recorded video, person/vehicle detections, Tracks, observations, trajectories, time, confidence and evidence playback. That is a sound base but semantically thin: a Track says little beyond *broad class, when, where in the frame, for how long, and with what confidence*.
+
+Building an audited review and cases layer on top of that now would give operators a workflow for cataloguing detections rather than investigating intelligence. The decision is therefore to **increase what MAVI can understand and retrieve from video first**, and to build heavier investigation and reporting workflow **after** the underlying data justifies it. Deterministic capabilities that need no new model come before model-based ones, so each model-based step inherits searchable, explainable structure and a proven offline-qualification path.
+
+The sequence:
+
+| # | Capability | Kind | Why here |
+|---|---|---|---|
+| 1 | **Spatial & Temporal Track Analytics** | Deterministic; no new model | Largest intelligence gain from data already persisted; establishes scene configuration, derived-fact persistence and analytic search that every later stage reuses |
+| 2 | Visual Attributes | Model-based (attribute classifier) | First appearance semantics; populates the existing `VisualAttribute` groundwork |
+| 3 | Expanded operational object / vehicle classes | Qualification change, possibly detector change | Makes attribute and plate work class-aware |
+| 4 | ANPR / OCR | Model + OCR engine | Vehicle identity cue tied to Track evidence |
+| 5 | Visual Similarity / query-by-example | Embedding model + pgvector | "Find similar" over persons and vehicles; results are similarity candidates, never identity assertions |
+| 6 | Person/Vehicle ReID and candidate Entity association | Builds on 5 | Proposes candidate associations; never silently merges Tracks |
+| 7 | Event / Behaviour Analytics | Deterministic rules over 1, 2, 6 and time | Measurable events only, after their inputs exist |
+| 8 | Richer structured search | API/UI | Exposes 1–7 as explicit predicates |
+| 9 | Natural-language query translation | Offline model, translating to 8 | Only after deterministic structured semantics exist to translate into |
+| 10 | Audited human review / cases | Identity, audit, workflow | When there is enough intelligence to investigate; design retained in the deferred plan |
+| 11 | Live RTSP / VMS integration | Platform phase | After recorded-video intelligence is mature; see §6 |
+
+Not next: live cameras; operator identity/audit as a major feature; cases or report generation. Identity/audit plumbing may still arrive earlier as a *small* enabler if a concrete operator mutation needs attribution, but it is not a roadmap stage.
+
+## 3. Capability map
+
+States: **Merged and verified** (on `main`, exact-head CI and cited evidence) · **Groundwork** (schema or boundary exists, no operator capability) · **Next** · **Planned** · **Deferred** (design retained, not active) · **Later phase**.
+
+| Capability | State | Where / evidence | Roadmap position |
+|---|---|---|---|
+| Camera registry with camera-local time authority | Merged and verified | Task 15; ADR-004 | — |
+| Recorded MP4 import with manual recording time; MAVI-owned media | Merged and verified | Task 15 | — |
+| Processing lifecycle, status, retry; latest-run-per-video inventory | Merged and verified | Tasks 7–9, 13, 15, 17; PR #50 | Historical-runs listing is a small later increment |
+| Person/vehicle detection + single-camera tracking | Merged and verified on Windows CPU Development; Windows CUDA Development through C4 | Task 10, Task 12, PR #49 | C5.4/C6/C7 host execution outstanding (qualification, not roadmap) |
+| Sealed Track/observation/trajectory persistence | Merged and verified | Task 13; ADR-006 | Foundation for stage 1 |
+| Structured Track search with stable cursor snapshot; Search → inspector → Review → back | Merged and verified | Task 14, Task 16, PR #50 | Extended by stages 1, 2, 4, 8 |
+| Evidence playback with bounding-box and trajectory overlay; provenance panel | Merged and verified | Task 14, PR #50 | Reused by stage 1 to explain analytic matches |
+| Spatial & temporal Track analytics | **Next** | Trajectory data exists; no scene configuration or derived facts yet | Stage 1 — `2026-09-20-spatial-temporal-track-analytics.md` |
+| Visual attributes | Groundwork → Planned | `VisualAttribute` table, unpopulated | Stage 2 |
+| Expanded object / vehicle subclasses | Planned | Product semantics are person/vehicle | Stage 3 |
+| ANPR / OCR | Planned | No plate or OCR pipeline | Stage 4 |
+| Visual similarity | Planned | pgvector present; no embeddings produced or stored | Stage 5 |
+| ReID / Entity candidates | Groundwork → Planned | `Entity` dormant; `Track.EntityId` nullable; spec §3.4 forbids automatic grouping | Stage 6 |
+| Event / behaviour analytics | Planned | — | Stage 7 |
+| Natural-language search | Planned, last of the query work | — | Stage 9 |
+| Human review decisions (confirm/reject with audit) | Groundwork → **Deferred** | `ReviewStatus` display-only; `Audit`/`Identity` boundaries empty | Stage 10 — `2026-09-20-audited-review-and-cases-plan.md` |
+| Investigation cases | Groundwork → **Deferred** | `Investigations` boundary only | Stage 10 |
+| Mission rules, relationship intelligence | Later | `Missions` boundary | After stages 6–7 |
+| Face recognition | Not planned in this roadmap | — | Separate qualified increment only if a mission requirement justifies it |
+| Live RTSP / VMS ingestion | **Later phase** | Import path is file-based by design | §6 |
+
+## 4. What each future capability introduces
+
+Every stage below that adds a model, Python library, native runtime, OCR engine, embedding model, npm or .NET package, database extension or OS prerequisite must, **in the same pull request**, update `config/dependencies/offline-dependency-policy-v1.json`, the offline packaging and setup path, verification, licences and runbooks (`docs/architecture/dependency-and-offline-packaging-policy.md`). Every model-based capability ships with a manifest, version, hash, runtime-compatibility statement, offline-pack location and its own qualification evidence, on the pattern the RTMDet Model Pack and Runtime Pack already follow (ADR-005, ADR-007). Nothing resolves online at install or first run.
+
+| Stage | New technical prerequisites | Where offline / dependency qualification applies |
+|---|---|---|
+| 1 Spatial & Temporal Analytics | Scene-configuration schema and API; derived-fact tables and indexes; one geometry implementation in the .NET Application layer; scene editor UI | No new model or Python dependency. Any geometry or spatial library considered is a dependency and goes through the policy; the plan prefers in-house geometry |
+| 2 Visual Attributes | Person/vehicle attribute model(s) as a Model Pack; worker pipeline step producing attribute observations with confidence; `VisualAttribute` population; attribute search predicates | New model manifest, hash, runtime compatibility with the qualified Torch/MMCV graph, offline pack, qualification corpus; CPU and CUDA runtime variants both stated |
+| 3 Expanded classes | Class-vocabulary change in the qualified runtime profile and manifest; possibly a different detector checkpoint | A vocabulary change re-issues the qualification record; a new checkpoint is a new Model Pack qualification |
+| 4 ANPR / OCR | Plate-detection model; OCR engine (native runtime, language/plate-format packs); plate-observation schema; normalisation rules; partial-plate search | OCR engine is a native runtime dependency with its own lock, licence and offline pack; regional plate grammar is configuration, not code |
+| 5 Visual Similarity | Embedding model; embedding storage per Track (dimension, version); pgvector index (choose HNSW or IVFFlat after measuring); "Find Similar" API/UI | Embedding model as Model Pack; embedding version bound to results; index type is a schema decision recorded in a migration |
+| 6 ReID / Entity candidates | Candidate-association records; review surface for candidates; cross-camera time/geometry constraints | Reuses stage-5 model; no automatic merge; association algorithm version bound to candidates |
+| 7 Event analytics | Rule definitions over persisted facts; event records bound to inputs and rule version | No model; rules are configuration with revisions |
+| 8 Richer structured search | API/UI predicates over 1–7; canonical URL state and snapshot semantics preserved | None |
+| 9 Natural-language translation | An offline language model able to run on the qualified hardware; a strict translator to stage-8 predicates; refusal on untranslatable input | Heavy model dependency; qualified like any other Model Pack; never bypasses structured semantics |
+| 10 Audited review / cases | Windows-integrated operator identity, `Reviewer` policy, append-only audit tables (ADR-010 to be written when activated) | In-box ASP.NET Core Negotiate; no new package expected |
+| 11 Live ingestion | See §6 | Streaming architecture ADR first |
+
+## 5. Architecture notes for later stages
+
+These notes fix direction so later plans start from shared assumptions. They are not designs.
+
+**Visual Attributes (stage 2).** Persons: upper-clothing colour, lower-clothing colour, bag/backpack presence, headwear or helmet where the model is reliable. Vehicles: colour and subclass (car, SUV, van, truck, bus, motorcycle). Attributes are observations with confidence and model version, stored in `VisualAttribute`, never asserted as facts about identity. Colour vocabularies are small and fixed; no attribute is exposed whose measured precision on the qualification corpus does not support it.
+
+**ANPR / OCR (stage 4).** Flow: `Vehicle Track → plate detection → plate crop as sealed evidence → OCR observations → searchable plate text`. A Track may carry several OCR observations (different frames, different readings) each with confidence; a normalised reading (character-class folding, separator removal) is derived per observation for search; partial-plate search matches normalised text; every hit links back to the crop and the source frame.
+
+**Visual Similarity (stage 5).** Embeddings per Track representative crop(s) stored with model version and dimension; pgvector nearest-neighbour search; UI concept `Find Similar` from the inspector or Review page. Results are presented as **similarity candidates** with a score and evidence side-by-side, never as "same person" or "same vehicle".
+
+**ReID (stage 6).** Only after similarity retrieval is stable. `Track` remains one observed trajectory; `Entity` is a hypothesised persistent real-world subject across Tracks. Initial ReID proposes candidate associations for an operator to inspect; `Track.EntityId` is written only by an explicit, attributable decision, which is why stage 10's identity/audit work becomes relevant here.
+
+**Event analytics (stage 7).** Combine zones, trajectories, dwell, attributes, Entity candidates and time into measurable events: intrusion, loitering, wrong-way movement, stopped vehicle, repeated visit, crowd build-up, group movement, co-occurrence. Each event is bound to its inputs and rule version and is explainable from evidence. No claim of intent or anomaly detection is made before the measurable events it would rest on exist.
+
+**Natural-language search (stage 9).** A translator from operator language to stage-8 structured predicates, with the translated query shown and editable before it runs. It never invents a predicate the structured layer does not have.
+
+## 6. Live cameras: a separate later platform phase
+
+Nothing on any branch ingests live streams; import is file-based by design. Live ingestion is not "the import path, but continuous". It adds platform concerns that recorded-video work never touches and that each need design and qualification: RTSP and VMS integration; reconnect and stream-health semantics; buffering and backpressure; clock and time authority for live frames (ADR-004 extended); retention and rolling storage; continuous jobs rather than run-per-video; GPU scheduling across streams; load shedding; long-running recovery. This phase begins with its own ADR and after recorded-video intelligence (stages 1–8) is mature. Nothing from it is implemented now.
+
+## 7. Roadmap versus Task 18 qualification
+
+These are two different sequences and must not be collapsed:
+
+- **Task 18 — Production Qualification and Phase-1 Closure** (`2026-09-18-task-18-phase1-production-qualification-rebaseline.md`) is a qualification and release stream. It may proceed independently of, and in parallel with, capability development.
+- **This roadmap** decides which capability is developed next.
+
+Consequences: a new Development capability does not become Production-qualified by being merged; PR #49's Development CUDA evidence does not equal P1 or P2 qualification; and a future feature must not silently invalidate existing qualification evidence. Where a feature changes a qualified artefact (runtime profile, component binding, model manifest, checkpoint, pipeline profile), the qualification records that bind those artefacts by digest are re-derived deliberately and the change is stated in the PR, exactly as PR #49 did for the runtime-profile digest.
+
+## 8. Documentation index
+
+| Document | Role |
+|---|---|
+| `docs/superpowers/plans/capability-roadmap.md` (this file) | Authoritative current capability roadmap |
+| `docs/superpowers/plans/2026-09-20-spatial-temporal-track-analytics.md` | Plan for the next feature (stage 1) |
+| `docs/superpowers/plans/2026-09-20-audited-review-and-cases-plan.md` | Deferred design for stage 10; not active |
+| `docs/superpowers/plans/2026-09-19-visual-intelligence-workspace.md` | Record of the delivered operator workspace (PR #50); its original "next feature" is superseded here |
+| `docs/superpowers/plans/2026-09-13-phase1-roadmap-rebaseline.md` | Phase-1 task status (Tasks 13–17 complete, Task 18 active) |
+| `docs/superpowers/plans/2026-09-18-task-18-phase1-production-qualification-rebaseline.md` | Production qualification stream |
+| `docs/superpowers/plans/2026-09-18-windows-cuda-development.md`, `c8-pr49-readiness.md` | Windows CUDA Development record and readiness; remaining C5.4/C6/C7 host work |
+| `docs/architecture/README.md`, ADRs | Architecture baseline and decisions |
+| `docs/architecture/dependency-and-offline-packaging-policy.md` | Dependency and offline packaging discipline every stage follows |
+
+Historical plans and evidence documents are never rewritten to match this roadmap; where their statements were correct when written, they stand, and a status note points here.
+
+## 9. Execution order from this baseline
+
+1. ~~Finish and merge PR #49~~ — merged as `ed1acf4`.
+2. ~~Establish the post-merge baseline~~ — §1.
+3. Spatial & Temporal Track Analytics: Slice 0 (design/ADR) then implementation per its plan.
+4. Visual Attributes.
+5. Expanded operational object / vehicle classes where useful.
+6. ANPR / OCR.
+7. Visual Similarity / Find Similar.
+8. ReID / Entity candidate association.
+9. Event / Behaviour Analytics.
+10. Richer structured search; then natural-language translation.
+11. Audited review / cases when semantic richness justifies them.
+12. Live RTSP / VMS ingestion, after its ADR.
+
+In parallel and independently: Task 18 Production qualification; PR #49's outstanding C5.4/C6/C7 host execution.

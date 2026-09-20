@@ -212,6 +212,8 @@ evidence are what is being merged; C6/C7 remain operator-executed on the host.
 
 **Draft status ends with the C8 gate below**, not before.
 
+**Merged 2026-09-20** as `ed1acf4b66a6b60e19593e2cf806316ab2a1fc3e` (head `1a24b50`, base `main@bdf834a`) after every C8 criterion held on the exact head. The C5.4/C6/C7 host work in §5 and §6 remains outstanding and is tracked here, not in the capability roadmap.
+
 ## Merge criteria, for when the host session is done
 
 Plan Gate C8 requires, before merge to `main`:

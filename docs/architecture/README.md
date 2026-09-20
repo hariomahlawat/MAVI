@@ -31,6 +31,10 @@ Phase-1 implementation includes the operational API/UI, PostgreSQL/pgvector pers
 
 Implementation completion remains distinct from release verification: CUDA, disconnected-host, quality/performance, lifecycle and recovery evidence must still be executed against the exact frozen release before reporting a release as verified.
 
+## Current capability roadmap
+
+What MAVI builds next is decided by `docs/superpowers/plans/capability-roadmap.md` (capability-first: Spatial & Temporal Track Analytics, then Visual Attributes, expanded object classes, ANPR/OCR, visual similarity and ReID candidates, event analytics, richer structured search; audited review/cases and live RTSP/VMS ingestion later). That roadmap is a development sequence. It is distinct from Task 18 Production qualification: a capability merged to `main` is Development capability until its exact release evidence passes, and Development CUDA evidence (ADR-009) never satisfies a Production profile.
+
 ## Key documents
 
 - `AGENTS.md` — binding engineering rules.
@@ -42,6 +46,8 @@ Implementation completion remains distinct from release verification: CUDA, disc
 - `docs/runbooks/mavi-offline-setup.md` — offline media preparation and installation.
 - `docs/runbooks/offline-readiness.md` — milestone/release offline-readiness checks.
 - `docs/runbooks/phase1-acceptance.md` — formal Phase-1 qualification.
+- `docs/superpowers/plans/capability-roadmap.md` — authoritative capability-first development roadmap and documentation index.
+- `docs/superpowers/plans/2026-09-18-task-18-phase1-production-qualification-rebaseline.md` — Production qualification stream (independent of the capability roadmap).
 
 
 ## Documentation precedence
