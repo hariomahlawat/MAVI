@@ -1,9 +1,12 @@
-# Audited Human Review and Basic Investigation Cases — Implementation Plan
+# Audited Human Review and Basic Investigation Cases — Deferred Implementation Plan
 
 **Date:** 2026-09-20  
-**Status:** Proposed; coding starts only after PR #50 is stable and the ADR in Slice 0 is accepted.  
-**Base:** `main` after PR #50 merges.  
-**Out of scope for this increment (separate, later increments per the capability roadmap):** image similarity, automatic entity grouping, face recognition, mission rules, live ingestion.
+**Status:** **Deferred — design retained, not the active next implementation increment.**  
+**Base:** `main` after PR #50 merge.  
+**Sequencing decision (20 Sep 2026):** MAVI currently has insufficient semantic richness to justify making cases/review workflow the next major product investment. Capability expansion now comes first: Spatial & Temporal Track Analytics → Visual Attributes → expanded object classes → ANPR/OCR → similarity/ReID → event analytics. This plan is retained so its identity/audit/concurrency design can be reused when human decisions and cases become operationally valuable.  
+**Out of scope for this deferred increment:** image similarity, automatic entity grouping, face recognition, mission rules, live ingestion.
+
+> **Do not start Slice 0 / ADR-010 solely because this file exists.** Identity/audit plumbing should be introduced when a concrete operator mutation requires attribution, or when this deferred plan is deliberately reactivated by the capability roadmap.
 
 ## 1. What exists today (inspected)
 
