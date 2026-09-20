@@ -16,6 +16,7 @@ import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
 import LoadingState from '../../shared/components/LoadingState';
+import { WorkbenchLayout } from '../../shared/workspace';
 import { editorReducer, initialEditorState, NUDGE_STEP, type Selection } from './editorState';
 import ReferenceFrameBar from './ReferenceFrameBar';
 import RevisionHistory from './RevisionHistory';
@@ -413,11 +414,27 @@ export default function SceneEditorPage() {
       {sceneIssues.length > 0 ? (
         <Alert tone="warning">{sceneIssues.map((issue) => issue.message).join(' ')}</Alert>
       ) : null}
+      {/* Both of these explain the Save button, which lives in the Context Bar
+          above. A 44px band cannot hold a sentence, so they are stated here and
+          referenced from the control by `aria-describedby`: the association is
+          the part that matters, and it does not depend on adjacency. */}
+      {blockedReason ? (
+        <p className="scene-notice" id="scene-save-blocked">{blockedReason}</p>
+      ) : null}
+      {confirmingDisable ? (
+        // Stated once, plainly, in the place the operator is already looking.
+        // Nothing about this is an emergency, so nothing about it is red; it is
+        // simply a consequence worth reading before it happens.
+        <p className="scene-notice scene-notice--confirm" id="scene-disable-confirm" role="status">
+          Nothing here is enabled, so saving stops future runs of this camera being analysed. Earlier
+          revisions are unchanged.
+        </p>
+      ) : null}
     </>
   );
 
   return (
-    <section className="page page--full page--workspace scene-page">
+    <section className="page page--full page--workspace">
       <SceneContextBar
         cameraCode={camera.data?.code ?? 'Camera'}
         cameraName={camera.data?.name ?? ''}
@@ -435,103 +452,110 @@ export default function SceneEditorPage() {
         onReturnToActive={() => setViewingRevisionNumber(null)}
       />
 
-      {notices}
-
-      <SceneToolbar
-        tool={state.tool}
-        drawing={readOnly ? { kind: 'none' } : state.drawing}
-        readOnly={readOnly}
-        historyOpen={historyExpanded}
-        drawingError={state.drawingError}
-        onToolChange={(tool) => dispatch({ type: 'setTool', tool })}
-        onCloseZone={() => dispatch({ type: 'closeZone' })}
-        onCancelDrawing={() => dispatch({ type: 'cancelDrawing' })}
-        onToggleHistory={() => setHistoryExpanded((value) => !value)}
-      />
-
-      <div className="scene-stage">
-        <div className="scene-stage__frame">
-          <SceneCanvas
-            draft={shownDraft}
-            tool={readOnly ? 'select' : state.tool}
-            selection={shownSelection}
+      <WorkbenchLayout
+        inspectorLabel="Scene inspector"
+        notices={notices}
+        modes={(
+          <SceneToolbar
+            tool={state.tool}
             drawing={readOnly ? { kind: 'none' } : state.drawing}
             readOnly={readOnly}
-            videoSrc={canvasVideoId ? videoContentUrl(canvasVideoId) : null}
-            videoRef={videoRef}
-            frameWidth={canvasVideo?.width ?? NEUTRAL_FRAME.width}
-            frameHeight={canvasVideo?.height ?? NEUTRAL_FRAME.height}
-            seekToMs={referenceOffsetForCanvas}
-            invalidKeys={invalidKeys}
-            overlay={
-              <>
-                {/* The live region stays mounted and is written into, because
-                    one that appears already populated is routinely not
-                    announced — and entering read-only is exactly the mode
-                    change a screen-reader user must not miss. */}
-                <div className={`scene-stage__banner${readOnly ? '' : ' is-idle'}`} role="status">
-                  {readOnly ? `Viewing revision ${viewingRevisionNumber} — read only` : ''}
-                </div>
-                {/* The empty state invites the first object; once a tool is armed the
-                    operator has accepted the invitation, so it gets out of the way of
-                    the surface they are drawing on. */}
-                {!readOnly && !configured && state.tool === 'select'
-                  && shownDraft.zones.length === 0 && shownDraft.tripLines.length === 0 ? (
-                  <div className={`scene-stage__intro${canvasVideoId ? '' : ' is-empty'}`}>
-                    <strong>No scene configured</strong>
-                    <span>
-                      {cameraVideos.length > 0
-                        ? 'Choose a reference video below, scrub to a clear frame, then draw zones and trip lines.'
-                        : 'No imported video is available for this camera. You can still configure geometry on the '
-                          + 'normalised frame.'}
-                    </span>
-                    <div className="row">
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => dispatch({ type: 'setTool', tool: 'zone' })}
-                      >
-                        Draw a zone
-                      </Button>
-                      <Button size="sm" onClick={() => dispatch({ type: 'setTool', tool: 'line' })}>
-                        Draw a trip line
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            }
-            onMediaFailed={setMediaFailed}
-            onFrameClick={handleFrameClick}
+            historyOpen={historyExpanded}
+            drawingError={state.drawingError}
+            onToolChange={(tool) => dispatch({ type: 'setTool', tool })}
             onCloseZone={() => dispatch({ type: 'closeZone' })}
-            onSelect={(selection) => dispatch({ type: 'select', selection })}
-            onMoveVertex={(key, vertexIndex, point) => dispatch({ type: 'moveVertex', key, vertexIndex, point })}
-            onMoveEndpoint={(key, endpoint, point) => dispatch({ type: 'moveEndpoint', key, endpoint, point })}
+            onCancelDrawing={() => dispatch({ type: 'cancelDrawing' })}
+            onToggleHistory={() => setHistoryExpanded((value) => !value)}
           />
+        )}
+        stage={(
+          <>
+            <SceneCanvas
+              draft={shownDraft}
+              tool={readOnly ? 'select' : state.tool}
+              selection={shownSelection}
+              drawing={readOnly ? { kind: 'none' } : state.drawing}
+              readOnly={readOnly}
+              videoSrc={canvasVideoId ? videoContentUrl(canvasVideoId) : null}
+              videoRef={videoRef}
+              frameWidth={canvasVideo?.width ?? NEUTRAL_FRAME.width}
+              frameHeight={canvasVideo?.height ?? NEUTRAL_FRAME.height}
+              seekToMs={referenceOffsetForCanvas}
+              invalidKeys={invalidKeys}
+              overlay={
+                <>
+                  {/* The live region stays mounted and is written into, because
+                      one that appears already populated is routinely not
+                      announced — and entering read-only is exactly the mode
+                      change a screen-reader user must not miss. */}
+                  <div className={`scene-stage__banner${readOnly ? '' : ' is-idle'}`} role="status">
+                    {readOnly ? `Viewing revision ${viewingRevisionNumber} — read only` : ''}
+                  </div>
+                  {/* The empty state invites the first object; once a tool is armed the
+                      operator has accepted the invitation, so it gets out of the way of
+                      the surface they are drawing on. */}
+                  {!readOnly && !configured && state.tool === 'select'
+                    && shownDraft.zones.length === 0 && shownDraft.tripLines.length === 0 ? (
+                    <div className={`scene-stage__intro${canvasVideoId ? '' : ' is-empty'}`}>
+                      <strong>No scene configured</strong>
+                      <span>
+                        {cameraVideos.length > 0
+                          ? 'Choose a reference video below, scrub to a clear frame, then draw zones and trip lines.'
+                          : 'No imported video is available for this camera. You can still configure geometry on the '
+                            + 'normalised frame.'}
+                      </span>
+                      <div className="row">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => dispatch({ type: 'setTool', tool: 'zone' })}
+                        >
+                          Draw a zone
+                        </Button>
+                        <Button size="sm" onClick={() => dispatch({ type: 'setTool', tool: 'line' })}>
+                          Draw a trip line
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              }
+              onMediaFailed={setMediaFailed}
+              onFrameClick={handleFrameClick}
+              onCloseZone={() => dispatch({ type: 'closeZone' })}
+              onSelect={(selection) => dispatch({ type: 'select', selection })}
+              onMoveVertex={(key, vertexIndex, point) => dispatch({ type: 'moveVertex', key, vertexIndex, point })}
+              onMoveEndpoint={(key, endpoint, point) => dispatch({ type: 'moveEndpoint', key, endpoint, point })}
+            />
 
-          <ReferenceFrameBar
-            videos={cameraVideos}
-            videoRef={videoRef}
-            previewVideoId={readOnly ? canvasVideoId : previewVideoId}
-            videosUnavailable={videos.isError}
-            savedVideoId={readOnly
-              ? historicalRevision.data?.referenceFrameVideoAssetId ?? null
-              : state.draft.referenceFrameVideoAssetId}
-            savedOffsetMs={readOnly
-              ? historicalRevision.data?.referenceFrameOffsetMs ?? null
-              : state.draft.referenceFrameOffsetMs}
-            readOnly={readOnly}
-            onPreviewVideo={setPreviewVideoId}
-            onUseCurrentFrame={(offsetMs) => {
-              if (!previewVideoId) return;
-              dispatch({ type: 'setReferenceFrame', videoAssetId: previewVideoId, offsetMs });
-            }}
-            onClear={() => dispatch({ type: 'clearReferenceFrame' })}
-          />
-        </div>
-
-        <aside className="scene-side" aria-label="Scene inspector">
-          <div className="scene-panel scene-panel--navigator">
+            <ReferenceFrameBar
+              videos={cameraVideos}
+              videoRef={videoRef}
+              previewVideoId={readOnly ? canvasVideoId : previewVideoId}
+              videosUnavailable={videos.isError}
+              savedVideoId={readOnly
+                ? historicalRevision.data?.referenceFrameVideoAssetId ?? null
+                : state.draft.referenceFrameVideoAssetId}
+              savedOffsetMs={readOnly
+                ? historicalRevision.data?.referenceFrameOffsetMs ?? null
+                : state.draft.referenceFrameOffsetMs}
+              readOnly={readOnly}
+              onPreviewVideo={setPreviewVideoId}
+              onUseCurrentFrame={(offsetMs) => {
+                if (!previewVideoId) return;
+                dispatch({ type: 'setReferenceFrame', videoAssetId: previewVideoId, offsetMs });
+              }}
+              onClear={() => dispatch({ type: 'clearReferenceFrame' })}
+            />
+          </>
+        )}
+        inspector={(
+          // Two panels in one inspector column: the navigator is the scene
+          // listed, and the properties panel is the selected object. Keeping
+          // them apart is what stops selecting something pushing the rest of
+          // the scene out of view. The column's stacking belongs to the
+          // archetype, not to this page.
+          <>
             <SceneObjectList
               draft={shownDraft}
               selection={shownSelection}
@@ -542,8 +566,6 @@ export default function SceneEditorPage() {
               onAddZone={() => dispatch({ type: 'setTool', tool: 'zone' })}
               onAddLine={() => dispatch({ type: 'setTool', tool: 'line' })}
             />
-          </div>
-          <div className="scene-panel scene-panel--inspector">
             <ScenePropertiesPanel
               draft={shownDraft}
               selection={shownSelection}
@@ -553,18 +575,19 @@ export default function SceneEditorPage() {
               onUpdateLine={(key, changes) => dispatch({ type: 'updateLine', key, changes })}
               onSelect={(selection) => dispatch({ type: 'select', selection })}
             />
-          </div>
-        </aside>
-      </div>
-
-      <RevisionHistory
-        history={scene.data?.history ?? []}
-        displayTimeZoneId={systemConfig.data?.displayTimeZoneId}
-        activeRevisionNumber={activeRevision?.revisionNumber ?? null}
-        viewingRevisionNumber={viewingRevisionNumber}
-        expanded={historyExpanded}
-        onView={setViewingRevisionNumber}
-        onReturnToActive={() => setViewingRevisionNumber(null)}
+          </>
+        )}
+        footer={(
+          <RevisionHistory
+            history={scene.data?.history ?? []}
+            displayTimeZoneId={systemConfig.data?.displayTimeZoneId}
+            activeRevisionNumber={activeRevision?.revisionNumber ?? null}
+            viewingRevisionNumber={viewingRevisionNumber}
+            expanded={historyExpanded}
+            onView={setViewingRevisionNumber}
+            onReturnToActive={() => setViewingRevisionNumber(null)}
+          />
+        )}
       />
     </section>
   );

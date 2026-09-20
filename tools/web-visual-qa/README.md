@@ -69,6 +69,41 @@ interactive controls. Plus four the UI-1 acceptance criteria need:
   `forbidText`). Without this a slow query retry silently turns the
   "unavailable" check into a second loading check.
 
+UI-2 adds two more:
+
+- **exactly one Context Bar per page.** §5 says the topbar *becomes* the
+  Context Bar. A surface that published its own while the shell still rendered
+  the old band would show two, and every other assertion here would pass;
+- **archetype conformance**, on any state that declares `archetype` in
+  `states.mjs`. These are the §4 rules only a rendered page can settle: for a
+  Workbench, that the stage takes at least 65% of the *working* width (measured
+  as the workspace element's own width, not reconstructed from viewport
+  arithmetic), that the inspector stays within its fixed 300–360px, that the
+  page does not scroll at or above 1150px, and that nothing but the inspector
+  body owns scroll. The measurements land in the JSON beside each capture, so a
+  reviewer can read the numbers rather than take the pass on trust.
+
+A surface that declares an archetype is also checked against the scroll policy
+the shell was told to apply: a Workbench that has not declared no-page-scroll
+is a finding whether or not today's content happens to fit, and a contained
+column whose content exceeds it is reported as clipped rather than passing
+quietly. `scene-editor-dense` is the state that exercises this — an inactive
+camera, an unavailable video list, a revision that will not load and the
+revision strip open, which is every fixed band this surface can have at once.
+
+The four widths are the §25 acceptance viewports, so the Workbench's drawer
+band — 1101 to 1149, where the inspector covers the stage — is outside them by
+construction. Check it deliberately with `--widths 1120`; the drawer's own
+behaviour (starts shut, toggles, closes, takes Escape only while open) is held
+by `workspace.test.tsx`.
+
+Overlap detection clips before it compares. `getBoundingClientRect` reports
+where an element *would* be, so a row scrolled out of an inspector body still
+reports a rect over whatever is painted there — which reads as an overlap
+between two things nobody can see at once. Each element is therefore clipped by
+every scrolling ancestor and by the viewport first, and one clipped to nothing
+takes no part in the comparison.
+
 Effective target sizes below 24×24 are reported per state in the JSON beside
 each capture rather than failed, because §10.1 allows small canvas handles with
 a large hit area and requires a documented exception, not an automatic failure.

@@ -1,5 +1,6 @@
 import Button from '../../shared/components/Button';
 import Icon from '../../shared/components/Icon';
+import { Inspector } from '../../shared/workspace';
 import type { Selection } from './editorState';
 import type { DraftTripLine, DraftZone, SceneDraft } from './sceneDraft';
 
@@ -47,17 +48,16 @@ export default function SceneObjectList({
   const empty = draft.zones.length === 0 && draft.tripLines.length === 0;
 
   return (
-    <div className="scene-navigator">
-      <div className="scene-panel__head">
-        <h2>Scene objects</h2>
-        {readOnly ? null : (
-          <div className="scene-panel__actions">
-            <Button size="sm" variant="ghost" onClick={onAddZone}>+ Zone</Button>
-            <Button size="sm" variant="ghost" onClick={onAddLine}>+ Line</Button>
-          </div>
-        )}
-      </div>
-
+    <Inspector
+      label="Scene objects"
+      title="Scene objects"
+      actions={readOnly ? null : (
+        <>
+          <Button size="sm" variant="ghost" onClick={onAddZone}>+ Zone</Button>
+          <Button size="sm" variant="ghost" onClick={onAddLine}>+ Line</Button>
+        </>
+      )}
+    >
       {empty ? (
         <p className="scene-navigator__empty">
           {readOnly
@@ -103,7 +103,7 @@ export default function SceneObjectList({
           </ul>
         </section>
       ) : null}
-    </div>
+    </Inspector>
   );
 }
 

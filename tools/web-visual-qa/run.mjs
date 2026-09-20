@@ -17,7 +17,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launch } from './cdp.mjs';
 import { startServer } from './server.mjs';
-import { FOCUS_ASSERTIONS, OVERLAY_READY, PAGE_ASSERTIONS, TARGET_SIZE_REPORT } from './assertions.mjs';
+import { FOCUS_ASSERTIONS, OVERLAY_READY, PAGE_ASSERTIONS, TARGET_SIZE_REPORT, WORKSPACE_ASSERTIONS } from './assertions.mjs';
 import { CONDITIONS, ensureFootage } from './footage.mjs';
 import { STATES, WIDTHS } from './states.mjs';
 
@@ -140,6 +140,10 @@ try {
       const page = await browser.evaluate(PAGE_ASSERTIONS);
       const focus = await browser.evaluate(FOCUS_ASSERTIONS);
       const small = await browser.evaluate(TARGET_SIZE_REPORT);
+      // A surface that claims an archetype has to measure like one. These are
+      // the §4 rules only a rendered page can settle: the stage's share of the
+      // working width, the fixed inspector, and who owns the scroll.
+      const workspace = state.archetype ? await browser.evaluate(WORKSPACE_ASSERTIONS) : null;
       checks += 1;
 
       // Known transitional defects (section 34.1) are recorded, not repaired
@@ -152,6 +156,16 @@ try {
         findings.push(`${where}: ${problem}`);
       }
       for (const problem of focus.problems) findings.push(`${where}: ${problem}`);
+      if (workspace) {
+        const found = workspace.measured?.archetype ?? 'none';
+        if (found !== state.archetype) {
+          findings.push(`${where}: expected the ${state.archetype} archetype, rendered ${found}`);
+        }
+        for (const problem of workspace.problems) {
+          if (isKnown(problem)) { knownSeen.push(`${where}: ${problem}`); continue; }
+          findings.push(`${where}: ${problem}`);
+        }
+      }
       // Coverage has to add up. A control that is neither checked nor skipped
       // for a named reason is a control the harness quietly did not look at,
       // which is exactly the claim this check exists to be able to make.
@@ -185,6 +199,7 @@ try {
         state: state.name, viewport: viewport.label, pageWidth: page.pageWidth,
         focus: { discovered: focus.discovered, checked: focus.checked, skipped: focus.skipped },
         smallTargets: small,
+        workspace: workspace?.measured ?? null,
       };
       focusTotals.discovered += focus.discovered;
       focusTotals.checked += focus.checked;

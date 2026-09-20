@@ -3,20 +3,43 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { getPlatformHealth } from '../api/platform';
 import Icon, { type IconName } from '../shared/components/Icon';
+import { barClass, Breadcrumbs, SurfaceSlotProvider } from '../shared/workspace';
 import { queryKeys } from './queryClient';
 
 type NavItem = { to: string; label: string; icon: IconName; end?: boolean };
 
-// Primary navigation follows the operator workflow left to right: know what
-// you have, bring media in, watch it process, then search and review.
-export const primaryNavigation: NavItem[] = [
-  { to: '/', label: 'Overview', icon: 'overview', end: true },
-  { to: '/cameras', label: 'Cameras', icon: 'camera' },
-  { to: '/videos', label: 'Videos', icon: 'video' },
-  { to: '/import', label: 'Import', icon: 'upload' },
-  { to: '/processing', label: 'Processing', icon: 'activity' },
-  { to: '/search', label: 'Search', icon: 'search' },
+type NavGroup = { label: string; items: NavItem[] };
+
+/**
+ * Navigation grouped per section 5, ordered by operator workflow rather than
+ * alphabetically: know what you have, bring media in, watch it process, then
+ * investigate what came out.
+ *
+ * Section 5 also says an item is added only when its destination exists, so
+ * Investigate holds Search alone. Events, Entities and Cases belong to it and
+ * are deliberately absent until they are real routes.
+ */
+export const navigationGroups: NavGroup[] = [
+  {
+    label: 'Operate',
+    items: [
+      { to: '/', label: 'Overview', icon: 'overview', end: true },
+      { to: '/cameras', label: 'Cameras', icon: 'camera' },
+      { to: '/videos', label: 'Videos', icon: 'video' },
+      { to: '/import', label: 'Import', icon: 'upload' },
+      { to: '/processing', label: 'Processing', icon: 'activity' },
+    ],
+  },
+  {
+    label: 'Investigate',
+    items: [
+      { to: '/search', label: 'Search', icon: 'search' },
+    ],
+  },
 ];
+
+/** Flattened, for callers that only care about the destinations themselves. */
+export const primaryNavigation: NavItem[] = navigationGroups.flatMap((group) => group.items);
 
 const sectionTitles: Array<[RegExp, string]> = [
   [/^\/review\//, 'Review'],
@@ -81,11 +104,18 @@ export default function AppShell() {
           </div>
         </div>
         <nav className="sidebar__nav" aria-label="Primary navigation">
-          {primaryNavigation.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end} title={collapsed ? item.label : undefined}>
-              <Icon name={item.icon} />
-              <span>{item.label}</span>
-            </NavLink>
+          {navigationGroups.map((group) => (
+            <div className="sidebar__group" key={group.label} role="group" aria-label={group.label}>
+              {/* Hidden when collapsed, so the group label is kept for
+                  assistive technology rather than lost with the width. */}
+              <p className="sidebar__section" aria-hidden="true">{group.label}</p>
+              {group.items.map((item) => (
+                <NavLink key={item.to} to={item.to} end={item.end} title={collapsed ? item.label : undefined}>
+                  <Icon name={item.icon} />
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sidebar__footer">
@@ -110,17 +140,30 @@ export default function AppShell() {
         </div>
       </aside>
 
-      <div className="content">
-        <header className="topbar">
-          <div className="topbar__crumbs">
-            <strong>{sectionTitleFor(location.pathname)}</strong>
+      <SurfaceSlotProvider>
+        {({ attachContextBar, claimed, tone, scroll }) => (
+          <div className="content">
+            {/* Section 5: the topbar *is* the Context Bar. One band, filled by
+                the surface through <ContextBar>; a surface that has not been
+                migrated onto an archetype yet leaves the section name it has
+                always shown. */}
+            <header className={barClass(tone)} ref={attachContextBar}>
+              {claimed ? null : (
+                <Breadcrumbs crumbs={[{ label: sectionTitleFor(location.pathname) }]} />
+              )}
+            </header>
+            {/* The archetype mounted below says whether this column may scroll
+                (§4). The shell applies what it is told and knows nothing about
+                which surface it is: no route names, no reading classes back out
+                of the rendered tree. A surface that declares nothing — every
+                page not yet migrated — keeps the page scrolling it has always
+                had. */}
+            <main className="main" id="main" data-scroll={scroll}>
+              <Outlet />
+            </main>
           </div>
-          <div className="topbar__spacer" />
-        </header>
-        <main className="main" id="main">
-          <Outlet />
-        </main>
-      </div>
+        )}
+      </SurfaceSlotProvider>
     </div>
   );
 }

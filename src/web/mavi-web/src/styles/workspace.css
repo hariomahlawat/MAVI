@@ -1,0 +1,244 @@
+/* Workspace grammar — UI-2.
+ *
+ * The five archetypes of section 4, and the shell primitives every archetype
+ * begins with. Scroll ownership is frozen and lives here alone: a page cannot
+ * opt out of it, because it never declares it.
+ *
+ * Section 4's authoritative table:
+ *
+ *   Ledger         table/list body scrolls      page does not
+ *   Record         the page scrolls
+ *   Workbench      inspector body only          page MUST NOT scroll at 1366
+ *   Investigation  results; inspector separate  page does not
+ *   Review         the page scrolls
+ */
+
+/* ------------------------------------------------------------------ *
+ * Context Bar — the shell's single band (section 5).
+ * ------------------------------------------------------------------ */
+.context-bar {
+  display: flex; align-items: center; gap: var(--s-3);
+  height: var(--topbar-h); flex: 0 0 auto;
+  padding: 0 var(--s-5);
+  border-bottom: var(--stroke-hair) solid var(--border-subtle);
+  background: var(--surface-base);
+  position: sticky; top: 0; z-index: var(--z-sticky);
+}
+/* A surface that is not the live thing it usually is — a past revision open
+   for reading. One chip was judged too quiet for the mistake it prevents. */
+.context-bar--caution { border-bottom-color: var(--status-warn-border); background: var(--status-warn-soft); }
+/* The trail has to fit a band that cannot grow. `Camera.Create` permits a
+   32-character code, so on a narrow workspace the crumbs either truncate or
+   push the state badges and actions off the end — and the second is what a
+   44px bar looks like when it breaks. Earlier crumbs give way first; the last
+   one names where the operator is and keeps its width, because the crumb that
+   answers "where am I?" is the wrong one to lose. The full text stays on the
+   element's `title`, and on the bar's heading. */
+.context-bar__crumbs { min-width: 0; flex: 0 1 auto; }
+.context-bar__crumbs ol { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.context-bar__crumbs li { display: flex; align-items: center; gap: var(--s-2); min-width: 0; flex: 0 1 auto; font-size: var(--fs-2); }
+.context-bar__crumbs li:last-child { flex: 0 0 auto; }
+.context-bar__crumbs li > a, .context-bar__crumbs li > span {
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;
+}
+/* The status group gives way before the actions do: a badge that has been
+   shortened still reads, a Save button that has been pushed off cannot. */
+/* The separator is decoration between crumbs, so it is not announced. */
+.context-bar__crumbs li + li::before { content: "›"; color: var(--text-muted); }
+.context-bar__crumbs a { color: var(--text-secondary); }
+.context-bar__crumbs a:hover { color: var(--text-primary); }
+.context-bar__crumbs [aria-current="page"] { color: var(--text-primary); font-weight: 600; }
+.context-bar__status { display: flex; align-items: center; gap: var(--s-2); flex: 0 1 auto; }
+.context-bar__spacer { flex: 1 1 auto; min-width: 0; }
+.context-bar__actions { display: flex; align-items: center; gap: var(--s-2); flex: 0 0 auto; }
+
+/* ------------------------------------------------------------------ *
+ * Toolbar band — the row that acts on what is below it (section 10).
+ * ------------------------------------------------------------------ */
+.toolbar-band { flex: 0 0 auto; }
+.toolbar-band__row {
+  display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap;
+  min-height: var(--control-h); padding: var(--c-toolbar-pad) 0;
+}
+.toolbar-band__hint { color: var(--text-secondary); font-size: var(--fs-1); min-width: 0; }
+.toolbar-band__spacer { flex: 1 1 auto; min-width: 0; }
+.toolbar-band__actions { display: flex; align-items: center; gap: var(--s-2); flex: 0 0 auto; }
+
+/* ------------------------------------------------------------------ *
+ * Segmented control — one choice, several options, exactly one pressed.
+ * A mode strip is not a Ledger-only or Workbench-only idea, so the control
+ * lives beside the bands that carry it rather than in one feature's sheet.
+ * ------------------------------------------------------------------ */
+.segmented {
+  display: inline-flex; overflow: hidden;
+  border: var(--stroke-hair) solid var(--border-control); border-radius: var(--r-2);
+  background: var(--surface-base);
+}
+.segmented__item {
+  height: var(--control-h); padding: 0 var(--s-3);
+  border: 0; border-right: var(--stroke-hair) solid var(--border-control);
+  background: transparent; color: var(--text-secondary);
+  font: 500 var(--fs-2)/1 var(--font-ui); cursor: pointer;
+  transition: background var(--dur) ease, color var(--dur) ease;
+}
+.segmented--sm .segmented__item { height: var(--control-h-sm); padding: 0 var(--s-2); font-size: var(--fs-1); }
+.segmented__item:last-child { border-right: 0; }
+.segmented__item:hover { background: var(--surface-raised); color: var(--text-primary); }
+.segmented__item.is-active { background: var(--accent-strong); color: var(--text-on-accent); }
+
+/* ------------------------------------------------------------------ *
+ * Inspector shell — a titled column that owns its own scroll.
+ * ------------------------------------------------------------------ */
+.inspector {
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0; min-width: 0;
+  border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-3);
+  background: var(--surface-base);
+}
+.inspector__head {
+  display: flex; align-items: center; gap: var(--s-2);
+  min-height: var(--s-8); padding: var(--s-2) var(--c-inspector-pad);
+  border-bottom: var(--stroke-hair) solid var(--border-subtle);
+}
+.inspector__head h2 {
+  color: var(--text-muted); font-size: var(--fs-0); font-weight: 600;
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.inspector__actions { margin-left: auto; display: flex; align-items: center; gap: var(--s-1); }
+/* The inspector body is the scroll owner on a Workbench, and one of two on an
+   Investigation. Nothing above it scrolls. */
+.inspector__body { padding: var(--c-inspector-pad); min-height: 0; overflow-y: auto; }
+
+/* ------------------------------------------------------------------ *
+ * Archetypes.
+ * ------------------------------------------------------------------ */
+.workspace { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
+.workspace > * { flex: 0 0 auto; min-width: 0; }
+.workspace__notices { display: grid; gap: var(--s-2); }
+.workspace__band { display: flex; min-width: 0; }
+.workspace__band > * { flex: 1 1 auto; min-width: 0; }
+
+/* --- Ledger: full width, the body scrolls, the page does not. --------- */
+.workspace--ledger { height: 100%; min-height: 0; }
+.workspace--ledger .workspace__body--scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+
+/* --- Overview only: the section 4.1.1 exception. ----------------------
+ * The exception is a *width* one and nothing else. §4's scroll-ownership
+ * table is frozen and lists Overview under Ledger, so the summary variant
+ * keeps the Ledger's grammar: its own body owns vertical scroll and the page
+ * does not. What it does not share is the full width — it alone may stay
+ * centred at --content-max. */
+.workspace--ledger-summary {
+  width: 100%; max-width: var(--content-max); margin: 0 auto;
+  height: 100%; min-height: 0;
+}
+.workspace--ledger-summary .workspace__body--scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+
+/* --- Record: centred reading surface; the page scrolls. -------------- */
+.workspace--record { width: 100%; max-width: var(--content-max); margin: 0 auto; }
+.workspace__record-grid {
+  display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+  gap: var(--s-4); align-items: start;
+}
+.workspace__record-primary, .workspace__record-facts { display: grid; gap: var(--s-3); align-content: start; min-width: 0; }
+
+/* --- Workbench: the stage takes everything the inspector does not. ----
+ * The inspector is fixed between 300px and 360px (section 4.3): the clamp is
+ * what keeps it from growing into the stage on an ultra-wide display while
+ * still sitting at its 300px minimum at 1366, where the rule yields a stage of
+ * about 800px — roughly 72% of the working width, against a 65% floor.
+ * It is never resizable; section 31 defers that deliberately. */
+.workspace--workbench { height: 100%; min-height: 0; }
+.workspace__stage-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 25%, 360px);
+  gap: var(--s-3); flex: 1 1 auto; min-height: 0;
+}
+.workspace__stage-grid > * { min-height: 0; min-width: 0; }
+.workspace__stage { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: var(--s-2); min-height: 0; }
+/* The inspector region is a column. Most surfaces put one panel in it; a
+   surface that needs two — a navigator above the properties of what it selects
+   — stacks them here rather than inventing its own two-panel grammar. The
+   panels above the last size to their content and scroll once they outgrow it;
+   the last one takes the spare height, because the panel being read while
+   editing is the one that must not be the short one. */
+.workspace__inspector { display: flex; flex-direction: column; gap: var(--s-3); min-height: 0; }
+.workspace__inspector > * { flex: 0 1 auto; min-height: 0; }
+.workspace__inspector > :last-child { flex: 1 1 auto; min-height: min(var(--c-inspector-min-h), 100%); }
+
+/* --- Investigation: results and inspector scroll independently. ------ */
+.workspace--investigation { height: 100%; min-height: 0; }
+.workspace__investigation-grid {
+  display: grid; grid-template-columns: 252px minmax(0, 1fr);
+  gap: var(--s-4); flex: 1 1 auto; min-height: 0; height: 100%;
+}
+.workspace__investigation-grid > * { min-height: 0; min-width: 0; }
+.workspace__rail { min-height: 0; overflow-y: auto; }
+.workspace__results { display: grid; min-height: 0; }
+/* The inspector is an in-place third column only at 1500px and above; below
+   that it is an overlay drawer over the results (section 4.4). The threshold
+   itself is open decision 3, which UI-4 closes. */
+@media (min-width: 1500px) {
+  .workspace--investigation.has-inspector .workspace__investigation-grid {
+    grid-template-columns: 252px minmax(560px, 900px) minmax(0, 1fr);
+  }
+}
+@media (max-width: 1499px) {
+  .workspace--investigation.has-inspector .workspace__inspector {
+    position: absolute; inset: 0 0 0 auto; width: min(480px, 100%); z-index: var(--z-drawer);
+    box-shadow: var(--elevation-floating);
+  }
+  .workspace--investigation.has-inspector .workspace__investigation-grid { position: relative; }
+}
+
+/* --- Review: the page scrolls; the player stays put while it does. --- */
+.workspace--review { width: 100%; }
+.workspace__review-grid {
+  display: grid; grid-template-columns: minmax(0, 65fr) minmax(0, 35fr);
+  gap: var(--s-4); align-items: start;
+}
+.workspace__review-main { display: grid; gap: var(--s-3); min-width: 0; align-content: start; }
+.workspace__review-rail { display: grid; gap: var(--s-3); min-width: 0; align-content: start; }
+.workspace__player { position: sticky; top: var(--s-3); }
+
+/* ------------------------------------------------------------------ *
+ * Responsive (section 25). Below 1150 the Workbench inspector becomes an
+ * overlay so the stage keeps the working width rather than being compressed
+ * below its floor; below 1100 every archetype stacks and the page scrolls.
+ * ------------------------------------------------------------------ */
+/* The drawer's controls exist only where there is a drawer. `display: none`
+   rather than a hidden attribute, so they are out of the tab order at every
+   width where the inspector is simply a column. */
+.workspace__drawer-toggle, .workspace__drawer-close, .workspace__band--drawer-only { display: none; }
+.workspace__drawer-toggle { flex: 0 0 auto; margin-left: auto; }
+
+@media (min-width: 1101px) and (max-width: 1149px) {
+  .workspace__drawer-toggle, .workspace__drawer-close { display: inline-flex; }
+  .workspace__band--drawer-only { display: flex; }
+  /* In flow above the panels, not floating over their heads: the first panel
+     already has controls in its top-right corner. */
+  .workspace__drawer-close { align-self: flex-end; flex: 0 0 auto; }
+  .workspace--workbench .workspace__stage-grid { grid-template-columns: minmax(0, 1fr); position: relative; }
+  .workspace--workbench .workspace__inspector {
+    position: absolute; inset: 0 0 0 auto; width: min(360px, 100%); z-index: var(--z-drawer);
+    box-shadow: var(--elevation-floating);
+  }
+  /* Shut by default: the stage keeps the working width the drawer exists to
+     protect, and nothing covers the canvas until it is asked for. */
+  .workspace--workbench:not(.has-open-drawer) .workspace__inspector { display: none; }
+}
+@media (max-width: 1100px) {
+  .workspace--ledger, .workspace--ledger-summary,
+  .workspace--workbench, .workspace--investigation { height: auto; }
+  .workspace--ledger .workspace__body--scroll,
+  .workspace--ledger-summary .workspace__body--scroll { overflow: visible; }
+  .workspace__record-grid,
+  .workspace__review-grid,
+  .workspace__investigation-grid,
+  .workspace--workbench .workspace__stage-grid { grid-template-columns: minmax(0, 1fr); }
+  .workspace--investigation.has-inspector .workspace__inspector {
+    position: static; width: auto; box-shadow: none;
+  }
+  .workspace__player { position: static; }
+  .inspector__body { overflow-y: visible; }
+  .workspace__rail { overflow-y: visible; }
+}

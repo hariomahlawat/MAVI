@@ -77,10 +77,14 @@
 .track-card__metrics dd { margin: var(--s-hair) 0 0; font-size: var(--fs-1); }
 .track-card__action { justify-self: start; }
 
-/* Inspector / review */
-.inspector { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
-.inspector__nav { display: flex; align-items: center; gap: var(--s-2); }
-.inspector__pos { color: var(--text-muted); font-size: var(--fs-1); font-variant-numeric: tabular-nums; min-width: 64px; text-align: center; }
+/* Track inspector / review.
+   Named for the surface it belongs to: `.inspector` is the shared shell in
+   workspace.css, and two different panels answering to one class name is how a
+   rule written for one silently restyles the other. UI-4 migrates this panel
+   onto the shared shell; until then it keeps its own name. */
+.track-inspector { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.track-inspector__nav { display: flex; align-items: center; gap: var(--s-2); }
+.track-inspector__pos { color: var(--text-muted); font-size: var(--fs-1); font-variant-numeric: tabular-nums; min-width: 64px; text-align: center; }
 
 .player { position: relative; width: 100%; background: var(--evidence-matte); border-radius: var(--r-2); overflow: hidden; }
 .player video { display: block; width: 100%; max-height: 62vh; background: var(--evidence-matte); }
@@ -140,23 +144,9 @@
    A workstation, not a page of cards: one compact band of context, one mode
    strip, the frame taking every pixel it can, and a fixed-width inspector
    beside it. Everything here resolves to a token. */
-/* A column, not a fixed row template: notices and the revision strip come and
-   go, so positional rows would hand the spare height to whichever band happened
-   to sit in the flexible row. The stage is the only band that grows. */
-.scene-page { display: flex; flex-direction: column; gap: var(--s-3); }
-.scene-page > * { flex: 0 0 auto; }
-.scene-page > .scene-stage { flex: 1 1 auto; min-height: 0; }
-
-/* Context band */
-.scene-context {
-  display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap;
-  padding: var(--s-2) var(--s-3); border: 1px solid var(--border-subtle); border-radius: var(--r-2);
-  background: var(--surface-base);
-}
-.scene-context--readonly { border-color: var(--status-warn-border); background: var(--status-warn-soft); }
-.scene-context__identity { display: flex; align-items: baseline; gap: var(--s-2); min-width: 0; }
-.scene-context__identity h1 { font-size: var(--fs-4); letter-spacing: 0.02em; }
-.scene-context__name { color: var(--text-muted); font-size: var(--fs-1); }
+/* What this surface puts in the shared Context Bar. The band itself, its
+   height and its three slots belong to workspace.css. */
+.scene-context__name { color: var(--text-muted); font-size: var(--fs-1); max-width: 18ch; }
 .scene-context__revision {
   display: flex; align-items: baseline; gap: var(--s-2);
   padding: var(--s-hair) var(--s-2); border: 1px solid var(--border-subtle); border-radius: var(--r-1);
@@ -170,36 +160,23 @@
 .scene-context__revision.is-saved .scene-context__revision-state { color: var(--status-ok); }
 .scene-context__revision.is-readonly { border-color: var(--status-warn-border); background: transparent; }
 .scene-context__revision.is-readonly .scene-context__revision-state { color: var(--status-warn); font-weight: 600; }
-.scene-context__blocked { color: var(--text-muted); font-size: var(--fs-1); max-width: 34ch; }
-.scene-context__confirm {
-  max-width: 46ch; padding: var(--s-1) var(--s-3); border: 1px solid var(--status-warn-border);
-  border-radius: var(--r-1); background: var(--status-warn-soft); color: var(--text-secondary);
-  font-size: var(--fs-1); line-height: 1.4;
-}
 .scene-context__analytics { color: var(--text-muted); font-size: var(--fs-0); letter-spacing: 0.04em; text-transform: uppercase; }
 .scene-context__analytics.is-off { color: var(--text-muted); opacity: 0.8; }
 .scene-context__note input { width: 220px; height: var(--control-h); }
 
-/* Mode strip */
-.scene-toolbar { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; min-height: var(--control-h); }
-.scene-toolbar__hint { color: var(--text-muted); font-size: var(--fs-0); }
+/* An explanation of a Context Bar control, stated in the notices region. */
+.scene-notice { color: var(--text-muted); font-size: var(--fs-1); max-width: 72ch; }
+.scene-notice--confirm {
+  padding: var(--s-1) var(--s-3); border: 1px solid var(--status-warn-border);
+  border-radius: var(--r-1); background: var(--status-warn-soft); color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* What this surface puts in the shared toolbar band. */
 .scene-toolbar__refusal { color: var(--status-warn); font-size: var(--fs-1); }
 .scene-toolbar__readonly { color: var(--status-warn); font-size: var(--fs-1); }
 
-.segmented { display: inline-flex; border: 1px solid var(--border-subtle); border-radius: var(--r-2); overflow: hidden; background: var(--surface-base); }
-.segmented__item {
-  height: var(--control-h); padding: 0 var(--s-3); border: 0; border-right: 1px solid var(--border-subtle);
-  background: transparent; color: var(--text-secondary); font: 500 var(--fs-2)/1 var(--font-ui); cursor: pointer;
-  transition: background var(--dur) ease, color var(--dur) ease;
-}
-.segmented__item:last-child { border-right: 0; }
-.segmented__item:hover { background: var(--surface-raised); color: var(--text-primary); }
-.segmented__item.is-active { background: var(--accent-strong); color: var(--text-on-accent); }
-
 /* Stage */
-.scene-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 25%); gap: var(--s-3); min-height: 0; }
-.scene-stage > * { min-height: 0; }
-.scene-stage__frame { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: var(--s-2); min-height: 0; }
 
 .scene-stage__surface {
   position: relative; min-height: 240px; background: var(--evidence-matte);
@@ -317,23 +294,6 @@
 .scene-reference__badge.is-empty { border-color: var(--border-subtle); background: transparent; color: var(--text-muted); }
 .scene-reference__file { color: var(--text-muted); font-size: var(--fs-0); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Inspector column */
-/* The navigator is a list that usually fits; the inspector is what the operator
-   reads while editing, so the spare height goes to the inspector and the
-   navigator scrolls once it outgrows its share. */
-.scene-side { display: grid; grid-template-rows: minmax(0, auto) minmax(180px, 1fr); gap: var(--s-3); min-height: 0; }
-.scene-panel {
-  display: flex; flex-direction: column; min-height: 0; overflow: auto;
-  border: 1px solid var(--border-subtle); border-radius: var(--r-2); background: var(--surface-base);
-}
-.scene-panel__head {
-  display: flex; align-items: center; gap: var(--s-2); position: sticky; top: 0; z-index: var(--z-sticky);
-  padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--border-subtle); background: var(--surface-base);
-}
-.scene-panel__head h2 { color: var(--text-muted); font-size: var(--fs-0); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
-.scene-panel__actions { margin-left: auto; display: flex; gap: var(--s-1); }
-
-.scene-navigator { display: grid; align-content: start; }
 .scene-navigator__empty { padding: var(--s-3); color: var(--text-muted); font-size: var(--fs-1); }
 .scene-navigator__group { padding: var(--s-2) var(--s-2) var(--s-1); }
 .scene-navigator__group h3 {
@@ -362,16 +322,17 @@
 .scene-navigator__dot.is-off { background: transparent; box-shadow: inset 0 0 0 var(--stroke-hair) var(--status-neutral); }
 .scene-navigator__warn { color: var(--status-warn); flex: 0 0 auto; }
 
-.scene-inspector { display: grid; gap: var(--s-3); padding: var(--s-3); align-content: start; }
+/* The shared inspector body owns the padding; this owns the rhythm inside it. */
+.scene-inspector { display: grid; gap: var(--s-3); align-content: start; }
 .scene-inspector__head { display: grid; gap: var(--s-hair); }
-.scene-inspector__head h2 { font-size: var(--fs-3); font-weight: 600; }
+.scene-inspector__head h3 { font-size: var(--fs-3); font-weight: 600; }
 .scene-inspector__head p { color: var(--text-muted); font-size: var(--fs-0); letter-spacing: 0.04em; text-transform: uppercase; }
 .scene-inspector__hint { color: var(--text-muted); font-size: var(--fs-0); line-height: 1.5; }
-.scene-inspector__points h3 {
+.scene-inspector__points h4 {
   display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--s-1);
   color: var(--text-muted); font-size: var(--fs-0); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
 }
-.scene-inspector__points h3 span { font-variant-numeric: tabular-nums; }
+.scene-inspector__points h4 span { font-variant-numeric: tabular-nums; }
 .scene-inspector__points ul { display: grid; gap: var(--s-px); list-style: none; }
 .scene-inspector__point {
   width: 100%; padding: var(--s-px) var(--s-2); background: none; border: 0; border-radius: var(--r-1);
@@ -423,15 +384,9 @@
 .scene-revisions__detail { display: grid; min-width: 0; max-width: 200px; text-align: left; }
 .scene-revisions__detail span { color: var(--text-muted); font-size: var(--fs-0); }
 
-@media (max-width: 1240px) {
-  .scene-stage { grid-template-columns: minmax(0, 1fr) minmax(280px, 300px); }
-}
-@media (max-width: 1040px) {
-  /* Below the workstation width the page scrolls instead of fitting, so the
-     stage stops competing for height and takes its own. */
-  .scene-page { height: auto; }
-  .scene-page > .scene-stage { flex: 0 0 auto; }
-  .scene-stage { grid-template-columns: minmax(0, 1fr); }
+/* Where the Workbench stops fitting and starts scrolling (section 25), the
+   frame no longer has a share of the viewport height to take, so it states its
+   own minimum. The breakpoint is the archetype's, not this surface's. */
+@media (max-width: 1100px) {
   .scene-stage__surface { min-height: 360px; }
-  .scene-side { grid-template-rows: auto auto; }
 }

@@ -1,4 +1,5 @@
 import { SCENE_LIMITS, SCENE_ZONE_KINDS, type SceneZoneKind } from '../../api/scene';
+import { Inspector } from '../../shared/workspace';
 import { findLine, findZone, type Selection } from './editorState';
 import type { DraftTripLine, DraftZone, SceneDraft } from './sceneDraft';
 import type { SceneIssue } from './sceneValidation';
@@ -37,39 +38,41 @@ export default function ScenePropertiesPanel({
   onUpdateLine,
   onSelect,
 }: Props) {
-  if (selection.kind === 'zone') {
-    const zone = findZone(draft, selection.key);
-    if (zone) {
-      return (
+  const zone = selection.kind === 'zone' ? findZone(draft, selection.key) : undefined;
+  const line = selection.kind === 'line' ? findLine(draft, selection.key) : undefined;
+  const nothingSelected = !zone && !line;
+
+  // The shell is the same panel whatever is selected, so it is rendered once
+  // rather than by each branch: §4.3 requires this inspector to be present and
+  // never blank, and `summary` is the shell's own name for that requirement.
+  return (
+    <Inspector
+      label="Properties"
+      title="Properties"
+      isEmpty={nothingSelected}
+      summary={<SceneSummary draft={draft} />}
+    >
+      {zone ? (
         <ZoneProperties
           zone={zone}
-          vertexIndex={selection.vertexIndex}
+          vertexIndex={selection.kind === 'zone' ? selection.vertexIndex : null}
           readOnly={readOnly}
           issues={issues.get(zone.key) ?? []}
           onUpdate={onUpdateZone}
           onSelect={onSelect}
         />
-      );
-    }
-  }
-
-  if (selection.kind === 'line') {
-    const line = findLine(draft, selection.key);
-    if (line) {
-      return (
+      ) : line ? (
         <LineProperties
           line={line}
-          endpoint={selection.endpoint}
+          endpoint={selection.kind === 'line' ? selection.endpoint : null}
           readOnly={readOnly}
           issues={issues.get(line.key) ?? []}
           onUpdate={onUpdateLine}
           onSelect={onSelect}
         />
-      );
-    }
-  }
-
-  return <SceneSummary draft={draft} />;
+      ) : null}
+    </Inspector>
+  );
 }
 
 function SceneSummary({ draft }: { draft: SceneDraft }) {
@@ -78,7 +81,7 @@ function SceneSummary({ draft }: { draft: SceneDraft }) {
   return (
     <div className="scene-inspector">
       <header className="scene-inspector__head">
-        <h2>Scene</h2>
+        <h3>Scene</h3>
         <p>Nothing selected</p>
       </header>
       <dl className="scene-readout">
@@ -125,7 +128,7 @@ function ZoneProperties({
   return (
     <div className="scene-inspector">
       <header className="scene-inspector__head">
-        <h2 className="truncate" title={zone.name}>{zone.name || 'Unnamed zone'}</h2>
+        <h3 className="truncate" title={zone.name}>{zone.name || 'Unnamed zone'}</h3>
         <p>Zone{vertexIndex !== null ? ` · vertex ${vertexIndex + 1} selected` : ''}</p>
       </header>
 
@@ -189,7 +192,7 @@ function ZoneProperties({
       </div>
 
       <section className="scene-inspector__points">
-        <h3>Vertices<span>{zone.vertices.length}</span></h3>
+        <h4>Vertices<span>{zone.vertices.length}</span></h4>
         <ul aria-label={`Vertices of ${zone.name || 'Unnamed zone'}`}>
           {zone.vertices.map((vertex, index) => (
             <li key={`${zone.key}-vertex-${index}`}>
@@ -236,7 +239,7 @@ function LineProperties({
   return (
     <div className="scene-inspector">
       <header className="scene-inspector__head">
-        <h2 className="truncate" title={line.name}>{line.name || 'Unnamed trip line'}</h2>
+        <h3 className="truncate" title={line.name}>{line.name || 'Unnamed trip line'}</h3>
         <p>Trip line{endpoint ? ` · endpoint ${endpoint.toUpperCase()} selected` : ''}</p>
       </header>
 
@@ -303,7 +306,7 @@ function LineProperties({
       </p>
 
       <section className="scene-inspector__points">
-        <h3>Endpoints<span>2</span></h3>
+        <h4>Endpoints<span>2</span></h4>
         <ul aria-label={`Endpoints of ${line.name || 'Unnamed trip line'}`}>
           {(['a', 'b'] as const).map((which) => (
             <li key={which}>

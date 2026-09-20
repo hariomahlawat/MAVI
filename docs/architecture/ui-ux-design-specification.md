@@ -824,6 +824,7 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 
 ### 33.3 UI-2 — Shell + Workspace Grammar
 
+- **Status.** Implemented in the UI-2 PR; **not merged**. The Slice 3 gate therefore still stands: it lifts only once UI-2 is merged and post-merge `main` is green (§33.1). Open decisions 3 and 4 are untouched and remain UI-4's (§32); the Review archetype layout class exists and is composed at UI-5.
 - **Objective.** Establish the product's common grammar.
 - **Scope.** Shared ContextBar, Toolbar, Segmented control and Inspector shell (each subject to §27.1); archetype layout classes for all five archetypes including the Overview exception (§4.1.1); topbar to Context Bar relationship; navigation grouping architecture; scroll-ownership rules implemented per §4; responsive and ultra-wide behaviour per §25; **Scene Editor migrated onto the shared primitives with no behavioural change**.
 - **Exclusions.** No Ledger or table redesign; no Search rework; no player work; no new destinations.

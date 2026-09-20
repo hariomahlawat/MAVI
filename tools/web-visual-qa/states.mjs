@@ -54,6 +54,64 @@ const SEEK = `(() => {
   return Boolean(jump);
 })()`;
 
+/**
+ * Dirty the scene, which is what fills the Context Bar.
+ *
+ * A clean Scene Editor shows crumbs, three badges and two buttons. Editing adds
+ * the revision note field and the unsaved-changes state, and that is the bar's
+ * busiest arrangement — so it is the one where controls collide at 1366 if they
+ * are going to. Renaming through the real field goes through the real reducer,
+ * so the state is reached rather than simulated.
+ */
+const DIRTY_SCENE = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const object = document.querySelector('.scene-navigator__name');
+  if (!object) return false;
+  object.click();
+  await wait(300);
+  const field = Array.from(document.querySelectorAll('input')).find((i) => {
+    const label = i.labels && i.labels[0];
+    return label && label.textContent.trim() === 'Name';
+  });
+  if (!field) return false;
+  // Through the native setter, so React sees a real change rather than a
+  // value assignment it never hears about.
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  setter.call(field, 'A considerably longer zone name');
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  await wait(300);
+  return Boolean(document.querySelector('.scene-context__note input'));
+})()`;
+
+/**
+ * Drive the Scene Editor into its densest *real* fixed-chrome state.
+ *
+ * The other Workbench states are realistic, which is the point of them; this
+ * one is deliberately the worst arrangement the product can actually reach, so
+ * that "the page does not scroll" is tested against a Workbench that has every
+ * band it can have at once rather than against the geometry that happens to
+ * ship in the fixtures. Nothing here is invented UI: the notices come from an
+ * inactive camera, an unavailable video list and a revision that will not load,
+ * and the footer comes from the revision strip the operator can open.
+ */
+const DENSE_WORKBENCH = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const byName = (name) => Array.from(document.querySelectorAll('button'))
+    .find((b) => new RegExp(name).test((b.textContent || '').trim()));
+
+  // Open the revision strip, which is a real footer band on this surface.
+  const revisions = byName('^Revisions$');
+  if (!revisions) return false;
+  revisions.click();
+  await wait(250);
+
+  // Open a past revision whose fetch is answered 503, which is the third notice.
+  const view = byName('^View revision');
+  if (view) { view.click(); await wait(600); }
+
+  return document.querySelectorAll('.workspace__notices .alert, .workspace__notices p').length >= 2;
+})()`;
+
 export const WIDTHS = [
   { width: 1366, height: 768, label: '1366x768' },
   { width: 1440, height: 900, label: '1440x900' },
@@ -91,14 +149,89 @@ export const STATES = [
   { name: 'import', path: '/import', fullWidth: false },
   { name: 'processing-queue', path: '/processing', fullWidth: false },
 
-  // --- Workbench: declares full width, and must actually use it. ---
-  { name: 'scene-editor', path: `/cameras/${CAM}/scene`, fullWidth: true, settleMs: 1200 },
+  // --- Workbench: declares full width, and must actually use it. `archetype`
+  //     additionally measures it against the frozen section 4.3 rules. ---
+  { name: 'scene-editor', path: `/cameras/${CAM}/scene`, fullWidth: true, settleMs: 1200, archetype: 'workbench' },
   {
     name: 'scene-editor-unconfigured',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
+    archetype: 'workbench',
     settleMs: 1200,
     api: { [`/api/cameras/${CAM}/scene`]: { cameraId: CAM, configured: false, activeRevision: null, history: [] } },
+  },
+  {
+    // The bar at its fullest: identity, three badges, the note field, Reset and
+    // Save, all in 44px.
+    name: 'scene-editor-dirty',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    settleMs: 1200,
+    prepare: DIRTY_SCENE,
+    // A placeholder is not page text, so the note field is proven by the
+    // preparation's own return value instead — a failed prepare is a finding.
+    expectText: 'Unsaved changes',
+  },
+  {
+    // The worst identity the domain permits: `Camera.Create` allows a 32-character
+    // code, and a long name beside it. A 44px band cannot grow, so this is where
+    // the crumb trail either truncates or pushes the controls off the end.
+    name: 'scene-editor-long-identity',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    settleMs: 1200,
+    prepare: DIRTY_SCENE,
+    api: {
+      // The scene must keep its own fixture: a broader camera override would
+      // otherwise answer this path too.
+      [`/api/cameras/${CAM}/scene`]: 'fixture',
+      [`/api/cameras/${CAM}`]: {
+        id: CAM,
+        code: 'NORTH-PERIMETER-GATE-CAM-00042',
+        name: 'North perimeter vehicle entrance, outer gate',
+        description: null,
+        locationName: null,
+        timeZoneId: 'Asia/Kolkata',
+        isActive: true,
+        createdAtUtc: '2026-09-01T04:00:00Z',
+        updatedAtUtc: '2026-09-01T04:00:00Z',
+      },
+    },
+    expectText: 'Unsaved changes',
+  },
+  {
+    // The stress case for the frozen no-page-scroll rule (§4.3.2): every fixed
+    // band this surface can have, at once, above and below the stage.
+    name: 'scene-editor-dense',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    settleMs: 1400,
+    prepare: DENSE_WORKBENCH,
+    api: {
+      // A revision the operator can ask for and the server will not give,
+      // which is a real error notice rather than a contrived one.
+      [`/api/cameras/${CAM}/scene/revisions`]: 'unavailable',
+      [`/api/cameras/${CAM}/scene`]: 'fixture',
+      [`/api/cameras/${CAM}`]: {
+        id: CAM,
+        code: 'CAM-01',
+        name: 'North Gate',
+        description: 'Main vehicle entrance',
+        locationName: 'North perimeter',
+        timeZoneId: 'Asia/Kolkata',
+        // Inactive: a real warning notice, and the reason Save is refused.
+        isActive: false,
+        createdAtUtc: '2026-09-01T04:00:00Z',
+        updatedAtUtc: '2026-09-01T04:00:00Z',
+      },
+      // Unavailable video list: a second real warning notice, with its own
+      // retry control.
+      '/api/videos': 'unavailable',
+    },
+    expectText: ['This camera is inactive', 'video list is unavailable'],
   },
   {
     name: 'scene-editor-unavailable',

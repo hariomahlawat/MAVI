@@ -4,6 +4,7 @@ import componentsCss from './components.css?raw';
 import featuresCss from './features.css?raw';
 import layoutCss from './layout.css?raw';
 import tokensCss from './tokens.css?raw';
+import workspaceCss from './workspace.css?raw';
 
 /**
  * Token-architecture integrity.
@@ -22,6 +23,7 @@ const SHEETS: Record<string, string> = {
   'features.css': featuresCss,
   'layout.css': layoutCss,
   'tokens.css': tokensCss,
+  'workspace.css': workspaceCss,
 };
 const cssFiles = Object.keys(SHEETS);
 const read = (f: string) => SHEETS[f];

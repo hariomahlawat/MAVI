@@ -241,9 +241,11 @@
   --topbar-h: 44px;
   --content-max: 1600px;
 
-  /* Elevation is deliberately absent: section 11 reserves shadow for floating
-     layers, and the product has none until the UI-4 drawer. Resting containers
-     on a dark surface take a border. */
+  /* --- Elevation. Section 11 reserves shadow for floating layers; resting
+     containers on a dark surface take a border instead. UI-2 introduces the
+     first floating layer: the Workbench and Investigation inspector drawers. */
+  --elevation-floating: 0 8px 24px rgb(0 0 0 / 35%);
+
 
   /* --- Motion. Two durations, no others (section 13). -------------------- */
   --dur: 120ms;
@@ -252,20 +254,27 @@
   --dur-pulse: 1.2s;
   --dur-spin: 0.8s;
 
-  /* --- Stacking order. One level, because the product has one: a sticky
-     header inside a scrolling region. The drawer and popover levels arrive
-     with the drawer and the popover. --------------------------------------- */
+  /* --- Stacking order. The sticky level is a header inside a scrolling
+     region; the drawer level is the inspector overlay UI-2 adds below the
+     width where a side-by-side inspector would compress the stage. The popover
+     level arrives with the popover. --------------------------------------- */
   --z-sticky: 1;
+  --z-drawer: 30;
 }
 
 /* ------------------------------------------------------------------ *
  * 3. COMPONENT TOKENS — the narrow exception (section 7).
  * ------------------------------------------------------------------ */
 :root {
-  /* Form padding differs from the inspector and toolbar padding section 10
-     also fixes, because a semantic spacing step cannot express "this surface is
-     content rather than chrome" without overloading the scale. The inspector
-     and toolbar equivalents are not declared here: UI-2 promotes those shells
-     and will declare them when it has something that consumes them. */
+  /* Section 10 fixes form, inspector and toolbar padding independently, and a
+     semantic spacing step cannot express "this surface is chrome rather than
+     content" without overloading the scale. UI-2 promoted the inspector and
+     toolbar shells, so those two now have consumers. */
   --c-form-pad: var(--s-4);
+  --c-inspector-pad: var(--s-3);
+  --c-toolbar-pad: var(--s-2);
+  /* The floor for the last panel in an inspector column: a surface that stacks
+     a navigator above a properties panel must not let a long navigator squeeze
+     the panel being read down to a line and a half. */
+  --c-inspector-min-h: 180px;
 }
