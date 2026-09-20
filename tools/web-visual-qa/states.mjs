@@ -91,12 +91,14 @@ export const STATES = [
   { name: 'import', path: '/import', fullWidth: false },
   { name: 'processing-queue', path: '/processing', fullWidth: false },
 
-  // --- Workbench: declares full width, and must actually use it. ---
-  { name: 'scene-editor', path: `/cameras/${CAM}/scene`, fullWidth: true, settleMs: 1200 },
+  // --- Workbench: declares full width, and must actually use it. `archetype`
+  //     additionally measures it against the frozen section 4.3 rules. ---
+  { name: 'scene-editor', path: `/cameras/${CAM}/scene`, fullWidth: true, settleMs: 1200, archetype: 'workbench' },
   {
     name: 'scene-editor-unconfigured',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
+    archetype: 'workbench',
     settleMs: 1200,
     api: { [`/api/cameras/${CAM}/scene`]: { cameraId: CAM, configured: false, activeRevision: null, history: [] } },
   },

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { getPlatformHealth } from '../api/platform';
 import Icon, { type IconName } from '../shared/components/Icon';
-import { Breadcrumbs, SurfaceSlotProvider } from '../shared/workspace';
+import { barClass, Breadcrumbs, SurfaceSlotProvider } from '../shared/workspace';
 import { queryKeys } from './queryClient';
 
 type NavItem = { to: string; label: string; icon: IconName; end?: boolean };
@@ -141,13 +141,13 @@ export default function AppShell() {
       </aside>
 
       <SurfaceSlotProvider>
-        {(attachContextBar, claimed) => (
+        {(attachContextBar, claimed, tone) => (
           <div className="content">
             {/* Section 5: the topbar *is* the Context Bar. One band, filled by
                 the surface through <ContextBar>; a surface that has not been
                 migrated onto an archetype yet leaves the section name it has
                 always shown. */}
-            <header className="context-bar" ref={attachContextBar}>
+            <header className={barClass(tone)} ref={attachContextBar}>
               {claimed ? null : (
                 <Breadcrumbs crumbs={[{ label: sectionTitleFor(location.pathname) }]} />
               )}

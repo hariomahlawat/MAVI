@@ -69,6 +69,27 @@ interactive controls. Plus four the UI-1 acceptance criteria need:
   `forbidText`). Without this a slow query retry silently turns the
   "unavailable" check into a second loading check.
 
+UI-2 adds two more:
+
+- **exactly one Context Bar per page.** §5 says the topbar *becomes* the
+  Context Bar. A surface that published its own while the shell still rendered
+  the old band would show two, and every other assertion here would pass;
+- **archetype conformance**, on any state that declares `archetype` in
+  `states.mjs`. These are the §4 rules only a rendered page can settle: for a
+  Workbench, that the stage takes at least 65% of the *working* width (measured
+  as the workspace element's own width, not reconstructed from viewport
+  arithmetic), that the inspector stays within its fixed 300–360px, that the
+  page does not scroll at or above 1150px, and that nothing but the inspector
+  body owns scroll. The measurements land in the JSON beside each capture, so a
+  reviewer can read the numbers rather than take the pass on trust.
+
+Overlap detection clips before it compares. `getBoundingClientRect` reports
+where an element *would* be, so a row scrolled out of an inspector body still
+reports a rect over whatever is painted there — which reads as an overlap
+between two things nobody can see at once. Each element is therefore clipped by
+every scrolling ancestor and by the viewport first, and one clipped to nothing
+takes no part in the comparison.
+
 Effective target sizes below 24×24 are reported per state in the JSON beside
 each capture rather than failed, because §10.1 allows small canvas handles with
 a large hit area and requires a documented exception, not an automatic failure.

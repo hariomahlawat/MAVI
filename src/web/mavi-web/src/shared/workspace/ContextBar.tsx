@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { useSurfaceSlot } from './surfaceSlot';
+import { useSurfaceSlot, type ContextTone } from './surfaceSlot';
 
 /**
  * The Context Bar (§5).
@@ -32,6 +32,7 @@ export default function ContextBar({
   crumbs,
   status,
   actions,
+  tone,
 }: {
   /** `Section › Object › Sub-surface`. A child surface must name itself (§5). */
   crumbs: Crumb[];
@@ -39,16 +40,32 @@ export default function ContextBar({
   status?: ReactNode;
   /** Primary actions for this surface. */
   actions?: ReactNode;
+  /**
+   * A state the whole surface is in, rather than one badge's worth of it.
+   * §27.1 generalises the Scene Editor's read-only treatment: mistaking a past
+   * revision for the live one is the expensive error, and a chip alone was
+   * judged too quiet for it.
+   */
+  tone?: ContextTone;
 }) {
   const slot = useSurfaceSlot();
   const claim = slot?.claim;
   const release = slot?.release;
+  const setTone = slot?.setTone;
 
   useEffect(() => {
     if (!claim || !release) return undefined;
     claim();
     return release;
   }, [claim, release]);
+
+  // The band is the shell's element, so the surface states the tone and the
+  // shell applies it rather than this component reaching in to set a class.
+  useEffect(() => {
+    if (!setTone) return undefined;
+    setTone(tone ?? null);
+    return () => setTone(null);
+  }, [setTone, tone]);
 
   const content = (
     <>
@@ -63,12 +80,17 @@ export default function ContextBar({
   // itself. A surface must not lose its identity, state and actions merely
   // because of where it was mounted — which is also what keeps a page testable
   // on its own rather than only through the whole application.
-  if (!slot) return <header className="context-bar">{content}</header>;
+  if (!slot) return <header className={barClass(tone)}>{content}</header>;
 
   // Inside the shell, the band is the shell's. Before it exists there is
   // nowhere to render; the shell shows its own fallback for that one frame.
   if (!slot.element) return null;
   return createPortal(content, slot.element);
+}
+
+/** The band's class, so the shell and the standalone case cannot diverge. */
+export function barClass(tone: ContextTone | null | undefined): string {
+  return tone ? `context-bar context-bar--${tone}` : 'context-bar';
 }
 
 export function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {

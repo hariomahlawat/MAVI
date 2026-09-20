@@ -294,7 +294,6 @@
 .scene-reference__badge.is-empty { border-color: var(--border-subtle); background: transparent; color: var(--text-muted); }
 .scene-reference__file { color: var(--text-muted); font-size: var(--fs-0); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.scene-navigator { display: grid; align-content: start; }
 .scene-navigator__empty { padding: var(--s-3); color: var(--text-muted); font-size: var(--fs-1); }
 .scene-navigator__group { padding: var(--s-2) var(--s-2) var(--s-1); }
 .scene-navigator__group h3 {

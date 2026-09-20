@@ -13,6 +13,34 @@ export const PAGE_ASSERTIONS = `(() => {
   const problems = [];
   const doc = document.documentElement;
 
+  // What of an element is actually on screen.
+  //
+  // getBoundingClientRect reports where an element would be, not where it can
+  // be seen: a row scrolled out of an inspector body still reports a rect, and
+  // that rect lands on whatever is painted there. Comparing those rects finds
+  // "overlaps" between things a person can never see at the same time. So each
+  // element is clipped by every scrolling or hidden ancestor, and by the
+  // viewport, before anything is compared — and an element clipped to nothing
+  // takes no part in the comparison at all.
+  const visibleRect = (el) => {
+    const r = el.getBoundingClientRect();
+    let box = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    for (let node = el.parentElement; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+      const c = node.getBoundingClientRect();
+      box = {
+        left: Math.max(box.left, c.left), top: Math.max(box.top, c.top),
+        right: Math.min(box.right, c.right), bottom: Math.min(box.bottom, c.bottom),
+      };
+    }
+    box = {
+      left: Math.max(box.left, 0), top: Math.max(box.top, 0),
+      right: Math.min(box.right, doc.clientWidth), bottom: Math.min(box.bottom, doc.clientHeight),
+    };
+    return { ...box, width: box.right - box.left, height: box.bottom - box.top };
+  };
+
   // 1. No horizontal page scroll at any acceptance width.
   if (doc.scrollWidth > doc.clientWidth + 1) {
     problems.push('horizontal page overflow: scrollWidth ' + doc.scrollWidth + ' > clientWidth ' + doc.clientWidth);
@@ -22,14 +50,14 @@ export const PAGE_ASSERTIONS = `(() => {
   //    rather than every node, because text boxes legitimately nest.
   const controls = Array.from(document.querySelectorAll('button, a[href], input, select, textarea'))
     .filter((el) => {
-      const r = el.getBoundingClientRect();
+      const r = visibleRect(el);
       return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
     });
   for (let i = 0; i < controls.length; i++) {
     for (let j = i + 1; j < controls.length; j++) {
       const a = controls[i], b = controls[j];
       if (a.contains(b) || b.contains(a)) continue;
-      const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+      const ra = visibleRect(a), rb = visibleRect(b);
       const overlapX = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
       const overlapY = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
       // A couple of pixels is antialiasing and adjacency, not an overlap.
@@ -49,14 +77,14 @@ export const PAGE_ASSERTIONS = `(() => {
       if (el.querySelector('h1, h2, h3, h4, label, p, span, strong, dt, dd')) return false;
       const text = (el.textContent || '').trim();
       if (!text) return false;
-      const r = el.getBoundingClientRect();
+      const r = visibleRect(el);
       return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
     });
   for (let i = 0; i < leaves.length; i++) {
     for (let j = i + 1; j < leaves.length; j++) {
       const a = leaves[i], b = leaves[j];
       if (a.contains(b) || b.contains(a)) continue;
-      const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+      const ra = visibleRect(a), rb = visibleRect(b);
       const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
       const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
       if (ox > 4 && oy > 4) {
@@ -90,7 +118,116 @@ export const PAGE_ASSERTIONS = `(() => {
   const width = page ? Math.round(page.getBoundingClientRect().width) : null;
   const full = page ? page.classList.contains('page--full') : null;
 
+  // 5. Exactly one Context Bar. §5 says the topbar *becomes* the Context Bar;
+  //    a surface that published its own while the shell still rendered the old
+  //    band would show two, and every individual assertion here would pass.
+  const bars = document.querySelectorAll('.context-bar').length;
+  if (bars !== 1) problems.push('expected exactly one Context Bar, found ' + bars);
+
   return { problems, pageWidth: width, declaresFullWidth: full, viewport: doc.clientWidth };
+})()`;
+
+/**
+ * Archetype conformance (§4), measured on the rendered page.
+ *
+ * The frozen rules this checks are the ones a unit test cannot see, because
+ * they are about what the browser actually computed: how wide the stage ended
+ * up, whether the page can be scrolled, and which element owns the scroll.
+ *
+ * The stage-width rule (§4.3.1) is a ratio against the *working* width — the
+ * content column minus page padding — which is exactly the width of the
+ * workspace element itself, so it is measured rather than reconstructed from
+ * viewport arithmetic.
+ */
+export const WORKSPACE_ASSERTIONS = `(() => {
+  const problems = [];
+  const doc = document.documentElement;
+  const round = (n) => Math.round(n * 10) / 10;
+
+  const workspace = document.querySelector('.workspace');
+  if (!workspace) return { problems: ['no .workspace element: this surface is not on an archetype'], measured: null };
+
+  const archetype = Array.from(workspace.classList).find((c) => c.startsWith('workspace--')) || 'unknown';
+  const working = workspace.getBoundingClientRect().width;
+  const measured = { archetype: archetype.replace('workspace--', ''), workingWidth: round(working) };
+
+  // Which element owns vertical scroll, anywhere inside the workspace.
+  const scrollers = Array.from(workspace.querySelectorAll('*')).filter((el) => {
+    const style = getComputedStyle(el);
+    if (!/(auto|scroll)/.test(style.overflowY)) return false;
+    return el.scrollHeight > el.clientHeight + 1;
+  // Class names, for naming the scroll owner. The doubled escape is deliberate:
+  // this assertion is a template literal, so a single backslash would be eaten
+  // before the page ever saw it and the split would run on the letter s.
+  }).map((el) => (el.className && typeof el.className === 'string'
+    ? '.' + el.className.trim().split(/\\s+/).join('.')
+    : el.tagName.toLowerCase()));
+  measured.scrollers = scrollers;
+
+  if (archetype === 'workspace--workbench') {
+    const stage = workspace.querySelector('.workspace__stage');
+    const inspector = workspace.querySelector('.workspace__inspector');
+    if (!stage || !inspector) {
+      problems.push('Workbench is missing its stage or inspector region');
+      return { problems, measured };
+    }
+
+    const stageWidth = stage.getBoundingClientRect().width;
+    const inspectorWidth = inspector.getBoundingClientRect().width;
+    const share = working > 0 ? stageWidth / working : 0;
+    measured.stageWidth = round(stageWidth);
+    measured.inspectorWidth = round(inspectorWidth);
+    measured.stageShare = round(share * 100);
+
+    // Below ~1150 the inspector becomes an overlay and the stage takes the
+    // whole working width, so the side-by-side rules apply above that only.
+    if (doc.clientWidth >= 1150) {
+      // §4.3.1: the stage is never compressed below 65% of the working width.
+      if (share < 0.65) {
+        problems.push('Workbench stage is ' + measured.stageShare + '% of the working width, below the 65% floor');
+      }
+      // §4.3: the inspector is fixed between 300 and 360, at every width.
+      if (inspectorWidth < 299 || inspectorWidth > 361) {
+        problems.push('Workbench inspector is ' + measured.inspectorWidth + 'px, outside the fixed 300-360 range');
+      }
+    }
+
+    // §4.3.2: the one archetype with a hard no-page-scroll rule. Checked from
+    // 1150 up, which is where the specification says the layout must fit.
+    //
+    // The document is not the only thing that can scroll: the shell's content
+    // column is the real scroll container, so a Workbench that overflowed it
+    // would scroll for the operator while the document reported nothing. Every
+    // ancestor between the workspace and the document is checked for that.
+    const scrolledAncestors = [];
+    for (let node = workspace.parentElement; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (!/(auto|scroll)/.test(style.overflowY)) continue;
+      if (node.scrollHeight > node.clientHeight + 1) {
+        scrolledAncestors.push((node.className && typeof node.className === 'string'
+          ? '.' + node.className.trim().split(/\\s+/).join('.')
+          : node.tagName.toLowerCase()) + ' (' + node.scrollHeight + ' > ' + node.clientHeight + ')');
+      }
+    }
+    measured.scrolledAncestors = scrolledAncestors;
+
+    if (doc.clientWidth >= 1150) {
+      if (doc.scrollHeight > doc.clientHeight + 1) {
+        problems.push('Workbench page scrolls: scrollHeight ' + doc.scrollHeight + ' > clientHeight ' + doc.clientHeight);
+      }
+      for (const name of scrolledAncestors) {
+        problems.push('Workbench scrolls inside ' + name + ', which is a page scroll to the operator');
+      }
+    }
+
+    // §4.3: only the inspector body scrolls.
+    const stray = scrollers.filter((name) => !name.includes('inspector__body'));
+    if (doc.clientWidth >= 1150 && stray.length) {
+      problems.push('Workbench has a scroll owner other than the inspector body: ' + stray.join(', '));
+    }
+  }
+
+  return { problems, measured };
 })()`;
 
 /**

@@ -70,6 +70,9 @@ export default function SceneContextBar({
 
   return (
     <ContextBar
+      // A past revision is not the live scene, and that is worth more than one
+      // chip: the whole bar says so, as it did before the migration.
+      tone={readOnly ? 'caution' : undefined}
       crumbs={[
         { label: 'Cameras', to: '/cameras' },
         // No camera record surface exists yet, so this crumb names the object

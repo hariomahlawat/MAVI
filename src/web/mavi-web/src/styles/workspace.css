@@ -24,6 +24,9 @@
   background: var(--surface-base);
   position: sticky; top: 0; z-index: var(--z-sticky);
 }
+/* A surface that is not the live thing it usually is — a past revision open
+   for reading. One chip was judged too quiet for the mistake it prevents. */
+.context-bar--caution { border-bottom-color: var(--status-warn-border); background: var(--status-warn-soft); }
 .context-bar__crumbs { min-width: 0; }
 .context-bar__crumbs ol { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
 .context-bar__crumbs li { display: flex; align-items: center; gap: var(--s-2); min-width: 0; font-size: var(--fs-2); }
