@@ -21,7 +21,13 @@ import ReferenceFrameBar from './ReferenceFrameBar';
 import RevisionHistory from './RevisionHistory';
 import SceneCanvas from './SceneCanvas';
 import SceneContextBar from './SceneContextBar';
-import { draftAnalyticsEnabled, draftFromRevision, saveRequestFromDraft, type SceneDraft } from './sceneDraft';
+import {
+  draftAnalyticsEnabled,
+  draftFromRevision,
+  emptyDraft,
+  saveRequestFromDraft,
+  type SceneDraft,
+} from './sceneDraft';
 import { isCameraMissing, isRevisionConflict, sceneErrorMessage } from './sceneErrors';
 import SceneObjectList from './SceneObjectList';
 import ScenePropertiesPanel from './ScenePropertiesPanel';
@@ -142,14 +148,25 @@ export default function SceneEditorPage() {
   // The two drafts mint their own local keys, so a selection made in one names
   // nothing in the other. Crossing between them without clearing it leaves the
   // inspector reporting "nothing selected" while an object still looks picked.
+  // An unfinished polygon is abandoned for the same reason: it belongs to the
+  // editable draft, and carrying it into a read-only revision would leave a
+  // finish action that commits invisible geometry to a scene the operator is
+  // not looking at.
   useEffect(() => {
     dispatch({ type: 'select', selection: { kind: 'none' } });
+    dispatch({ type: 'cancelDrawing' });
   }, [readOnly, viewingRevisionNumber]);
   const historicalDraft: SceneDraft | null = useMemo(
     () => (historicalRevision.data ? draftFromRevision(historicalRevision.data) : null),
     [historicalRevision.data],
   );
-  const shownDraft = readOnly && historicalDraft ? historicalDraft : state.draft;
+  // While the revision is still loading — or if it never arrives — there is no
+  // historical geometry to show. Falling back to the editable draft would put
+  // the active scene under a banner naming a past revision, which is the one
+  // confusion this mode exists to prevent.
+  const historicalMissing = readOnly && historicalDraft === null;
+  const blankDraft = useMemo(() => emptyDraft(), []);
+  const shownDraft = readOnly ? (historicalDraft ?? blankDraft) : state.draft;
   const shownSelection: Selection = state.selection;
 
   const issues = useMemo(() => (readOnly ? [] : validateDraft(state.draft)), [readOnly, state.draft]);
@@ -157,7 +174,10 @@ export default function SceneEditorPage() {
   const invalidKeys = useMemo(() => new Set(issuesForKey.keys()), [issuesForKey]);
   const sceneIssues = issues.filter((issue) => issue.key === null);
 
-  useUnsavedChangesGuard(state.dirty, UNSAVED_MESSAGE);
+  // An unfinished polygon is unsaved work the draft has not been told about
+  // yet, and losing a dozen placed vertices to a stray navigation is the same
+  // loss as losing a saved-shaped one.
+  useUnsavedChangesGuard(state.dirty || state.drawing.kind !== 'none', UNSAVED_MESSAGE);
 
   const saveMutation = useMutation({
     mutationFn: (draft: SceneDraft) => saveCameraScene(cameraId, saveRequestFromDraft(draft)),
@@ -372,7 +392,22 @@ export default function SceneEditorPage() {
       ) : null}
       {historicalRevision.isError ? (
         <Alert tone="error">
-          {sceneErrorMessage(historicalRevision.error, 'That revision could not be loaded.')}
+          <div className="row">
+            <span>{sceneErrorMessage(historicalRevision.error, 'That revision could not be loaded.')}</span>
+            <Button size="sm" onClick={() => historicalRevision.refetch()}>Try again</Button>
+          </div>
+        </Alert>
+      ) : historicalMissing ? (
+        <Alert tone="info">Loading revision {viewingRevisionNumber}…</Alert>
+      ) : null}
+      {videos.isError ? (
+        // Not the same thing as a camera with no imported video: saying so
+        // would be reporting an outage as a fact about the camera.
+        <Alert tone="warning">
+          <div className="row">
+            <span>The video list is unavailable, so no reference frame can be chosen right now.</span>
+            <Button size="sm" onClick={() => videos.refetch()}>Try again</Button>
+          </div>
         </Alert>
       ) : null}
       {sceneIssues.length > 0 ? (
@@ -404,7 +439,7 @@ export default function SceneEditorPage() {
 
       <SceneToolbar
         tool={state.tool}
-        drawing={state.drawing}
+        drawing={readOnly ? { kind: 'none' } : state.drawing}
         readOnly={readOnly}
         historyOpen={historyExpanded}
         drawingError={state.drawingError}
@@ -478,6 +513,7 @@ export default function SceneEditorPage() {
             videos={cameraVideos}
             videoRef={videoRef}
             previewVideoId={readOnly ? canvasVideoId : previewVideoId}
+            videosUnavailable={videos.isError}
             savedVideoId={readOnly
               ? historicalRevision.data?.referenceFrameVideoAssetId ?? null
               : state.draft.referenceFrameVideoAssetId}

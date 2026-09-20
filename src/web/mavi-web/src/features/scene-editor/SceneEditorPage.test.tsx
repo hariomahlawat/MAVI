@@ -721,6 +721,81 @@ describe('scene editor', () => {
     expect(toolButton('Zone')).toBeEnabled();
   });
 
+  it('guards an unfinished polygon as the unsaved work it is', async () => {
+    const user = userEvent.setup();
+    const add = vi.spyOn(window, 'addEventListener');
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    const armed = () => add.mock.calls.filter(([type]) => type === 'beforeunload').length;
+    expect(armed()).toBe(0);
+
+    // A placed vertex does not belong to any object yet, so the draft is not
+    // dirty — but losing it to a stray reload is the same loss.
+    await user.click(toolButton('Zone'));
+    await clickFrame(user, 0.2, 0.2);
+
+    await waitFor(() => expect(armed()).toBeGreaterThan(0));
+    add.mockRestore();
+  });
+
+  it('never shows the editable scene under a historical revision banner', async () => {
+    const user = userEvent.setup();
+    let release: ((value: SceneRevision) => void) | null = null;
+    vi.mocked(getCameraSceneRevision).mockReturnValue(new Promise((resolve) => { release = resolve; }));
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await user.click(screen.getByRole('button', { name: /View revision 1/ }));
+
+    // The banner already names revision 1, so the active scene must not be
+    // what is underneath it while the revision is still on its way.
+    expect(await screen.findByText(/Viewing revision 1 — read only/)).toBeInTheDocument();
+    expect(screen.getByText(/Loading revision 1/)).toBeInTheDocument();
+    expect(queryObjectButton('Gate')).toBeNull();
+    expect(queryObjectButton('Kerb')).toBeNull();
+
+    (release as unknown as (value: SceneRevision) => void)(
+      revision({ revisionNumber: 1, tripLines: [] }),
+    );
+
+    expect(await screen.findByRole('button', { name: /^Gate/ })).toBeInTheDocument();
+  });
+
+  it('abandons an unfinished polygon rather than carrying it into a past revision', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getCameraSceneRevision).mockResolvedValue(revision({ revisionNumber: 1, tripLines: [] }));
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await user.click(toolButton('Zone'));
+    await clickFrame(user, 0.2, 0.2);
+    await clickFrame(user, 0.4, 0.2);
+    await clickFrame(user, 0.4, 0.4);
+    await user.click(screen.getByRole('button', { name: /View revision 1/ }));
+    await screen.findByText(/Viewing revision 1 — read only/);
+
+    // No mutating action may survive into read-only: a Finish here would
+    // commit geometry to a scene the operator is not looking at.
+    expect(screen.queryByRole('button', { name: 'Finish zone' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Return to active revision' }));
+    await screen.findByRole('group', { name: 'Drawing tools' });
+
+    expect(screen.queryByRole('button', { name: 'Finish zone' })).not.toBeInTheDocument();
+    expect(queryObjectButton('Zone 1')).toBeNull();
+  });
+
+  it('reports an unavailable video list as an outage, not as a camera with no video', async () => {
+    vi.mocked(listVideos).mockRejectedValue(new ApiError({ status: 503, code: 'unavailable', detail: 'down' }));
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    expect(await screen.findByText(/The video list is unavailable/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Try again' }).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/No imported video for this camera/)).not.toBeInTheDocument();
+  });
+
   it('never lets a historical revision alter what would be saved', async () => {
     const user = userEvent.setup();
     vi.mocked(getCameraSceneRevision).mockResolvedValue(revision({

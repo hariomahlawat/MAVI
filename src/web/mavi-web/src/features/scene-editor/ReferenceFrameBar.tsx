@@ -7,6 +7,7 @@ type Props = {
   videos: VideoAsset[];
   videoRef: RefObject<HTMLVideoElement | null>;
   previewVideoId: string | null;
+  videosUnavailable: boolean;
   savedVideoId: string | null;
   savedOffsetMs: number | null;
   readOnly: boolean;
@@ -32,6 +33,7 @@ export default function ReferenceFrameBar({
   videos,
   videoRef,
   previewVideoId,
+  videosUnavailable,
   savedVideoId,
   savedOffsetMs,
   readOnly,
@@ -106,7 +108,15 @@ export default function ReferenceFrameBar({
   if (videos.length === 0) {
     return (
       <div className="scene-reference scene-reference--empty">
-        <span>No imported video for this camera. Geometry is still saved in normalised coordinates.</span>
+        <span>
+          {videosUnavailable
+            // An empty list because the request failed is not a fact about the
+            // camera, and stating it as one sends the operator looking for an
+            // import that may already exist.
+            ? 'The video list could not be loaded, so no reference frame can be chosen. Geometry is still saved in '
+              + 'normalised coordinates.'
+            : 'No imported video for this camera. Geometry is still saved in normalised coordinates.'}
+        </span>
       </div>
     );
   }
