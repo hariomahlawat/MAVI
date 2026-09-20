@@ -52,3 +52,38 @@ export const BOX_VISIBILITY_WINDOW_MS = 400;
 export function isBoxVisibleAt(currentOffsetMs: number, representativeOffsetMs: number): boolean {
   return Math.abs(currentOffsetMs - representativeOffsetMs) <= BOX_VISIBILITY_WINDOW_MS;
 }
+
+/**
+ * A rendered pixel position converted back into normalised source-frame
+ * coordinates: the inverse of {@link projectPoint}.
+ *
+ * The editor needs this to turn a pointer position into geometry. Measuring
+ * against the element instead of the frame would put every drawn point in the
+ * wrong place whenever the video is letterboxed, so the conversion uses the
+ * same content rectangle the overlay draws against.
+ *
+ * The result is clamped to the unit interval, so a pointer that leaves the
+ * frame mid-drag keeps the vertex on the nearest edge rather than producing a
+ * coordinate the scene model would reject. Use {@link isInsideFrame} first when
+ * a position outside the frame should be ignored rather than clamped.
+ */
+export function unprojectPoint(x: number, y: number, frame: PixelRect): { x: number; y: number } {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || frame.width <= 0 || frame.height <= 0) {
+    return { x: 0, y: 0 };
+  }
+  return {
+    x: clampUnit((x - frame.x) / frame.width),
+    y: clampUnit((y - frame.y) / frame.height),
+  };
+}
+
+/** True when a rendered pixel position falls on the frame rather than a letterbox bar. */
+export function isInsideFrame(x: number, y: number, frame: PixelRect): boolean {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || frame.width <= 0 || frame.height <= 0) return false;
+  return x >= frame.x && x <= frame.x + frame.width && y >= frame.y && y <= frame.y + frame.height;
+}
+
+function clampUnit(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
