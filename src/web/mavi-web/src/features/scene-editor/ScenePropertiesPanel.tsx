@@ -154,13 +154,12 @@ function ZoneProperties({
           {SCENE_ZONE_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
         </select>
 
-        <span className="scene-fields__label" id={`zone-enabled-${zone.key}`}>Enabled</span>
+        <span className="scene-fields__label" aria-hidden="true">Enabled</span>
         <label className="checkbox">
           <input
             type="checkbox"
             checked={zone.enabled}
             disabled={readOnly}
-            aria-labelledby={`zone-enabled-${zone.key}`}
             onChange={(event) => onUpdate(zone.key, { enabled: event.target.checked })}
           />
           Evaluate this zone
@@ -256,25 +255,23 @@ function LineProperties({
           onChange={(event) => onUpdate(line.key, { name: event.target.value })}
         />
 
-        <span className="scene-fields__label" id={`line-enabled-${line.key}`}>Enabled</span>
+        <span className="scene-fields__label" aria-hidden="true">Enabled</span>
         <label className="checkbox">
           <input
             type="checkbox"
             checked={line.enabled}
             disabled={readOnly}
-            aria-labelledby={`line-enabled-${line.key}`}
             onChange={(event) => onUpdate(line.key, { enabled: event.target.checked })}
           />
           Evaluate this line
         </label>
 
-        <span className="scene-fields__label" id={`line-directed-${line.key}`}>Directional</span>
+        <span className="scene-fields__label" aria-hidden="true">Directional</span>
         <label className="checkbox">
           <input
             type="checkbox"
             checked={line.directed}
             disabled={readOnly}
-            aria-labelledby={`line-directed-${line.key}`}
             onChange={(event) => onUpdate(line.key, { directed: event.target.checked })}
           />
           Direction matters

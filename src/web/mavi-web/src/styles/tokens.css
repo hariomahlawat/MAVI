@@ -51,6 +51,13 @@
   --evidence: #f0abfc;
   --evidence-track: #38bdf8;
 
+  /* The matte a frame is laid on, and the halo that keeps overlay geometry
+     readable over footage the product does not control. Both are absolute
+     rather than theme-relative: letterbox bars must not tint the image, and a
+     halo that followed the surface colour would vanish on bright video. */
+  --canvas-matte: #000;
+  --canvas-halo: rgb(0 0 0 / 85%);
+
   /* Spacing scale (4px base). */
   --s-1: 4px;
   --s-2: 8px;

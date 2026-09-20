@@ -49,7 +49,7 @@ export default function SceneObjectList({
   return (
     <div className="scene-navigator">
       <div className="scene-panel__head">
-        <h2 id="scene-objects-title">Scene objects</h2>
+        <h2>Scene objects</h2>
         {readOnly ? null : (
           <div className="scene-panel__actions">
             <Button size="sm" variant="ghost" onClick={onAddZone}>+ Zone</Button>

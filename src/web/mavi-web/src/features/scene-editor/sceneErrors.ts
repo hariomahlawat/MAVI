@@ -55,14 +55,3 @@ export function isRevisionConflict(error: unknown): boolean {
 export function isCameraMissing(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404 && error.code === 'camera_not_found';
 }
-
-/**
- * The zone or trip line a validation failure is about, when the code names one
- * and the message can be attached to a specific object.
- */
-export function failingObjectKind(error: unknown): 'zone' | 'line' | null {
-  if (!(error instanceof ApiError)) return null;
-  if (error.code.startsWith('scene_zone_')) return 'zone';
-  if (error.code.startsWith('scene_line_')) return 'line';
-  return null;
-}

@@ -139,12 +139,15 @@ export function draftFromRevision(revision: SceneRevision): SceneDraft {
 
 /** The request body for save-and-activate: the whole scene, never a patch. */
 export function saveRequestFromDraft(draft: SceneDraft): SaveSceneRequest {
+  // The pair is sent whole or not at all, because the backend refuses half of
+  // one with `scene_reference_frame_incomplete`. Guarding a single direction
+  // would leave the other able to send one.
+  const pairedReference = draft.referenceFrameVideoAssetId !== null && draft.referenceFrameOffsetMs !== null;
   return {
     expectedRevisionNumber: draft.baseRevisionNumber,
     note: draft.note.trim() ? draft.note.trim() : null,
-    // The pair is sent whole or not at all; the backend refuses half of one.
-    referenceFrameVideoAssetId: draft.referenceFrameVideoAssetId,
-    referenceFrameOffsetMs: draft.referenceFrameVideoAssetId ? draft.referenceFrameOffsetMs : null,
+    referenceFrameVideoAssetId: pairedReference ? draft.referenceFrameVideoAssetId : null,
+    referenceFrameOffsetMs: pairedReference ? draft.referenceFrameOffsetMs : null,
     zones: draft.zones.map(zoneRequest),
     tripLines: draft.tripLines.map(lineRequest),
   };

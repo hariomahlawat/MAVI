@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCamera } from '../../api/cameras';
@@ -304,20 +304,74 @@ describe('scene editor', () => {
     expect(await screen.findByRole('button', { name: /^Line 1/ })).toBeInTheDocument();
   });
 
-  it('ignores a click on a letterbox bar', async () => {
+  it('ignores a click on a letterbox bar without snapping it to the edge', async () => {
     const user = userEvent.setup();
+    // 21:9 in the 640x360 element leaves real bars above and below, which is
+    // the only way this test can be about letterboxing at all.
+    vi.mocked(listVideos).mockResolvedValue([video({ width: 2560, height: 1080 })]);
     vi.mocked(getCameraScene).mockResolvedValue(unconfigured());
     render();
     await screen.findByText('No scene configured');
+    await user.selectOptions(screen.getByLabelText('Reference video'), videoId);
 
-    // A 16:9 source in a 640x360 element fills it, so widen the source to
-    // create bars above and below.
+    const frame = await waitFor(() => {
+      const rect = frameRect();
+      if (rect.y <= 0 || rect.height >= 360) throw new Error('the frame is not letterboxed yet');
+      return rect;
+    });
+
     await user.click(toolButton('Zone'));
     const canvas = screen.getByTestId('scene-canvas');
-    await user.pointer({ target: canvas, coords: { clientX: 320, clientY: -40 }, keys: '[MouseLeft]' });
+    // Three clicks inside the element but above the image: a bar, not the
+    // picture. Three is deliberate — it is enough vertices to close a polygon,
+    // so if these were accepted (clamped onto y = 0, as unprojectPoint would
+    // do) a zone would exist. The absence of one is the whole assertion.
+    const bar = Math.floor(frame.y / 2);
+    for (const clientX of [160, 320, 480]) {
+      await user.pointer({ target: canvas, coords: { clientX, clientY: bar }, keys: '[MouseLeft]' });
+    }
     await user.keyboard('{Enter}');
 
     expect(screen.queryByRole('button', { name: /^Zone 1/ })).not.toBeInTheDocument();
+
+    // The same gesture inside the image does place a vertex, so the refusal
+    // above is about where the click landed and not about the tool.
+    await clickFrame(user, 0.3, 0.3);
+    await clickFrame(user, 0.7, 0.3);
+    await clickFrame(user, 0.5, 0.7);
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByRole('button', { name: /^Zone 1/ })).toBeInTheDocument();
+  });
+
+  it('lets an armed drawing tool through existing geometry', async () => {
+    const user = userEvent.setup();
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    // jsdom does no hit testing, so a test that clicks the surface can never
+    // see an existing shape intercept the click the way a browser would. The
+    // contract is asserted at the shape instead: while a drawing tool is armed
+    // a pointerdown on a zone or a line must not be handled, because the click
+    // belongs to the surface underneath — a zone has to be drawable over or
+    // inside one that is already there.
+    const overlay = screen.getByTestId('scene-overlay');
+    const polygon = overlay.querySelector('.scene-zone polygon') as SVGPolygonElement;
+    const line = overlay.querySelector('.scene-line__segment') as SVGLineElement;
+
+    await user.click(toolButton('Zone'));
+    fireEvent.pointerDown(polygon);
+    fireEvent.pointerDown(line);
+
+    expect(objectButton('Gate')).toHaveAttribute('aria-pressed', 'false');
+    expect(objectButton('Kerb')).toHaveAttribute('aria-pressed', 'false');
+
+    // With Select armed the same gesture selects, so the guard is about the
+    // mode and not about the shape being unreachable.
+    await user.click(toolButton('Select'));
+    fireEvent.pointerDown(polygon);
+
+    expect(objectButton('Gate')).toHaveAttribute('aria-pressed', 'true');
   });
 
   // Selection and editing
@@ -378,7 +432,7 @@ describe('scene editor', () => {
     await screen.findByRole('button', { name: /^Gate/ });
 
     await selectObject(user, 'Gate');
-    await user.click(screen.getByRole('checkbox', { name: 'Enabled' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Evaluate this zone' }));
 
     await waitFor(() => expect(objectButton('Gate')).toHaveAccessibleName(expect.stringContaining('disabled')));
   });
@@ -447,28 +501,58 @@ describe('scene editor', () => {
     expect(screen.getByText('Saved')).toBeInTheDocument();
   });
 
-  it('confirms before saving a revision that disables analytics', async () => {
+  /** Turns every object off, which is what "analytics disabled" means here. */
+  async function disableEverything(user: ReturnType<typeof userEvent.setup>) {
+    await selectObject(user, 'Gate');
+    await user.click(screen.getByRole('checkbox', { name: 'Evaluate this zone' }));
+    await selectObject(user, 'Kerb');
+    await user.click(screen.getByRole('checkbox', { name: 'Evaluate this line' }));
+  }
+
+  it('states what a revision that disables analytics will do, and saves nothing yet', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render();
     await screen.findByRole('button', { name: /^Gate/ });
 
-    await selectObject(user, 'Gate');
-    await user.click(screen.getByRole('checkbox', { name: 'Enabled' }));
-    await selectObject(user, 'Kerb');
-    await user.click(screen.getByRole('checkbox', { name: 'Enabled' }));
+    await disableEverything(user);
     await user.click(screen.getByRole('button', { name: 'Save revision' }));
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Disable scene analytics?'));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Disable analytics for this camera'));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Earlier revisions are unchanged'));
+    const save = screen.getByRole('button', { name: 'Save and disable analytics' });
+    expect(save).toHaveAccessibleDescription(
+      expect.stringContaining('stops future runs of this camera being analysed'),
+    );
+    expect(save).toHaveAccessibleDescription(expect.stringContaining('Earlier revisions are unchanged'));
     expect(saveCameraScene).not.toHaveBeenCalled();
-    confirm.mockRestore();
   });
 
-  it('does not confirm for an ordinary enabled revision', async () => {
+  it('abandons the disabling save when the operator cancels', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await disableEverything(user);
+    await user.click(screen.getByRole('button', { name: 'Save revision' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByRole('button', { name: 'Save revision' })).toBeInTheDocument();
+    expect(saveCameraScene).not.toHaveBeenCalled();
+  });
+
+  it('saves the disabling revision once it has been confirmed', async () => {
+    const user = userEvent.setup();
+    vi.mocked(saveCameraScene).mockResolvedValue(revision({ revisionNumber: 3, zones: [], tripLines: [] }));
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await disableEverything(user);
+    await user.click(screen.getByRole('button', { name: 'Save revision' }));
+    await user.click(screen.getByRole('button', { name: 'Save and disable analytics' }));
+
+    await waitFor(() => expect(saveCameraScene).toHaveBeenCalled());
+  });
+
+  it('asks for no confirmation for an ordinary enabled revision', async () => {
+    const user = userEvent.setup();
     vi.mocked(saveCameraScene).mockResolvedValue(revision({ revisionNumber: 3 }));
     render();
     await screen.findByRole('button', { name: /^Gate/ });
@@ -479,8 +563,6 @@ describe('scene editor', () => {
     await user.click(screen.getByRole('button', { name: 'Save revision' }));
 
     await waitFor(() => expect(saveCameraScene).toHaveBeenCalled());
-    expect(confirm).not.toHaveBeenCalled();
-    confirm.mockRestore();
   });
 
   // Failures
@@ -518,6 +600,53 @@ describe('scene editor', () => {
     // The unsaved draft survives until the operator decides.
     expect(screen.getByLabelText('Name')).toHaveValue('Forecourt');
     expect(saveCameraScene).toHaveBeenCalledTimes(1);
+  });
+
+  it('really replaces the draft when the reload is taken, even if nothing changed on the server', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(saveCameraScene).mockRejectedValue(
+      new ApiError({ status: 409, code: 'scene_revision_conflict', detail: 'stale' }),
+    );
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await selectObject(user, 'Gate');
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Forecourt');
+    await user.click(screen.getByRole('button', { name: 'Save revision' }));
+    await screen.findByRole('button', { name: 'Reload active revision' });
+
+    // getCameraScene keeps answering with the same scene, so the query's value
+    // is structurally unchanged. The reload must still adopt it: telling the
+    // operator their work was discarded and then leaving the draft dirty
+    // against a revision it can no longer save on to is the worst of both.
+    await user.click(screen.getByRole('button', { name: 'Reload active revision' }));
+
+    await waitFor(() => expect(queryObjectButton('Forecourt')).toBeNull());
+    expect(objectButton('Gate')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+    confirm.mockRestore();
+  });
+
+  it('blocks a save on a duplicate zone name', async () => {
+    const user = userEvent.setup();
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    // Two zones, same name: the backend would refuse it, and the browser can
+    // see that for itself.
+    await user.click(toolButton('Zone'));
+    await clickFrame(user, 0.7, 0.7);
+    await clickFrame(user, 0.9, 0.7);
+    await clickFrame(user, 0.8, 0.9);
+    await user.keyboard('{Enter}');
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'gate');
+
+    expect(await screen.findByText('Another zone already uses this name.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+    expect(screen.getByText('Fix the highlighted problems before saving.')).toBeInTheDocument();
   });
 
   it('reports a failed reference video without discarding the scene', async () => {

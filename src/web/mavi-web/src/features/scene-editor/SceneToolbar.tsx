@@ -6,6 +6,7 @@ type Props = {
   drawing: Drawing;
   readOnly: boolean;
   historyOpen: boolean;
+  drawingError: string | null;
   onToolChange: (tool: EditorTool) => void;
   onCloseZone: () => void;
   onCancelDrawing: () => void;
@@ -26,12 +27,18 @@ const hints: Record<EditorTool, string | null> = {
  * pressed, not three buttons that happen to sit together. The instruction line
  * appears only while a drawing tool is armed; standing tutorial text would be
  * noise for the operator who uses this daily.
+ *
+ * A refused gesture is answered here too, in place of the hint. The operator is
+ * looking at the tool and the frame, not at a notice stack above both of them,
+ * and a click that appeared to do nothing needs its explanation where the click
+ * was aimed.
  */
 export default function SceneToolbar({
   tool,
   drawing,
   readOnly,
   historyOpen,
+  drawingError,
   onToolChange,
   onCloseZone,
   onCancelDrawing,
@@ -79,7 +86,9 @@ export default function SceneToolbar({
         <Button size="sm" variant="ghost" onClick={onCancelDrawing}>Cancel</Button>
       ) : null}
 
-      {hint ? <p className="scene-toolbar__hint">{hint}</p> : null}
+      {drawingError
+        ? <p className="scene-toolbar__refusal" role="alert">{drawingError}</p>
+        : hint ? <p className="scene-toolbar__hint">{hint}</p> : null}
 
       <span className="grow" />
 
@@ -87,6 +96,7 @@ export default function SceneToolbar({
         size="sm"
         variant="ghost"
         icon="clock"
+        aria-controls="scene-revision-strip"
         aria-expanded={historyOpen}
         onClick={onToggleHistory}
       >

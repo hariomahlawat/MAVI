@@ -12,9 +12,11 @@ type Props = {
   note: string;
   canSave: boolean;
   blockedReason: string | null;
+  confirmingDisable: boolean;
   onNoteChange: (note: string) => void;
   onReset: () => void;
   onSave: () => void;
+  onCancelDisable: () => void;
   onReturnToActive: () => void;
 };
 
@@ -44,9 +46,11 @@ export default function SceneContextBar({
   note,
   canSave,
   blockedReason,
+  confirmingDisable,
   onNoteChange,
   onReset,
   onSave,
+  onCancelDisable,
   onReturnToActive,
 }: Props) {
   const readOnly = saveState === 'readonly';
@@ -95,20 +99,40 @@ export default function SceneContextBar({
               />
             </label>
           ) : null}
+          {/* A disabled button receives no pointer events, so a `title` on one
+              is a tooltip nobody can open. The reason is stated beside it and
+              tied to the control that is refusing. */}
+          {blockedReason ? (
+            <span className="scene-context__blocked" id="scene-save-blocked">{blockedReason}</span>
+          ) : null}
+          {confirmingDisable ? (
+            // Stated once, plainly, in the place the operator is already
+            // looking. Nothing about this is an emergency, so nothing about it
+            // is red; it is simply a consequence worth reading before it
+            // happens.
+            <span className="scene-context__confirm" id="scene-disable-confirm" role="status">
+              Nothing here is enabled, so saving stops future runs of this camera being analysed. Earlier
+              revisions are unchanged.
+            </span>
+          ) : null}
           <Button
             variant="ghost"
             disabled={saveState === 'saving'}
-            onClick={onReset}
+            onClick={confirmingDisable ? onCancelDisable : onReset}
           >
-            Reset
+            {confirmingDisable ? 'Cancel' : 'Reset'}
           </Button>
           <Button
             variant="primary"
             disabled={!canSave}
-            title={blockedReason ?? undefined}
+            aria-describedby={
+              confirmingDisable ? 'scene-disable-confirm' : blockedReason ? 'scene-save-blocked' : undefined
+            }
             onClick={onSave}
           >
-            {saveState === 'saving' ? 'Saving…' : 'Save revision'}
+            {saveState === 'saving'
+              ? 'Saving…'
+              : confirmingDisable ? 'Save and disable analytics' : 'Save revision'}
           </Button>
         </>
       )}

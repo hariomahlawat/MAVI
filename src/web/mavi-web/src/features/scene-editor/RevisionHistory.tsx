@@ -35,7 +35,7 @@ export default function RevisionHistory({
 }: Props) {
   if (history.length === 0) {
     return (
-      <div className="scene-revisions">
+      <div className="scene-revisions" id="scene-revision-strip">
         <span className="scene-revisions__label">Revisions</span>
         <span className="scene-revisions__none">None yet · saving creates revision 1</span>
       </div>
@@ -45,7 +45,7 @@ export default function RevisionHistory({
   const ordered = [...history].sort((left, right) => right.revisionNumber - left.revisionNumber);
 
   return (
-    <div className={`scene-revisions${expanded ? ' is-expanded' : ''}`}>
+    <div className={`scene-revisions${expanded ? ' is-expanded' : ''}`} id="scene-revision-strip">
       <span className="scene-revisions__label" id="scene-revisions-label">Revisions</span>
 
       <ul className="scene-revisions__list" aria-labelledby="scene-revisions-label">

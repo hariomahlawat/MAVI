@@ -85,7 +85,7 @@
 .player--fill video { max-height: 48vh; }
 .player__overlay { position: absolute; inset: 0; pointer-events: none; }
 .player__overlay rect { fill: none; stroke: var(--evidence); stroke-width: 2; vector-effect: non-scaling-stroke; }
-.player__overlay .bbox-label { fill: var(--evidence); font: 600 11px var(--font-ui); paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round; }
+.player__overlay .bbox-label { fill: var(--evidence); font: 600 11px var(--font-ui); paint-order: stroke; stroke: var(--canvas-matte); stroke-width: 3px; stroke-linejoin: round; }
 .player__overlay polyline { fill: none; stroke: var(--evidence-track); stroke-width: 2; stroke-opacity: 0.9; vector-effect: non-scaling-stroke; }
 .player__overlay .trajectory-point { fill: var(--evidence-track); }
 .player__overlay .trajectory-current { fill: var(--evidence); stroke: #000; stroke-width: 1.5; }
@@ -160,6 +160,12 @@
 .scene-context__revision.is-saved .scene-context__revision-state { color: var(--ok); }
 .scene-context__revision.is-readonly { border-color: var(--warn-border); background: transparent; }
 .scene-context__revision.is-readonly .scene-context__revision-state { color: var(--warn); font-weight: 600; }
+.scene-context__blocked { color: var(--text-3); font-size: var(--fs-1); max-width: 34ch; }
+.scene-context__confirm {
+  max-width: 46ch; padding: var(--s-1) var(--s-3); border: 1px solid var(--warn-border);
+  border-radius: var(--r-1); background: var(--warn-soft); color: var(--text-2);
+  font-size: var(--fs-1); line-height: 1.4;
+}
 .scene-context__analytics { color: var(--text-3); font-size: var(--fs-0); letter-spacing: 0.04em; text-transform: uppercase; }
 .scene-context__analytics.is-off { color: var(--text-3); opacity: 0.8; }
 .scene-context__note input { width: 220px; height: var(--control-h); }
@@ -167,6 +173,7 @@
 /* Mode strip */
 .scene-toolbar { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; min-height: var(--control-h); }
 .scene-toolbar__hint { color: var(--text-3); font-size: var(--fs-0); }
+.scene-toolbar__refusal { color: var(--warn); font-size: var(--fs-1); }
 .scene-toolbar__readonly { color: var(--warn); font-size: var(--fs-1); }
 
 .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-2); overflow: hidden; background: var(--surface); }
@@ -185,19 +192,19 @@
 .scene-stage__frame { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: var(--s-2); min-height: 0; }
 
 .scene-stage__surface {
-  position: relative; min-height: 240px; background: #000;
+  position: relative; min-height: 240px; background: var(--canvas-matte);
   border: 1px solid var(--border); border-radius: var(--r-2); overflow: hidden; touch-action: none;
 }
-.scene-stage__video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.scene-stage__video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--canvas-matte); }
 .scene-stage__placeholder {
   position: absolute; inset: 0;
   background:
-    repeating-linear-gradient(45deg, #0c111a, #0c111a 14px, #101725 14px, #101725 28px);
+    repeating-linear-gradient(45deg, var(--surface), var(--surface) 14px, var(--surface-2) 14px, var(--surface-2) 28px);
 }
 /* Footage is arbitrary: a pale stroke over a bright frame disappears. A tight
    dark halo keeps every line, arrow and handle readable over any image without
    dimming the evidence underneath it. */
-.scene-stage__overlay { position: absolute; inset: 0; filter: drop-shadow(0 0 1.5px rgb(0 0 0 / 85%)); }
+.scene-stage__overlay { position: absolute; inset: 0; filter: drop-shadow(0 0 1.5px var(--canvas-halo)); }
 .scene-stage__surface.tool-zone, .scene-stage__surface.tool-line { cursor: crosshair; }
 .scene-stage__surface.is-drawing { box-shadow: inset 0 0 0 1px var(--accent); }
 .scene-stage__surface.is-readonly .scene-stage__overlay { cursor: default; }
@@ -208,22 +215,33 @@
   background: var(--warn-soft); color: var(--warn); font-size: var(--fs-1); font-weight: 600;
   letter-spacing: 0.02em; pointer-events: none;
 }
+/* Not `display: none`: a live region removed from the tree is a live region
+   that announces nothing when it comes back. It keeps its place and simply
+   stops looking like a chip while it has nothing to say. */
+.scene-stage__banner.is-idle { padding: 0; border: 0; background: none; }
+/* Over footage the invitation stays out of the picture, at the foot of the
+   frame. With no footage there is no picture to stay out of, and a caption
+   pinned to the bottom of an empty workspace reads as an afterthought rather
+   than as the state of the editor. */
 .scene-stage__intro {
   position: absolute; inset: auto 0 0 0; display: grid; justify-items: center; gap: var(--s-2);
   padding: var(--s-5); background: linear-gradient(to top, var(--overlay), transparent);
   text-align: center;
+}
+.scene-stage__intro.is-empty {
+  inset: 0; align-content: center; background: none;
 }
 .scene-stage__intro strong { font-size: var(--fs-3); }
 .scene-stage__intro span { color: var(--text-2); font-size: var(--fs-1); max-width: 52ch; }
 
 /* Geometry */
 .scene-zone polygon {
-  fill: rgb(59 130 246 / 12%); stroke: var(--accent-text); stroke-width: 1.5;
+  fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent-text); stroke-width: 1.5;
   vector-effect: non-scaling-stroke; cursor: pointer; transition: fill var(--dur) ease, stroke var(--dur) ease;
 }
-.scene-zone polygon:hover { fill: rgb(59 130 246 / 18%); }
-.scene-zone.is-selected polygon { fill: rgb(59 130 246 / 22%); stroke: var(--accent); stroke-width: 2.5; }
-.scene-zone.is-disabled polygon { fill: rgb(163 173 189 / 6%); stroke: var(--neutral); stroke-dasharray: 5 4; }
+.scene-zone polygon:hover { fill: color-mix(in srgb, var(--accent) 18%, transparent); }
+.scene-zone.is-selected polygon { fill: color-mix(in srgb, var(--accent) 22%, transparent); stroke: var(--accent); stroke-width: 2.5; }
+.scene-zone.is-disabled polygon { fill: color-mix(in srgb, var(--neutral) 6%, transparent); stroke: var(--neutral); stroke-dasharray: 5 4; }
 .scene-zone.is-invalid polygon { stroke: var(--warn); }
 
 .scene-line__segment {
@@ -236,17 +254,22 @@
 .scene-line.is-invalid .scene-line__segment { stroke: var(--warn); }
 .scene-line__endpoint {
   fill: var(--evidence); font: 600 11px var(--font-mono); text-anchor: middle; dominant-baseline: middle;
-  paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round;
+  paint-order: stroke; stroke: var(--canvas-matte); stroke-width: 3px; stroke-linejoin: round;
 }
 .scene-line__crossing line { stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .scene-line__crossing text {
   font: 600 10px var(--font-ui); text-anchor: middle; dominant-baseline: middle;
-  paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round;
+  paint-order: stroke; stroke: var(--canvas-matte); stroke-width: 3px; stroke-linejoin: round;
 }
 .scene-line__crossing--atob line, .scene-line__crossing--atob polygon { stroke: var(--ok); fill: var(--ok); }
-.scene-line__crossing--atob text { fill: var(--ok); stroke: #000; }
-.scene-line__crossing--btoa line, .scene-line__crossing--btoa polygon { stroke: var(--warn); fill: var(--warn); }
-.scene-line__crossing--btoa text { fill: var(--warn); stroke: #000; }
+.scene-line__crossing--atob text { fill: var(--ok); }
+/* Not --warn: amber is this object's invalid state and the colour of its
+   validation issues, so an amber arrow reads as a fault rather than as a
+   direction. */
+.scene-line__crossing--btoa line, .scene-line__crossing--btoa polygon {
+  stroke: var(--evidence-track); fill: var(--evidence-track);
+}
+.scene-line__crossing--btoa text { fill: var(--evidence-track); }
 .scene-line.is-disabled .scene-line__crossing { opacity: 0.45; }
 
 .scene-handle__hit { fill: transparent; cursor: grab; }
@@ -267,7 +290,7 @@
   background: var(--surface);
 }
 .scene-reference--empty { color: var(--text-3); font-size: var(--fs-1); }
-.scene-reference__video select { height: var(--control-h-sm); max-width: 220px; font-size: var(--fs-1); }
+.scene-reference__video select { height: var(--control-h); max-width: 220px; font-size: var(--fs-1); }
 .scene-reference__scrub { flex: 1 1 160px; min-width: 120px; accent-color: var(--accent); }
 .scene-reference__time { color: var(--text-2); font: var(--fs-1)/1 var(--font-mono); font-variant-numeric: tabular-nums; }
 .scene-reference__pinned { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }

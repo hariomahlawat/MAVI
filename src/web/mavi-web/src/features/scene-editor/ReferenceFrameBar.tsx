@@ -152,7 +152,8 @@ export default function ReferenceFrameBar({
         onChange={(event) => seekTo(Number(event.target.value))}
       />
 
-      <span className="scene-reference__time" aria-label="Playhead">
+      <span className="scene-reference__time">
+        <span className="visually-hidden">Playhead </span>
         {formatOffset(playheadMs)}
       </span>
 
@@ -189,8 +190,15 @@ export default function ReferenceFrameBar({
           <Button
             size="sm"
             variant="ghost"
-            disabled={savedVideoId !== previewVideoId || showingReference}
-            onClick={() => seekTo(savedOffsetMs as number)}
+            disabled={showingReference}
+            onClick={() => {
+              // The operator is most likely to want this when they are lost,
+              // which includes being on the wrong video. Switching back is
+              // part of going there; the seek follows once the metadata for
+              // the reference video has arrived.
+              if (savedVideoId !== previewVideoId) onPreviewVideo(savedVideoId);
+              else seekTo(savedOffsetMs as number);
+            }}
           >
             Go to reference
           </Button>

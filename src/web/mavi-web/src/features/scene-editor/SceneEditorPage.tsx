@@ -82,9 +82,11 @@ export default function SceneEditorPage() {
   const [supersededRevision, setSupersededRevision] = useState<number | null>(null);
   const loadedRevisionRef = useRef<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  // Read inside an effect that must not re-run when it changes.
+  // Read inside an effect that must not re-run when it changes. A note never
+  // dirties the draft — it describes the save, not the scene — but it is still
+  // the operator's typing, so adopting a revision over it would lose work.
   const dirtyRef = useRef(state.dirty);
-  dirtyRef.current = state.dirty;
+  dirtyRef.current = state.dirty || state.draft.note.trim().length > 0;
 
   const activeRevision = scene.data?.activeRevision ?? null;
 
@@ -108,15 +110,18 @@ export default function SceneEditorPage() {
     setViewingRevisionNumber(null);
   }, [activeRevision]);
 
-  /** Adopts the saved revision, discarding the local draft on purpose. */
-  const adoptActiveRevision = useCallback(() => {
-    loadedRevisionRef.current = activeRevision ? activeRevision.revisionId : 'none';
+  /** Adopts a saved revision, discarding the local draft on purpose. */
+  const adopt = useCallback((revision: SceneRevision | null) => {
+    loadedRevisionRef.current = revision ? revision.revisionId : 'none';
+    dirtyRef.current = false;
     setSupersededRevision(null);
     setConflict(false);
-    dispatch({ type: 'loadActive', revision: activeRevision });
-    setPreviewVideoId(activeRevision?.referenceFrameVideoAssetId ?? null);
+    dispatch({ type: 'loadActive', revision });
+    setPreviewVideoId(revision?.referenceFrameVideoAssetId ?? null);
     setViewingRevisionNumber(null);
-  }, [activeRevision]);
+  }, []);
+
+  const adoptActiveRevision = useCallback(() => adopt(activeRevision), [adopt, activeRevision]);
 
   const cameraVideos = useMemo(
     // GET /api/videos has no camera filter, so the camera's own videos are
@@ -133,6 +138,13 @@ export default function SceneEditorPage() {
   });
 
   const readOnly = viewingRevisionNumber !== null;
+
+  // The two drafts mint their own local keys, so a selection made in one names
+  // nothing in the other. Crossing between them without clearing it leaves the
+  // inspector reporting "nothing selected" while an object still looks picked.
+  useEffect(() => {
+    dispatch({ type: 'select', selection: { kind: 'none' } });
+  }, [readOnly, viewingRevisionNumber]);
   const historicalDraft: SceneDraft | null = useMemo(
     () => (historicalRevision.data ? draftFromRevision(historicalRevision.data) : null),
     [historicalRevision.data],
@@ -203,7 +215,10 @@ export default function SceneEditorPage() {
         dispatch({ type: 'closeZone' });
         return;
       }
-      if (event.key === 'Delete' || event.key === 'Backspace') {
+      // Delete only. Backspace is a navigation gesture in some configurations
+      // and reaches here from any control that is not a text field, which is
+      // far too wide a blast radius for destroying an object.
+      if (event.key === 'Delete') {
         if (state.selection.kind === 'none') return;
         event.preventDefault();
         dispatch({ type: 'deleteSelected' });
@@ -223,28 +238,35 @@ export default function SceneEditorPage() {
 
   const analyticsEnabled = draftAnalyticsEnabled(state.draft);
   const cameraActive = camera.data?.isActive ?? false;
-  const blockedReason = !cameraActive
-    ? 'This camera is inactive, so its scene cannot be changed.'
-    : issues.length > 0
-      ? 'Fix the highlighted problems before saving.'
-      : !state.dirty
-        ? 'There are no changes to save.'
-        : null;
-  const canSave = !readOnly && !saveMutation.isPending && blockedReason === null;
+  // Stated beside Save only when Save is the place to say it: an inactive
+  // camera already has its own notice above, and "nothing has changed" is what
+  // a disabled Save says by itself.
+  const blockedReason = cameraActive && issues.length > 0
+    ? 'Fix the highlighted problems before saving.'
+    : null;
+  const canSave = !readOnly && !saveMutation.isPending && cameraActive
+    && issues.length === 0 && state.dirty;
+
+  // Saving a revision with nothing enabled turns this camera's analytics off.
+  // That is a deliberate operation, not an accident, so it is confirmed in the
+  // page rather than in an OS dialog: browser confirms cannot say what is at
+  // stake in the product's own language, and a browser that offers to suppress
+  // further dialogs would quietly remove the safeguard for the session.
+  const [confirmingDisable, setConfirmingDisable] = useState(false);
+
+  useEffect(() => {
+    if (analyticsEnabled || !canSave) setConfirmingDisable(false);
+  }, [analyticsEnabled, canSave]);
 
   const submit = useCallback(() => {
     if (!canSave) return;
-    if (!analyticsEnabled) {
-      const confirmed = window.confirm(
-        'Disable scene analytics?\n\n'
-          + 'Disable analytics for this camera: this saves a new active revision in which no geometry is enabled, so '
-          + 'no future run of this camera will be analysed.\n\n'
-          + 'Earlier revisions are unchanged and nothing already derived from them is deleted.',
-      );
-      if (!confirmed) return;
+    if (!analyticsEnabled && !confirmingDisable) {
+      setConfirmingDisable(true);
+      return;
     }
+    setConfirmingDisable(false);
     saveMutation.mutate(state.draft);
-  }, [canSave, analyticsEnabled, saveMutation, state.draft]);
+  }, [canSave, analyticsEnabled, confirmingDisable, saveMutation, state.draft]);
 
   const reset = useCallback(() => {
     if (state.dirty && !window.confirm('Discard unsaved scene changes and return to the active revision?')) return;
@@ -259,12 +281,19 @@ export default function SceneEditorPage() {
       && !window.confirm('Discard your unsaved scene changes and load the revision that is now saved?')) {
       return;
     }
-    loadedRevisionRef.current = null;
-    setSupersededRevision(null);
-    setConflict(false);
-    dirtyRef.current = false;
-    await queryClient.invalidateQueries({ queryKey: sceneQueryKeys.scene(cameraId) });
-  }, [queryClient, cameraId, state.dirty]);
+    // Adopt what the refetch returns rather than waiting for the query's own
+    // value to change identity. React Query shares structure between fetches,
+    // so a refetch that returns an unchanged scene hands back the same object,
+    // the load effect never re-runs, and the draft would be left dirty against
+    // a revision it can no longer save on to — with the operator having been
+    // told their work was discarded.
+    const refreshed = await queryClient.fetchQuery({
+      queryKey: sceneQueryKeys.scene(cameraId),
+      queryFn: ({ signal }) => getCameraScene(cameraId, signal),
+      staleTime: 0,
+    });
+    adopt(refreshed.activeRevision ?? null);
+  }, [queryClient, cameraId, state.dirty, adopt]);
 
   if (!cameraId) return <NotFound />;
 
@@ -349,7 +378,6 @@ export default function SceneEditorPage() {
       {sceneIssues.length > 0 ? (
         <Alert tone="warning">{sceneIssues.map((issue) => issue.message).join(' ')}</Alert>
       ) : null}
-      {state.drawingError ? <Alert tone="warning">{state.drawingError}</Alert> : null}
     </>
   );
 
@@ -364,9 +392,11 @@ export default function SceneEditorPage() {
         note={state.draft.note}
         canSave={canSave}
         blockedReason={blockedReason}
+        confirmingDisable={confirmingDisable}
         onNoteChange={(note) => dispatch({ type: 'setNote', note })}
         onReset={reset}
         onSave={submit}
+        onCancelDisable={() => setConfirmingDisable(false)}
         onReturnToActive={() => setViewingRevisionNumber(null)}
       />
 
@@ -377,6 +407,7 @@ export default function SceneEditorPage() {
         drawing={state.drawing}
         readOnly={readOnly}
         historyOpen={historyExpanded}
+        drawingError={state.drawingError}
         onToolChange={(tool) => dispatch({ type: 'setTool', tool })}
         onCloseZone={() => dispatch({ type: 'closeZone' })}
         onCancelDrawing={() => dispatch({ type: 'cancelDrawing' })}
@@ -399,17 +430,19 @@ export default function SceneEditorPage() {
             invalidKeys={invalidKeys}
             overlay={
               <>
-                {readOnly ? (
-                  <div className="scene-stage__banner" role="status">
-                    Viewing revision {viewingRevisionNumber} — read only
-                  </div>
-                ) : null}
+                {/* The live region stays mounted and is written into, because
+                    one that appears already populated is routinely not
+                    announced — and entering read-only is exactly the mode
+                    change a screen-reader user must not miss. */}
+                <div className={`scene-stage__banner${readOnly ? '' : ' is-idle'}`} role="status">
+                  {readOnly ? `Viewing revision ${viewingRevisionNumber} — read only` : ''}
+                </div>
                 {/* The empty state invites the first object; once a tool is armed the
                     operator has accepted the invitation, so it gets out of the way of
                     the surface they are drawing on. */}
                 {!readOnly && !configured && state.tool === 'select'
                   && shownDraft.zones.length === 0 && shownDraft.tripLines.length === 0 ? (
-                  <div className="scene-stage__intro">
+                  <div className={`scene-stage__intro${canvasVideoId ? '' : ' is-empty'}`}>
                     <strong>No scene configured</strong>
                     <span>
                       {cameraVideos.length > 0

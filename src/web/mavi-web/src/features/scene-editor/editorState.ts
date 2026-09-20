@@ -112,9 +112,6 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       // Changing tool abandons anything half-drawn but never touches the draft.
       return { ...state, tool: action.tool, drawing: { kind: 'none' }, drawingError: null };
 
-    case 'clearDrawingError':
-      return state.drawingError === null ? state : { ...state, drawingError: null };
-
     case 'select':
       return { ...state, selection: action.selection };
 

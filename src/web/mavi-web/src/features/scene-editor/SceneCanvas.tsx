@@ -153,7 +153,14 @@ export default function SceneCanvas({
     const surface = surfaceRef.current;
     if (!surface) return null;
     const rect = surface.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    // The rectangle is the border box; the overlay and the video are laid out
+    // in the content box, which the surface's border insets by clientLeft and
+    // clientTop. Measuring in one space and drawing in the other would place
+    // every vertex a border-width away from the pixel that was clicked.
+    return {
+      x: event.clientX - rect.left - surface.clientLeft,
+      y: event.clientY - rect.top - surface.clientTop,
+    };
   }, []);
 
   const firstVertexPixel = useCallback(() => {
@@ -212,7 +219,7 @@ export default function SceneCanvas({
   }, []);
 
   const startDrag = useCallback((event: ReactPointerEvent<SVGElement>, drag: Drag) => {
-    if (readOnly) return;
+    if (readOnly || tool !== 'select') return;
     event.stopPropagation();
     event.preventDefault();
     dragRef.current = drag;
@@ -222,7 +229,7 @@ export default function SceneCanvas({
     surfaceRef.current?.setPointerCapture?.(event.pointerId);
     if (drag.kind === 'vertex') onSelect?.({ kind: 'zone', key: drag.key, vertexIndex: drag.vertexIndex });
     else onSelect?.({ kind: 'line', key: drag.key, endpoint: drag.endpoint });
-  }, [readOnly, onSelect]);
+  }, [readOnly, tool, onSelect]);
 
   const project = useCallback((point: ScenePoint) => projectPoint(point.x, point.y, frame), [frame]);
   const hasSurface = box.width > 0 && box.height > 0;
@@ -278,6 +285,7 @@ export default function SceneCanvas({
               selectedVertex={selection.kind === 'zone' && selection.key === zone.key ? selection.vertexIndex : null}
               invalid={invalidKeys.has(zone.key)}
               readOnly={readOnly}
+              tool={tool}
               onSelect={() => onSelect?.({ kind: 'zone', key: zone.key, vertexIndex: null })}
               onVertexPointerDown={(event, vertexIndex) => startDrag(event, { kind: 'vertex', key: zone.key, vertexIndex })}
             />
@@ -292,6 +300,7 @@ export default function SceneCanvas({
               selectedEndpoint={selection.kind === 'line' && selection.key === line.key ? selection.endpoint : null}
               invalid={invalidKeys.has(line.key)}
               readOnly={readOnly}
+              tool={tool}
               onSelect={() => onSelect?.({ kind: 'line', key: line.key, endpoint: null })}
               onEndpointPointerDown={(event, endpoint) => startDrag(event, { kind: 'endpoint', key: line.key, endpoint })}
             />
@@ -324,6 +333,7 @@ function ZoneShape({
   selectedVertex,
   invalid,
   readOnly,
+  tool,
   onSelect,
   onVertexPointerDown,
 }: {
@@ -333,6 +343,7 @@ function ZoneShape({
   selectedVertex: number | null;
   invalid: boolean;
   readOnly: boolean;
+  tool: EditorTool;
   onSelect: () => void;
   onVertexPointerDown: (event: ReactPointerEvent<SVGElement>, vertexIndex: number) => void;
 }) {
@@ -349,7 +360,9 @@ function ZoneShape({
       <polygon
         points={points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')}
         onPointerDown={(event) => {
-          if (readOnly) return;
+          // With a drawing tool armed the click belongs to the surface: a zone
+          // drawn over or inside an existing one must still be drawable.
+          if (readOnly || tool !== 'select') return;
           event.stopPropagation();
           onSelect();
         }}
@@ -379,6 +392,7 @@ function LineShape({
   selectedEndpoint,
   invalid,
   readOnly,
+  tool,
   onSelect,
   onEndpointPointerDown,
 }: {
@@ -388,6 +402,7 @@ function LineShape({
   selectedEndpoint: 'a' | 'b' | null;
   invalid: boolean;
   readOnly: boolean;
+  tool: EditorTool;
   onSelect: () => void;
   onEndpointPointerDown: (event: ReactPointerEvent<SVGElement>, endpoint: 'a' | 'b') => void;
 }) {
@@ -413,6 +428,10 @@ function LineShape({
   // Two different things, never conflated: the orientation A to B runs *along*
   // the segment, while a crossing direction runs *across* it.
   const arrow = 22;
+  // Crossing indicators assert that direction matters. On an undirected line it
+  // does not — both ways count the same — so drawing them there would state
+  // something false about the line.
+  const showCrossings = line.directed;
 
   return (
     <g className={classes} data-testid={`scene-line-${line.key}`}>
@@ -423,20 +442,20 @@ function LineShape({
         x2={b.x}
         y2={b.y}
         onPointerDown={(event) => {
-          if (readOnly) return;
+          if (readOnly || tool !== 'select') return;
           event.stopPropagation();
           onSelect();
         }}
       />
 
-      {selected && along ? (
+      {along ? (
         <>
           <text className="scene-line__endpoint" x={a.x - along.x * 12} y={a.y - along.y * 12}>A</text>
           <text className="scene-line__endpoint" x={b.x + along.x * 12} y={b.y + along.y * 12}>B</text>
         </>
       ) : null}
 
-      {toB ? (
+      {showCrossings && toB ? (
         <g className="scene-line__crossing scene-line__crossing--atob" data-testid={`scene-line-atob-${line.key}`}>
           <line x1={centre.x} y1={centre.y} x2={centre.x + toB.x * arrow} y2={centre.y + toB.y * arrow} />
           <polygon
@@ -447,7 +466,7 @@ function LineShape({
           ) : null}
         </g>
       ) : null}
-      {toA ? (
+      {showCrossings && toA ? (
         <g className="scene-line__crossing scene-line__crossing--btoa" data-testid={`scene-line-btoa-${line.key}`}>
           <line x1={centre.x} y1={centre.y} x2={centre.x + toA.x * arrow} y2={centre.y + toA.y * arrow} />
           <polygon

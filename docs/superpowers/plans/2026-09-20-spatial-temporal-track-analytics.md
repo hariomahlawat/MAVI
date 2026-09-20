@@ -380,6 +380,17 @@ written; these are the points where reality differed or needed spelling out.
   only way to reach a vertex without a pointer.
 - **Overlay geometry is drawn with a dark halo.** Footage is arbitrary; a pale stroke over a bright frame is not
   visible, and the operator is being asked to place geometry against exactly that frame.
+- **Crossing indicators are drawn only for a directed line.** Drawing them on an undirected one would assert that
+  direction matters where the engine does not distinguish the two ways across.
+
+Three things §V describes that this slice does not do, recorded so the next one does not rediscover them as bugs:
+
+- **Tab does not cycle objects.** It walks the navigator's buttons in DOM order, which reaches every object but is
+  ordinary focus order rather than the cycle §V's wording suggests.
+- **A single vertex cannot be deleted.** Delete removes the selected object. Adding and removing individual vertices
+  of an existing polygon is not in this slice.
+- **A server failure that names one object is not attached to that object.** Codes such as `scene_zone_name_duplicate`
+  are reported as a page-level message; the offending zone or line is not highlighted.
 
 ---
 
