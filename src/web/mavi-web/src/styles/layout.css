@@ -9,39 +9,39 @@
 
 .sidebar {
   display: flex; flex-direction: column;
-  border-right: 1px solid var(--border);
-  background: var(--surface);
+  border-right: var(--stroke-hair) solid var(--border-subtle);
+  background: var(--surface-base);
   min-height: 0;
 }
 .sidebar__brand {
   display: flex; align-items: center; gap: var(--s-3);
   height: var(--topbar-h); padding: 0 var(--s-3);
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--stroke-hair) solid var(--border-subtle);
 }
 .brand-mark {
-  width: 26px; height: 26px; flex: 0 0 auto; display: grid; place-items: center;
-  border-radius: var(--r-2); background: var(--accent); color: var(--text-on-accent);
+  width: var(--control-h-sm); height: var(--control-h-sm); flex: 0 0 auto; display: grid; place-items: center;
+  border-radius: var(--r-2); background: var(--accent-strong); color: var(--text-on-accent);
   font-weight: 700; font-size: var(--fs-2); letter-spacing: -0.02em;
 }
-.sidebar__brand strong { font-size: var(--fs-2); letter-spacing: 0.08em; }
-.sidebar__brand span { display: block; color: var(--text-3); font-size: var(--fs-0); line-height: 1.2; }
+.sidebar__brand strong { font-size: var(--fs-2); letter-spacing: var(--label-tracking); }
+.sidebar__brand span { display: block; color: var(--text-muted); font-size: var(--fs-0); line-height: var(--lh-tight); }
 
-.sidebar__nav { display: grid; gap: 2px; padding: var(--s-2); }
+.sidebar__nav { display: grid; gap: var(--s-px); padding: var(--s-2); }
 .sidebar__nav a {
   display: flex; align-items: center; gap: var(--s-3);
-  height: 34px; padding: 0 var(--s-3);
-  border-radius: var(--r-2); color: var(--text-2); font-size: var(--fs-2); font-weight: 500;
+  height: var(--control-h); padding: 0 var(--s-3);
+  border-radius: var(--r-2); color: var(--text-secondary); font-size: var(--fs-2); font-weight: 500;
   text-decoration: none;
 }
-.sidebar__nav a:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
-.sidebar__nav a.active { background: var(--accent-soft); color: var(--text); }
+.sidebar__nav a:hover { background: var(--surface-raised); color: var(--text-primary); text-decoration: none; }
+.sidebar__nav a.active { background: var(--accent-soft); color: var(--text-primary); }
 .sidebar__nav a.active .icon { color: var(--accent-text); }
-.sidebar__nav .icon { color: var(--text-3); flex: 0 0 auto; }
+.sidebar__nav .icon { color: var(--text-muted); flex: 0 0 auto; }
 .sidebar__section {
-  padding: var(--s-3) var(--s-3) var(--s-1); color: var(--text-3);
-  font-size: var(--fs-0); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: var(--s-3) var(--s-3) var(--s-1); color: var(--text-muted);
+  font-size: var(--fs-0); font-weight: 600; letter-spacing: var(--label-tracking); text-transform: uppercase;
 }
-.sidebar__footer { margin-top: auto; padding: var(--s-2); border-top: 1px solid var(--border); display: grid; gap: var(--s-2); }
+.sidebar__footer { margin-top: auto; padding: var(--s-2); border-top: var(--stroke-hair) solid var(--border-subtle); display: grid; gap: var(--s-2); }
 .sidebar__toggle { justify-content: center; }
 
 .shell--collapsed .sidebar__brand div,
@@ -51,35 +51,44 @@
 .shell--collapsed .sidebar__nav a { justify-content: center; padding: 0; }
 
 .api-health {
-  display: flex; align-items: center; gap: var(--s-2); min-height: 26px; padding: 0 var(--s-2);
-  color: var(--text-3); font-size: var(--fs-0); font-variant-numeric: tabular-nums;
+  display: flex; align-items: center; gap: var(--s-2); min-height: var(--control-h-sm); padding: 0 var(--s-2);
+  color: var(--text-muted); font-size: var(--fs-0); font-variant-numeric: tabular-nums;
 }
 .api-health__text { display: grid; min-width: 0; }
-.api-health__text strong { color: var(--text-2); font-weight: 500; }
-.status-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 999px; background: var(--neutral); }
-.status-dot--ok { background: var(--ok); }
-.status-dot--error { background: var(--err); }
-.status-dot--pending { background: var(--warn); }
+.api-health__text strong { color: var(--text-secondary); font-weight: 500; }
+.status-dot { width: var(--s-2); height: var(--s-2); flex: 0 0 auto; border-radius: var(--r-pill); background: var(--status-neutral); }
+.status-dot--ok { background: var(--status-ok); }
+.status-dot--error { background: var(--status-err); }
+.status-dot--pending { background: var(--status-warn); }
 
 .content { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
 .topbar {
   display: flex; align-items: center; gap: var(--s-3);
   height: var(--topbar-h); padding: 0 var(--s-5);
-  border-bottom: 1px solid var(--border); background: var(--surface);
+  border-bottom: var(--stroke-hair) solid var(--border-subtle); background: var(--surface-base);
 }
-.topbar__crumbs { display: flex; align-items: center; gap: var(--s-2); min-width: 0; color: var(--text-2); font-size: var(--fs-2); }
-.topbar__crumbs a { color: var(--text-2); }
-.topbar__crumbs strong { color: var(--text); font-weight: 600; }
+.topbar__crumbs { display: flex; align-items: center; gap: var(--s-2); min-width: 0; color: var(--text-secondary); font-size: var(--fs-2); }
+.topbar__crumbs a { color: var(--text-secondary); }
+.topbar__crumbs strong { color: var(--text-primary); font-weight: 600; }
 .topbar__spacer { flex: 1; }
 
 .main { overflow: auto; min-height: 0; }
-.page { width: min(var(--content-max), 100%); margin: 0 auto; padding: var(--s-5) var(--s-5) var(--s-8); display: grid; gap: var(--s-4); align-content: start; }
+/* --content-max applies to Record and the Overview Ledger-summary variant
+   (section 7). A surface that declares --page-full uses the width it is given.
+   The baseline set `width: min(--content-max, 100%)` here and `max-width: none`
+   on the modifier, which cannot override `width` — so every surface, including
+   the two that declare full width, rendered capped (section 25). */
+.page {
+  width: 100%; max-width: var(--content-max); margin: 0 auto;
+  padding: var(--s-5) var(--s-5) var(--s-8);
+  display: grid; gap: var(--s-4); align-content: start;
+}
 .page--full { max-width: none; padding-bottom: var(--s-5); }
 .page--workspace { height: 100%; padding-bottom: var(--s-5); grid-template-rows: auto minmax(0, 1fr); }
 
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s-4); }
 .page-header h1 { font-size: var(--fs-5); }
-.page-header p { margin-top: 2px; color: var(--text-2); font-size: var(--fs-2); max-width: 72ch; }
+.page-header p { margin-top: var(--s-hair); color: var(--text-secondary); font-size: var(--fs-2); max-width: 72ch; }
 .page-header__actions { display: flex; gap: var(--s-2); flex: 0 0 auto; align-items: center; }
 
 /* Two- and three-region layouts used by list/inspector screens. */

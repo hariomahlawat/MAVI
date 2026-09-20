@@ -67,7 +67,7 @@ export default function SceneObjectList({
       ) : null}
 
       {draft.zones.length > 0 ? (
-        <section className="scene-navigator__group">
+        <section className="scene-navigator__group scene-navigator__group--zones">
           <h3>Zones<span>{draft.zones.length}</span></h3>
           <ul aria-label="Zones">
             {draft.zones.map((zone) => (
@@ -86,7 +86,7 @@ export default function SceneObjectList({
       ) : null}
 
       {draft.tripLines.length > 0 ? (
-        <section className="scene-navigator__group">
+        <section className="scene-navigator__group scene-navigator__group--lines">
           <h3>Trip lines<span>{draft.tripLines.length}</span></h3>
           <ul aria-label="Trip lines">
             {draft.tripLines.map((line) => (

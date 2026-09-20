@@ -1,64 +1,179 @@
-/* MAVI design tokens. Every colour, size and radius in the application resolves
-   to one of these. Screens never introduce literals of their own. */
+/* MAVI design tokens — UI-1 Design Foundation.
+ *
+ * Three layers, per section 7 of docs/architecture/ui-ux-design-specification.md:
+ *
+ *   1. PRIMITIVES (--p-*)  raw values, no meaning. Components MUST NOT use these.
+ *   2. SEMANTIC            the layer components consume. Named for what it means,
+ *                          never for what it looks like.
+ *   3. COMPONENT (--c-*)   the narrow exception, only where one component is
+ *                          legitimately dimensioned differently across archetypes.
+ *                          Each one carries a comment saying why.
+ *
+ * Three colour namespaces that never borrow from one another: UI semantics,
+ * operational status, and evidence/spatial. The single sanctioned crossover is
+ * selection — on canvas the UI accent still means "selected" (section 8.3).
+ */
+
+/* ------------------------------------------------------------------ *
+ * 1. PRIMITIVES — raw values. Never referenced outside this file.
+ * ------------------------------------------------------------------ */
+:root {
+  /* Steel: the application's neutral ramp, from the page up to a raised edge. */
+  --p-steel-950: #0a0e15;
+  --p-steel-900: #10161f;
+  --p-steel-850: #161d29;
+  --p-steel-800: #1c2533;
+  --p-steel-700: #232d3c;
+  --p-steel-500: #2b3646;
+  --p-steel-450: #647694;
+  --p-steel-350: #7385a6;
+  --p-steel-400: #8592a8;
+  --p-steel-300: #9aa7b8;
+  --p-steel-200: #a3adbd;
+  --p-steel-100: #e6ebf2;
+  --p-steel-050: #f4f8ff;
+
+  /* Blue: the accent ramp. */
+  --p-blue-600: #1d4ed8;
+  --p-blue-500: #2563eb;
+  --p-blue-400: #3b82f6;
+  --p-blue-300: #7fb0ff;
+  --p-blue-200: #9cc2ff;
+  --p-blue-100: #dbeafe;
+  --p-blue-950: #1b2a45;
+
+  /* Status ramps. */
+  --p-green-400: #34d399;
+  --p-green-900: #0f2a21;
+  --p-green-700: #1f5a45;
+  --p-amber-400: #fbbf24;
+  --p-amber-900: #2d2107;
+  --p-amber-700: #6b4d0c;
+  --p-red-400: #f87171;
+  --p-red-900: #2f1414;
+  --p-red-700: #7a2626;
+  --p-sky-300: #7fb0ff;
+  --p-sky-900: #14233b;
+  --p-sky-700: #274a83;
+  --p-slate-400: #a3adbd;
+  --p-slate-900: #1a2230;
+  --p-slate-700: #2b3646;
+
+  /* Evidence and spatial ramp. Chosen in UI-1 by constrained optimisation for
+     mutual separation under normal vision and protan/deuteran/tritan
+     simulation, then validated over bright, dark, saturated, low-contrast and
+     letterboxed footage. See section 8.3 and the UI-1 PR. */
+  --p-orange-400: #fb923c;
+  --p-cyan-400: #22d3ee;
+  --p-fuchsia-300: #f0abfc;
+  --p-fuchsia-400: #e879f9;
+  --p-violet-400: #a78bfa;
+  --p-teal-400: #2dd4bf;
+  --p-black: #000;
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. SEMANTIC — what components consume.
+ * ------------------------------------------------------------------ */
 :root {
   color-scheme: dark;
 
-  /* Surfaces: the page, a panel on it, something raised above a panel. */
-  --bg: #0a0e15;
-  --surface: #10161f;
-  --surface-2: #161d29;
-  --surface-3: #1c2533;
-  --overlay: rgb(10 14 21 / 92%);
+  /* --- Surfaces. Four levels plus an inset surface for inputs. ---------- */
+  --surface-app: var(--p-steel-950);
+  --surface-base: var(--p-steel-900);
+  --surface-raised: var(--p-steel-850);
+  --surface-raised-2: var(--p-steel-800);
+  --surface-inset: var(--p-steel-950);
+  --surface-overlay: rgb(10 14 21 / 92%);
 
-  --border: #232d3c;
-  --border-strong: #33405280;
-  --border-focus: #7fb0ff;
+  /* --- Borders. Role decides the contrast obligation (section 8.1). ----- */
+  --border-subtle: var(--p-steel-700);   /* decorative dividers and grouping edges;
+                                            section 11 exempts these from 3:1 */
+  --border-panel: var(--p-steel-700);    /* scrollable / editable region edges */
+  --border-control: var(--p-steel-450);  /* interactive control boundary: reaches
+                                            3.35:1 or better on every surface,
+                                            as section 23 requires */
+  --border-strong: var(--p-steel-350);   /* hover and emphasis */
 
-  /* Text: primary, secondary, tertiary (labels), inverse on accent. */
-  --text: #e6ebf2;
-  --text-2: #9aa7b8;
-  --text-3: #8592a8;
-  --text-on-accent: #f4f8ff;
+  /* --- Text. Muted is the contrast floor; nothing lighter carries text. -- */
+  --text-primary: var(--p-steel-100);
+  --text-secondary: var(--p-steel-300);
+  --text-muted: var(--p-steel-400);
+  --text-on-accent: var(--p-steel-050);
 
-  /* Accent is used for exactly two things: the primary action and the
-     selected state. Status has its own semantic set below. */
-  --accent: #3b82f6;
-  --accent-strong: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-soft: #1b2a45;
-  --accent-text: #9cc2ff;
+  /* --- Accent. Exactly two uses: the primary action, and selection. ------
+     Text is painted only on --accent-strong: --accent itself reaches 3.45:1
+     against --text-on-accent and fails AA. */
+  --accent: var(--p-blue-400);
+  --accent-strong: var(--p-blue-500);
+  --accent-hover: var(--p-blue-600);
+  --accent-soft: var(--p-blue-950);
+  --accent-text: var(--p-blue-200);
 
-  /* Semantic status. Each has a text, a soft background and a border so a
-     badge, an alert and a dot all agree. */
-  --ok: #34d399;
-  --ok-soft: #0f2a21;
-  --ok-border: #1f5a45;
-  --warn: #fbbf24;
-  --warn-soft: #2d2107;
-  --warn-border: #6b4d0c;
-  --err: #f87171;
-  --err-soft: #2f1414;
-  --err-border: #7a2626;
-  --info: #7fb0ff;
-  --info-soft: #14233b;
-  --info-border: #274a83;
-  --neutral: #a3adbd;
-  --neutral-soft: #1a2230;
-  --neutral-border: #2b3646;
+  /* --- Focus. One ring, one meaning. The ring reaches at least 3:1 on every
+     surface in the product including --accent (3.01:1) and --accent-strong
+     (4.24:1); the dark inner offset separates it from whatever it sits on. -- */
+  --focus-ring: var(--p-blue-100);
+  --focus-ring-inner: var(--p-steel-950);
+  --focus-ring-w: 2px;
 
-  /* Evidence overlay colours, kept distinct from UI accent so a box on video
-     is never confused with a selected control. */
-  --evidence: #f0abfc;
-  --evidence-track: #38bdf8;
+  /* --- Operational status. Each a triad so badge, alert and dot agree. --- */
+  --status-ok: var(--p-green-400);
+  --status-ok-soft: var(--p-green-900);
+  --status-ok-border: var(--p-green-700);
+  --status-warn: var(--p-amber-400);
+  --status-warn-soft: var(--p-amber-900);
+  --status-warn-border: var(--p-amber-700);
+  --status-err: var(--p-red-400);
+  --status-err-soft: var(--p-red-900);
+  --status-err-border: var(--p-red-700);
+  --status-info: var(--p-sky-300);
+  --status-info-soft: var(--p-sky-900);
+  --status-info-border: var(--p-sky-700);
+  --status-neutral: var(--p-slate-400);
+  --status-neutral-soft: var(--p-slate-900);
+  --status-neutral-border: var(--p-slate-700);
 
-  /* The matte a frame is laid on, and the halo that keeps overlay geometry
-     readable over footage the product does not control. Both are absolute
-     rather than theme-relative: letterbox bars must not tint the image, and a
+  /* stale: the warning hue desaturated, always paired with a dashed border so
+     the state is never carried by colour alone (section 8.2). */
+  --status-stale: color-mix(in srgb, var(--p-amber-400) 72%, var(--p-slate-400));
+  --status-stale-soft: var(--p-amber-900);
+  --status-stale-border: var(--p-amber-700);
+
+  /* unavailable: neutral, always paired with the diagonal hatch below. */
+  --status-unavailable: var(--p-slate-400);
+  --status-unavailable-soft: var(--p-slate-900);
+  --status-unavailable-border: var(--p-slate-700);
+  --status-unavailable-hatch: repeating-linear-gradient(
+    45deg,
+    transparent 0 6px,
+    rgb(163 173 189 / 8%) 6px 12px
+  );
+
+  /* disabled is an opacity, never a hue (section 8.2). */
+  --disabled-opacity: 0.5;
+
+  /* --- Evidence and spatial. A separate namespace; never a status hue, and
+     never the UI accent for resting geometry (section 8.3). Every distinction
+     below also carries a non-colour cue: zones are filled areas, trip lines
+     carry A/B endpoint letters, directions carry arrowheads and labels,
+     bounding boxes are rectangles, trajectories are thin paths. ------------ */
+  --evidence-box: var(--p-violet-400);
+  --evidence-track: var(--p-teal-400);
+  --geo-zone: var(--p-orange-400);
+  --geo-line: var(--p-cyan-400);
+  --geo-dir-ab: var(--p-fuchsia-300);
+  --geo-dir-ba: var(--p-fuchsia-400);
+
+  /* The matte a frame is laid on, and the halo every overlay layer carries.
+     Both are theme-invariant: letterbox bars must not tint the image, and a
      halo that followed the surface colour would vanish on bright video. */
-  --canvas-matte: #000;
-  --canvas-halo: rgb(0 0 0 / 85%);
+  --evidence-matte: var(--p-black);
+  --evidence-halo: rgb(0 0 0 / 85%);
+  --evidence-halo-w: 3px;
+  --evidence-halo-blur: 1.5px;
 
-  /* Spacing scale (4px base). */
+  /* --- Spacing (4px base). ---------------------------------------------- */
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
@@ -67,20 +182,41 @@
   --s-6: 24px;
   --s-8: 32px;
   --s-10: 40px;
+  /* Sub-step, for optical alignment inside a control. Not a layout step. */
+  --s-px: 1px;
+  --s-hair: 2px;
 
-  /* Radii: controls, panels. Nothing rounder than this. */
+  /* --- Radius. Nothing rounder than --r-3 except a deliberate pill. ------ */
   --r-1: 4px;
   --r-2: 6px;
   --r-3: 8px;
+  --r-pill: 999px;
 
-  /* Control metrics. Every input, select and button is this tall. */
+  /* --- Control metrics. -------------------------------------------------- */
   --control-h: 32px;
   --control-h-sm: 26px;
   --control-px: 10px;
+  --control-min-target: 24px;
 
-  /* Type scale. */
-  --font-ui: Inter, "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "Cascadia Code", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  /* --- Stroke widths. ---------------------------------------------------- */
+  --stroke-hair: 1px;
+  --stroke-icon: 1.75px;
+  --stroke-1: 1.5px;
+  --stroke-2: 2px;
+  --stroke-3: 2.5px;
+
+  /* --- Typography. ------------------------------------------------------- *
+   * Open decision 1, closed in UI-1: a curated system stack, not a bundled
+   * font. The baseline named "Inter" and shipped no @font-face, so the product
+   * silently rendered Segoe UI on its Windows target. Bundling buys identical
+   * rendering in CI, but section 26 forbids committing screenshots, so there
+   * are no pixel baselines to keep stable — the determinism is worth nothing
+   * here, while the offline packaging, licence and catalogue cost is real.
+   * Every family below is genuinely present on its platform. */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+    "Noto Sans", "Liberation Sans", Arial, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, ui-monospace, "SFMono-Regular",
+    "Liberation Mono", "DejaVu Sans Mono", monospace;
   --fs-0: 11px;
   --fs-1: 12px;
   --fs-2: 13px;
@@ -88,15 +224,43 @@
   --fs-4: 16px;
   --fs-5: 20px;
   --lh: 1.45;
+  --lh-tight: 1.2;
+  --label-tracking: 0.06em;
 
-  /* Layout. */
+  /* --- Layout. ----------------------------------------------------------- */
   --sidebar-w: 216px;
   --sidebar-w-collapsed: 56px;
   --topbar-h: 44px;
   --content-max: 1600px;
 
-  --shadow-1: 0 1px 2px rgb(0 0 0 / 30%);
-  --shadow-2: 0 8px 24px rgb(0 0 0 / 35%);
+  /* --- Elevation. Reserved for floating layers (section 11). ------------- */
+  --elevation-raised: 0 1px 2px rgb(0 0 0 / 30%);
+  --elevation-floating: 0 8px 24px rgb(0 0 0 / 35%);
 
+  /* --- Motion. Two durations, no others (section 13). -------------------- */
   --dur: 120ms;
+  --dur-drawer: 180ms;
+  /* Looping activity, not state transition: section 13 permits the activity
+     pulse and a spinner needs a period. Both are disabled by reduced motion. */
+  --dur-pulse: 1.2s;
+  --dur-spin: 0.8s;
+
+  /* --- Stacking order. --------------------------------------------------- */
+  --z-sticky: 10;
+  --z-overlay: 20;
+  --z-drawer: 30;
+  --z-popover: 40;
+}
+
+/* ------------------------------------------------------------------ *
+ * 3. COMPONENT TOKENS — the narrow exception (section 7).
+ * ------------------------------------------------------------------ */
+:root {
+  /* Inspector and toolbar padding differ from form padding because they are
+     dense, repeatedly nested chrome rather than content: a semantic spacing
+     step cannot express "this surface is chrome" without overloading the
+     scale. Section 10 fixes all three values independently. */
+  --c-form-pad: var(--s-4);
+  --c-inspector-pad: var(--s-3);
+  --c-toolbar-pad: var(--s-2);
 }
