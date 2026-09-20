@@ -289,14 +289,19 @@ function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
 
-const isThisTest = (path: string) => path.endsWith('workspace.test.tsx');
+/**
+ * Tests are not implementations. A test that names an archetype class in a
+ * selector is asserting on the one implementation, not adding another, so the
+ * scans below look at what ships rather than at what checks it.
+ */
+const isTest = (path: string) => /\.test\.tsx?$/.test(path);
 
 describe('the archetype set is closed', () => {
   it('has exactly one implementation of each archetype', () => {
     const offenders: string[] = [];
     for (const klass of ARCHETYPE_CLASSES) {
       const implementers = Object.entries(SOURCES)
-        .filter(([path]) => !isThisTest(path))
+        .filter(([path]) => !isTest(path))
         .filter(([, source]) => withoutComments(source).includes(klass))
         .map(([path]) => path);
       // §4 freezes the set at five archetypes and a named Overview exception.
@@ -324,10 +329,24 @@ describe('the archetype set is closed', () => {
     // rather than a prop precisely so that using it means importing something
     // that says Overview on the tin — and so that this can be asserted.
     const importers = Object.entries(SOURCES)
-      .filter(([path]) => !isThisTest(path) && !path.includes('/shared/workspace/'))
+      .filter(([path]) => !isTest(path) && !path.includes('/shared/workspace/'))
       .filter(([, source]) => /\bLedgerSummaryLayout\b/.test(withoutComments(source)))
       .map(([path]) => path);
     expect(importers.filter((path) => !path.includes('/features/overview/'))).toEqual([]);
+  });
+
+  it('releases every contained archetype where the layout stacks', () => {
+    // §4's shared rule: below 1100 all archetypes stack to a single column and
+    // the page scrolls. The shell lifts its containment there, and each
+    // archetype has to let go of the height and internal overflow that held it
+    // — including the Overview summary variant, which is contained above that
+    // width like every other Ledger.
+    const css = SHEETS['/src/styles/workspace.css'];
+    const stacking = css.slice(css.indexOf('@media (max-width: 1100px)'));
+    for (const archetype of ['workspace--ledger', 'workspace--ledger-summary', 'workspace--workbench', 'workspace--investigation']) {
+      expect(stacking).toContain(archetype);
+    }
+    expect(stacking).toContain('.workspace--ledger-summary .workspace__body--scroll');
   });
 
   it('lets only the archetypes declare how a surface scrolls', () => {
@@ -335,7 +354,7 @@ describe('the archetype set is closed', () => {
     // states it. If a page could call this, a page could opt out of the rule —
     // which is the whole thing the declaration exists to prevent.
     const callers = Object.entries(SOURCES)
-      .filter(([path]) => !isThisTest(path) && path !== '/src/shared/workspace/surfaceSlot.tsx')
+      .filter(([path]) => !isTest(path) && path !== '/src/shared/workspace/surfaceSlot.tsx')
       .filter(([, source]) => /\buseScrollPolicy\s*\(/.test(withoutComments(source)))
       .map(([path]) => path);
     expect(callers).toEqual(['/src/shared/workspace/layouts.tsx']);
@@ -346,7 +365,7 @@ describe('the archetype set is closed', () => {
     // wrote its own `.context-bar` would produce the two-bar page §5 forbids,
     // and every other assertion here would still pass.
     const offenders = Object.entries(SOURCES)
-      .filter(([path]) => !isThisTest(path) && !path.includes('/shared/workspace/') && path !== '/src/app/AppShell.tsx')
+      .filter(([path]) => !isTest(path) && !path.includes('/shared/workspace/') && path !== '/src/app/AppShell.tsx')
       .filter(([, source]) => /className=["'`][^"'`]*\bcontext-bar\b/.test(withoutComments(source)))
       .map(([path]) => path);
     expect(offenders).toEqual([]);

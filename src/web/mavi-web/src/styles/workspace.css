@@ -122,8 +122,17 @@
 .workspace--ledger { height: 100%; min-height: 0; }
 .workspace--ledger .workspace__body--scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 
-/* --- Overview only: the section 4.1.1 exception. --------------------- */
-.workspace--ledger-summary { width: 100%; max-width: var(--content-max); margin: 0 auto; }
+/* --- Overview only: the section 4.1.1 exception. ----------------------
+ * The exception is a *width* one and nothing else. §4's scroll-ownership
+ * table is frozen and lists Overview under Ledger, so the summary variant
+ * keeps the Ledger's grammar: its own body owns vertical scroll and the page
+ * does not. What it does not share is the full width — it alone may stay
+ * centred at --content-max. */
+.workspace--ledger-summary {
+  width: 100%; max-width: var(--content-max); margin: 0 auto;
+  height: 100%; min-height: 0;
+}
+.workspace--ledger-summary .workspace__body--scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 
 /* --- Record: centred reading surface; the page scrolls. -------------- */
 .workspace--record { width: 100%; max-width: var(--content-max); margin: 0 auto; }
@@ -218,8 +227,10 @@
   .workspace--workbench:not(.has-open-drawer) .workspace__inspector { display: none; }
 }
 @media (max-width: 1100px) {
-  .workspace--ledger, .workspace--workbench, .workspace--investigation { height: auto; }
-  .workspace--ledger .workspace__body--scroll { overflow: visible; }
+  .workspace--ledger, .workspace--ledger-summary,
+  .workspace--workbench, .workspace--investigation { height: auto; }
+  .workspace--ledger .workspace__body--scroll,
+  .workspace--ledger-summary .workspace__body--scroll { overflow: visible; }
   .workspace__record-grid,
   .workspace__review-grid,
   .workspace__investigation-grid,

@@ -67,17 +67,17 @@ export function LedgerSummaryLayout({
   notices?: ReactNode;
   children: ReactNode;
 }) {
-  // Deliberately `page`, not the Ledger's `contain`. §4.1.1 freezes a *width*
-  // exception for Overview and says nothing about its scroll owner, and this
-  // variant has no internal scrolling region to be one — so containing it would
-  // clip a summary with no way to reach the rest. UI-3 migrates Overview and
-  // settles its scroll grammar against §4.1.1; until then the honest policy is
-  // the one that cannot hide content.
-  useScrollPolicy('page');
+  // §4's scroll-ownership table is frozen and lists Overview under Ledger, and
+  // §4.1.1 grants this variant a *width* exception and nothing else — so the
+  // Ledger's grammar holds here: this body owns vertical scroll and the page
+  // does not. An earlier version declared `page` because this layout had no
+  // scrolling region to be the owner, which was a gap in the layout rather
+  // than an allowance in the specification; the region is the fix.
+  useScrollPolicy('contain');
   return (
     <section className="workspace workspace--ledger-summary">
       {notices ? <div className="workspace__notices">{notices}</div> : null}
-      <div className="workspace__body">{children}</div>
+      <div className="workspace__body workspace__body--scroll">{children}</div>
     </section>
   );
 }

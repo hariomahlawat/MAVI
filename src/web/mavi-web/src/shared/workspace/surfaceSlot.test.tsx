@@ -260,12 +260,17 @@ describe('shell scroll policy', () => {
     expect(screen.getAllByTestId('main').at(-1)).toHaveAttribute('data-scroll', 'contain');
   });
 
-  it('leaves the Overview summary variant scrolling until UI-3 settles it', () => {
-    // §4.1.1 freezes a width exception for Overview and says nothing about its
-    // scroll owner; this variant has no internal scrolling region to be one, so
-    // containing it would clip a summary with no way to reach the rest.
-    renderShell(<LedgerSummaryLayout><p>summary</p></LedgerSummaryLayout>);
-    expect(policy()).toBe('page');
+  it('holds the Overview summary variant to the Ledger scroll grammar', () => {
+    // §4's scroll-ownership table is frozen and lists Overview under Ledger;
+    // §4.1.1 grants this variant a *width* exception and nothing else. So the
+    // page must not scroll, and the variant's own body is what does — the
+    // centred width is the exception, not the scrolling.
+    const { container } = render(<Shell><LedgerSummaryLayout><p>summary</p></LedgerSummaryLayout></Shell>);
+    expect(policy()).toBe('contain');
+    const summary = container.querySelector('.workspace--ledger-summary');
+    expect(summary?.querySelector('.workspace__body--scroll')).toBeInTheDocument();
+    // The width exception survives the correction.
+    expect(summary).toHaveClass('workspace--ledger-summary');
   });
 
   it('applies and withdraws the policy in the commit that changes the surface', () => {
