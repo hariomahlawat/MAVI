@@ -130,10 +130,16 @@ export default function VideosPage() {
     </Toolbar>
   );
 
+  // `processing_already_active` is reconciled rather than reported: the video
+  // is already doing what the operator asked for. It must not open an empty
+  // notices region either, which is why the condition is computed once.
+  const queueFailed = queue.isError
+    && !(queue.error instanceof ApiError && queue.error.code === 'processing_already_active');
+  const hasNotices = cameras.isError || queueFailed;
   const notices = (
     <>
       {cameras.isError ? <Alert tone="warning">Camera metadata is unavailable; videos are listed by camera identifier.</Alert> : null}
-      {queue.isError && !(queue.error instanceof ApiError && queue.error.code === 'processing_already_active') ? (
+      {queueFailed ? (
         <Alert tone="error">
           {queue.error instanceof ApiError ? `${queue.error.detail} (${queue.error.code})` : 'Processing could not be queued.'}
         </Alert>
@@ -149,7 +155,7 @@ export default function VideosPage() {
         actions={<ButtonLink to="/import" variant="primary" icon="upload">Import video</ButtonLink>}
       />
 
-      <LedgerLayout toolbar={toolbar} notices={cameras.isError || queue.isError ? notices : null}>
+      <LedgerLayout toolbar={toolbar} notices={hasNotices ? notices : null}>
         <AsyncBoundary
           state={fromQuery(videos)}
           loading={<LoadingState label="Loading videos…" rows={4} />}

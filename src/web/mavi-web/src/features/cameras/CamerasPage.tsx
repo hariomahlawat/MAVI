@@ -243,14 +243,14 @@ export default function CamerasPage() {
       />
 
       <LedgerLayout
-        toolbar={(
+        // No filters here, so the band exists only while it has something to
+        // say; an empty 32px strip is chrome, not a toolbar.
+        toolbar={cameras.data ? (
           <Toolbar
             label="Camera inventory"
-            hint={cameras.data
-              ? `${formatCount(cameras.data.length)} camera${cameras.data.length === 1 ? '' : 's'} registered`
-              : undefined}
+            hint={`${formatCount(cameras.data.length)} camera${cameras.data.length === 1 ? '' : 's'} registered`}
           />
-        )}
+        ) : undefined}
         editor={creating ? createRegion : null}
       >
         <AsyncBoundary
