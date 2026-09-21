@@ -128,6 +128,9 @@ function SearchHistoryHarness() {
 describe('VisualSearchPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // List/Grid is a stored preference, so a test that switches views would
+    // otherwise decide the view of every test that runs after it.
+    window.localStorage.clear();
     vi.mocked(listCameras).mockResolvedValue([camera]);
     vi.mocked(listVideos).mockResolvedValue([]);
     vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
@@ -673,6 +676,80 @@ describe('VisualSearchPage', () => {
     beforeEach(() => {
       vi.mocked(searchTracks).mockResolvedValue({ items: [first, second], nextCursor: null });
       vi.mocked(getTrack).mockImplementation(async (id) => detail(id === first.id ? first : second, id === first.id ? 7 : 8));
+    });
+
+    it('returns focus to the result it was opened from when it closes', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      const rows = within(await screen.findByRole('list', { name: 'Track results' })).getAllByRole('listitem');
+      const control = within(rows[0]).getByRole('button', { name: /^Select / });
+
+      await user.click(control);
+      await screen.findByRole('heading', { name: 'Person · Track 7' });
+      await user.click(screen.getByRole('button', { name: 'Close inspector' }));
+
+      // Closing removes the subtree focus was in; without this, focus falls to
+      // the document and the next Tab restarts at the top of the page.
+      await waitFor(() => expect(control).toHaveFocus());
+    });
+
+    it('falls back to the results region when the result it was opened from is gone', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await screen.findByRole('list', { name: 'Track results' });
+
+      // A deep-linked Track that is not in this snapshot has no control to
+      // return to; focus must still land somewhere the operator can work from.
+      await user.click(within(within(screen.getByRole('list', { name: 'Track results' }))
+        .getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / }));
+      await screen.findByRole('heading', { name: 'Person · Track 7' });
+      vi.mocked(searchTracks).mockResolvedValue({ items: [], nextCursor: null });
+      await user.click(screen.getByRole('button', { name: 'Close inspector' }));
+
+      await waitFor(() => expect(screen.queryByRole('heading', { name: 'Person · Track 7' })).not.toBeInTheDocument());
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it('drives the Grid from the keyboard exactly as it drives the List', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+      await screen.findByRole('list', { name: 'Track results' });
+      await user.click(screen.getByRole('button', { name: 'Grid view' }));
+
+      // No list any more — and the same shortcuts still work.
+      expect(screen.queryByRole('list', { name: 'Track results' })).not.toBeInTheDocument();
+      const control = screen.getByRole('button', { name: `Select Person · ${camera.code} · ${camera.name}` });
+      await user.click(control);
+      expect(await screen.findByRole('heading', { name: 'Person · Track 7' })).toBeInTheDocument();
+
+      await user.keyboard('{j}');
+      expect(await screen.findByRole('heading', { name: 'Vehicle · Track 8' })).toBeInTheDocument();
+      await user.keyboard('{k}');
+      expect(await screen.findByRole('heading', { name: 'Person · Track 7' })).toBeInTheDocument();
+
+      // Enter on the selected result's own control opens the full review —
+      // the same rule as the List, decided by the shared contract rather than
+      // by a class name belonging to one of the two views.
+      control.focus();
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(screen.getByLabelText('Current search location'))
+        .toHaveTextContent('/review/video/'));
+    });
+
+    it('leaves the shortcuts alone while the operator is typing a filter', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await screen.findByRole('list', { name: 'Track results' });
+      await user.click(within(within(screen.getByRole('list', { name: 'Track results' }))
+        .getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / }));
+      await screen.findByRole('heading', { name: 'Person · Track 7' });
+
+      await user.click(screen.getByLabelText('Minimum confidence (%)'));
+      await user.keyboard('jk');
+
+      // The letters went into the field; they did not step the selection.
+      expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('jk');
+      expect(screen.getByRole('heading', { name: 'Person · Track 7' })).toBeInTheDocument();
     });
 
     it('selects a result into the URL, shows its evidence in place and closes on Escape', async () => {

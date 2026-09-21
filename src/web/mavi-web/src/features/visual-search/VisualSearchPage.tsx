@@ -18,6 +18,7 @@ import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import { configuredUtcToWallTime } from '../../shared/time/wallTime';
 import { ContextBar, InvestigationLayout, Segmented } from '../../shared/workspace';
 import { isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
+import { findSelectControl, isSelectedResultControl } from './resultSelection';
 import CommittedFilterChips from './CommittedFilterChips';
 import SearchFilterRail, { emptyDraft, type SearchDraft } from './SearchFilterRail';
 import TrackInspector from './TrackInspector';
@@ -222,6 +223,9 @@ export default function VisualSearchPage() {
 
   // A next-page advance the operator asked for; see the effect below.
   const pendingAdvance = useRef<{ fingerprint: string; fromId: string } | null>(null);
+  // Where focus goes when the inspector closes on a result that is no longer
+  // in the list — the region it belonged to, rather than the document.
+  const resultsRef = useRef<HTMLElement | null>(null);
 
   const selectTrack = useCallback((id: string | null) => {
     if (id === null) pendingAdvance.current = null;
@@ -232,6 +236,28 @@ export default function VisualSearchPage() {
       return next;
     }, { replace: true });
   }, [setSearchParams]);
+
+  /**
+   * Close the inspector and put focus back where the operator left it.
+   *
+   * Closing removes the subtree that held focus, and focus then falls to the
+   * document — from where the next Tab starts at the top of the page and the
+   * shortcuts, which ignore text-entry contexts but not a lost focus, have
+   * nothing to act on. It returns to the selection control of the result that
+   * was open, or, when that result is no longer rendered, to the results region
+   * itself rather than to nothing.
+   */
+  const closeInspector = useCallback(() => {
+    const control = findSelectControl(selectedId);
+    selectTrack(null);
+    const fallback = resultsRef.current;
+    const target = control ?? fallback;
+    if (target) {
+      // After the commit that removes the inspector, so the browser does not
+      // move focus back out when the element it was in disappears.
+      queueMicrotask(() => target.focus());
+    }
+  }, [selectedId, selectTrack]);
 
   const { fetchNextPage, isFetchingNextPage, isFetchNextPageError } = tracks;
   // Continuation is automatic only while it succeeds. After a failure the
@@ -308,23 +334,20 @@ export default function VisualSearchPage() {
         case 'Enter': {
           // Enter opens the full review of the selected Track. It must not
           // steal Enter from other controls (links, filter buttons), but the
-          // focused select button of the already-selected row is exactly the
-          // place an operator presses Enter after clicking a result.
+          // focused selection control of the already-selected result is exactly
+          // the place an operator presses Enter after choosing one — in either
+          // view, which is what `isSelectedResultControl` now decides in place
+          // of a class name belonging to the List.
           if (!selectedId) break;
           const target = event.target instanceof HTMLElement ? event.target : null;
           const control = target?.closest('a, button');
-          if (control) {
-            const row = control.closest('[data-track-id]');
-            const isSelectedRowButton = control.classList.contains('result-row__select')
-              && row?.getAttribute('data-track-id') === selectedId;
-            if (!isSelectedRowButton) break;
-          }
+          if (control && !isSelectedResultControl(control, selectedId)) break;
           event.preventDefault();
           openSelected();
           break;
         }
         case 'Escape':
-          if (selectedId) selectTrack(null);
+          if (selectedId) closeInspector();
           break;
         default:
       }
@@ -470,11 +493,11 @@ export default function VisualSearchPage() {
             summary={position >= 0 ? items[position] : undefined}
             onPrevious={goPrevious}
             onNext={goNext}
-            onClose={() => selectTrack(null)}
+            onClose={closeInspector}
           />
         ) : undefined}
       >
-        <section className="results" aria-label="Search results">
+        <section className="results" aria-label="Search results" tabIndex={-1} ref={resultsRef}>
           {committed.isValid ? (
             <CommittedFilterChips
               filters={committed.filters}
