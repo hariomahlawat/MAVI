@@ -4,7 +4,21 @@ import type { TrackObjectClass } from '../../api/tracks';
 import type { VideoAsset } from '../../api/videos';
 import Button from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
+import { WALL_TIME_FORMAT } from '../../shared/time/wallTime';
 import type { SearchFieldErrors } from './searchValidation';
+
+/**
+ * What the surface knows about the configured display timezone.
+ *
+ * Three states, not two. `undefined` used to mean both "still loading" and
+ * "the request failed", so the rail told the operator the timezone was
+ * unavailable while it was merely on its way — and §14 separates a pending
+ * request from a failed one precisely because the operator's next move differs.
+ */
+export type DisplayZoneState =
+  | { status: 'loading' }
+  | { status: 'unavailable' }
+  | { status: 'ready'; timeZoneId: string };
 
 export type SearchDraft = {
   cameraId: string;
@@ -29,13 +43,13 @@ export const emptyDraft: SearchDraft = {
 type Props = {
   draft: SearchDraft;
   errors: SearchFieldErrors;
-  onDraftChange: (patch: Partial<SearchDraft>, touched?: { time?: 'from' | 'to'; numeric?: 'duration' | 'confidence' }) => void;
+  onDraftChange: (patch: Partial<SearchDraft>) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onReset: () => void;
   cameras: Camera[] | undefined;
   videos: VideoAsset[] | undefined;
   videosUnavailable?: boolean;
-  displayTimeZoneId: string | undefined;
+  displayZone: DisplayZoneState;
 };
 
 /**
@@ -55,10 +69,11 @@ type Props = {
  * earned it with `aria-invalid` and an associated message, rather than as one
  * page-level sentence about "search filters" (§10, §21, §23).
  *
- * No field is marked optional, which is a deliberate departure from §21's
- * "optional fields are marked". §21 marks the exception; in a filter rail every
- * field is optional and an empty rail is a valid search, so marking all seven
- * marks nothing while lengthening seven labels the operator scans.
+ * No field is marked optional. That is not a local exception argued for in a
+ * comment: §21 was amended in UI-4 to allow it for query and filter rails
+ * specifically, where every field is optional and an empty query is a valid
+ * query, so marking all seven marks nothing. Ordinary create/edit forms still
+ * mark their optional fields.
  *
  * The committed-scope chips have left the rail entirely. They describe what the
  * *results* are, not what the operator is about to ask for, so they belong at
@@ -74,7 +89,7 @@ export default function SearchFilterRail({
   cameras,
   videos,
   videosUnavailable = false,
-  displayTimeZoneId,
+  displayZone,
 }: Props) {
   const selectedCameraKnown = draft.cameraId
     ? cameras?.some((camera) => camera.id.toLowerCase() === draft.cameraId.toLowerCase()) ?? false
@@ -86,9 +101,15 @@ export default function SearchFilterRail({
     .filter((video) => !draft.cameraId || video.cameraId.toLowerCase() === draft.cameraId.toLowerCase())
     .sort((left, right) => right.recordingStartUtc.localeCompare(left.recordingStartUtc));
 
-  const timeHelp = displayTimeZoneId
-    ? <>Entered in <code>{displayTimeZoneId}</code>.</>
-    : 'Display timezone is unavailable, so times cannot be edited.';
+  // §24: the expected format and the operative timezone are both stated next to
+  // the field — on both fields, because the operator fills them one at a time
+  // and a rule stated once, above, is a rule they have to scroll back for.
+  const timeHelp = displayZone.status === 'ready'
+    ? <><code>{WALL_TIME_FORMAT}</code> in <code>{displayZone.timeZoneId}</code></>
+    : displayZone.status === 'loading'
+      ? 'Loading the display timezone; time editing opens when it arrives.'
+      : 'Display timezone is unavailable, so times cannot be edited.';
+  const timeEditable = displayZone.status === 'ready';
 
   return (
     <form className="filter-rail" onSubmit={onSubmit} noValidate aria-label="Search filters">
@@ -146,23 +167,27 @@ export default function SearchFilterRail({
           {(control) => (
             <input
               {...control}
-              type="datetime-local"
-              step="1"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={WALL_TIME_FORMAT.toLowerCase()}
               value={draft.fromLocal}
-              disabled={!displayTimeZoneId}
-              onChange={(event) => onDraftChange({ fromLocal: event.target.value }, { time: 'from' })}
+              disabled={!timeEditable}
+              onChange={(event) => onDraftChange({ fromLocal: event.target.value })}
             />
           )}
         </Field>
-        <Field label="To" error={errors.toLocal}>
+        <Field label="To" error={errors.toLocal} help={timeHelp}>
           {(control) => (
             <input
               {...control}
-              type="datetime-local"
-              step="1"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={WALL_TIME_FORMAT.toLowerCase()}
               value={draft.toLocal}
-              disabled={!displayTimeZoneId}
-              onChange={(event) => onDraftChange({ toLocal: event.target.value }, { time: 'to' })}
+              disabled={!timeEditable}
+              onChange={(event) => onDraftChange({ toLocal: event.target.value })}
             />
           )}
         </Field>
@@ -180,7 +205,7 @@ export default function SearchFilterRail({
               {...control}
               inputMode="decimal"
               value={draft.minimumDurationSeconds}
-              onChange={(event) => onDraftChange({ minimumDurationSeconds: event.target.value }, { numeric: 'duration' })}
+              onChange={(event) => onDraftChange({ minimumDurationSeconds: event.target.value })}
               placeholder="e.g. 2.5"
             />
           )}
@@ -195,7 +220,7 @@ export default function SearchFilterRail({
               {...control}
               inputMode="decimal"
               value={draft.minimumConfidencePercent}
-              onChange={(event) => onDraftChange({ minimumConfidencePercent: event.target.value }, { numeric: 'confidence' })}
+              onChange={(event) => onDraftChange({ minimumConfidencePercent: event.target.value })}
               placeholder="e.g. 80"
             />
           )}

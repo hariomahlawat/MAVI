@@ -378,6 +378,29 @@ describe('the archetype set is closed', () => {
     expect(unselected).toContain('justify-content: start');
   });
 
+  it('contains the Investigation rail without giving the form a second scroll owner', () => {
+    // §11: a border marks a scroll boundary or an editable region. The rail
+    // column is both — it owns the rail's only scroll and it holds the filter
+    // form — so one border there satisfies the rule, and a second one around
+    // the form would be the card-inside-card §11 calls a defect.
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    const rail = css.slice(css.indexOf('.workspace__rail {'));
+    const block = rail.slice(0, rail.indexOf('}'));
+    expect(block).toMatch(/border:\s*var\(--stroke-hair\)/);
+    expect(block).toContain('overflow-y: auto');
+
+    // And the form itself must not scroll. Two scroll owners in one column is
+    // the defect UI-4 removed; a border is not a licence to bring it back.
+    const features = SHEETS['/src/styles/features.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    const form = features.slice(features.indexOf('.filter-rail {'));
+    expect(form.slice(0, form.indexOf('}'))).not.toMatch(/overflow/);
+    expect(features).not.toMatch(/\.filter-rail[^{]*\{[^}]*overflow-y:\s*(auto|scroll)/);
+    // Nor be stuck to the column's edge, which is how it came to sit on the
+    // last field at 1366 when the rail was tall enough to scroll.
+    const actions = features.slice(features.indexOf('.filter-rail__actions {'));
+    expect(actions.slice(0, actions.indexOf('}'))).not.toContain('position: sticky');
+  });
+
   it('declares which inspector shape is in force rather than leaving it implied', () => {
     // Open decision 3 is a number the §26 harness has to check the layout
     // against, and a harness carrying the number itself can only confirm its

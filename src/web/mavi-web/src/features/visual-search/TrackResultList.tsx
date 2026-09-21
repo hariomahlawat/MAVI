@@ -1,11 +1,10 @@
-import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import type { TrackSearchItem } from '../../api/tracks';
 import Icon from '../../shared/components/Icon';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence, formatOffset } from '../../shared/format/format';
-import { selectControlProps } from './resultSelection';
+import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
 
 /**
  * Route to the full review of a Track. `searchContext` is the canonical
@@ -48,10 +47,9 @@ function ResultRow({
   searchContext?: string;
   onSelect: (id: string) => void;
 }) {
-  const ref = useRef<HTMLLIElement | null>(null);
-  useEffect(() => {
-    if (selected) ref.current?.scrollIntoView?.({ block: 'nearest' });
-  }, [selected]);
+  // Keeping the selected result on screen is the selection contract's, shared
+  // with the Grid card, not this row's own idea (§22).
+  const ref = useKeepSelectedVisible<HTMLLIElement>(selected);
 
   const title = `${track.objectClass} · ${track.cameraCode} · ${track.cameraName}`;
   const select = selectControlProps(track.id, `Select ${title}`, onSelect);

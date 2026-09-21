@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 /**
  * One selection contract for both result presentations.
  *
@@ -15,6 +17,29 @@
  * rather than knowing either view's markup, which is what lets a third
  * presentation exist later without touching the key handler.
  */
+
+/**
+ * Keep the selected result in view.
+ *
+ * Part of the selection contract rather than of either view's markup: `j` and
+ * `k` step the selection without moving focus, so the only thing that tells the
+ * operator where they are is the selected result being on screen. The List had
+ * this and the Grid did not, which meant the same keystroke in a dense Grid
+ * updated the URL, the inspector and the highlight while scrolling none of them
+ * into view (§22).
+ *
+ * `nearest` in both axes is what confines it: a result already visible is not
+ * scrolled at all, and one that is not is brought in by the smallest movement
+ * of the nearest scrollable ancestor — the results list. The page cannot be
+ * scrolled by it, because §4.4 gives the Investigation shell `contain`.
+ */
+export function useKeepSelectedVisible<T extends HTMLElement>(selected: boolean) {
+  const ref = useRef<T | null>(null);
+  useEffect(() => {
+    if (selected) ref.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [selected]);
+  return ref;
+}
 
 /** Marks the control whose purpose is "select this Track". */
 export const SELECT_CONTROL_CLASS = 'result-select';

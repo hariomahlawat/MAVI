@@ -53,10 +53,13 @@
    is left is what the archetype does not know about — the contents of the rail,
    the results column and the cards. */
 /* The rail flows inside the archetype's scrolling column; it is not a box with
-   a scrollbar of its own. It carries no border either: section 11 gives one to
-   a scroll boundary or an editable region, and the rail is neither — it is the
-   column, and the fields inside it carry their own affordances. */
-.filter-rail { display: grid; gap: var(--s-4); align-content: start; padding-bottom: var(--s-2); }
+   a scrollbar of its own. Its containment border belongs to `.workspace__rail`
+   in workspace.css, which is both the scroll boundary and the region holding
+   this editable form — the two things section 11 gives a border to. One border
+   there rather than a second one here is also what keeps the depth at one
+   contained surface: a bordered form inside a bordered scrolling column is the
+   card-inside-card section 11 calls a defect. */
+.filter-rail { display: grid; gap: var(--s-4); align-content: start; }
 .filter-rail__section { display: grid; gap: var(--s-3); }
 .filter-rail__section h2 {
   color: var(--text-muted); font-size: var(--fs-0); font-weight: 600;

@@ -237,7 +237,18 @@
   gap: var(--s-4); flex: 1 1 auto; min-height: 0; height: 100%;
 }
 .workspace__investigation-grid > * { min-height: 0; min-width: 0; }
-.workspace__rail { min-height: 0; overflow-y: auto; }
+/* Section 11: a border marks a scroll boundary or an editable region, and this
+   column is both — it owns the rail's only scroll and it holds the filter form.
+   One border here is what satisfies the rule without a second one around the
+   form, which would be the card-inside-card section 11 names as a defect. The
+   scroll stays here too: the form must never get an `overflow` of its own,
+   which is the two-owner defect UI-4 removed. */
+.workspace__rail {
+  min-height: 0; overflow-y: auto;
+  padding: var(--s-3);
+  border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-3);
+  background: var(--surface-base);
+}
 .workspace__results { display: grid; min-height: 0; }
 /* The inspector is an in-place third column only at 1600px and above; below
    that it is an overlay drawer over the results (section 4.4).

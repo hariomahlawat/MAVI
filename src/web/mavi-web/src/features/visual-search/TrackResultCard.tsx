@@ -5,7 +5,7 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence } from '../../shared/format/format';
 import { reviewPath } from './TrackResultList';
-import { selectControlProps } from './resultSelection';
+import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
 
 /**
  * One result, as a card.
@@ -23,6 +23,10 @@ import { selectControlProps } from './resultSelection';
  * target. The review link sits in its own row, which the button does not cover,
  * so the two controls do not overlap at all — no stacking order to get right
  * and no `stopPropagation` to escape with.
+ *
+ * It also keeps itself on screen while selected, through the same hook the row
+ * uses. Without it `j` in a dense Grid moved the URL, the inspector and the
+ * highlight while leaving the selected card outside the results viewport.
  */
 export default function TrackResultCard({
   track,
@@ -46,9 +50,10 @@ export default function TrackResultCard({
   const className = ['track-card', onSelect ? 'is-selectable' : '', selected ? 'is-selected' : ''].filter(Boolean).join(' ');
   const title = `${track.objectClass} · ${track.cameraCode} · ${track.cameraName}`;
   const select = onSelect ? selectControlProps(track.id, `Select ${title}`, onSelect) : null;
+  const ref = useKeepSelectedVisible<HTMLElement>(selected);
 
   return (
-    <article className={className} aria-current={selected ? 'true' : undefined}>
+    <article ref={ref} className={className} aria-current={selected ? 'true' : undefined}>
       {select ? <button {...select} className={`${select.className} track-card__select`} /> : null}
       <div className="track-card__media">
         {track.thumbnailContentUrl && !thumbnailFailed ? (

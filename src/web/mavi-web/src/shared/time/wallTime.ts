@@ -7,7 +7,22 @@ type WallParts = {
   second: number;
 };
 
-const wallPattern = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
+/**
+ * The product's wall-time text format (§24).
+ *
+ * One format in every browser and every locale. `datetime-local` cannot satisfy
+ * §24's second clause — "the browser's locale format MUST NOT silently differ
+ * from the product's display format" — because the control's rendering is the
+ * user agent's to choose, and the same committed instant reads `09/14/2026,
+ * 08:00:00` on one machine and `14.09.2026, 08:00:00` on another. So the format
+ * is declared here, shown beside the field, and parsed here.
+ *
+ * `T` remains accepted so anything that still produces the machine form — and
+ * any bookmarked or pasted ISO-like value — keeps working.
+ */
+export const WALL_TIME_FORMAT = 'YYYY-MM-DD HH:mm:ss';
+
+const wallPattern = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
 
 function createFormatter(timeZoneId: string): Intl.DateTimeFormat {
   try {
@@ -28,7 +43,7 @@ function createFormatter(timeZoneId: string): Intl.DateTimeFormat {
 
 function parseWall(value: string): WallParts {
   const match = wallPattern.exec(value);
-  if (!match) throw new RangeError('Wall time must use YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss.');
+  if (!match) throw new RangeError('Wall time must use ' + WALL_TIME_FORMAT + '.');
 
   const parts: WallParts = {
     year: Number(match[1]),
@@ -134,4 +149,14 @@ export function configuredUtcToWallTime(utcValue: string, displayTimeZoneId: str
     + 'T' + pad(parts.hour)
     + ':' + pad(parts.minute)
     + ':' + pad(parts.second);
+}
+
+/**
+ * The same instant, rendered in the format the operator is told to type
+ * (§24). It differs from `configuredUtcToWallTime` only in the separator: that
+ * one produces the machine form an `<input type="datetime-local">` requires,
+ * and this one produces the product's own, which is what is now shown.
+ */
+export function configuredUtcToWallTimeText(utcValue: string, displayTimeZoneId: string): string {
+  return configuredUtcToWallTime(utcValue, displayTimeZoneId).replace('T', ' ');
 }

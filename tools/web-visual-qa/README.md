@@ -118,9 +118,11 @@ geometry to get wrong:
 
 A state may pin its own viewports with `widths`. The four §25 acceptance widths
 are the standard sweep, but a breakpoint is settled by the widths either side of
-it and nowhere else: `search-threshold` runs at 1440, 1499, 1500, 1550, 1599 and
-1600, and `search-ultrawide` at 1920 and 2560. An explicit `--widths` still
-wins — that is a person asking to look at one width.
+it and nowhere else: `search-threshold` runs at 1440, 1500, 1550, 1599, 1600 and
+1700 — the threshold is 1600 — `search-ultrawide` at 1920 and 2560, and
+`search-rail-overflow` at 1366 and 1440, where the rail is taller than the
+viewport and a second scroll owner or a stuck action bar would show. An explicit
+`--widths` still wins — that is a person asking to look at one width.
 
 `prepareSettleMs` sets how long to wait after a state's `prepare` step, for
 preparations whose consequence is slower than a render — a continuation that

@@ -63,6 +63,33 @@ describe('TrackResultCard', () => {
     expect(control.getAttribute(TRACK_ID_ATTRIBUTE)).toBe(base.id.toLowerCase());
   });
 
+  it('scrolls itself into view when it becomes the selection', () => {
+    // j/k move the selection without moving focus, so the selected card being
+    // on screen is the only thing that tells the operator where they are (§22).
+    // `nearest` in both axes is what keeps it to the results list: a card
+    // already visible is not scrolled, and the page cannot be scrolled at all.
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      const view = render(
+        <MemoryRouter>
+          <TrackResultCard track={base} displayTimeZoneId="Asia/Kolkata" onSelect={() => {}} />
+        </MemoryRouter>,
+      );
+      expect(scrollIntoView).not.toHaveBeenCalled();
+
+      view.rerender(
+        <MemoryRouter>
+          <TrackResultCard track={base} displayTimeZoneId="Asia/Kolkata" selected onSelect={() => {}} />
+        </MemoryRouter>,
+      );
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
   it('resets thumbnail failure when a recycled card receives a new evidence URL', () => {
     const view = render(
       <MemoryRouter>

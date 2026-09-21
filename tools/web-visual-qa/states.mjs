@@ -637,6 +637,18 @@ export const STATES = [
     expectText: 'Video metadata is unavailable',
   },
   {
+    // The tallest the rail gets: every field refused at once, on top of the
+    // video-outage hint, at the shortest acceptance viewport. This is where a
+    // rail that owns its own scroll, or whose actions are stuck to its bottom
+    // edge, puts a control on top of a field — and where the containment border
+    // has to stay inside the 252px column rather than widening it.
+    name: 'search-rail-overflow', path: '/search', fullWidth: true, settleMs: 4000,
+    archetype: 'investigation', widths: [1366, 1440],
+    api: { '/api/videos': 'unavailable' },
+    prepare: REFUSE_FIELDS, prepareSettleMs: 900,
+    expectText: ['Video metadata is unavailable', 'decimal places', 'Reset'],
+  },
+  {
     name: 'search-field-errors', path: '/search', fullWidth: true, settleMs: 900,
     archetype: 'investigation', prepare: REFUSE_FIELDS,
     // §10: both refusals land on their own fields, at once.
@@ -696,9 +708,10 @@ export const STATES = [
     expectText: 'Track was not found', forbidText: 'Retry',
   },
   {
-    // Open decision 3. The threshold is settled by the widths either side of
-    // it: 1499 must be a drawer, 1500 an in-place column, and the band between
-    // 1500 and 1600 must not read as cramped at its narrowest.
+    // Open decision 3, closed in UI-4 at 1600px. The threshold is settled by the
+    // widths either side of it: 1599 must be a drawer, 1600 an in-place column,
+    // and 1500 — the frozen default UI-4 amended away — must still be a drawer
+    // rather than the clipped three columns it produced before.
     name: 'search-threshold', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
     // The threshold is 1600, so the widths either side of it are what settle it.
     archetype: 'investigation', widths: [1440, 1500, 1550, 1599, 1600, 1700],

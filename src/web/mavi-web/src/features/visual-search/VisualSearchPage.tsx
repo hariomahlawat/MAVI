@@ -15,12 +15,13 @@ import { formatCount } from '../../shared/format/format';
 import Icon from '../../shared/components/Icon';
 import LoadingState from '../../shared/components/LoadingState';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
-import { configuredUtcToWallTime } from '../../shared/time/wallTime';
+import StatusBadge from '../../shared/components/StatusBadge';
+import { configuredUtcToWallTimeText } from '../../shared/time/wallTime';
 import { ContextBar, InvestigationLayout, Segmented } from '../../shared/workspace';
 import { isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
 import { findSelectControl, isSelectedResultControl } from './resultSelection';
 import CommittedFilterChips from './CommittedFilterChips';
-import SearchFilterRail, { emptyDraft, type SearchDraft } from './SearchFilterRail';
+import SearchFilterRail, { emptyDraft, type DisplayZoneState, type SearchDraft } from './SearchFilterRail';
 import TrackInspector from './TrackInspector';
 import TrackResultCard from './TrackResultCard';
 import TrackResultList, { reviewPath } from './TrackResultList';
@@ -40,20 +41,36 @@ const VIEW_STORAGE_KEY = 'mavi.search.view';
 
 type ResultView = 'list' | 'grid';
 
+type DraftField = keyof SearchDraft;
+
 /**
- * Which draft fields the operator has changed since the committed state last
- * arrived. It decides two things that used to be decided separately: whether a
- * numeric or time value is recomputed on submit (an untouched one keeps the
- * committed value to whatever precision it was bookmarked with), and — new in
- * UI-4 — which fields survive a committed-state change the operator did not
- * make by pressing Search.
+ * The draft, and the committed state it was derived from.
+ *
+ * Holding both is what makes "dirty" mean *currently differs from committed*
+ * rather than *was typed into at some point*. The flags this replaces were set
+ * by an edit event and cleared only by a commit, a reset or a rebase, so a
+ * field edited to Vehicle and back to Person stayed dirty: its value matched
+ * the committed state while the surface still believed it did not. Removing
+ * that criterion's chip then preserved the "edit", and the next Search put
+ * back a filter the operator had explicitly removed.
+ *
+ * Keeping the baseline beside the values also removes the need for a ref of
+ * what was dirty last render: every transition has both the old baseline (here)
+ * and the new one (computed from the new committed state) in hand at once.
  */
-type DirtyState = Partial<Record<keyof SearchDraft, true>>;
+type DraftState = { values: SearchDraft; baseline: SearchDraft };
+
+const DRAFT_FIELDS = Object.keys(emptyDraft) as DraftField[];
+
+/** Which fields currently say something other than the committed state. */
+function dirtyFields(state: DraftState): DraftField[] {
+  return DRAFT_FIELDS.filter((key) => state.values[key] !== state.baseline[key]);
+}
 
 function wallValue(utc: string | undefined, timeZoneId: string | undefined): string {
   if (!utc || !timeZoneId) return '';
   try {
-    return configuredUtcToWallTime(utc, timeZoneId);
+    return configuredUtcToWallTimeText(utc, timeZoneId);
   } catch {
     return '';
   }
@@ -75,17 +92,23 @@ function draftFromFilters(filters: CommittedTrackSearch, timeZoneId: string | un
 /**
  * Bring the draft back in line with committed state without discarding work.
  *
- * Removing a chip, following a deep link or stepping Back changes the committed
- * search without the operator having pressed Search, and the rail must not lose
- * what they were in the middle of typing because of it. Every untouched field
- * takes the committed value; every field they have changed keeps theirs.
+ * Removing a chip, following a deep link, stepping Back or the display timezone
+ * arriving all change the committed state without the operator having pressed
+ * Search, and the rail must not lose what they were in the middle of typing
+ * because of it. A field that differed from the *old* baseline keeps its value;
+ * every other field takes the new one.
+ *
+ * A field edited back to its baseline is, by that definition, not differing —
+ * so it rebases like any untouched field and cannot resurrect a criterion the
+ * operator has since removed.
  */
-function rebaseUntouched(current: SearchDraft, rebased: SearchDraft, dirty: DirtyState): SearchDraft {
-  const next = { ...rebased };
-  for (const key of Object.keys(rebased) as Array<keyof SearchDraft>) {
-    if (dirty[key]) (next as Record<string, string>)[key] = current[key];
-  }
-  return next;
+function rebase(state: DraftState, baseline: SearchDraft): DraftState {
+  const values: SearchDraft = { ...baseline };
+  // Every draft field is a string; the object class is a narrower string, which
+  // is the only reason this needs to say so.
+  const writable = values as Record<DraftField, string>;
+  for (const key of dirtyFields(state)) writable[key] = state.values[key];
+  return { values, baseline };
 }
 
 function shouldRetryQuery(failureCount: number, error: unknown): boolean {
@@ -145,24 +168,23 @@ export default function VisualSearchPage() {
     staleTime: 60_000,
   });
   const displayTimeZoneId = systemConfig.data?.displayTimeZoneId;
+  // §14: pending and failed are different states, and the operator's next move
+  // differs — wait, or press Retry. The rail used to be told only the zone, so
+  // it described a request still in flight as unavailable.
+  const displayZone: DisplayZoneState = displayTimeZoneId
+    ? { status: 'ready', timeZoneId: displayTimeZoneId }
+    : systemConfig.isError ? { status: 'unavailable' } : { status: 'loading' };
 
-  const [draft, setDraft] = useState<SearchDraft>(emptyDraft);
-  const [dirty, setDirtyState] = useState<DirtyState>({});
-  // The rebase effect below runs on a committed-state change and must know what
-  // is dirty *now*, not what was dirty when it last ran — depending on the
-  // state would re-run it on every keystroke and undo the keystroke. The ref is
-  // written in the same call that sets the state so the two cannot disagree.
-  const dirtyRef = useRef<DirtyState>({});
-  const setDirty = useCallback((update: (current: DirtyState) => DirtyState) => {
-    dirtyRef.current = update(dirtyRef.current);
-    setDirtyState(dirtyRef.current);
-  }, []);
+  const [draft, setDraft] = useState<DraftState>({ values: emptyDraft, baseline: emptyDraft });
   // Set when this surface commits a search itself. Only then is the draft known
-  // to already say what the committed state says, so only then are the dirty
-  // marks cleared; every other committed change rebases around them.
+  // to already say what the committed state says, so only then is it settled
+  // outright; every other committed change rebases around outstanding edits.
   const submittedFingerprint = useRef<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<SearchFieldErrors>({});
   const [view, setView] = useState<ResultView>(readView);
+
+  const outstanding = dirtyFields(draft);
+  const hasDraftChanges = outstanding.length > 0;
 
   useEffect(() => {
     try {
@@ -172,37 +194,32 @@ export default function VisualSearchPage() {
     }
   }, [view]);
 
-  // Committed filters own draft rehydration. Selecting a result changes the URL
-  // too, but must not discard what the operator has typed in the rail — which
-  // is why this is keyed on the committed fingerprint and not on the URL.
+  /**
+   * One transition for every committed-state change.
+   *
+   * Keyed on the committed fingerprint and the display zone rather than on the
+   * URL: selecting a result changes the URL too and must not touch the rail.
+   * The zone belongs here because a committed UTC bound cannot be shown as a
+   * wall time until the zone is known, so its arrival changes the baseline in
+   * exactly the same way a new filter does — which is why it is the same
+   * transition rather than a second effect racing the first.
+   */
   useEffect(() => {
     const filters = committed.isValid ? committed.filters : {};
-    const rebased = draftFromFilters(filters, displayTimeZoneId);
+    const baseline = draftFromFilters(filters, displayTimeZoneId);
     if (submittedFingerprint.current === fingerprint) {
       // Our own commit: the draft produced this state, so it already says what
       // the URL says and nothing is outstanding.
       submittedFingerprint.current = null;
-      setDraft(rebased);
-      setDirty(() => ({}));
+      setDraft({ values: baseline, baseline });
     } else {
-      setDraft((current) => rebaseUntouched(current, rebased, dirtyRef.current));
+      setDraft((current) => rebase(current, baseline));
     }
     setFieldErrors({});
-    // Config recovery is handled separately below.
+    // `committed` is derived from `fingerprint`; depending on the object would
+    // re-run this on every render that reparses an unchanged URL.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fingerprint]);
-
-  // The display zone arrives asynchronously, and until it does a committed UTC
-  // bound cannot be shown as a wall time at all. When it lands, the two time
-  // fields are filled in — unless the operator has meanwhile typed into them.
-  useEffect(() => {
-    if (!displayTimeZoneId || !committed.isValid) return;
-    setDraft((current) => ({
-      ...current,
-      fromLocal: dirtyRef.current.fromLocal ? current.fromLocal : wallValue(committed.filters.fromUtc, displayTimeZoneId),
-      toLocal: dirtyRef.current.toLocal ? current.toLocal : wallValue(committed.filters.toUtc, displayTimeZoneId),
-    }));
-  }, [displayTimeZoneId, committed]);
+  }, [fingerprint, displayTimeZoneId]);
 
   const tracks = useInfiniteQuery({
     queryKey: trackQueryKey,
@@ -366,15 +383,13 @@ export default function VisualSearchPage() {
   }, [setSearchParams]);
 
   const onDraftChange = (patch: Partial<SearchDraft>) => {
-    setDraft((current) => ({ ...current, ...patch }));
-    const keys = Object.keys(patch) as Array<keyof SearchDraft>;
-    setDirty((current) => {
-      const next = { ...current };
-      for (const key of keys) next[key] = true;
-      return next;
-    });
+    // Nothing is marked here. Whether a field is outstanding is read off the
+    // baseline, so editing a value back to what is committed makes it clean
+    // again without anything having to notice that it happened.
+    setDraft((current) => ({ ...current, values: { ...current.values, ...patch } }));
     // A field the operator is correcting stops claiming to be wrong as soon as
     // they touch it; it is re-judged when they ask for the search again.
+    const keys = Object.keys(patch) as DraftField[];
     setFieldErrors((current) => {
       if (!keys.some((key) => key in current)) return current;
       const next = { ...current };
@@ -385,11 +400,20 @@ export default function VisualSearchPage() {
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // Only a field that currently differs from the committed state is
+    // reconverted. An untouched one — and one edited back to its baseline —
+    // keeps the committed value byte for byte, so a bookmarked
+    // `minimumConfidence=0.00075` is not rewritten to the 0.075% the field
+    // displays it as.
+    const outstandingNow = new Set(outstanding);
     const result = commitDraft({
-      draft,
+      draft: draft.values,
       committed: committed.isValid ? committed.filters : {},
-      timeDirty: { from: Boolean(dirty.fromLocal), to: Boolean(dirty.toLocal) },
-      numericDirty: { duration: Boolean(dirty.minimumDurationSeconds), confidence: Boolean(dirty.minimumConfidencePercent) },
+      timeDirty: { from: outstandingNow.has('fromLocal'), to: outstandingNow.has('toLocal') },
+      numericDirty: {
+        duration: outstandingNow.has('minimumDurationSeconds'),
+        confidence: outstandingNow.has('minimumConfidencePercent'),
+      },
       displayTimeZoneId,
     });
     if (!result.ok) {
@@ -410,15 +434,14 @@ export default function VisualSearchPage() {
     // The commit did happen, so the draft is settled here instead.
     if (settled === fingerprint) {
       submittedFingerprint.current = null;
-      setDraft(draftFromFilters(result.filters, displayTimeZoneId));
-      setDirty(() => ({}));
+      const baseline = draftFromFilters(result.filters, displayTimeZoneId);
+      setDraft({ values: baseline, baseline });
     }
   };
 
   const resetSearch = () => {
     setFieldErrors({});
-    setDraft(emptyDraft);
-    setDirty(() => ({}));
+    setDraft({ values: emptyDraft, baseline: emptyDraft });
     pendingAdvance.current = null;
     submittedFingerprint.current = '';
     setSearchParams(new URLSearchParams());
@@ -478,14 +501,23 @@ export default function VisualSearchPage() {
     <section className="page page--full page--workspace">
       <ContextBar
         crumbs={[{ label: 'Visual Search' }]}
-        status={<DisplayTimeZone timeZoneId={displayTimeZoneId} />}
+        status={(
+          <>
+            {/* §21: draft state appears in the Context Bar. The wording is the
+                operator's — the filters exist and are simply not the ones the
+                results were fetched with — rather than the "unsaved record" of
+                a create/edit form, because nothing here is being saved. */}
+            {hasDraftChanges ? <StatusBadge tone="warn">Unapplied filters</StatusBadge> : null}
+            <DisplayTimeZone timeZoneId={displayTimeZoneId} />
+          </>
+        )}
       />
 
       <InvestigationLayout
         notices={hasNotice ? notices : undefined}
         rail={(
           <SearchFilterRail
-            draft={draft}
+            draft={draft.values}
             errors={fieldErrors}
             onDraftChange={onDraftChange}
             onSubmit={submitSearch}
@@ -493,7 +525,7 @@ export default function VisualSearchPage() {
             cameras={cameras.data}
             videos={videos.data}
             videosUnavailable={videos.isError}
-            displayTimeZoneId={displayTimeZoneId}
+            displayZone={displayZone}
           />
         )}
         inspector={inspecting && selectedId ? (

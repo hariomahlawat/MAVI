@@ -559,6 +559,15 @@ Extension points MUST exist for analytical lanes, but **lanes for data that does
 **Frozen:**
 
 - Labels above inputs. Optional fields are marked; required fields are not.
+  - **Amended in UI-4 (query and filter rails only).** Where **every** field in a
+    query or filter rail is optional and an empty query is a valid query,
+    individual "optional" suffixes MAY be omitted: the optionality is a fact
+    about the whole query rather than something that distinguishes one field
+    from another, so marking all of them marks nothing and only lengthens every
+    label the operator scans. The rule above is unchanged for ordinary
+    create/edit forms, where "optional" still tells the operator which fields
+    they may leave alone. This exception does not extend beyond query and
+    filter rails.
 - **Inline, field-level validation** with `aria-invalid` and a message associated via `aria-describedby`. Page-level alerts are reserved for server errors.
 - **Dirty state appears in the Context Bar**; Save is disabled when there are no changes.
 - Reset/Cancel is secondary and adjacent to Save, never its visual peer.
