@@ -98,6 +98,15 @@ Analytics execute outside a transaction, so a slow attempt can outlive its claim
 - **No new external geometry dependency** is introduced; the offline dependency contract is unchanged.
 - This stage therefore triggers **no vision requalification**: RTMDet and ByteTrack evidence, the CPU runtime qualification and the Windows CUDA Development evidence (ADR-009) are unaffected.
 
+## Decision 8 — One resolved identity governs a search result set (architectural invariant)
+
+An analytic search result set has exactly one identity: `(cameraId, sceneRevisionId, analyticsAlgorithmVersion, snapshotVisibilitySequence)`. It is **resolved by the backend at the first page and by nothing else**, and it stays fixed for the lifetime of that result set.
+
+- **The request is not the identity.** Query filters are what the operator asked for and may be incomplete — an explicit revision with no engine version is half a pair. The resolved identity is what the first page returns in its coverage block. No component may reconstruct an identity from the request when the response has already supplied one; a later engine upgrade or scene activation must not be able to re-point an open result set.
+- **Everything downstream follows the resolved identity**: continuation pages, the analytic predicates, the geometry results are labelled with, the chips and coverage strip, the inspector, the detail request and the Review link. Each of these is a statement about facts that were already evaluated, so reading "current" for any of them states something untrue.
+- **Draft and configuration surfaces intentionally follow current.** The filter rail composes the *next* search, so it offers the geometry that search would be evaluated against; the Processing readiness panel is about the current configuration. These are a separate concern from results already on screen and must not be collapsed into one geometry source.
+- **Both publication events serialise against the first page.** A processing run completing and a scene activation both change what a snapshot means, so both take the exclusive processing-visibility barrier and hold it through commit, and the first page takes the shared counterpart **before it reads any scope at all**. Resolving scope outside that lock is not a narrower window but a different world: the page would pin the revision active before an activation while counting against a snapshot taken after it, and coverage would then call a gap Pending that reconciliation will never fill. A lock that only one party takes orders nothing, so neither half of this is optional.
+
 ## Consequences
 
 **Positive.** Sealed detector evidence and operator-editable geometry stay separate. Scene edits are non-destructive and auditable by revision. A stale attempt cannot corrupt a reclaimed unit. Partial analytics are visible rather than silently empty. Pagination stays stable across configuration changes. No qualified vision artefact is disturbed.
