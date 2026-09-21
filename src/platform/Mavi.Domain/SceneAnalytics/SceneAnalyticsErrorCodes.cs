@@ -45,6 +45,17 @@ public static class SceneAnalyticsErrorCodes
     /// <summary>A lifecycle transition was attempted from a state that forbids it.</summary>
     public const string TransitionInvalid = "analytics_transition_invalid";
 
+    /// <summary>
+    /// A host was handed a unit whose persisted analytics identity it cannot execute.
+    /// </summary>
+    /// <remarks>
+    /// Unreachable once claiming is fenced to the host's engine identity, and reported
+    /// rather than written: the unit is left exactly as it was so that a host which
+    /// <i>can</i> execute it reclaims it normally. Failing it here would consume the
+    /// attempts of a historical unit merely because a newer binary is running.
+    /// </remarks>
+    public const string EngineIdentityMismatch = "analytics_engine_identity_mismatch";
+
     // --- Per-Track outcome reasons (never fail the unit, §31) ---------------
 
     /// <summary>No trajectory artefact exists for the Track.</summary>

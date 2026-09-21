@@ -162,6 +162,27 @@ public sealed class SceneAnalyticsReadinessRuleTests
             [.. derivable.Order(StringComparer.Ordinal)]);
     }
 
+    /// <summary>
+    /// The reconciliation floor is a function of host start, not of the current time.
+    /// </summary>
+    /// <remarks>
+    /// A cutoff recomputed from "now" crawls forward, which turns a zero lookback from
+    /// "do not backfill history" into "analyse nothing older than this instant".
+    /// </remarks>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(7)]
+    public void TheReconciliationFloorDependsOnlyOnHostStart(int lookbackDays)
+    {
+        var options = new SceneAnalyticsOptions { ReconcileLookbackDays = lookbackDays };
+        var hostStart = new DateTimeOffset(2026, 9, 21, 6, 0, 0, TimeSpan.Zero);
+
+        var floor = options.ReconcileFloor(hostStart);
+
+        Assert.Equal(hostStart.AddDays(-lookbackDays), floor);
+        Assert.Equal(floor, options.ReconcileFloor(hostStart));
+    }
+
     private static SceneAnalyticsCameraScope Scope(bool enabled = true) =>
         new(Guid.CreateVersion7(), ActiveRevision, 4, enabled);
 

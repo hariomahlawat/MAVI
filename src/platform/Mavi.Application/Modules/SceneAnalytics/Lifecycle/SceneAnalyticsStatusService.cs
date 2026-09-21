@@ -1,5 +1,6 @@
 using Mavi.Application.Modules.SceneAnalytics.Engine;
 using Mavi.Domain.SceneAnalytics;
+using Microsoft.Extensions.Logging;
 
 namespace Mavi.Application.Modules.SceneAnalytics.Lifecycle;
 
@@ -16,6 +17,9 @@ public sealed record RunAnalyticsView(
 /// The breakdown is the point. A single "queued" count cannot distinguish work that was
 /// created from a request that found everything already done, so a second click would
 /// look identical to the first and appear to have achieved something.
+/// <see cref="AlreadySuperseded"/> is kept separate from <see cref="AlreadyReady"/> for a
+/// different reason: it is not a normal outcome but a consistency condition to
+/// investigate, and reporting it as "already analysed" would hide it.
 /// </remarks>
 public sealed record ReanalysisOutcome(
     Guid CameraId,
@@ -26,7 +30,8 @@ public sealed record ReanalysisOutcome(
     int AlreadyQueued,
     int AlreadyRunning,
     int AlreadyReady,
-    int FailedRequiresRetry);
+    int FailedRequiresRetry,
+    int AlreadySuperseded);
 
 /// <summary>Why a request could not be served, in the caller's terms.</summary>
 public enum SceneAnalyticsRequestOutcome
@@ -74,8 +79,15 @@ public static class SceneAnalyticsRequestResult
 /// </remarks>
 public sealed class SceneAnalyticsStatusService(
     ISceneAnalyticsStatusReader reader,
-    ISceneAnalysisLifecycle lifecycle)
+    ISceneAnalysisLifecycle lifecycle,
+    ILogger<SceneAnalyticsStatusService> logger)
 {
+    private static readonly Action<ILogger, Guid, Guid, int, Exception?> LogSupersededActiveIdentity =
+        LoggerMessage.Define<Guid, Guid, int>(
+            LogLevel.Warning,
+            new EventId(1905, "SceneAnalysisActiveIdentitySuperseded"),
+            "Camera {CameraId} revision {SceneRevisionId}: {SupersededCount} run(s) report the active analytics identity as Superseded, which should not be reachable.");
+
     private static string AlgorithmVersion => SceneAnalyticsAlgorithm.Version;
 
     // --- Status ------------------------------------------------------------
@@ -84,7 +96,9 @@ public sealed class SceneAnalyticsStatusService(
         Guid processingRunId,
         CancellationToken cancellationToken)
     {
-        if (await reader.GetRunCameraAsync(processingRunId, cancellationToken) is not { } cameraId)
+        // Only a completed, published run is addressable here: an unpublished one shares
+        // the same answer as an unknown one.
+        if (await reader.GetVisibleRunCameraAsync(processingRunId, cancellationToken) is not { } cameraId)
         {
             return SceneAnalyticsRequestResult.Failure<RunAnalyticsView>(SceneAnalyticsRequestOutcome.NotFound);
         }
@@ -128,7 +142,7 @@ public sealed class SceneAnalyticsStatusService(
         Guid processingRunId,
         CancellationToken cancellationToken)
     {
-        if (await reader.GetRunCameraAsync(processingRunId, cancellationToken) is not { } cameraId)
+        if (await reader.GetVisibleRunCameraAsync(processingRunId, cancellationToken) is not { } cameraId)
         {
             return SceneAnalyticsRequestResult.Failure<SceneAnalysisUnitView>(SceneAnalyticsRequestOutcome.NotFound);
         }
@@ -212,6 +226,17 @@ public sealed class SceneAnalyticsStatusService(
             counts[result.Outcome] = counts.GetValueOrDefault(result.Outcome) + 1;
         }
 
+        // Finding the exact requested identity already Superseded is not an ordinary
+        // outcome. The requested identity is the camera's active revision under the
+        // current engine, and nothing newer should exist for it to be historical
+        // against, so it is surfaced as the consistency anomaly it is — never folded
+        // into "already analysed", which would present a stale answer as a current one.
+        var superseded = counts.GetValueOrDefault(SceneAnalysisQueueOutcome.AlreadySuperseded);
+        if (superseded > 0)
+        {
+            LogSupersededActiveIdentity(logger, cameraId, revisionId, superseded, null);
+        }
+
         return SceneAnalyticsRequestResult.Ok<ReanalysisOutcome>(new ReanalysisOutcome(
             cameraId,
             revisionId,
@@ -220,10 +245,8 @@ public sealed class SceneAnalyticsStatusService(
             counts.GetValueOrDefault(SceneAnalysisQueueOutcome.Created),
             counts.GetValueOrDefault(SceneAnalysisQueueOutcome.AlreadyQueued),
             counts.GetValueOrDefault(SceneAnalysisQueueOutcome.AlreadyRunning),
-            // A superseded unit for the active identity would be unusual, but it is
-            // fact-bearing all the same, so it counts as analysed rather than as nothing.
-            counts.GetValueOrDefault(SceneAnalysisQueueOutcome.AlreadyAnalysed)
-                + counts.GetValueOrDefault(SceneAnalysisQueueOutcome.AlreadySuperseded),
-            counts.GetValueOrDefault(SceneAnalysisQueueOutcome.FailedRequiresRetry)));
+            counts.GetValueOrDefault(SceneAnalysisQueueOutcome.AlreadyAnalysed),
+            counts.GetValueOrDefault(SceneAnalysisQueueOutcome.FailedRequiresRetry),
+            superseded));
     }
 }

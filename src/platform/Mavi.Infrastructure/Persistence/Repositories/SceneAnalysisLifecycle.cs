@@ -43,7 +43,6 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
         ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
 
         var eligible = await EligibleIdentitiesAsync(
-            algorithmVersion,
             earliestRunCompletedAtUtc,
             batchSize,
             cancellationToken);
@@ -78,7 +77,6 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
     /// evidence they are derived from.
     /// </remarks>
     private Task<List<(Guid RunId, Guid RevisionId)>> EligibleIdentitiesAsync(
-        string algorithmVersion,
         DateTimeOffset earliestRunCompletedAtUtc,
         int batchSize,
         CancellationToken cancellationToken) =>
@@ -97,10 +95,13 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
                // before this revision was activated are explicit re-analysis, not
                // automatic work.
                && run.CompletedAtUtc >= revision.CreatedAtUtc
+               // Any unit for this run and revision, under any engine version, stops
+               // automatic work. An engine upgrade makes existing facts stale for
+               // readiness (plan §R) and does not queue re-analysis: that is explicit
+               // operator work, or a deployment would silently re-process its history.
                && !db.SceneAnalyses.Any(unit =>
                    unit.ProcessingRunId == run.Id
-                   && unit.RevisionId == revision.Id
-                   && unit.AlgorithmVersion == algorithmVersion)
+                   && unit.RevisionId == revision.Id)
          orderby run.CompletedAtUtc, run.Id
          select new ValueTuple<Guid, Guid>(run.Id, revision.Id))
         .Take(batchSize)
@@ -158,9 +159,11 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
     // --- Claim and reclaim -------------------------------------------------
 
     public async Task<SceneAnalysisClaim?> ClaimNextAsync(
+        SceneAnalysisExecutionIdentity executionIdentity,
         SceneAnalysisLeasePolicy policy,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(executionIdentity);
         ArgumentNullException.ThrowIfNull(policy);
 
         await using var transaction = await BeginFreshAsync(cancellationToken);
@@ -174,6 +177,11 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
         var unit = await db.SceneAnalyses.FromSqlInterpolated($"""
             SELECT * FROM scene_analyses
             WHERE attempt_count < {policy.MaximumAttempts}
+              -- The engine fence, in the predicate rather than after the fact: a host
+              -- must not take ownership of a unit it cannot execute, because taking it
+              -- consumes an attempt and hides the unit from the host that could.
+              AND algorithm_version = {executionIdentity.AlgorithmVersion}
+              AND parameters_sha256 = {executionIdentity.ParametersSha256}
               AND (status = 'Queued'
                    OR (status = 'Running'
                        AND lease_expires_at_utc IS NOT NULL
@@ -333,14 +341,43 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
                 unavailable,
                 timeProvider.GetUtcNow());
 
-            // Currency changes; nothing else does. A superseded unit keeps its facts,
-            // counts, timestamps and visibility sequence exactly as committed.
+            // Currency is decided by which identity is newer, never by which attempt
+            // finished first. Two attempts for one run overlap whenever a geometry edit
+            // lands mid-analysis, and the slower one can commit last; if completion order
+            // decided this, a late analysis of older geometry would demote the current
+            // one, readiness would report Stale, and re-analysis could not repair it
+            // because the newer identity's row already exists.
+            //
+            // A superseded unit keeps its facts, counts, timestamps and visibility
+            // sequence exactly as committed. Only currency moves.
+            var revisionNumbers = await RevisionNumbersAsync(runUnits, cancellationToken);
+            var completedIdentity = OrderOf(unit, revisionNumbers);
+            var outrankedByASibling = false;
+
             foreach (var sibling in runUnits)
             {
-                if (sibling.Id != unit.Id && sibling.Status == SceneAnalysisStatus.Completed)
+                if (sibling.Id == unit.Id || sibling.Status != SceneAnalysisStatus.Completed)
+                {
+                    continue;
+                }
+
+                if (SceneAnalysisIdentityRecency.IsNewerThan(completedIdentity, OrderOf(sibling, revisionNumbers)))
                 {
                     sibling.Supersede();
                 }
+                else
+                {
+                    outrankedByASibling = true;
+                }
+            }
+
+            if (outrankedByASibling)
+            {
+                // This attempt finished late against an identity that is already
+                // historical. Its facts are correct for the identity pinned on its own
+                // row and stay readable, so it completes and is immediately historical
+                // rather than being failed or discarded.
+                unit.Supersede();
             }
 
             await db.SaveChangesAsync(cancellationToken);
@@ -474,6 +511,27 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
         db.ChangeTracker.Clear();
         return await db.Database.BeginTransactionAsync(cancellationToken);
     }
+
+    /// <summary>The revision number of every revision the run's units are pinned to.</summary>
+    /// <remarks>
+    /// Revisions are immutable once created, so this read needs no lock of its own; it is
+    /// inside the completion transaction only because that is where the answer is used.
+    /// </remarks>
+    private async Task<Dictionary<Guid, int>> RevisionNumbersAsync(
+        IReadOnlyCollection<SceneAnalysis> runUnits,
+        CancellationToken cancellationToken)
+    {
+        var revisionIds = runUnits.Select(x => x.RevisionId).Distinct().ToList();
+        return await db.SceneConfigurationRevisions
+            .AsNoTracking()
+            .Where(revision => revisionIds.Contains(revision.Id))
+            .ToDictionaryAsync(revision => revision.Id, revision => revision.RevisionNumber, cancellationToken);
+    }
+
+    private static SceneAnalysisIdentityOrder OrderOf(SceneAnalysis unit, Dictionary<Guid, int> revisionNumbers) =>
+        new(
+            revisionNumbers.TryGetValue(unit.RevisionId, out var number) ? number : 0,
+            unit.AlgorithmVersion);
 
     private Task<SceneAnalysis?> LockAsync(Guid analysisId, CancellationToken cancellationToken) =>
         db.SceneAnalyses

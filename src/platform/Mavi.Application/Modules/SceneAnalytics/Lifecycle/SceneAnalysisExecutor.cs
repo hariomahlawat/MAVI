@@ -67,13 +67,32 @@ public sealed class SceneAnalysisExecutor(
             new EventId(1903, "SceneAnalysisUnitThrew"),
             "Scene analysis unit {AnalysisId} threw.");
 
+    private static readonly Action<ILogger, Guid, string, string, Exception?> LogIdentityMismatch =
+        LoggerMessage.Define<Guid, string, string>(
+            LogLevel.Error,
+            new EventId(1904, "SceneAnalysisEngineIdentityMismatch"),
+            "Scene analysis unit {AnalysisId} is pinned to {UnitAlgorithmVersion} and cannot be executed by {HostAlgorithmVersion}; nothing was written.");
+
     public async Task<SceneAnalysisExecutionResult> ExecuteAsync(
         SceneAnalysisClaim claim,
+        SceneAnalysisExecutionIdentity executionIdentity,
         SceneAnalyticsOptions options,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(claim);
+        ArgumentNullException.ThrowIfNull(executionIdentity);
         ArgumentNullException.ThrowIfNull(options);
+
+        // Defence in depth behind the claim predicate. If this ever fires, a host is
+        // holding a unit it must not compute, and the only safe thing is to write
+        // nothing: the unit keeps its state and a host that matches reclaims it once the
+        // lease and grace pass.
+        if (!executionIdentity.Matches(claim.Identity))
+        {
+            LogIdentityMismatch(logger, claim.AnalysisId, claim.Identity.AlgorithmVersion, executionIdentity.AlgorithmVersion, null);
+            return new SceneAnalysisExecutionResult(
+                claim.AnalysisId, false, SceneAnalyticsErrorCodes.EngineIdentityMismatch, 0, 0);
+        }
 
         // The attempt's own deadline, inside whatever the host is doing. It is deliberately
         // shorter than the lease, so an overrunning attempt is cancelled by its executor
@@ -355,7 +374,17 @@ public sealed class SceneAnalysisExecutor(
             ? claim.AttemptCount
             : options.MaximumAttempts;
 
-        await lifecycle.ReportFailureAsync(claim, failureCode, details, attempts, cancellationToken);
+        var reported = await lifecycle.ReportFailureAsync(claim, failureCode, details, attempts, cancellationToken);
+        if (reported.ErrorCode == SceneAnalyticsErrorCodes.AttemptStale)
+        {
+            // The unit changed hands while this attempt was failing. Lifecycle state is
+            // already protected; reporting the original cause here would describe a unit
+            // this host no longer owns.
+            LogStaleAttempt(logger, claim.AnalysisId, claim.AttemptCount, null);
+            return new SceneAnalysisExecutionResult(
+                claim.AnalysisId, false, SceneAnalyticsErrorCodes.AttemptStale, 0, 0);
+        }
+
         return new SceneAnalysisExecutionResult(claim.AnalysisId, false, failureCode, 0, 0);
     }
 

@@ -36,7 +36,7 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
         await using var _ = db;
 
         var claim = await QueueAndClaimAsync(lifecycle);
-        var result = await executor.ExecuteAsync(claim, Options, default);
+        var result = await executor.ExecuteAsync(claim, SceneAnalyticsWorld.ExecutionIdentity, Options, default);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(1, result.AnalysedTrackCount);
@@ -80,7 +80,7 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
 
         var claim = await QueueAndClaimAsync(lifecycle);
         world.Clock.Advance(TimeSpan.FromDays(3));
-        await executor.ExecuteAsync(claim, Options, default);
+        await executor.ExecuteAsync(claim, SceneAnalyticsWorld.ExecutionIdentity, Options, default);
 
         await using var reader = world.Read();
         var crossing = await reader.TrackLineCrossings.AsNoTracking().SingleAsync();
@@ -98,7 +98,8 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
         var (executor, lifecycle, db) = world.Executor();
         await using var _ = db;
 
-        await executor.ExecuteAsync(await QueueAndClaimAsync(lifecycle), Options, default);
+        await executor.ExecuteAsync(
+            await QueueAndClaimAsync(lifecycle), SceneAnalyticsWorld.ExecutionIdentity, Options, default);
 
         await using var reader = world.Read();
         var crossing = await reader.TrackLineCrossings.AsNoTracking().SingleAsync();
@@ -146,7 +147,7 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
         await using var _ = db;
 
         var claim = await QueueAndClaimAsync(lifecycle);
-        var result = await executor.ExecuteAsync(claim, Options, default);
+        var result = await executor.ExecuteAsync(claim, SceneAnalyticsWorld.ExecutionIdentity, Options, default);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(0, result.AnalysedTrackCount);
@@ -206,7 +207,8 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
             claim.ClaimToken,
             claim.LeaseExpiresAtUtc);
 
-        var result = await executor.ExecuteAsync(orphaned, Options, default);
+        var result = await executor.ExecuteAsync(
+            orphaned, SceneAnalyticsWorld.ExecutionIdentity, Options, default);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(SceneAnalyticsErrorCodes.RevisionMissing, result.FailureCode);
@@ -233,6 +235,7 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
         var stalling = world.ExecutorWith(new StallingEvidenceReader(), lifecycle);
         var result = await stalling.ExecuteAsync(
             claim,
+            SceneAnalyticsWorld.ExecutionIdentity,
             new SceneAnalyticsOptions
             {
                 LeaseSeconds = Options.LeaseSeconds,
@@ -265,7 +268,7 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
         var claim = await QueueAndClaimAsync(lifecycle);
 
         var faulting = world.ExecutorWith(new FaultingEvidenceReader(), lifecycle);
-        var result = await faulting.ExecuteAsync(claim, Options, default);
+        var result = await faulting.ExecuteAsync(claim, SceneAnalyticsWorld.ExecutionIdentity, Options, default);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(SceneAnalyticsErrorCodes.TrajectoryReadFailed, result.FailureCode);
@@ -289,9 +292,9 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
 
         var a = await QueueAndClaimAsync(lifecycle);
         world.Clock.Advance(TimeSpan.FromSeconds(Options.LeaseSeconds + Options.ReclaimGraceSeconds + 1));
-        var b = await lifecycle.ClaimNextAsync(Options.ToLeasePolicy(), default);
+        var b = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Options.ToLeasePolicy(), default);
 
-        var result = await executor.ExecuteAsync(a, Options, default);
+        var result = await executor.ExecuteAsync(a, SceneAnalyticsWorld.ExecutionIdentity, Options, default);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(SceneAnalyticsErrorCodes.AttemptStale, result.FailureCode);
@@ -301,6 +304,39 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
         Assert.Equal(SceneAnalysisStatus.Running, unit.Status);
         Assert.Null(unit.FailureCode);
         Assert.Equal(0, await world.Read().TrackAnalysisOutcomes.CountAsync());
+    }
+
+    /// <summary>
+    /// An attempt that lost its unit while failing must report that it is stale, not the
+    /// fault it was about to record.
+    /// </summary>
+    /// <remarks>
+    /// Lifecycle state is already protected — the fenced transition writes nothing — but
+    /// an executor that ignored the transition result would log and return the original
+    /// engine or I/O cause, describing a unit this host no longer owns.
+    /// </remarks>
+    [Fact]
+    public async Task AnAttemptThatLostItsUnitWhileFailingReportsStaleNotTheOriginalFault()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        await world.AttachTrajectoryAsync(TrajectoryPayload.StraightCrossing());
+        var (_, lifecycle, db) = world.Executor();
+        await using var __ = db;
+
+        var a = await QueueAndClaimAsync(lifecycle);
+        world.Clock.Advance(TimeSpan.FromSeconds(Options.LeaseSeconds + Options.ReclaimGraceSeconds + 1));
+        var b = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Options.ToLeasePolicy(), default);
+
+        // A's read fails, so A tries to report a retryable I/O failure — but B owns the unit.
+        var faulting = world.ExecutorWith(new FaultingEvidenceReader(), lifecycle);
+        var result = await faulting.ExecuteAsync(a, SceneAnalyticsWorld.ExecutionIdentity, Options, default);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(SceneAnalyticsErrorCodes.AttemptStale, result.FailureCode);
+
+        var unit = await world.UnitAsync(b!.AnalysisId);
+        Assert.Equal(SceneAnalysisStatus.Running, unit.Status);
+        Assert.Null(unit.FailureCode);
     }
 
     // --- Idempotency -------------------------------------------------------
@@ -318,7 +354,7 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
         await using var _ = db;
 
         var first = await QueueAndClaimAsync(lifecycle);
-        await executor.ExecuteAsync(first, Options, default);
+        await executor.ExecuteAsync(first, SceneAnalyticsWorld.ExecutionIdentity, Options, default);
         var after = await FingerprintAsync(world, first.AnalysisId);
 
         await using (var writer = world.Read())
@@ -328,8 +364,8 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
         }
 
         await lifecycle.RetryAsync(first.AnalysisId, default);
-        var second = await lifecycle.ClaimNextAsync(Options.ToLeasePolicy(), default);
-        await executor.ExecuteAsync(second!, Options, default);
+        var second = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Options.ToLeasePolicy(), default);
+        await executor.ExecuteAsync(second!, SceneAnalyticsWorld.ExecutionIdentity, Options, default);
 
         Assert.Equal(after, await FingerprintAsync(world, first.AnalysisId));
     }
@@ -346,7 +382,7 @@ public sealed class SceneAnalyticsExecutorTests(PostgresFixture fixture)
             Now.AddDays(-1),
             50,
             default);
-        return await lifecycle.ClaimNextAsync(Options.ToLeasePolicy(), default)
+        return await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Options.ToLeasePolicy(), default)
             ?? throw new InvalidOperationException("No unit was claimable.");
     }
 

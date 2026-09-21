@@ -45,14 +45,14 @@ public sealed class SceneAnalyticsOwnershipTests(PostgresFixture fixture)
         await QueueAsync(lifecycle);
 
         // 1–2. A claims and starts computing.
-        var a = await lifecycle.ClaimNextAsync(Policy, default);
+        var a = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         Assert.Equal(1, a!.AttemptCount);
 
         // 3. A's lease passes, and so does the reclaim grace.
         world.Clock.Advance(Policy.LeaseDuration + Policy.ReclaimGrace + TimeSpan.FromSeconds(1));
 
         // 4. B reclaims: new attempt, new token.
-        var b = await lifecycle.ClaimNextAsync(Policy, default);
+        var b = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         Assert.Equal(a.AnalysisId, b!.AnalysisId);
         Assert.Equal(2, b.AttemptCount);
 
@@ -90,9 +90,9 @@ public sealed class SceneAnalyticsOwnershipTests(PostgresFixture fixture)
         await using var _ = db;
         await QueueAsync(lifecycle);
 
-        var a = await lifecycle.ClaimNextAsync(Policy, default);
+        var a = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         world.Clock.Advance(Policy.LeaseDuration + Policy.ReclaimGrace + TimeSpan.FromSeconds(1));
-        var b = await lifecycle.ClaimNextAsync(Policy, default);
+        var b = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         var before = await world.UnitAsync(b!.AnalysisId);
 
         var late = await lifecycle.ReportFailureAsync(
@@ -123,7 +123,7 @@ public sealed class SceneAnalyticsOwnershipTests(PostgresFixture fixture)
         var (lifecycle, db) = world.Host();
         await using var _ = db;
         await QueueAsync(lifecycle);
-        var claim = await lifecycle.ClaimNextAsync(Policy, default);
+        var claim = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
 
         // Well past the lease and the grace; nobody reclaimed it.
         world.Clock.Advance(Policy.LeaseDuration + Policy.ReclaimGrace + TimeSpan.FromHours(2));
@@ -192,9 +192,9 @@ public sealed class SceneAnalyticsOwnershipTests(PostgresFixture fixture)
         await using var _ = db;
         await QueueAsync(lifecycle);
 
-        var a = await lifecycle.ClaimNextAsync(Policy, default);
+        var a = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         world.Clock.Advance(Policy.LeaseDuration + Policy.ReclaimGrace + TimeSpan.FromSeconds(1));
-        var b = await lifecycle.ClaimNextAsync(Policy, default);
+        var b = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         await lifecycle.CommitFactsAsync(b!, world.Facts(b!.AnalysisId, "S"), default);
 
         // A's facts are empty, so a fence that failed open would leave no facts at all.
@@ -220,7 +220,7 @@ public sealed class SceneAnalyticsOwnershipTests(PostgresFixture fixture)
         await QueueAsync(lifecycle);
 
         // Old cycle, attempt 1.
-        var old = await lifecycle.ClaimNextAsync(Policy, default);
+        var old = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         Assert.Equal(1, old!.AttemptCount);
         await lifecycle.ReportFailureAsync(
             old, SceneAnalyticsErrorCodes.EngineFailed, null, maximumAttempts: 1, default);
@@ -228,7 +228,7 @@ public sealed class SceneAnalyticsOwnershipTests(PostgresFixture fixture)
 
         // New cycle, also attempt 1.
         Assert.True((await lifecycle.RetryAsync(old.AnalysisId, default)).IsSuccess);
-        var current = await lifecycle.ClaimNextAsync(Policy, default);
+        var current = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         Assert.Equal(old.AnalysisId, current!.AnalysisId);
         Assert.Equal(old.AttemptCount, current.AttemptCount);
         Assert.NotEqual(old.ClaimToken.ToArray(), current.ClaimToken.ToArray());
@@ -252,14 +252,14 @@ public sealed class SceneAnalyticsOwnershipTests(PostgresFixture fixture)
         await using var _ = db;
         await QueueAsync(lifecycle);
 
-        var first = await lifecycle.ClaimNextAsync(Policy, default);
+        var first = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         await lifecycle.CommitFactsAsync(first!, world.Facts(first!.AnalysisId, "N"), default);
 
         var newRevisionId = await world.ActivateNewRevisionAsync(Now.AddMinutes(1));
         world.Clock.Advance(TimeSpan.FromMinutes(2));
         await lifecycle.RequestAnalysisAsync(
             world.IdentityFor(newRevisionId, SceneAnalyticsWorld.AlgorithmVersion), default);
-        var second = await lifecycle.ClaimNextAsync(Policy, default);
+        var second = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         await lifecycle.CommitFactsAsync(second!, world.Facts(second!.AnalysisId, "S"), default);
 
         var superseded = await world.UnitAsync(first.AnalysisId);
@@ -292,7 +292,7 @@ public sealed class SceneAnalyticsOwnershipTests(PostgresFixture fixture)
         var (lifecycle, db) = world.Host();
         await using var _ = db;
         await QueueAsync(lifecycle);
-        var claim = await lifecycle.ClaimNextAsync(Policy, default);
+        var claim = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         await lifecycle.ReportFailureAsync(
             claim!, SceneAnalyticsErrorCodes.EngineFailed, "engine threw", Policy.MaximumAttempts, default);
 
@@ -327,7 +327,7 @@ public sealed class SceneAnalyticsOwnershipTests(PostgresFixture fixture)
         var tokens = new List<string>();
         for (var attempt = 1; attempt <= Policy.MaximumAttempts; attempt++)
         {
-            var claim = await lifecycle.ClaimNextAsync(Policy, default);
+            var claim = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
             tokens.Add(Convert.ToHexStringLower(claim!.ClaimToken.Span));
             world.Clock.Advance(Policy.LeaseDuration + Policy.ReclaimGrace + TimeSpan.FromSeconds(1));
         }
@@ -357,7 +357,7 @@ public sealed class SceneAnalyticsOwnershipTests(PostgresFixture fixture)
         SceneAnalysisClaim? claim = null;
         for (var attempt = 1; attempt <= Policy.MaximumAttempts; attempt++)
         {
-            claim = await lifecycle.ClaimNextAsync(Policy, default);
+            claim = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
             if (attempt < Policy.MaximumAttempts)
             {
                 world.Clock.Advance(Policy.LeaseDuration + Policy.ReclaimGrace + TimeSpan.FromSeconds(1));

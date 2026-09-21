@@ -46,7 +46,7 @@ public sealed class SceneAnalyticsCommitBoundaryTests(PostgresFixture fixture)
         var (lifecycle, db) = world.Host();
         await using var _ = db;
         await QueueAsync(lifecycle);
-        var claim = await lifecycle.ClaimNextAsync(Policy, default);
+        var claim = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
         var facts = world.Facts(claim!.AnalysisId);
 
         // Another session holds the barrier, so the completion cannot get past it.
@@ -91,12 +91,12 @@ public sealed class SceneAnalyticsCommitBoundaryTests(PostgresFixture fixture)
         var (_, lifecycle, db) = world.Executor();
         await using var __ = db;
         await QueueAsync(lifecycle);
-        var claim = await lifecycle.ClaimNextAsync(Policy, default);
+        var claim = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
 
         // A fact that references a Track which does not exist: the foreign key to tracks
         // is Restrict, so the database refuses the insert inside the final transaction.
         var executor = world.ExecutorWith(new PhantomTrackEvidenceReader(world), lifecycle);
-        var result = await executor.ExecuteAsync(claim!, new SceneAnalyticsOptions(), default);
+        var result = await executor.ExecuteAsync(claim!, SceneAnalyticsWorld.ExecutionIdentity, new SceneAnalyticsOptions(), default);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(SceneAnalyticsErrorCodes.PersistenceFailed, result.FailureCode);

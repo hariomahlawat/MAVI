@@ -64,6 +64,18 @@ public sealed class SceneAnalyticsOptions
     /// </remarks>
     public int ReconcileLookbackDays { get; init; } = 7;
 
+    /// <summary>
+    /// The fixed cutoff for automatic reconciliation, derived from when the host started.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately a function of host start and nothing else. Deriving it from the
+    /// current time would make it crawl forward on every cycle, so a lookback of zero —
+    /// meaning "do not backfill history" — would also stop new work being analysed once
+    /// it was a cycle old. The lookback bounds how far back a starting host reaches.
+    /// </remarks>
+    public DateTimeOffset ReconcileFloor(DateTimeOffset hostStartedAtUtc) =>
+        hostStartedAtUtc.AddDays(-ReconcileLookbackDays);
+
     public SceneAnalysisLeasePolicy ToLeasePolicy() => new(
         TimeSpan.FromSeconds(LeaseSeconds),
         TimeSpan.FromSeconds(ReclaimGraceSeconds),

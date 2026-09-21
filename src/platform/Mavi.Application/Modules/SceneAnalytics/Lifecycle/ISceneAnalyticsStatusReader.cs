@@ -43,8 +43,27 @@ public sealed record SceneAnalysisUnitView(
 /// <summary>Reads what the analytics projections need, without mutating anything.</summary>
 public interface ISceneAnalyticsStatusReader
 {
-    /// <summary>The camera a completed run belongs to, or null if the run is unknown.</summary>
+    /// <summary>
+    /// The camera a run belongs to, whatever state the run is in, or null if it is
+    /// unknown.
+    /// </summary>
+    /// <remarks>
+    /// For projections that already legitimately expose the run — the video's processing
+    /// status reports work in progress on purpose. Not for the direct analytics surface;
+    /// see <see cref="GetVisibleRunCameraAsync"/>.
+    /// </remarks>
     Task<Guid?> GetRunCameraAsync(Guid processingRunId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The camera a <b>completed and published</b> run belongs to, or null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// The direct analytics surface is addressed by run id, so answering for a run that
+    /// has not been published would confirm its existence to a caller who could otherwise
+    /// only guess. An unknown run and an unpublished one therefore give the same answer,
+    /// which is the boundary the attestation endpoint already draws.
+    /// </remarks>
+    Task<Guid?> GetVisibleRunCameraAsync(Guid processingRunId, CancellationToken cancellationToken);
 
     /// <summary>
     /// The camera's analytics scope, or null if the camera itself does not exist.

@@ -15,6 +15,15 @@ public sealed class SceneAnalyticsStatusReader(MaviDbContext db) : ISceneAnalyti
                select (Guid?)video.CameraId)
             .SingleOrDefaultAsync(cancellationToken);
 
+    public async Task<Guid?> GetVisibleRunCameraAsync(Guid processingRunId, CancellationToken cancellationToken) =>
+        await (from run in db.ProcessingRuns.AsNoTracking()
+               where run.Id == processingRunId
+                     && run.Status == ProcessingRunStatus.Completed
+                     && run.VisibilitySequence != null
+               join video in db.VideoAssets.AsNoTracking() on run.VideoAssetId equals video.Id
+               select (Guid?)video.CameraId)
+            .SingleOrDefaultAsync(cancellationToken);
+
     public async Task<SceneAnalyticsCameraScope?> GetCameraScopeAsync(
         Guid cameraId,
         CancellationToken cancellationToken)

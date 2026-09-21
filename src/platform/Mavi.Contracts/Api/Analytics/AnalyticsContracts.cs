@@ -90,6 +90,9 @@ public sealed record SceneReanalysisRequest(string? Scope);
 /// per identity, so a second request usually creates nothing; reporting one total would
 /// make a repeated click look identical to the first one and appear to have done work.
 /// Every run in scope lands in exactly one bucket, so the counts sum to the scope size.
+/// <paramref name="AlreadySuperseded"/> is reported separately rather than counted as
+/// ready: finding the <i>requested</i> identity already historical is a consistency
+/// condition to investigate, not a successful analysis (plan §P).
 /// </remarks>
 public sealed record SceneReanalysisAcceptedResponse(
     Guid CameraId,
@@ -100,9 +103,10 @@ public sealed record SceneReanalysisAcceptedResponse(
     int AlreadyQueued,
     int AlreadyRunning,
     int AlreadyReady,
-    int FailedRequiresRetry)
+    int FailedRequiresRetry,
+    int AlreadySuperseded)
 {
     /// <summary>Runs in scope, which is the sum of the buckets.</summary>
     public int RunsInScope =>
-        Created + AlreadyQueued + AlreadyRunning + AlreadyReady + FailedRequiresRetry;
+        Created + AlreadyQueued + AlreadyRunning + AlreadyReady + FailedRequiresRetry + AlreadySuperseded;
 }

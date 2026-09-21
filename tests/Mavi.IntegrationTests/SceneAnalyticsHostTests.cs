@@ -111,7 +111,7 @@ public sealed class SceneAnalyticsHostTests(PostgresFixture fixture)
             null, Now.AddDays(-1), 50, default);
         for (var attempt = 0; attempt < options.MaximumAttempts; attempt++)
         {
-            await lifecycle.ClaimNextAsync(options.ToLeasePolicy(), default);
+            await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, options.ToLeasePolicy(), default);
             world.Clock.Advance(TimeSpan.FromSeconds(options.LeaseSeconds + options.ReclaimGraceSeconds + 1));
         }
 
@@ -129,6 +129,87 @@ public sealed class SceneAnalyticsHostTests(PostgresFixture fixture)
         Assert.Equal(SceneAnalysisStatus.Failed, terminated.Status);
         Assert.Equal(SceneAnalyticsErrorCodes.AttemptsExhausted, terminated.FailureCode);
         Assert.Null(terminated.ClaimTokenHash);
+    }
+
+    // --- Reconciliation reaches back a fixed distance, once ----------------
+
+    /// <summary>
+    /// With no historical lookback at all, a run that completes while the host is running
+    /// is still analysed.
+    /// </summary>
+    /// <remarks>
+    /// The cutoff is anchored at host start. Recomputing it each cycle would make it
+    /// crawl forward, so a lookback of zero — a supported value meaning "do not backfill
+    /// history" — would also switch off automatic analytics for new work.
+    /// </remarks>
+    [Fact]
+    public async Task AZeroLookbackStillAnalysesARunThatCompletedAfterTheHostStarted()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        await world.AttachTrajectoryAsync(TrajectoryPayload.DwellThenLeave());
+        await using var factory = CreateFactory(world);
+
+        // The host started before the run completed; the lookback adds nothing.
+        var floor = world.RunCompletedAtUtc.AddMinutes(-1);
+        world.Clock.Advance(TimeSpan.FromMinutes(30));
+        await RunCycleAsync(factory, world, floor);
+
+        var unit = await world.Read().SceneAnalyses.AsNoTracking().SingleAsync();
+        Assert.Equal(SceneAnalysisStatus.Completed, unit.Status);
+    }
+
+    /// <summary>A run that finished before the host's window is left to explicit request.</summary>
+    [Fact]
+    public async Task AZeroLookbackDoesNotBackfillARunThatCompletedBeforeTheHostStarted()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        await using var factory = CreateFactory(world);
+
+        await RunCycleAsync(factory, world, world.RunCompletedAtUtc.AddMinutes(1));
+
+        Assert.Empty(await world.Read().SceneAnalyses.ToListAsync());
+    }
+
+    /// <summary>
+    /// The anchor does not move, so an eligible run stays eligible however long
+    /// reconciliation has been failing to create its unit.
+    /// </summary>
+    [Fact]
+    public async Task APostStartRunStaysEligibleLongAfterTheLookbackIntervalHasPassed()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        await using var factory = CreateFactory(world);
+        var floor = world.RunCompletedAtUtc.AddMinutes(-1);
+
+        // Weeks pass with no successful reconciliation.
+        world.Clock.Advance(TimeSpan.FromDays(30));
+        await RunCycleAsync(factory, world, floor);
+
+        var unit = await world.Read().SceneAnalyses.AsNoTracking().SingleAsync();
+        Assert.Equal(world.RunId, unit.ProcessingRunId);
+    }
+
+    /// <summary>
+    /// The anchor must not weaken the separate rule that a geometry edit never reaches
+    /// backwards: a revision activated after a run completed does not claim that run.
+    /// </summary>
+    [Fact]
+    public async Task TheRevisionActivationCutoffStillPreventsReachingBackwards()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        await using var factory = CreateFactory(world);
+        var floor = world.RunCompletedAtUtc.AddDays(-1);
+        await RunCycleAsync(factory, world, floor);
+        var original = await world.Read().SceneAnalyses.AsNoTracking().SingleAsync();
+
+        var newRevisionId = await world.ActivateNewRevisionAsync(Now.AddMinutes(5));
+        world.Clock.Advance(TimeSpan.FromMinutes(10));
+        await RunCycleAsync(factory, world, floor);
+
+        await using var reader = world.Read();
+        var units = await reader.SceneAnalyses.AsNoTracking().ToListAsync();
+        Assert.Equal(original.Id, Assert.Single(units).Id);
+        Assert.DoesNotContain(units, unit => unit.RevisionId == newRevisionId);
     }
 
     // --- Configuration contract --------------------------------------------
@@ -160,6 +241,17 @@ public sealed class SceneAnalyticsHostTests(PostgresFixture fixture)
             ["SceneAnalytics:LeaseSeconds"] = "200",
             ["SceneAnalytics:MaxUnitDurationSeconds"] = "100",
         });
+
+    /// <summary>
+    /// The host awaits each unit in turn, so a value above one would promise concurrency
+    /// the implementation does not provide.
+    /// </summary>
+    [Theory]
+    [InlineData("2")]
+    [InlineData("16")]
+    public void MaxConcurrentUnitsIsPinnedToOneInV1(string value) =>
+        Assert.Throws<OptionsValidationException>(() =>
+            Validate(new Dictionary<string, string?> { ["SceneAnalytics:MaxConcurrentUnits"] = value }));
 
     [Theory]
     [InlineData("SceneAnalytics:MaximumAttempts", "0")]
@@ -219,7 +311,10 @@ public sealed class SceneAnalyticsHostTests(PostgresFixture fixture)
     private static Task RunOneCycleAsync(ApiTestFactory factory, SceneAnalyticsWorld world) =>
         RunCycleAsync(factory, world);
 
-    private static async Task RunCycleAsync(ApiTestFactory factory, SceneAnalyticsWorld world)
+    private static async Task RunCycleAsync(
+        ApiTestFactory factory,
+        SceneAnalyticsWorld world,
+        DateTimeOffset? reconcileFloorUtc = null)
     {
         // Touch the client so the host is built exactly as the application builds it.
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -228,7 +323,10 @@ public sealed class SceneAnalyticsHostTests(PostgresFixture fixture)
             factory.Services.GetRequiredService<IOptions<SceneAnalyticsOptions>>(),
             world.Clock,
             NullLogger<SceneAnalyticsHostedService>.Instance);
-        await host.RunCycleAsync(factory.Services.GetRequiredService<IOptions<SceneAnalyticsOptions>>().Value, default);
+        await host.RunCycleAsync(
+            factory.Services.GetRequiredService<IOptions<SceneAnalyticsOptions>>().Value,
+            reconcileFloorUtc ?? Now.AddDays(-1),
+            default);
     }
 
     /// <summary>Builds the application's options exactly as start-up validation would.</summary>

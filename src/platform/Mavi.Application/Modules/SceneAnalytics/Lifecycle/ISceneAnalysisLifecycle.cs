@@ -18,6 +18,54 @@ public sealed record SceneAnalysisIdentity(
     string? SourceCommit);
 
 /// <summary>
+/// The analytics identity a host is able to execute: the engine it compiled against and
+/// the exact parameter set that engine will use.
+/// </summary>
+/// <remarks>
+/// <para>
+/// This is the fence that keeps <c>AlgorithmVersion</c> and <c>ParametersSha256</c>
+/// meaningful. A unit records the identity its facts were computed under, and that record
+/// is only worth anything if no host can compute under a different one. The platform runs
+/// multiple hosts by design — <c>FOR UPDATE SKIP LOCKED</c> exists for exactly that — so
+/// a deployment boundary genuinely puts a v1 unit and a v2 host in the same database.
+/// </para>
+/// <para>
+/// Without the fence, either direction corrupts history: a v2 host claiming a queued v1
+/// unit would commit v2 facts beneath a row that says v1, and during a rolling upgrade a
+/// surviving v1 host would commit v1 facts beneath a row that says v2. Neither is
+/// detectable afterwards, and both destroy the reproducibility the identity exists for.
+/// </para>
+/// </remarks>
+public sealed record SceneAnalysisExecutionIdentity
+{
+    public SceneAnalysisExecutionIdentity(string algorithmVersion, string parametersSha256)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(algorithmVersion);
+        ArgumentException.ThrowIfNullOrWhiteSpace(parametersSha256);
+
+        AlgorithmVersion = algorithmVersion;
+        ParametersSha256 = parametersSha256;
+    }
+
+    public string AlgorithmVersion { get; }
+
+    public string ParametersSha256 { get; }
+
+    /// <summary>What this binary can execute, read from the compiled engine.</summary>
+    public static SceneAnalysisExecutionIdentity Current { get; } = new(
+        Engine.SceneAnalyticsAlgorithm.Version,
+        Engine.SceneAnalyticsParameters.Default.ParametersSha256());
+
+    /// <summary>Whether a claimed unit's persisted identity is one this host may execute.</summary>
+    public bool Matches(SceneAnalysisIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return string.Equals(identity.AlgorithmVersion, AlgorithmVersion, StringComparison.Ordinal)
+            && string.Equals(identity.ParametersSha256, ParametersSha256, StringComparison.Ordinal);
+    }
+}
+
+/// <summary>
 /// The lease and attempt policy a lifecycle transition is taken under.
 /// </summary>
 /// <remarks>
@@ -200,7 +248,14 @@ public interface ISceneAnalysisLifecycle
     /// <c>SKIP LOCKED</c> is what makes two hosts safe — they cannot select the same row,
     /// so they cannot both claim it.
     /// </remarks>
+    /// <remarks>
+    /// <paramref name="executionIdentity"/> is part of the selection predicate, not a
+    /// check applied afterwards: a host must never take ownership of a unit it cannot
+    /// legitimately execute, because taking it consumes an attempt and blocks the host
+    /// that could.
+    /// </remarks>
     Task<SceneAnalysisClaim?> ClaimNextAsync(
+        SceneAnalysisExecutionIdentity executionIdentity,
         SceneAnalysisLeasePolicy policy,
         CancellationToken cancellationToken);
 

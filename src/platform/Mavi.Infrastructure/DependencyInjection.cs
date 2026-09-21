@@ -150,8 +150,10 @@ public static class SceneAnalyticsOptionsRegistration
                 "SceneAnalytics:ReclaimGraceSeconds must be between 0 and 86400.")
             .Validate(x => x.MaximumAttempts is >= 1 and <= 100,
                 "SceneAnalytics:MaximumAttempts must be between 1 and 100.")
-            .Validate(x => x.MaxConcurrentUnits is >= 1 and <= 16,
-                "SceneAnalytics:MaxConcurrentUnits must be between 1 and 16.")
+            // Pinned rather than ranged: the host executes units in turn, so a larger
+            // value would promise concurrency the implementation does not provide.
+            .Validate(x => x.MaxConcurrentUnits == 1,
+                "SceneAnalytics:MaxConcurrentUnits must be 1; the host executes one unit per cycle in v1.")
             .Validate(x => x.ReconcileBatchSize is >= 1 and <= 1000,
                 "SceneAnalytics:ReconcileBatchSize must be between 1 and 1000.")
             .Validate(x => x.ReconcileLookbackDays is >= 0 and <= 3650,

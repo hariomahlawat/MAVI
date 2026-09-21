@@ -77,6 +77,13 @@ public sealed class SceneAnalyticsHostedService(
             return;
         }
 
+        // Anchored once, for this host's lifetime. Recomputing the cutoff every cycle
+        // makes it crawl forward: with a lookback of zero a run that completed a minute
+        // after start-up is already "historical" by the next cycle, so a configuration
+        // meant to disable backfill would disable automatic analytics altogether. The
+        // lookback bounds how far back a starting host reaches, and nothing else.
+        var reconcileFloorUtc = configured.ReconcileFloor(timeProvider.GetUtcNow());
+
         LogStarted(logger, configured.ReconcileIntervalSeconds, null);
         using var timer = new PeriodicTimer(
             TimeSpan.FromSeconds(configured.ReconcileIntervalSeconds),
@@ -86,7 +93,7 @@ public sealed class SceneAnalyticsHostedService(
         {
             try
             {
-                await RunCycleAsync(configured, stoppingToken);
+                await RunCycleAsync(configured, reconcileFloorUtc, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -112,19 +119,28 @@ public sealed class SceneAnalyticsHostedService(
     /// sleeping — which fails on a slow machine and passes for the wrong reason on a fast
     /// one. The seam costs one public method and buys a deterministic test.
     /// </remarks>
-    public async Task RunCycleAsync(SceneAnalyticsOptions configured, CancellationToken cancellationToken)
+    /// <param name="reconcileFloorUtc">
+    /// The fixed cutoff for automatic reconciliation, anchored at host start. It is a
+    /// parameter rather than something recomputed here so that the anchoring is visible
+    /// at the call site and a test can state it outright.
+    /// </param>
+    public async Task RunCycleAsync(
+        SceneAnalyticsOptions configured,
+        DateTimeOffset reconcileFloorUtc,
+        CancellationToken cancellationToken)
     {
         var policy = configured.ToLeasePolicy();
+        var executionIdentity = SceneAnalysisExecutionIdentity.Current;
 
         await using (var scope = scopeFactory.CreateAsyncScope())
         {
             var lifecycle = scope.ServiceProvider.GetRequiredService<ISceneAnalysisLifecycle>();
 
             var queued = await lifecycle.QueueEligibleUnitsAsync(
-                SceneAnalyticsAlgorithm.Version,
-                SceneAnalyticsParameters.Default.ParametersSha256(),
+                executionIdentity.AlgorithmVersion,
+                executionIdentity.ParametersSha256,
                 sourceCommit: null,
-                timeProvider.GetUtcNow().AddDays(-configured.ReconcileLookbackDays),
+                reconcileFloorUtc,
                 configured.ReconcileBatchSize,
                 cancellationToken);
             if (queued > 0)
@@ -145,14 +161,14 @@ public sealed class SceneAnalyticsHostedService(
             // clean context, and the claim has already committed before the engine runs.
             await using var scope = scopeFactory.CreateAsyncScope();
             var lifecycle = scope.ServiceProvider.GetRequiredService<ISceneAnalysisLifecycle>();
-            var claim = await lifecycle.ClaimNextAsync(policy, cancellationToken);
+            var claim = await lifecycle.ClaimNextAsync(executionIdentity, policy, cancellationToken);
             if (claim is null)
             {
                 return;
             }
 
             var executor = scope.ServiceProvider.GetRequiredService<SceneAnalysisExecutor>();
-            await executor.ExecuteAsync(claim, configured, cancellationToken);
+            await executor.ExecuteAsync(claim, executionIdentity, configured, cancellationToken);
         }
     }
 }

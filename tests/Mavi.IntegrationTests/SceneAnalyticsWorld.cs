@@ -31,6 +31,16 @@ internal sealed class SceneAnalyticsWorld
 
     public static readonly string ParametersSha256 = new('b', 64);
 
+    /// <summary>The engine identity this world's units are created under.</summary>
+    public static SceneAnalysisExecutionIdentity ExecutionIdentity { get; } =
+        new(AlgorithmVersion, ParametersSha256);
+
+    /// <summary>A host running a different engine, for mixed-version scenarios.</summary>
+    public static SceneAnalysisExecutionIdentity IdentityFor(
+        string algorithmVersion,
+        string? parametersSha256 = null) =>
+        new(algorithmVersion, parametersSha256 ?? ParametersSha256);
+
     private SceneAnalyticsWorld() { }
 
     public required PostgresFixture Fixture { get; init; }

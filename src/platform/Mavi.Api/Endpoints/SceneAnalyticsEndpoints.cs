@@ -152,7 +152,8 @@ public static class SceneAnalyticsEndpoints
         outcome.AlreadyQueued,
         outcome.AlreadyRunning,
         outcome.AlreadyReady,
-        outcome.FailedRequiresRetry);
+        outcome.FailedRequiresRetry,
+        outcome.AlreadySuperseded);
 
     // A run that does not exist and one that is not visible share the same answer, as the
     // attestation endpoint already does: a 404 must not confirm that a hidden run exists.
