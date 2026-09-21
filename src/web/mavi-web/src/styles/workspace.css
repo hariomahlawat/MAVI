@@ -118,9 +118,19 @@
 .workspace__band { display: flex; min-width: 0; }
 .workspace__band > * { flex: 1 1 auto; min-width: 0; }
 
-/* --- Ledger: full width, the body scrolls, the page does not. --------- */
+/* --- Ledger: full width, the body scrolls, the page does not. ---------
+ * This region is the surface's single scroll owner, which is exactly what
+ * section 11 says earns a containment border — and exactly why nothing inside
+ * it may be a second one. A Ledger puts its table here directly: no Panel
+ * around it (that would be the card-inside-card section 11 calls a defect) and
+ * no `.table-wrap` inside it (that would be a scrolling container inside the
+ * scrolling container, so the sticky header would stick to the wrong one). */
 .workspace--ledger { height: 100%; min-height: 0; }
-.workspace--ledger .workspace__body--scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.workspace--ledger .workspace__body--scroll {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-3);
+  background: var(--surface-base);
+}
 
 /* --- Overview only: the section 4.1.1 exception. ----------------------
  * The exception is a *width* one and nothing else. §4's scroll-ownership
@@ -132,7 +142,11 @@
   width: 100%; max-width: var(--content-max); margin: 0 auto;
   height: 100%; min-height: 0;
 }
+/* The summary variant's body is the scroll owner too, but it is deliberately
+   not drawn as a container: what it holds is already contained (a list, a
+   breakdown), and a border here would nest one inside the other. */
 .workspace--ledger-summary .workspace__body--scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.workspace--ledger-summary .workspace__body--scroll > * { display: grid; gap: var(--s-4); align-content: start; }
 
 /* --- Record: centred reading surface; the page scrolls. -------------- */
 .workspace--record { width: 100%; max-width: var(--content-max); margin: 0 auto; }

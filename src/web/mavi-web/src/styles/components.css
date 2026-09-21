@@ -155,8 +155,22 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .count strong { color: var(--text-primary); font-weight: 600; }
 
 /* Tables */
+/* `.table-wrap` is the legacy scrolling wrapper, still used by Search and
+   Review. A Ledger must not use it: the Ledger's scroll owner is the workspace
+   body (section 4.1), and a wrapper inside that would be a second scrolling
+   container inside the first. */
 .table-wrap { overflow: auto; min-height: 0; }
 table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-2); }
+/* A Ledger is full width; its table is not (section 4.1). `max-content` is the
+   width the columns actually need, so a sparse inventory stays a left-aligned
+   block rather than a band of text stretched across 2560px, while a table whose
+   columns need more than the viewport still falls back to 100% and truncates
+   inside its capped cells. The cap belongs here rather than on `table.table`,
+   which Search and Review also use. */
+table.table--ledger { width: 100%; max-width: max-content; }
+/* Named once so the accessible name is not lost when the visible statement
+   about the table lives in the toolbar instead (section 23). */
+.table caption { text-align: left; }
 .table th, .table td { padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: middle; }
 .table th {
   position: sticky; top: 0; z-index: var(--z-sticky); background: var(--surface-base);
@@ -170,6 +184,23 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-si
 .table--dense th, .table--dense td { padding: var(--s-1) var(--s-2); }
 .table tr.is-clickable { cursor: pointer; }
 .table__actions { display: flex; gap: var(--s-1); justify-content: flex-end; white-space: nowrap; }
+/* A sortable header is a button inside the cell, never a clickable `<th>`: a
+   header cell carries no activation role, so a handler on one is reachable by
+   pointer and by nothing else. The cell keeps `aria-sort`; the glyph repeats it
+   visually, so the indicator never rests on colour (section 23). The button
+   takes the cell's padding so its hit area is the whole header. */
+.table th.is-sortable { padding: 0; }
+.col-sort {
+  display: flex; align-items: center; gap: var(--s-1);
+  width: 100%; min-height: var(--control-h-sm); padding: var(--s-2) var(--s-3);
+  border: 0; background: transparent; color: inherit;
+  font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left;
+  transition: background var(--dur), color var(--dur);
+}
+.table th.num .col-sort { justify-content: flex-end; }
+.col-sort:hover { background: var(--surface-raised); color: var(--text-primary); }
+.table th[aria-sort="ascending"] .col-sort, .table th[aria-sort="descending"] .col-sort { color: var(--text-primary); }
+.col-sort__mark { color: var(--text-muted); font-size: var(--fs-0); flex: 0 0 auto; }
 /* Key/value lists */
 .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--s-1) var(--s-4); margin: 0; font-size: var(--fs-2); }
 .kv dt { color: var(--text-muted); font-size: var(--fs-1); white-space: nowrap; }
