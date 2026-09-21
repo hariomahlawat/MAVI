@@ -53,5 +53,55 @@
   "thumbnailContentUrl": null
  },
  "trajectoryArtifactId": null,
- "trajectoryContentUrl": null
+ "trajectoryContentUrl": null,
+ "analytics": {
+  "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+  "sceneRevisionNumber": 4,
+  "algorithmVersion": "scene-analytics-v1",
+  "status": "Analysed",
+  "unavailableReason": null,
+  "referencePoint": "bbox-centre",
+  "sampleCount": 42,
+  "gapCount": 0,
+  "gapTotalMs": 0,
+  "zoneSummaries": [
+   {
+    "zoneId": "77777777-7777-7777-8777-777777777777",
+    "visitCount": 1,
+    "totalDwellMs": 2100,
+    "firstEntryTimestampUtc": "2026-09-14T02:30:00.6Z",
+    "lastExitTimestampUtc": "2026-09-14T02:30:02.7Z",
+    "loitering": false,
+    "loiteringThresholdSeconds": 120,
+    "loiteringDwellMs": 0
+   }
+  ],
+  "zoneVisits": [
+   {
+    "zoneId": "77777777-7777-7777-8777-777777777777",
+    "visitIndex": 0,
+    "entryOffsetMs": 600,
+    "exitOffsetMs": 2700,
+    "entryTimestampUtc": "2026-09-14T02:30:00.6Z",
+    "exitTimestampUtc": "2026-09-14T02:30:02.7Z",
+    "dwellMs": 2100,
+    "beganInside": true,
+    "endedInside": false,
+    "closedByGap": false,
+    "entryHeading": "None",
+    "exitHeading": "E"
+   }
+  ],
+  "lineCrossings": [],
+  "motion": {
+   "heading": "E",
+   "pathLengthNormalised": 0.31,
+   "meanDisplacementRate": 0.11,
+   "longestStationaryMs": 0,
+   "totalStationaryMs": 0,
+   "stationaryIntervals": [],
+   "stationaryZoneIds": []
+  },
+  "otherIdentities": []
+ }
 }

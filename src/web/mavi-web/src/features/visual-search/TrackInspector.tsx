@@ -128,7 +128,11 @@ export default function TrackInspector({
               <span className="small faint">Local track {detail.localTrackNumber} · <code>{detail.id.slice(0, 8)}…</code></span>
             </div>
             <TrackSummary detail={detail} displayTimeZoneId={displayTimeZoneId} />
-            <TrackAnalyticsSummary analytics={detail.analytics} geometry={geometry} displayTimeZoneId={displayTimeZoneId} />
+            {/* Guarded rather than assumed: a detail from a server without the
+                analytics block must degrade to the Slice-3 inspector, not blank it. */}
+            {detail.analytics ? (
+              <TrackAnalyticsSummary analytics={detail.analytics} geometry={geometry} displayTimeZoneId={displayTimeZoneId} />
+            ) : null}
             <details className="disclosure">
               <summary>Representative frame</summary>
               <div className="disclosure__body">

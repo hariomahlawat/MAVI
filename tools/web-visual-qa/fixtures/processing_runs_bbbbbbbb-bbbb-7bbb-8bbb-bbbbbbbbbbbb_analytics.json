@@ -1,0 +1,24 @@
+{
+ "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+ "readiness": "Ready",
+ "activeSceneRevisionId": "66666666-6666-7666-8666-666666666666",
+ "algorithmVersion": "scene-analytics-v1",
+ "analyses": [
+  {
+   "analysisId": "aaaaaaa1-aaaa-7aaa-8aaa-aaaaaaaaaaa1",
+   "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+   "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+   "sceneRevisionNumber": 4,
+   "algorithmVersion": "scene-analytics-v1",
+   "status": "Completed",
+   "attemptCount": 1,
+   "queuedAtUtc": "2026-09-14T03:10:00Z",
+   "startedAtUtc": "2026-09-14T03:10:02Z",
+   "completedAtUtc": "2026-09-14T03:10:41Z",
+   "leaseExpiresAtUtc": null,
+   "analysedTrackCount": 5,
+   "unavailableTrackCount": 1,
+   "failureCode": null
+  }
+ ]
+}

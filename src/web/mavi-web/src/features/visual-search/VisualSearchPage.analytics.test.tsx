@@ -307,10 +307,10 @@ describe('Slice 4 Investigation analytics', () => {
     const path = reviewPath({ id: trackId.toUpperCase(), videoAssetId: 'v' }, `cameraId=${cameraId}`, {
       sceneRevisionId: revisionId.toUpperCase(), analyticsAlgorithmVersion: 'scene-analytics-v1',
     });
-    const url = new URL(path, 'http://x');
-    expect(url.searchParams.get('from')).toBe(`cameraId=${cameraId}&track=${trackId}`);
-    expect(url.searchParams.get('sceneRevisionId')).toBe(revisionId);
-    expect(url.searchParams.get('analyticsAlgorithmVersion')).toBe('scene-analytics-v1');
+    const query = new URLSearchParams(path.slice(path.indexOf('?') + 1));
+    expect(query.get('from')).toBe(`cameraId=${cameraId}&track=${trackId}`);
+    expect(query.get('sceneRevisionId')).toBe(revisionId);
+    expect(query.get('analyticsAlgorithmVersion')).toBe('scene-analytics-v1');
     expect(reviewPath({ id: trackId, videoAssetId: 'v' }, '')).not.toContain('sceneRevisionId');
   });
 });

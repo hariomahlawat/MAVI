@@ -13,6 +13,7 @@
   "attemptCount": 2,
   "failureCode": "worker_watchdog_timeout",
   "framesProcessed": 0,
-  "tracksCreated": 0
+  "tracksCreated": 0,
+  "analyticsReadiness": "NotConfigured"
  }
 }
