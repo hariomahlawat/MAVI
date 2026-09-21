@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import type { TrackSearchItem } from '../../api/tracks';
+import type { TrackAnalyticsIdentity, TrackSearchItem } from '../../api/tracks';
 import Icon from '../../shared/components/Icon';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
@@ -13,12 +13,25 @@ import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
  * search with this Track selected. Without it the Review page falls back to
  * the Track's video scope.
  */
-export function reviewPath(track: Pick<TrackSearchItem, 'id' | 'videoAssetId'>, searchContext?: string): string {
+export function reviewPath(
+  track: Pick<TrackSearchItem, 'id' | 'videoAssetId'>,
+  searchContext?: string,
+  analyticsIdentity?: TrackAnalyticsIdentity,
+): string {
   const trackId = track.id.toLowerCase();
   let path = '/review/video/' + track.videoAssetId.toLowerCase() + '?trackId=' + encodeURIComponent(trackId);
   if (searchContext !== undefined) {
     const from = (searchContext ? searchContext + '&' : '') + 'track=' + trackId;
     path += '&from=' + encodeURIComponent(from);
+  }
+  // The identity the originating analytic search pinned travels beside the
+  // return context, not inside it: Review reads the same facts the search
+  // showed, and "Back to search" still restores the search as committed.
+  if (analyticsIdentity?.sceneRevisionId) {
+    path += '&sceneRevisionId=' + encodeURIComponent(analyticsIdentity.sceneRevisionId.toLowerCase());
+    if (analyticsIdentity.analyticsAlgorithmVersion) {
+      path += '&analyticsAlgorithmVersion=' + encodeURIComponent(analyticsIdentity.analyticsAlgorithmVersion);
+    }
   }
   return path;
 }
@@ -38,6 +51,7 @@ function ResultRow({
   selected,
   displayTimeZoneId,
   searchContext,
+  analyticsIdentity,
   onSelect,
 }: {
   track: TrackSearchItem;
@@ -45,6 +59,7 @@ function ResultRow({
   selected: boolean;
   displayTimeZoneId?: string;
   searchContext?: string;
+  analyticsIdentity?: TrackAnalyticsIdentity;
   onSelect: (id: string) => void;
 }) {
   // Keeping the selected result on screen is the selection contract's, shared
@@ -80,7 +95,7 @@ function ResultRow({
         <time dateTime={track.startTimestampUtc}>{displayTimestamp(track.startTimestampUtc, displayTimeZoneId)}</time>
         <span className="row row--nowrap">
           <StatusBadge status={track.reviewStatus} />
-          <Link className="btn btn--ghost btn--sm btn--icon" to={reviewPath(track, searchContext)} title="Review evidence">
+          <Link className="btn btn--ghost btn--sm btn--icon" to={reviewPath(track, searchContext, analyticsIdentity)} title="Review evidence">
             <Icon name="external" size="sm" />
             <span className="visually-hidden">Review evidence</span>
           </Link>
@@ -96,12 +111,14 @@ export default function TrackResultList({
   selectedId,
   displayTimeZoneId,
   searchContext,
+  analyticsIdentity,
   onSelect,
 }: {
   items: TrackSearchItem[];
   selectedId: string | null;
   displayTimeZoneId?: string;
   searchContext?: string;
+  analyticsIdentity?: TrackAnalyticsIdentity;
   onSelect: (id: string) => void;
 }) {
   return (
@@ -114,6 +131,7 @@ export default function TrackResultList({
           selected={selectedId !== null && track.id.toLowerCase() === selectedId}
           displayTimeZoneId={displayTimeZoneId}
           searchContext={searchContext}
+          analyticsIdentity={analyticsIdentity}
           onSelect={onSelect}
         />
       ))}

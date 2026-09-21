@@ -168,7 +168,7 @@ describe('VideoReviewPage', () => {
     });
 
     await screen.findByLabelText('Source video evidence');
-    expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal));
+    expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), undefined);
   });
 
   it('rejects duplicated trackId query parameters without issuing a Track request', async () => {
@@ -277,7 +277,7 @@ describe('VideoReviewPage', () => {
 
     await waitFor(() => expect(screen.getByLabelText('Source video evidence'))
       .toHaveAttribute('src', '/api/videos/' + secondVideoId + '/content'));
-    expect(getTrack).toHaveBeenCalledWith(secondTrackId, expect.any(AbortSignal));
+    expect(getTrack).toHaveBeenCalledWith(secondTrackId, expect.any(AbortSignal), undefined);
   });
 
   it('surfaces Track not found without retrying the stable 404', async () => {
@@ -295,6 +295,29 @@ describe('VideoReviewPage', () => {
 
     expect(await screen.findByText('Track was not found.')).toBeInTheDocument();
     await waitFor(() => expect(getTrack).toHaveBeenCalledTimes(1));
+  });
+
+  describe('analytic identity (Slice 4)', () => {
+    it('reads the Track against the identity the link carries and ignores a malformed one', async () => {
+      const revision = '018f3f5a-2f70-7a2b-8a12-2d02f4c21481';
+      const first = renderWithApp(<VideoReviewPage />, {
+        route: '/review/video/' + videoId + '?trackId=' + trackId + '&sceneRevisionId=' + revision.toUpperCase() + '&analyticsAlgorithmVersion=scene-analytics-v1',
+        routePath: '/review/video/:videoAssetId',
+      });
+      await screen.findByLabelText('Source video evidence');
+      expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), {
+        sceneRevisionId: revision, analyticsAlgorithmVersion: 'scene-analytics-v1',
+      });
+      first.unmount();
+
+      vi.mocked(getTrack).mockClear();
+      renderWithApp(<VideoReviewPage />, {
+        route: '/review/video/' + videoId + '?trackId=' + trackId + '&sceneRevisionId=not-a-guid',
+        routePath: '/review/video/:videoAssetId',
+      });
+      await screen.findByLabelText('Source video evidence');
+      expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), undefined);
+    });
   });
 
   describe('return navigation', () => {

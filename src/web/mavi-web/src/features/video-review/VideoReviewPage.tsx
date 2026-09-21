@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
-import { getTrack } from '../../api/tracks';
+import { ALGORITHM_VERSION_PATTERN, getTrack, type TrackAnalyticsIdentity } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
@@ -30,6 +30,20 @@ function Invalid({ message }: { message: string }) {
   );
 }
 
+function readAnalyticsIdentity(params: URLSearchParams): TrackAnalyticsIdentity | undefined {
+  const revisions = params.getAll('sceneRevisionId');
+  const versions = params.getAll('analyticsAlgorithmVersion');
+  if (revisions.length !== 1 || !isGuid(revisions[0]) || versions.length > 1) return undefined;
+  const version = versions[0];
+  if (version !== undefined && !ALGORITHM_VERSION_PATTERN.test(version)) return undefined;
+  return { sceneRevisionId: revisions[0].toLowerCase(), analyticsAlgorithmVersion: version };
+}
+
+function analyticsIdentityKey(identity: TrackAnalyticsIdentity | undefined): string {
+  if (!identity?.sceneRevisionId) return '';
+  return identity.sceneRevisionId + (identity.analyticsAlgorithmVersion ? '@' + identity.analyticsAlgorithmVersion : '');
+}
+
 export default function VideoReviewPage() {
   const { videoAssetId: rawVideoAssetId = '' } = useParams();
   const [searchParams] = useSearchParams();
@@ -40,9 +54,15 @@ export default function VideoReviewPage() {
   const videoAssetId = validVideoId ? rawVideoAssetId.toLowerCase() : '';
   const trackId = validTrackId ? rawTrackId.toLowerCase() : '';
 
+  // The analytic identity the originating search pinned, when a link carried
+  // one (plan §S): the facts reviewed are the facts that search showed, never
+  // silently the camera's current revision. A malformed identity is ignored
+  // rather than refused — the Track is still reviewable, against the current one.
+  const analyticsIdentity = readAnalyticsIdentity(searchParams);
+
   const track = useQuery({
-    queryKey: queryKeys.track(trackId),
-    queryFn: ({ signal }) => getTrack(trackId, signal),
+    queryKey: queryKeys.track(trackId, analyticsIdentityKey(analyticsIdentity)),
+    queryFn: ({ signal }) => getTrack(trackId, signal, analyticsIdentity),
     enabled: validVideoId && validTrackId,
     retry: shouldRetryQuery,
   });

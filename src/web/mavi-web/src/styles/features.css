@@ -78,6 +78,37 @@
   border-top: var(--stroke-hair) solid var(--border-subtle);
 }
 .filter-rail__actions .btn { flex: 1; }
+/* Why a group's controls are disabled, stated once above them rather than on
+   every field: the reason is the group's, not each control's. */
+.filter-rail__hint { margin: 0; color: var(--text-muted); font-size: var(--fs-0); line-height: 1.4; }
+
+/* The analytics coverage strip (UI/UX §14 "partially available", §17). A band
+   in the results column beneath the header, not a floating alert: it describes
+   this result set and persists with it. Tone is the operational-state grammar —
+   info while partial, success when complete, dashed stale when history is in
+   play — and the counts carry the meaning, never the colour alone. */
+.coverage {
+  display: flex; align-items: flex-start; gap: var(--s-3);
+  padding: var(--s-2) var(--s-4); border-bottom: var(--stroke-hair) solid var(--border-subtle);
+  font-size: var(--fs-1); line-height: 1.45; color: var(--text-secondary);
+}
+.coverage > .icon { flex: 0 0 auto; margin-top: var(--stroke-2); }
+.coverage__body { display: grid; gap: var(--stroke-2); flex: 1 1 auto; min-width: 0; }
+.coverage__headline strong { color: var(--text-primary); font-weight: 600; }
+.coverage__buckets { color: var(--text-primary); }
+.coverage--info { background: var(--status-info-soft); }
+.coverage--info > .icon { color: var(--status-info); }
+.coverage--success { background: var(--status-ok-soft); }
+.coverage--success > .icon { color: var(--status-ok); }
+.coverage--stale { background: var(--status-stale-soft); border-bottom-style: dashed; border-bottom-color: var(--status-stale-border); }
+.coverage--stale > .icon { color: var(--status-stale); }
+.text-warn { color: var(--status-warn); }
+
+/* The inspector's analytics summary: a key/value block like the Track summary
+   above it, with lists where a Track touched several zones or lines. */
+.analytics-summary { display: grid; gap: var(--s-2); }
+.analytics-summary__title { margin: 0; font-size: var(--fs-1); font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+.analytics-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--stroke-2); }
 
 /* The results column is a bounded, scrolling region, so it carries the border
    that says so (section 11). It used to get that from `.panel`, which also

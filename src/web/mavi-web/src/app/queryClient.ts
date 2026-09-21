@@ -22,7 +22,15 @@ export const queryKeys = {
   video: (id: string) => ['video', id] as const,
   videoProcessing: (id: string) => ['video-processing', id] as const,
   trackSearch: (fingerprint: string) => ['tracks', 'search', fingerprint] as const,
-  track: (id: string) => ['track', id] as const,
+  /**
+   * A Track's detail is one cache entry per analytic identity it was read
+   * against: a historical revision's facts and the current ones are different
+   * answers to different questions and must never overwrite each other.
+   */
+  track: (id: string, analyticsIdentity = '') => ['track', id, analyticsIdentity] as const,
+  cameraScene: (cameraId: string) => ['camera-scene', cameraId] as const,
+  cameraSceneRevision: (cameraId: string, revisionNumber: number) =>
+    ['camera-scene-revision', cameraId, revisionNumber] as const,
   trajectory: (artifactId: string) => ['trajectory', artifactId] as const,
   runAttestation: (processingRunId: string) => ['processing-run', processingRunId, 'attestation'] as const,
   systemConfig: ['system-config'] as const,

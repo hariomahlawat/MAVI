@@ -1,7 +1,9 @@
 import {
   compareUtcInstants,
   confidencePercentTextToFraction,
+  removeCriteria,
   secondsTextToMilliseconds,
+  withCameraScope,
   type CommittedTrackSearch,
 } from './searchState';
 import { configuredWallTimeToUtc } from '../../shared/time/wallTime';
@@ -27,12 +29,14 @@ import type { SearchDraft } from './SearchFilterRail';
  * no state, and it validates nothing it is not asked to commit.
  */
 
-export type SearchFieldKey = 'fromLocal' | 'toLocal' | 'minimumDurationSeconds' | 'minimumConfidencePercent';
+export type SearchFieldKey =
+  | 'fromLocal' | 'toLocal' | 'minimumDurationSeconds' | 'minimumConfidencePercent'
+  | 'minDwellSeconds' | 'minStationarySeconds';
 
 export type SearchFieldErrors = Partial<Record<SearchFieldKey, string>>;
 
 export type TimeDirtyState = { from: boolean; to: boolean };
-export type NumericDirtyState = { duration: boolean; confidence: boolean };
+export type NumericDirtyState = { duration: boolean; confidence: boolean; dwell: boolean; stationary: boolean };
 
 export type DraftCommit =
   | { ok: true; filters: CommittedTrackSearch }
@@ -56,14 +60,14 @@ export function commitDraft({
   numericDirty: NumericDirtyState;
   displayTimeZoneId: string | undefined;
 }): DraftCommit {
-  const next: CommittedTrackSearch = { ...committed };
+  // The camera scope goes first, because a changed camera drops the scene-local
+  // criteria (plan §S) before the analytics fields below restate what survives.
+  const next: CommittedTrackSearch = withCameraScope(committed, {
+    cameraId: draft.cameraId || undefined,
+    videoAssetId: draft.videoAssetId || undefined,
+    processingRunId: committed.processingRunId,
+  });
   const errors: SearchFieldErrors = {};
-
-  if (draft.cameraId) next.cameraId = draft.cameraId.toLowerCase();
-  else delete next.cameraId;
-
-  if (draft.videoAssetId) next.videoAssetId = draft.videoAssetId.toLowerCase();
-  else delete next.videoAssetId;
 
   if (draft.objectClass) next.objectClass = draft.objectClass;
   else delete next.objectClass;
@@ -87,6 +91,55 @@ export function commitDraft({
       errors.minimumConfidencePercent = message(error, 'Minimum confidence is not a valid percentage.');
     }
   }
+
+  // The analytics group. Every field is stated by the draft, so the committed
+  // value is replaced rather than rebased: a select has no "untouched" precision
+  // to preserve. The two durations keep the seconds-to-milliseconds discipline
+  // the existing duration field uses, dirty-gated for the same reason.
+  if (draft.zoneId) {
+    next.zoneId = draft.zoneId.toLowerCase();
+    if (draft.zoneRelation !== 'dwelled') next.zoneRelation = draft.zoneRelation;
+    else delete next.zoneRelation;
+  } else {
+    delete next.zoneId;
+    delete next.zoneRelation;
+    delete next.minDwellMs;
+  }
+
+  if (numericDirty.dwell && draft.zoneId) {
+    try {
+      const dwell = secondsTextToMilliseconds(draft.minDwellSeconds);
+      if (dwell === undefined) delete next.minDwellMs;
+      else next.minDwellMs = dwell;
+    } catch (error) {
+      errors.minDwellSeconds = message(error, 'Minimum dwell is not a valid number of seconds.');
+    }
+  }
+
+  if (draft.lineId) {
+    next.lineId = draft.lineId.toLowerCase();
+    if (draft.crossingDirection) next.crossingDirection = draft.crossingDirection;
+    else delete next.crossingDirection;
+  } else {
+    delete next.lineId;
+    delete next.crossingDirection;
+  }
+
+  if (draft.motionDirection) next.motionDirection = draft.motionDirection;
+  else delete next.motionDirection;
+
+  if (numericDirty.stationary) {
+    try {
+      const stationary = secondsTextToMilliseconds(draft.minStationarySeconds);
+      if (stationary === undefined) delete next.minStationaryMs;
+      else next.minStationaryMs = stationary;
+    } catch (error) {
+      errors.minStationarySeconds = message(error, 'Minimum stationary time is not a valid number of seconds.');
+    }
+  }
+
+  if (draft.loitering === 'true') next.loitering = true;
+  else delete next.loitering;
 
   // ADR-004: the browser's zone is never authoritative, so a wall time can only
   // be converted once the configured display zone is known. Without it the edit
@@ -120,5 +173,7 @@ export function commitDraft({
   }
 
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  return { ok: true, filters: next };
+  // Settle the dependency graph once more: an analytic criterion cannot stand
+  // without a camera-resolving scope, whatever the draft said about it.
+  return { ok: true, filters: removeCriteria(next, []) };
 }

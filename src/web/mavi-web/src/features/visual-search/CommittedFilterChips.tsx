@@ -2,6 +2,16 @@ import type { Camera } from '../../api/cameras';
 import type { VideoAsset } from '../../api/videos';
 import { displayTimestamp } from '../../shared/format/format';
 import {
+  ZONE_RELATION_LABELS,
+  crossingDirectionLabel,
+  engineLabel,
+  lineLabel,
+  motionDirectionLabel,
+  shortId,
+  zoneLabel,
+  type GeometryNames,
+} from './analyticsLabels';
+import {
   confidenceFractionToPercentText,
   millisecondsToSecondsText,
   type CommittedTrackSearch,
@@ -33,13 +43,10 @@ type Props = {
   cameras: Camera[] | undefined;
   videos: VideoAsset[] | undefined;
   displayTimeZoneId: string | undefined;
+  /** The scene geometry that names committed zones and lines, when it is known. */
+  geometry?: GeometryNames;
   onRemove: (keys: ReadonlyArray<ChipCriterion>) => void;
 };
-
-/** Enough of a GUID to tell two apart, without pretending to be a name (§24). */
-function shortId(id: string): string {
-  return id.slice(0, 8) + '…';
-}
 
 type Chip = { key: ChipCriterion; label: string; value: string; removes: ChipCriterion[] };
 
@@ -48,6 +55,7 @@ export function committedChips(
   cameras: Camera[] | undefined,
   videos: VideoAsset[] | undefined,
   displayTimeZoneId: string | undefined,
+  geometry?: GeometryNames,
 ): Chip[] {
   const chips: Chip[] = [];
 
@@ -116,11 +124,92 @@ export function committedChips(
     });
   }
 
+  // The analytics criteria (plan §S). Each chip removes only itself; the page
+  // settles the dependency graph, so removing the zone also drops its relation
+  // and dwell, and removing the revision drops the engine version pinned to it.
+  // Identity keys arrive only from links and have no rail control, which makes
+  // the chip the one place they are visible — and removable.
+  if (filters.sceneRevisionId) {
+    const number = geometry?.revisionNumber;
+    chips.push({
+      key: 'sceneRevisionId',
+      label: 'Scene revision',
+      value: number !== null && number !== undefined ? `Revision ${number}` : shortId(filters.sceneRevisionId),
+      removes: ['sceneRevisionId'],
+    });
+  }
+  if (filters.analyticsAlgorithmVersion) {
+    chips.push({
+      key: 'analyticsAlgorithmVersion',
+      label: 'Analytics engine',
+      value: engineLabel(filters.analyticsAlgorithmVersion),
+      removes: ['analyticsAlgorithmVersion'],
+    });
+  }
+  if (filters.zoneId) {
+    chips.push({
+      key: 'zoneId',
+      label: ZONE_RELATION_LABELS[filters.zoneRelation ?? 'dwelled'],
+      value: zoneLabel(filters.zoneId, geometry),
+      removes: ['zoneId'],
+    });
+  }
+  if (filters.minDwellMs !== undefined) {
+    chips.push({
+      key: 'minDwellMs',
+      label: 'Minimum dwell',
+      value: millisecondsToSecondsText(filters.minDwellMs) + ' s',
+      removes: ['minDwellMs'],
+    });
+  }
+  if (filters.lineId) {
+    const line = geometry?.lines.get(filters.lineId.toLowerCase());
+    chips.push({
+      key: 'lineId',
+      label: 'Crossed',
+      value: lineLabel(filters.lineId, geometry)
+        + (filters.crossingDirection ? ` · ${crossingDirectionLabel(filters.crossingDirection, line)}` : ''),
+      removes: ['lineId'],
+    });
+    if (filters.crossingDirection) {
+      chips.push({
+        key: 'crossingDirection',
+        label: 'Direction',
+        value: crossingDirectionLabel(filters.crossingDirection, line),
+        removes: ['crossingDirection'],
+      });
+    }
+  }
+  if (filters.motionDirection) {
+    chips.push({
+      key: 'motionDirection',
+      label: 'Moving',
+      value: motionDirectionLabel(filters.motionDirection),
+      removes: ['motionDirection'],
+    });
+  }
+  if (filters.minStationaryMs !== undefined) {
+    chips.push({
+      key: 'minStationaryMs',
+      label: 'Stationary for',
+      value: millisecondsToSecondsText(filters.minStationaryMs) + ' s',
+      removes: ['minStationaryMs'],
+    });
+  }
+  if (filters.loitering) {
+    chips.push({
+      key: 'loitering',
+      label: 'Loitering',
+      value: filters.zoneId ? 'in the zone' : 'in any zone',
+      removes: ['loitering'],
+    });
+  }
+
   return chips;
 }
 
-export default function CommittedFilterChips({ filters, cameras, videos, displayTimeZoneId, onRemove }: Props) {
-  const chips = committedChips(filters, cameras, videos, displayTimeZoneId);
+export default function CommittedFilterChips({ filters, cameras, videos, displayTimeZoneId, geometry, onRemove }: Props) {
+  const chips = committedChips(filters, cameras, videos, displayTimeZoneId, geometry);
   if (chips.length === 0) return null;
 
   return (
