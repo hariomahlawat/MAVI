@@ -3,6 +3,7 @@ using Mavi.Domain.Intelligence;
 using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
 using Mavi.Domain.Scene;
+using Mavi.Domain.SceneAnalytics;
 using Microsoft.EntityFrameworkCore;
 
 namespace Mavi.Infrastructure.Persistence;
@@ -21,6 +22,12 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<Entity> Entities => Set<Entity>();
     public DbSet<SceneConfiguration> SceneConfigurations => Set<SceneConfiguration>();
     public DbSet<SceneConfigurationRevision> SceneConfigurationRevisions => Set<SceneConfigurationRevision>();
+    public DbSet<SceneAnalysis> SceneAnalyses => Set<SceneAnalysis>();
+    public DbSet<TrackAnalysisOutcome> TrackAnalysisOutcomes => Set<TrackAnalysisOutcome>();
+    public DbSet<TrackZoneVisit> TrackZoneVisits => Set<TrackZoneVisit>();
+    public DbSet<TrackZoneSummary> TrackZoneSummaries => Set<TrackZoneSummary>();
+    public DbSet<TrackLineCrossing> TrackLineCrossings => Set<TrackLineCrossing>();
+    public DbSet<TrackMotionSummary> TrackMotionSummaries => Set<TrackMotionSummary>();
 
     // Model configuration
     protected override void OnModelCreating(ModelBuilder modelBuilder)

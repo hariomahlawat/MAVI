@@ -990,6 +990,469 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.SceneAnalysis", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AlgorithmVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("algorithm_version");
+
+                    b.Property<int>("AnalysedTrackCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("analysed_track_count");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<byte[]>("ClaimTokenHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("claim_token_hash");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at_utc");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<string>("FailureDetails")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("failure_details");
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_expires_at_utc");
+
+                    b.Property<string>("ParametersSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("parameters_sha256");
+
+                    b.Property<Guid>("ProcessingRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("processing_run_id");
+
+                    b.Property<DateTimeOffset>("QueuedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("queued_at_utc");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("revision_id");
+
+                    b.Property<string>("SourceCommit")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_commit");
+
+                    b.Property<DateTimeOffset?>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at_utc");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<int>("UnavailableTrackCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("unavailable_track_count");
+
+                    b.Property<long?>("VisibilitySequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("visibility_sequence");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessingRunId")
+                        .HasDatabaseName("ix_scene_analyses_run");
+
+                    b.HasIndex("RevisionId");
+
+                    b.HasIndex("VisibilitySequence")
+                        .IsUnique()
+                        .HasDatabaseName("ux_scene_analyses_visibility_sequence")
+                        .HasFilter("visibility_sequence IS NOT NULL");
+
+                    b.HasIndex("Status", "QueuedAtUtc")
+                        .HasDatabaseName("ix_scene_analyses_pending")
+                        .HasFilter("status IN ('Queued', 'Running')");
+
+                    b.HasIndex("ProcessingRunId", "RevisionId", "AlgorithmVersion")
+                        .IsUnique()
+                        .HasDatabaseName("ux_scene_analyses_identity");
+
+                    b.ToTable("scene_analyses", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_scene_analyses_attempt_count", "attempt_count >= 0");
+
+                            t.HasCheckConstraint("ck_scene_analyses_claim_token_hash", "claim_token_hash IS NULL OR octet_length(claim_token_hash) = 32");
+
+                            t.HasCheckConstraint("ck_scene_analyses_parameters_sha256", "parameters_sha256 ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("ck_scene_analyses_status", "status IN ('Queued', 'Running', 'Completed', 'Failed', 'Superseded')");
+
+                            t.HasCheckConstraint("ck_scene_analyses_track_counts", "analysed_track_count >= 0 AND unavailable_track_count >= 0");
+
+                            t.HasCheckConstraint("ck_scene_analyses_visibility_sequence", "visibility_sequence IS NULL OR visibility_sequence > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.TrackAnalysisOutcome", b =>
+                {
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.Property<int>("GapCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("gap_count");
+
+                    b.Property<long>("GapTotalMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("gap_total_ms");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("ReferencePoint")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("reference_point");
+
+                    b.Property<int>("SampleCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("sample_count");
+
+                    b.HasKey("AnalysisId", "TrackId");
+
+                    b.HasIndex("TrackId");
+
+                    b.ToTable("track_analysis_outcomes", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_track_analysis_outcomes_counts", "sample_count >= 0 AND gap_count >= 0 AND gap_total_ms >= 0");
+
+                            t.HasCheckConstraint("ck_track_analysis_outcomes_outcome", "outcome IN ('Analysed', 'Unavailable')");
+
+                            t.HasCheckConstraint("ck_track_analysis_outcomes_reason", "reason IS NULL OR reason IN ('trajectory_missing', 'trajectory_integrity_failed', 'trajectory_invalid', 'trajectory_too_short')");
+
+                            t.HasCheckConstraint("ck_track_analysis_outcomes_reference_point", "reference_point IS NULL OR reference_point IN ('bbox-centre')");
+
+                            t.HasCheckConstraint("ck_track_analysis_outcomes_shape", "(outcome = 'Analysed' AND reason IS NULL AND reference_point IS NOT NULL) OR (outcome = 'Unavailable' AND reason IS NOT NULL AND reference_point IS NULL AND sample_count = 0 AND gap_count = 0 AND gap_total_ms = 0)");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.TrackLineCrossing", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<int>("CrossingIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("crossing_index");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("direction");
+
+                    b.Property<Guid>("LineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("line_id");
+
+                    b.Property<long>("OffsetMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("offset_ms");
+
+                    b.Property<double>("PointX")
+                        .HasColumnType("double precision")
+                        .HasColumnName("point_x");
+
+                    b.Property<double>("PointY")
+                        .HasColumnType("double precision")
+                        .HasColumnName("point_y");
+
+                    b.Property<DateTimeOffset>("TimestampUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp_utc");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrackId");
+
+                    b.HasIndex("LineId", "TimestampUtc", "Direction")
+                        .HasDatabaseName("ix_track_line_crossings_line_time_direction");
+
+                    b.HasIndex("AnalysisId", "TrackId", "LineId", "CrossingIndex")
+                        .IsUnique()
+                        .HasDatabaseName("ux_track_line_crossings_identity");
+
+                    b.ToTable("track_line_crossings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_track_line_crossings_direction", "direction IN ('AToB', 'BToA')");
+
+                            t.HasCheckConstraint("ck_track_line_crossings_indexes", "crossing_index >= 0 AND offset_ms >= 0");
+
+                            t.HasCheckConstraint("ck_track_line_crossings_point", "point_x >= 0 AND point_x <= 1 AND point_y >= 0 AND point_y <= 1");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.TrackMotionSummary", b =>
+                {
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.Property<string>("Heading")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("heading");
+
+                    b.Property<long>("LongestStationaryMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("longest_stationary_ms");
+
+                    b.Property<double>("MeanDisplacementRate")
+                        .HasColumnType("double precision")
+                        .HasColumnName("mean_displacement_rate");
+
+                    b.Property<double>("PathLengthNormalised")
+                        .HasColumnType("double precision")
+                        .HasColumnName("path_length_normalised");
+
+                    b.Property<string>("StationaryIntervals")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("stationary_intervals");
+
+                    b.Property<string>("StationaryZoneIds")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("stationary_zone_ids");
+
+                    b.Property<long>("TotalStationaryMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("total_stationary_ms");
+
+                    b.HasKey("AnalysisId", "TrackId");
+
+                    b.HasIndex("LongestStationaryMs")
+                        .HasDatabaseName("ix_track_motion_summaries_longest_stationary");
+
+                    b.HasIndex("TrackId");
+
+                    b.ToTable("track_motion_summaries", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_track_motion_summaries_durations", "longest_stationary_ms >= 0 AND total_stationary_ms >= 0 AND longest_stationary_ms <= total_stationary_ms");
+
+                            t.HasCheckConstraint("ck_track_motion_summaries_heading", "heading IN ('None', 'N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW')");
+
+                            t.HasCheckConstraint("ck_track_motion_summaries_json_shape", "jsonb_typeof(stationary_intervals) = 'array' AND jsonb_typeof(stationary_zone_ids) = 'array'");
+
+                            t.HasCheckConstraint("ck_track_motion_summaries_path", "path_length_normalised >= 0 AND mean_displacement_rate >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.TrackZoneSummary", b =>
+                {
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.Property<Guid>("ZoneId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("zone_id");
+
+                    b.Property<DateTimeOffset?>("FirstEntryTimestampUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_entry_timestamp_utc");
+
+                    b.Property<DateTimeOffset?>("LastExitTimestampUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_exit_timestamp_utc");
+
+                    b.Property<bool>("Loitering")
+                        .HasColumnType("boolean")
+                        .HasColumnName("loitering");
+
+                    b.Property<long>("LoiteringDwellMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("loitering_dwell_ms");
+
+                    b.Property<int>("LoiteringThresholdSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("loitering_threshold_seconds");
+
+                    b.Property<long>("TotalDwellMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("total_dwell_ms");
+
+                    b.Property<int>("VisitCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("visit_count");
+
+                    b.HasKey("AnalysisId", "TrackId", "ZoneId");
+
+                    b.HasIndex("TrackId");
+
+                    b.HasIndex("ZoneId", "Loitering")
+                        .HasDatabaseName("ix_track_zone_summaries_zone_loitering")
+                        .HasFilter("loitering");
+
+                    b.HasIndex("ZoneId", "TotalDwellMs")
+                        .HasDatabaseName("ix_track_zone_summaries_zone_dwell");
+
+                    b.ToTable("track_zone_summaries", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_track_zone_summaries_counts", "visit_count >= 0 AND total_dwell_ms >= 0 AND loitering_dwell_ms >= 0");
+
+                            t.HasCheckConstraint("ck_track_zone_summaries_loitering_threshold", "loitering_threshold_seconds > 0");
+
+                            t.HasCheckConstraint("ck_track_zone_summaries_timestamps", "(first_entry_timestamp_utc IS NULL AND last_exit_timestamp_utc IS NULL) OR (first_entry_timestamp_utc IS NOT NULL AND last_exit_timestamp_utc IS NOT NULL AND last_exit_timestamp_utc >= first_entry_timestamp_utc)");
+
+                            t.HasCheckConstraint("ck_track_zone_summaries_visitless", "visit_count > 0 OR (first_entry_timestamp_utc IS NULL AND total_dwell_ms = 0)");
+                        });
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.TrackZoneVisit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_id");
+
+                    b.Property<bool>("BeganInside")
+                        .HasColumnType("boolean")
+                        .HasColumnName("began_inside");
+
+                    b.Property<bool>("ClosedByGap")
+                        .HasColumnType("boolean")
+                        .HasColumnName("closed_by_gap");
+
+                    b.Property<long>("DwellMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("dwell_ms");
+
+                    b.Property<bool>("EndedInside")
+                        .HasColumnType("boolean")
+                        .HasColumnName("ended_inside");
+
+                    b.Property<string>("EntryHeading")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("entry_heading");
+
+                    b.Property<long>("EntryOffsetMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("entry_offset_ms");
+
+                    b.Property<DateTimeOffset>("EntryTimestampUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("entry_timestamp_utc");
+
+                    b.Property<string>("ExitHeading")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("exit_heading");
+
+                    b.Property<long>("ExitOffsetMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("exit_offset_ms");
+
+                    b.Property<DateTimeOffset>("ExitTimestampUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("exit_timestamp_utc");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("track_id");
+
+                    b.Property<int>("VisitIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("visit_index");
+
+                    b.Property<Guid>("ZoneId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("zone_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrackId");
+
+                    b.HasIndex("AnalysisId", "TrackId")
+                        .HasDatabaseName("ix_track_zone_visits_analysis_track");
+
+                    b.HasIndex("ZoneId", "EntryTimestampUtc")
+                        .HasDatabaseName("ix_track_zone_visits_zone_entry");
+
+                    b.HasIndex("AnalysisId", "TrackId", "ZoneId", "VisitIndex")
+                        .IsUnique()
+                        .HasDatabaseName("ux_track_zone_visits_identity");
+
+                    b.ToTable("track_zone_visits", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_track_zone_visits_dwell", "dwell_ms >= 0");
+
+                            t.HasCheckConstraint("ck_track_zone_visits_headings", "entry_heading IN ('None', 'N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW') AND exit_heading IN ('None', 'N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW')");
+
+                            t.HasCheckConstraint("ck_track_zone_visits_offsets", "entry_offset_ms >= 0 AND exit_offset_ms >= entry_offset_ms");
+
+                            t.HasCheckConstraint("ck_track_zone_visits_timestamps", "exit_timestamp_utc >= entry_timestamp_utc");
+
+                            t.HasCheckConstraint("ck_track_zone_visits_visit_index", "visit_index >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Mavi.Domain.Intelligence.Entity", b =>
                 {
                     b.HasOne("Mavi.Domain.Media.Artifact", null)
@@ -1127,6 +1590,96 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .WithMany("TripLines")
                         .HasForeignKey("RevisionId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.SceneAnalysis", b =>
+                {
+                    b.HasOne("Mavi.Domain.Processing.ProcessingRun", null)
+                        .WithMany()
+                        .HasForeignKey("ProcessingRunId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Scene.SceneConfigurationRevision", null)
+                        .WithMany()
+                        .HasForeignKey("RevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.TrackAnalysisOutcome", b =>
+                {
+                    b.HasOne("Mavi.Domain.SceneAnalytics.SceneAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.TrackLineCrossing", b =>
+                {
+                    b.HasOne("Mavi.Domain.SceneAnalytics.SceneAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.TrackMotionSummary", b =>
+                {
+                    b.HasOne("Mavi.Domain.SceneAnalytics.SceneAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.TrackZoneSummary", b =>
+                {
+                    b.HasOne("Mavi.Domain.SceneAnalytics.SceneAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Mavi.Domain.SceneAnalytics.TrackZoneVisit", b =>
+                {
+                    b.HasOne("Mavi.Domain.SceneAnalytics.SceneAnalysis", null)
+                        .WithMany()
+                        .HasForeignKey("AnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Mavi.Domain.Intelligence.Track", null)
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
