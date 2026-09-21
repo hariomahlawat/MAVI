@@ -174,6 +174,13 @@ export default function VisualSearchPage() {
   const displayZone: DisplayZoneState = displayTimeZoneId
     ? { status: 'ready', timeZoneId: displayTimeZoneId }
     : systemConfig.isError ? { status: 'unavailable' } : { status: 'loading' };
+  // A failed *refetch* keeps the data it already had, so `isError` alone does
+  // not mean there is no configuration. Saying "unavailable, editing disabled,
+  // timestamps in UTC" while the retained zone is still on screen and still
+  // converting the time fields is the surface contradicting itself. The two
+  // failures are told apart by whether a usable zone survived.
+  const configUnavailable = systemConfig.isError && !displayTimeZoneId;
+  const configRefreshFailed = systemConfig.isError && Boolean(displayTimeZoneId);
 
   const [draft, setDraft] = useState<DraftState>({ values: emptyDraft, baseline: emptyDraft });
   // Set when this surface commits a search itself. Only then is the draft known
@@ -477,9 +484,14 @@ export default function VisualSearchPage() {
   const notices = (
     <>
       {!committed.isValid ? <Alert tone="error">{committed.error}</Alert> : null}
-      {systemConfig.isError ? (
+      {configUnavailable ? (
         <Alert tone="warning" actions={<Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>}>
           Display timezone is unavailable. Existing UTC time scope remains active; time editing is disabled and result timestamps are shown explicitly in UTC.
+        </Alert>
+      ) : null}
+      {configRefreshFailed ? (
+        <Alert tone="warning" actions={<Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>}>
+          Display configuration could not be refreshed. The last known configuration remains in use, so times are still shown and entered in the timezone above.
         </Alert>
       ) : null}
       {cameras.isError ? (
@@ -495,7 +507,7 @@ export default function VisualSearchPage() {
     </>
   );
   const hasNotice = !committed.isValid
-    || systemConfig.isError || cameras.isError || videos.isError;
+    || configUnavailable || configRefreshFailed || cameras.isError || videos.isError;
 
   return (
     <section className="page page--full page--workspace">

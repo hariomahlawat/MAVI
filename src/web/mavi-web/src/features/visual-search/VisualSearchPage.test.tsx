@@ -7,6 +7,7 @@ import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { getTrack, searchTracks, type TrackDetail, type TrackSearchItem } from '../../api/tracks';
 import { listVideos } from '../../api/videos';
+import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import VisualSearchPage from './VisualSearchPage';
 
@@ -751,6 +752,40 @@ describe('VisualSearchPage', () => {
       expect(vi.mocked(searchTracks).mock.calls[0][0].fromUtc).toBe('2026-09-14T02:30:00.000Z');
       expect(within(screen.getByRole('group', { name: 'Committed filters' })).getByTitle(/^From:/))
         .toHaveTextContent('2026-09-14T02:30:00.000Z UTC');
+    });
+
+    it('keeps the retained configuration when a refetch fails, and says so', async () => {
+      // A failed refetch keeps the data it already had, so `isError` is true
+      // while `data` is still usable. Reporting that as "unavailable, editing
+      // disabled, timestamps in UTC" contradicts the zone still on screen and
+      // the fields still converting through it.
+      vi.mocked(getSystemConfig)
+        .mockResolvedValueOnce({ displayTimeZoneId: 'Asia/Kolkata' })
+        .mockRejectedValue(new Error('offline'));
+      const { queryClient } = renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+      expect(screen.getByLabelText('From')).toBeEnabled();
+
+      await queryClient.refetchQueries({ queryKey: queryKeys.systemConfig });
+
+      // The refresh is reported as a refresh failure, with a retry.
+      expect(await screen.findByText(/last known configuration remains in use/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry display config' })).toBeInTheDocument();
+      // And nothing claims the configuration is gone.
+      expect(screen.queryByText(/Display timezone is unavailable/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/time editing is disabled/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/shown explicitly in UTC/i)).not.toBeInTheDocument();
+
+      // The retained zone is still in force: the fields still convert through
+      // it, and they still say which zone that is.
+      expect(screen.getByLabelText('From')).toBeEnabled();
+      expect(screen.getAllByText(/Asia\/Kolkata/).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/Loading the display timezone/i)).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-14 08:00:00' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+      await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(searchTracks).mock.calls[1][0].fromUtc).toBe('2026-09-14T02:30:00.000Z');
     });
 
     it('accepts the product format and converts it through the configured zone', async () => {

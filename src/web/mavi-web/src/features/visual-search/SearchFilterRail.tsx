@@ -54,7 +54,8 @@ type Props = {
 
 /**
  * The committed-filter form (§4.4): grouped field sections that scroll as one
- * column, with Search and Reset pinned at the foot.
+ * column, with Search and Reset in flow at its end — deliberately not pinned
+ * to the column's edge, for the reason `features.css` records.
  *
  * Three things changed in UI-4 and each is structural rather than cosmetic.
  *
