@@ -17,10 +17,12 @@ import { selectControlProps } from './resultSelection';
  * handler knew the List's class by name and the Grid not at all.
  *
  * The card now carries a real button, the same one `resultSelection` defines
- * for the row, stretched over the card's area. It sits behind the content
- * rather than around it, so the card's heading, time and metrics stay ordinary
- * readable content instead of becoming a button's label, the review link stays
- * a link above it, and the whole card is still one click target.
+ * for the row. It is a grid item spanning the media and body rows, behind them
+ * rather than around them: the heading, time and metrics stay ordinary readable
+ * content instead of becoming a button's label, and the card is still one click
+ * target. The review link sits in its own row, which the button does not cover,
+ * so the two controls do not overlap at all — no stacking order to get right
+ * and no `stopPropagation` to escape with.
  */
 export default function TrackResultCard({
   track,
@@ -79,6 +81,9 @@ export default function TrackResultCard({
           <div><dt>Detections</dt><dd>{track.detectionCount}</dd></div>
         </dl>
 
+      </div>
+
+      <div className="track-card__foot">
         <Link className="btn btn--sm track-card__action" to={reviewPath(track, searchContext)}>
           Review evidence
         </Link>

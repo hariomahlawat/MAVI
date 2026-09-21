@@ -286,4 +286,12 @@
   --c-rail-w: 252px;
   --c-results-min: 560px;
   --c-results-max: 900px;
+  /* The floor the in-place inspector is never squeezed below. §4.4 caps the
+     results and gives the surplus to the inspector, which says what happens
+     when there is surplus and nothing about what happens when there is not:
+     a grid that grants the results their 900px first leaves the inspector
+     60px at 1500 and 160px at 1600, measured. This is the width the drawer
+     already uses, so the inspector is the same object either side of the
+     threshold rather than two different ones. */
+  --c-inspector-min-w: 440px;
 }

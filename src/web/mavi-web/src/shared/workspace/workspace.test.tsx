@@ -382,13 +382,26 @@ describe('the archetype set is closed', () => {
     // Open decision 3 is a number the §26 harness has to check the layout
     // against, and a harness carrying the number itself can only confirm its
     // own assumption. The archetype publishes its placement as a custom
-    // property beside the media query that decides it, so moving 1500 to 1600
-    // is an edit here and nowhere else.
+    // property beside the media query that decides it, so moving the threshold
+    // is an edit here and nowhere else — as UI-4 did, from 1500 to 1600.
     const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
     expect(css).toMatch(/\.workspace--investigation\s*\{[^}]*--inspector-placement:\s*drawer/);
-    const threshold = css.slice(css.indexOf('@media (min-width: 1500px)'));
+    const threshold = css.slice(css.indexOf('@media (min-width: 1600px)'));
     expect(threshold.slice(0, threshold.indexOf('@media', 1)))
       .toMatch(/--inspector-placement:\s*in-place/);
+  });
+
+  it('gives the in-place Investigation inspector a floor the results yield to', () => {
+    // Open decision 3's second half. §4.4 gives the *surplus* to the inspector,
+    // which says nothing about what happens when there is none: a grid that
+    // grants the results their 900px cap first measured 60px of inspector at
+    // 1500 and 160px at 1600 — in place by the letter of the rule and unusable.
+    // The floor is what makes the results yield instead.
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    const threshold = css.slice(css.indexOf('@media (min-width: 1600px)'));
+    const inPlace = threshold.slice(0, threshold.indexOf('@media', 1));
+    expect(inPlace).toContain('minmax(var(--c-inspector-min-w), 1fr)');
+    expect(SHEETS['/src/styles/tokens.css']).toContain('--c-inspector-min-w');
   });
 
   it('gives every surface one Context Bar implementation', () => {

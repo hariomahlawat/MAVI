@@ -31,6 +31,7 @@ function arg(name, fallback) {
 }
 const flag = (name) => process.argv.includes(`--${name}`);
 
+const onlyWidths = arg('widths', null) !== null;
 const widths = String(arg('widths', WIDTHS.map((w) => w.width).join(',')))
   .split(',').map(Number)
   .map((w) => WIDTHS.find((entry) => entry.width === w) ?? { width: w, height: 900, label: String(w) });
@@ -60,7 +61,7 @@ for (const condition of needed) {
 process.stdout.write(`  ${needed.size} footage condition(s) ready\n`);
 let current = {};
 let footage = 'saturated';
-const { origin, close, releaseHung } = await startServer({
+const { origin, close, releaseHung, resetSequences } = await startServer({
   distDir: join(WEB, 'dist'),
   fixtureDir: join(HERE, 'fixtures'),
   scenario: () => current,
@@ -75,8 +76,18 @@ let checks = 0;
 
 try {
   for (const state of states) {
-    for (const viewport of widths) {
+    // A state may pin its own viewports. The four acceptance widths of §25 are
+    // the standard sweep, but a breakpoint is settled by the widths either side
+    // of it and nowhere else, so the states that exist to settle open decisions
+    // 3 and 4 name theirs. An explicit `--widths` still wins: that is the
+    // operator asking to look at one width, and the harness should show it.
+    const stateWidths = (onlyWidths || !state.widths)
+      ? widths
+      : state.widths.map((width) => WIDTHS.find((entry) => entry.width === width)
+        ?? { width, height: 900, label: `${width}x900` });
+    for (const viewport of stateWidths) {
       current = state.api ?? {};
+      resetSequences();
       footage = state.footage ?? 'saturated';
       await browser.viewport(viewport.width, viewport.height);
       // Tear the previous document down first. Chromium holds media decoders
@@ -84,6 +95,13 @@ try {
       // that loaded fine in isolation sits at readyState 1 for want of a free
       // decoder — which looks exactly like a product defect and is not one.
       await browser.goto('about:blank');
+      await browser.goto(origin + state.path);
+      // Per-viewer preferences the product stores — the Investigation's
+      // List/Grid choice — survive a navigation, so without this a state that
+      // switches to the Grid decides the view of every state after it. The
+      // matrix would then photograph a Grid it never asked for and report the
+      // pass as covering a List.
+      await browser.evaluate('(() => { try { window.localStorage.clear(); } catch { /* blocked */ } return true; })()');
       await browser.goto(origin + state.path);
       // Let the query client settle and any media element lay itself out.
       await browser.evaluate('new Promise((r) => setTimeout(r, ' + (state.settleMs ?? 700) + '))');

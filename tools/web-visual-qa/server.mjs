@@ -39,6 +39,8 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
    * state failing to render.
    */
   const hung = new Set();
+  /** How many times each sequenced override has answered, per scenario. */
+  const sequenceCounts = new Map();
   const server = createServer((req, res) => {
     try {
       handle(req, res);
@@ -88,8 +90,34 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
         return;
       }
       if (value === 'hang') { hung.add(res); res.on('close', () => hung.delete(res)); return; }
+      // `{ sequence: [...] }` answers successive requests to the same path with
+      // successive entries, the last one repeating. Cursor pagination is the
+      // reason: page one has to succeed for there to be a continuation to fail,
+      // and a single override cannot say "then". Each entry is any of the forms
+      // below, so a sequence can mix a body with a status.
       // `{ status, body }` answers with a specific status, which is how a
       // state reaches a conflict rather than a generic failure.
+      let resolved = value;
+      if (value !== null && typeof value === 'object' && Array.isArray(value.sequence)) {
+        const seen = sequenceCounts.get(match) ?? 0;
+        sequenceCounts.set(match, seen + 1);
+        resolved = value.sequence[Math.min(seen, value.sequence.length - 1)];
+        if (resolved === 'unavailable') {
+          res.writeHead(503, { 'content-type': 'application/problem+json' });
+          res.end(JSON.stringify({ title: 'Service unavailable', detail: 'The upstream service did not respond.', code: 'upstream_unavailable' }));
+          return;
+        }
+      }
+      if (resolved !== null && typeof resolved === 'object' && typeof resolved.status === 'number') {
+        res.writeHead(resolved.status, { 'content-type': 'application/problem+json' });
+        res.end(JSON.stringify(resolved.body ?? {}));
+        return;
+      }
+      if (resolved !== undefined && resolved !== 'fixture' && resolved !== value) {
+        res.writeHead(200, { 'content-type': TYPES['.json'] });
+        res.end(JSON.stringify(resolved));
+        return;
+      }
       if (value !== null && typeof value === 'object' && typeof value.status === 'number') {
         res.writeHead(value.status, { 'content-type': 'application/problem+json' });
         res.end(JSON.stringify(value.body ?? {}));
@@ -190,6 +218,13 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
           for (const res of hung) { try { res.destroy(); } catch { /* already gone */ } }
           hung.clear();
         },
+        /**
+         * Rewind every sequenced override. Without this the second viewport of
+         * a paginated state would start where the first one left off and get
+         * the failure instead of page one — which looks exactly like the state
+         * failing at that width and is not.
+         */
+        resetSequences() { sequenceCounts.clear(); },
         close: () => new Promise((done) => { for (const res of hung) { try { res.destroy(); } catch { /* gone */ } } server.close(done); }),
       });
     });

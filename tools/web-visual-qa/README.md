@@ -92,6 +92,43 @@ UI-3 adds the Ledger and Record halves of the same check:
   is section 4.1's "a Ledger must never become a sparse band of text";
 - a Record declares that the **page** scrolls, and has its primary/facts grid.
 
+UI-4 adds the Investigation half, which is where the archetype has the most
+geometry to get wrong:
+
+- the rail is the fixed 252px of §4.4 and **owns its own scroll**, with no
+  second scrolling box inside it. That second box is the defect UI-4 fixed, and
+  it is invisible until the rail is taller than the viewport — so what is
+  checked is the ownership, not the fact that today's rail happens to fit;
+- the results column stays within the ~900px cap and above the ~560px floor,
+  **whether or not a Track is selected**. An Investigation with nothing selected
+  is still a scan surface;
+- the inspector is an in-place third column or an overlay drawer, and which one
+  is compared against the layout's **own declaration** rather than against a
+  threshold written here. `.workspace--investigation` publishes
+  `--inspector-placement` beside the media query that decides it; the harness
+  reads that back and measures whether the geometry agrees. Moving the
+  threshold from 1500 to 1600 is therefore an edit to `workspace.css` and to
+  nothing in this directory — a number carried here could only confirm itself;
+- in place, the inspector is the column that grew: if surplus width exists and
+  the inspector is still narrow, the surplus went to the wrong column (§4.4,
+  open decision 4);
+- nothing on the surface claims modality. §20 makes the drawer non-modal so the
+  results stay readable underneath, and a `role="dialog"`, `aria-modal` or
+  `inert` anywhere in the workspace is a finding.
+
+A state may pin its own viewports with `widths`. The four §25 acceptance widths
+are the standard sweep, but a breakpoint is settled by the widths either side of
+it and nowhere else: `search-threshold` runs at 1440, 1499, 1500, 1550, 1599 and
+1600, and `search-ultrawide` at 1920 and 2560. An explicit `--widths` still
+wins — that is a person asking to look at one width.
+
+A fixture override may also be a **sequence**: `{ sequence: [pageOne,
+'unavailable'] }` answers successive requests to the same path with successive
+entries, the last one repeating. Cursor pagination is the reason — page one has
+to succeed for there to be a continuation to fail — and the counters are rewound
+between states and viewports, so the second width starts at page one rather than
+where the first left off.
+
 Fixture overrides also accept a method — `'POST /api/cameras'` — and an
 explicit `{ status, body }` response, which is how the duplicate-code conflict
 state reaches a real 409 without breaking the listing the page needs in order

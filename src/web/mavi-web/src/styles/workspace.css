@@ -239,19 +239,35 @@
 .workspace__investigation-grid > * { min-height: 0; min-width: 0; }
 .workspace__rail { min-height: 0; overflow-y: auto; }
 .workspace__results { display: grid; min-height: 0; }
-/* The inspector is an in-place third column only at 1500px and above; below
-   that it is an overlay drawer over the results (section 4.4). The threshold
-   is open decision 3, closed in UI-4 at 1500px on measured evidence. */
-@media (min-width: 1500px) {
+/* The inspector is an in-place third column only at 1600px and above; below
+   that it is an overlay drawer over the results (section 4.4).
+   
+   Open decision 3, closed in UI-4 at 1600 rather than the frozen default of
+   1500, on measured evidence. Three columns at their own minimums need
+   252 + 560 + 440 and two 16px gutters, which is 1284px of working width. A
+   1500px viewport leaves 1244 after the navigation rail and the page gutters,
+   so at 1500 the grid overflowed its own contained column by 40px and the
+   inspector's right edge — its Open and Close controls — was clipped away with
+   no scrollbar to reach it. 1600 leaves 1344 and fits with room to spare.
+   Section 4.4 anticipated exactly this and permits the amendment. */
+@media (min-width: 1600px) {
   .workspace--investigation { --inspector-placement: in-place; }
   .workspace--investigation.has-inspector .workspace__investigation-grid {
-    grid-template-columns: var(--c-rail-w) minmax(var(--c-results-min), var(--c-results-max)) minmax(0, 1fr);
+    grid-template-columns:
+      var(--c-rail-w)
+      minmax(var(--c-results-min), var(--c-results-max))
+      minmax(var(--c-inspector-min-w), 1fr);
     /* With a third column present the surplus has somewhere to go, so the
-       track list stretches to fill the row again (open decision 4). */
+       track list stretches to fill the row again (open decision 4).
+       The inspector's floor is what makes that true just above the threshold:
+       without it the results claim their 900px cap first, and the inspector
+       measured 60px at 1500 and 160px at 1600 — in place by the letter of the
+       rule and unusable in fact. With it the results yield to the floor and
+       take the surplus back as soon as there is any (§4.4, decisions 3 and 4). */
     justify-content: stretch;
   }
 }
-@media (max-width: 1499px) {
+@media (max-width: 1599px) {
   /* A drawer, not a modal: no backdrop, no focus trap, no inert results
      (section 20). The results stay readable and operable underneath, which is
      the whole reason an Investigation inspector is not a dialog. */
