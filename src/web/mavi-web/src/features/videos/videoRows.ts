@@ -37,6 +37,41 @@ export function sortVideoRows(rows: readonly VideoRow[]): VideoRow[] {
   });
 }
 
+/** The columns the Videos Ledger sorts on (§32 decision 5). */
+export type VideoColumn = 'file' | 'camera' | 'recorded' | 'duration';
+
+/**
+ * Ascending comparison for one Ledger column. Direction and the final
+ * tie-break belong to `sortRows`; this answers only "which of these two comes
+ * first when this column reads forwards".
+ *
+ * `recorded` compares the import time as a second key, ascending, so that
+ * reversing the column reverses both — which is exactly the order
+ * `sortVideoRows` has always produced for the default view, and the reason the
+ * page opens on the same rows in the same sequence as before UI-3.
+ *
+ * `camera` orders by code and then name rather than by the joined label, so a
+ * video whose camera could not be resolved (code `—`) sorts together rather
+ * than wherever the em dash happens to fall between two names.
+ */
+export function compareVideoRows(left: VideoRow, right: VideoRow, column: VideoColumn): number {
+  switch (column) {
+    case 'file':
+      return left.originalFileName.localeCompare(right.originalFileName, undefined, { numeric: true });
+    case 'camera': {
+      const byCode = left.cameraCode.localeCompare(right.cameraCode, undefined, { numeric: true });
+      return byCode !== 0 ? byCode : left.cameraName.localeCompare(right.cameraName);
+    }
+    case 'duration':
+      return left.durationMs - right.durationMs;
+    case 'recorded':
+    default: {
+      const byStart = left.recordingStartUtc.localeCompare(right.recordingStartUtc);
+      return byStart !== 0 ? byStart : left.importedAtUtc.localeCompare(right.importedAtUtc);
+    }
+  }
+}
+
 export function filterVideoRows(rows: readonly VideoRow[], filters: VideoListFilters): VideoRow[] {
   const text = (filters.text ?? '').trim().toLowerCase();
   const cameraId = filters.cameraId?.toLowerCase();

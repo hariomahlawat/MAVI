@@ -30,6 +30,11 @@
 .video-title span { color: var(--text-muted); font-size: var(--fs-1); }
 
 /* Processing */
+/* The queue's counts sit in the toolbar band rather than in three bordered
+   cards: they are figures about the table directly beneath them, and
+   section 30 names stat tiles that restate the table below them as a pattern
+   the product must not have. */
+.queue-counts { display: inline-flex; flex-wrap: wrap; gap: var(--s-3); font-variant-numeric: tabular-nums; }
 .run-cell { display: grid; gap: var(--s-1); min-width: 160px; }
 .run-cell__line { display: flex; align-items: center; gap: var(--s-2); color: var(--text-muted); font-size: var(--fs-1); }
 
