@@ -39,14 +39,101 @@ const VIDEO = '22222222-2222-7222-8222-222222222222';
 const LONG_VIDEO = '44444444-4444-7444-8444-444444444444';
 const FAILED_VIDEO = '55555555-5555-7555-8555-555555555555';
 
-/**
- * The Investigation filter rail's section headings land on the labels beneath
- * them at 1366. Verified identical on main at the UI-1 baseline, so this is not
- * a UI-1 regression; the rail's layout is UI-4's, and section 34.1 leaves it
- * non-conformant until then rather than pulling that work forward.
- */
-const RAIL_OVERLAP = ['overlapping text: .*(THRESHOLDS|Thresholds|Display timezone|Minimum duration)'];
 const TRACK = '55555550-5555-7555-8555-555555555550';
+const CAM2 = '33333333-3333-7333-8333-333333333333';
+
+/**
+ * Proof that the inspector has the Track's evidence, not just its shell.
+ *
+ * Deliberately not the heading: §26 reads `innerText`, which reflects
+ * `text-transform`, and the inspector's title is uppercased by the shared shell
+ * — so a state asserting "Person · Track" would fail for a reason that has
+ * nothing to do with the state it is checking.
+ */
+const INSPECTOR_LOADED = ['Track duration', 'Max confidence'];
+
+/** One Track, restated with the long camera and video names of the fixtures. */
+const LONG_NAME_TRACKS = {
+  items: [{
+    id: TRACK,
+    videoAssetId: LONG_VIDEO,
+    cameraId: CAM2,
+    cameraCode: 'CAM-02',
+    cameraName: 'Perimeter fence south-west sector, long descriptive name for truncation',
+    objectClass: 'Person',
+    startTimestampUtc: '2026-09-14T02:31:00Z',
+    endTimestampUtc: '2026-09-14T02:31:10Z',
+    startOffsetMs: 60000,
+    endOffsetMs: 68000,
+    durationMs: 8000,
+    detectionCount: 40,
+    meanConfidence: 0.91,
+    maxConfidence: 0.98,
+    reviewStatus: 'Unreviewed',
+    thumbnailContentUrl: null,
+  }],
+  nextCursor: null,
+  totalCount: 1,
+};
+
+/** A first page that has a continuation, so there is something to load more of. */
+const PAGE_ONE = { ...LONG_NAME_TRACKS, nextCursor: 'opaque-cursor', totalCount: 48 };
+
+/** Page one, then a transient failure: the results survive, continuation stops. */
+const PAGE_ONE_THEN_503 = { sequence: [PAGE_ONE, 'unavailable'] };
+
+/** Page one, then the snapshot the cursor belonged to is gone. */
+const PAGE_ONE_THEN_EXPIRED = {
+  sequence: [PAGE_ONE, {
+    status: 400,
+    body: { status: 400, code: 'track_search_invalid', detail: 'The result snapshot has expired.' },
+  }],
+};
+
+/** Switch the results column to the Grid; the choice is a stored preference. */
+const PICK_GRID = `(() => {
+  const control = document.querySelector('[aria-label="Grid view"]');
+  if (!control) return false;
+  control.click();
+  return true;
+})()`;
+
+/** Ask for the next page of the snapshot. */
+const LOAD_MORE = `(() => {
+  const control = Array.from(document.querySelectorAll('button'))
+    .find((element) => element.textContent.trim() === 'Load more');
+  if (!control) return false;
+  control.click();
+  return true;
+})()`;
+
+/**
+ * Put two thresholds the product refuses into the rail and ask for the search,
+ * so the field-level refusals of section 10 can be looked at.
+ *
+ * React owns the input's value, so assigning to `.value` is discarded on the
+ * next render; the native setter plus a bubbled `input` event is what the
+ * product's own change handler actually sees.
+ */
+const REFUSE_FIELDS = `(() => {
+  const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  const type = (label, value) => {
+    const field = Array.from(document.querySelectorAll('.field'))
+      .find((element) => element.querySelector('label')?.textContent.trim() === label);
+    const input = field?.querySelector('input');
+    if (!input) return false;
+    set.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  };
+  if (!type('Minimum duration (seconds)', '1.2345')) return false;
+  if (!type('Minimum confidence (%)', '140')) return false;
+  const search = Array.from(document.querySelectorAll('button[type="submit"]'))
+    .find((element) => element.textContent.includes('Search'));
+  if (!search) return false;
+  search.click();
+  return true;
+})()`;
 
 /**
  * Drive the player to the representative frame using the product's own
@@ -481,24 +568,160 @@ export const STATES = [
     expectText: 'unavailable',
   },
 
-  // --- Investigation: declares full width, and must actually use it. ---
+  // --- Investigation: Search, migrated in UI-4. -------------------------
+  //
+  // Twenty-one states, because this is the surface where the operator's whole
+  // job happens and almost every §14 state is reachable on it. The breakpoint
+  // states below carry their own viewports: a threshold is settled by the
+  // widths either side of it and nowhere else.
   {
-    name: 'search', path: '/search', fullWidth: true, settleMs: 900,
-    // Pre-existing at the UI-1 baseline and verified identical on main: the
-    // THRESHOLDS heading lands on the timezone hint and the duration label.
-    // The Investigation filter rail is UI-4's to lay out; section 34.1 leaves
-    // it non-conformant until then rather than pulling that work forward.
-    knownIssues: RAIL_OVERLAP,
+    name: 'search', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
+    expectText: 'Newest first',
   },
   {
-    name: 'search-empty', path: '/search', fullWidth: true,
+    name: 'search-loading', path: '/search', fullWidth: true, settleMs: 400,
+    archetype: 'investigation', api: { '/api/tracks': 'hang' },
+    expectText: 'Searching visual intelligence',
+  },
+  {
+    name: 'search-empty', path: '/search', fullWidth: true, archetype: 'investigation',
     api: { '/api/tracks': { items: [], nextCursor: null, totalCount: 0 } },
-    knownIssues: RAIL_OVERLAP,
+    expectText: 'No Tracks matched',
   },
   {
     name: 'search-unavailable', path: '/search', fullWidth: true, settleMs: 4000,
-    api: { '/api/tracks': 'unavailable' }, expectText: 'unavailable',
-    knownIssues: RAIL_OVERLAP,
+    archetype: 'investigation', api: { '/api/tracks': 'unavailable' },
+    // §14.1: a failed first page is distinguishable from an empty one, and
+    // offers the retry it did not have before UI-4.
+    expectText: ['unavailable', 'Retry'], forbidText: 'No Tracks matched',
+  },
+  {
+    name: 'search-invalid', path: '/search?objectClass=Person&objectClass=Vehicle',
+    fullWidth: true, archetype: 'investigation',
+    // A malformed committed URL is refused at page level, and no Track request
+    // is issued for it — the results column stays empty rather than loading.
+    expectText: 'must occur exactly once', forbidText: 'Searching visual intelligence',
+  },
+  {
+    name: 'search-grid', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
+    prepare: PICK_GRID, expectText: 'Review evidence',
+  },
+  {
+    name: 'search-filtered',
+    path: `/search?cameraId=${CAM}&objectClass=Person&fromUtc=2026-09-14T02%3A00%3A00Z&toUtc=2026-09-14T04%3A00%3A00Z&minimumDurationMs=2500&minimumConfidence=0.8`,
+    fullWidth: true, settleMs: 900, archetype: 'investigation',
+    // Every committed criterion is a chip, and each resolves to what the
+    // operator calls it rather than to the identifier in the URL.
+    expectText: ['CAM-01', 'Minimum confidence', '2.5 s'],
+  },
+  {
+    name: 'search-filtered-unresolved',
+    path: `/search?cameraId=${CAM}&videoAssetId=${VIDEO}&processingRunId=77777777-7777-7777-8777-777777777777`,
+    fullWidth: true, settleMs: 4000, archetype: 'investigation',
+    api: { '/api/cameras': 'unavailable', '/api/videos': 'unavailable' },
+    // The metadata that names them is gone; the chips shorten the identifier
+    // rather than dropping a criterion that is still in force.
+    expectText: ['Camera metadata is unavailable', 'Processing run', '11111111…'],
+  },
+  {
+    name: 'search-no-timezone', path: '/search?fromUtc=2026-09-14T02%3A30%3A00Z',
+    fullWidth: true, settleMs: 4000, archetype: 'investigation',
+    api: { '/api/system/config': 'unavailable' },
+    // ADR-004: without the configured zone the bound is stated explicitly in
+    // UTC and time editing is refused rather than guessed at.
+    expectText: ['Display timezone is unavailable', 'UTC'],
+  },
+  {
+    name: 'search-videos-unavailable', path: '/search', fullWidth: true, settleMs: 4000,
+    archetype: 'investigation', api: { '/api/videos': 'unavailable' },
+    expectText: 'Video metadata is unavailable',
+  },
+  {
+    // The tallest the rail gets: every field refused at once, on top of the
+    // video-outage hint, at the shortest acceptance viewport. This is where a
+    // rail that owns its own scroll, or whose actions are stuck to its bottom
+    // edge, puts a control on top of a field — and where the containment border
+    // has to stay inside the 252px column rather than widening it.
+    name: 'search-rail-overflow', path: '/search', fullWidth: true, settleMs: 4000,
+    archetype: 'investigation', widths: [1366, 1440],
+    api: { '/api/videos': 'unavailable' },
+    prepare: REFUSE_FIELDS, prepareSettleMs: 900,
+    expectText: ['Video metadata is unavailable', 'decimal places', 'Reset'],
+  },
+  {
+    name: 'search-field-errors', path: '/search', fullWidth: true, settleMs: 900,
+    archetype: 'investigation', prepare: REFUSE_FIELDS,
+    // §10: both refusals land on their own fields, at once.
+    expectText: ['decimal places', 'between 0 and 100'],
+  },
+  {
+    name: 'search-long-names', path: `/search?cameraId=${CAM2}`, fullWidth: true, settleMs: 900,
+    archetype: 'investigation',
+    api: { '/api/tracks': LONG_NAME_TRACKS },
+    expectText: 'Perimeter fence',
+  },
+  {
+    name: 'search-paged', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
+    api: { '/api/tracks': PAGE_ONE },
+    expectText: ['Load more', 'more to load'],
+  },
+  {
+    name: 'search-continuation-failed', path: '/search', fullWidth: true, settleMs: 5000,
+    archetype: 'investigation', api: { '/api/tracks': PAGE_ONE_THEN_503 },
+    // The query client retries a 5xx once before the failure is terminal.
+    prepare: LOAD_MORE, prepareSettleMs: 3000,
+    // The page that failed does not take the results with it, and continuation
+    // stops being automatic until the operator asks again.
+    expectText: ['next page could not be loaded', 'Retry load more'],
+  },
+  {
+    name: 'search-snapshot-expired', path: '/search', fullWidth: true, settleMs: 5000,
+    archetype: 'investigation', api: { '/api/tracks': PAGE_ONE_THEN_EXPIRED }, prepare: LOAD_MORE,
+    expectText: ['snapshot can no longer continue', 'Refresh results'],
+  },
+  {
+    name: 'search-end-of-snapshot', path: '/search', fullWidth: true, settleMs: 900,
+    archetype: 'investigation', expectText: ['End of this result snapshot', 'all loaded'],
+  },
+  {
+    name: 'search-inspecting', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
+    archetype: 'investigation', expectText: INSPECTOR_LOADED,
+  },
+  {
+    name: 'search-inspecting-grid', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
+    archetype: 'investigation', prepare: PICK_GRID, expectText: INSPECTOR_LOADED,
+  },
+  {
+    name: 'search-inspector-unavailable', path: `/search?track=${TRACK}`, fullWidth: true,
+    settleMs: 4000, archetype: 'investigation',
+    api: { [`/api/tracks/${TRACK}`]: 'unavailable' },
+    // The inspector states an ApiError by its detail and code; "could not be
+    // loaded" is only the fallback for a failure that is not one.
+    expectText: ['upstream_unavailable', 'Retry'],
+  },
+  {
+    name: 'search-inspector-missing', path: `/search?track=${TRACK}`, fullWidth: true,
+    settleMs: 2000, archetype: 'investigation',
+    api: { [`/api/tracks/${TRACK}`]: { status: 404, body: { status: 404, code: 'track_not_found', detail: 'Track was not found.' } } },
+    // The one failure retrying cannot mend, so it is stated without a control
+    // that would only fail again.
+    expectText: 'Track was not found', forbidText: 'Retry',
+  },
+  {
+    // Open decision 3, closed in UI-4 at 1600px. The threshold is settled by the
+    // widths either side of it: 1599 must be a drawer, 1600 an in-place column,
+    // and 1500 — the frozen default UI-4 amended away — must still be a drawer
+    // rather than the clipped three columns it produced before.
+    name: 'search-threshold', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
+    // The threshold is 1600, so the widths either side of it are what settle it.
+    archetype: 'investigation', widths: [1440, 1500, 1550, 1599, 1600, 1700],
+    expectText: INSPECTOR_LOADED,
+  },
+  {
+    // Open decision 4. At 1920 and 2560 the results stay capped and the
+    // inspector takes the surplus — asserted as geometry, not by eye.
+    name: 'search-ultrawide', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
+    archetype: 'investigation', widths: [1920, 2560], expectText: INSPECTOR_LOADED,
   },
 
   // --- Review: capped today; its archetype migration is UI-5, not UI-1. ---

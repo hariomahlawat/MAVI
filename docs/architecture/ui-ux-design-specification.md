@@ -165,12 +165,16 @@ Workbench **MUST fit within the viewport without page scroll at 1366×768.** Thi
 | **Structure** | Context Bar → filter rail (252px) + results (grows) + inspector. |
 | **Scroll owner** | The results list; the inspector body scrolls independently. The page does not scroll. |
 | **Width** | Full width. Results column capped at approximately 900px; **surplus width goes to the inspector**, because the inspector contains evidence. |
-| **Inspector** | Appears on selection. **In-place third column only at viewport ≥1500px; below that it is a right overlay drawer** over the results column. The results column MUST NOT be compressed below approximately 560px. |
-| **Responsive** | 1366 and 1440: rail + results, inspector as drawer. 1920+: three columns in place. |
+| **Inspector** | Appears on selection. **In-place third column only at viewport ≥1600px; below that it is a right overlay drawer** over the results column. Never below approximately 440px in place. The results column MUST NOT be compressed below approximately 560px. |
+| **Responsive** | 1366, 1440 and 1500: rail + results, inspector as drawer. 1600+: three columns in place. |
 | **Now** | Search |
 | **Future** | Visual similarity, OCR/ANPR lookup, structured intelligence query, NL query |
 
-The 1500px threshold is a frozen default. UI-4 MUST visually validate it and MAY propose 1600px if the 1500–1600 band reads as cramped; any change is an amendment to this section (§32, open decision 3).
+**Amended in UI-4 (open decision 3, closed).** The threshold was a frozen default of 1500px, which this section permitted UI-4 to raise to 1600px if the 1500–1600 band read as cramped. It did, and worse than cramped. Three columns at their own minimums need 252 + 560 + 440 and two 16px gutters — 1284px of working width. A 1500px viewport leaves 1244 after the navigation rail and the page gutters, so at 1500 the layout overflowed its own contained column by 40px and the inspector's right edge, including its Open and Close controls, was clipped away with no scrollbar to reach it. Measured in a browser at 1440, 1500, 1550, 1599, 1600 and 1700; 1600 leaves 1344 and fits with room to spare. The threshold is **1600px**.
+
+The inspector's 440px floor in place is the other half of the same finding. §4.4 says surplus width goes to the inspector, which says what happens when there is surplus and nothing about what happens when there is not: a layout that granted the results their 900px cap first left the inspector 60px at 1500 and 160px at 1600 — in place by the letter of the rule and unusable in fact. 440px is the width the drawer already uses, so the inspector is the same object either side of the threshold rather than two different ones.
+
+**Open decision 4, closed: unchanged as specified.** Measured at 1920 the results are capped at 900px and the inspector takes 480px of surplus; at 2560 the results are still 900px and the inspector takes 1120px. The cap holds whether or not a Track is selected — an Investigation with nothing selected is still a scan surface, and a 2000px result row is no easier to read for having no inspector beside it.
 
 ### 4.5 Review — evidence-dominant record
 
@@ -535,7 +539,7 @@ Extension points MUST exist for analytical lanes, but **lanes for data that does
 | Archetype | Inspector |
 |---|---|
 | Workbench | **Always present**, fixed width, shows a summary when nothing is selected. Becomes an overlay drawer below approximately 1150px per §4.3.1. |
-| Investigation | **On selection**; in-place at 1500px and above, drawer below that. |
+| Investigation | **On selection**; in-place at 1600px and above, drawer below that (§4.4, open decision 3 closed in UI-4). |
 | Review | The evidence rail; always present. |
 | Ledger | **None by default.** MAY use a right drawer on selection. |
 | Record | The facts rail *is* the inspector. There is no additional panel. |
@@ -555,6 +559,15 @@ Extension points MUST exist for analytical lanes, but **lanes for data that does
 **Frozen:**
 
 - Labels above inputs. Optional fields are marked; required fields are not.
+  - **Amended in UI-4 (query and filter rails only).** Where **every** field in a
+    query or filter rail is optional and an empty query is a valid query,
+    individual "optional" suffixes MAY be omitted: the optionality is a fact
+    about the whole query rather than something that distinguishes one field
+    from another, so marking all of them marks nothing and only lengthens every
+    label the operator scans. The rule above is unchanged for ordinary
+    create/edit forms, where "optional" still tells the operator which fields
+    they may leave alone. This exception does not extend beyond query and
+    filter rails.
 - **Inline, field-level validation** with `aria-invalid` and a message associated via `aria-describedby`. Page-level alerts are reserved for server errors.
 - **Dirty state appears in the Context Bar**; Save is disabled when there are no changes.
 - Reset/Cancel is secondary and adjacent to Save, never its visual peer.
@@ -653,7 +666,11 @@ Centralised in shared formatters. Per ADR-004, the browser or operating-system t
 
 **Method:** a scripted browser pass against the real application with intercepted API fixtures. The harness and its fixtures **MUST NOT require production code to be altered to make inspection easier**. Generated screenshots are working artefacts and **MUST NOT be committed**.
 
-**Automated assertions the harness SHOULD make:** no horizontal page overflow; no uncaught page errors; no element overlap in the checked states.
+**Automated assertions the harness SHOULD make:** no horizontal page overflow; no uncaught page errors; no element overlap in the checked states; and, on a surface that declares an archetype, the §4 geometry and scroll-ownership rules only a rendered page can settle.
+
+**A contained column clips in both directions.** An archetype whose page does not scroll cannot produce a document-level horizontal scrollbar either, so a layout whose columns do not fit simply loses its right edge — controls and all — while every other assertion passes. The harness MUST check a contained column's width as well as its height. This is how the Investigation at 1500px was found to be clipping the inspector's own Open and Close controls (§4.4, open decision 3).
+
+**A deliberate overlay is not an overlap.** A drawer covers what is behind it by design, so a pair where exactly one side sits inside a positioned overlay is the archetype working. Two elements inside the *same* overlay are still compared with each other.
 
 **Reporting:** the PR states which viewports and states were checked and what the pass found. "No visual regressions" without an enumerated pass is not conformance.
 
@@ -778,8 +795,8 @@ a decision that is only partly settled stays un-struck until every part of it is
 | **2a** | Event-marker hue | **Scene Analytics Slice 5** (evidence overlays and explanation) | §8.3. From the `--geo-*` namespace, with its own glyph. Closed when Slice 5 first draws an event marker over real evidence. |
 | **2b** | Similarity / ReID candidate hue | **Capability stage 5** (Visual Similarity / Find Similar) | §8.3. Own hue plus a rank numeral, never a success hue. Closed when the similarity UI exists. |
 | **2c** | Heatmap scale | **Scene Analytics Slice 6** (aggregates and heatmap) | §8.3. A perceptually-uniform sequential scale with a legend; red-to-green is prohibited. Closed when the heatmap surface exists. |
-| **3** | Investigation in-place-inspector threshold (1500px default) | **UI-4** | §4.4. Validate at 1440 and across 1500–1600; may amend to 1600. |
-| **4** | Ultra-wide Investigation split ratio (results cap versus inspector growth) | UI-4 | §4.4. Default: results capped at approximately 900px, surplus to the inspector. |
+| ~~**3**~~ | ~~Investigation in-place-inspector threshold (1500px default)~~ — **closed in UI-4: amended to 1600px** | Closed | §4.4. Measured at 1440, 1500, 1550, 1599, 1600 and 1700. Three columns at their minimums need 1284px of working width; 1500 leaves 1244 and clipped the inspector's own controls off the right edge of a contained column, with no scrollbar to reach them. 1600 leaves 1344. The same measurement gives the in-place inspector a 440px floor — the width its drawer already uses — because a layout that grants the results their 900px cap first leaves the inspector 60px at 1500 and 160px at 1600. |
+| ~~**4**~~ | ~~Ultra-wide Investigation split ratio (results cap versus inspector growth)~~ — **closed in UI-4: unchanged as specified** | Closed | §4.4. Results capped at approximately 900px, surplus to the inspector: measured 900/480 at 1920 and 900/1120 at 2560. The cap holds with nothing selected too, which the default did not say and UI-4 settles: a scan column is a scan column whether or not there is an inspector beside it. |
 | ~~**5**~~ | ~~Ledger sorting scope — which columns, client or server~~ — **closed in UI-3: client-side, per-Ledger, on the columns an operator actually re-orders by** | Closed | §16. **Cameras** sorts on Code (default, ascending), Name and State; Timezone and Actions do not sort. **Videos** sorts on File, Camera, Recorded (default, descending — the order the page already had) and Duration; Status does not, because it already has a filter and is operationally mutable, and Actions is not data. **Processing Queue** offers no operator-selectable sorting at all: its order *is* the operational statement — active, then failed, then completed, each bucket keeping the recording-start order it already had — and letting the operator re-order it would discard that meaning. Sorting stays client-side over inventories the API already returns whole: no endpoint changes, and no new URL parameter, so §17's "URL is the state of record" gains nothing to record. A sort is a view preference, not a shareable scope. |
 | **6** | Whether Overview survives as a distinct surface once an Events Ledger exists | After Events lands | §4.1.1. |
 | **7** | Timeline lane presentation for multiple analytical interval types (stacked lanes versus single lane with glyphs) | UI-5 defines the extension point; the presentation is chosen when the first analytical lane has real data (Slice 5) | §18. |
@@ -835,8 +852,9 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 
 ### 33.4 UI-3 — Existing Operational Surfaces
 
-- **Status.** The **active** UI Foundation increment. UI-1 and UI-2 are merged; open decision 5, the Ledger
-  sorting scope, closes here (§32).
+- **Status.** **Merged** (PR #60), with post-merge `main` green. UI-1 and UI-2 are merged before it; open
+  decision 5, the Ledger sorting scope, closed here (§32). The six operational surfaces it covers are frozen:
+  a later increment changes them only where its own scope requires it.
 - **Objective.** Bring the operational pages onto the grammar.
 - **Scope.** Overview, Cameras, Video Import, Videos, Processing, Processing Queue. Single-line rows and data density; table consistency; state taxonomy applied; filters moved to toolbars; form and editing consistency (inline validation, dirty state, camera creation without a permanent second card); removal of redundant card and panel hierarchy.
 - **Exclusions.** No new data or endpoints; **no analytics readiness or coverage indicators** (they follow, on this grammar); no player work.
@@ -847,6 +865,10 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 
 ### 33.5 UI-4 — Investigation Workspace
 
+- **Status.** The **active** UI Foundation increment. UI-1, UI-2 and UI-3 are merged and post-merge `main`
+  is qualified, which is what lets this one begin. Open decisions 3 and 4 close here (§32): the in-place
+  inspector threshold is **amended to 1600px** on measured evidence, and the ultra-wide split is
+  **confirmed unchanged**.
 - **Objective.** Migrate Search onto the Investigation archetype.
 - **Scope.** Filter rail rebuilt as scrolling field sections; committed-filter chips at the results head; results hierarchy and header copy; inspector behaviour including the drawer below threshold; ultra-wide utilisation; keyboard behaviour preserved and extended; URL-state semantics preserved exactly. Closes open decisions 3 and 4 (§32).
 - **Exclusions.** **No Slice 4 analytics predicates**; no coverage strip content; no saved searches; no natural-language query.
@@ -910,7 +932,7 @@ MAVI is a **dark-first, evidence-first, offline professional Visual Intelligence
 
 **Deferred, architecturally permitted:** light palette and System theme; selectable density; resizable panes; configurable layouts; command palette; mobile; notification centre; the Wall archetype for live multi-camera.
 
-**Open, closed in the named PR:** the UI font decision (UI-1); the exact evidence hues (UI-1 visual validation); the Investigation inspector threshold and ultra-wide split (UI-4); the Ledger sorting scope (UI-3); Overview's long-term fate (after Events); analytical timeline lane presentation (Slice 5).
+**Open, closed in the named PR:** the UI font decision (UI-1); the exact evidence hues (UI-1 visual validation); the Investigation inspector threshold and ultra-wide split (**closed in UI-4**: threshold amended to 1600px, split unchanged); the Ledger sorting scope (closed in UI-3); Overview's long-term fate (after Events); analytical timeline lane presentation (Slice 5).
 
 **Transitional:** §34.1 governs conformance until UI-5 merges, after which full frontend conformance is the baseline.
 

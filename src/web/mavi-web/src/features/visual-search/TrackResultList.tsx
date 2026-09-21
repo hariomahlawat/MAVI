@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import type { TrackSearchItem } from '../../api/tracks';
 import Icon from '../../shared/components/Icon';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence, formatOffset } from '../../shared/format/format';
+import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
 
 /**
  * Route to the full review of a Track. `searchContext` is the canonical
@@ -24,10 +24,13 @@ export function reviewPath(track: Pick<TrackSearchItem, 'id' | 'videoAssetId'>, 
 }
 
 /**
- * One result. The row is a list item with two independent controls: a
- * button that selects the Track for in-place inspection and a link to the
- * full review page. Keeping them siblings (not nested) is what makes the row
- * usable from a keyboard and honest to assistive technology.
+ * One result. The row is a list item with two independent controls: a button
+ * that selects the Track for in-place inspection and a link to the full review
+ * page. Keeping them siblings (not nested) is what makes the row usable from a
+ * keyboard and honest to assistive technology.
+ *
+ * The select button's identity comes from `resultSelection`, shared with the
+ * Grid: the page's key handler knows that contract rather than this markup.
  */
 function ResultRow({
   track,
@@ -44,16 +47,16 @@ function ResultRow({
   searchContext?: string;
   onSelect: (id: string) => void;
 }) {
-  const ref = useRef<HTMLLIElement | null>(null);
-  useEffect(() => {
-    if (selected) ref.current?.scrollIntoView?.({ block: 'nearest' });
-  }, [selected]);
+  // Keeping the selected result on screen is the selection contract's, shared
+  // with the Grid card, not this row's own idea (§22).
+  const ref = useKeepSelectedVisible<HTMLLIElement>(selected);
 
   const title = `${track.objectClass} · ${track.cameraCode} · ${track.cameraName}`;
+  const select = selectControlProps(track.id, `Select ${title}`, onSelect);
 
   return (
-    <li ref={ref} className="result-row" aria-current={selected ? 'true' : undefined} data-track-id={track.id.toLowerCase()}>
-      <button type="button" className="result-row__select" aria-label={`Select ${title}`} onClick={() => onSelect(track.id.toLowerCase())}>
+    <li ref={ref} className="result-row" aria-current={selected ? 'true' : undefined}>
+      <button {...select} className={`${select.className} result-row__select`}>
         <span className="thumb-frame thumb-frame--md" aria-hidden="true">
           {track.thumbnailContentUrl ? (
             <img className="thumb" src={track.thumbnailContentUrl} alt="" loading="lazy" />

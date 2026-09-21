@@ -235,9 +235,16 @@ export function WorkbenchLayout({
  * the set. The results list and the inspector body scroll independently; the
  * page does not.
  *
- * The inspector's in-place threshold and the ultra-wide split ratio are open
- * decisions 3 and 4, which UI-4 closes; this layout carries the structure they
- * will be decided against and does not pre-empt either.
+ * Open decisions 3 and 4 closed in UI-4: the inspector goes in place at 1600px
+ * and is a drawer below it, never narrower than 440px in place, and an
+ * ultra-wide display grows the inspector rather than the results column. Both
+ * are settled in `workspace.css` rather than here, because both are geometry —
+ * and the threshold is written there once, beside the property the §26 harness
+ * reads it back from.
+ *
+ * The results cap holds whether or not a Track is selected. An Investigation
+ * with nothing selected is still a scan surface, and a 2000px result row is no
+ * easier to read because there is no inspector beside it.
  */
 export function InvestigationLayout({
   rail,

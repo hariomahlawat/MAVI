@@ -360,6 +360,73 @@ describe('the archetype set is closed', () => {
     expect(callers).toEqual(['/src/shared/workspace/layouts.tsx']);
   });
 
+  it('caps the Investigation results column whether or not a Track is selected', () => {
+    // §4.4 caps the results column at approximately 900px and gives the surplus
+    // to the inspector. The cap is not conditional on there being an inspector:
+    // an Investigation with nothing selected is still a scan surface, and an
+    // uncapped column on a 2560px display is a 2000px result row either way.
+    //
+    // Asserted on the stylesheet because the rule is a grid template, and jsdom
+    // computes no layout to measure. The rendered geometry is measured by the
+    // §26 harness at real viewports, which is the half this cannot do.
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    const base = css.slice(css.indexOf('.workspace__investigation-grid {'));
+    const unselected = base.slice(0, base.indexOf('}'));
+    expect(unselected).toContain('var(--c-results-max)');
+    // Without the third column the cap has to be a cap rather than a floor:
+    // `stretch` would hand the surplus straight back to the results.
+    expect(unselected).toContain('justify-content: start');
+  });
+
+  it('contains the Investigation rail without giving the form a second scroll owner', () => {
+    // §11: a border marks a scroll boundary or an editable region. The rail
+    // column is both — it owns the rail's only scroll and it holds the filter
+    // form — so one border there satisfies the rule, and a second one around
+    // the form would be the card-inside-card §11 calls a defect.
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    const rail = css.slice(css.indexOf('.workspace__rail {'));
+    const block = rail.slice(0, rail.indexOf('}'));
+    expect(block).toMatch(/border:\s*var\(--stroke-hair\)/);
+    expect(block).toContain('overflow-y: auto');
+
+    // And the form itself must not scroll. Two scroll owners in one column is
+    // the defect UI-4 removed; a border is not a licence to bring it back.
+    const features = SHEETS['/src/styles/features.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    const form = features.slice(features.indexOf('.filter-rail {'));
+    expect(form.slice(0, form.indexOf('}'))).not.toMatch(/overflow/);
+    expect(features).not.toMatch(/\.filter-rail[^{]*\{[^}]*overflow-y:\s*(auto|scroll)/);
+    // Nor be stuck to the column's edge, which is how it came to sit on the
+    // last field at 1366 when the rail was tall enough to scroll.
+    const actions = features.slice(features.indexOf('.filter-rail__actions {'));
+    expect(actions.slice(0, actions.indexOf('}'))).not.toContain('position: sticky');
+  });
+
+  it('declares which inspector shape is in force rather than leaving it implied', () => {
+    // Open decision 3 is a number the §26 harness has to check the layout
+    // against, and a harness carrying the number itself can only confirm its
+    // own assumption. The archetype publishes its placement as a custom
+    // property beside the media query that decides it, so moving the threshold
+    // is an edit here and nowhere else — as UI-4 did, from 1500 to 1600.
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(/\.workspace--investigation\s*\{[^}]*--inspector-placement:\s*drawer/);
+    const threshold = css.slice(css.indexOf('@media (min-width: 1600px)'));
+    expect(threshold.slice(0, threshold.indexOf('@media', 1)))
+      .toMatch(/--inspector-placement:\s*in-place/);
+  });
+
+  it('gives the in-place Investigation inspector a floor the results yield to', () => {
+    // Open decision 3's second half. §4.4 gives the *surplus* to the inspector,
+    // which says nothing about what happens when there is none: a grid that
+    // grants the results their 900px cap first measured 60px of inspector at
+    // 1500 and 160px at 1600 — in place by the letter of the rule and unusable.
+    // The floor is what makes the results yield instead.
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    const threshold = css.slice(css.indexOf('@media (min-width: 1600px)'));
+    const inPlace = threshold.slice(0, threshold.indexOf('@media', 1));
+    expect(inPlace).toContain('minmax(var(--c-inspector-min-w), 1fr)');
+    expect(SHEETS['/src/styles/tokens.css']).toContain('--c-inspector-min-w');
+  });
+
   it('gives every surface one Context Bar implementation', () => {
     // The band's markup belongs to the shell and the primitive. A feature that
     // wrote its own `.context-bar` would produce the two-bar page §5 forbids,

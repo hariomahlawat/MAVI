@@ -41,6 +41,36 @@ export const PAGE_ASSERTIONS = `(() => {
     return { ...box, width: box.right - box.left, height: box.bottom - box.top };
   };
 
+  /**
+   * The overlay an element sits inside, if any.
+   *
+   * A drawer is *supposed* to cover what is behind it — §4.4's Investigation
+   * inspector below its threshold, §4.3.1's Workbench inspector in its narrow
+   * band — so a pair where exactly one side is inside a positioned overlay is
+   * the archetype working, not a defect. Reporting those would have meant
+   * either 40 findings per drawer state or a per-state exemption, and an
+   * exemption cannot tell a drawer from a layout that genuinely collided.
+   *
+   * Two elements inside the *same* overlay are still compared with each other,
+   * which is what keeps the drawer's own contents honest.
+   */
+  const overlayOf = (el) => {
+    for (let node = el; node; node = node.parentElement) {
+      const position = getComputedStyle(node).position;
+      if (position === 'absolute' || position === 'fixed') return node;
+    }
+    return null;
+  };
+  const deliberatelyLayered = (a, b) => {
+    const oa = overlayOf(a);
+    const ob = overlayOf(b);
+    if (oa === ob) return false;
+    // One is inside an overlay the other is not inside: the overlay covers it.
+    if (oa && !oa.contains(b)) return true;
+    if (ob && !ob.contains(a)) return true;
+    return false;
+  };
+
   // 1. No horizontal page scroll at any acceptance width.
   if (doc.scrollWidth > doc.clientWidth + 1) {
     problems.push('horizontal page overflow: scrollWidth ' + doc.scrollWidth + ' > clientWidth ' + doc.clientWidth);
@@ -57,6 +87,7 @@ export const PAGE_ASSERTIONS = `(() => {
     for (let j = i + 1; j < controls.length; j++) {
       const a = controls[i], b = controls[j];
       if (a.contains(b) || b.contains(a)) continue;
+      if (deliberatelyLayered(a, b)) continue;
       const ra = visibleRect(a), rb = visibleRect(b);
       const overlapX = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
       const overlapY = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
@@ -84,6 +115,7 @@ export const PAGE_ASSERTIONS = `(() => {
     for (let j = i + 1; j < leaves.length; j++) {
       const a = leaves[i], b = leaves[j];
       if (a.contains(b) || b.contains(a)) continue;
+      if (deliberatelyLayered(a, b)) continue;
       const ra = visibleRect(a), rb = visibleRect(b);
       const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
       const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
@@ -172,6 +204,22 @@ export const WORKSPACE_ASSERTIONS = `(() => {
     if (workspace.scrollHeight > workspace.clientHeight + 1) {
       problems.push('content is clipped: the workspace is ' + workspace.scrollHeight
         + 'px inside ' + workspace.clientHeight + 'px with no scroll owner for the difference');
+    }
+    // Sideways too, and this half is the one that bites. A contained column
+    // clips horizontally without ever giving the document a horizontal
+    // scrollbar, so a grid whose columns do not fit simply loses its right
+    // edge — controls and all — and every other check here still passes. It is
+    // how an Investigation at 1500px lost the inspector's Open and Close
+    // buttons while reporting no page overflow at all.
+    measured.columnOverflowX = round(column.scrollWidth - column.clientWidth);
+    if (column.scrollWidth > column.clientWidth + 1) {
+      problems.push('content is clipped sideways: the shell column is contained but its content is '
+        + column.scrollWidth + 'px inside ' + column.clientWidth + 'px, so ' + measured.columnOverflowX
+        + 'px is off the right edge with no way to reach it');
+    }
+    if (workspace.scrollWidth > workspace.clientWidth + 1) {
+      problems.push('content is clipped sideways: the workspace is ' + workspace.scrollWidth
+        + 'px inside ' + workspace.clientWidth + 'px with no scroll owner for the difference');
     }
   }
 
@@ -265,6 +313,123 @@ export const WORKSPACE_ASSERTIONS = `(() => {
     }
     if (!workspace.querySelector('.workspace__record-grid')) {
       problems.push('Record is missing its primary/facts grid');
+    }
+  }
+
+  // --- Investigation (UI-4) ---------------------------------------------
+  //
+  // The rules a rendered page settles and a unit test cannot: which element
+  // actually owns the scroll in each column, how wide the results column is at
+  // this viewport, and whether the inspector is a third column or a drawer over
+  // the results.
+  //
+  // The threshold itself is deliberately not written here. The archetype
+  // publishes its --inspector-placement custom property beside the media query
+  // that decides it; this reads that back and checks the geometry agrees — so
+  // moving the threshold from 1500 to 1600 is an edit to workspace.css and to
+  // nothing in the harness. A number carried here could only confirm itself.
+  if (archetype === 'workspace--investigation') {
+    const grid = workspace.querySelector('.workspace__investigation-grid');
+    const rail = workspace.querySelector('.workspace__rail');
+    const results = workspace.querySelector('.workspace__results');
+    if (!grid || !rail || !results) {
+      problems.push('Investigation is missing its rail, results or grid region');
+      return { problems, measured };
+    }
+
+    const railWidth = rail.getBoundingClientRect().width;
+    const resultsWidth = results.getBoundingClientRect().width;
+    measured.railWidth = round(railWidth);
+    measured.resultsWidth = round(resultsWidth);
+    measured.inspectorPlacement =
+      getComputedStyle(workspace).getPropertyValue('--inspector-placement').trim() || null;
+
+    // §4.4: results and inspector scroll independently; the page does not.
+    if (measured.shellScroll !== 'contain') {
+      problems.push('Investigation did not declare no-page-scroll to the shell: the content column is "'
+        + measured.shellScroll + '", so the page may scroll instead of the results');
+    }
+    if (doc.clientWidth > 1100 && doc.scrollHeight > doc.clientHeight + 1) {
+      problems.push('Investigation page scrolls: scrollHeight ' + doc.scrollHeight
+        + ' > clientHeight ' + doc.clientHeight);
+    }
+
+    if (doc.clientWidth > 1100) {
+      // The rail is 252px and scrolls on its own. A rail that has handed its
+      // scroll to an inner box is the defect UI-4 fixed, and it is invisible
+      // until the rail is taller than the viewport — so the ownership is
+      // checked, not the fact that something happened to fit.
+      if (railWidth < 240 || railWidth > 264) {
+        problems.push('Investigation rail is ' + measured.railWidth + 'px, not the fixed 252px of §4.4');
+      }
+      if (!/(auto|scroll)/.test(getComputedStyle(rail).overflowY)) {
+        problems.push('Investigation rail cannot scroll independently of the results');
+      }
+      const railInner = Array.from(rail.querySelectorAll('*')).filter((el) => {
+        const style = getComputedStyle(el);
+        return /(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1;
+      });
+      if (railInner.length) {
+        problems.push('Investigation rail has a second scroll owner inside it: '
+          + railInner.map((el) => '.' + String(el.className).trim().split(/\s+/).join('.')).join(', '));
+      }
+
+      // §4.4: never compressed below ~560px, never grown beyond ~900px —
+      // whether or not a Track is selected. The floor applies only where there
+      // is room for it; below that the archetype has already stacked.
+      if (resultsWidth > 910) {
+        problems.push('Investigation results column is ' + measured.resultsWidth
+          + 'px, above the ~900px cap of §4.4: surplus width belongs to the inspector');
+      }
+      if (working - railWidth > 600 && resultsWidth < 555) {
+        problems.push('Investigation results column is ' + measured.resultsWidth
+          + 'px inside a ' + round(working) + 'px workspace, below the ~560px floor of §4.4');
+      }
+
+      // The rows scroll, not the column around them.
+      const list = results.querySelector('.results__list');
+      if (list && !/(auto|scroll)/.test(getComputedStyle(list).overflowY)) {
+        problems.push('Investigation results list does not own its scroll');
+      }
+    }
+
+    // The inspector, when there is one: a third column at and above the
+    // threshold the layout declares, an overlay drawer below it — and never a
+    // modal, whichever shape it is in (§20).
+    const inspector = workspace.querySelector('.workspace__inspector');
+    if (inspector && doc.clientWidth > 1100) {
+      const style = getComputedStyle(inspector);
+      const inspectorWidth = inspector.getBoundingClientRect().width;
+      measured.inspectorWidth = round(inspectorWidth);
+      measured.inspectorPosition = style.position;
+
+      if (measured.inspectorPlacement === 'in-place') {
+        if (style.position === 'absolute') {
+          problems.push('Investigation inspector is still a drawer at ' + doc.clientWidth
+            + 'px, where the layout declares it in place');
+        }
+        // In place, the inspector is what the surplus was saved for: at a wide
+        // viewport it must be the column that grew, not the results.
+        if (working - railWidth - resultsWidth > 40 && inspectorWidth < 320) {
+          problems.push('Investigation inspector is only ' + measured.inspectorWidth
+            + 'px while ' + round(working - railWidth - resultsWidth)
+            + 'px of surplus exists: §4.4 gives the surplus to the inspector');
+        }
+      } else if (measured.inspectorPlacement === 'drawer') {
+        if (style.position !== 'absolute') {
+          problems.push('Investigation inspector is an in-flow column at ' + doc.clientWidth
+            + 'px, where the layout declares it a drawer — the results are compressed instead of covered');
+        }
+      } else {
+        problems.push('Investigation did not declare an inspector placement; the harness has '
+          + 'nothing to check the rendered geometry against');
+      }
+
+      // §20: a drawer, not a dialog. No modality, no trap, nothing inert.
+      if (workspace.querySelector('[role="dialog"], [aria-modal="true"], [inert]')) {
+        problems.push('Investigation inspector claims modality: §20 makes it a non-modal drawer '
+          + 'so the results stay readable underneath');
+      }
     }
   }
 

@@ -2,10 +2,12 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../api/client';
 import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { getTrack, searchTracks, type TrackDetail, type TrackSearchItem } from '../../api/tracks';
 import { listVideos } from '../../api/videos';
+import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import VisualSearchPage from './VisualSearchPage';
 
@@ -127,6 +129,9 @@ function SearchHistoryHarness() {
 describe('VisualSearchPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // List/Grid is a stored preference, so a test that switches views would
+    // otherwise decide the view of every test that runs after it.
+    window.localStorage.clear();
     vi.mocked(listCameras).mockResolvedValue([camera]);
     vi.mocked(listVideos).mockResolvedValue([]);
     vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
@@ -144,6 +149,49 @@ describe('VisualSearchPage', () => {
       expect.objectContaining({ limit: 24, cursor: undefined }),
       expect.any(AbortSignal),
     ));
+  });
+
+  it('is an Investigation rather than a page with its own three-column grid', async () => {
+    const { container } = renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await screen.findByRole('link', { name: 'Review evidence' });
+
+    // §4.4 through the shared archetype: the rail, the results column and the
+    // inspector slot are the layout's regions, not this feature's CSS.
+    const workspace = container.querySelector('.workspace--investigation');
+    expect(workspace).toBeInTheDocument();
+    expect(within(workspace as HTMLElement).getByRole('form', { name: 'Search filters' }))
+      .toBeInTheDocument();
+    expect(container.querySelector('.workspace__results')).toBeInTheDocument();
+    // §4 removes the page title block; the surface names itself in the band.
+    expect(container.querySelector('.page-header')).not.toBeInTheDocument();
+    // The private grid it used to carry is gone, not renamed.
+    expect(container.querySelector('.search-workspace')).not.toBeInTheDocument();
+  });
+
+  it('puts page-scope conditions above the results rather than inside them', async () => {
+    vi.mocked(listCameras).mockRejectedValue(new ApiError({ status: 503, code: 'cameras_unavailable', detail: 'Cameras unavailable.' }));
+    const { container } = renderWithApp(<VisualSearchPage />, { route: '/search' });
+
+    const notice = await screen.findByText(/Camera metadata is unavailable/);
+    // A surface-wide outage must not scroll away with the rows it is not about.
+    expect(notice.closest('.workspace__notices')).not.toBeNull();
+    expect(notice.closest('.workspace__results')).toBeNull();
+    expect(container.querySelector('.workspace__notices')).toBeInTheDocument();
+  });
+
+  it('shows the inspector through the shared shell when a Track is selected', async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithApp(<VisualSearchPage />, { route: '/search' });
+    const rows = within(await screen.findByRole('list', { name: 'Track results' })).getAllByRole('listitem');
+    await user.click(within(rows[0]).getByRole('button', { name: /^Select / }));
+
+    const inspector = await screen.findByRole('complementary', { name: 'Track inspector' });
+    expect(inspector).toHaveClass('inspector');
+    expect(container.querySelector('.workspace--investigation.has-inspector')).toBeInTheDocument();
+    // §20: a drawer, not a dialog. Nothing here may claim modality.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(inspector.getAttribute('aria-modal')).toBeNull();
+    expect(container.querySelector('[inert]')).toBeNull();
   });
 
   it('keeps draft edits local until Search commits them', async () => {
@@ -256,7 +304,10 @@ describe('VisualSearchPage', () => {
     });
 
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
-    expect(screen.getByLabelText('Active time scope')).toHaveTextContent('2026-09-14T02:30:00.000Z');
+    // Without the configured zone the chip states the instant explicitly in
+    // UTC rather than guessing at the browser's (ADR-004, §24).
+    expect(within(screen.getByRole('group', { name: 'Committed filters' })).getByTitle(/^From:/))
+      .toHaveTextContent('2026-09-14T02:30:00.000Z UTC');
 
     await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
     await user.click(screen.getByRole('button', { name: 'Search' }));
@@ -347,7 +398,9 @@ describe('VisualSearchPage', () => {
     vi.mocked(getSystemConfig).mockResolvedValueOnce({ displayTimeZoneId: 'Asia/Kolkata' });
     await user.click(screen.getByRole('button', { name: 'Retry display config' }));
 
-    await waitFor(() => expect(screen.getByLabelText('From')).toHaveValue('2026-09-14T08:00'));
+    // The product's own wall-time format (§24), seconds included — not the
+    // browser's rendering of a `datetime-local`, which varies by locale.
+    await waitFor(() => expect(screen.getByLabelText('From')).toHaveValue('2026-09-14 08:00:00'));
     expect(screen.getByLabelText('Object class')).toHaveValue('Vehicle');
   });
 
@@ -447,15 +500,19 @@ describe('VisualSearchPage', () => {
     });
 
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
-    expect(screen.getByLabelText('Active advanced scopes')).toHaveTextContent(videoScope);
-    expect(screen.getByLabelText('Active advanced scopes')).toHaveTextContent(runScope);
+    // The rail has no control for either scope, so the chip is the only place
+    // an operator can see that one is in force — shortened, because the video
+    // inventory is empty here and there is no name to resolve it to.
+    const chips = () => screen.getByRole('group', { name: 'Committed filters' });
+    expect(within(chips()).getByTitle(/^Video:/)).toHaveTextContent(videoScope.slice(0, 8));
+    expect(within(chips()).getByTitle(/^Processing run:/)).toHaveTextContent(runScope.slice(0, 8));
 
-    await user.click(screen.getByRole('button', { name: 'Remove video scope' }));
+    await user.click(screen.getByRole('button', { name: 'Remove video filter' }));
 
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
     expect(vi.mocked(searchTracks).mock.calls[1][0].videoAssetId).toBeUndefined();
     expect(vi.mocked(searchTracks).mock.calls[1][0].processingRunId).toBe(runScope);
-    expect(screen.getByLabelText('Active advanced scopes')).not.toHaveTextContent(videoScope);
+    expect(within(chips()).queryByTitle(/^Video:/)).not.toBeInTheDocument();
   });
 
   it('passes the opaque continuation cursor only to Load more', async () => {
@@ -488,10 +545,356 @@ describe('VisualSearchPage', () => {
     });
     await screen.findByRole('link', { name: 'Review evidence' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Remove time scope' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from filter' }));
 
     await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
     expect(vi.mocked(searchTracks).mock.calls[1][0].fromUtc).toBeUndefined();
+  });
+
+  describe('field-level validation (§10)', () => {
+    it('reports every refused field on the field itself, not once at page level', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+
+      await user.type(screen.getByLabelText('Minimum duration (seconds)'), '1.2345');
+      await user.type(screen.getByLabelText('Minimum confidence (%)'), '140');
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+
+      // Both, not just the first: an operator who mistyped two fields should
+      // not have to discover the second after fixing the first.
+      const duration = screen.getByLabelText('Minimum duration (seconds)');
+      const confidence = screen.getByLabelText('Minimum confidence (%)');
+      expect(duration).toHaveAttribute('aria-invalid', 'true');
+      expect(confidence).toHaveAttribute('aria-invalid', 'true');
+      expect(document.getElementById(duration.getAttribute('aria-describedby')!.split(' ')[0]))
+        .toHaveTextContent(/three decimal places/i);
+      expect(document.getElementById(confidence.getAttribute('aria-describedby')!.split(' ')[0]))
+        .toHaveTextContent(/between 0 and 100/i);
+
+      // Nothing was committed and nothing was requested.
+      expect(searchTracks).toHaveBeenCalledTimes(1);
+      expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search');
+    });
+
+    it('reports an inverted range on the To field and clears it when corrected', async () => {
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+
+      fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-14T10:00:00' } });
+      fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-09-14T09:00:00' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+      expect(await screen.findByText(/To time must be later/i)).toBeInTheDocument();
+      expect(screen.getByLabelText('To')).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByLabelText('From')).not.toHaveAttribute('aria-invalid');
+
+      // Touching the field withdraws the claim; it is re-judged on the next ask.
+      fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-09-14T11:00:00' } });
+      expect(screen.queryByText(/To time must be later/i)).not.toBeInTheDocument();
+      expect(screen.getByLabelText('To')).not.toHaveAttribute('aria-invalid');
+    });
+
+    it('keeps malformed committed URL state at page level rather than on a field', async () => {
+      renderWithApp(<VisualSearchPage />, { route: '/search?objectClass=Person&objectClass=Vehicle' });
+
+      const notice = await screen.findByText(/must occur exactly once/i);
+      // §10: the URL is not a field, so its refusal is not a field error.
+      expect(notice.closest('.workspace__notices')).not.toBeNull();
+      expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
+      expect(searchTracks).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('draft state means currently differs (§21)', () => {
+    it('is clean again when a field is edited back to the committed value', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search?objectClass=Person' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+      expect(screen.queryByText('Unapplied filters')).not.toBeInTheDocument();
+
+      await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+      expect(screen.getByText('Unapplied filters')).toBeInTheDocument();
+
+      // Back to what is committed. The draft no longer differs, so there is
+      // nothing outstanding — a "was touched" flag would still say there is.
+      await user.selectOptions(screen.getByLabelText('Object class'), 'Person');
+      expect(screen.queryByText('Unapplied filters')).not.toBeInTheDocument();
+    });
+
+    it('cannot resurrect a reverted field when its own chip is removed', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search?objectClass=Person' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+
+      await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+      await user.selectOptions(screen.getByLabelText('Object class'), 'Person');
+      await user.click(screen.getByRole('button', { name: 'Remove class filter' }));
+
+      await waitFor(() => expect(screen.getByLabelText('Current search location'))
+        .not.toHaveTextContent('objectClass'));
+      // The field rebased with the rest; it was not held back as an edit.
+      expect(screen.getByLabelText('Object class')).toHaveValue('');
+      expect(screen.queryByText('Unapplied filters')).not.toBeInTheDocument();
+
+      // And the criterion the operator removed does not come back.
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+      expect(screen.getByLabelText('Current search location')).not.toHaveTextContent('objectClass');
+      expect(vi.mocked(searchTracks).mock.calls.at(-1)?.[0].objectClass).toBeUndefined();
+    });
+
+    it('keeps a genuinely outstanding edit when an unrelated chip is removed', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, {
+        route: `/search?cameraId=${camera.id}&objectClass=Person`,
+      });
+      await screen.findByRole('link', { name: 'Review evidence' });
+
+      await user.type(screen.getByLabelText('Minimum confidence (%)'), '80');
+      await user.click(screen.getByRole('button', { name: 'Remove class filter' }));
+
+      await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+      expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('80');
+      expect(screen.getByLabelText('Camera')).toHaveValue(camera.id);
+      expect(screen.getByText('Unapplied filters')).toBeInTheDocument();
+    });
+
+    it('keeps a committed value finer than the field displays when the field is edited back', async () => {
+      const user = userEvent.setup();
+      // 0.00075 displays as 0.075%. Reconverting it from that text is lossless
+      // here, but reconverting at all is what a "was touched" flag forces; the
+      // committed number must survive untouched either way.
+      renderWithApp(<VisualSearchPage />, { route: '/search?minimumConfidence=0.00075' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+      const confidence = screen.getByLabelText('Minimum confidence (%)');
+      expect(confidence).toHaveValue('0.075');
+
+      await user.type(confidence, '9');
+      expect(screen.getByText('Unapplied filters')).toBeInTheDocument();
+      await user.clear(confidence);
+      await user.type(confidence, '0.075');
+      expect(screen.queryByText('Unapplied filters')).not.toBeInTheDocument();
+
+      await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+
+      await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(searchTracks).mock.calls[1][0]).toEqual(expect.objectContaining({
+        objectClass: 'Vehicle', minimumConfidence: 0.00075,
+      }));
+    });
+
+    it('clears the indication on Reset', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+
+      await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+      expect(screen.getByText('Unapplied filters')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Reset' }));
+      expect(screen.queryByText('Unapplied filters')).not.toBeInTheDocument();
+    });
+
+    it('clears the indication after a successful Search', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+
+      await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+      await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+      expect(screen.queryByText('Unapplied filters')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('wall-time input (§24)', () => {
+    it('says the timezone is loading rather than unavailable while it loads', async () => {
+      let release: (value: { displayTimeZoneId: string }) => void = () => {};
+      vi.mocked(getSystemConfig).mockReturnValue(new Promise((resolve) => { release = resolve; }));
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+
+      // §14: pending is not failed. The operator waits rather than retrying.
+      // Both time fields say it, because the operator fills them one at a time.
+      await waitFor(() => expect(screen.getAllByText(/Loading the display timezone/i)).toHaveLength(2));
+      expect(screen.queryByText(/Display timezone is unavailable/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Retry display config' })).not.toBeInTheDocument();
+      expect(screen.getByLabelText('From')).toBeDisabled();
+
+      release({ displayTimeZoneId: 'Asia/Kolkata' });
+      await waitFor(() => expect(screen.getByLabelText('From')).toBeEnabled());
+    });
+
+    it('states the expected format and the operative timezone on both time fields', async () => {
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+
+      for (const label of ['From', 'To']) {
+        const field = await screen.findByLabelText(label);
+        const described = field.getAttribute('aria-describedby');
+        expect(described).toBeTruthy();
+        const help = described!.split(' ').map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+        expect(help).toContain('YYYY-MM-DD HH:mm:ss');
+        expect(help).toContain('Asia/Kolkata');
+      }
+    });
+
+    it('reports a failed display config as failed, with a retry, and keeps committed bounds', async () => {
+      vi.mocked(getSystemConfig).mockRejectedValue(new Error('offline'));
+      renderWithApp(<VisualSearchPage />, {
+        route: '/search?fromUtc=2026-09-14T02%3A30%3A00Z',
+      });
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Retry display config' })).toBeInTheDocument());
+      expect(screen.getAllByText(/Display timezone is unavailable, so times cannot be edited/i)).toHaveLength(2);
+      expect(screen.queryByText(/Loading the display timezone/i)).not.toBeInTheDocument();
+      expect(screen.getByLabelText('From')).toBeDisabled();
+      // ADR-004: the committed UTC scope stays in force and is stated as UTC.
+      expect(vi.mocked(searchTracks).mock.calls[0][0].fromUtc).toBe('2026-09-14T02:30:00.000Z');
+      expect(within(screen.getByRole('group', { name: 'Committed filters' })).getByTitle(/^From:/))
+        .toHaveTextContent('2026-09-14T02:30:00.000Z UTC');
+    });
+
+    it('keeps the retained configuration when a refetch fails, and says so', async () => {
+      // A failed refetch keeps the data it already had, so `isError` is true
+      // while `data` is still usable. Reporting that as "unavailable, editing
+      // disabled, timestamps in UTC" contradicts the zone still on screen and
+      // the fields still converting through it.
+      vi.mocked(getSystemConfig)
+        .mockResolvedValueOnce({ displayTimeZoneId: 'Asia/Kolkata' })
+        .mockRejectedValue(new Error('offline'));
+      const { queryClient } = renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+      expect(screen.getByLabelText('From')).toBeEnabled();
+
+      await queryClient.refetchQueries({ queryKey: queryKeys.systemConfig });
+
+      // The refresh is reported as a refresh failure, with a retry.
+      expect(await screen.findByText(/last known configuration remains in use/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry display config' })).toBeInTheDocument();
+      // And nothing claims the configuration is gone.
+      expect(screen.queryByText(/Display timezone is unavailable/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/time editing is disabled/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/shown explicitly in UTC/i)).not.toBeInTheDocument();
+
+      // The retained zone is still in force: the fields still convert through
+      // it, and they still say which zone that is.
+      expect(screen.getByLabelText('From')).toBeEnabled();
+      expect(screen.getAllByText(/Asia\/Kolkata/).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/Loading the display timezone/i)).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-14 08:00:00' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+      await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(searchTracks).mock.calls[1][0].fromUtc).toBe('2026-09-14T02:30:00.000Z');
+    });
+
+    it('accepts the product format and converts it through the configured zone', async () => {
+      renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+
+      fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-14 08:00:00' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+      await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+      // 08:00 in Asia/Kolkata is 02:30Z. The browser's own zone is never used.
+      expect(vi.mocked(searchTracks).mock.calls[1][0].fromUtc).toBe('2026-09-14T02:30:00.000Z');
+    });
+  });
+
+  describe('committed filter chips (§11)', () => {
+    it('resolves identifiers to names and falls back to a short identifier', async () => {
+      const unknown = '018f3f5a-2f70-7a2b-8a12-2d02f4c21499';
+      renderWithApp(<VisualSearchPage />, {
+        route: `/search?cameraId=${camera.id}&videoAssetId=${unknown}&objectClass=Person&minimumConfidence=0.075`,
+      });
+
+      const chips = await screen.findByRole('group', { name: 'Committed filters' });
+      // The chip is drawn before the inventory that names the camera arrives,
+      // and states the identifier until it does rather than waiting.
+      expect(within(chips).getByTitle(/^Camera:/)).toHaveTextContent(camera.id.slice(0, 8));
+      await waitFor(() => expect(within(chips).getByTitle(/^Camera:/))
+        .toHaveTextContent('CAM-01 · North Gate'));
+      // No video inventory resolves this one, so it shortens rather than vanishing.
+      expect(within(chips).getByTitle(/^Video:/)).toHaveTextContent(unknown.slice(0, 8));
+      expect(within(chips).getByTitle(/^Class:/)).toHaveTextContent('Person');
+      // Stated to the precision it was committed with, not rounded for scanning.
+      expect(within(chips).getByTitle(/^Minimum confidence:/)).toHaveTextContent('7.5%');
+      // Selection is not a criterion.
+      expect(within(chips).queryByTitle(/^Track:/)).not.toBeInTheDocument();
+    });
+
+    it('removes one criterion without disturbing a field the operator is editing', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, {
+        route: `/search?cameraId=${camera.id}&objectClass=Person`,
+      });
+      await screen.findByRole('link', { name: 'Review evidence' });
+
+      // A local edit that has not been committed yet.
+      await user.type(screen.getByLabelText('Minimum confidence (%)'), '80');
+      expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('80');
+
+      await user.click(screen.getByRole('button', { name: 'Remove class filter' }));
+
+      await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+      // The criterion went; the rest of the committed search stayed; the
+      // continuation cursor did not travel to the new snapshot.
+      expect(vi.mocked(searchTracks).mock.calls[1][0]).toEqual(expect.objectContaining({
+        cameraId: camera.id, cursor: undefined, limit: 24,
+      }));
+      expect(vi.mocked(searchTracks).mock.calls[1][0].objectClass).toBeUndefined();
+      expect(screen.getByLabelText('Current search location'))
+        .toHaveTextContent('/search?cameraId=' + camera.id);
+      // The untouched Camera field rebased; the edited confidence survived.
+      expect(screen.getByLabelText('Camera')).toHaveValue(camera.id);
+      expect(screen.getByLabelText('Object class')).toHaveValue('');
+      expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('80');
+    });
+
+    it('settles the draft when a search commits the state it was already in', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search?minimumConfidence=0.8' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+      expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('80');
+
+      // An edit that canonicalises to what is already committed. The URL does
+      // not change, so nothing keyed on it can notice that Search was pressed —
+      // and the field would stay marked as an outstanding edit for ever.
+      const confidence = screen.getByLabelText('Minimum confidence (%)');
+      await user.clear(confidence);
+      await user.type(confidence, '80.00');
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+      await waitFor(() => expect(confidence).toHaveValue('80'));
+
+      // Which would then survive the removal of its own chip, and come back on
+      // the next search — a criterion the operator removed, reinstating itself.
+      await user.click(screen.getByRole('button', { name: 'Remove minimum confidence filter' }));
+
+      await waitFor(() => expect(screen.getByLabelText('Current search location'))
+        .not.toHaveTextContent('minimumConfidence'));
+      expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('');
+      expect(vi.mocked(searchTracks).mock.calls.at(-1)?.[0].minimumConfidence).toBeUndefined();
+
+      // And it stays gone: the next search does not reinstate it.
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+      expect(screen.getByLabelText('Current search location')).not.toHaveTextContent('minimumConfidence');
+      expect(vi.mocked(searchTracks).mock.calls.at(-1)?.[0].minimumConfidence).toBeUndefined();
+    });
+
+    it('drops the selection when a criterion is removed', async () => {
+      const user = userEvent.setup();
+      const first = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451');
+      vi.mocked(searchTracks).mockResolvedValue({ items: [first], nextCursor: null });
+      renderWithApp(<SearchHistoryHarness />, { route: `/search?objectClass=Person&track=${first.id}` });
+
+      await screen.findByRole('complementary', { name: 'Track inspector' });
+      await user.click(screen.getByRole('button', { name: 'Remove class filter' }));
+
+      // The Track belonged to a snapshot that no longer exists.
+      await waitFor(() => expect(screen.getByLabelText('Current search location'))
+        .not.toHaveTextContent('track='));
+      expect(screen.queryByRole('complementary', { name: 'Track inspector' })).not.toBeInTheDocument();
+    });
   });
 
   describe('in-place inspector', () => {
@@ -501,6 +904,105 @@ describe('VisualSearchPage', () => {
     beforeEach(() => {
       vi.mocked(searchTracks).mockResolvedValue({ items: [first, second], nextCursor: null });
       vi.mocked(getTrack).mockImplementation(async (id) => detail(id === first.id ? first : second, id === first.id ? 7 : 8));
+    });
+
+    it('returns focus to the result it was opened from when it closes', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      const rows = within(await screen.findByRole('list', { name: 'Track results' })).getAllByRole('listitem');
+      const control = within(rows[0]).getByRole('button', { name: /^Select / });
+
+      await user.click(control);
+      await screen.findByRole('heading', { name: 'Person · Track 7' });
+      await user.click(screen.getByRole('button', { name: 'Close inspector' }));
+
+      // Closing removes the subtree focus was in; without this, focus falls to
+      // the document and the next Tab restarts at the top of the page.
+      await waitFor(() => expect(control).toHaveFocus());
+    });
+
+    it('falls back to the results region when the result it was opened from is gone', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await screen.findByRole('list', { name: 'Track results' });
+
+      // A deep-linked Track that is not in this snapshot has no control to
+      // return to; focus must still land somewhere the operator can work from.
+      await user.click(within(within(screen.getByRole('list', { name: 'Track results' }))
+        .getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / }));
+      await screen.findByRole('heading', { name: 'Person · Track 7' });
+      vi.mocked(searchTracks).mockResolvedValue({ items: [], nextCursor: null });
+      await user.click(screen.getByRole('button', { name: 'Close inspector' }));
+
+      await waitFor(() => expect(screen.queryByRole('heading', { name: 'Person · Track 7' })).not.toBeInTheDocument());
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it('keeps the selected card in view while the keyboard walks the Grid', async () => {
+      const user = userEvent.setup();
+      const scrollIntoView = vi.fn();
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        renderWithApp(<VisualSearchPage />, { route: '/search' });
+        await screen.findByRole('list', { name: 'Track results' });
+        await user.click(screen.getByRole('button', { name: 'Grid view' }));
+        scrollIntoView.mockClear();
+
+        await user.click(screen.getByRole('button', { name: `Select Person · ${camera.code} · ${camera.name}` }));
+        await screen.findByRole('heading', { name: 'Person · Track 7' });
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+
+        // And again on each keyboard step, or the selection walks off screen.
+        scrollIntoView.mockClear();
+        await user.keyboard('{j}');
+        await screen.findByRole('heading', { name: 'Vehicle · Track 8' });
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+      } finally {
+        Element.prototype.scrollIntoView = original;
+      }
+    });
+
+    it('drives the Grid from the keyboard exactly as it drives the List', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+      await screen.findByRole('list', { name: 'Track results' });
+      await user.click(screen.getByRole('button', { name: 'Grid view' }));
+
+      // No list any more — and the same shortcuts still work.
+      expect(screen.queryByRole('list', { name: 'Track results' })).not.toBeInTheDocument();
+      const control = screen.getByRole('button', { name: `Select Person · ${camera.code} · ${camera.name}` });
+      await user.click(control);
+      expect(await screen.findByRole('heading', { name: 'Person · Track 7' })).toBeInTheDocument();
+
+      await user.keyboard('{j}');
+      expect(await screen.findByRole('heading', { name: 'Vehicle · Track 8' })).toBeInTheDocument();
+      await user.keyboard('{k}');
+      expect(await screen.findByRole('heading', { name: 'Person · Track 7' })).toBeInTheDocument();
+
+      // Enter on the selected result's own control opens the full review —
+      // the same rule as the List, decided by the shared contract rather than
+      // by a class name belonging to one of the two views.
+      control.focus();
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(screen.getByLabelText('Current search location'))
+        .toHaveTextContent('/review/video/'));
+    });
+
+    it('leaves the shortcuts alone while the operator is typing a filter', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      await screen.findByRole('list', { name: 'Track results' });
+      await user.click(within(within(screen.getByRole('list', { name: 'Track results' }))
+        .getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / }));
+      await screen.findByRole('heading', { name: 'Person · Track 7' });
+
+      await user.click(screen.getByLabelText('Minimum confidence (%)'));
+      await user.keyboard('jk');
+
+      // The letters went into the field; they did not step the selection.
+      expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('jk');
+      expect(screen.getByRole('heading', { name: 'Person · Track 7' })).toBeInTheDocument();
     });
 
     it('selects a result into the URL, shows its evidence in place and closes on Escape', async () => {
