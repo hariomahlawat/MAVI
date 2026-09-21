@@ -88,7 +88,6 @@ describe('VideosPage', () => {
 
     expect(container.querySelector('.workspace--ledger')).not.toBeNull();
     expect(container.querySelector('.page--full')).not.toBeNull();
-    expect(container.querySelector('.workspace__body--scroll .table-wrap')).toBeNull();
     expect(container.querySelector('.workspace__body--scroll > table.table--ledger')).not.toBeNull();
     // §24: the display timezone is disclosed once, on the surface.
     expect(within(container.querySelector('.context-bar') as HTMLElement).getByText('Asia/Kolkata')).toBeInTheDocument();

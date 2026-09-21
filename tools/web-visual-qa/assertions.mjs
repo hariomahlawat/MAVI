@@ -188,6 +188,86 @@ export const WORKSPACE_ASSERTIONS = `(() => {
     : el.tagName.toLowerCase()));
   measured.scrollers = scrollers;
 
+  // --- Ledger and Record (UI-3) -----------------------------------------
+  //
+  // The rules a rendered page settles that a unit test cannot: which element
+  // actually owns the scroll, whether the sticky header sticks to that element,
+  // and whether a full-width workspace stretched a sparse table across the
+  // display.
+  if (archetype === 'workspace--ledger' || archetype === 'workspace--ledger-summary') {
+    const body = workspace.querySelector('.workspace__body--scroll');
+    if (!body) {
+      problems.push('Ledger is missing its scrolling body region');
+      return { problems, measured };
+    }
+
+    // §4.1: the table body owns vertical scroll and the page does not.
+    if (measured.shellScroll !== 'contain') {
+      problems.push('Ledger did not declare no-page-scroll to the shell: the content column is "'
+        + measured.shellScroll + '", so the page may scroll instead of the table body');
+    }
+    if (doc.clientWidth > 1100 && doc.scrollHeight > doc.clientHeight + 1) {
+      problems.push('Ledger page scrolls: scrollHeight ' + doc.scrollHeight + ' > clientHeight ' + doc.clientHeight);
+    }
+
+    // Exactly one scrolling ancestor for the rows. A legacy .table-wrap inside
+    // the body would be a second, and the sticky header would stick to it.
+    const nested = Array.from(body.querySelectorAll('*')).filter((el) => {
+      const style = getComputedStyle(el);
+      return /(auto|scroll)/.test(style.overflowY) || /(auto|scroll)/.test(style.overflowX);
+    });
+    measured.nestedScrollRegions = nested.map((el) => (typeof el.className === 'string' && el.className
+      ? '.' + el.className.trim().split(/\s+/).join('.')
+      : el.tagName.toLowerCase()));
+    if (nested.length) {
+      problems.push('Ledger has a scrolling container inside its scroll owner: '
+        + measured.nestedScrollRegions.join(', '));
+    }
+
+    const table = body.querySelector('table');
+    if (table) {
+      // The sticky header has to stick to the element the operator scrolls.
+      const th = table.querySelector('thead th');
+      if (th) {
+        const position = getComputedStyle(th).position;
+        measured.headerPosition = position;
+        if (position !== 'sticky') {
+          problems.push('Ledger header is "' + position + '", not sticky, so it scrolls away with the rows');
+        }
+        let scroller = null;
+        for (let node = th.parentElement; node; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          if (/(auto|scroll)/.test(style.overflowY)) { scroller = node; break; }
+        }
+        if (scroller !== body) {
+          problems.push('Ledger header would stick to ' + (scroller ? scroller.className : 'nothing')
+            + ' rather than to the body that owns the scroll');
+        }
+      }
+
+      // §4.1: "left-aligned and not stretched". At the ultra-wide acceptance
+      // width a sparse inventory must not become a band of text across the
+      // display; the standard Ledger fixtures are all sparse.
+      const tableWidth = table.getBoundingClientRect().width;
+      measured.tableWidth = round(tableWidth);
+      if (archetype === 'workspace--ledger' && doc.clientWidth >= 2400 && working - tableWidth < 200) {
+        problems.push('Ledger table is ' + measured.tableWidth + 'px inside a ' + round(working)
+          + 'px workspace: a sparse table has been stretched rather than left-aligned');
+      }
+    }
+  }
+
+  if (archetype === 'workspace--record') {
+    // §4.2: the page is the scroll owner on a Record, so the shell column must
+    // be allowed to scroll it.
+    if (measured.shellScroll !== 'page') {
+      problems.push('Record declared scroll policy "' + measured.shellScroll + '"; §4.2 gives the page the scroll');
+    }
+    if (!workspace.querySelector('.workspace__record-grid')) {
+      problems.push('Record is missing its primary/facts grid');
+    }
+  }
+
   if (archetype === 'workspace--workbench') {
     const stage = workspace.querySelector('.workspace__stage');
     const inspector = workspace.querySelector('.workspace__inspector');

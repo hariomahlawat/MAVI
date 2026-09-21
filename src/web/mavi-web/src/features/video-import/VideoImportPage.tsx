@@ -241,8 +241,21 @@ export default function VideoImportPage() {
               <Field
                 label="Recording local date/time"
                 error={errors.recordingStartLocal}
+                // The native control renders in the browser's locale, which
+                // §24 forbids from silently differing from the product's
+                // format. It cannot be restyled, so the field states outright
+                // what the product read — the operator sees the value the
+                // import will actually use.
                 help={selectedCamera
-                  ? <>Read as local time in <code>{selectedCamera.timeZoneId}</code>, the timezone of {selectedCamera.code}. Your browser's timezone is not used.</>
+                  ? (
+                    <>
+                      {recordingStartLocal
+                        ? <>Read as <strong>{recordingStartLocal.replace('T', ' ')}</strong> local time in </>
+                        : <>Read as local time in </>}
+                      <code>{selectedCamera.timeZoneId}</code>, the timezone of {selectedCamera.code}.
+                      {' '}Your browser's timezone is not used.
+                    </>
+                  )
                   : "Read as local time in the selected camera's timezone, never the browser's."}
               >
                 {(control) => (

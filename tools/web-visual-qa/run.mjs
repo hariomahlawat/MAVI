@@ -176,7 +176,11 @@ try {
       }
       for (const problem of browser.problems()) findings.push(`${where}: uncaught page error: ${problem}`);
       // A resource error is a finding only where the state did not ask for one.
-      if (!state.api || !Object.values(state.api).includes('unavailable')) {
+      // A state asks for one either by answering 503 (`'unavailable'`) or by
+      // naming an explicit status, which is how a conflict is reached.
+      const expectsFailure = Object.values(state.api ?? {}).some((value) =>
+        value === 'unavailable' || (value !== null && typeof value === 'object' && typeof value.status === 'number'));
+      if (!expectsFailure) {
         for (const problem of browser.resourceErrors()) findings.push(`${where}: resource error: ${problem}`);
       }
 

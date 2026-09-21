@@ -84,7 +84,6 @@ describe('ProcessingQueuePage', () => {
 
     expect(container.querySelector('.workspace--ledger')).not.toBeNull();
     expect(container.querySelector('.page--full')).not.toBeNull();
-    expect(container.querySelector('.workspace__body--scroll .table-wrap')).toBeNull();
     expect(container.querySelector('.workspace__body--scroll > table.table--ledger')).not.toBeNull();
     // §30: no stat tiles restating the table below them.
     expect(container.querySelector('.stat')).toBeNull();

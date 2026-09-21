@@ -173,9 +173,11 @@ export default function ProcessingQueuePage() {
                           <span className="run-cell__line">
                             <StatusBadge status={row.processingStatus} />
                             {active && run ? <Progress value={run.progressPercent} inline /> : null}
+                            {/* The code rides the status line rather than a
+                                second one: a failed row is still one row. */}
+                            {run?.failureCode ? <code className="truncate cap-md" title={run.failureCode}>{run.failureCode}</code> : null}
                           </span>
                           {divergent ? <span className="run-cell__line">Run: {run.status}</span> : null}
-                          {run?.failureCode ? <span className="run-cell__line"><code>{run.failureCode}</code></span> : null}
                           {/* A failed lookup must never keep reading as a
                               lookup still in progress (§14). */}
                           {!run && statusError ? (

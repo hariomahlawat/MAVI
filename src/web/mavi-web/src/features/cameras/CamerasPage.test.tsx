@@ -51,8 +51,8 @@ describe('CamerasPage', () => {
 
     expect(container.querySelector('.workspace--ledger')).not.toBeNull();
     expect(container.querySelector('.context-bar')).not.toBeNull();
-    // The Ledger's body is the single scroll owner: no legacy wrapper inside it.
-    expect(container.querySelector('.workspace__body--scroll .table-wrap')).toBeNull();
+    // The Ledger's body is the single scroll owner: the table is its direct
+    // child, with no wrapper that could become a second scrolling container.
     expect(container.querySelector('.workspace__body--scroll > table.table--ledger')).not.toBeNull();
     // §4.1: full width, not the capped `.page`.
     expect(container.querySelector('.page--full')).not.toBeNull();

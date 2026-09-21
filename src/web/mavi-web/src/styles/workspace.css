@@ -45,6 +45,12 @@
    shortened still reads, a Save button that has been pushed off cannot. */
 /* The separator is decoration between crumbs, so it is not announced. */
 .context-bar__crumbs li + li::before { content: "›"; color: var(--text-muted); }
+/* Section 10.1: an effective target of at least 24x24 wherever practical. A
+   crumb's text is 19px tall inside a 44px band, so the room is there and the
+   link simply has to claim it. */
+.context-bar__crumbs li > a, .context-bar__crumbs li > span {
+  display: inline-flex; align-items: center; min-height: var(--control-min-target);
+}
 .context-bar__crumbs a { color: var(--text-secondary); }
 .context-bar__crumbs a:hover { color: var(--text-primary); }
 .context-bar__crumbs [aria-current="page"] { color: var(--text-primary); font-weight: 600; }
@@ -61,6 +67,14 @@
   min-height: var(--control-h); padding: var(--c-toolbar-pad) 0;
 }
 .toolbar-band__hint { color: var(--text-secondary); font-size: var(--fs-1); min-width: 0; }
+/* A filter row is a row (section 16). Form controls carry `width: 100%` for a
+   form column, which in a band makes each control take the whole line and the
+   row become a stack. */
+/* A select sizes itself to its widest option, and a camera name is not a
+   width budget: the control is capped and the option truncates inside it. */
+.toolbar-band input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.toolbar-band select { width: auto; min-width: 140px; max-width: 240px; }
+.toolbar-band .search-input { min-width: 200px; }
 .toolbar-band__spacer { flex: 1 1 auto; min-width: 0; }
 .toolbar-band__actions { display: flex; align-items: center; gap: var(--s-2); flex: 0 0 auto; }
 
@@ -123,14 +137,24 @@
  * section 11 says earns a containment border — and exactly why nothing inside
  * it may be a second one. A Ledger puts its table here directly: no Panel
  * around it (that would be the card-inside-card section 11 calls a defect) and
- * no `.table-wrap` inside it (that would be a scrolling container inside the
- * scrolling container, so the sticky header would stick to the wrong one). */
+ * no scrolling wrapper inside it (that would be a scrolling container inside
+ * the scrolling container, so the sticky header would stick to the wrong one —
+ * which is what the legacy `.table-wrap`, now removed, did). */
 .workspace--ledger { height: 100%; min-height: 0; }
 .workspace--ledger .workspace__body--scroll {
   flex: 1 1 auto; min-height: 0; overflow: auto;
   border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-3);
   background: var(--surface-base);
 }
+/* A scroll owner has to be a containing block for what it scrolls, or it does
+   not actually own it. `overflow` clips descendants only while it is their
+   containing block, and the `.visually-hidden` pattern is `position: absolute`
+   — so on a static scroller every hidden label inside a table wider than the
+   viewport resolves against the initial containing block, escapes the clip and
+   makes the *page* scroll sideways. Caught at 1366 on Videos, where the table
+   overflows: the body clipped correctly and the document still scrolled 52px. */
+.workspace--ledger .workspace__body--scroll,
+.workspace--ledger-summary .workspace__body--scroll { position: relative; }
 
 /* --- Overview only: the section 4.1.1 exception. ----------------------
  * The exception is a *width* one and nothing else. §4's scroll-ownership
@@ -156,6 +180,10 @@
 .workspace__editor {
   border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-3);
   background: var(--surface-base); padding: var(--c-form-pad);
+  /* A Ledger is full width; a form is not. Three fields spread across 2300px
+     are harder to fill than three fields in a row you can read across, so the
+     region caps and stays left-aligned with the table it belongs to. */
+  width: 100%; max-width: var(--content-max);
 }
 
 /* --- Record: centred reading surface; the page scrolls. -------------- */

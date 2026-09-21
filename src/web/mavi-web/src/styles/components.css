@@ -147,25 +147,18 @@ input::file-selector-button {
    spacing scale, and must not be tied to a spacing step. */
 select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%); background-position: calc(100% - 14px) 13px, calc(100% - 9px) 13px; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 26px; }
 .field-help { color: var(--text-muted); font-size: var(--fs-0); line-height: 1.4; }
-.field-help--boxed { padding: var(--s-2) var(--s-3); border: var(--stroke-hair) dashed var(--border-subtle); border-radius: var(--r-2); background: var(--surface-raised); color: var(--text-secondary); }
 .checkbox { display: inline-flex; align-items: center; gap: var(--s-2); font-size: var(--fs-2); color: var(--text-secondary); }
 .checkbox input { width: var(--icon-sm); height: var(--icon-sm); margin: 0; accent-color: var(--accent); }
 
-/* Toolbar */
-.toolbar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; min-height: var(--control-h); }
+/* A grouped set of controls inside a band. The `.toolbar` container it used to
+   live in is gone: UI-3 moved every filter row onto the shared Toolbar band,
+   and Search's view switch is all that is left of the old one. */
 .toolbar__group { display: flex; align-items: center; gap: var(--s-2); }
-.toolbar__spacer { flex: 1; }
-.toolbar select, .toolbar input { width: auto; min-width: 140px; }
-.toolbar .search-input { min-width: 220px; }
-.count { color: var(--text-secondary); font-size: var(--fs-1); font-variant-numeric: tabular-nums; }
-.count strong { color: var(--text-primary); font-weight: 600; }
 
 /* Tables */
-/* `.table-wrap` is the legacy scrolling wrapper, still used by Search and
-   Review. A Ledger must not use it: the Ledger's scroll owner is the workspace
-   body (section 4.1), and a wrapper inside that would be a second scrolling
-   container inside the first. */
-.table-wrap { overflow: auto; min-height: 0; }
+/* The legacy `.table-wrap` scrolling wrapper is gone with UI-3: a Ledger's
+   scroll owner is the workspace body (section 4.1), and a wrapper inside that
+   would have been a second scrolling container inside the first. */
 table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-2); }
 /* A Ledger is full width; its table is not (section 4.1). `max-content` is the
    width the columns actually need, so a sparse inventory stays a left-aligned
@@ -192,9 +185,15 @@ table.table--ledger { width: 100%; max-width: max-content; }
    widening its column; the full value stays on the element's title, which
    section 10.2 sanctions for exactly this case. These are column widths
    measured against the 1366 acceptance viewport, not spacing steps. */
-.cap-sm { max-width: 140px; }
-.cap-md { max-width: 220px; }
-.cap-lg { max-width: 300px; }
+/* Scoped inside the cell on purpose: `.table td .truncate` sets `max-width:
+   100%`, which is more specific than a bare `.cap-*` and would win, leaving the
+   column to size itself to the longest file name it happens to hold. */
+.table td .cap-sm { max-width: 120px; }
+.table td .cap-md { max-width: 170px; }
+.table td .cap-lg { max-width: 260px; }
+/* A timestamp never wraps (section 24): the compact form exists precisely so
+   that a date column stays one line. */
+.table td.num, .table th.num { white-space: nowrap; }
 .table tr.is-clickable { cursor: pointer; }
 .table__actions { display: flex; gap: var(--s-1); justify-content: flex-end; white-space: nowrap; }
 /* A sortable header is a button inside the cell, never a clickable `<th>`: a
@@ -298,15 +297,6 @@ a.summary-band__item:hover { text-decoration: none; }
 a.summary-band__item:hover .summary-band__label, a.summary-band__item:hover .summary-band__meta { color: var(--text-primary); }
 a.summary-band__item:hover .summary-band__value { color: var(--accent-text); }
 
-/* Stat tiles: small, dense, no decoration. */
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s-3); }
-.stat { display: grid; gap: var(--s-hair); padding: var(--s-3) var(--s-4); border: var(--stroke-hair) solid var(--border-subtle); border-radius: var(--r-3); background: var(--surface-base); min-width: 0; }
-.stat__label { color: var(--text-muted); font-size: var(--fs-0); font-weight: 600; letter-spacing: var(--label-tracking); text-transform: uppercase; }
-.stat__value { font-size: var(--fs-5); font-weight: 600; font-variant-numeric: tabular-nums; line-height: var(--lh-tight); }
-.stat__meta { color: var(--text-secondary); font-size: var(--fs-1); }
-.stat--link { text-decoration: none; color: inherit; }
-.stat--link:hover { border-color: var(--border-strong); text-decoration: none; }
-
 /* Chips for active scopes */
 .chip {
   display: inline-flex; align-items: center; gap: var(--s-1); max-width: 100%; height: var(--s-6); padding: 0 var(--s-1) 0 var(--s-2);
@@ -326,4 +316,3 @@ a.summary-band__item:hover .summary-band__value { color: var(--accent-text); }
 /* Keyboard hint row */
 .hints { display: flex; flex-wrap: wrap; gap: var(--s-3); color: var(--text-muted); font-size: var(--fs-0); }
 .hints span { display: inline-flex; align-items: center; gap: var(--s-1); }
-.panel--narrow { max-width: 560px; }

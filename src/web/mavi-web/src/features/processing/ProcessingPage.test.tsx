@@ -101,7 +101,7 @@ describe('ProcessingPage', () => {
     const { container } = render();
     await screen.findByText('CAM-COLD · Cold Cache Camera');
 
-    const diagnostics = screen.getByText('Identifiers').closest('details') as HTMLElement;
+    const diagnostics = screen.getByText('Diagnostics').closest('details') as HTMLElement;
     expect(within(diagnostics).getByText(videoId)).toBeInTheDocument();
     expect(within(diagnostics).getByText('worker-a')).toBeInTheDocument();
 
@@ -123,6 +123,37 @@ describe('ProcessingPage', () => {
     const { container } = render();
     await screen.findByText('CAM-COLD · Cold Cache Camera');
     expect(container.textContent).not.toMatch(/analytics|readiness|scene analysis/i);
+  });
+
+  it('does not repeat the run state as a second badge when it agrees with the video', async () => {
+    const { container } = render();
+    await screen.findByText('CAM-COLD · Cold Cache Camera');
+    // Video Processing, run Running: the same answer in two vocabularies. The
+    // Context Bar states it; the panel does not restate it.
+    expect(container.querySelectorAll('.badge')).toHaveLength(1);
+
+    // A run that genuinely disagrees is named.
+    vi.mocked(getProcessingStatus).mockResolvedValue({
+      videoStatus: 'Failed',
+      latestRun: {
+        processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431',
+        status: 'Running',
+        pipeline: 'phase1-detection-tracking',
+        pipelineVersion: 'phase1-v1',
+        workerId: 'worker-a',
+        queuedAtUtc: '2026-09-09T02:30:00Z',
+        startedAtUtc: '2026-09-09T02:30:02Z',
+        completedAtUtc: null,
+        progressPercent: 4,
+        attemptCount: 3,
+        failureCode: null,
+        framesProcessed: 0,
+        tracksCreated: 0,
+      },
+    });
+    const divergent = render();
+    await screen.findAllByText('CAM-COLD · Cold Cache Camera');
+    await waitFor(() => expect(divergent.container.querySelectorAll('.badge')).toHaveLength(2));
   });
 
   it('refuses an invalid route and a missing video without losing the surface', async () => {

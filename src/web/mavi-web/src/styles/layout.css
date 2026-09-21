@@ -110,10 +110,10 @@
 .page-header p { margin-top: var(--s-hair); color: var(--text-secondary); font-size: var(--fs-2); max-width: 72ch; }
 .page-header__actions { display: flex; gap: var(--s-2); flex: 0 0 auto; align-items: center; }
 
-/* Two- and three-region layouts used by list/inspector screens. */
-.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 32%); gap: var(--s-4); min-height: 0; align-items: start; }
-.split--inspector { grid-template-columns: minmax(0, 1fr) minmax(420px, 44%); height: 100%; }
-.split--inspector > * { min-height: 0; }
+/* The `.split` list/inspector pair the pre-archetype pages used is gone with
+   UI-3: Cameras and Processing detail were its last callers, and they are a
+   Ledger and a Record now. */
+
 .rail-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--s-4); min-height: 0; height: 100%; }
 .rail-layout > * { min-height: 0; }
 .scroll-y { overflow-y: auto; min-height: 0; }
@@ -125,9 +125,7 @@
 .grow { flex: 1; min-width: 0; }
 
 @media (max-width: 1100px) {
-  .split--inspector { grid-template-columns: 1fr; height: auto; }
   .rail-layout { grid-template-columns: 1fr; height: auto; }
-  .split { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
   .shell, .shell--collapsed { grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr); }

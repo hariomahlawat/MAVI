@@ -25,6 +25,18 @@ import { displayTimestamp, formatCount, frameRateText } from '../../shared/forma
 import { isActiveStatus } from '../../shared/status/status';
 import { ContextBar, RecordLayout } from '../../shared/workspace';
 
+/**
+ * A state coarsened to what it means operationally, so "the run disagrees with
+ * the video" can be decided rather than guessed: `Processing` and `Running` are
+ * the same answer in two vocabularies.
+ */
+function coarseState(status: string): string {
+  if (isActiveStatus(status)) return 'active';
+  if (status === 'Failed') return 'failed';
+  if (status === 'Processed' || status === 'Completed') return 'completed';
+  return status;
+}
+
 function safeFormatTimestamp(value: string | null | undefined, timeZoneId: string | undefined): string {
   if (!value || !timeZoneId) return '—';
   return displayTimestamp(value, timeZoneId);
@@ -195,9 +207,9 @@ export default function ProcessingPage() {
                 are real and occasionally needed, so they are one disclosure
                 away rather than absent. The display timezone is not repeated
                 here — the Context Bar states it once for the surface (§24). */}
-            <Panel title="Diagnostics">
+            <Panel>
               <details className="disclosure">
-                <summary>Identifiers</summary>
+                <summary>Diagnostics</summary>
                 <div className="disclosure__body">
                   <KeyValue
                     items={[
@@ -215,8 +227,17 @@ export default function ProcessingPage() {
       >
         {(video.isPending || processing.isPending) ? <LoadingState label="Loading processing state…" /> : null}
 
+        {/* §16: the run's own state is stated only where it differs from the
+            video's, which the Context Bar already carries. Where they agree —
+            the ordinary case — a second badge saying "Failed" beside a bar
+            already labelled "Failed" is the duplicate §30 names. */}
         {video.data && state ? (
-          <Panel title="Processing run" actions={run ? <StatusBadge status={run.status} /> : undefined}>
+          <Panel
+            title="Processing run"
+            actions={run && coarseState(run.status) !== coarseState(state.videoStatus)
+              ? <StatusBadge status={run.status} />
+              : undefined}
+          >
             {run ? (
               <div className="stack">
                 <Progress

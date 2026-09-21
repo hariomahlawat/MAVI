@@ -62,9 +62,21 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
       // `/api/cameras/{id}` silently answered `/api/cameras/{id}/scene` with a
       // camera — the state then failed to render for a reason that looked
       // nothing like its cause.
+      // A key may name a method — `POST /api/cameras` — so a state can make a
+      // mutation fail without making the listing beside it fail too. Without
+      // that, the only way to reach a 409 on create would be to break the GET
+      // the page needs in order to render the form at all.
       const match = Object.keys(overrides)
-        .filter((key) => path === key || path.startsWith(key + '/'))
-        .sort((a, b) => b.length - a.length)[0];
+        .filter((key) => {
+          const spaced = key.indexOf(' ');
+          const method = spaced === -1 ? null : key.slice(0, spaced);
+          const keyPath = spaced === -1 ? key : key.slice(spaced + 1);
+          if (method && method !== req.method) return false;
+          return path === keyPath || path.startsWith(keyPath + '/');
+        })
+        // A method-qualified key is more specific than a bare one of the same
+        // length, and a longer path beats a shorter one.
+        .sort((a, b) => (b.includes(' ') ? 1 : 0) - (a.includes(' ') ? 1 : 0) || b.length - a.length)[0];
       const value = match ? overrides[match] : undefined;
 
       // `'fixture'` re-exposes the normal fixture for a path that a broader
@@ -76,6 +88,13 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
         return;
       }
       if (value === 'hang') { hung.add(res); res.on('close', () => hung.delete(res)); return; }
+      // `{ status, body }` answers with a specific status, which is how a
+      // state reaches a conflict rather than a generic failure.
+      if (value !== null && typeof value === 'object' && typeof value.status === 'number') {
+        res.writeHead(value.status, { 'content-type': 'application/problem+json' });
+        res.end(JSON.stringify(value.body ?? {}));
+        return;
+      }
       if (value !== undefined && value !== 'fixture') {
         res.writeHead(200, { 'content-type': TYPES['.json'] });
         res.end(JSON.stringify(value));

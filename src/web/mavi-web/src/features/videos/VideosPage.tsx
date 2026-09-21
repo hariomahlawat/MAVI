@@ -215,15 +215,17 @@ export default function VideosPage() {
                           <span className="run-cell__line">
                             <StatusBadge status={row.processingStatus} />
                             {active && run ? <Progress value={run.progressPercent} inline /> : null}
+                            {/* The code rides the status line rather than a
+                                second one: a failed row is still one row. */}
+                            {row.processingStatus === 'Failed' && run?.failureCode ? (
+                              <code className="truncate cap-sm" title={run.failureCode}>{run.failureCode}</code>
+                            ) : null}
                           </span>
                           {statusError ? (
                             <span className="run-cell__line">
                               <span className="text-err">Live status unavailable</span>
                               <Button size="sm" variant="ghost" icon="refresh" onClick={() => processing.retry(row.id)}>Retry</Button>
                             </span>
-                          ) : null}
-                          {row.processingStatus === 'Failed' && run?.failureCode ? (
-                            <span className="run-cell__line"><code>{run.failureCode}</code></span>
                           ) : null}
                         </div>
                       </td>
