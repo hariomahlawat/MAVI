@@ -2,6 +2,55 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchTracks, serializeTrackSearchFilters, getTrack } from './tracks';
 
 describe('Track API client', () => {
+  it('serializes the analytic keys after the ordinary filters and before the cursor', () => {
+    const query = serializeTrackSearchFilters({
+      cursor: 'c',
+      loitering: true,
+      zoneId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21461',
+      zoneRelation: 'entered',
+      minDwellMs: 1500,
+      cameraId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21412',
+      motionDirection: 'NW',
+      crossingDirection: 'bToA',
+      lineId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21471',
+      sceneRevisionId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21481',
+      analyticsAlgorithmVersion: 'scene-analytics-v1',
+      minStationaryMs: 0,
+    });
+
+    expect(query).toBe(
+      'cameraId=018f3f5a-2f70-7a2b-8a12-2d02f4c21412'
+      + '&sceneRevisionId=018f3f5a-2f70-7a2b-8a12-2d02f4c21481'
+      + '&analyticsAlgorithmVersion=scene-analytics-v1'
+      + '&zoneId=018f3f5a-2f70-7a2b-8a12-2d02f4c21461'
+      + '&zoneRelation=entered'
+      + '&minDwellMs=1500'
+      + '&lineId=018f3f5a-2f70-7a2b-8a12-2d02f4c21471'
+      + '&crossingDirection=bToA'
+      + '&motionDirection=NW'
+      + '&minStationaryMs=0'
+      + '&loitering=true'
+      + '&cursor=c',
+    );
+  });
+
+  it('asks for a Track detail against an explicit analytic identity only when given one', async () => {
+    const respond = () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    vi.mocked(fetch).mockResolvedValueOnce(respond()).mockResolvedValueOnce(respond());
+
+    await getTrack('018f3f5a-2f70-7a2b-8a12-2d02f4c21451');
+    expect(fetch).toHaveBeenLastCalledWith('/api/tracks/018f3f5a-2f70-7a2b-8a12-2d02f4c21451', expect.anything());
+
+    await getTrack('018f3f5a-2f70-7a2b-8a12-2d02f4c21451', undefined, {
+      sceneRevisionId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21481',
+      analyticsAlgorithmVersion: 'scene-analytics-v1',
+    });
+    expect(fetch).toHaveBeenLastCalledWith(
+      '/api/tracks/018f3f5a-2f70-7a2b-8a12-2d02f4c21451?sceneRevisionId=018f3f5a-2f70-7a2b-8a12-2d02f4c21481&analyticsAlgorithmVersion=scene-analytics-v1',
+      expect.anything(),
+    );
+  });
+
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
   });

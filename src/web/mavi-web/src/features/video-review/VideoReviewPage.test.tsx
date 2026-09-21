@@ -6,6 +6,7 @@ import { getSystemConfig } from '../../api/system';
 import { getTrack, type TrackDetail } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
+import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import VideoReviewPage from './VideoReviewPage';
 
 vi.mock('../../api/system', () => ({
@@ -77,6 +78,7 @@ function detail(overrides: Partial<TrackDetail> = {}): TrackDetail {
     },
     trajectoryArtifactId: null,
     trajectoryContentUrl: null,
+    analytics: notConfiguredAnalytics(),
     ...overrides,
   };
 }

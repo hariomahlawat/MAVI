@@ -4,8 +4,11 @@ import {
   confidenceFractionToPercentText,
   confidencePercentTextToFraction,
   compareUtcInstants,
+  isAnalyticSearch,
   parseCommittedSearch,
+  removeCriteria,
   secondsTextToMilliseconds,
+  withCameraScope,
 } from './searchState';
 
 const cameraId = '018F3F5A-2F70-7A2B-8A12-2D02F4C21412';
@@ -151,5 +154,124 @@ describe('Task-16 committed search state', () => {
       cameraId: cameraId.toLowerCase(),
       objectClass: 'Person',
     })).toBe('cameraId=' + cameraId.toLowerCase() + '&objectClass=Person');
+  });
+});
+
+const zoneId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21461';
+const lineId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21471';
+const revisionId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21481';
+const scoped = 'cameraId=' + cameraId.toLowerCase();
+
+describe('Slice 4 analytic committed state (plan §S)', () => {
+  it('parses every analytic key into canonical form and round-trips it', () => {
+    const parsed = parseCommittedSearch(new URLSearchParams(
+      scoped
+      + '&sceneRevisionId=' + revisionId.toUpperCase()
+      + '&analyticsAlgorithmVersion=scene-analytics-v1'
+      + '&zoneId=' + zoneId + '&zoneRelation=entered&minDwellMs=002500'
+      + '&lineId=' + lineId + '&crossingDirection=bToA'
+      + '&motionDirection=NE&minStationaryMs=5000&loitering=true',
+    ));
+
+    expect(parsed.isValid).toBe(true);
+    if (!parsed.isValid) return;
+    expect(parsed.filters).toEqual({
+      cameraId: cameraId.toLowerCase(),
+      sceneRevisionId: revisionId,
+      analyticsAlgorithmVersion: 'scene-analytics-v1',
+      zoneId,
+      zoneRelation: 'entered',
+      minDwellMs: 2500,
+      lineId,
+      crossingDirection: 'bToA',
+      motionDirection: 'NE',
+      minStationaryMs: 5000,
+      loitering: true,
+    });
+    expect(isAnalyticSearch(parsed.filters)).toBe(true);
+    expect(parseCommittedSearch(new URLSearchParams(parsed.canonicalQuery))).toEqual(parsed);
+  });
+
+  it('never writes the default zone relation, so explicit dwelled and omission are one search', () => {
+    const explicit = parseCommittedSearch(new URLSearchParams(scoped + '&zoneId=' + zoneId + '&zoneRelation=dwelled'));
+    const omitted = parseCommittedSearch(new URLSearchParams(scoped + '&zoneId=' + zoneId));
+    expect(explicit).toEqual(omitted);
+    expect(explicit.canonicalQuery).not.toContain('zoneRelation');
+    expect(canonicalSearchKey({ cameraId: cameraId.toLowerCase(), zoneId, zoneRelation: 'dwelled' })).toBe(omitted.canonicalQuery);
+  });
+
+  it('refuses values outside the closed vocabularies and the wrong case', () => {
+    for (const query of [
+      scoped + '&zoneId=' + zoneId + '&zoneRelation=Dwelled',
+      scoped + '&lineId=' + lineId + '&crossingDirection=AToB',
+      scoped + '&motionDirection=None',
+      scoped + '&motionDirection=n',
+      scoped + '&loitering=false',
+      scoped + '&zoneId=not-a-guid',
+      scoped + '&zoneId=' + zoneId + '&minDwellMs=-1',
+      scoped + '&minStationaryMs=1.5',
+      scoped + '&sceneRevisionId=' + revisionId + '&analyticsAlgorithmVersion=v1',
+      scoped + '&sceneRevisionId=' + revisionId + '&analyticsAlgorithmVersion=scene-analytics-v01',
+    ]) {
+      expect(parseCommittedSearch(new URLSearchParams(query)).isValid, query).toBe(false);
+    }
+  });
+
+  it('enforces the dependency matrix', () => {
+    expect(parseCommittedSearch(new URLSearchParams(scoped + '&zoneRelation=entered')).isValid).toBe(false);
+    expect(parseCommittedSearch(new URLSearchParams(scoped + '&minDwellMs=1000')).isValid).toBe(false);
+    expect(parseCommittedSearch(new URLSearchParams(scoped + '&crossingDirection=aToB')).isValid).toBe(false);
+    expect(parseCommittedSearch(new URLSearchParams(scoped + '&analyticsAlgorithmVersion=scene-analytics-v1')).isValid).toBe(false);
+    // Analytics need a camera-resolving scope.
+    expect(parseCommittedSearch(new URLSearchParams('loitering=true')).isValid).toBe(false);
+    expect(parseCommittedSearch(new URLSearchParams('videoAssetId=' + cameraId + '&loitering=true')).isValid).toBe(true);
+    expect(parseCommittedSearch(new URLSearchParams('processingRunId=' + cameraId + '&minStationaryMs=0')).isValid).toBe(true);
+  });
+
+  it('treats the coverage control flag as an unknown parameter the surface never writes', () => {
+    const parsed = parseCommittedSearch(new URLSearchParams(scoped + '&loitering=true&analyticsCoverage=complete'));
+    expect(parsed.isValid).toBe(true);
+    expect(parsed.canonicalQuery).not.toContain('analyticsCoverage');
+  });
+
+  it('removes dependents together with the criterion they depend on', () => {
+    const filters = parseCommittedSearch(new URLSearchParams(
+      scoped + '&sceneRevisionId=' + revisionId + '&analyticsAlgorithmVersion=scene-analytics-v1'
+      + '&zoneId=' + zoneId + '&zoneRelation=exited&minDwellMs=100'
+      + '&lineId=' + lineId + '&crossingDirection=aToB&loitering=true',
+    )).filters;
+
+    expect(removeCriteria(filters, ['zoneId'])).toEqual({
+      cameraId: cameraId.toLowerCase(),
+      sceneRevisionId: revisionId,
+      analyticsAlgorithmVersion: 'scene-analytics-v1',
+      lineId,
+      crossingDirection: 'aToB',
+      loitering: true,
+    });
+    expect(removeCriteria(filters, ['lineId'])).not.toHaveProperty('crossingDirection');
+    expect(removeCriteria(filters, ['sceneRevisionId'])).not.toHaveProperty('analyticsAlgorithmVersion');
+    // Global loitering survives the removal of its zone; a dependent alone can be removed too.
+    expect(removeCriteria(filters, ['zoneRelation'])).toMatchObject({ zoneId, minDwellMs: 100, loitering: true });
+  });
+
+  it('clears scene-local criteria when the camera scope changes and everything when it goes', () => {
+    const filters = parseCommittedSearch(new URLSearchParams(
+      scoped + '&zoneId=' + zoneId + '&lineId=' + lineId + '&motionDirection=S&minStationaryMs=1&loitering=true&objectClass=Person',
+    )).filters;
+
+    // Another camera: geometry cannot follow; generic intent can.
+    expect(withCameraScope(filters, { cameraId: zoneId })).toEqual({
+      cameraId: zoneId,
+      objectClass: 'Person',
+      motionDirection: 'S',
+      minStationaryMs: 1,
+      loitering: true,
+    });
+    // Same camera restated: nothing moves.
+    expect(withCameraScope(filters, { cameraId: cameraId.toUpperCase() })).toEqual(filters);
+    // No scope left: every analytic key goes with it.
+    expect(withCameraScope(filters, {})).toEqual({ objectClass: 'Person' });
+    expect(removeCriteria(filters, ['cameraId'])).toEqual({ objectClass: 'Person' });
   });
 });
