@@ -377,4 +377,54 @@ describe('Slice 4 Investigation analytics', () => {
       trackId, expect.anything(), { sceneRevisionId: revisionId, analyticsAlgorithmVersion: 'scene-analytics-v2' }));
   });
 
+
+  // Every way of opening Review from one analytic result must arrive at the same
+  // place: the list button, the grid button, the inspector and keyboard Enter.
+  // Enter is the one with no href to read, so it is the one that can silently
+  // drift into a link with no provenance.
+  it('carries the resolved identity through keyboard Enter, not just the Review links', async () => {
+    // The request pins nothing — no revision, no engine. The response resolves
+    // both, so a URL built from the request alone would carry neither.
+    vi.mocked(searchTracks).mockResolvedValue({
+      items: [item()], nextCursor: null,
+      analyticsCoverage: coverage({ sceneRevisionId: revisionId, algorithmVersion: 'scene-analytics-v2' }),
+    });
+
+    const user = userEvent.setup();
+    renderWithApp(<><Location /><VisualSearchPage /></>, {
+      route: `/search?cameraId=${cameraId}&loitering=true&track=${trackId}`,
+    });
+    const link = await screen.findByRole('link', { name: 'Review evidence' });
+
+    await user.keyboard('{Enter}');
+
+    const location = screen.getByLabelText('Current search location');
+    await waitFor(() => expect(location).toHaveTextContent('/review/video/'));
+    const keyboardPath = location.textContent ?? '';
+    expect(keyboardPath).toContain(`sceneRevisionId=${revisionId}`);
+    expect(keyboardPath).toContain('analyticsAlgorithmVersion=scene-analytics-v2');
+    // The same Track, the same destination, whichever way it was opened.
+    expect(keyboardPath).toBe(link.getAttribute('href'));
+  });
+
+  it('invents no analytics parameters when an ordinary search opens Review on Enter', async () => {
+    vi.mocked(searchTracks).mockResolvedValue({
+      items: [item({ analytics: undefined })], nextCursor: null,
+    });
+
+    const user = userEvent.setup();
+    renderWithApp(<><Location /><VisualSearchPage /></>, {
+      route: `/search?cameraId=${cameraId}&track=${trackId}`,
+    });
+    await screen.findByRole('link', { name: 'Review evidence' });
+
+    await user.keyboard('{Enter}');
+
+    const location = screen.getByLabelText('Current search location');
+    await waitFor(() => expect(location).toHaveTextContent('/review/video/'));
+    const keyboardPath = location.textContent ?? '';
+    expect(keyboardPath).not.toContain('sceneRevisionId');
+    expect(keyboardPath).not.toContain('analyticsAlgorithmVersion');
+  });
+
 });

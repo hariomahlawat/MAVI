@@ -318,13 +318,20 @@ export default function VisualSearchPage() {
   // at a different algorithm than the search ran. So the resolved pair wins
   // whenever there is one, and the request is only a fallback for a search the
   // backend never resolved an identity for.
-  const analyticsIdentity: TrackAnalyticsIdentity | undefined = coverage
+  //
+  // Memoised because it is a dependency of the keyboard navigation callback, and
+  // a fresh object each render would re-register the document key listener on
+  // every render.
+  const requestedRevisionId = committedFilters.sceneRevisionId;
+  const requestedAlgorithmVersion = committedFilters.analyticsAlgorithmVersion;
+  const analyticsIdentity: TrackAnalyticsIdentity | undefined = useMemo(() => (coverage
     ? coverage.sceneRevisionId
       ? { sceneRevisionId: coverage.sceneRevisionId, analyticsAlgorithmVersion: coverage.algorithmVersion }
       : undefined
-    : committedFilters.sceneRevisionId
-      ? { sceneRevisionId: committedFilters.sceneRevisionId, analyticsAlgorithmVersion: committedFilters.analyticsAlgorithmVersion }
-      : undefined;
+    : requestedRevisionId
+      ? { sceneRevisionId: requestedRevisionId, analyticsAlgorithmVersion: requestedAlgorithmVersion }
+      : undefined
+  ), [coverage, requestedRevisionId, requestedAlgorithmVersion]);
 
   // (A) The geometry the *results* are labelled with, read against the revision
   // the backend pinned rather than whatever is active now. Activating a new
@@ -429,10 +436,14 @@ export default function VisualSearchPage() {
   // the Review page can hand back to exactly this search.
   const searchContext = committed.isValid ? committed.canonicalQuery : '';
 
+  // Keyboard Enter is the same operation as the list, grid and inspector Review
+  // links, so it carries the same resolved identity. A navigation that dropped it
+  // would send the operator to Review with no provenance, where the current
+  // revision and engine are then legitimately resolved and different facts shown.
   const openSelected = useCallback(() => {
     const selected = position >= 0 ? items[position] : undefined;
-    if (selected) navigate(reviewPath(selected, searchContext));
-  }, [items, position, navigate, searchContext]);
+    if (selected) navigate(reviewPath(selected, searchContext, analyticsIdentity));
+  }, [items, position, navigate, searchContext, analyticsIdentity]);
 
   useEffect(() => {
     if (items.length === 0) return;
