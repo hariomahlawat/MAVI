@@ -724,7 +724,7 @@ Scene Analytics slices are numbered 0–7; capability roadmap stages are numbere
 
 | Capability | Where it lands | Archetype | Prerequisite from this specification |
 |---|---|---|---|
-| Analytics readiness and coverage indicators | **Slice 3, surfaced in Slice 4** | Ledger badge, Investigation coverage strip, Workbench context chip | `stale` and `partially available` tokens and taxonomy (§8.2, §14); UI-3 for the Ledger indicators |
+| Analytics readiness and coverage indicators | **Slice 3, surfaced in Slice 4** | Ledger analytics-state column/text (**not a second row status badge**), Investigation coverage strip, Workbench context chip | `stale` and `partially available` tokens and taxonomy (§8.2, §14); UI-3 for the Ledger indicators; §16's one-badge-per-row rule remains in force |
 | Search integration and analytics predicates | **Slice 4** | Investigation | UI-4 in place; committed-filter chips and coverage strip (§17) |
 | Evidence overlays and explanation | **Slice 5** | Review and Investigation inspector | UI-5 in place; one player with lane extension points (§18) |
 | Aggregates, occupancy, heatmap | **Slice 6** | Workbench | Workbench grammar from UI-2; sequential scale and legend; zone colour already separated from accent (§8.3) |
