@@ -867,8 +867,7 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 
 - **Status.** **Merged** (PR #61, merge commit `9dbd74d7`). The Investigation migration is complete:
   Search is on `InvestigationLayout`, decisions 3 and 4 are closed, the in-place inspector threshold is
-  **1600px**, and the ultra-wide split is **confirmed unchanged**. Post-merge Task 17 Acceptance #1010
-  is green; the post-merge Quality Gate is the remaining objective gate before Scene Analytics Slice 4 begins.
+  **1600px**, and the ultra-wide split is **confirmed unchanged**. Post-merge Task 17 Acceptance #1010 and Quality Gate #1866 are both green on exact `main`, so Scene Analytics Slice 4 is unblocked.
 - **Objective.** Migrate Search onto the Investigation archetype.
 - **Scope.** Filter rail rebuilt as scrolling field sections; committed-filter chips at the results head; results hierarchy and header copy; inspector behaviour including the drawer below threshold; ultra-wide utilisation; keyboard behaviour preserved and extended; URL-state semantics preserved exactly. Closes open decisions 3 and 4 (§32).
 - **Exclusions.** **No Slice 4 analytics predicates**; no coverage strip content; no saved searches; no natural-language query.
