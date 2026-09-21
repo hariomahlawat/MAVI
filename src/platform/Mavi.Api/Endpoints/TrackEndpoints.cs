@@ -1,7 +1,9 @@
 using System.Globalization;
 using Mavi.Application.Modules.Intelligence;
+using Mavi.Contracts.Api.Analytics;
 using Mavi.Contracts.Api.Tracks;
 using Mavi.Domain.Intelligence;
+using Mavi.Domain.SceneAnalytics;
 
 namespace Mavi.Api.Endpoints;
 
@@ -25,25 +27,59 @@ public static class TrackEndpoints
 
         var result = await service.SearchAsync(query!, cancellationToken);
         if (!result.IsSuccess)
+        {
+            // A caller that demanded complete coverage is told, in the same structured
+            // block a partial answer carries, exactly which runs went unevaluated (plan §H).
+            if (result.Coverage is { } incomplete)
+                return Results.Problem(
+                    statusCode: 409,
+                    detail: "Analytics coverage is incomplete for this search scope.",
+                    extensions: new Dictionary<string, object?>
+                    {
+                        ["code"] = result.ErrorCode,
+                        ["analyticsCoverage"] = ToCoverage(incomplete),
+                    });
             return Problem(400, result.ErrorCode!, "Track search parameters are invalid.");
+        }
 
+        var page = result.Page!;
         var response = new TrackSearchResponse(
-            result.Page!.Items.Select(ToSearchItem).ToArray(),
-            result.Page.NextCursor);
+            page.Items.Select(row => ToSearchItem(row, page.ItemAnalytics)).ToArray(),
+            page.NextCursor,
+            page.Coverage is { } coverage ? ToCoverage(coverage) : null);
         return Results.Ok(response);
     }
 
+    private static readonly HashSet<string> SupportedDetailQueryKeys =
+        new(StringComparer.Ordinal)
+        {
+            TrackSearchContractRules.SceneRevisionIdKey,
+            TrackSearchContractRules.AnalyticsAlgorithmVersionKey,
+        };
+
     private static async Task<IResult> GetAsync(
         Guid id,
+        HttpContext context,
         TrackSearchService service,
         CancellationToken cancellationToken)
     {
-        var result = await service.GetDetailAsync(id, TrackAnalyticsDetailRequest.Current, cancellationToken);
+        // The detail accepts the two identity keys and nothing else, so a link out of a
+        // historical analytic search reads the facts that search was showing (plan §S).
+        var values = context.Request.Query;
+        if (values.Keys.Any(key => !SupportedDetailQueryKeys.Contains(key)) ||
+            !TryGuid(values, TrackSearchContractRules.SceneRevisionIdKey, out var revisionId) ||
+            !SingleOrMissing(values, TrackSearchContractRules.AnalyticsAlgorithmVersionKey, out var version))
+            return Problem(400, "track_search_invalid", "Track detail parameters are invalid.");
+
+        var result = await service.GetDetailAsync(
+            id,
+            new TrackAnalyticsDetailRequest(revisionId, version),
+            cancellationToken);
         if (!result.IsSuccess)
             return Problem(400, result.ErrorCode!, "Track detail parameters are invalid.");
         return result.Row is null
             ? Problem(404, "track_not_found", "Track was not found.")
-            : Results.Ok(ToDetail(result.Row));
+            : Results.Ok(ToDetail(result.Row, result.Analytics!));
     }
 
     private static readonly HashSet<string> SupportedQueryKeys =
@@ -311,7 +347,9 @@ public static class TrackEndpoints
         return true;
     }
 
-    private static TrackSearchItemResponse ToSearchItem(TrackSearchRow row) => new(
+    private static TrackSearchItemResponse ToSearchItem(
+        TrackSearchRow row,
+        IReadOnlyDictionary<Guid, TrackItemAnalytics>? itemAnalytics) => new(
         row.Id,
         row.ProcessingRunId,
         row.VideoAssetId,
@@ -332,9 +370,98 @@ public static class TrackEndpoints
         row.ThumbnailArtifactId is { } thumbnailId
             ? $"/api/artifacts/{thumbnailId:D}/content"
             : null,
-        $"/api/videos/{row.VideoAssetId:D}/content");
+        $"/api/videos/{row.VideoAssetId:D}/content",
+        itemAnalytics is not null && itemAnalytics.TryGetValue(row.Id, out var explained)
+            ? ToItemAnalytics(explained)
+            : null);
 
-    private static TrackDetailResponse ToDetail(TrackDetailRow row)
+    // --- Analytics mapping -------------------------------------------------
+
+    private static AnalyticsCoverageResponse ToCoverage(TrackAnalyticsCoverage coverage) => new(
+        coverage.SceneRevisionId,
+        coverage.AlgorithmVersion,
+        coverage.EvaluatedRuns,
+        coverage.PendingRuns,
+        coverage.FailedRuns,
+        coverage.NotConfiguredRuns,
+        coverage.DisabledRuns,
+        coverage.StaleRuns,
+        coverage.AnalysedTracks,
+        coverage.UnavailableTracks);
+
+    private static TrackItemAnalyticsResponse ToItemAnalytics(TrackItemAnalytics analytics) => new(
+        analytics.SceneRevisionId,
+        analytics.AlgorithmVersion,
+        analytics.Zones.Select(zone => new TrackItemZoneAnalyticsResponse(
+            zone.ZoneId, zone.VisitCount, zone.TotalDwellMs, zone.Loitering)).ToArray(),
+        analytics.Lines.Select(line => new TrackItemLineAnalyticsResponse(
+            line.LineId,
+            line.CrossingCount,
+            line.MatchedDirection is { } direction ? TrackAnalyticsQueryRules.PersistedDirectionToWire(direction) : null,
+            line.FirstMatchedCrossingUtc)).ToArray(),
+        analytics.Motion is { } motion
+            ? new TrackItemMotionAnalyticsResponse(motion.Heading, motion.LongestStationaryMs)
+            : null);
+
+    private static TrackDetailAnalyticsResponse ToDetailAnalytics(TrackDetailAnalytics analytics) => new(
+        analytics.SceneRevisionId,
+        analytics.SceneRevisionNumber,
+        analytics.AlgorithmVersion,
+        analytics.Status,
+        analytics.Outcome?.Reason,
+        analytics.Outcome?.ReferencePoint,
+        analytics.Outcome is { Outcome: TrackAnalysisOutcomeKind.Analysed } analysed ? analysed.SampleCount : null,
+        analytics.Outcome is { Outcome: TrackAnalysisOutcomeKind.Analysed } analysedGaps ? analysedGaps.GapCount : null,
+        analytics.Outcome is { Outcome: TrackAnalysisOutcomeKind.Analysed } analysedTotal ? analysedTotal.GapTotalMs : null,
+        analytics.ZoneSummaries.Select(summary => new TrackDetailZoneSummaryResponse(
+            summary.ZoneId,
+            summary.VisitCount,
+            summary.TotalDwellMs,
+            summary.FirstEntryTimestampUtc,
+            summary.LastExitTimestampUtc,
+            summary.Loitering,
+            summary.LoiteringThresholdSeconds,
+            summary.LoiteringDwellMs)).ToArray(),
+        analytics.ZoneVisits.Select(visit => new TrackDetailZoneVisitResponse(
+            visit.ZoneId,
+            visit.VisitIndex,
+            visit.EntryOffsetMs,
+            visit.ExitOffsetMs,
+            visit.EntryTimestampUtc,
+            visit.ExitTimestampUtc,
+            visit.DwellMs,
+            visit.BeganInside,
+            visit.EndedInside,
+            visit.ClosedByGap,
+            visit.EntryHeading,
+            visit.ExitHeading)).ToArray(),
+        analytics.LineCrossings.Select(crossing => new TrackDetailLineCrossingResponse(
+            crossing.LineId,
+            crossing.CrossingIndex,
+            crossing.OffsetMs,
+            crossing.TimestampUtc,
+            TrackAnalyticsQueryRules.PersistedDirectionToWire(crossing.Direction),
+            crossing.PointX,
+            crossing.PointY)).ToArray(),
+        analytics.MotionSummary is { } motion
+            ? new TrackDetailMotionSummaryResponse(
+                motion.Heading,
+                motion.PathLengthNormalised,
+                motion.MeanDisplacementRate,
+                motion.LongestStationaryMs,
+                motion.TotalStationaryMs,
+                motion.StationaryIntervals.Select(interval => new TrackStationaryIntervalResponse(
+                    interval.StartOffsetMs, interval.EndOffsetMs)).ToArray(),
+                motion.StationaryZoneIds)
+            : null,
+        analytics.OtherIdentities.Select(other => new TrackAnalyticsIdentitySummaryResponse(
+            other.SceneRevisionId,
+            other.SceneRevisionNumber,
+            other.AlgorithmVersion,
+            other.UnitStatus.ToString(),
+            other.Outcome.ToString())).ToArray());
+
+    private static TrackDetailResponse ToDetail(TrackDetailRow row, TrackDetailAnalytics analytics)
     {
         TrackRepresentativeResponse? representative = null;
         if (row.RepresentativeObservationId is { } observationId)
@@ -393,7 +520,8 @@ public static class TrackEndpoints
             row.TrajectoryArtifactId,
             row.TrajectoryArtifactId is { } trajectoryId
                 ? $"/api/artifacts/{trajectoryId:D}/content"
-                : null);
+                : null,
+            ToDetailAnalytics(analytics));
     }
 
     private static IResult Problem(int statusCode, string code, string detail) =>
