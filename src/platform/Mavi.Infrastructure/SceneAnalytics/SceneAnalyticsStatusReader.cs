@@ -47,23 +47,6 @@ public sealed class SceneAnalyticsStatusReader(MaviDbContext db) : ISceneAnalyti
         CancellationToken cancellationToken) =>
         await UnitQuery(unit => unit.ProcessingRunId == processingRunId).ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<SceneAnalysisUnitView>>> ListUnitsForRunsAsync(
-        IReadOnlyCollection<Guid> processingRunIds,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(processingRunIds);
-        if (processingRunIds.Count == 0)
-        {
-            return new Dictionary<Guid, IReadOnlyList<SceneAnalysisUnitView>>();
-        }
-
-        var ids = processingRunIds as IReadOnlyList<Guid> ?? [.. processingRunIds];
-        var units = await UnitQuery(unit => ids.Contains(unit.ProcessingRunId)).ToListAsync(cancellationToken);
-        return units
-            .GroupBy(unit => unit.ProcessingRunId)
-            .ToDictionary(group => group.Key, IReadOnlyList<SceneAnalysisUnitView> (group) => [.. group]);
-    }
-
     public async Task<IReadOnlyList<Guid>> ListAnalysableRunsAsync(
         Guid cameraId,
         bool allRuns,

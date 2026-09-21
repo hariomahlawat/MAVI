@@ -291,32 +291,40 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
             return await RollbackAsync(transaction, SceneAnalysisTransitionResult.Stale, cancellationToken);
         }
 
-        // Scoped to this unit id alone, which is what makes a repeated attempt idempotent
-        // without touching another revision's or algorithm's facts.
-        await DeleteFactsAsync(claim.AnalysisId, cancellationToken);
-
-        db.TrackAnalysisOutcomes.AddRange(facts.Outcomes);
-        db.TrackZoneVisits.AddRange(facts.ZoneVisits);
-        db.TrackZoneSummaries.AddRange(facts.ZoneSummaries);
-        db.TrackLineCrossings.AddRange(facts.LineCrossings);
-        db.TrackMotionSummaries.AddRange(facts.MotionSummaries);
-
-        // The facts and the successful unit become observable in the same commit, so no
-        // search snapshot can see one without the other.
-        await ProcessingVisibilityBarrier.AcquireCompletionExclusiveAsync(db, cancellationToken);
-        var visibilitySequence =
-            await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
-
-        var analysed = 0;
-        var unavailable = 0;
-        foreach (var outcome in facts.Outcomes)
-        {
-            if (outcome.Outcome == TrackAnalysisOutcomeKind.Analysed) analysed++;
-            else unavailable++;
-        }
-
         try
         {
+            // Scoped to this unit id alone, which is what makes a repeated attempt
+            // idempotent without touching another revision's or algorithm's facts.
+            await DeleteFactsAsync(claim.AnalysisId, cancellationToken);
+
+            db.TrackAnalysisOutcomes.AddRange(facts.Outcomes);
+            db.TrackZoneVisits.AddRange(facts.ZoneVisits);
+            db.TrackZoneSummaries.AddRange(facts.ZoneSummaries);
+            db.TrackLineCrossings.AddRange(facts.LineCrossings);
+            db.TrackMotionSummaries.AddRange(facts.MotionSummaries);
+
+            // Written before the barrier is taken, not after. The exclusive lock blocks
+            // every first-page search and every run completion for as long as it is held,
+            // so the bulk insert — which is proportional to the run's Track count — must
+            // not happen inside it. Run completion does the same thing for the same
+            // reason: bulk writes first, then the barrier, then the short final update.
+            // The rows are uncommitted either way, so nothing becomes observable early.
+            await db.SaveChangesAsync(cancellationToken);
+
+            // The facts and the successful unit become observable in the same commit, so
+            // no search snapshot can see one without the other.
+            await ProcessingVisibilityBarrier.AcquireCompletionExclusiveAsync(db, cancellationToken);
+            var visibilitySequence =
+                await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
+
+            var analysed = 0;
+            var unavailable = 0;
+            foreach (var outcome in facts.Outcomes)
+            {
+                if (outcome.Outcome == TrackAnalysisOutcomeKind.Analysed) analysed++;
+                else unavailable++;
+            }
+
             unit.Complete(
                 claim.AttemptCount,
                 claim.ClaimToken.Span,
@@ -324,6 +332,20 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
                 analysed,
                 unavailable,
                 timeProvider.GetUtcNow());
+
+            // Currency changes; nothing else does. A superseded unit keeps its facts,
+            // counts, timestamps and visibility sequence exactly as committed.
+            foreach (var sibling in runUnits)
+            {
+                if (sibling.Id != unit.Id && sibling.Status == SceneAnalysisStatus.Completed)
+                {
+                    sibling.Supersede();
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return SceneAnalysisTransitionResult.Success;
         }
         catch (SceneAnalysisStaleAttemptException)
         {
@@ -336,20 +358,19 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
                 SceneAnalysisTransitionResult.Failure(exception.Code),
                 cancellationToken);
         }
-
-        // Currency changes; nothing else does. A superseded unit keeps its facts, counts,
-        // timestamps and visibility sequence exactly as committed.
-        foreach (var sibling in runUnits)
+        catch (Exception exception) when (exception is DbUpdateException or PostgresException)
         {
-            if (sibling.Id != unit.Id && sibling.Status == SceneAnalysisStatus.Completed)
-            {
-                sibling.Supersede();
-            }
+            _ = exception;
+            // The database refused the write. Plan §AE makes this a retryable attempt
+            // failure with a stable code, so it is returned as one rather than thrown:
+            // an exception here would escape the executor, leave the unit Running with no
+            // explanation, and make recovery wait out the lease and its grace instead of
+            // happening on the next cycle.
+            return await RollbackAsync(
+                transaction,
+                SceneAnalysisTransitionResult.Failure(SceneAnalyticsErrorCodes.PersistenceFailed),
+                cancellationToken);
         }
-
-        await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return SceneAnalysisTransitionResult.Success;
     }
 
     public async Task<SceneAnalysisTransitionResult> ReportFailureAsync(
@@ -473,12 +494,27 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
             .ExecuteDeleteAsync(cancellationToken);
     }
 
+    /// <summary>Abandons the transaction and reports why, without writing anything.</summary>
+    /// <remarks>
+    /// The rollback is best-effort on purpose. This is also the path taken when the
+    /// commit itself failed, and a transaction that died during commit refuses a
+    /// rollback — raising that refusal here would replace an accurate failure code with
+    /// an unrelated exception from the cleanup.
+    /// </remarks>
     private async Task<SceneAnalysisTransitionResult> RollbackAsync(
         IDbContextTransaction transaction,
         SceneAnalysisTransitionResult result,
         CancellationToken cancellationToken)
     {
-        await transaction.RollbackAsync(cancellationToken);
+        try
+        {
+            await transaction.RollbackAsync(cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            // Already completed or aborted; there is nothing left to roll back.
+        }
+
         db.ChangeTracker.Clear();
         return result;
     }

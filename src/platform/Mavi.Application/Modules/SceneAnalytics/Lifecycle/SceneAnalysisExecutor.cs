@@ -138,11 +138,13 @@ public sealed class SceneAnalysisExecutor(
                 claim.AnalysisId, false, SceneAnalyticsErrorCodes.AttemptStale, 0, 0);
         }
 
+        // The lifecycle classified the refusal, so it is reported as it stands rather
+        // than relabelled: a unit that vanished is not a persistence failure.
         return await FailAsync(
             claim,
             options,
-            SceneAnalyticsErrorCodes.PersistenceFailed,
-            commit.ErrorCode,
+            commit.ErrorCode ?? SceneAnalyticsErrorCodes.PersistenceFailed,
+            null,
             cancellationToken);
     }
 

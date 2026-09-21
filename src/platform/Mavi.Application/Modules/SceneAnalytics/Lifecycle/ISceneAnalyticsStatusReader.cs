@@ -71,9 +71,4 @@ public interface ISceneAnalyticsStatusReader
         Guid cameraId,
         bool allRuns,
         CancellationToken cancellationToken);
-
-    /// <summary>Readiness for several runs at once, for list and status projections.</summary>
-    Task<IReadOnlyDictionary<Guid, IReadOnlyList<SceneAnalysisUnitView>>> ListUnitsForRunsAsync(
-        IReadOnlyCollection<Guid> processingRunIds,
-        CancellationToken cancellationToken);
 }
