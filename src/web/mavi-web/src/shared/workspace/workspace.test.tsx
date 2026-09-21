@@ -360,6 +360,37 @@ describe('the archetype set is closed', () => {
     expect(callers).toEqual(['/src/shared/workspace/layouts.tsx']);
   });
 
+  it('caps the Investigation results column whether or not a Track is selected', () => {
+    // §4.4 caps the results column at approximately 900px and gives the surplus
+    // to the inspector. The cap is not conditional on there being an inspector:
+    // an Investigation with nothing selected is still a scan surface, and an
+    // uncapped column on a 2560px display is a 2000px result row either way.
+    //
+    // Asserted on the stylesheet because the rule is a grid template, and jsdom
+    // computes no layout to measure. The rendered geometry is measured by the
+    // §26 harness at real viewports, which is the half this cannot do.
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    const base = css.slice(css.indexOf('.workspace__investigation-grid {'));
+    const unselected = base.slice(0, base.indexOf('}'));
+    expect(unselected).toContain('var(--c-results-max)');
+    // Without the third column the cap has to be a cap rather than a floor:
+    // `stretch` would hand the surplus straight back to the results.
+    expect(unselected).toContain('justify-content: start');
+  });
+
+  it('declares which inspector shape is in force rather than leaving it implied', () => {
+    // Open decision 3 is a number the §26 harness has to check the layout
+    // against, and a harness carrying the number itself can only confirm its
+    // own assumption. The archetype publishes its placement as a custom
+    // property beside the media query that decides it, so moving 1500 to 1600
+    // is an edit here and nowhere else.
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(/\.workspace--investigation\s*\{[^}]*--inspector-placement:\s*drawer/);
+    const threshold = css.slice(css.indexOf('@media (min-width: 1500px)'));
+    expect(threshold.slice(0, threshold.indexOf('@media', 1)))
+      .toMatch(/--inspector-placement:\s*in-place/);
+  });
+
   it('gives every surface one Context Bar implementation', () => {
     // The band's markup belongs to the shell and the primitive. A feature that
     // wrote its own `.context-bar` would produce the two-bar page §5 forbids,

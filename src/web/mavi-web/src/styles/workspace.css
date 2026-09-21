@@ -218,9 +218,22 @@
 .workspace__inspector > :last-child { flex: 1 1 auto; min-height: min(var(--c-inspector-min-h), 100%); }
 
 /* --- Investigation: results and inspector scroll independently. ------ */
-.workspace--investigation { height: 100%; min-height: 0; }
+/* `--inspector-placement` is the archetype stating, in the one place the
+   threshold is written, which of its two inspector shapes is in force. It is
+   read back by the section 26 harness, which then measures whether the
+   rendered geometry agrees — so moving the threshold from 1500 to 1600 is an
+   edit to the two media queries below and to nothing else. A harness that
+   carried the number itself could only ever confirm its own assumption. */
+.workspace--investigation { height: 100%; min-height: 0; --inspector-placement: drawer; }
+/* The results column is capped whether or not a Track is selected (section
+   4.4). An uncapped column on a 2560px display is a 2000px line of result
+   rows: the eye loses the left edge between one row and the next, and the
+   surplus width buys nothing until there is an inspector to spend it on.
+   `justify-content: start` is what makes the cap a cap rather than a floor —
+   the unused width is left over, not distributed back into the column. */
 .workspace__investigation-grid {
-  display: grid; grid-template-columns: 252px minmax(0, 1fr);
+  display: grid; grid-template-columns: var(--c-rail-w) minmax(0, var(--c-results-max));
+  justify-content: start;
   gap: var(--s-4); flex: 1 1 auto; min-height: 0; height: 100%;
 }
 .workspace__investigation-grid > * { min-height: 0; min-width: 0; }
@@ -228,13 +241,20 @@
 .workspace__results { display: grid; min-height: 0; }
 /* The inspector is an in-place third column only at 1500px and above; below
    that it is an overlay drawer over the results (section 4.4). The threshold
-   itself is open decision 3, which UI-4 closes. */
+   is open decision 3, closed in UI-4 at 1500px on measured evidence. */
 @media (min-width: 1500px) {
+  .workspace--investigation { --inspector-placement: in-place; }
   .workspace--investigation.has-inspector .workspace__investigation-grid {
-    grid-template-columns: 252px minmax(560px, 900px) minmax(0, 1fr);
+    grid-template-columns: var(--c-rail-w) minmax(var(--c-results-min), var(--c-results-max)) minmax(0, 1fr);
+    /* With a third column present the surplus has somewhere to go, so the
+       track list stretches to fill the row again (open decision 4). */
+    justify-content: stretch;
   }
 }
 @media (max-width: 1499px) {
+  /* A drawer, not a modal: no backdrop, no focus trap, no inert results
+     (section 20). The results stay readable and operable underneath, which is
+     the whole reason an Investigation inspector is not a dialog. */
   .workspace--investigation.has-inspector .workspace__inspector {
     position: absolute; inset: 0 0 0 auto; width: min(480px, 100%); z-index: var(--z-drawer);
     box-shadow: var(--elevation-floating);
@@ -287,6 +307,9 @@
   .workspace__review-grid,
   .workspace__investigation-grid,
   .workspace--workbench .workspace__stage-grid { grid-template-columns: minmax(0, 1fr); }
+  /* Stacked, the single column is the working width: the cap that protects a
+     wide display from a 2000px row has nothing to protect here. */
+  .workspace__investigation-grid { justify-content: stretch; }
   .workspace--investigation.has-inspector .workspace__inspector {
     position: static; width: auto; box-shadow: none;
   }

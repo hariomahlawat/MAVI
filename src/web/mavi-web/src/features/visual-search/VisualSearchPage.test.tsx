@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../api/client';
 import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { getTrack, searchTracks, type TrackDetail, type TrackSearchItem } from '../../api/tracks';
@@ -144,6 +145,49 @@ describe('VisualSearchPage', () => {
       expect.objectContaining({ limit: 24, cursor: undefined }),
       expect.any(AbortSignal),
     ));
+  });
+
+  it('is an Investigation rather than a page with its own three-column grid', async () => {
+    const { container } = renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await screen.findByRole('link', { name: 'Review evidence' });
+
+    // §4.4 through the shared archetype: the rail, the results column and the
+    // inspector slot are the layout's regions, not this feature's CSS.
+    const workspace = container.querySelector('.workspace--investigation');
+    expect(workspace).toBeInTheDocument();
+    expect(within(workspace as HTMLElement).getByRole('form', { name: 'Search filters' }))
+      .toBeInTheDocument();
+    expect(container.querySelector('.workspace__results')).toBeInTheDocument();
+    // §4 removes the page title block; the surface names itself in the band.
+    expect(container.querySelector('.page-header')).not.toBeInTheDocument();
+    // The private grid it used to carry is gone, not renamed.
+    expect(container.querySelector('.search-workspace')).not.toBeInTheDocument();
+  });
+
+  it('puts page-scope conditions above the results rather than inside them', async () => {
+    vi.mocked(listCameras).mockRejectedValue(new ApiError({ status: 503, code: 'cameras_unavailable', detail: 'Cameras unavailable.' }));
+    const { container } = renderWithApp(<VisualSearchPage />, { route: '/search' });
+
+    const notice = await screen.findByText(/Camera metadata is unavailable/);
+    // A surface-wide outage must not scroll away with the rows it is not about.
+    expect(notice.closest('.workspace__notices')).not.toBeNull();
+    expect(notice.closest('.workspace__results')).toBeNull();
+    expect(container.querySelector('.workspace__notices')).toBeInTheDocument();
+  });
+
+  it('shows the inspector through the shared shell when a Track is selected', async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithApp(<VisualSearchPage />, { route: '/search' });
+    const rows = within(await screen.findByRole('list', { name: 'Track results' })).getAllByRole('listitem');
+    await user.click(within(rows[0]).getByRole('button', { name: /^Select / }));
+
+    const inspector = await screen.findByRole('complementary', { name: 'Track inspector' });
+    expect(inspector).toHaveClass('inspector');
+    expect(container.querySelector('.workspace--investigation.has-inspector')).toBeInTheDocument();
+    // §20: a drawer, not a dialog. Nothing here may claim modality.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(inspector.getAttribute('aria-modal')).toBeNull();
+    expect(container.querySelector('[inert]')).toBeNull();
   });
 
   it('keeps draft edits local until Search commits them', async () => {

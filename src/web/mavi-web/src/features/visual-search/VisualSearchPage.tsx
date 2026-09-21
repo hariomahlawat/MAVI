@@ -11,9 +11,11 @@ import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
 import Button from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
+import Icon from '../../shared/components/Icon';
 import LoadingState from '../../shared/components/LoadingState';
-import PageHeader from '../../shared/components/PageHeader';
+import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import { configuredUtcToWallTime, configuredWallTimeToUtc } from '../../shared/time/wallTime';
+import { ContextBar, InvestigationLayout, Segmented } from '../../shared/workspace';
 import { isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
 import SearchFilterRail, { emptyDraft, type SearchDraft } from './SearchFilterRail';
 import TrackInspector from './TrackInspector';
@@ -61,9 +63,17 @@ function readView(): ResultView {
 }
 
 /**
- * Search workspace: committed filters (URL) on the left, the result snapshot in
- * the middle and, when a `track` is selected, the in-place inspector on the
- * right. Selection is URL state too, so a deep link reopens the same view.
+ * Search — an Investigation (§4.4): committed filters (URL) in the rail, the
+ * result snapshot in the middle and, when a `track` is selected, the inspector
+ * beside it. Selection is URL state too, so a deep link reopens the same view.
+ *
+ * UI-4 replaces the presentation architecture and keeps the state machinery.
+ * The surface used to own a page header, its own three-column CSS grid and its
+ * own inspector shell, all of which were this feature's private restatement of
+ * things §4.4 freezes; they are now the shared archetype's, which is what stops
+ * the two drifting apart. Everything about *what* a search is — the committed
+ * URL parameters, the draft that stays local until Search, the cursor snapshot
+ * and its retry semantics — is deliberately untouched.
  */
 export default function VisualSearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -365,53 +375,74 @@ export default function VisualSearchPage() {
 
   const inspecting = selectedId !== null;
 
-  return (
-    <section className="page page--full page--workspace">
-      <PageHeader
-        title="Visual Search"
-        description="Search authoritative person and vehicle Tracks. Filters are bookmarkable; result pagination uses a stable backend snapshot."
-        actions={(
-          <div className="toolbar__group" role="group" aria-label="Result view">
-            <Button size="sm" iconOnly icon="list" aria-pressed={view === 'list'} onClick={() => setView('list')} title="List view">List view</Button>
-            <Button size="sm" iconOnly icon="grid" aria-pressed={view === 'grid'} onClick={() => setView('grid')} title="Grid view">Grid view</Button>
-          </div>
-        )}
-      />
-
+  // Page-scope conditions belong to the workspace, not to the results column:
+  // a camera-metadata outage is a fact about the whole surface, and putting it
+  // above the scroll owner is what stops it scrolling away with the rows.
+  const notices = (
+    <>
       {!committed.isValid ? <Alert tone="error">{committed.error}</Alert> : null}
       {formError ? <Alert tone="error">{formError}</Alert> : null}
       {systemConfig.isError ? (
-        <Alert tone="warning">
-          <div className="inline-alert-actions">
-            <span>
-              Display timezone is unavailable. Existing UTC time scope remains active; time editing is disabled and result timestamps are shown explicitly in UTC.
-            </span>
-            <Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>
-          </div>
+        <Alert tone="warning" actions={<Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>}>
+          Display timezone is unavailable. Existing UTC time scope remains active; time editing is disabled and result timestamps are shown explicitly in UTC.
         </Alert>
       ) : null}
       {cameras.isError ? (
-        <Alert tone="warning">
+        <Alert tone="warning" actions={<Button size="sm" onClick={() => void cameras.refetch()}>Retry cameras</Button>}>
           Camera metadata is unavailable. Any committed camera identifier remains active and Track search continues without broadening its scope.
         </Alert>
       ) : null}
+      {videos.isError ? (
+        <Alert tone="warning" actions={<Button size="sm" onClick={() => void videos.refetch()}>Retry videos</Button>}>
+          Video metadata is unavailable. Any committed video scope remains active and is shown by identifier.
+        </Alert>
+      ) : null}
+    </>
+  );
+  const hasNotice = !committed.isValid || formError !== null
+    || systemConfig.isError || cameras.isError || videos.isError;
 
-      <div className={inspecting ? 'search-workspace search-workspace--inspecting' : 'search-workspace'}>
-        <SearchFilterRail
-          draft={draft}
-          onDraftChange={onDraftChange}
-          onSubmit={submitSearch}
-          onReset={resetSearch}
-          cameras={cameras.data}
-          videos={videos.data}
-          videosUnavailable={videos.isError}
-          displayTimeZoneId={displayTimeZoneId}
-          activeFilters={activeFilters}
-          onClearTimeScope={clearTimeScope}
-          onRemoveScope={removeAdvancedScope}
-        />
+  return (
+    <section className="page page--full page--workspace">
+      <ContextBar
+        crumbs={[{ label: 'Visual Search' }]}
+        status={<DisplayTimeZone timeZoneId={displayTimeZoneId} />}
+      />
 
-        <section className="panel results" aria-label="Search results">
+      <InvestigationLayout
+        notices={hasNotice ? notices : undefined}
+        rail={(
+          <SearchFilterRail
+            draft={draft}
+            onDraftChange={onDraftChange}
+            onSubmit={submitSearch}
+            onReset={resetSearch}
+            cameras={cameras.data}
+            videos={videos.data}
+            videosUnavailable={videos.isError}
+            displayTimeZoneId={displayTimeZoneId}
+            activeFilters={activeFilters}
+            onClearTimeScope={clearTimeScope}
+            onRemoveScope={removeAdvancedScope}
+          />
+        )}
+        inspector={inspecting && selectedId ? (
+          <TrackInspector
+            key={selectedId}
+            trackId={selectedId}
+            position={position}
+            total={items.length}
+            hasMore={hasMore}
+            displayTimeZoneId={displayTimeZoneId}
+            searchContext={searchContext}
+            summary={position >= 0 ? items[position] : undefined}
+            onPrevious={goPrevious}
+            onNext={goNext}
+            onClose={() => selectTrack(null)}
+          />
+        ) : undefined}
+      >
+        <section className="results" aria-label="Search results">
           <div className="results__head">
             <div className="video-title">
               <strong>
@@ -426,13 +457,29 @@ export default function VisualSearchPage() {
                 <kbd>j</kbd>/<kbd>k</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close
               </span>
             ) : null}
+            {/* §14 of the brief: the List/Grid choice is a property of the
+                results column, so it lives on the column rather than in
+                permanent page chrome above the whole workspace. */}
+            <Segmented
+              label="Result view"
+              size="sm"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'list', label: <Icon name="list" size="sm" />, accessibleName: 'List view' },
+                { value: 'grid', label: <Icon name="grid" size="sm" />, accessibleName: 'Grid view' },
+              ]}
+            />
           </div>
 
           {committed.isValid && tracks.isPending ? <LoadingState label="Searching visual intelligence…" /> : null}
 
           {tracks.isError && items.length === 0 ? (
-            <div className="panel__body">
-              <Alert tone="error">
+            <div className="results__notice">
+              <Alert
+                tone="error"
+                actions={<Button size="sm" icon="refresh" onClick={() => void tracks.refetch()}>Retry</Button>}
+              >
                 {tracks.error instanceof ApiError
                   ? tracks.error.detail + ' (' + tracks.error.code + ')'
                   : 'Visual search could not be completed.'}
@@ -492,23 +539,7 @@ export default function VisualSearchPage() {
             </div>
           ) : null}
         </section>
-
-        {inspecting && selectedId ? (
-          <TrackInspector
-            key={selectedId}
-            trackId={selectedId}
-            position={position}
-            total={items.length}
-            hasMore={hasMore}
-            displayTimeZoneId={displayTimeZoneId}
-            searchContext={searchContext}
-            summary={position >= 0 ? items[position] : undefined}
-            onPrevious={goPrevious}
-            onNext={goNext}
-            onClose={() => selectTrack(null)}
-          />
-        ) : null}
-      </div>
+      </InvestigationLayout>
     </section>
   );
 }

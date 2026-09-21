@@ -46,10 +46,12 @@
 .table--ledger .progress--inline { min-width: 72px; }
 .run-cell__line { display: flex; align-items: center; gap: var(--s-2); color: var(--text-muted); font-size: var(--fs-1); }
 
-/* Search workspace */
-.search-workspace { display: grid; grid-template-columns: 252px minmax(0, 1fr); gap: var(--s-4); height: 100%; min-height: 0; }
-.search-workspace > * { min-height: 0; }
-.search-workspace--inspecting { grid-template-columns: 252px minmax(0, 1fr) minmax(440px, 42%); }
+/* Search workspace.
+   The three-column grid that used to live here is gone: it was this feature's
+   private copy of the Investigation archetype, and `workspace.css` now owns the
+   columns, the rail width, the results cap and the inspector's two shapes. What
+   is left is what the archetype does not know about — the contents of the rail,
+   the results column and the cards. */
 .filter-rail { display: grid; gap: var(--s-3); align-content: start; }
 .filter-rail__section { display: grid; gap: var(--s-2); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border-subtle); }
 .filter-rail__section:last-child { border-bottom: 0; }
@@ -58,8 +60,28 @@
 .filter-rail__actions { display: flex; gap: var(--s-2); padding: var(--s-3) var(--s-4); }
 .filter-rail__actions .btn { flex: 1; }
 
-.results { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; }
-.results__head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--border-subtle); min-height: 40px; }
+/* The results column is a bounded, scrolling region, so it carries the border
+   that says so (section 11). It used to get that from `.panel`, which also
+   imposed a two-row grid the column's four regions had to be forced into. */
+.results {
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0;
+  border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-3);
+  background: var(--surface-base);
+}
+/* A first-page failure or a page-one retry sits where the rows would be, not
+   above the header: it is what this column has instead of results. */
+.results__notice { padding: var(--s-4); }
+/* Title, shortcut hint and the view choice, in that order of importance. The
+   title keeps its width and the hint gives way first: at the 560px floor the
+   column is narrow enough that a shortcut reminder would otherwise push the
+   view control onto a second line. */
+.results__head {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-2) var(--s-4); border-bottom: var(--stroke-hair) solid var(--border-subtle); min-height: 40px;
+}
+.results__head .video-title { flex: 1 1 auto; min-width: 0; }
+.results__head .hints { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.results__head .segmented { flex: 0 0 auto; }
 .results__foot { display: flex; align-items: center; justify-content: center; gap: var(--s-3); padding: var(--s-2) var(--s-4); border-top: 1px solid var(--border-subtle); min-height: 40px; color: var(--text-muted); font-size: var(--fs-1); }
 .results__list { overflow-y: auto; min-height: 0; }
 .result-row {
@@ -102,7 +124,7 @@
    workspace.css, and two different panels answering to one class name is how a
    rule written for one silently restyles the other. UI-4 migrates this panel
    onto the shared shell; until then it keeps its own name. */
-.track-inspector { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.track-inspector__camera { color: var(--text-secondary); font-size: var(--fs-1); }
 .track-inspector__nav { display: flex; align-items: center; gap: var(--s-2); }
 .track-inspector__pos { color: var(--text-muted); font-size: var(--fs-1); font-variant-numeric: tabular-nums; min-width: 64px; text-align: center; }
 
@@ -140,21 +162,15 @@
 .review-layout > * { min-width: 0; }
 .review-video { display: block; width: 100%; }
 
-@media (max-width: 1280px) {
-  .search-workspace--inspecting { grid-template-columns: 220px minmax(0, 1fr) minmax(380px, 45%); }
-}
 @media (max-width: 1100px) {
-  .search-workspace, .search-workspace--inspecting { grid-template-columns: 1fr; height: auto; }
   .overview-grid, .review-layout { grid-template-columns: 1fr; }
 }
 
 .results__foot { flex-wrap: wrap; }
 .results__foot .alert { flex-basis: 100%; }
-.filter-rail { overflow-y: auto; }
 .track-card.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .track-card.is-selectable { cursor: pointer; }
 .results-end { color: var(--text-muted); font-size: var(--fs-1); }
-.search-workspace--inspecting .results__head .hints { display: none; }
 .results__head .video-title strong { white-space: nowrap; }
 .results__list { list-style: none; margin: 0; padding: 0; }
 .result-row__select { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; cursor: pointer; text-align: left; }

@@ -5,8 +5,8 @@ import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import LoadingState from '../../shared/components/LoadingState';
-import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
+import { Inspector } from '../../shared/workspace';
 import { RepresentativeEvidence, TrackSummary } from '../video-review/TrackDetailsPanels';
 import TrackEvidencePlayer from '../video-review/TrackEvidencePlayer';
 import { useTrajectory } from '../video-review/useTrajectory';
@@ -30,6 +30,13 @@ type Props = {
  * In-place review of the selected result. The player and evidence panels are
  * the same components the full Review page uses, so what the operator sees
  * here is exactly what they will see there — just narrower.
+ *
+ * UI-4 moves it onto the shared `Inspector` shell: the boundary, the padding
+ * and the single scrolling body are the archetype's (§20), and what is shown
+ * inside is this feature's. It also settles where the camera line lives. The
+ * old panel put it in the header as a description, which made the header two
+ * lines tall in a drawer that has 480px to work with; it is a fact about the
+ * Track rather than chrome naming the region, so it now opens the body.
  */
 export default function TrackInspector({
   trackId,
@@ -55,13 +62,14 @@ export default function TrackInspector({
   const canPrevious = position > 0;
   const canNext = position >= 0 && (position < total - 1 || hasMore);
 
+  const cameraLine = detail
+    ? `${detail.camera.code} · ${detail.camera.name}`
+    : summary ? `${summary.cameraCode} · ${summary.cameraName}` : null;
+
   return (
-    <Panel
-      fill
-      body="scroll"
-      className="track-inspector"
+    <Inspector
+      label="Track inspector"
       title={title}
-      description={detail ? `${detail.camera.code} · ${detail.camera.name}` : summary ? `${summary.cameraCode} · ${summary.cameraName}` : undefined}
       actions={(
         <div className="track-inspector__nav">
           <Button size="sm" iconOnly icon="chevronLeft" onClick={onPrevious} disabled={!canPrevious} title="Previous result (k / ↑)">Previous result</Button>
@@ -76,7 +84,8 @@ export default function TrackInspector({
         </div>
       )}
     >
-      <div className="panel__body stack">
+      <div className="stack">
+        {cameraLine ? <p className="track-inspector__camera">{cameraLine}</p> : null}
         {track.isPending ? <LoadingState label="Loading Track evidence…" /> : null}
         {track.isError ? (
           <Alert tone="error">
@@ -102,6 +111,6 @@ export default function TrackInspector({
           </>
         ) : null}
       </div>
-    </Panel>
+    </Inspector>
   );
 }

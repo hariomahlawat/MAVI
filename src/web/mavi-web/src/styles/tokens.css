@@ -277,4 +277,13 @@
      a navigator above a properties panel must not let a long navigator squeeze
      the panel being read down to a line and a half. */
   --c-inspector-min-h: 180px;
+  /* Section 4.4 fixes the Investigation rail at 252px and caps the results
+     column at approximately 900px so an ultra-wide display grows the
+     inspector rather than the scan column, with a 560px floor below which
+     the results are never compressed. These are three geometry constants of
+     one archetype rather than steps on the spacing scale, and naming them
+     here is what stops the numbers being restated in a feature sheet. */
+  --c-rail-w: 252px;
+  --c-results-min: 560px;
+  --c-results-max: 900px;
 }
