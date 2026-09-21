@@ -705,7 +705,15 @@ export const STATES = [
   {
     name: 'search-long-names', path: `/search?cameraId=${CAM2}`, fullWidth: true, settleMs: 900,
     archetype: 'investigation',
-    api: { '/api/tracks': LONG_NAME_TRACKS },
+    // The second camera exists but has no scene, which the real API answers
+    // with an unconfigured scene rather than a 404. Without the stub the
+    // harness records a resource error for a request the product makes
+    // correctly (the Analytics rail asks every committed camera scope for its
+    // geometry).
+    api: {
+      '/api/tracks': LONG_NAME_TRACKS,
+      [`/api/cameras/${CAM2}/scene`]: { cameraId: CAM2, configured: false, activeRevision: null, history: [] },
+    },
     expectText: 'Perimeter fence',
   },
   {

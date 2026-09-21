@@ -220,7 +220,19 @@ export default function EvidencePlayer({
       onKeyDown={onKeyDown}
       {...{ [EVIDENCE_PLAYER_ATTRIBUTE]: '' }}
     >
-      <div className="evidence-player__frame">
+      {/*
+        The frame is focusable, which is what makes the keyboard grammar
+        reachable. Shortcuts are scoped to this subtree rather than bound to the
+        window, so without a focus target inside it none of them would ever
+        fire; one Tab now lands here and the ring says so. The same in both
+        hosts, because the semantics must not differ between them.
+      */}
+      <div
+        className="evidence-player__frame"
+        tabIndex={0}
+        role="group"
+        aria-label={`${subject.label} evidence frame. Space plays, arrows step one frame, J and L move one second, Home and End jump to the subject.`}
+      >
         <video
           key={sourceUrl}
           ref={transport.videoRef}

@@ -199,6 +199,21 @@ describe('Evidence Player keyboard grammar', () => {
     expect(video().currentTime).toBeCloseTo(12, 3);
   });
 
+  it('is reachable by keyboard: the frame takes focus and the shortcuts act there', async () => {
+    const media = stubMedia();
+    const user = userEvent.setup();
+    renderPlayer();
+
+    // Shortcuts are scoped to the player, so there has to be something inside
+    // it to focus. The frame is it, and it is one Tab away.
+    await user.tab();
+    const frame = screen.getByRole('group', { name: /evidence frame/ });
+    expect(frame).toHaveFocus();
+
+    await user.keyboard(' ');
+    expect(media.play).toHaveBeenCalled();
+  });
+
   it('does nothing on E when no representative frame exists', () => {
     renderPlayer({ representative: undefined });
     video().currentTime = 20;

@@ -235,6 +235,9 @@
  * ------------------------------------------------------------------ */
 .evidence-player { display: grid; gap: var(--s-2); min-width: 0; }
 .evidence-player__frame { position: relative; width: 100%; background: var(--evidence-matte); border-radius: var(--r-2); overflow: hidden; }
+/* The frame is where the keyboard grammar acts, so its focus has to be as
+   visible as any control's. */
+.evidence-player__frame:focus-visible { outline: var(--stroke-2) solid var(--focus-ring); outline-offset: var(--stroke-2); }
 .evidence-player__video { display: block; width: 100%; max-height: 62vh; background: var(--evidence-matte); }
 .evidence-player--compact .evidence-player__video { max-height: 40vh; }
 
