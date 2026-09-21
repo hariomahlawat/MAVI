@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace Mavi.Contracts.Api.Tracks;
 
+/// <summary>One Track with its provenance and, once resolved, its analytics for one identity.</summary>
 public sealed record TrackDetailResponse(
     Guid Id,
     Guid ProcessingRunId,
@@ -20,7 +23,9 @@ public sealed record TrackDetailResponse(
     TrackVideoResponse Video,
     TrackRepresentativeResponse? Representative,
     Guid? TrajectoryArtifactId,
-    string? TrajectoryContentUrl);
+    string? TrajectoryContentUrl,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    TrackDetailAnalyticsResponse? Analytics = null);
 
 public sealed record TrackCameraResponse(Guid Id, string Code, string Name);
 

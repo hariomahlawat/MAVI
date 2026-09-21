@@ -22,6 +22,13 @@ public sealed class TrackSearchService(
         if (!IsValid(query))
             return TrackSearchServiceResult.Invalid();
 
+        // Analytic execution — scope resolution, the pinned identity and the v3 cursor —
+        // arrives with the resolved search context. Until it does, an analytic query is
+        // grammatically checked above and refused here rather than answered as an
+        // ordinary search whose predicates were silently ignored.
+        if (query.IsAnalytic)
+            return TrackSearchServiceResult.Invalid();
+
         var nowUtc = timeProvider.GetUtcNow().ToUniversalTime();
         var filterFingerprint = TrackCursorCodec.ComputeFilterFingerprint(query);
 
@@ -89,6 +96,9 @@ public sealed class TrackSearchService(
         if (query.FromUtc is { } from &&
             query.ToUtc is { } to &&
             from >= to)
+            return false;
+
+        if (query.Analytics is { } analytics && !TrackAnalyticsQueryRules.IsValid(analytics))
             return false;
 
         return true;

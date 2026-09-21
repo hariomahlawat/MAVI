@@ -314,7 +314,7 @@ public sealed class SceneAnalyticsContractTests
     [Fact]
     public void CoverageIsCompleteOnlyWhenEveryRunInScopeWasEvaluated()
     {
-        var complete = new AnalyticsCoverageResponse(RevisionId, "scene-analytics-v1", 12, 0, 0, 0, 0, 0);
+        var complete = new AnalyticsCoverageResponse(RevisionId, "scene-analytics-v1", 12, 0, 0, 0, 0, 0, 40, 0);
 
         Assert.True(complete.Complete);
     }
@@ -340,7 +340,9 @@ public sealed class SceneAnalyticsContractTests
             FailedRuns: failed,
             NotConfiguredRuns: notConfigured,
             DisabledRuns: disabled,
-            StaleRuns: stale);
+            StaleRuns: stale,
+            AnalysedTracks: 12,
+            UnavailableTracks: 0);
 
         Assert.False(coverage.Complete);
     }
@@ -359,7 +361,9 @@ public sealed class SceneAnalyticsContractTests
             FailedRuns: 0,
             NotConfiguredRuns: 4,
             DisabledRuns: 2,
-            StaleRuns: 0);
+            StaleRuns: 0,
+            AnalysedTracks: 0,
+            UnavailableTracks: 0);
 
         Assert.False(coverage.Complete);
 
@@ -374,7 +378,7 @@ public sealed class SceneAnalyticsContractTests
     [Fact]
     public void CoverageSerializesCompletenessRatherThanTrustingACaller()
     {
-        var coverage = new AnalyticsCoverageResponse(RevisionId, "scene-analytics-v1", 9, 2, 0, 0, 0, 1);
+        var coverage = new AnalyticsCoverageResponse(RevisionId, "scene-analytics-v1", 9, 2, 0, 0, 0, 1, 31, 2);
 
         var json = JsonSerializer.Serialize(coverage, ApiJson);
         using var document = JsonDocument.Parse(json);

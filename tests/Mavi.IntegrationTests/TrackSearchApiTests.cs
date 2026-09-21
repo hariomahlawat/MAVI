@@ -512,6 +512,21 @@ public sealed class TrackSearchApiTests
     [InlineData("/api/tracks?objectClass=0")]
     [InlineData("/api/tracks?unknownFilter=value")]
     [InlineData("/api/tracks?limit=1&limit=2")]
+    // Slice 4 grammar (plan §S): the control flag alone, broken dependencies, values
+    // outside their closed vocabularies and the wrong case are all refused the same way.
+    [InlineData("/api/tracks?analyticsCoverage=partial")]
+    [InlineData("/api/tracks?analyticsCoverage=complete")]
+    [InlineData("/api/tracks?zoneRelation=entered")]
+    [InlineData("/api/tracks?minDwellMs=1000")]
+    [InlineData("/api/tracks?crossingDirection=aToB")]
+    [InlineData("/api/tracks?analyticsAlgorithmVersion=scene-analytics-v1")]
+    [InlineData("/api/tracks?zoneId=0199a1f0-0000-7000-8000-00000000d001&zoneRelation=Dwelled")]
+    [InlineData("/api/tracks?lineId=0199a1f0-0000-7000-8000-00000000e001&crossingDirection=AToB")]
+    [InlineData("/api/tracks?motionDirection=None")]
+    [InlineData("/api/tracks?loitering=false")]
+    [InlineData("/api/tracks?zoneId=0199a1f0-0000-7000-8000-00000000d001&minDwellMs=-1")]
+    [InlineData("/api/tracks?sceneRevisionId=0199a1f0-0000-7000-8000-00000000b001&analyticsAlgorithmVersion=v1")]
+    [InlineData("/api/tracks?zoneId=0199a1f0-0000-7000-8000-00000000d001&analyticsCoverage=full")]
     public async Task InvalidSearchReturnsStableError(string path)
     {
         using var factory = new ApiTestFactory();

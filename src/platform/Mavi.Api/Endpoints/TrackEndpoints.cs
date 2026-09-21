@@ -57,6 +57,19 @@ public static class TrackEndpoints
             "minimumConfidence",
             "cursor",
             "limit",
+            // Slice 4 analytics grammar (plan §S). The whitelist is closed: a key not
+            // named here is a 400, as it always was.
+            TrackSearchContractRules.SceneRevisionIdKey,
+            TrackSearchContractRules.AnalyticsAlgorithmVersionKey,
+            TrackSearchContractRules.ZoneIdKey,
+            TrackSearchContractRules.ZoneRelationKey,
+            TrackSearchContractRules.MinDwellMsKey,
+            TrackSearchContractRules.LineIdKey,
+            TrackSearchContractRules.CrossingDirectionKey,
+            TrackSearchContractRules.MotionDirectionKey,
+            TrackSearchContractRules.MinStationaryMsKey,
+            TrackSearchContractRules.LoiteringKey,
+            TrackSearchContractRules.AnalyticsCoverageKey,
         };
 
     private static bool TryParseQuery(
@@ -76,7 +89,8 @@ public static class TrackEndpoints
             !TryLong(values, "minimumDurationMs", out var duration) ||
             !TryDouble(values, "minimumConfidence", out var confidence) ||
             !TryInt(values, "limit", 50, out var limit) ||
-            !SingleOrMissing(values, "cursor", out var cursor))
+            !SingleOrMissing(values, "cursor", out var cursor) ||
+            !TryAnalytics(values, out var analytics))
             return false;
 
         query = new TrackSearchQuery(
@@ -89,7 +103,85 @@ public static class TrackEndpoints
             duration,
             confidence,
             cursor,
-            limit);
+            limit,
+            analytics);
+        return true;
+    }
+
+    /// <summary>
+    /// The analytic half of the query, or null when no analytics-dependent key was
+    /// supplied. Syntax only: each value must be well-formed and in its closed
+    /// vocabulary. The dependency matrix between keys is the Application's rule
+    /// (<see cref="TrackAnalyticsQueryRules.IsValid"/>), applied by the service.
+    /// </summary>
+    private static bool TryAnalytics(IQueryCollection values, out TrackAnalyticsQuery? analytics)
+    {
+        analytics = null;
+        if (!TryGuid(values, TrackSearchContractRules.SceneRevisionIdKey, out var revisionId) ||
+            !SingleOrMissing(values, TrackSearchContractRules.AnalyticsAlgorithmVersionKey, out var version) ||
+            !TryGuid(values, TrackSearchContractRules.ZoneIdKey, out var zoneId) ||
+            !SingleOrMissing(values, TrackSearchContractRules.ZoneRelationKey, out var relationRaw) ||
+            !TryLong(values, TrackSearchContractRules.MinDwellMsKey, out var minDwellMs) ||
+            !TryGuid(values, TrackSearchContractRules.LineIdKey, out var lineId) ||
+            !SingleOrMissing(values, TrackSearchContractRules.CrossingDirectionKey, out var directionRaw) ||
+            !SingleOrMissing(values, TrackSearchContractRules.MotionDirectionKey, out var heading) ||
+            !TryLong(values, TrackSearchContractRules.MinStationaryMsKey, out var minStationaryMs) ||
+            !SingleOrMissing(values, TrackSearchContractRules.LoiteringKey, out var loiteringRaw) ||
+            !SingleOrMissing(values, TrackSearchContractRules.AnalyticsCoverageKey, out var coverageRaw))
+            return false;
+
+        if (version is not null && !TrackSearchContractRules.IsAlgorithmVersion(version))
+            return false;
+
+        TrackZoneRelation? relation = null;
+        if (relationRaw is not null)
+        {
+            if (!TrackAnalyticsQueryRules.TryParseZoneRelation(relationRaw, out var parsedRelation))
+                return false;
+            relation = parsedRelation;
+        }
+
+        TrackCrossingDirection? direction = null;
+        if (directionRaw is not null)
+        {
+            if (!TrackAnalyticsQueryRules.TryParseCrossingDirection(directionRaw, out var parsedDirection))
+                return false;
+            direction = parsedDirection;
+        }
+
+        if (heading is not null && !TrackSearchContractRules.IsMotionDirection(heading))
+            return false;
+
+        // Only `true`; false is represented by omission, so `loitering=false` is a
+        // malformed request rather than a no-op.
+        if (loiteringRaw is not null &&
+            !string.Equals(loiteringRaw, TrackSearchContractRules.LoiteringTrue, StringComparison.Ordinal))
+            return false;
+
+        if (coverageRaw is not null && !TrackSearchContractRules.IsCoverageMode(coverageRaw))
+            return false;
+
+        var candidate = new TrackAnalyticsQuery(
+            revisionId,
+            version,
+            zoneId,
+            relation,
+            minDwellMs,
+            lineId,
+            direction,
+            heading,
+            minStationaryMs,
+            loiteringRaw is not null,
+            string.Equals(coverageRaw, TrackSearchContractRules.CompleteCoverageMode, StringComparison.Ordinal));
+
+        if (!candidate.HasAnalyticsDependentKey)
+        {
+            // Either value of the control flag without a dependent key is a rejection,
+            // not a silent promotion to an analytic query (plan §S).
+            return coverageRaw is null;
+        }
+
+        analytics = candidate;
         return true;
     }
 
