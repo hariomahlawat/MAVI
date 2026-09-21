@@ -75,7 +75,95 @@ describe('VideosPage', () => {
     expect(within(rows[1]).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(within(rows[2]).getByRole('button', { name: 'Process' })).toBeInTheDocument();
     expect(within(rows[0]).getByText('CAM-01')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('14 Sept 2026, 07:30:00')).toBeInTheDocument();
+    // §24: compact in the column, the full form on the cell. The year is
+    // omitted in the current year, so the assertion does not pin one.
+    const recorded = within(rows[0]).getAllByRole('cell')[2];
+    expect(recorded.textContent).toMatch(/^14 Sept(?: \d{4})?, 07:30$/);
+    expect(recorded.getAttribute('title')).toContain('14 Sept 2026, 07:30:00');
+  });
+
+  it('is a Ledger: a Context Bar, one scroll owner and a table that is not stretched', async () => {
+    const { container } = renderWithApp(<VideosPage />, { route: '/videos' });
+    await screen.findByRole('table');
+
+    expect(container.querySelector('.workspace--ledger')).not.toBeNull();
+    expect(container.querySelector('.page--full')).not.toBeNull();
+    expect(container.querySelector('.workspace__body--scroll > table.table--ledger')).not.toBeNull();
+    // §24: the display timezone is disclosed once, on the surface.
+    expect(within(container.querySelector('.context-bar') as HTMLElement).getByText('Asia/Kolkata')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Import video' })).toHaveAttribute('href', '/import');
+  });
+
+  it('carries exactly one status badge per row and no identifier in a cell', async () => {
+    // Named files, so the assertion is about the cells rather than about a
+    // fixture that happens to name its file after its id.
+    vi.mocked(listVideos).mockResolvedValue([
+      video('018f3f5a-2f70-7a2b-8a12-2d02f4c2144a', { originalFileName: 'gate.mp4' }),
+      video('018f3f5a-2f70-7a2b-8a12-2d02f4c2144b', { originalFileName: 'dock.mp4', processingStatus: 'Failed' }),
+    ]);
+    const { container } = renderWithApp(<VideosPage />, { route: '/videos' });
+    const table = await screen.findByRole('table');
+    for (const row of within(table).getAllByRole('row').slice(1)) {
+      expect(row.querySelectorAll('.badge')).toHaveLength(1);
+    }
+    expect(container.querySelector('tbody')?.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
+  it('sorts on File, Camera, Recorded and Duration, and leaves Status to its filter', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideosPage />, { route: '/videos' });
+
+    const files = async () => {
+      const table = await screen.findByRole('table');
+      return within(table).getAllByRole('row').slice(1)
+        .map((row) => within(row).getAllByRole('cell')[0].textContent);
+    };
+
+    // The page opens on Recorded descending, exactly as before UI-3.
+    expect(await files()).toEqual([processed.originalFileName, 'dock-night.mp4', 'yard.mp4']);
+    expect(screen.getByRole('columnheader', { name: /Recorded/ })).toHaveAttribute('aria-sort', 'descending');
+
+    await user.click(screen.getByRole('button', { name: 'Recorded' }));
+    expect(screen.getByRole('columnheader', { name: /Recorded/ })).toHaveAttribute('aria-sort', 'ascending');
+    expect(await files()).toEqual(['yard.mp4', 'dock-night.mp4', processed.originalFileName]);
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    expect(await files()).toEqual([processed.originalFileName, 'dock-night.mp4', 'yard.mp4']);
+
+    await user.click(screen.getByRole('button', { name: 'Duration' }));
+    expect(screen.getByRole('columnheader', { name: /Duration/ })).toHaveAttribute('aria-sort', 'descending');
+
+    expect(screen.getByRole('button', { name: 'Camera' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Status' })).not.toBeInTheDocument();
+  });
+
+  it('sorting is a view preference and writes nothing to the URL', async () => {
+    const user = userEvent.setup();
+    const { router } = renderWithApp(<VideosPage />, { route: '/videos?status=Failed', dataRouter: true });
+    await screen.findByRole('table');
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    expect(router.state.location.search).toBe('?status=Failed');
+  });
+
+  it('breaks recording ties in a fixed order rather than following the response', async () => {
+    const tied = [
+      video('018f3f5a-2f70-7a2b-8a12-2d02f4c2143a', { originalFileName: 'b.mp4', importedAtUtc: '2026-09-14T03:00:00Z' }),
+      video('018f3f5a-2f70-7a2b-8a12-2d02f4c2143b', { originalFileName: 'a.mp4', importedAtUtc: '2026-09-14T04:00:00Z' }),
+    ];
+    vi.mocked(listVideos).mockResolvedValue(tied);
+    const first = renderWithApp(<VideosPage />, { route: '/videos' });
+    const order = within(await screen.findByRole('table')).getAllByRole('row').slice(1)
+      .map((row) => within(row).getAllByRole('cell')[0].textContent);
+    // Same recording start: the later import leads, as it always has.
+    expect(order).toEqual(['a.mp4', 'b.mp4']);
+    first.unmount();
+
+    vi.mocked(listVideos).mockResolvedValue([...tied].reverse());
+    renderWithApp(<VideosPage />, { route: '/videos' });
+    const again = within(await screen.findByRole('table')).getAllByRole('row').slice(1)
+      .map((row) => within(row).getAllByRole('cell')[0].textContent);
+    expect(again).toEqual(order);
   });
 
   it('queues processing for a not-queued video and refreshes the inventory', async () => {
@@ -95,6 +183,38 @@ describe('VideosPage', () => {
     expect(within(table).getAllByRole('row')).toHaveLength(2);
     expect(screen.getByText('1 of 3 videos match the filters')).toBeInTheDocument();
     expect(screen.getByLabelText('Status')).toHaveValue('Failed');
+  });
+
+  it('keeps every committed URL filter exactly as it was', async () => {
+    const user = userEvent.setup();
+    const { router } = renderWithApp(
+      <VideosPage />,
+      { route: `/videos?q=dock&cameraId=${camera.id.toLowerCase()}&status=Failed`, dataRouter: true },
+    );
+    await screen.findByRole('table');
+
+    expect(screen.getByLabelText('Filter by file or camera')).toHaveValue('dock');
+    expect(screen.getByLabelText('Camera')).toHaveValue(camera.id.toLowerCase());
+    expect(screen.getByLabelText('Status')).toHaveValue('Failed');
+
+    await user.clear(screen.getByLabelText('Filter by file or camera'));
+    await waitFor(() => expect(router.state.location.search)
+      .toBe(`?cameraId=${camera.id.toLowerCase()}&status=Failed`));
+  });
+
+  it('distinguishes a filtered-empty result from an empty inventory', async () => {
+    renderWithApp(<VideosPage />, { route: '/videos?q=nothing-matches-this' });
+    expect(await screen.findByText('No videos match these filters')).toBeInTheDocument();
+    expect(screen.queryByText('No videos imported yet')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
+  });
+
+  it('still lists videos whose camera metadata could not be resolved', async () => {
+    vi.mocked(listCameras).mockRejectedValue(new Error('down'));
+    renderWithApp(<VideosPage />, { route: '/videos' });
+
+    expect(await screen.findByText(/Camera metadata is unavailable/)).toBeInTheDocument();
+    expect(within(await screen.findByRole('table')).getAllByRole('row')).toHaveLength(4);
   });
 
   it('offers the import action when nothing has been imported', async () => {

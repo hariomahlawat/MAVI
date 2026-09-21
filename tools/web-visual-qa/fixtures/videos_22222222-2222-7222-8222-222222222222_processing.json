@@ -3,13 +3,16 @@
  "latestRun": {
   "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
   "status": "Completed",
+  "pipeline": "phase1-detection-tracking",
+  "pipelineVersion": "phase1-v1",
+  "workerId": "worker-a",
   "queuedAtUtc": "2026-09-14T03:05:00Z",
   "startedAtUtc": "2026-09-14T03:05:10Z",
   "completedAtUtc": "2026-09-14T03:09:40Z",
   "progressPercent": 100,
+  "attemptCount": 1,
   "failureCode": null,
-  "failureDetail": null,
-  "trackCount": 6,
-  "observationCount": 244
+  "framesProcessed": 15000,
+  "tracksCreated": 6
  }
 }

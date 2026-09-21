@@ -1,0 +1,18 @@
+{
+ "videoStatus": "Failed",
+ "latestRun": {
+  "processingRunId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+  "status": "Failed",
+  "pipeline": "phase1-detection-tracking",
+  "pipelineVersion": "phase1-v1",
+  "workerId": "worker-a",
+  "queuedAtUtc": "2026-09-13T17:05:00Z",
+  "startedAtUtc": "2026-09-13T17:05:10Z",
+  "completedAtUtc": "2026-09-13T17:22:31Z",
+  "progressPercent": 18,
+  "attemptCount": 2,
+  "failureCode": "worker_watchdog_timeout",
+  "framesProcessed": 0,
+  "tracksCreated": 0
+ }
+}

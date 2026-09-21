@@ -18,14 +18,26 @@
  * before failing terminally; without the assertion a slow retry would quietly
  * turn an "unavailable" check into a second loading check.
  *
- * `fullWidth` records which surfaces declare `page--full` at this baseline.
- * The harness asserts it in both directions, because UI-1 must fix the cap on
- * the two surfaces that declare full width *and* must not widen any of the
- * others — those belong to UI-3 and UI-5.
+ * `fullWidth` records which surfaces declare `page--full`. The harness asserts
+ * it in both directions, so a surface cannot be widened or capped by accident.
+ * UI-3 moved Cameras, Videos and Processing onto it: a standard Ledger is full
+ * width (section 4.1). Overview stays capped as the section 4.1.1 exception,
+ * Records stay capped by definition, and Review stays capped until UI-5.
+ *
+ * `archetype` runs the section 4 conformance measurements on the rendered
+ * page. It is declared on **every** state that renders one, error and loading
+ * states included: an unavailable inventory is drawn inside the Ledger body
+ * rather than instead of it, so those are exactly the states where a broken
+ * scroll owner would go unnoticed. The measurements are: which element owns the scroll, whether the shell was told to contain
+ * it, whether the sticky header sticks to the scroller the operator actually
+ * uses, and — for a standard Ledger at 2560 — whether a sparse table was
+ * stretched across the display instead of being left-aligned.
  */
 
 const CAM = '11111111-1111-7111-8111-111111111111';
 const VIDEO = '22222222-2222-7222-8222-222222222222';
+const LONG_VIDEO = '44444444-4444-7444-8444-444444444444';
+const FAILED_VIDEO = '55555555-5555-7555-8555-555555555555';
 
 /**
  * The Investigation filter rail's section headings land on the labels beneath
@@ -112,6 +124,110 @@ const DENSE_WORKBENCH = `(async () => {
   return document.querySelectorAll('.workspace__notices .alert, .workspace__notices p').length >= 2;
 })()`;
 
+
+/** Open the Ledger's create region the way an operator does. */
+const OPEN_CAMERA_FORM = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const add = Array.from(document.querySelectorAll('button')).find((b) => /^Add camera$/.test((b.textContent || '').trim()));
+  if (!add) return false;
+  add.click();
+  await wait(300);
+  return Boolean(document.querySelector('form[aria-label="Add camera"]'));
+})()`;
+
+/** Open it and submit nothing, which is three field-level refusals at once. */
+const INVALID_CAMERA_FORM = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const add = Array.from(document.querySelectorAll('button')).find((b) => /^Add camera$/.test((b.textContent || '').trim()));
+  if (!add) return false;
+  add.click();
+  await wait(300);
+  const form = document.querySelector('form[aria-label="Add camera"]');
+  if (!form) return false;
+  const submit = form.querySelector('button[type="submit"]');
+  if (!submit) return false;
+  submit.click();
+  await wait(300);
+  return Boolean(document.querySelector('.field__error'));
+})()`;
+
+/**
+ * Reach the duplicate-code conflict through the real form and the real 409,
+ * so the state is the one the server produces rather than a simulation of it.
+ */
+const CONFLICTED_CAMERA_FORM = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  const type = (input, value) => { setter.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); };
+
+  const add = Array.from(document.querySelectorAll('button')).find((b) => /^Add camera$/.test((b.textContent || '').trim()));
+  if (!add) return false;
+  add.click();
+  await wait(300);
+  const form = document.querySelector('form[aria-label="Add camera"]');
+  if (!form) return false;
+  const inputs = Array.from(form.querySelectorAll('input'));
+  if (inputs.length < 2) return false;
+  type(inputs[0], 'CAM-01');
+  type(inputs[1], 'Duplicate of the north gate');
+  await wait(200);
+  form.querySelector('button[type="submit"]').click();
+  await wait(600);
+  return Boolean(document.querySelector('.field__error'));
+})()`;
+
+/** Submit the import form empty: every field refuses, inline (§21). */
+const SUBMIT_EMPTY_IMPORT = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const submit = Array.from(document.querySelectorAll('button')).find((b) => /Import and process/.test(b.textContent || ''));
+  if (!submit) return false;
+  submit.click();
+  await wait(300);
+  return document.querySelectorAll('.field__error').length >= 3;
+})()`;
+
+/**
+ * Dense inventories, generated rather than committed: the density and
+ * long-name states section 26 requires, without a third copy of the fixtures.
+ */
+const DENSE_CAMERAS = Array.from({ length: 24 }, (_, index) => ({
+  id: `aaaaaaaa-0000-7000-8000-${String(index).padStart(12, '0')}`,
+  code: index % 5 === 0 ? `NORTH-PERIMETER-GATE-CAM-${String(index).padStart(5, '0')}` : `CAM-${String(index + 1).padStart(2, '0')}`,
+  name: index % 3 === 0
+    ? 'Perimeter fence south-west sector, outer vehicle approach and pedestrian gate'
+    : `Gate ${index + 1}`,
+  description: null,
+  locationName: null,
+  timeZoneId: index % 4 === 0 ? 'America/Argentina/ComodRivadavia' : 'Asia/Kolkata',
+  isActive: index % 7 !== 0,
+  createdAtUtc: '2026-09-01T04:00:00Z',
+  updatedAtUtc: '2026-09-01T04:00:00Z',
+}));
+
+const DENSE_STATUSES = ['Processed', 'Processing', 'Failed', 'NotQueued', 'Queued'];
+const DENSE_VIDEOS = Array.from({ length: 30 }, (_, index) => ({
+  id: `22222222-0000-7000-8000-${String(index).padStart(12, '0')}`,
+  cameraId: CAM,
+  originalFileName: index % 4 === 0
+    ? `north-gate-${String(index).padStart(4, '0')}-very-long-original-file-name-for-truncation-checks.mp4`
+    : `clip-${String(index).padStart(4, '0')}.mp4`,
+  recordingStartUtc: `2026-09-${String((index % 28) + 1).padStart(2, '0')}T02:30:00Z`,
+  recordingEndUtc: `2026-09-${String((index % 28) + 1).padStart(2, '0')}T02:40:00Z`,
+  recordingTimeZoneId: 'Asia/Kolkata',
+  recordingUtcOffsetMinutes: 330,
+  durationMs: 600000 + index * 1000,
+  width: 1920,
+  height: 1080,
+  frameRateNumerator: 25,
+  frameRateDenominator: 1,
+  codecName: 'h264',
+  // Only the two videos with a processing fixture are given a state that makes
+  // the queue poll for one; the rest stay out of it, so the dense states test
+  // density rather than the fixture server.
+  processingStatus: index < 2 ? DENSE_STATUSES[index] : 'NotQueued',
+  importedAtUtc: '2026-09-14T03:00:00Z',
+}));
+
 export const WIDTHS = [
   { width: 1366, height: 768, label: '1366x768' },
   { width: 1440, height: 900, label: '1440x900' },
@@ -120,34 +236,157 @@ export const WIDTHS = [
 ];
 
 export const STATES = [
-  // --- Ledger and Record surfaces: capped, and must stay capped until UI-3. ---
-  { name: 'overview', path: '/', fullWidth: false },
-  { name: 'cameras', path: '/cameras', fullWidth: false },
+  // --- Ledger-summary: Overview, the one Ledger permitted to stay capped. ---
+  { name: 'overview', path: '/', fullWidth: false, archetype: 'ledger-summary' },
   {
-    name: 'cameras-unavailable', path: '/cameras', fullWidth: false, settleMs: 4000,
+    name: 'overview-empty', path: '/', fullWidth: false, archetype: 'ledger-summary',
+    api: { '/api/videos': [], '/api/tracks': { items: [], nextCursor: null, totalCount: 0 } },
+    expectText: 'No tracks yet',
+  },
+  {
+    // One section's request failed; the other three must still answer.
+    name: 'overview-partial-failure', path: '/', fullWidth: false, archetype: 'ledger-summary',
+    settleMs: 4000, api: { '/api/videos': 'unavailable' },
+    expectText: ['video inventory is unavailable', 'Media status unavailable'],
+    forbidText: 'No tracks yet',
+  },
+
+  // --- Standard Ledgers: full width, column-capped, never stretched. --------
+  { name: 'cameras', path: '/cameras', fullWidth: true, archetype: 'ledger' },
+  {
+    name: 'cameras-unavailable', path: '/cameras', fullWidth: true, archetype: 'ledger', settleMs: 4000,
     api: { '/api/cameras': 'unavailable' },
     expectText: 'unavailable', forbidText: 'No cameras registered',
   },
   {
-    name: 'cameras-loading', path: '/cameras', fullWidth: false, settleMs: 500,
+    name: 'cameras-loading', path: '/cameras', fullWidth: true, archetype: 'ledger', settleMs: 500,
     api: { '/api/cameras': 'hang' }, expectText: 'Loading cameras',
   },
   {
-    name: 'cameras-empty', path: '/cameras', fullWidth: false,
+    name: 'cameras-empty', path: '/cameras', fullWidth: true, archetype: 'ledger',
     api: { '/api/cameras': [] }, expectText: 'No cameras registered',
   },
-  { name: 'videos', path: '/videos', fullWidth: false },
   {
-    name: 'videos-empty', path: '/videos', fullWidth: false,
+    // The create region open and clean: §21's inline form, and the widest the
+    // Context Bar gets on this surface.
+    name: 'cameras-create', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    prepare: OPEN_CAMERA_FORM, expectText: 'Camera timezone',
+    forbidText: 'Unsaved changes',
+  },
+  {
+    // Submitted empty: three field-level refusals at once (§21).
+    name: 'cameras-create-invalid', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    prepare: INVALID_CAMERA_FORM, expectText: 'A camera code is required.',
+  },
+  {
+    // A duplicate-code 409 mapped onto the Code field, other drafts intact.
+    name: 'cameras-create-conflict', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    prepare: CONFLICTED_CAMERA_FORM, settleMs: 900,
+    api: {
+      'POST /api/cameras': {
+        status: 409,
+        body: { title: 'Conflict', detail: 'A camera with this code already exists.', code: 'camera_code_duplicate' },
+      },
+    },
+    expectText: ['A camera with this code already exists.', 'Unsaved changes'],
+  },
+  {
+    // A long name and a dense inventory in one state: the column cap has to
+    // truncate rather than widen, at every width.
+    name: 'cameras-dense', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    api: { '/api/cameras': DENSE_CAMERAS },
+  },
+
+  { name: 'videos', path: '/videos', fullWidth: true, archetype: 'ledger' },
+  {
+    name: 'videos-empty', path: '/videos', fullWidth: true, archetype: 'ledger',
     api: { '/api/videos': [] }, expectText: 'No videos imported yet',
   },
   {
-    name: 'videos-unavailable', path: '/videos', fullWidth: false, settleMs: 4000,
+    name: 'videos-filtered-empty', path: '/videos?q=no-such-recording', fullWidth: true, archetype: 'ledger',
+    expectText: 'No videos match these filters', forbidText: 'No videos imported yet',
+  },
+  {
+    name: 'videos-unavailable', path: '/videos', fullWidth: true, archetype: 'ledger', settleMs: 4000,
     api: { '/api/videos': 'unavailable' },
     expectText: 'unavailable', forbidText: 'No videos imported yet',
   },
-  { name: 'import', path: '/import', fullWidth: false },
-  { name: 'processing-queue', path: '/processing', fullWidth: false },
+  {
+    // Camera metadata gone: the list still lists, and says why the camera
+    // column is thin.
+    name: 'videos-cameras-unavailable', path: '/videos', fullWidth: true, archetype: 'ledger',
+    settleMs: 4000, api: { '/api/cameras': 'unavailable' },
+    expectText: 'Camera metadata is unavailable',
+  },
+  {
+    name: 'videos-dense', path: '/videos', fullWidth: true, archetype: 'ledger',
+    api: { '/api/videos': DENSE_VIDEOS },
+  },
+
+  { name: 'processing-queue', path: '/processing', fullWidth: true, archetype: 'ledger', settleMs: 1200 },
+  {
+    name: 'processing-queue-empty', path: '/processing', fullWidth: true, archetype: 'ledger',
+    api: { '/api/videos': [] }, expectText: 'Nothing has been queued',
+  },
+  {
+    name: 'processing-queue-unavailable', path: '/processing', fullWidth: true, archetype: 'ledger', settleMs: 4000,
+    api: { '/api/videos': 'unavailable' },
+    expectText: 'unavailable', forbidText: 'Nothing has been queued',
+  },
+  {
+    // The inventory answered and the per-row run lookups did not: each row
+    // must say so and offer its retry, never sit on "Loading run…".
+    name: 'processing-queue-row-unavailable', path: '/processing', fullWidth: true, archetype: 'ledger',
+    settleMs: 4000,
+    api: {
+      '/api/videos/22222222-2222-7222-8222-222222222222/processing': 'unavailable',
+      '/api/videos/44444444-4444-7444-8444-444444444444/processing': 'unavailable',
+      '/api/videos/55555555-5555-7555-8555-555555555555/processing': 'unavailable',
+    },
+    expectText: 'Run status unavailable', forbidText: 'Loading run…',
+  },
+  {
+    name: 'processing-queue-dense', path: '/processing', fullWidth: true, archetype: 'ledger',
+    settleMs: 1400, api: { '/api/videos': DENSE_VIDEOS },
+  },
+
+  // --- Records: centred, the page scrolls. --------------------------------
+  { name: 'import', path: '/import', fullWidth: false, archetype: 'record' },
+  {
+    name: 'import-no-active-cameras', path: '/import', fullWidth: false, archetype: 'record',
+    api: { '/api/cameras': [{ ...DENSE_CAMERAS[0], isActive: false }] },
+    expectText: 'No active camera to import against',
+  },
+  {
+    name: 'import-cameras-unavailable', path: '/import', fullWidth: false, archetype: 'record', settleMs: 4000,
+    api: { '/api/cameras': 'unavailable' },
+    expectText: 'Camera inventory is unavailable',
+    forbidText: 'No active camera to import against',
+  },
+  {
+    name: 'import-invalid', path: '/import', fullWidth: false, archetype: 'record',
+    prepare: SUBMIT_EMPTY_IMPORT, expectText: 'Enter the recording date and time.',
+  },
+
+  {
+    // A completed run: final counts, the results action, diagnostics closed.
+    name: 'processing-detail-completed', path: `/processing/${VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 1200, expectText: 'north-gate-0800.mp4',
+  },
+  {
+    // A running one: determinate progress, counts deliberately withheld.
+    name: 'processing-detail-running', path: `/processing/${LONG_VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 1200, expectText: 'Final count after completion',
+  },
+  {
+    name: 'processing-detail-failed', path: `/processing/${FAILED_VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 1200, expectText: 'worker_watchdog_timeout',
+  },
+  {
+    name: 'processing-detail-unavailable', path: `/processing/${VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 4000, api: { [`/api/videos/${VIDEO}/processing`]: 'unavailable' },
+    expectText: 'Processing status is unavailable.',
+  },
 
   // --- Workbench: declares full width, and must actually use it. `archetype`
   //     additionally measures it against the frozen section 4.3 rules. ---

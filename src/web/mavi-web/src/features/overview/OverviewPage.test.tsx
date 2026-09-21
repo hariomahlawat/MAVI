@@ -1,4 +1,5 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
@@ -71,5 +72,90 @@ describe('OverviewPage', () => {
     renderWithApp(<OverviewPage />, { route: '/' });
     expect(await screen.findByText('No tracks yet')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Videos.*0.*0 processed/ })).toBeInTheDocument();
+  });
+
+  it('is the Ledger-summary variant: a Context Bar, one scroll owner and uncontained readouts', async () => {
+    const { container } = renderWithApp(<OverviewPage />, { route: '/' });
+    await screen.findByText('Vehicle');
+
+    expect(container.querySelector('.workspace--ledger-summary')).not.toBeNull();
+    expect(container.querySelector('.context-bar')).not.toBeNull();
+    expect(container.querySelectorAll('.workspace__body--scroll')).toHaveLength(1);
+    // §4.1.1: Overview alone stays centred, so it must not declare full width.
+    expect(container.querySelector('.page--full')).toBeNull();
+    // §11: the four summary readouts are figures, not cards.
+    expect(container.querySelector('.summary-band')).not.toBeNull();
+    expect(container.querySelector('.stat')).toBeNull();
+    // §24: the display timezone is disclosed once, on the surface.
+    expect(within(container.querySelector('.context-bar') as HTMLElement).getByText('Asia/Kolkata')).toBeInTheDocument();
+  });
+
+  it('keeps both Context Bar workflow actions', async () => {
+    renderWithApp(<OverviewPage />, { route: '/' });
+    expect(await screen.findByRole('link', { name: 'Import video' })).toHaveAttribute('href', '/import');
+    expect(screen.getByRole('link', { name: 'Search tracks' })).toHaveAttribute('href', '/search');
+  });
+
+  it('degrades only the section whose request failed', async () => {
+    vi.mocked(listVideos).mockRejectedValue(new Error('down'));
+    renderWithApp(<OverviewPage />, { route: '/' });
+
+    // The media figures say they are unavailable rather than reading as zero…
+    expect(await screen.findByText(/video inventory is unavailable/i)).toBeInTheDocument();
+    expect(screen.getByText('Media status unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Videos.*—.*unavailable/ })).toBeInTheDocument();
+
+    // …while the two sections that answered are untouched.
+    expect(screen.getByRole('link', { name: /Cameras.*2.*1 active/ })).toBeInTheDocument();
+    expect(screen.getByText('Vehicle')).toBeInTheDocument();
+  });
+
+  it('states an unavailable camera inventory as unavailable, with a retry', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listCameras).mockRejectedValue(new Error('down'));
+    renderWithApp(<OverviewPage />, { route: '/' });
+
+    // §14: unavailable is an alert with a retry, not a dash and a word.
+    expect(await screen.findByText(/camera inventory is unavailable/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Cameras.*—.*unavailable/ })).toBeInTheDocument();
+    expect(screen.queryByText('No cameras registered')).not.toBeInTheDocument();
+
+    // The sections that answered are untouched.
+    expect(screen.getByRole('link', { name: /Videos.*5.*1 processed/ })).toBeInTheDocument();
+    expect(screen.getByText('Vehicle')).toBeInTheDocument();
+
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByRole('link', { name: /Cameras.*1.*1 active/ })).toBeInTheDocument());
+  });
+
+  it('states both inventories in one notice rather than a stack of alerts', async () => {
+    vi.mocked(listCameras).mockRejectedValue(new Error('down'));
+    vi.mocked(listVideos).mockRejectedValue(new Error('down'));
+    renderWithApp(<OverviewPage />, { route: '/' });
+
+    const notice = await screen.findByText(/camera inventory and the video inventory are unavailable/i);
+    expect(notice).toBeInTheDocument();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    // The one section that answered still answers.
+    expect(screen.getByText('Vehicle')).toBeInTheDocument();
+  });
+
+  it('keeps an empty camera inventory distinct from an unavailable one', async () => {
+    vi.mocked(listCameras).mockResolvedValue([]);
+    renderWithApp(<OverviewPage />, { route: '/' });
+
+    await screen.findByText('Vehicle');
+    expect(screen.queryByText(/unavailable/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Cameras.*0.*0 active/ })).toBeInTheDocument();
+  });
+
+  it('keeps recent Tracks when only the Track search failed', async () => {
+    vi.mocked(searchTracks).mockRejectedValue(new Error('down'));
+    renderWithApp(<OverviewPage />, { route: '/' });
+
+    expect(await screen.findByText('Recent tracks are unavailable.')).toBeInTheDocument();
+    expect(screen.queryByText('No tracks yet')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Videos.*5.*1 processed/ })).toBeInTheDocument();
   });
 });

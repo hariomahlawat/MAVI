@@ -83,6 +83,21 @@ UI-2 adds two more:
   body owns scroll. The measurements land in the JSON beside each capture, so a
   reviewer can read the numbers rather than take the pass on trust.
 
+UI-3 adds the Ledger and Record halves of the same check:
+
+- a Ledger declares no-page-scroll to the shell, its body is the **only**
+  scrolling container (a wrapper inside it would make the sticky header stick
+  to the wrong element), the header is genuinely `sticky` against that body,
+  and at 2560 a sparse table is **left-aligned rather than stretched**, which
+  is section 4.1's "a Ledger must never become a sparse band of text";
+- a Record declares that the **page** scrolls, and has its primary/facts grid.
+
+Fixture overrides also accept a method — `'POST /api/cameras'` — and an
+explicit `{ status, body }` response, which is how the duplicate-code conflict
+state reaches a real 409 without breaking the listing the page needs in order
+to render the form at all. A state that asks for a failing response no longer
+reports it as a resource error.
+
 A surface that declares an archetype is also checked against the scroll policy
 the shell was told to apply: a Workbench that has not declared no-page-scroll
 is a finding whether or not today's content happens to fit, and a contained

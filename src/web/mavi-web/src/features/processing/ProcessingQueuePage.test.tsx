@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
@@ -42,6 +42,13 @@ const running = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21422', 'Processing');
 const failed = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21423', 'Failed');
 const idle = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21424', 'NotQueued');
 
+/** What the operator can read in a cell: the visually-hidden labels are not it. */
+function visibleText(element: HTMLElement): string {
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('.visually-hidden').forEach((node) => node.remove());
+  return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
 describe('processing queue ordering', () => {
   it('buckets statuses and orders active, failed, completed while dropping unqueued videos', () => {
     expect(bucketFor('Queued')).toBe('active');
@@ -64,22 +71,97 @@ describe('ProcessingQueuePage', () => {
     });
   });
 
-  it('counts the queue and lists runs with worker, failure code and Track totals', async () => {
+  it('lists the active, failed and completed runs with their failure code and Track totals', async () => {
     renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
     const table = await screen.findByRole('table');
     const rows = within(table).getAllByRole('row').slice(1);
     expect(rows).toHaveLength(3);
 
-    expect(await within(rows[0]).findByText('Running')).toBeInTheDocument();
+    expect(await within(rows[0]).findByText('Processing')).toBeInTheDocument();
     expect(within(rows[0]).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '43');
     expect(await within(rows[1]).findByText('worker_watchdog_timeout')).toBeInTheDocument();
     expect(await within(rows[2]).findByText('42')).toBeInTheDocument();
     expect(within(rows[2]).getByRole('link', { name: 'Results' })).toHaveAttribute('href', `/search?videoAssetId=${done.id}`);
     expect(within(rows[0]).getByRole('link', { name: 'Detail' })).toHaveAttribute('href', `/processing/${running.id}`);
+  });
 
-    expect(screen.getByText('Active').parentElement).toHaveTextContent('1');
-    expect(screen.getByText('Failed', { selector: '.stat__label' }).parentElement).toHaveTextContent('1');
-    expect(screen.getByText('Completed', { selector: '.stat__label' }).parentElement).toHaveTextContent('1');
+  it('is a Ledger with one scroll owner, no stat cards and no operator sorting', async () => {
+    const { container } = renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    await screen.findByRole('table');
+
+    expect(container.querySelector('.workspace--ledger')).not.toBeNull();
+    expect(container.querySelector('.page--full')).not.toBeNull();
+    expect(container.querySelector('.workspace__body--scroll > table.table--ledger')).not.toBeNull();
+    // §30: no stat tiles restating the table below them.
+    expect(container.querySelector('.stat')).toBeNull();
+    // §32 decision 5: this Ledger's order is the statement; nothing re-orders it.
+    expect(screen.queryAllByRole('button', { name: /^(Video|Status|Queued|Attempt|Tracks)$/ })).toHaveLength(0);
+    for (const header of screen.getAllByRole('columnheader')) {
+      expect(header).not.toHaveAttribute('aria-sort');
+    }
+  });
+
+  it('gives a processed row one visible text action and an icon-only detail', async () => {
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    const table = await screen.findByRole('table');
+    const row = within(table).getAllByRole('row')[3];
+    const actions = within(row).getAllByRole('cell').at(-1) as HTMLElement;
+
+    // §16: one primary text action plus at most one icon-only action.
+    expect(within(actions).getByRole('link', { name: 'Results' })).toBeInTheDocument();
+    const detail = within(actions).getByRole('link', { name: /Processing detail for/ });
+    expect(detail).toHaveAttribute('href', `/processing/${done.id}`);
+    // Icon-only means its label is there for assistive technology and not on
+    // screen; the visible text of the cell is the one primary action.
+    expect(detail).toHaveClass('btn--icon');
+    expect(visibleText(actions)).toBe('Results');
+  });
+
+  it('gives a row with nothing to open a single text action instead of a lone icon', async () => {
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    const table = await screen.findByRole('table');
+    for (const row of within(table).getAllByRole('row').slice(1, 3)) {
+      const actions = within(row).getAllByRole('cell').at(-1) as HTMLElement;
+      expect(visibleText(actions)).toBe('Detail');
+    }
+  });
+
+  it('states the counts as operational context beside the table', async () => {
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    await screen.findByRole('table');
+    const counts = document.querySelector('.queue-counts') as HTMLElement;
+    expect(counts).toHaveTextContent('1 active');
+    expect(counts).toHaveTextContent('1 failed');
+    expect(counts).toHaveTextContent('1 completed');
+  });
+
+  it('carries exactly one status badge per row and no identifier in a cell', async () => {
+    // Named files, so the assertion is about the cells rather than about a
+    // fixture that happens to name its file after its id.
+    vi.mocked(listVideos).mockResolvedValue([
+      { ...done, originalFileName: 'gate.mp4' },
+      { ...failed, originalFileName: 'dock.mp4' },
+    ]);
+    const { container } = renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    const table = await screen.findByRole('table');
+    for (const row of within(table).getAllByRole('row').slice(1)) {
+      await waitFor(() => expect(row.querySelectorAll('.badge')).toHaveLength(1));
+    }
+    expect(container.querySelector('tbody')?.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
+  it('names the run state only where it disagrees with the video state', async () => {
+    // A video the platform still calls Failed while its newest run is already
+    // running again: the two genuinely differ, so the run is named — as text,
+    // never as a second badge (§16).
+    vi.mocked(getProcessingStatus).mockImplementation(async () =>
+      ({ videoStatus: 'Failed', latestRun: run('Running', { progressPercent: 10 }) }));
+    vi.mocked(listVideos).mockResolvedValue([failed]);
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+
+    const row = within(await screen.findByRole('table')).getAllByRole('row')[1];
+    expect(await within(row).findByText('Run: Running')).toBeInTheDocument();
+    await waitFor(() => expect(row.querySelectorAll('.badge')).toHaveLength(1));
   });
 
   it('points to the Videos page when nothing has been queued', async () => {
@@ -89,11 +171,17 @@ describe('ProcessingQueuePage', () => {
     expect(screen.getByRole('link', { name: 'Open Videos' })).toHaveAttribute('href', '/videos');
   });
 
-  it('describes the table as the latest run per video, not a run history', async () => {
+  it('keeps the latest-run-per-video statement now that the page header is gone', async () => {
     renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
     await screen.findByRole('table');
-    expect(screen.getByText(/latest run per video/i)).toBeInTheDocument();
+    // It moved from a page description into the toolbar band, where it
+    // qualifies the table and does not scroll away from it.
+    const band = document.querySelector('.toolbar-band') as HTMLElement;
+    expect(band).toHaveTextContent(/latest run per video/i);
+    expect(band).toHaveTextContent(/earlier runs are not listed here/i);
     expect(screen.queryByText(/processing history/i)).not.toBeInTheDocument();
+    // The table itself is still named for assistive technology.
+    expect(screen.getByRole('table', { name: 'Latest processing run per video' })).toBeInTheDocument();
   });
 
   it('shows a per-video status failure with a retry instead of loading forever', async () => {
@@ -118,9 +206,12 @@ describe('ProcessingQueuePage', () => {
   it('does not claim to be loading or show zero counts when the inventory request failed', async () => {
     vi.mocked(listVideos).mockRejectedValue(new ApiError({ status: 500, code: 'api_error', detail: 'The request could not be completed.' }));
     renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+
     expect(await screen.findByText(/could not be completed/)).toBeInTheDocument();
-    expect(screen.getByText('Unavailable')).toBeInTheDocument();
-    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
-    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3);
+    expect(screen.queryByText('Loading processing state…')).not.toBeInTheDocument();
+    // §14: an unavailable inventory is never an empty one, and never a set of
+    // zeroes presented as an answer.
+    expect(screen.queryByText('Nothing has been queued')).not.toBeInTheDocument();
+    expect(document.querySelector('.queue-counts')).toBeNull();
   });
 });

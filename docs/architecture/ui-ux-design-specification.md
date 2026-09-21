@@ -470,7 +470,7 @@ Confirmations state the **consequence**, not the question: "Saving disables anal
 - Sticky header. A sticky first column only when a table exceeds approximately eight columns.
 - Row actions sit at the row's trailing edge, consistently: one primary text action plus at most one icon-only action.
 - **Filters live in a toolbar row above the table**, never inside the container header.
-- Sorting: only where meaningful; indicator required; client-side sorting is acceptable for small inventories.
+- Sorting: only where meaningful; indicator required; client-side sorting is acceptable for small inventories. The per-Ledger scope is settled in §32 decision 5.
 - Empty / filtered-empty / unavailable are three distinct treatments (§14).
 - Identifiers (GUIDs) MUST NOT appear in table cells. They belong in inspectors and disclosures.
 
@@ -780,7 +780,7 @@ a decision that is only partly settled stays un-struck until every part of it is
 | **2c** | Heatmap scale | **Scene Analytics Slice 6** (aggregates and heatmap) | §8.3. A perceptually-uniform sequential scale with a legend; red-to-green is prohibited. Closed when the heatmap surface exists. |
 | **3** | Investigation in-place-inspector threshold (1500px default) | **UI-4** | §4.4. Validate at 1440 and across 1500–1600; may amend to 1600. |
 | **4** | Ultra-wide Investigation split ratio (results cap versus inspector growth) | UI-4 | §4.4. Default: results capped at approximately 900px, surplus to the inspector. |
-| **5** | Ledger sorting scope — which columns, client or server | UI-3 | §16. |
+| ~~**5**~~ | ~~Ledger sorting scope — which columns, client or server~~ — **closed in UI-3: client-side, per-Ledger, on the columns an operator actually re-orders by** | Closed | §16. **Cameras** sorts on Code (default, ascending), Name and State; Timezone and Actions do not sort. **Videos** sorts on File, Camera, Recorded (default, descending — the order the page already had) and Duration; Status does not, because it already has a filter and is operationally mutable, and Actions is not data. **Processing Queue** offers no operator-selectable sorting at all: its order *is* the operational statement — active, then failed, then completed, each bucket keeping the recording-start order it already had — and letting the operator re-order it would discard that meaning. Sorting stays client-side over inventories the API already returns whole: no endpoint changes, and no new URL parameter, so §17's "URL is the state of record" gains nothing to record. A sort is a view preference, not a shareable scope. |
 | **6** | Whether Overview survives as a distinct surface once an Events Ledger exists | After Events lands | §4.1.1. |
 | **7** | Timeline lane presentation for multiple analytical interval types (stacked lanes versus single lane with glyphs) | UI-5 defines the extension point; the presentation is chosen when the first analytical lane has real data (Slice 5) | §18. |
 
@@ -824,7 +824,7 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 
 ### 33.3 UI-2 — Shell + Workspace Grammar
 
-- **Status.** Implemented in the UI-2 PR; **not merged**. The Slice 3 gate therefore still stands: it lifts only once UI-2 is merged and post-merge `main` is green (§33.1). Open decisions 3 and 4 are untouched and remain UI-4's (§32); the Review archetype layout class exists and is composed at UI-5.
+- **Status.** **Merged**, with post-merge `main` green. That lifted the Scene Analytics Slice 3 gate (§33.1), and Slice 3 has since been completed and merged. Open decisions 3 and 4 are untouched and remain UI-4's (§32); the Review archetype layout class exists and is composed at UI-5.
 - **Objective.** Establish the product's common grammar.
 - **Scope.** Shared ContextBar, Toolbar, Segmented control and Inspector shell (each subject to §27.1); archetype layout classes for all five archetypes including the Overview exception (§4.1.1); topbar to Context Bar relationship; navigation grouping architecture; scroll-ownership rules implemented per §4; responsive and ultra-wide behaviour per §25; **Scene Editor migrated onto the shared primitives with no behavioural change**.
 - **Exclusions.** No Ledger or table redesign; no Search rework; no player work; no new destinations.
@@ -835,6 +835,8 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 
 ### 33.4 UI-3 — Existing Operational Surfaces
 
+- **Status.** The **active** UI Foundation increment. UI-1 and UI-2 are merged; open decision 5, the Ledger
+  sorting scope, closes here (§32).
 - **Objective.** Bring the operational pages onto the grammar.
 - **Scope.** Overview, Cameras, Video Import, Videos, Processing, Processing Queue. Single-line rows and data density; table consistency; state taxonomy applied; filters moved to toolbars; form and editing consistency (inline validation, dirty state, camera creation without a permanent second card); removal of redundant card and panel hierarchy.
 - **Exclusions.** No new data or endpoints; **no analytics readiness or coverage indicators** (they follow, on this grammar); no player work.
@@ -908,7 +910,7 @@ MAVI is a **dark-first, evidence-first, offline professional Visual Intelligence
 
 **Deferred, architecturally permitted:** light palette and System theme; selectable density; resizable panes; configurable layouts; command palette; mobile; notification centre; the Wall archetype for live multi-camera.
 
-**Open, closed in the named PR:** the UI font decision (UI-1); the exact evidence hues (UI-1 visual validation); the Investigation inspector threshold and ultra-wide split (UI-4); Ledger sorting scope (UI-3); Overview's long-term fate (after Events); analytical timeline lane presentation (Slice 5).
+**Open, closed in the named PR:** the UI font decision (UI-1); the exact evidence hues (UI-1 visual validation); the Investigation inspector threshold and ultra-wide split (UI-4); the Ledger sorting scope (UI-3); Overview's long-term fate (after Events); analytical timeline lane presentation (Slice 5).
 
 **Transitional:** §34.1 governs conformance until UI-5 merges, after which full frontend conformance is the baseline.
 

@@ -59,6 +59,137 @@ describe('VideoImportPage', () => {
     vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'NotQueued', latestRun: null });
   });
 
+  it('is a Record: a Context Bar, a contained form and a facts rail', async () => {
+    const { container } = renderWithApp(<VideoImportPage />);
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+
+    expect(container.querySelector('.workspace--record')).not.toBeNull();
+    expect(container.querySelector('.workspace__record-facts')).not.toBeNull();
+    // §4.2: a Record is centred, never full width.
+    expect(container.querySelector('.page--full')).toBeNull();
+    // The facts rail carries the constraints that used to be loose prose.
+    const facts = container.querySelector('.workspace__record-facts') as HTMLElement;
+    expect(facts).toHaveTextContent('MP4 container only');
+    expect(facts).toHaveTextContent('3.0 GiB');
+    expect(facts).toHaveTextContent('Processing is queued automatically.');
+  });
+
+  it('opens clean and reports a draft only once a value actually differs', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideoImportPage />);
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+
+    // §21 puts dirty state in the Context Bar. An untouched form has none.
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+    expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
+
+    // Reverting to the starting value clears it: dirty is a comparison, not a
+    // flag that latches on the first keystroke.
+    await user.selectOptions(screen.getByLabelText('Camera'), '');
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument());
+  });
+
+  it('treats the recording time and the file as draft state too', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideoImportPage />);
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+
+    const wallTime = screen.getByLabelText('Recording local date/time');
+    await user.type(wallTime, '2026-09-14T08:30');
+    expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
+    await user.clear(wallTime);
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument());
+
+    const chooser = screen.getByLabelText('MP4 file');
+    await user.upload(chooser, new File(['video'], 'source.mp4', { type: 'video/mp4' }));
+    expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
+    // The supported clearing path for a file input: a change with no files.
+    fireEvent.change(chooser, { target: { files: [] } });
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument());
+  });
+
+  it('does not become dirty merely by refusing an untouched submission', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideoImportPage />);
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+
+    expect(await screen.findByText('Enter the recording date and time.')).toBeInTheDocument();
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  });
+
+  it('shows no draft state while the form is not even available', async () => {
+    vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }]);
+    renderWithApp(<VideoImportPage />);
+
+    expect(await screen.findByText('No active camera to import against')).toBeInTheDocument();
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  });
+
+  it('keeps the authoritative camera timezone beside the wall-time field', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideoImportPage />);
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+
+    const wallTime = screen.getByLabelText('Recording local date/time');
+    // Before a camera is chosen the field still says whose zone will apply.
+    expect(document.getElementById(wallTime.getAttribute('aria-describedby') ?? ''))
+      .toHaveTextContent(/never the browser/i);
+
+    await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+    const help = document.getElementById(wallTime.getAttribute('aria-describedby') ?? '');
+    expect(help).toHaveTextContent('Asia/Kolkata');
+    expect(help).toHaveTextContent('CAM-01');
+    expect(help).toHaveTextContent(/browser's timezone is not used/i);
+  });
+
+  it('validates each field inline rather than as one page-level alert', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideoImportPage />);
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+
+    for (const [label, message] of [
+      ['Camera', 'Select the camera this recording came from.'],
+      ['Recording local date/time', 'Enter the recording date and time.'],
+      ['MP4 file', 'An MP4 file is required.'],
+    ] as const) {
+      const control = screen.getByLabelText(label);
+      expect(control).toHaveAttribute('aria-invalid', 'true');
+      expect(control.getAttribute('aria-describedby')).toContain(screen.getByText(message).id);
+    }
+    expect(importVideo).not.toHaveBeenCalled();
+
+    // Correcting a field clears its own message and leaves the others.
+    await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+    expect(screen.queryByText('Select the camera this recording came from.')).not.toBeInTheDocument();
+    expect(screen.getByText('An MP4 file is required.')).toBeInTheDocument();
+  });
+
+  it('blocks the import when there is no active camera, and offers the way out', async () => {
+    vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }]);
+    renderWithApp(<VideoImportPage />);
+
+    expect(await screen.findByText('No active camera to import against')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Cameras' })).toHaveAttribute('href', '/cameras');
+    // A dead form with an unusable select is exactly what this replaces.
+    expect(screen.queryByLabelText('Camera')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Import and process' })).not.toBeInTheDocument();
+  });
+
+  it('keeps an unavailable camera inventory distinct from having no active camera', async () => {
+    vi.mocked(listCameras).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store unavailable.' }));
+    renderWithApp(<VideoImportPage />);
+
+    expect(await screen.findByText(/Camera inventory is unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText('No active camera to import against')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
   it('filters inactive cameras and rejects non-MP4 files before upload', async () => {
     const user = userEvent.setup();
     vi.mocked(listCameras).mockResolvedValueOnce([
