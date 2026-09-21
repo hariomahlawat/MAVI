@@ -224,7 +224,11 @@ internal sealed class SceneAnalyticsWorld
             maxConfidence: 0.9,
             createdAtUtc: completedAtUtc);
 
-        db.AddRange(camera, source, video, configuration, revision, run, track);
+        // A real run always has a job behind it, and the processing-status projection
+        // joins the two; a world without one would look complete and project nothing.
+        var job = VisionJob.Create(run.Id, "phase1-detection-tracking", nowUtc.AddMinutes(-20));
+
+        db.AddRange(camera, source, video, configuration, revision, run, job, track);
         await db.SaveChangesAsync();
 
         world.CameraId = camera.Id;

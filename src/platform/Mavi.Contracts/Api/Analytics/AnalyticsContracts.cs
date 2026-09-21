@@ -82,9 +82,27 @@ public sealed record AnalyticsCoverageResponse(
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SceneReanalysisRequest(string? Scope);
 
+/// <summary>
+/// How a re-analysis request landed, per run in its scope.
+/// </summary>
+/// <remarks>
+/// The breakdown is required rather than decorative (plan §X). Re-analysis is idempotent
+/// per identity, so a second request usually creates nothing; reporting one total would
+/// make a repeated click look identical to the first one and appear to have done work.
+/// Every run in scope lands in exactly one bucket, so the counts sum to the scope size.
+/// </remarks>
 public sealed record SceneReanalysisAcceptedResponse(
     Guid CameraId,
     Guid SceneRevisionId,
     string AlgorithmVersion,
     string Scope,
-    int QueuedAnalyses);
+    int Created,
+    int AlreadyQueued,
+    int AlreadyRunning,
+    int AlreadyReady,
+    int FailedRequiresRetry)
+{
+    /// <summary>Runs in scope, which is the sum of the buckets.</summary>
+    public int RunsInScope =>
+        Created + AlreadyQueued + AlreadyRunning + AlreadyReady + FailedRequiresRetry;
+}

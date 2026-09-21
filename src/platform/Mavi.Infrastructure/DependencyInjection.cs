@@ -48,6 +48,8 @@ public static class DependencyInjection
         services.AddScoped<ISceneAnalysisLifecycle, SceneAnalysisLifecycle>();
         services.AddScoped<ISceneAnalysisEvidenceReader, SceneAnalysisEvidenceReader>();
         services.AddScoped<SceneAnalysisExecutor>();
+        services.AddScoped<ISceneAnalyticsStatusReader, SceneAnalyticsStatusReader>();
+        services.AddScoped<SceneAnalyticsStatusService>();
         services.AddScoped<IContentCatalog, ContentCatalog>();
         services.AddScoped<ContentReadService>();
         services.AddSingleton<VisionRuntimeProvenanceParser>();
