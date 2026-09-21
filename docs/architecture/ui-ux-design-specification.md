@@ -835,8 +835,9 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 
 ### 33.4 UI-3 — Existing Operational Surfaces
 
-- **Status.** The **active** UI Foundation increment. UI-1 and UI-2 are merged; open decision 5, the Ledger
-  sorting scope, closes here (§32).
+- **Status.** **Merged** (PR #60), with post-merge `main` green. UI-1 and UI-2 are merged before it; open
+  decision 5, the Ledger sorting scope, closed here (§32). The six operational surfaces it covers are frozen:
+  a later increment changes them only where its own scope requires it.
 - **Objective.** Bring the operational pages onto the grammar.
 - **Scope.** Overview, Cameras, Video Import, Videos, Processing, Processing Queue. Single-line rows and data density; table consistency; state taxonomy applied; filters moved to toolbars; form and editing consistency (inline validation, dirty state, camera creation without a permanent second card); removal of redundant card and panel hierarchy.
 - **Exclusions.** No new data or endpoints; **no analytics readiness or coverage indicators** (they follow, on this grammar); no player work.
@@ -847,6 +848,8 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 
 ### 33.5 UI-4 — Investigation Workspace
 
+- **Status.** The **active** UI Foundation increment. UI-1, UI-2 and UI-3 are merged and post-merge `main`
+  is qualified, which is what lets this one begin. Open decisions 3 and 4 close here (§32).
 - **Objective.** Migrate Search onto the Investigation archetype.
 - **Scope.** Filter rail rebuilt as scrolling field sections; committed-filter chips at the results head; results hierarchy and header copy; inspector behaviour including the drawer below threshold; ultra-wide utilisation; keyboard behaviour preserved and extended; URL-state semantics preserved exactly. Closes open decisions 3 and 4 (§32).
 - **Exclusions.** **No Slice 4 analytics predicates**; no coverage strip content; no saved searches; no natural-language query.
