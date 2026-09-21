@@ -145,8 +145,18 @@
 /* The summary variant's body is the scroll owner too, but it is deliberately
    not drawn as a container: what it holds is already contained (a list, a
    breakdown), and a border here would nest one inside the other. */
-.workspace--ledger-summary .workspace__body--scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
-.workspace--ledger-summary .workspace__body--scroll > * { display: grid; gap: var(--s-4); align-content: start; }
+.workspace--ledger-summary .workspace__body--scroll {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  display: grid; gap: var(--s-4); align-content: start;
+}
+
+/* A transient editable region belonging to a Ledger (section 21). It is
+   contained because section 11 says a form is, and it sits above the scroll
+   owner so it does not scroll away while it is being filled. */
+.workspace__editor {
+  border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-3);
+  background: var(--surface-base); padding: var(--c-form-pad);
+}
 
 /* --- Record: centred reading surface; the page scrolls. -------------- */
 .workspace--record { width: 100%; max-width: var(--content-max); margin: 0 auto; }

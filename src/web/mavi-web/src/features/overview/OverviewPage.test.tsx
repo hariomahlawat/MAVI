@@ -72,4 +72,49 @@ describe('OverviewPage', () => {
     expect(await screen.findByText('No tracks yet')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Videos.*0.*0 processed/ })).toBeInTheDocument();
   });
+
+  it('is the Ledger-summary variant: a Context Bar, one scroll owner and uncontained readouts', async () => {
+    const { container } = renderWithApp(<OverviewPage />, { route: '/' });
+    await screen.findByText('Vehicle');
+
+    expect(container.querySelector('.workspace--ledger-summary')).not.toBeNull();
+    expect(container.querySelector('.context-bar')).not.toBeNull();
+    expect(container.querySelectorAll('.workspace__body--scroll')).toHaveLength(1);
+    // §4.1.1: Overview alone stays centred, so it must not declare full width.
+    expect(container.querySelector('.page--full')).toBeNull();
+    // §11: the four summary readouts are figures, not cards.
+    expect(container.querySelector('.summary-band')).not.toBeNull();
+    expect(container.querySelector('.stat')).toBeNull();
+    // §24: the display timezone is disclosed once, on the surface.
+    expect(within(container.querySelector('.context-bar') as HTMLElement).getByText('Asia/Kolkata')).toBeInTheDocument();
+  });
+
+  it('keeps both Context Bar workflow actions', async () => {
+    renderWithApp(<OverviewPage />, { route: '/' });
+    expect(await screen.findByRole('link', { name: 'Import video' })).toHaveAttribute('href', '/import');
+    expect(screen.getByRole('link', { name: 'Search tracks' })).toHaveAttribute('href', '/search');
+  });
+
+  it('degrades only the section whose request failed', async () => {
+    vi.mocked(listVideos).mockRejectedValue(new Error('down'));
+    renderWithApp(<OverviewPage />, { route: '/' });
+
+    // The media figures say they are unavailable rather than reading as zero…
+    expect(await screen.findByText(/Video inventory is unavailable/)).toBeInTheDocument();
+    expect(screen.getByText('Media status unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Videos.*—.*unavailable/ })).toBeInTheDocument();
+
+    // …while the two sections that answered are untouched.
+    expect(screen.getByRole('link', { name: /Cameras.*2.*1 active/ })).toBeInTheDocument();
+    expect(screen.getByText('Vehicle')).toBeInTheDocument();
+  });
+
+  it('keeps recent Tracks when only the Track search failed', async () => {
+    vi.mocked(searchTracks).mockRejectedValue(new Error('down'));
+    renderWithApp(<OverviewPage />, { route: '/' });
+
+    expect(await screen.findByText('Recent tracks could not be loaded.')).toBeInTheDocument();
+    expect(screen.queryByText('No tracks yet')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Videos.*5.*1 processed/ })).toBeInTheDocument();
+  });
 });

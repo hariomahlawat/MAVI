@@ -114,6 +114,12 @@
 .field { display: grid; gap: var(--s-1); min-width: 0; }
 .field > span:first-child, .field__label { color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
 .field__help { color: var(--text-muted); font-size: var(--fs-0); line-height: 1.4; }
+/* Section 21: optional fields are marked, required ones are not. */
+.field__optional { color: var(--text-muted); font-weight: 400; }
+/* The refusal itself. The message is text, which is the non-colour cue
+   section 23 requires; the control carries aria-invalid and its warning
+   border alongside. */
+.field__error { color: var(--status-err); font-size: var(--fs-1); line-height: 1.4; }
 .field--inline { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--s-2); }
 .form-stack { display: grid; gap: var(--s-3); }
 .form-stack label, .search-filter-grid label { display: grid; gap: var(--s-1); color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
@@ -182,6 +188,13 @@ table.table--ledger { width: 100%; max-width: max-content; }
 .table tbody tr:last-child td { border-bottom: 0; }
 .table td .truncate { max-width: 100%; display: block; }
 .table--dense th, .table--dense td { padding: var(--s-1) var(--s-2); }
+/* Ledger column caps (section 10.2). A long value truncates rather than
+   widening its column; the full value stays on the element's title, which
+   section 10.2 sanctions for exactly this case. These are column widths
+   measured against the 1366 acceptance viewport, not spacing steps. */
+.cap-sm { max-width: 140px; }
+.cap-md { max-width: 220px; }
+.cap-lg { max-width: 300px; }
 .table tr.is-clickable { cursor: pointer; }
 .table__actions { display: flex; gap: var(--s-1); justify-content: flex-end; white-space: nowrap; }
 /* A sortable header is a button inside the cell, never a clickable `<th>`: a
@@ -266,6 +279,24 @@ table.table--ledger { width: 100%; max-width: max-content; }
 .disclosure summary::before { content: "▸"; color: var(--text-muted); font-size: var(--fs-0); }
 .disclosure[open] summary::before { content: "▾"; }
 .disclosure__body { padding: var(--s-2) 0 var(--s-3); }
+
+/* The surface-level timezone disclosure (section 24): stated once, in the
+   Context Bar, rather than repeated as a key/value row on every panel. */
+.zone-note { display: inline-flex; align-items: center; gap: var(--s-1); color: var(--text-muted); font-size: var(--fs-1); white-space: nowrap; }
+.zone-note code { color: var(--text-secondary); }
+
+/* An uncontained operational summary. Section 11 is explicit that a summary or
+   stat readout is neither a scroll boundary nor an editable region, so it earns
+   no border: these are figures to read, not containers. Whitespace separates
+   them, which is what section 10 says whitespace is for. */
+.summary-band { display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-6); align-items: flex-start; }
+.summary-band__item { display: grid; gap: var(--s-hair); min-width: 0; color: inherit; text-decoration: none; }
+.summary-band__label { color: var(--text-muted); font-size: var(--fs-0); font-weight: 600; letter-spacing: var(--label-tracking); text-transform: uppercase; }
+.summary-band__value { font-size: var(--fs-5); font-weight: 600; font-variant-numeric: tabular-nums; line-height: var(--lh-tight); }
+.summary-band__meta { color: var(--text-secondary); font-size: var(--fs-1); }
+a.summary-band__item:hover { text-decoration: none; }
+a.summary-band__item:hover .summary-band__label, a.summary-band__item:hover .summary-band__meta { color: var(--text-primary); }
+a.summary-band__item:hover .summary-band__value { color: var(--accent-text); }
 
 /* Stat tiles: small, dense, no decoration. */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s-3); }

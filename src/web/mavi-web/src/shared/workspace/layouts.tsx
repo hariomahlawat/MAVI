@@ -31,12 +31,29 @@ import { useScrollPolicy } from './surfaceSlot';
 export function LedgerLayout({
   toolbar,
   notices,
+  editor,
   children,
 }: {
   /** The filter row: one band, few controls (§4.1). */
   toolbar?: ReactNode;
   /** Page-scope conditions that must not scroll away with the rows. */
   notices?: ReactNode;
+  /**
+   * A transient editable region belonging to this Ledger — the draft of a
+   * record being created, shown only while one is being created.
+   *
+   * §21 rules out both of the alternatives a Ledger otherwise has: routine
+   * create must not require a modal, and an inline form is preferred over the
+   * permanent second card beside the list that Cameras carried before UI-3. So
+   * the archetype gains one optional region rather than each list page
+   * inventing somewhere to put a form.
+   *
+   * It sits above the scroll owner, not inside it, for the same reason the
+   * toolbar does: a form that scrolls away while it is being filled is a form
+   * the operator has to hunt for. A Ledger that creates nothing passes nothing
+   * and renders nothing.
+   */
+  editor?: ReactNode;
   /** The table or list. Owns vertical scroll. */
   children: ReactNode;
 }) {
@@ -46,6 +63,7 @@ export function LedgerLayout({
     <section className="workspace workspace--ledger">
       {toolbar ? <div className="workspace__band">{toolbar}</div> : null}
       {notices ? <div className="workspace__notices">{notices}</div> : null}
+      {editor ? <div className="workspace__editor">{editor}</div> : null}
       <div className="workspace__body workspace__body--scroll">{children}</div>
     </section>
   );

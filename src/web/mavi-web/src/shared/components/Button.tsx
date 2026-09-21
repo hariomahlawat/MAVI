@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 import { Link, type LinkProps } from 'react-router-dom';
 import Icon, { type IconName } from './Icon';
 
@@ -16,6 +16,12 @@ function classes(variant: Variant, size: Size, iconOnly: boolean, extra?: string
 }
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  /**
+   * React 19 passes `ref` as an ordinary prop, so a caller that has to put
+   * focus back on a control — a Ledger returning focus to the action that
+   * opened its create region — can do so without a forwarding wrapper.
+   */
+  ref?: Ref<HTMLButtonElement>;
   variant?: Variant;
   size?: Size;
   icon?: IconName;
