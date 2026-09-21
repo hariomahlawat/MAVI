@@ -18,6 +18,7 @@ import Field from '../../shared/components/Field';
 import KeyValue from '../../shared/components/KeyValue';
 import LoadingState from '../../shared/components/LoadingState';
 import Panel from '../../shared/components/Panel';
+import StatusBadge from '../../shared/components/StatusBadge';
 import { formatBytes } from '../../shared/format/format';
 import { ContextBar, RecordLayout } from '../../shared/workspace';
 
@@ -169,6 +170,16 @@ export default function VideoImportPage() {
   // deployment genuinely has no camera that can receive media.
   const blocked = cameras.isSuccess && activeCameras.length === 0;
 
+  /**
+   * Dirty is a comparison against what the form started as (§21), not a flag
+   * set on the first interaction: an operator who undoes their edit is told the
+   * draft is gone, and one who never made one is not warned about nothing. This
+   * form starts empty in all three of its editable values, so the comparison is
+   * simply whether any of them is still empty — and it stays false while the
+   * form is loading, blocked or unavailable, because nothing has been entered.
+   */
+  const dirty = cameraId !== '' || recordingStartLocal !== '' || file !== null;
+
   const facts = (
     <Panel title="Before you import">
       <KeyValue
@@ -190,7 +201,10 @@ export default function VideoImportPage() {
 
   return (
     <section className="page">
-      <ContextBar crumbs={[{ label: 'Videos', to: '/videos' }, { label: 'Import' }]} />
+      <ContextBar
+        crumbs={[{ label: 'Videos', to: '/videos' }, { label: 'Import' }]}
+        status={dirty ? <StatusBadge tone="warn">Unsaved changes</StatusBadge> : null}
+      />
 
       <RecordLayout facts={blocked ? undefined : facts}>
         {cameras.isPending ? (

@@ -175,13 +175,20 @@ try {
           `${focus.discovered} discovered, ${focus.checked} checked, ${skippedTotal} skipped`);
       }
       for (const problem of browser.problems()) findings.push(`${where}: uncaught page error: ${problem}`);
-      // A resource error is a finding only where the state did not ask for one.
-      // A state asks for one either by answering 503 (`'unavailable'`) or by
-      // naming an explicit status, which is how a conflict is reached.
-      const expectsFailure = Object.values(state.api ?? {}).some((value) =>
-        value === 'unavailable' || (value !== null && typeof value === 'object' && typeof value.status === 'number'));
-      if (!expectsFailure) {
-        for (const problem of browser.resourceErrors()) findings.push(`${where}: resource error: ${problem}`);
+      // A resource error is a finding unless *this* request is the one the
+      // state asked to fail. Suppressing every resource error in a scenario
+      // that expects one would hide an unrelated failure alongside it, so the
+      // expected paths are collected and matched individually: a state that
+      // breaks `/api/cameras` still reports a broken `/api/videos`.
+      const expectedPaths = Object.entries(state.api ?? {})
+        .filter(([, value]) => value === 'unavailable'
+          || (value !== null && typeof value === 'object' && typeof value.status === 'number'))
+        // A key may be method-qualified (`POST /api/cameras`); the path is what
+        // appears in the browser's message.
+        .map(([key]) => (key.includes(' ') ? key.slice(key.indexOf(' ') + 1) : key));
+      for (const problem of browser.resourceErrors()) {
+        if (expectedPaths.some((path) => problem.includes(path))) continue;
+        findings.push(`${where}: resource error: ${problem}`);
       }
 
       // Width discipline, checked only at the ultra-wide acceptance width where

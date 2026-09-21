@@ -210,7 +210,10 @@ table.table--ledger { width: 100%; max-width: max-content; }
   transition: background var(--dur), color var(--dur);
 }
 .table th.num .col-sort { justify-content: flex-end; }
-.col-sort:hover { background: var(--surface-raised); color: var(--text-primary); }
+/* Section 12: hover is a surface step, never a text-colour change. The colour
+   here belongs to the active-sort state below, and a hover that borrowed it
+   would make an inactive column look briefly sorted. */
+.col-sort:hover { background: var(--surface-raised); }
 .table th[aria-sort="ascending"] .col-sort, .table th[aria-sort="descending"] .col-sort { color: var(--text-primary); }
 .col-sort__mark { color: var(--text-muted); font-size: var(--fs-0); flex: 0 0 auto; }
 /* Key/value lists */
@@ -293,9 +296,11 @@ table.table--ledger { width: 100%; max-width: max-content; }
 .summary-band__label { color: var(--text-muted); font-size: var(--fs-0); font-weight: 600; letter-spacing: var(--label-tracking); text-transform: uppercase; }
 .summary-band__value { font-size: var(--fs-5); font-weight: 600; font-variant-numeric: tabular-nums; line-height: var(--lh-tight); }
 .summary-band__meta { color: var(--text-secondary); font-size: var(--fs-1); }
+/* Section 12 again: the figure underlines, which says "this is a link" without
+   repainting three lines of text. The label and the meta stay put — moving them
+   made the whole readout flicker as the pointer crossed it. */
 a.summary-band__item:hover { text-decoration: none; }
-a.summary-band__item:hover .summary-band__label, a.summary-band__item:hover .summary-band__meta { color: var(--text-primary); }
-a.summary-band__item:hover .summary-band__value { color: var(--accent-text); }
+a.summary-band__item:hover .summary-band__value { text-decoration: underline; text-underline-offset: 0.12em; }
 
 /* Chips for active scopes */
 .chip {

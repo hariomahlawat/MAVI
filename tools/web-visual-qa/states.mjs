@@ -25,7 +25,10 @@
  * Records stay capped by definition, and Review stays capped until UI-5.
  *
  * `archetype` runs the section 4 conformance measurements on the rendered
- * page: which element owns the scroll, whether the shell was told to contain
+ * page. It is declared on **every** state that renders one, error and loading
+ * states included: an unavailable inventory is drawn inside the Ledger body
+ * rather than instead of it, so those are exactly the states where a broken
+ * scroll owner would go unnoticed. The measurements are: which element owns the scroll, whether the shell was told to contain
  * it, whether the sticky header sticks to the scroller the operator actually
  * uses, and — for a standard Ledger at 2560 — whether a sparse table was
  * stretched across the display instead of being left-aligned.
@@ -244,19 +247,19 @@ export const STATES = [
     // One section's request failed; the other three must still answer.
     name: 'overview-partial-failure', path: '/', fullWidth: false, archetype: 'ledger-summary',
     settleMs: 4000, api: { '/api/videos': 'unavailable' },
-    expectText: ['Video inventory is unavailable', 'Media status unavailable'],
+    expectText: ['video inventory is unavailable', 'Media status unavailable'],
     forbidText: 'No tracks yet',
   },
 
   // --- Standard Ledgers: full width, column-capped, never stretched. --------
   { name: 'cameras', path: '/cameras', fullWidth: true, archetype: 'ledger' },
   {
-    name: 'cameras-unavailable', path: '/cameras', fullWidth: true, settleMs: 4000,
+    name: 'cameras-unavailable', path: '/cameras', fullWidth: true, archetype: 'ledger', settleMs: 4000,
     api: { '/api/cameras': 'unavailable' },
     expectText: 'unavailable', forbidText: 'No cameras registered',
   },
   {
-    name: 'cameras-loading', path: '/cameras', fullWidth: true, settleMs: 500,
+    name: 'cameras-loading', path: '/cameras', fullWidth: true, archetype: 'ledger', settleMs: 500,
     api: { '/api/cameras': 'hang' }, expectText: 'Loading cameras',
   },
   {
@@ -304,7 +307,7 @@ export const STATES = [
     expectText: 'No videos match these filters', forbidText: 'No videos imported yet',
   },
   {
-    name: 'videos-unavailable', path: '/videos', fullWidth: true, settleMs: 4000,
+    name: 'videos-unavailable', path: '/videos', fullWidth: true, archetype: 'ledger', settleMs: 4000,
     api: { '/api/videos': 'unavailable' },
     expectText: 'unavailable', forbidText: 'No videos imported yet',
   },
@@ -326,7 +329,7 @@ export const STATES = [
     api: { '/api/videos': [] }, expectText: 'Nothing has been queued',
   },
   {
-    name: 'processing-queue-unavailable', path: '/processing', fullWidth: true, settleMs: 4000,
+    name: 'processing-queue-unavailable', path: '/processing', fullWidth: true, archetype: 'ledger', settleMs: 4000,
     api: { '/api/videos': 'unavailable' },
     expectText: 'unavailable', forbidText: 'Nothing has been queued',
   },
@@ -355,7 +358,7 @@ export const STATES = [
     expectText: 'No active camera to import against',
   },
   {
-    name: 'import-cameras-unavailable', path: '/import', fullWidth: false, settleMs: 4000,
+    name: 'import-cameras-unavailable', path: '/import', fullWidth: false, archetype: 'record', settleMs: 4000,
     api: { '/api/cameras': 'unavailable' },
     expectText: 'Camera inventory is unavailable',
     forbidText: 'No active camera to import against',
@@ -381,7 +384,7 @@ export const STATES = [
   },
   {
     name: 'processing-detail-unavailable', path: `/processing/${VIDEO}`, fullWidth: false,
-    settleMs: 4000, api: { [`/api/videos/${VIDEO}/processing`]: 'unavailable' },
+    archetype: 'record', settleMs: 4000, api: { [`/api/videos/${VIDEO}/processing`]: 'unavailable' },
     expectText: 'Processing status is unavailable.',
   },
 

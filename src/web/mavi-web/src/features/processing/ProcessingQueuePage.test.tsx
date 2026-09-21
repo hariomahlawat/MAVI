@@ -42,6 +42,13 @@ const running = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21422', 'Processing');
 const failed = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21423', 'Failed');
 const idle = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21424', 'NotQueued');
 
+/** What the operator can read in a cell: the visually-hidden labels are not it. */
+function visibleText(element: HTMLElement): string {
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('.visually-hidden').forEach((node) => node.remove());
+  return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
 describe('processing queue ordering', () => {
   it('buckets statuses and orders active, failed, completed while dropping unqueued videos', () => {
     expect(bucketFor('Queued')).toBe('active');
@@ -91,6 +98,31 @@ describe('ProcessingQueuePage', () => {
     expect(screen.queryAllByRole('button', { name: /^(Video|Status|Queued|Attempt|Tracks)$/ })).toHaveLength(0);
     for (const header of screen.getAllByRole('columnheader')) {
       expect(header).not.toHaveAttribute('aria-sort');
+    }
+  });
+
+  it('gives a processed row one visible text action and an icon-only detail', async () => {
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    const table = await screen.findByRole('table');
+    const row = within(table).getAllByRole('row')[3];
+    const actions = within(row).getAllByRole('cell').at(-1) as HTMLElement;
+
+    // §16: one primary text action plus at most one icon-only action.
+    expect(within(actions).getByRole('link', { name: 'Results' })).toBeInTheDocument();
+    const detail = within(actions).getByRole('link', { name: /Processing detail for/ });
+    expect(detail).toHaveAttribute('href', `/processing/${done.id}`);
+    // Icon-only means its label is there for assistive technology and not on
+    // screen; the visible text of the cell is the one primary action.
+    expect(detail).toHaveClass('btn--icon');
+    expect(visibleText(actions)).toBe('Results');
+  });
+
+  it('gives a row with nothing to open a single text action instead of a lone icon', async () => {
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    const table = await screen.findByRole('table');
+    for (const row of within(table).getAllByRole('row').slice(1, 3)) {
+      const actions = within(row).getAllByRole('cell').at(-1) as HTMLElement;
+      expect(visibleText(actions)).toBe('Detail');
     }
   });
 

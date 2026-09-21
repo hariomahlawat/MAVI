@@ -87,6 +87,50 @@ describe('CamerasPage', () => {
     expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
   });
 
+  it('clears the dirty state when the draft is reverted to what it started as', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<CamerasPage />);
+    await screen.findByText('North Gate');
+
+    await openCreate(user);
+    const code = screen.getByLabelText('Camera code');
+    await user.type(code, 'CAM-02');
+    expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
+
+    // Dirty means "different from where this draft started", not "has been
+    // touched": a latched flag would leave the operator warned about work they
+    // have already undone, and would refuse the Escape below forever.
+    await user.clear(code);
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument());
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Add camera' })).not.toBeInTheDocument());
+  });
+
+  it('does not treat the inherited timezone default as an operator edit', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<CamerasPage />);
+    await screen.findByText('North Gate');
+
+    await openCreate(user);
+    // The deployment display zone arrives asynchronously and fills the field.
+    // That is the draft's starting point, not a change to it.
+    await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+
+    const timezone = screen.getByLabelText('Camera timezone');
+    await user.clear(timezone);
+    await user.type(timezone, 'Europe/London');
+    expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
+
+    // Emptying the field returns it to the inherited default rather than to a
+    // blank — the operator always has a valid zone in front of them — and that
+    // is the starting point again, so the draft is clean.
+    await user.clear(timezone);
+    expect(timezone).toHaveValue('Asia/Kolkata');
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument());
+  });
+
   it('accepts Escape on a clean draft and refuses to discard a dirty one', async () => {
     const user = userEvent.setup();
     renderWithApp(<CamerasPage />);
@@ -219,6 +263,10 @@ describe('CamerasPage', () => {
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Add camera' })).not.toBeInTheDocument());
     expect(screen.queryByText('Camera registered.')).not.toBeInTheDocument();
     expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+
+    // The control the operator was on has just been removed from the document,
+    // so focus has to be put somewhere deliberate rather than left on <body>.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add camera' })).toHaveFocus());
   });
 
   it('sorts by code ascending by default and re-orders deterministically', async () => {

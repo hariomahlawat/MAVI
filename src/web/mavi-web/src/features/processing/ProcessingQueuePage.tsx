@@ -195,11 +195,30 @@ export default function ProcessingQueuePage() {
                       <td className="num">{run ? formatCount(run.attemptCount) : '—'}</td>
                       <td className="num">{run && run.status === 'Completed' ? formatCount(run.tracksCreated) : '—'}</td>
                       <td>
+                        {/* §16: one primary text action per row, plus at most
+                            one icon-only action. A processed run has somewhere
+                            to go, so Results is the text and its detail is the
+                            icon; a run with nothing to open yet makes its
+                            detail the text rather than leaving the row with a
+                            lone glyph. This is the grammar Videos uses. */}
                         <div className="table__actions">
                           {row.processingStatus === 'Processed' ? (
-                            <ButtonLink size="sm" to={`/search?videoAssetId=${row.id.toLowerCase()}`} icon="search">Results</ButtonLink>
-                          ) : null}
-                          <ButtonLink size="sm" variant="ghost" to={`/processing/${row.id.toLowerCase()}`}>Detail</ButtonLink>
+                            <>
+                              <ButtonLink size="sm" to={`/search?videoAssetId=${row.id.toLowerCase()}`} icon="search">Results</ButtonLink>
+                              <ButtonLink
+                                size="sm"
+                                variant="ghost"
+                                to={`/processing/${row.id.toLowerCase()}`}
+                                title="Processing detail"
+                                iconOnly
+                                icon="activity"
+                              >
+                                Processing detail for {row.originalFileName}
+                              </ButtonLink>
+                            </>
+                          ) : (
+                            <ButtonLink size="sm" to={`/processing/${row.id.toLowerCase()}`} icon="activity">Detail</ButtonLink>
+                          )}
                         </div>
                       </td>
                     </tr>

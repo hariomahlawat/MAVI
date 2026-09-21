@@ -61,7 +61,6 @@ export default function CamerasPage() {
 
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY);
-  const [dirty, setDirty] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   /** Set from a 409 and cleared the moment the code is edited (§21). */
   const [codeConflict, setCodeConflict] = useState<string | null>(null);
@@ -82,7 +81,10 @@ export default function CamerasPage() {
   const createMutation = useMutation({
     mutationFn: (input: CreateCameraInput) => createCamera(input),
     onSuccess: async () => {
-      close(false);
+      // The submit button the operator was on is about to leave the document,
+      // so focus goes back to the action that opened the region rather than
+      // falling to the body (§17 of the UI-3 brief, §23).
+      close();
       await queryClient.invalidateQueries({ queryKey: queryKeys.cameras });
     },
     onError: (error) => {
@@ -108,7 +110,6 @@ export default function CamerasPage() {
 
   function open() {
     setDraft(EMPTY);
-    setDirty(false);
     setSubmitted(false);
     setCodeConflict(null);
     createMutation.reset();
@@ -123,13 +124,11 @@ export default function CamerasPage() {
     restoreFocus.current = returnFocus;
     setCreating(false);
     setDraft(EMPTY);
-    setDirty(false);
     setSubmitted(false);
     setCodeConflict(null);
   }
 
   function edit(patch: Partial<Draft>) {
-    setDirty(true);
     if ('code' in patch) setCodeConflict(null);
     setDraft((current) => ({ ...current, ...patch }));
   }
@@ -137,6 +136,22 @@ export default function CamerasPage() {
   const code = draft.code.trim();
   const name = draft.name.trim();
   const timeZoneId = timeZoneValue.trim();
+
+  /**
+   * Dirty is a comparison, not a flag (§21).
+   *
+   * A boolean set on the first keystroke never comes back down, so it goes on
+   * warning about work the operator has already undone — and here it would
+   * also make Escape refuse to close a draft that is once again empty.
+   *
+   * The comparison is against what the draft *started* as, which for the
+   * timezone is the deployment display zone rather than the empty string: that
+   * value arrives asynchronously and fills the field on its own, so treating
+   * the field's own default as a change would flip the form dirty while the
+   * operator watched. What is compared is what the operator sees and what
+   * `submit` would send.
+   */
+  const dirty = draft.code !== '' || draft.name !== '' || timeZoneValue !== defaultTimeZone;
   // Local validation is shown once the operator has tried to submit, so the
   // form does not start out scolding a field nobody has touched.
   const errors = {

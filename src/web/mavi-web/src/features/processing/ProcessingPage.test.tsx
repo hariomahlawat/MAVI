@@ -177,6 +177,27 @@ describe('ProcessingPage', () => {
     expect(screen.queryByText('Not queued')).not.toBeInTheDocument();
   });
 
+  it('leaves no notices band behind for a reconciled already-active queue attempt', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'NotQueued', latestRun: null });
+    vi.mocked(queueProcessing).mockRejectedValue(new ApiError({
+      status: 409,
+      code: 'processing_already_active',
+      detail: 'Processing is already active.',
+    }));
+    const { container } = render();
+
+    await user.click(await screen.findByRole('button', { name: 'Queue processing' }));
+    await waitFor(() => expect(queueProcessing).toHaveBeenCalledWith(videoId));
+
+    // The conflict is reconciled by refetching authoritative state, not shown…
+    await waitFor(() => expect(getProcessingStatus).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText(/already active/i)).not.toBeInTheDocument();
+    // …so the region that would have carried it must not be opened at all.
+    expect(container.querySelector('.workspace__notices')).toBeNull();
+  });
+
   it('offers retry on a failed run and queues a new one', async () => {
     const user = userEvent.setup();
     vi.mocked(getProcessingStatus).mockResolvedValue({

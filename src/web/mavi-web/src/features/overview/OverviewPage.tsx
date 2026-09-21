@@ -6,7 +6,7 @@ import { searchTracks } from '../../api/tracks';
 import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
-import { ButtonLink } from '../../shared/components/Button';
+import Button, { ButtonLink } from '../../shared/components/Button';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import EmptyState from '../../shared/components/EmptyState';
 import Icon from '../../shared/components/Icon';
@@ -56,8 +56,38 @@ export default function OverviewPage() {
 
   // A figure the request failed to produce says so; it never renders as a
   // zero, which would read as an answer (§14).
-  const cameraMeta = cameras.data ? `${activeCameras} active` : cameras.isError ? 'unavailable' : 'loading';
-  const videoMeta = counts ? `${counts.Processed} processed` : videos.isError ? 'unavailable' : 'loading';
+  const cameraMeta = cameras.data ? `${formatCount(activeCameras)} active` : cameras.isError ? 'unavailable' : 'loading';
+  const videoMeta = counts ? `${formatCount(counts.Processed)} processed` : videos.isError ? 'unavailable' : 'loading';
+
+  /**
+   * One notice for the whole partial failure (§14).
+   *
+   * Overview is four independent requests, and any of them can fail on its own.
+   * A dash and the word "unavailable" in a summary figure is not the treatment
+   * §14 asks for — that is an alert, in the operator's words, with a retry — but
+   * one alert per failed request stacks into noise the moment two fail. So the
+   * failures are named together in a single notice with one retry, which
+   * re-requests exactly the ones that failed.
+   */
+  type FailedSource = { readonly subject: string; readonly refetch: () => void };
+  const failed: FailedSource[] = [
+    cameras.isError ? { subject: 'camera inventory', refetch: () => { void cameras.refetch(); } } : null,
+    videos.isError ? { subject: 'video inventory', refetch: () => { void videos.refetch(); } } : null,
+  ].filter((entry): entry is FailedSource => entry !== null);
+
+  const unavailableNotice = failed.length === 0 ? null : (
+    <Alert
+      tone="error"
+      // One retry for the whole notice, re-requesting exactly what failed: a
+      // per-source button would put the operator back in the alert stack this
+      // notice exists to avoid.
+      actions={<Button size="sm" onClick={() => failed.forEach((entry) => entry.refetch())}>Retry</Button>}
+    >
+      {failed.length === 1
+        ? `The ${failed[0].subject} is unavailable; its figures cannot be shown.`
+        : `The ${failed[0].subject} and the ${failed[1].subject} are unavailable; their figures cannot be shown.`}
+    </Alert>
+  );
 
   return (
     <section className="page page--workspace">
@@ -73,9 +103,7 @@ export default function OverviewPage() {
       />
 
       <LedgerSummaryLayout
-        notices={videos.isError ? (
-          <Alert tone="error">Video inventory is unavailable; media figures cannot be shown.</Alert>
-        ) : null}
+        notices={unavailableNotice}
       >
         <div className="summary-band">
           <Link to="/cameras" className="summary-band__item">
@@ -91,7 +119,7 @@ export default function OverviewPage() {
           <Link to="/processing" className="summary-band__item">
             <span className="summary-band__label">Processing</span>
             <span className="summary-band__value">{counts ? formatCount(counts.Queued + counts.Processing) : '—'}</span>
-            <span className="summary-band__meta">{counts ? `${counts.Failed} failed` : videoMeta}</span>
+            <span className="summary-band__meta">{counts ? `${formatCount(counts.Failed)} failed` : videoMeta}</span>
           </Link>
           <Link to="/videos?status=NotQueued" className="summary-band__item">
             <span className="summary-band__label">Not queued</span>
@@ -107,7 +135,13 @@ export default function OverviewPage() {
             actions={<ButtonLink size="sm" to="/search">All results</ButtonLink>}
           >
             {recent.isPending ? <div className="panel__body"><LoadingState label="Loading recent tracks…" /></div> : null}
-            {recent.isError ? <div className="panel__body"><Alert tone="error">Recent tracks could not be loaded.</Alert></div> : null}
+            {recent.isError ? (
+              <div className="panel__body">
+                <Alert tone="error" actions={<Button size="sm" onClick={() => recent.refetch()}>Retry</Button>}>
+                  Recent tracks are unavailable.
+                </Alert>
+              </div>
+            ) : null}
             {recent.data && recent.data.items.length === 0 ? (
               <EmptyState icon="search" title="No tracks yet" compact>Process a video to populate search results.</EmptyState>
             ) : null}

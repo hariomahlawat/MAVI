@@ -147,10 +147,18 @@ export default function ProcessingPage() {
       : null;
   const lowerId = videoAssetId.toLowerCase();
 
+  // `processing_already_active` is reconciled by refetching authoritative state
+  // rather than reported: the video is already doing what the operator asked
+  // for. The condition is computed once so that the region and its contents
+  // cannot disagree — reading `retry.isError` here as well opened an empty
+  // notices band for a failure this page deliberately never renders.
+  const retryFailed = retry.isError
+    && !(retry.error instanceof ApiError && retry.error.code === 'processing_already_active');
+  const hasNotices = Boolean(navigationNotice) || retryFailed || video.isError || processing.isError;
   const notices = (
     <>
       {navigationNotice ? <Alert tone="info">{navigationNotice}</Alert> : null}
-      {retry.isError && !(retry.error instanceof ApiError && retry.error.code === 'processing_already_active') ? (
+      {retryFailed ? (
         <Alert tone="error">
           {retry.error instanceof ApiError ? `${retry.error.detail} (${retry.error.code})` : 'Processing could not be queued.'}
         </Alert>
@@ -159,7 +167,6 @@ export default function ProcessingPage() {
       {processing.isError ? <Alert tone="error">Processing status is unavailable.</Alert> : null}
     </>
   );
-  const hasNotices = Boolean(navigationNotice) || retry.isError || video.isError || processing.isError;
 
   return (
     <section className="page">

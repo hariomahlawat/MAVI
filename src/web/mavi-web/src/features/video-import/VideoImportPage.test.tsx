@@ -74,6 +74,61 @@ describe('VideoImportPage', () => {
     expect(facts).toHaveTextContent('Processing is queued automatically.');
   });
 
+  it('opens clean and reports a draft only once a value actually differs', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideoImportPage />);
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+
+    // §21 puts dirty state in the Context Bar. An untouched form has none.
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+    expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
+
+    // Reverting to the starting value clears it: dirty is a comparison, not a
+    // flag that latches on the first keystroke.
+    await user.selectOptions(screen.getByLabelText('Camera'), '');
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument());
+  });
+
+  it('treats the recording time and the file as draft state too', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideoImportPage />);
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+
+    const wallTime = screen.getByLabelText('Recording local date/time');
+    await user.type(wallTime, '2026-09-14T08:30');
+    expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
+    await user.clear(wallTime);
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument());
+
+    const chooser = screen.getByLabelText('MP4 file');
+    await user.upload(chooser, new File(['video'], 'source.mp4', { type: 'video/mp4' }));
+    expect(await screen.findByText('Unsaved changes')).toBeInTheDocument();
+    // The supported clearing path for a file input: a change with no files.
+    fireEvent.change(chooser, { target: { files: [] } });
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument());
+  });
+
+  it('does not become dirty merely by refusing an untouched submission', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideoImportPage />);
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+
+    expect(await screen.findByText('Enter the recording date and time.')).toBeInTheDocument();
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  });
+
+  it('shows no draft state while the form is not even available', async () => {
+    vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }]);
+    renderWithApp(<VideoImportPage />);
+
+    expect(await screen.findByText('No active camera to import against')).toBeInTheDocument();
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  });
+
   it('keeps the authoritative camera timezone beside the wall-time field', async () => {
     const user = userEvent.setup();
     renderWithApp(<VideoImportPage />);

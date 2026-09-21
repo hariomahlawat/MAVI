@@ -185,6 +185,68 @@ describe('feature CSS carries no design literals', () => {
   });
 });
 
+/**
+ * Section 12 freezes one interaction rule that is easy to break by accident and
+ * invisible to every other test: **text colour MUST NOT change on hover.** A
+ * hover that repaints text reads as a state change rather than an affordance,
+ * and on a status or sort indicator it actively lies.
+ *
+ * The rule is asserted against an explicit inventory rather than a blanket ban,
+ * because the shared controls inherited from UI-1 and UI-2 do change text
+ * colour on hover and correcting them is their own migration's work (§34.1).
+ * Listing them is what makes the check useful: anything *new* fails.
+ */
+describe('hover never repaints text (section 12)', () => {
+  /**
+   * Pre-existing violations in shared controls, each owned by the UI PR that
+   * will next touch that primitive. UI-3 added none and removed the two it had
+   * added (`.col-sort`, `.summary-band__item`).
+   */
+  const INHERITED = [
+    '.btn--ghost:hover:not(:disabled)',
+    '.tabs button:hover',
+    '.chip button:hover',
+    '.scene-inspector__point:hover',
+    '.scene-revisions__chip:hover',
+    '.sidebar__nav a:hover',
+    '.context-bar__crumbs a:hover',
+    '.segmented__item:hover',
+  ];
+
+  it('introduces no new hover rule that changes text colour', () => {
+    const offenders: string[] = [];
+    for (const file of cssFiles) {
+      const css = withoutComments(read(file));
+      // Rule bodies, paired with the selector that opens them.
+      for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const selector = match[1].trim().replace(/\s+/g, ' ');
+        if (!selector.includes(':hover')) continue;
+        // `border-color` and `background-color` are allowed hover cues; only a
+        // bare `color` declaration repaints the text itself.
+        if (!/(^|;)\s*color\s*:/.test(match[2])) continue;
+        if (INHERITED.includes(selector)) continue;
+        offenders.push(`${file}: ${selector}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('keeps the inventory of inherited violations honest', () => {
+    // A selector that has since been fixed must leave the list, or the list
+    // stops meaning anything.
+    const all = cssFiles.map((file) => withoutComments(read(file))).join('\n');
+    const stale = INHERITED.filter((selector) => !all.includes(selector.split(':hover')[0]));
+    expect(stale).toEqual([]);
+  });
+
+  it('leaves the sort indicator its own non-hover state colour', () => {
+    const css = withoutComments(read('components.css'));
+    // The active column is still distinguished, and by more than colour: the
+    // glyph in SortableColumn carries it too.
+    expect(css).toMatch(/\[aria-sort="ascending"\][^{]*\{[^}]*color:/);
+  });
+});
+
 describe('colour roles do not borrow across namespaces', () => {
   const features = read('features.css');
 
