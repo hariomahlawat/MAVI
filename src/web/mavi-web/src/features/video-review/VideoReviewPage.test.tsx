@@ -126,7 +126,7 @@ describe('VideoReviewPage', () => {
       routePath: '/review/video/:videoAssetId',
     });
 
-    const video = await screen.findByLabelText('Source video evidence');
+    const video = await screen.findByLabelText(/source video evidence$/);
     Object.defineProperty(video, 'duration', { configurable: true, value: 600 });
     fireEvent.loadedMetadata(video);
 
@@ -167,7 +167,7 @@ describe('VideoReviewPage', () => {
       routePath: '/review/video/:videoAssetId',
     });
 
-    await screen.findByLabelText('Source video evidence');
+    await screen.findByLabelText(/source video evidence$/);
     expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), undefined);
   });
 
@@ -192,7 +192,7 @@ describe('VideoReviewPage', () => {
     });
 
     expect(await screen.findByText(/does not belong to the video/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText('Source video evidence')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/source video evidence$/)).not.toBeInTheDocument();
   });
 
   it('reseeks immediately when another Track on the same video is already cached', async () => {
@@ -208,7 +208,7 @@ describe('VideoReviewPage', () => {
       routePath: '/review/video/:videoAssetId',
     });
 
-    const video = await screen.findByLabelText('Source video evidence');
+    const video = await screen.findByLabelText(/source video evidence$/);
     Object.defineProperty(video, 'duration', { configurable: true, value: 600 });
     Object.defineProperty(video, 'readyState', { configurable: true, value: HTMLMediaElement.HAVE_METADATA });
     (video as HTMLVideoElement).currentTime = 196.420;
@@ -216,7 +216,7 @@ describe('VideoReviewPage', () => {
     view.queryClient.setQueryData(queryKeys.track(secondTrackId), second);
     await user.click(screen.getByRole('button', { name: 'Next Track' }));
 
-    await waitFor(() => expect((screen.getByLabelText('Source video evidence') as HTMLVideoElement).currentTime)
+    await waitFor(() => expect((screen.getByLabelText(/source video evidence$/) as HTMLVideoElement).currentTime)
       .toBeCloseTo(299, 3));
   });
 
@@ -247,7 +247,7 @@ describe('VideoReviewPage', () => {
     fireEvent.error(thumbnail);
     expect(screen.getByText('Representative evidence unavailable')).toBeInTheDocument();
 
-    const video = screen.getByLabelText('Source video evidence');
+    const video = screen.getByLabelText(/source video evidence$/);
     fireEvent.error(video);
     expect(screen.getByText(/Source video could not be loaded/i)).toBeInTheDocument();
   });
@@ -270,12 +270,12 @@ describe('VideoReviewPage', () => {
       routePath: '/review/video/:videoAssetId',
     });
 
-    expect(await screen.findByLabelText('Source video evidence'))
+    expect(await screen.findByLabelText(/source video evidence$/))
       .toHaveAttribute('src', '/api/videos/' + videoId + '/content');
 
     await user.click(screen.getByRole('button', { name: 'Different Video' }));
 
-    await waitFor(() => expect(screen.getByLabelText('Source video evidence'))
+    await waitFor(() => expect(screen.getByLabelText(/source video evidence$/))
       .toHaveAttribute('src', '/api/videos/' + secondVideoId + '/content'));
     expect(getTrack).toHaveBeenCalledWith(secondTrackId, expect.any(AbortSignal), undefined);
   });
@@ -311,13 +311,13 @@ describe('VideoReviewPage', () => {
     // legitimately answers it with the current revision and engine.
     it('reads a link with no identity against the current analytics', async () => {
       review('');
-      await screen.findByLabelText('Source video evidence');
+      await screen.findByLabelText(/source video evidence$/);
       expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), undefined);
     });
 
     it('reads the Track against the complete identity the link carries', async () => {
       review('&sceneRevisionId=' + revision.toUpperCase() + '&analyticsAlgorithmVersion=scene-analytics-v1');
-      await screen.findByLabelText('Source video evidence');
+      await screen.findByLabelText(/source video evidence$/);
       expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), {
         sceneRevisionId: revision, analyticsAlgorithmVersion: 'scene-analytics-v1',
       });
@@ -327,7 +327,7 @@ describe('VideoReviewPage', () => {
     // reads that revision with the current engine.
     it('accepts a revision with no engine version', async () => {
       review('&sceneRevisionId=' + revision);
-      await screen.findByLabelText('Source video evidence');
+      await screen.findByLabelText(/source video evidence$/);
       expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), {
         sceneRevisionId: revision, analyticsAlgorithmVersion: undefined,
       });
@@ -348,7 +348,7 @@ describe('VideoReviewPage', () => {
       review(query);
 
       expect(await screen.findByText(/names an invalid analytics identity/)).toBeInTheDocument();
-      expect(screen.queryByLabelText('Source video evidence')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/source video evidence$/)).not.toBeInTheDocument();
       await waitFor(() => expect(getTrack).not.toHaveBeenCalled());
     });
   });
@@ -360,7 +360,7 @@ describe('VideoReviewPage', () => {
         route: '/review/video/' + videoId + '?trackId=' + trackId + '&from=' + encodeURIComponent(from),
         routePath: '/review/video/:videoAssetId',
       });
-      await screen.findByLabelText('Source video evidence');
+      await screen.findByLabelText(/source video evidence$/);
       expect(screen.getByRole('link', { name: 'Back to search' })).toHaveAttribute('href', '/search?' + from);
     });
 
@@ -369,7 +369,7 @@ describe('VideoReviewPage', () => {
         route: '/review/video/' + videoId + '?trackId=' + trackId,
         routePath: '/review/video/:videoAssetId',
       });
-      await screen.findByLabelText('Source video evidence');
+      await screen.findByLabelText(/source video evidence$/);
       expect(screen.getByRole('link', { name: 'Back to search' }))
         .toHaveAttribute('href', '/search?videoAssetId=' + videoId + '&track=' + trackId);
     });
@@ -380,7 +380,7 @@ describe('VideoReviewPage', () => {
         route: '/review/video/' + videoId + '?trackId=' + trackId + '&from=' + bogus,
         routePath: '/review/video/:videoAssetId',
       });
-      await screen.findByLabelText('Source video evidence');
+      await screen.findByLabelText(/source video evidence$/);
       expect(screen.getByRole('link', { name: 'Back to search' }))
         .toHaveAttribute('href', '/search?videoAssetId=' + videoId + '&track=' + trackId);
     });

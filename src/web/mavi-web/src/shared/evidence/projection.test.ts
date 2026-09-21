@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contentRect, isBoxVisibleAt, isInsideFrame, projectBox, projectPoint, unprojectPoint } from './overlay';
+import { contentRect, isBoxVisibleAt, isInsideFrame, projectBox, projectPoint, unprojectPoint } from './projection';
 
 describe('overlay geometry', () => {
   it('letterboxes a 16:9 frame inside a wider element', () => {

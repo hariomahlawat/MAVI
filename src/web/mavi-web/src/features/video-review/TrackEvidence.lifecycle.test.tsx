@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrackDetail } from '../../api/tracks';
 import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
-import TrackEvidencePlayer from './TrackEvidencePlayer';
+import TrackEvidence from './TrackEvidence';
 
 const detail: TrackDetail = {
   id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21451',
@@ -68,14 +68,14 @@ function playing(video: HTMLVideoElement, isPlaying: boolean) {
 
 function playhead(): number {
   // The timeline playhead is positioned from the current offset; read it back as a percentage.
-  const element = document.querySelector('.timeline__playhead') as HTMLElement;
+  const element = document.querySelector('.evidence-timeline__playhead') as HTMLElement;
   return Number.parseFloat(element.style.left);
 }
 
-describe('TrackEvidencePlayer playhead lifecycle', () => {
+describe('Track evidence playhead lifecycle', () => {
   it('keeps exactly one frame loop alive through timeupdate and seeking while playing', () => {
-    render(<TrackEvidencePlayer detail={detail} />);
-    const video = screen.getByLabelText('Source video evidence') as HTMLVideoElement;
+    render(<TrackEvidence detail={detail} />);
+    const video = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
     playing(video, true);
 
     fireEvent(video, new Event('play'));
@@ -103,8 +103,8 @@ describe('TrackEvidencePlayer playhead lifecycle', () => {
   });
 
   it('stops the loop on pause and on end, and reflects the final position', () => {
-    render(<TrackEvidencePlayer detail={detail} />);
-    const video = screen.getByLabelText('Source video evidence') as HTMLVideoElement;
+    render(<TrackEvidence detail={detail} />);
+    const video = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
     playing(video, true);
     fireEvent(video, new Event('play'));
 
@@ -123,17 +123,17 @@ describe('TrackEvidencePlayer playhead lifecycle', () => {
   });
 
   it('cancels the loop when the source is replaced and when the player unmounts', () => {
-    const view = render(<TrackEvidencePlayer detail={detail} />);
-    const first = screen.getByLabelText('Source video evidence') as HTMLVideoElement;
+    const view = render(<TrackEvidence detail={detail} />);
+    const first = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
     playing(first, true);
     fireEvent(first, new Event('play'));
     expect(frames.pending.size).toBe(1);
 
     view.rerender(
-      <TrackEvidencePlayer detail={{ ...detail, video: { ...detail.video, videoContentUrl: '/api/videos/other/content' } }} />,
+      <TrackEvidence detail={{ ...detail, video: { ...detail.video, videoContentUrl: '/api/videos/other/content' } }} />,
     );
     expect(frames.pending.size).toBe(0);
-    const second = screen.getByLabelText('Source video evidence') as HTMLVideoElement;
+    const second = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
     expect(second).not.toBe(first);
     playing(second, true);
     fireEvent(second, new Event('play'));
@@ -144,8 +144,8 @@ describe('TrackEvidencePlayer playhead lifecycle', () => {
   });
 
   it('does not schedule frames while paused, even when the media reports time updates', () => {
-    render(<TrackEvidencePlayer detail={detail} />);
-    const video = screen.getByLabelText('Source video evidence') as HTMLVideoElement;
+    render(<TrackEvidence detail={detail} />);
+    const video = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
     playing(video, false);
     fireEvent(video, new Event('timeupdate'));
     fireEvent(video, new Event('seeked'));

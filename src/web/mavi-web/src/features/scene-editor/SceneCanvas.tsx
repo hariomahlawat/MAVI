@@ -10,7 +10,7 @@ import {
 } from 'react';
 import type { ScenePoint } from '../../api/scene';
 import { SCENE_LIMITS } from '../../api/scene';
-import { contentRect, isInsideFrame, projectPoint, unprojectPoint, type PixelRect } from '../video-review/overlay';
+import { contentRect, isInsideFrame, projectPoint, unprojectPoint, type PixelRect } from '../../shared/evidence/projection';
 import { aToBNormal, alongLine, bToANormal, midpoint } from './lineDirection';
 import type { Drawing, EditorTool, Selection } from './editorState';
 import type { DraftTripLine, DraftZone, SceneDraft } from './sceneDraft';

@@ -31,6 +31,35 @@ describe('result navigation', () => {
     expect(isNavigationTarget(document.createElement('select'))).toBe(false);
     expect(isNavigationTarget(document.createElement('video'))).toBe(false);
     expect(isNavigationTarget(document.body)).toBe(true);
+  });
+
+  it('refuses a key press from inside the Evidence Player', () => {
+    // Result navigation binds j and k on the window; the player's frozen
+    // grammar binds J and L for one second either way. Without this, one press
+    // inside the player would both nudge the media and move the selection.
+    const player = document.createElement('div');
+    player.setAttribute('data-evidence-player', '');
+    const control = document.createElement('button');
+    player.append(control);
+    document.body.append(player);
+
+    expect(isNavigationTarget(control)).toBe(false);
+    expect(isNavigationTarget(player)).toBe(false);
+
+    // The overlay stage is SVG, and an HTML-only guard would let it through.
+    // Built by parsing rather than by namespace, because the repository
+    // verification refuses a literal Internet URL in product source.
+    player.insertAdjacentHTML('beforeend', '<svg></svg>');
+    const stage = player.querySelector('svg');
+    expect(stage).not.toBeInstanceOf(HTMLElement);
+    expect(isNavigationTarget(stage)).toBe(false);
+
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    expect(isNavigationTarget(outside)).toBe(true);
+
+    player.remove();
+    outside.remove();
     expect(isNavigationTarget(null)).toBe(true);
   });
 });

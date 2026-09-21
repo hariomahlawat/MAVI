@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TrackDetail } from '../../api/tracks';
 import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
-import TrackEvidencePlayer from './TrackEvidencePlayer';
+import TrackEvidence from './TrackEvidence';
 
 const detail: TrackDetail = {
   id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21451',
@@ -62,10 +62,10 @@ function seek(video: HTMLVideoElement, seconds: number) {
   fireEvent(video, new Event('seeked'));
 }
 
-describe('TrackEvidencePlayer overlay', () => {
+describe('Track evidence overlay', () => {
   it('shows the representative box only within its visibility window, projected into the letterboxed frame', () => {
-    render(<TrackEvidencePlayer detail={detail} trajectory={trajectory} />);
-    const video = screen.getByLabelText('Source video evidence') as HTMLVideoElement;
+    render(<TrackEvidence detail={detail} trajectory={trajectory} />);
+    const video = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
 
     // The playhead starts at Track start (10 s), 2 s before the representative frame.
     expect(screen.queryByTestId('bounding-box')).not.toBeInTheDocument();
@@ -82,25 +82,49 @@ describe('TrackEvidencePlayer overlay', () => {
   });
 
   it('draws the trajectory polyline and the interpolated current position, and hides both when unticked', () => {
-    render(<TrackEvidencePlayer detail={detail} trajectory={trajectory} />);
-    const video = screen.getByLabelText('Source video evidence') as HTMLVideoElement;
+    render(<TrackEvidence detail={detail} trajectory={trajectory} />);
+    const video = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
     const overlay = screen.getByTestId('evidence-overlay');
 
     expect(overlay.querySelector('polyline')).toHaveAttribute('points', '233.3,0.0 766.7,300.0');
-    seek(video, 12);
-    const current = overlay.querySelector('circle.trajectory-current');
-    expect(Number(current?.getAttribute('cx'))).toBeCloseTo(500, 1);
-    expect(Number(current?.getAttribute('cy'))).toBeCloseTo(150, 1);
 
-    fireEvent.click(screen.getByLabelText(/^Trajectory/));
+    // Persisted samples are filled discs, one per recorded sample.
+    expect(screen.getAllByTestId('trajectory-sample')).toHaveLength(2);
+
+    seek(video, 12);
+    // The interpolated position is a distinct element, not a differently
+    // coloured sample: shape carries the distinction, never opacity.
+    const current = screen.getByTestId('trajectory-interpolated');
+    expect(Number(current.getAttribute('cx'))).toBeCloseTo(500, 1);
+    expect(Number(current.getAttribute('cy'))).toBeCloseTo(150, 1);
+    expect(current.getAttribute('fill')).not.toBe('solid');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trajectory' }));
     expect(overlay.querySelector('polyline')).toBeNull();
-    fireEvent.click(screen.getByLabelText('Bounding box'));
+    fireEvent.click(screen.getByRole('button', { name: 'Bounding box' }));
     expect(screen.queryByTestId('bounding-box')).not.toBeInTheDocument();
   });
 
-  it('labels a Track without trajectory evidence instead of drawing one', () => {
-    render(<TrackEvidencePlayer detail={{ ...detail, trajectoryArtifactId: null, trajectoryContentUrl: null }} />);
-    expect(screen.getByLabelText('Trajectory (none)')).toBeDisabled();
+  it('offers an unavailable trajectory layer with its reason, rather than an empty one', () => {
+    render(<TrackEvidence detail={{ ...detail, trajectoryArtifactId: null, trajectoryContentUrl: null }} />);
+    expect(screen.getByRole('button', { name: 'Trajectory' })).toBeDisabled();
+    // "Unavailable" and "empty" are different facts, and the reason is beside
+    // the control rather than only in a tooltip.
+    expect(screen.getByText('No trajectory was persisted for this Track.')).toBeInTheDocument();
     expect(screen.getByTestId('evidence-overlay').querySelector('polyline')).toBeNull();
+  });
+
+  it('distinguishes a trajectory that failed to load from one that does not exist', () => {
+    render(<TrackEvidence detail={detail} trajectoryError />);
+    expect(screen.getByText('The persisted trajectory could not be loaded.')).toBeInTheDocument();
+    expect(screen.getByText(/could not be loaded. The Track and its representative frame are unaffected/)).toBeInTheDocument();
+  });
+
+  it('offers no bounding-box layer when no representative frame was persisted', () => {
+    render(<TrackEvidence detail={{ ...detail, representative: null }} />);
+    expect(screen.getByRole('button', { name: 'Bounding box' })).toBeDisabled();
+    expect(screen.getByText('No representative frame was persisted for this Track.')).toBeInTheDocument();
+    // With no representative frame there is nowhere for the evidence jump to go.
+    expect(screen.queryByRole('button', { name: /Evidence/ })).not.toBeInTheDocument();
   });
 });

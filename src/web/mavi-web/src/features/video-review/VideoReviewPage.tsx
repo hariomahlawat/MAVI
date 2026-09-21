@@ -10,9 +10,9 @@ import LoadingState from '../../shared/components/LoadingState';
 import PageHeader from '../../shared/components/PageHeader';
 import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
-import { formatDuration } from '../../shared/format/duration';
+import { ContextBar, ReviewLayout } from '../../shared/workspace';
 import { ProvenancePanel, RepresentativeEvidence, TrackIdentity, TrackSummary } from './TrackDetailsPanels';
-import TrackEvidencePlayer from './TrackEvidencePlayer';
+import TrackEvidence from './TrackEvidence';
 import { returnToSearchPath } from './returnContext';
 import { useTrajectory } from './useTrajectory';
 
@@ -126,61 +126,69 @@ export default function VideoReviewPage() {
   const displayTimeZoneId = systemConfig.data?.displayTimeZoneId;
   const backToSearch = returnToSearchPath(searchParams.get('from'), videoAssetId, trackId);
 
-  return (
-    <section className="page">
-      <PageHeader
-        title={detail ? `${detail.objectClass} · Track ${detail.localTrackNumber}` : 'Evidence Review'}
-        description={detail
-          ? `${formatDuration(detail.durationMs)} of ${detail.video.width}×${detail.video.height} source video · ${detail.detectionCount} detections`
-          : 'Inspect the authoritative Track, representative evidence and source video around the detected interval.'}
-        actions={(
-          <>
-            <ButtonLink to={backToSearch} icon="chevronLeft">Back to search</ButtonLink>
-            <ButtonLink to="/search" variant="ghost">Visual Search</ButtonLink>
-          </>
-        )}
-      />
-
+  const notices = (
+    <>
       {systemConfig.isError ? (
-        <Alert tone="warning">
-          <div className="inline-alert-actions">
-            <span>Display timezone is unavailable. Absolute timestamps are shown explicitly in UTC.</span>
-            <Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>
-          </div>
+        <Alert tone="warning" actions={<Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>}>
+          Display timezone is unavailable. Absolute timestamps are shown explicitly in UTC.
         </Alert>
       ) : null}
-
-      {track.isPending ? <LoadingState label="Loading Track evidence…" /> : null}
       {track.isError && !(track.error instanceof ApiError && track.error.status === 404) ? (
         <Alert tone="error">
           {track.error instanceof ApiError ? track.error.detail + ' (' + track.error.code + ')' : 'Track evidence could not be loaded.'}
         </Alert>
       ) : null}
+    </>
+  );
+  const trackFailed = track.isError && !(track.error instanceof ApiError && track.error.status === 404);
+  const hasNotice = systemConfig.isError || trackFailed;
+
+  return (
+    <section className="page page--full page--workspace">
+      <ContextBar
+        crumbs={detail
+          ? [{ label: 'Evidence Review' }, { label: `${detail.objectClass} · Track ${detail.localTrackNumber}` }]
+          : [{ label: 'Evidence Review' }]}
+        status={detail ? <StatusBadge status={detail.reviewStatus} /> : undefined}
+        actions={(
+          <>
+            <ButtonLink to={backToSearch} size="sm" icon="chevronLeft">Back to search</ButtonLink>
+            <ButtonLink to="/search" size="sm" variant="ghost">Visual Search</ButtonLink>
+          </>
+        )}
+      />
 
       {detail ? (
-        <div className="review-layout">
-          <Panel
-            title="Source video"
-            description="Opens one second before Track start. Bounding box and trajectory are drawn from persisted evidence only."
-            actions={<StatusBadge status={detail.reviewStatus} />}
-          >
-            <TrackEvidencePlayer detail={detail} trajectory={trajectory.data} trajectoryError={trajectory.isError} />
-            <div style={{ marginTop: 'var(--s-4)' }}>
-              <TrackSummary detail={detail} displayTimeZoneId={displayTimeZoneId} />
-            </div>
-          </Panel>
-
-          <div className="stack">
-            <Panel title="Representative evidence" description="Persisted representative frame and stable Track identity.">
-              <div className="stack">
-                <RepresentativeEvidence detail={detail} />
-                <TrackIdentity detail={detail} displayTimeZoneId={displayTimeZoneId} />
-              </div>
-            </Panel>
-            <ProvenancePanel detail={detail} displayTimeZoneId={displayTimeZoneId} />
-          </div>
+        <ReviewLayout
+          notices={hasNotice ? notices : undefined}
+          player={<TrackEvidence detail={detail} trajectory={trajectory.data} trajectoryError={trajectory.isError} />}
+          rail={(
+            <>
+              {/*
+                The primary evidence summary leads the rail, so at 1366x768 it and
+                the player are both in the initial viewport (section 4.5.1).
+                Identity and provenance follow and may run below the fold, which
+                Review is explicitly allowed to do.
+              */}
+              <Panel title="Track summary" description="What this Track asserts, from persisted evidence.">
+                <TrackSummary detail={detail} displayTimeZoneId={displayTimeZoneId} />
+              </Panel>
+              <Panel title="Representative evidence" description="Persisted representative frame and stable Track identity.">
+                <div className="stack">
+                  <RepresentativeEvidence detail={detail} />
+                  <TrackIdentity detail={detail} displayTimeZoneId={displayTimeZoneId} />
+                </div>
+              </Panel>
+              <ProvenancePanel detail={detail} displayTimeZoneId={displayTimeZoneId} />
+            </>
+          )}
+        />
+      ) : (
+        <div className="workspace__notices">
+          {hasNotice ? notices : null}
+          {track.isPending ? <LoadingState label="Loading Track evidence…" /> : null}
         </div>
-      ) : null}
+      )}
     </section>
   );
 }
