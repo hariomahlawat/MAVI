@@ -73,7 +73,7 @@ Facts below were read from the code at the baseline SHA, not from earlier plans.
 | Task 18 | Independent | Qualification of the frozen Production candidate; proceeds in parallel and is never gated by a roadmap stage. |
 | Frontend polish, historical-runs listing | Independent | May be scheduled between stages without changing the sequence. |
 | Stage 1 slice 3 ← UI Foundation UI-2 | Hard | **Satisfied.** The UI Foundation programme (UI-1 → UI-5, §33 of `docs/architecture/ui-ux-design-specification.md`, accepted by ADR-012) is inserted after stage-1 slice 2. UI-2 merged with green post-merge `main`, which lifted the gate, and slice 3 has since merged. Backend/domain work now runs in parallel with UI-4/UI-5 where it introduces no frontend surface. |
-| Stage 1 slice 4 ← UI Foundation UI-3 and UI-4 | Hard | **Satisfied.** UI-3 is merged (PR #60) and UI-4 is merged (PR #61, `9dbd74d7`). Slice 4 may begin after the PR #61 post-merge exact-main gates are green. |
+| Stage 1 slice 4 ← UI Foundation UI-3 and UI-4 | Hard | **Satisfied.** UI-3 is merged (PR #60) and UI-4 is merged (PR #61, `9dbd74d7`). PR #61 post-merge Task 17 Acceptance #1010 and Quality Gate #1866 are green on exact `main`; Slice 4 may begin. |
 
 No other dependencies are asserted; in particular stage 3 does not block stage 4, and stage 10 does not block anything.
 
