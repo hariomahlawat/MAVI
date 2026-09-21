@@ -43,6 +43,7 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
         ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
 
         var eligible = await EligibleIdentitiesAsync(
+            algorithmVersion,
             earliestRunCompletedAtUtc,
             batchSize,
             cancellationToken);
@@ -77,6 +78,7 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
     /// evidence they are derived from.
     /// </remarks>
     private Task<List<(Guid RunId, Guid RevisionId)>> EligibleIdentitiesAsync(
+        string algorithmVersion,
         DateTimeOffset earliestRunCompletedAtUtc,
         int batchSize,
         CancellationToken cancellationToken) =>
@@ -95,13 +97,28 @@ public sealed class SceneAnalysisLifecycle(MaviDbContext db, TimeProvider timePr
                // before this revision was activated are explicit re-analysis, not
                // automatic work.
                && run.CompletedAtUtc >= revision.CreatedAtUtc
-               // Any unit for this run and revision, under any engine version, stops
-               // automatic work. An engine upgrade makes existing facts stale for
-               // readiness (plan §R) and does not queue re-analysis: that is explicit
-               // operator work, or a deployment would silently re-process its history.
+               // Two distinct reasons to create nothing, and only two.
+               //
+               // The exact identity already exists, in any state: recovery is claim,
+               // retry or explicit operator action, never a duplicate row for an
+               // identity that is unique by construction.
+               //
+               // Or an older engine already produced facts for this run and revision.
+               // An upgrade makes those stale for readiness (plan §R) and does not
+               // re-analyse them, or a deployment would silently re-process its history.
+               //
+               // Deliberately *not* a reason: an older engine's Queued, Running or
+               // Failed row. The execution-identity fence stops this host claiming it —
+               // correctly, since it cannot reproduce that engine's facts — so treating
+               // it as a reason would leave the current engine with nothing it may
+               // execute and nothing it may create. The old row keeps its own lifecycle;
+               // the current engine simply gets its own unit.
                && !db.SceneAnalyses.Any(unit =>
                    unit.ProcessingRunId == run.Id
-                   && unit.RevisionId == revision.Id)
+                   && unit.RevisionId == revision.Id
+                   && (unit.AlgorithmVersion == algorithmVersion
+                       || unit.Status == SceneAnalysisStatus.Completed
+                       || unit.Status == SceneAnalysisStatus.Superseded))
          orderby run.CompletedAtUtc, run.Id
          select new ValueTuple<Guid, Guid>(run.Id, revision.Id))
         .Take(batchSize)

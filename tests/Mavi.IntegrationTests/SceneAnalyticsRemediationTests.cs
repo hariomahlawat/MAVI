@@ -130,10 +130,147 @@ public sealed class SceneAnalyticsRemediationTests(PostgresFixture fixture)
             await reader.SceneAnalyses.AsNoTracking().ToListAsync(),
             unit => unit.AlgorithmVersion == NextAlgorithmVersion);
 
+        // The consequence the operator sees: history intact, current engine not applied.
+        Assert.Equal(
+            SceneAnalyticsReadinessRule.Stale,
+            SceneAnalyticsReadinessRule.Derive(
+                new SceneAnalyticsCameraScope(world.CameraId, world.RevisionId, 1, true),
+                [.. (await reader.SceneAnalyses.AsNoTracking().ToListAsync()).Select(ToView)],
+                NextAlgorithmVersion));
+
         // Explicit re-analysis is still able to create it.
         var requested = await lifecycle.RequestAnalysisAsync(
             world.IdentityFor(world.RevisionId, NextAlgorithmVersion), default);
         Assert.Equal(SceneAnalysisQueueOutcome.Created, requested.Outcome);
+    }
+
+    /// <summary>
+    /// Old-engine work that never produced facts must not strand the current engine.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The execution-identity fence means a v2 host cannot claim a v1 unit — correctly,
+    /// because it cannot reproduce v1's facts. So if reconciliation also refused to
+    /// create a v2 unit while any v1 row existed, a queued, running or failed v1 unit
+    /// would deny the current engine automatic analytics indefinitely: nothing can
+    /// execute the old row, and nothing may create a new one.
+    /// </para>
+    /// <para>
+    /// The old row is left exactly as it is. Its lifecycle is its own, and algorithm
+    /// version is part of the identity, so the current engine simply gets its own unit.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task AQueuedOldEngineUnitDoesNotBlockTheCurrentEngine()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        var (lifecycle, db) = world.Host();
+        await using var _ = db;
+        Assert.Equal(1, await QueueAsync(lifecycle, SceneAnalyticsWorld.AlgorithmVersion));
+        var old = await world.Read().SceneAnalyses.AsNoTracking().SingleAsync();
+
+        Assert.Equal(1, await QueueAsync(lifecycle, NextAlgorithmVersion));
+
+        await AssertBothEnginesHaveAUnitAsync(world);
+        var unchanged = await world.UnitAsync(old.Id);
+        Assert.Equal(SceneAnalysisStatus.Queued, unchanged.Status);
+        Assert.Equal(0, unchanged.AttemptCount);
+        Assert.Equal(old.QueuedAtUtc, unchanged.QueuedAtUtc);
+    }
+
+    /// <summary>
+    /// The in-flight case, which matters most: no surviving old host may exist to finish
+    /// the v1 attempt, and the v2 host must not reclaim it. Ownership is untouched.
+    /// </summary>
+    [Fact]
+    public async Task ARunningOldEngineUnitDoesNotBlockTheCurrentEngineOrLoseItsOwnership()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        var (lifecycle, db) = world.Host();
+        await using var _ = db;
+        await QueueAsync(lifecycle, SceneAnalyticsWorld.AlgorithmVersion);
+        var claim = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
+        var before = await world.UnitAsync(claim!.AnalysisId);
+        Assert.Equal(SceneAnalysisStatus.Running, before.Status);
+
+        Assert.Equal(1, await QueueAsync(lifecycle, NextAlgorithmVersion));
+
+        await AssertBothEnginesHaveAUnitAsync(world);
+
+        // Lease expiry is still not ownership loss, and an engine upgrade is not either.
+        var after = await world.UnitAsync(claim.AnalysisId);
+        Assert.Equal(SceneAnalysisStatus.Running, after.Status);
+        Assert.Equal(before.AttemptCount, after.AttemptCount);
+        Assert.Equal(before.ClaimTokenHash, after.ClaimTokenHash);
+        Assert.Equal(before.LeaseExpiresAtUtc, after.LeaseExpiresAtUtc);
+        Assert.Null(after.FailureCode);
+    }
+
+    [Fact]
+    public async Task AFailedOldEngineUnitDoesNotBlockTheCurrentEngine()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        var (lifecycle, db) = world.Host();
+        await using var _ = db;
+        await QueueAsync(lifecycle, SceneAnalyticsWorld.AlgorithmVersion);
+        var claim = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
+        await lifecycle.ReportFailureAsync(
+            claim!, SceneAnalyticsErrorCodes.EngineFailed, null, maximumAttempts: 1, default);
+        var before = await world.UnitAsync(claim!.AnalysisId);
+        Assert.Equal(SceneAnalysisStatus.Failed, before.Status);
+
+        Assert.Equal(1, await QueueAsync(lifecycle, NextAlgorithmVersion));
+
+        await AssertBothEnginesHaveAUnitAsync(world);
+        var after = await world.UnitAsync(claim.AnalysisId);
+        Assert.Equal(SceneAnalysisStatus.Failed, after.Status);
+        Assert.Equal(before.FailureCode, after.FailureCode);
+        Assert.Equal(before.AttemptCount, after.AttemptCount);
+    }
+
+    // --- The exact identity is never duplicated ----------------------------
+
+    /// <summary>
+    /// A failed unit for the current engine is recovered by explicit retry, never by a
+    /// second unit for an identity that is unique by construction.
+    /// </summary>
+    [Fact]
+    public async Task AFailedCurrentEngineUnitIsNeverDuplicated()
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        var (lifecycle, db) = world.Host();
+        await using var _ = db;
+        await QueueAsync(lifecycle, SceneAnalyticsWorld.AlgorithmVersion);
+        var claim = await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
+        await lifecycle.ReportFailureAsync(
+            claim!, SceneAnalyticsErrorCodes.EngineFailed, null, maximumAttempts: 1, default);
+
+        Assert.Equal(0, await QueueAsync(lifecycle, SceneAnalyticsWorld.AlgorithmVersion));
+
+        var unit = await world.Read().SceneAnalyses.AsNoTracking().SingleAsync();
+        Assert.Equal(SceneAnalysisStatus.Failed, unit.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task APendingOrInFlightCurrentEngineUnitIsNeverDuplicated(bool claimIt)
+    {
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        var (lifecycle, db) = world.Host();
+        await using var _ = db;
+        await QueueAsync(lifecycle, SceneAnalyticsWorld.AlgorithmVersion);
+        if (claimIt)
+        {
+            await lifecycle.ClaimNextAsync(SceneAnalyticsWorld.ExecutionIdentity, Policy, default);
+        }
+
+        Assert.Equal(0, await QueueAsync(lifecycle, SceneAnalyticsWorld.AlgorithmVersion));
+
+        var unit = await world.Read().SceneAnalyses.AsNoTracking().SingleAsync();
+        Assert.Equal(
+            claimIt ? SceneAnalysisStatus.Running : SceneAnalysisStatus.Queued,
+            unit.Status);
     }
 
     /// <summary>
@@ -155,6 +292,35 @@ public sealed class SceneAnalyticsRemediationTests(PostgresFixture fixture)
     }
 
     // --- Helpers -----------------------------------------------------------
+
+    /// <summary>Both engines hold a unit of their own for the same run and revision.</summary>
+    private static async Task AssertBothEnginesHaveAUnitAsync(SceneAnalyticsWorld world)
+    {
+        await using var reader = world.Read();
+        var units = await reader.SceneAnalyses.AsNoTracking().ToListAsync();
+
+        Assert.Equal(2, units.Count);
+        Assert.Contains(units, unit => unit.AlgorithmVersion == SceneAnalyticsWorld.AlgorithmVersion);
+        var current = Assert.Single(units, unit => unit.AlgorithmVersion == NextAlgorithmVersion);
+        Assert.Equal(SceneAnalysisStatus.Queued, current.Status);
+        Assert.Equal(world.RevisionId, current.RevisionId);
+    }
+
+    private static SceneAnalysisUnitView ToView(SceneAnalysis unit) => new(
+        unit.Id,
+        unit.ProcessingRunId,
+        unit.RevisionId,
+        1,
+        unit.AlgorithmVersion,
+        unit.Status,
+        unit.AttemptCount,
+        unit.QueuedAtUtc,
+        unit.StartedAtUtc,
+        unit.CompletedAtUtc,
+        unit.LeaseExpiresAtUtc,
+        unit.AnalysedTrackCount,
+        unit.UnavailableTrackCount,
+        unit.FailureCode);
 
     private static Task<int> QueueAsync(SceneAnalysisLifecycle lifecycle, string algorithmVersion) =>
         lifecycle.QueueEligibleUnitsAsync(
