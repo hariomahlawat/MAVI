@@ -67,6 +67,8 @@ if ($machineConfigExists -and (Test-Path -LiteralPath $psqlPath -PathType Leaf))
         Add-Check -Name "pgvector" -Passed (-not [string]::IsNullOrWhiteSpace($vectorVersion)) -Detail $(if ($vectorVersion) { $vectorVersion } else { "not enabled" })
         Add-Check -Name "Managed media root" -Passed (Test-Path -LiteralPath ([string]$machineConfig.MediaStorage.RootPath) -PathType Container) -Detail ([string]$machineConfig.MediaStorage.RootPath)
         Add-Check -Name "Evidence root" -Passed (Test-Path -LiteralPath ([string]$machineConfig.MediaStorage.EvidenceRootPath) -PathType Container) -Detail ([string]$machineConfig.MediaStorage.EvidenceRootPath)
+        $cursorKeyPresent = $null -ne (Get-MaviExistingCursorSigningKey -MachineConfigPath $machineConfigPath)
+        Add-Check -Name "Search cursor signing key" -Passed $cursorKeyPresent -Detail $(if ($cursorKeyPresent) { "TrackSearch:CursorSigningKey provisioned" } else { "missing or malformed; re-run Setup-MAVI" })
     }
     catch { Add-Check -Name "Database connectivity" -Passed $false -Detail $_.Exception.Message }
 }

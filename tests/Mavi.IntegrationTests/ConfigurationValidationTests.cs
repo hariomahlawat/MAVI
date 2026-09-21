@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Xml.Linq;
+using Mavi.Application.Modules.Intelligence;
 using Mavi.Application.Modules.Media;
 using Mavi.Application;
 using Mavi.Infrastructure;
@@ -8,7 +9,6 @@ using Mavi.Infrastructure.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Mavi.Application.Modules.Intelligence;
 
 namespace Mavi.IntegrationTests;
 
@@ -42,6 +42,9 @@ public sealed class ConfigurationValidationTests
     [InlineData("Localization:DefaultDisplayTimeZoneId", " Asia/Kolkata ")]
     [InlineData("Localization:DefaultDisplayTimeZoneId", "UTC ")]
     [InlineData("Localization:DefaultDisplayTimeZoneId", " UTC")]
+    [InlineData("TrackSearch:CursorSigningKey", "not-base64")]
+    [InlineData("TrackSearch:CursorSigningKey", "AAEC")]
+    [InlineData("TrackSearch:CursorSigningKey", "")]
     [InlineData("VisionProcessing:Pipeline", "")]
     [InlineData("VisionProcessing:PipelineVersion", "")]
     [InlineData("VisionProcessing:MaximumAttempts", "0")]
@@ -58,7 +61,34 @@ public sealed class ConfigurationValidationTests
             _ = provider.GetRequiredService<IOptions<VideoImportOptions>>().Value;
             _ = provider.GetRequiredService<IOptions<LocalizationOptions>>().Value;
             _ = provider.GetRequiredService<IOptions<VisionProcessingOptions>>().Value;
+            _ = provider.GetRequiredService<IOptions<TrackSearchOptions>>().Value;
         });
+    }
+
+    [Fact]
+    public void AConfiguredCursorSigningKeyResolvesOnceAndIsNotEphemeral()
+    {
+        using var provider = BuildProvider();
+
+        var key = provider.GetRequiredService<TrackCursorSigningKey>();
+
+        Assert.False(key.IsEphemeral);
+        Assert.Same(key, provider.GetRequiredService<TrackCursorSigningKey>());
+    }
+
+    [Fact]
+    public void NoCursorSigningKeyIsRejectedUnlessEphemeralIsAllowed()
+    {
+        using var strict = BuildProvider(new Dictionary<string, string?> { ["TrackSearch:CursorSigningKey"] = null });
+        Assert.Throws<OptionsValidationException>(() =>
+            _ = strict.GetRequiredService<IOptions<TrackSearchOptions>>().Value);
+
+        using var lenient = BuildProvider(new Dictionary<string, string?>
+        {
+            ["TrackSearch:CursorSigningKey"] = null,
+            ["TrackSearch:AllowEphemeralCursorSigningKey"] = "true",
+        });
+        Assert.True(lenient.GetRequiredService<TrackCursorSigningKey>().IsEphemeral);
     }
 
     [Fact]
@@ -191,6 +221,7 @@ public sealed class ConfigurationValidationTests
             ["VisionProcessing:MaximumAttempts"] = "3",
             ["VisionProcessing:LeaseSeconds"] = "120",
             ["VisionProcessing:HeartbeatExtensionSeconds"] = "120",
+            ["TrackSearch:CursorSigningKey"] = ApiTestFactory.DefaultCursorSigningKey,
         };
         if (overrides is not null)
         {

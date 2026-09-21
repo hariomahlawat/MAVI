@@ -194,6 +194,12 @@ Two things automatic reconciliation deliberately does **not** do:
 
 Set `"Enabled": false` to stop the host entirely; the API serves normally without it, and runs simply report as not yet analysed. The integration-test host disables it by default, because a loop that queues and analyses on its own schedule would mutate the shared test database underneath other tests.
 
+## Analytic search cursor signing key
+
+Analytic Track searches (any `GET /api/tracks` request with a scene-analytics key) page through a signed v3 cursor that pins the resolved scene revision, algorithm version and coverage snapshot. The key that signs it is `TrackSearch:CursorSigningKey`: base64 of exactly 32 bytes, written to the machine configuration by `Setup-MAVI` and kept across re-runs.
+
+`appsettings.Development.json` sets `TrackSearch:AllowEphemeralCursorSigningKey` so a workstation that has not re-run setup still starts, with a per-process key and a start-up warning; analytic cursors then die with the process, ordinary v2 cursors are unaffected. That flag is honoured only in the Development and Testing environments — a Production host without a configured key refuses to start rather than mint one. Integration tests supply a fixed key through `ApiTestFactory`.
+
 ## Managed Development database and integration-test connection
 
 `Setup-MAVI-Development.cmd` owns the Development database environment. It creates and maintains:

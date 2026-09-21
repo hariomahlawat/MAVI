@@ -38,6 +38,7 @@ builder.Services.Configure<FormOptions>(options =>
 
 var app = builder.Build();
 await app.VerifyNativeMediaToolsAsync();
+app.VerifyTrackCursorSigning();
 await app.ApplyDatabaseMigrationsAsync();
 // Client-aborted requests are expected control flow. Keep cancellation propagation intact in
 // repositories and services, but prevent routine RequestAborted exceptions from surfacing as

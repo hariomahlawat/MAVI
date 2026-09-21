@@ -98,6 +98,7 @@ public static class DependencyInjection
                 "VisionProcessing:HeartbeatExtensionSeconds must be between 1 and 86400.")
             .ValidateOnStart();
         services.AddSceneAnalyticsOptions(configuration);
+        services.AddTrackSearchOptions(configuration);
         services.AddOptions<LocalizationOptions>()
             .Bind(configuration.GetSection(LocalizationOptions.SectionName))
             .ValidateOnStart();
@@ -125,6 +126,36 @@ internal sealed class LocalizationOptionsValidator(ITimeZoneService timeZones) :
         timeZones.IsValidIanaTimeZoneId(options.DefaultDisplayTimeZoneId)
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail("Localization:DefaultDisplayTimeZoneId must be a recognized IANA timezone ID.");
+}
+
+/// <summary>
+/// The Track search surface's configuration contract: the analytic cursor signing key.
+/// </summary>
+/// <remarks>
+/// The key object is a singleton resolved once from options, so every request signs and
+/// verifies with the same bytes for the life of the process — including an ephemeral key,
+/// which would otherwise differ per request and never verify anything.
+/// </remarks>
+public static class TrackSearchOptionsRegistration
+{
+    public static IServiceCollection AddTrackSearchOptions(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddOptions<TrackSearchOptions>()
+            .Bind(configuration.GetSection(TrackSearchOptions.SectionName))
+            .Validate(
+                x => string.IsNullOrWhiteSpace(x.CursorSigningKey) || TrackCursorSigningKey.IsWellFormed(x.CursorSigningKey),
+                $"{TrackSearchOptions.SectionName}:CursorSigningKey must be the base64 encoding of exactly {TrackCursorSigningKey.KeyByteLength} bytes.")
+            .Validate(
+                x => !string.IsNullOrWhiteSpace(x.CursorSigningKey) || x.AllowEphemeralCursorSigningKey,
+                $"{TrackSearchOptions.SectionName}:CursorSigningKey is required unless {TrackSearchOptions.SectionName}:AllowEphemeralCursorSigningKey is set for a Development or Testing host.")
+            .ValidateOnStart();
+        services.AddSingleton(provider =>
+            TrackCursorSigningKey.FromOptions(provider.GetRequiredService<IOptions<TrackSearchOptions>>().Value));
+        return services;
+    }
 }
 
 /// <summary>
