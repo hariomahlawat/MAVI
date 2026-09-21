@@ -145,9 +145,55 @@ describe('CamerasPage', () => {
     expect(screen.getByRole('form', { name: 'Add camera' })).toBeInTheDocument();
 
     // Editing the code clears the conflict rather than leaving it to contradict
-    // the value now in the field.
+    // the value now in the field — and clears it everywhere, not just from the
+    // field: the same refusal must not reappear as a page-level alert about a
+    // code the operator has since changed.
     await user.type(code, '0');
-    expect(screen.queryByText('A camera with this code already exists.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/already exists/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/camera_code_duplicate/)).not.toBeInTheDocument();
+  });
+
+  it('never states a duplicate code as a page-level alert', async () => {
+    const user = userEvent.setup();
+    vi.mocked(createCamera).mockRejectedValueOnce(new ApiError({
+      status: 409,
+      code: 'camera_code_duplicate',
+      detail: 'A camera with this code already exists.',
+    }));
+    renderWithApp(<CamerasPage />);
+    await screen.findByText('North Gate');
+
+    const form = await openCreate(user);
+    await user.type(screen.getByLabelText('Camera code'), 'CAM-01');
+    await user.type(screen.getByLabelText('Camera name'), 'Duplicate');
+    await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+    await user.click(submit(form));
+
+    await screen.findByText('A camera with this code already exists.');
+    // §21: a conflict attributable to a field belongs on that field. Stating
+    // it twice, once of them as a page-level alert, is the duplicate §30 names.
+    expect(within(form).queryByRole('alert')).not.toBeInTheDocument();
+    expect(form.querySelector('.alert')).toBeNull();
+  });
+
+  it('still reports a create failure that is not attributable to a field', async () => {
+    const user = userEvent.setup();
+    vi.mocked(createCamera).mockRejectedValueOnce(new ApiError({
+      status: 503,
+      code: 'camera_store_unavailable',
+      detail: 'The camera store is unavailable.',
+    }));
+    renderWithApp(<CamerasPage />);
+    await screen.findByText('North Gate');
+
+    const form = await openCreate(user);
+    await user.type(screen.getByLabelText('Camera code'), 'CAM-02');
+    await user.type(screen.getByLabelText('Camera name'), 'East Gate');
+    await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+    await user.click(submit(form));
+
+    expect(await screen.findByText(/camera store is unavailable.*camera_store_unavailable/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Camera code')).not.toHaveAttribute('aria-invalid');
   });
 
   it('creates a camera with the confirmed timezone, then closes the form without a toast', async () => {

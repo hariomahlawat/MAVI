@@ -152,6 +152,12 @@ export default function CamerasPage() {
     createMutation.mutate({ code, name, timeZoneId });
   }
 
+  /** A failure the form cannot pin to a field, and so has to state as a whole. */
+  const unattributableFailure = createMutation.isError
+    && !(createMutation.error instanceof ApiError && createMutation.error.code === 'camera_code_duplicate')
+    ? createMutation.error
+    : null;
+
   const rows = useMemo(
     () => (cameras.data ? sortRows(cameras.data, sort.state, compareCameras, (camera) => camera.id) : []),
     [cameras.data, sort.state],
@@ -172,10 +178,16 @@ export default function CamerasPage() {
         close();
       }}
     >
-      {createMutation.isError && !codeConflict ? (
+      {/* A refusal that belongs to a field is stated on that field and
+          nowhere else (§21). Deciding that from the error's own code rather
+          than from whether `codeConflict` is currently set matters: editing the
+          code clears the field message, and a condition that keyed on it
+          brought the very same refusal back as a page-level alert about a code
+          the operator had already changed. */}
+      {unattributableFailure ? (
         <Alert tone="error">
-          {createMutation.error instanceof ApiError
-            ? `${createMutation.error.detail} (${createMutation.error.code})`
+          {unattributableFailure instanceof ApiError
+            ? `${unattributableFailure.detail} (${unattributableFailure.code})`
             : 'Camera could not be created.'}
         </Alert>
       ) : null}
