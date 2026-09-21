@@ -341,6 +341,7 @@ describe('VideoImportPage', () => {
         failureCode: null,
         framesProcessed: 0,
         tracksCreated: 0,
+        analyticsReadiness: 'NotConfigured',
       },
     });
 

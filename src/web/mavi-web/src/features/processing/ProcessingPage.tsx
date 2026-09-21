@@ -3,14 +3,25 @@ import type { ReactNode } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { getCamera } from '../../api/cameras';
 import { ApiError, isGuid } from '../../api/client';
+import {
+  analyticsPollInterval,
+  currentUnit,
+  getRunAnalytics,
+  latestFactBearingUnit,
+  requestSceneReanalysis,
+  retryRunAnalytics,
+  type ProcessingRunAnalytics,
+} from '../../api/sceneAnalytics';
 import { getSystemConfig } from '../../api/system';
 import {
   getProcessingStatus,
   getVideo,
   processingPollInterval,
   queueProcessing,
+  type AnalyticsReadiness,
 } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
+import { analyticsReadinessText } from './analyticsReadiness';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
@@ -108,6 +119,42 @@ export default function ProcessingPage() {
         ]);
       }
     },
+  });
+
+  // Scene analytics readiness for the latest run (plan §S "Processing readiness
+  // presentation"), read from the Slice 3 endpoint once the run has completed —
+  // the endpoint answers only for completed, published runs — and polled only
+  // while Pending, the one readiness that moves on its own.
+  const latestRun = processing.data?.latestRun ?? null;
+  const runId = latestRun?.status === 'Completed' ? latestRun.processingRunId : '';
+  const analytics = useQuery({
+    queryKey: queryKeys.runAnalytics(runId),
+    queryFn: ({ signal }) => getRunAnalytics(runId, signal),
+    enabled: runId !== '',
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
+    refetchInterval: (query) => query.state.error ? false : analyticsPollInterval(query.state.data),
+  });
+
+  const invalidateAnalytics = async () => {
+    // Mutations invalidate both the processing readiness and the run analytics
+    // (plan §S), so neither surface keeps saying what was true before the click.
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.videoProcessing(videoAssetId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.runAnalytics(runId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.videos }),
+    ]);
+  };
+
+  const retryAnalytics = useMutation({
+    mutationFn: () => retryRunAnalytics(runId),
+    onSuccess: invalidateAnalytics,
+    onError: invalidateAnalytics,
+  });
+
+  const reanalyse = useMutation({
+    mutationFn: () => requestSceneReanalysis(cameraId, 'latestRuns'),
+    onSuccess: invalidateAnalytics,
+    onError: invalidateAnalytics,
   });
 
   const displayZone = systemConfig.data?.displayTimeZoneId;
@@ -280,7 +327,163 @@ export default function ProcessingPage() {
             )}
           </Panel>
         ) : null}
+
+        {/* Scene analytics for the completed run: readiness as text — the run's
+            one badge already sits in the Context Bar (§16) — with the action the
+            state calls for. Failed retries the unit; Stale offers the camera-level
+            re-analysis that exists, stating its camera-wide consequence before the
+            click (§15). */}
+        {video.data && run && run.status === 'Completed' ? (
+          <Panel title="Scene analytics">
+            <SceneAnalyticsPanel
+              readiness={run.analyticsReadiness}
+              analytics={analytics.data}
+              analyticsUnavailable={analytics.isError}
+              cameraId={cameraId}
+              cameraLabel={camera.data ? `${camera.data.code} · ${camera.data.name}` : 'this camera'}
+              displayZone={displayZone}
+              onRetry={() => retryAnalytics.mutate()}
+              retrying={retryAnalytics.isPending}
+              retryError={retryAnalytics.error}
+              onReanalyse={() => reanalyse.mutate()}
+              reanalysing={reanalyse.isPending}
+              reanalyseResult={reanalyse.data}
+              reanalyseError={reanalyse.error}
+            />
+          </Panel>
+        ) : null}
       </RecordLayout>
     </section>
+  );
+}
+
+
+function errorText(error: unknown, fallback: string): string {
+  return error instanceof ApiError ? `${error.detail} (${error.code})` : fallback;
+}
+
+/**
+ * What the six readiness states mean for this run, and what the operator can do.
+ *
+ * Ready names the revision and engine that analysed it and the Track counts;
+ * Pending shows the unit's own progress; Failed exposes Retry analytics; Stale
+ * explains that the current geometry or engine has not been applied and offers
+ * the camera-wide re-analysis, saying exactly what that re-analyses; Disabled
+ * and NotConfigured stay distinct and point at the Scene Editor.
+ */
+function SceneAnalyticsPanel({
+  readiness,
+  analytics,
+  analyticsUnavailable,
+  cameraId,
+  cameraLabel,
+  displayZone,
+  onRetry,
+  retrying,
+  retryError,
+  onReanalyse,
+  reanalysing,
+  reanalyseResult,
+  reanalyseError,
+}: {
+  readiness: AnalyticsReadiness;
+  analytics: ProcessingRunAnalytics | undefined;
+  analyticsUnavailable: boolean;
+  cameraId: string;
+  cameraLabel: string;
+  displayZone: string | undefined;
+  onRetry: () => void;
+  retrying: boolean;
+  retryError: unknown;
+  onReanalyse: () => void;
+  reanalysing: boolean;
+  reanalyseResult: { created: number; runsInScope: number } | undefined;
+  reanalyseError: unknown;
+}) {
+  // The lifecycle endpoint is the richer source; the status endpoint's readiness
+  // is what the row already said. They agree by construction, and when the richer
+  // one is unavailable the readiness word still stands.
+  const effective = analytics?.readiness ?? readiness;
+  const unit = analytics ? currentUnit(analytics) : undefined;
+  const previous = analytics ? latestFactBearingUnit(analytics) : undefined;
+  const sceneLink = isGuid(cameraId) ? `/cameras/${cameraId.toLowerCase()}/scene` : '/cameras';
+
+  return (
+    <div className="stack">
+      <KeyValue
+        items={[
+          { label: 'Readiness', value: <span className="analytics-state" data-readiness={effective}>{analyticsReadinessText(effective)}</span> },
+          ...(effective === 'Ready' && unit
+            ? [
+              { label: 'Analysed with', value: `Revision ${unit.sceneRevisionNumber} · ${unit.algorithmVersion}` },
+              { label: 'Tracks analysed', value: formatCount(unit.analysedTrackCount) },
+              { label: 'Tracks unavailable', value: formatCount(unit.unavailableTrackCount) },
+              { label: 'Completed', value: safeFormatTimestamp(unit.completedAtUtc, displayZone) },
+            ]
+            : []),
+          ...(effective === 'Pending' && unit
+            ? [{ label: 'Unit', value: `${unit.status} · attempt ${formatCount(unit.attemptCount)}` }]
+            : []),
+          ...(effective === 'Failed' && unit
+            ? [
+              { label: 'Attempts', value: formatCount(unit.attemptCount) },
+              { label: 'Failure', value: <code>{unit.failureCode ?? 'unknown'}</code> },
+            ]
+            : []),
+          ...(effective === 'Stale' && previous
+            ? [{ label: 'Analysed with', value: `Revision ${previous.sceneRevisionNumber} · ${previous.algorithmVersion}` }]
+            : []),
+        ]}
+      />
+
+      {analyticsUnavailable ? (
+        <Alert tone="warning">Analysis details are unavailable; the readiness above is from the processing status.</Alert>
+      ) : null}
+
+      {effective === 'Pending' ? (
+        <p className="small faint">The analytics host will analyse this run against the active scene revision; this page keeps refreshing until it does.</p>
+      ) : null}
+
+      {effective === 'Failed' ? (
+        <div className="inline-alert-actions">
+          <Alert tone="error">Scene analytics failed for this run. Retrying starts a new attempt cycle on the same analysis; existing facts are kept until it succeeds.</Alert>
+          <Button variant="primary" icon="refresh" onClick={onRetry} disabled={retrying}>
+            {retrying ? 'Retrying…' : 'Retry analytics'}
+          </Button>
+        </div>
+      ) : null}
+      {retryError ? <Alert tone="error">{errorText(retryError, 'The analysis could not be retried.')}</Alert> : null}
+
+      {effective === 'Stale' ? (
+        <div className="inline-alert-actions">
+          <Alert tone="stale">
+            The current scene geometry or analytics engine has not been applied to this run; the earlier facts are kept and stay searchable by their revision.
+            Re-analysing queues the latest completed run of <strong>every video of {cameraLabel}</strong> against the active revision, not just this one.
+          </Alert>
+          <Button variant="secondary" icon="refresh" onClick={onReanalyse} disabled={reanalysing}>
+            {reanalysing ? 'Queueing…' : 'Re-analyse camera'}
+          </Button>
+        </div>
+      ) : null}
+      {reanalyseResult ? (
+        <Alert tone="info">
+          Re-analysis requested: {formatCount(reanalyseResult.created)} of {formatCount(reanalyseResult.runsInScope)} runs queued; the rest were already analysed, queued or need an explicit retry.
+        </Alert>
+      ) : null}
+      {reanalyseError ? <Alert tone="error">{errorText(reanalyseError, 'Re-analysis could not be requested.')}</Alert> : null}
+
+      {effective === 'Disabled' ? (
+        <div className="inline-alert-actions">
+          <Alert tone="info">The active scene revision enables no zone or trip line, so analytics are switched off for this camera on purpose.</Alert>
+          <ButtonLink size="sm" to={sceneLink}>Open Scene Editor</ButtonLink>
+        </div>
+      ) : null}
+      {effective === 'NotConfigured' ? (
+        <div className="inline-alert-actions">
+          <Alert tone="info">This camera has no scene configuration yet, so there is nothing to analyse against.</Alert>
+          <ButtonLink size="sm" to={sceneLink}>Open Scene Editor</ButtonLink>
+        </div>
+      ) : null}
+    </div>
   );
 }

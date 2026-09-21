@@ -45,6 +45,17 @@
 .table--ledger .run-cell { min-width: 0; }
 .table--ledger .progress--inline { min-width: 72px; }
 .run-cell__line { display: flex; align-items: center; gap: var(--s-2); color: var(--text-muted); font-size: var(--fs-1); }
+/* Analytics readiness as text (UI/UX §16, §29): never a second badge in the
+   row. The non-colour treatments of the state taxonomy carry the meaning —
+   a dashed underline for stale, a hatched underline for a run whose scene is
+   absent or switched off — so a reader scanning the column tells the states
+   apart without a hue. */
+.analytics-state { white-space: nowrap; font-size: var(--fs-1); color: var(--text-secondary); }
+.analytics-state[data-readiness="Ready"] { color: var(--text-primary); }
+.analytics-state[data-readiness="Pending"] { color: var(--text-muted); font-style: italic; }
+.analytics-state[data-readiness="Failed"] { color: var(--status-err); }
+.analytics-state[data-readiness="Stale"] { text-decoration: underline dashed var(--status-stale-border); text-underline-offset: var(--stroke-2); }
+.analytics-state[data-readiness="Disabled"], .analytics-state[data-readiness="NotConfigured"] { color: var(--text-muted); }
 
 /* Search workspace.
    The three-column grid that used to live here is gone: it was this feature's

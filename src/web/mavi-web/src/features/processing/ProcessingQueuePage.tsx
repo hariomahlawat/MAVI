@@ -19,6 +19,7 @@ import { isActiveStatus } from '../../shared/status/status';
 import { ContextBar, LedgerLayout, Toolbar } from '../../shared/workspace';
 import { useVideoProcessing } from '../videos/useVideoProcessing';
 import { joinVideoRows, sortVideoRows, type VideoRow } from '../videos/videoRows';
+import { analyticsReadinessText } from './analyticsReadiness';
 
 type Bucket = 'active' | 'failed' | 'completed';
 
@@ -149,6 +150,11 @@ export default function ProcessingQueuePage() {
                   <th scope="col" className="num">Queued</th>
                   <th scope="col" className="num">Attempt</th>
                   <th scope="col" className="num" title="Final count, recorded when the run completed">Tracks</th>
+                  {/* Slice 4: a separate compact column, as text. The Status
+                      column keeps its one badge (§16); analytics readiness is a
+                      second fact about the row, not a second opinion about the
+                      same one, and is never a second badge. */}
+                  <th scope="col" title="Scene analytics readiness for the latest run">Analytics</th>
                   <th scope="col"><span className="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
@@ -194,6 +200,15 @@ export default function ProcessingQueuePage() {
                       </td>
                       <td className="num">{run ? formatCount(run.attemptCount) : '—'}</td>
                       <td className="num">{run && run.status === 'Completed' ? formatCount(run.tracksCreated) : '—'}</td>
+                      <td>
+                        {run && run.status === 'Completed' ? (
+                          <span className="analytics-state" data-readiness={run.analyticsReadiness}>
+                            {analyticsReadinessText(run.analyticsReadiness)}
+                          </span>
+                        ) : (
+                          <span className="faint">—</span>
+                        )}
+                      </td>
                       <td>
                         {/* §16: one primary text action per row, plus at most
                             one icon-only action. A processed run has somewhere

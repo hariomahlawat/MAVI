@@ -19,6 +19,7 @@ function status(videoStatus: string, runStatus?: string): ProcessingStatus {
           failureCode: null,
           framesProcessed: 0,
           tracksCreated: 0,
+          analyticsReadiness: 'NotConfigured',
         }
       : null,
   };
@@ -45,5 +46,17 @@ describe('processing polling policy', () => {
 
   it('does not poll before status is known', () => {
     expect(processingPollInterval(undefined)).toBe(false);
+  });
+
+  it('keeps polling a Processed video while its analytics are still pending, and stops for every other readiness (Slice 4)', () => {
+    const pending = status('Processed', 'Completed');
+    pending.latestRun!.analyticsReadiness = 'Pending';
+    expect(processingPollInterval(pending)).toBe(2_000);
+
+    for (const readiness of ['Ready', 'Failed', 'Stale', 'Disabled', 'NotConfigured'] as const) {
+      const settled = status('Processed', 'Completed');
+      settled.latestRun!.analyticsReadiness = readiness;
+      expect(processingPollInterval(settled), readiness).toBe(false);
+    }
   });
 });

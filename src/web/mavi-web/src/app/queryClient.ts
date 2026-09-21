@@ -33,6 +33,7 @@ export const queryKeys = {
     ['camera-scene-revision', cameraId, revisionNumber] as const,
   trajectory: (artifactId: string) => ['trajectory', artifactId] as const,
   runAttestation: (processingRunId: string) => ['processing-run', processingRunId, 'attestation'] as const,
+  runAnalytics: (processingRunId: string) => ['processing-run', processingRunId, 'analytics'] as const,
   systemConfig: ['system-config'] as const,
   platformHealth: ['platform-health'] as const,
 };

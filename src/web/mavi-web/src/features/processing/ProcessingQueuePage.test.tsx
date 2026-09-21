@@ -33,7 +33,7 @@ function run(status: string, extra: Partial<ProcessingRunStatus> = {}): Processi
   return {
     processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431', status, pipeline: 'phase1-detection-tracking', pipelineVersion: 'phase1-v1',
     workerId: 'worker-a', queuedAtUtc: '2026-09-14T03:02:00Z', startedAtUtc: '2026-09-14T03:02:02Z', completedAtUtc: null,
-    progressPercent: 0, attemptCount: 1, failureCode: null, framesProcessed: 0, tracksCreated: 0, ...extra,
+    progressPercent: 0, attemptCount: 1, failureCode: null, framesProcessed: 0, tracksCreated: 0, analyticsReadiness: 'NotConfigured', ...extra,
   };
 }
 
@@ -162,6 +162,31 @@ describe('ProcessingQueuePage', () => {
     const row = within(await screen.findByRole('table')).getAllByRole('row')[1];
     expect(await within(row).findByText('Run: Running')).toBeInTheDocument();
     await waitFor(() => expect(row.querySelectorAll('.badge')).toHaveLength(1));
+  });
+
+  it('states analytics readiness as text in its own column, never as a second badge (Slice 4)', async () => {
+    const stale = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21425', 'Processed');
+    const pending = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21426', 'Processed');
+    vi.mocked(listVideos).mockResolvedValue([done, stale, pending, running]);
+    vi.mocked(getProcessingStatus).mockImplementation(async (id) => {
+      if (id === running.id) return { videoStatus: 'Processing', latestRun: run('Running', { progressPercent: 42.5 }) };
+      const readiness = id === done.id ? 'Ready' : id === stale.id ? 'Stale' : 'Pending';
+      return { videoStatus: 'Processed', latestRun: run('Completed', { progressPercent: 100, completedAtUtc: '2026-09-14T03:12:02Z', analyticsReadiness: readiness }) };
+    });
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+
+    const table = await screen.findByRole('table');
+    expect(within(table).getByRole('columnheader', { name: 'Analytics' })).toBeInTheDocument();
+    const rows = within(table).getAllByRole('row').slice(1);
+    // Active first (no analytics yet), then the three processed rows in recording order.
+    expect(await within(rows[0]).findByText('Processing')).toBeInTheDocument();
+    expect(rows[0].querySelector('.analytics-state')).toBeNull();
+    const readinessCells = await Promise.all(rows.slice(1).map(async (row) => (await within(row).findByText(/Analysed|Stale|Not analysed yet/)).textContent));
+    expect(readinessCells).toEqual(['Analysed', 'Stale', 'Not analysed yet']);
+    for (const row of rows) {
+      await waitFor(() => expect(row.querySelectorAll('.badge')).toHaveLength(1));
+    }
+    expect(rows[2].querySelector('.analytics-state')).toHaveAttribute('data-readiness', 'Stale');
   });
 
   it('points to the Videos page when nothing has been queued', async () => {
