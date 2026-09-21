@@ -155,6 +155,45 @@ The advisory lock serializes migration attempts from concurrent MAVI application
 
 The integration-test host disables automatic startup migration by default because its fixture deliberately resets `mavi_test` and controls migrations explicitly. Dedicated integration tests opt in to startup migration and verify blank-database migration, idempotent current-database startup, and fail-fast lock timeout behavior.
 
+## Scene analytics background host
+
+MAVI's API process runs one background service, `SceneAnalyticsHostedService`. It is the only background loop in the platform, and it does three things on each pass:
+
+1. queues an analysis unit for every completed, visible processing run whose camera has an active scene revision with at least one enabled zone or trip line;
+2. terminates units whose last permitted attempt walked away, after the reclaim grace;
+3. claims one unit, runs the deterministic analytics engine over the run's sealed trajectories outside any transaction, and commits the derived facts.
+
+A camera that has never been configured, or whose active revision enables nothing, produces no units at all. Saving an empty revision is the supported way to switch analytics off for one camera.
+
+Default settings are in `src/platform/Mavi.Api/appsettings.json`:
+
+```json
+"SceneAnalytics": {
+  "Enabled": true,
+  "ReconcileIntervalSeconds": 5,
+  "LeaseSeconds": 900,
+  "MaxUnitDurationSeconds": 300,
+  "ReclaimGraceSeconds": 60,
+  "MaximumAttempts": 3,
+  "MaxConcurrentUnits": 1,
+  "ReconcileBatchSize": 50,
+  "ReconcileLookbackDays": 7
+}
+```
+
+Three of these are load-bearing rather than tuning knobs:
+
+- **`LeaseSeconds` must be at least twice `MaxUnitDurationSeconds`.** There is no lease heartbeat, so the lease is the only thing standing between a slow attempt and being reclaimed while it is still succeeding. Start-up validation refuses a configuration that breaks this, and the application will not start.
+- **`MaxConcurrentUnits` must be 1.** The host executes units one after another, so any larger value would promise concurrency the implementation does not provide. Start-up validation pins it.
+- **`ReconcileLookbackDays` is anchored at host start**, not at the current time. The cutoff is computed once when the host starts and does not move, so a run that completes while the host is running is always analysed — including with a lookback of `0`, which means "do not backfill history" rather than "analyse nothing".
+
+Two things automatic reconciliation deliberately does **not** do:
+
+- **A geometry edit never reaches backwards.** A run that completed before a revision was activated is analysed against that revision only on explicit request.
+- **An engine upgrade never re-analyses history.** When the analytics algorithm version changes, existing facts stay readable and readiness becomes `Stale`; queueing the new version for already-analysed runs is explicit operator work. A host will also not claim a unit pinned to a different algorithm version or parameter set, so a mixed-version deployment cannot compute facts under the wrong identity.
+
+Set `"Enabled": false` to stop the host entirely; the API serves normally without it, and runs simply report as not yet analysed. The integration-test host disables it by default, because a loop that queues and analyses on its own schedule would mutate the shared test database underneath other tests.
+
 ## Managed Development database and integration-test connection
 
 `Setup-MAVI-Development.cmd` owns the Development database environment. It creates and maintains:

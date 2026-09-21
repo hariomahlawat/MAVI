@@ -5,6 +5,7 @@ using Mavi.Domain.Media;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mavi.Application.Modules.Intelligence;
+using Mavi.Application.Modules.SceneAnalytics.Lifecycle;
 using Mavi.Contracts.Api.Processing;
 using Mavi.Application.Modules.Evidence;
 
@@ -63,11 +64,21 @@ public static class VideoEndpoints
             : Problem(409, result.ErrorCode!, "Video processing is already active.");
     }
 
-    private static async Task<IResult> ProcessingAsync(Guid id, IProcessingOrchestrator orchestrator, CancellationToken cancellationToken)
+    private static async Task<IResult> ProcessingAsync(
+        Guid id,
+        IProcessingOrchestrator orchestrator,
+        SceneAnalyticsStatusService analytics,
+        CancellationToken cancellationToken)
     {
         var result = await orchestrator.GetStatusAsync(id, cancellationToken);
         if (!result.Found)
             return Problem(404, "video_not_found", "Video was not found.");
+
+        // Readiness is derived per request, so activating a new scene revision changes
+        // this answer without anything having rewritten the run.
+        var readiness = result.LatestRun is null
+            ? null
+            : await analytics.GetReadinessAsync(result.LatestRun.ProcessingRunId, cancellationToken);
 
         var latestRun = result.LatestRun is null
             ? null
@@ -84,7 +95,8 @@ public static class VideoEndpoints
                 result.LatestRun.AttemptCount,
                 result.LatestRun.FailureCode,
                 result.LatestRun.FramesProcessed,
-                result.LatestRun.TracksCreated);
+                result.LatestRun.TracksCreated,
+                readiness ?? SceneAnalyticsReadinessRule.NotConfigured);
 
         return Results.Ok(new ProcessingStatusResponse(result.VideoStatus, latestRun));
     }
