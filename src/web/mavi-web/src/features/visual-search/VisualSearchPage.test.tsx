@@ -653,6 +653,36 @@ describe('VisualSearchPage', () => {
       expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('80');
     });
 
+    it('settles the draft when a search commits the state it was already in', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search?minimumConfidence=0.8' });
+      await screen.findByRole('link', { name: 'Review evidence' });
+      expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('80');
+
+      // An edit that canonicalises to what is already committed. The URL does
+      // not change, so nothing keyed on it can notice that Search was pressed —
+      // and the field would stay marked as an outstanding edit for ever.
+      const confidence = screen.getByLabelText('Minimum confidence (%)');
+      await user.clear(confidence);
+      await user.type(confidence, '80.00');
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+      await waitFor(() => expect(confidence).toHaveValue('80'));
+
+      // Which would then survive the removal of its own chip, and come back on
+      // the next search — a criterion the operator removed, reinstating itself.
+      await user.click(screen.getByRole('button', { name: 'Remove minimum confidence filter' }));
+
+      await waitFor(() => expect(screen.getByLabelText('Current search location'))
+        .not.toHaveTextContent('minimumConfidence'));
+      expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('');
+      expect(vi.mocked(searchTracks).mock.calls.at(-1)?.[0].minimumConfidence).toBeUndefined();
+
+      // And it stays gone: the next search does not reinstate it.
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+      expect(screen.getByLabelText('Current search location')).not.toHaveTextContent('minimumConfidence');
+      expect(vi.mocked(searchTracks).mock.calls.at(-1)?.[0].minimumConfidence).toBeUndefined();
+    });
+
     it('drops the selection when a criterion is removed', async () => {
       const user = userEvent.setup();
       const first = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451');

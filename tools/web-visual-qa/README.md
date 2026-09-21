@@ -122,12 +122,19 @@ it and nowhere else: `search-threshold` runs at 1440, 1499, 1500, 1550, 1599 and
 1600, and `search-ultrawide` at 1920 and 2560. An explicit `--widths` still
 wins — that is a person asking to look at one width.
 
+`prepareSettleMs` sets how long to wait after a state's `prepare` step, for
+preparations whose consequence is slower than a render — a continuation that
+fails with a 5xx is retried once by the query client before it settles.
+
 A fixture override may also be a **sequence**: `{ sequence: [pageOne,
 'unavailable'] }` answers successive requests to the same path with successive
 entries, the last one repeating. Cursor pagination is the reason — page one has
 to succeed for there to be a continuation to fail — and the counters are rewound
 between states and viewports, so the second width starts at page one rather than
-where the first left off.
+where the first left off. Per-viewer storage is cleared from `/__blank`, a
+same-origin document that boots nothing: storage belongs to the origin, and
+loading the application to reach it would issue its API requests and start a
+sequenced state one response late.
 
 Fixture overrides also accept a method — `'POST /api/cameras'` — and an
 explicit `{ status, body }` response, which is how the duplicate-code conflict

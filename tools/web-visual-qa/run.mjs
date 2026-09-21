@@ -95,12 +95,17 @@ try {
       // that loaded fine in isolation sits at readyState 1 for want of a free
       // decoder — which looks exactly like a product defect and is not one.
       await browser.goto('about:blank');
-      await browser.goto(origin + state.path);
       // Per-viewer preferences the product stores — the Investigation's
       // List/Grid choice — survive a navigation, so without this a state that
       // switches to the Grid decides the view of every state after it. The
       // matrix would then photograph a Grid it never asked for and report the
       // pass as covering a List.
+      //
+      // Cleared from a blank same-origin document rather than from the
+      // application: storage belongs to the origin, and booting the app to
+      // reach it would issue its API requests, which for a sequenced override
+      // means the capture that follows starts one response late.
+      await browser.goto(origin + '/__blank');
       await browser.evaluate('(() => { try { window.localStorage.clear(); } catch { /* blocked */ } return true; })()');
       await browser.goto(origin + state.path);
       // Let the query client settle and any media element lay itself out.
@@ -116,7 +121,11 @@ try {
       let prepared = true;
       if (state.prepare) {
         prepared = Boolean(await browser.evaluate(state.prepare));
-        await browser.evaluate('new Promise((r) => setTimeout(r, 600))');
+        // What the preparation set in motion takes as long as it takes. A
+        // continuation that fails with a 5xx is retried once by the query
+        // client before it settles, which is longer than a click on a button
+        // that already has its data.
+        await browser.evaluate('new Promise((r) => setTimeout(r, ' + (state.prepareSettleMs ?? 600) + '))');
         if (!prepared) findings.push(`${where}: prepare step did not run — the state was never reached`);
       }
 
@@ -198,9 +207,16 @@ try {
       // that expects one would hide an unrelated failure alongside it, so the
       // expected paths are collected and matched individually: a state that
       // breaks `/api/cameras` still reports a broken `/api/videos`.
+      // A response is "expected to fail" whether the override says so outright
+      // or says so in one entry of a sequence — a paginated state whose first
+      // page succeeds and whose continuation fails is asking for that failure
+      // just as deliberately.
+      const failing = (value) => value === 'unavailable'
+        || (value !== null && typeof value === 'object' && typeof value.status === 'number');
       const expectedPaths = Object.entries(state.api ?? {})
-        .filter(([, value]) => value === 'unavailable'
-          || (value !== null && typeof value === 'object' && typeof value.status === 'number'))
+        .filter(([, value]) => failing(value)
+          || (value !== null && typeof value === 'object' && Array.isArray(value.sequence)
+            && value.sequence.some(failing)))
         // A key may be method-qualified (`POST /api/cameras`); the path is what
         // appears in the browser's message.
         .map(([key]) => (key.includes(' ') ? key.slice(key.indexOf(' ') + 1) : key));

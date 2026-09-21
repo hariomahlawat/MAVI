@@ -196,6 +196,20 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
       return;
     }
 
+    // A same-origin document that boots nothing.
+    //
+    // Per-viewer storage belongs to the origin, so clearing it needs a page on
+    // this origin — but every SPA route serves index.html, which starts the
+    // application and issues its API requests. Doing that merely to reach
+    // `localStorage` consumed the first entry of a sequenced override, so the
+    // capture that followed began at the failure and `search-continuation-failed`
+    // never had a first page to continue from.
+    if (path === '/__blank') {
+      res.writeHead(200, { 'content-type': TYPES['.html'] });
+      res.end('<!doctype html><title>blank</title>');
+      return;
+    }
+
     // Everything else is the SPA: real asset, or index.html for a route.
     const asset = join(distDir, normalize(path));
     if (path !== '/' && existsSync(asset) && statSync(asset).isFile()) {

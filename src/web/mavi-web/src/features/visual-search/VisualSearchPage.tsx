@@ -396,8 +396,23 @@ export default function VisualSearchPage() {
       setFieldErrors(result.errors);
       return;
     }
-    submittedFingerprint.current = canonicalSearchKey(result.filters);
+    const settled = canonicalSearchKey(result.filters);
+    submittedFingerprint.current = settled;
     commitFilters(result.filters);
+
+    // A search can commit the state the surface is already in — an edit that
+    // canonicalises to the committed value, or a re-submission after nothing
+    // changed. The URL is then identical, so nothing keyed on it runs and the
+    // rehydrate above never happens: the field stays marked as an outstanding
+    // edit that has in fact been committed. It would then survive the removal
+    // of its own chip and reinstate the criterion on the next search.
+    //
+    // The commit did happen, so the draft is settled here instead.
+    if (settled === fingerprint) {
+      submittedFingerprint.current = null;
+      setDraft(draftFromFilters(result.filters, displayTimeZoneId));
+      setDirty(() => ({}));
+    }
   };
 
   const resetSearch = () => {

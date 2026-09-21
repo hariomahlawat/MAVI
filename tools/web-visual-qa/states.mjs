@@ -655,7 +655,9 @@ export const STATES = [
   },
   {
     name: 'search-continuation-failed', path: '/search', fullWidth: true, settleMs: 5000,
-    archetype: 'investigation', api: { '/api/tracks': PAGE_ONE_THEN_503 }, prepare: LOAD_MORE,
+    archetype: 'investigation', api: { '/api/tracks': PAGE_ONE_THEN_503 },
+    // The query client retries a 5xx once before the failure is terminal.
+    prepare: LOAD_MORE, prepareSettleMs: 3000,
     // The page that failed does not take the results with it, and continuation
     // stops being automatic until the operator asks again.
     expectText: ['next page could not be loaded', 'Retry load more'],
@@ -681,7 +683,9 @@ export const STATES = [
     name: 'search-inspector-unavailable', path: `/search?track=${TRACK}`, fullWidth: true,
     settleMs: 4000, archetype: 'investigation',
     api: { [`/api/tracks/${TRACK}`]: 'unavailable' },
-    expectText: ['could not be loaded', 'Retry'],
+    // The inspector states an ApiError by its detail and code; "could not be
+    // loaded" is only the fallback for a failure that is not one.
+    expectText: ['upstream_unavailable', 'Retry'],
   },
   {
     name: 'search-inspector-missing', path: `/search?track=${TRACK}`, fullWidth: true,
