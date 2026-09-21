@@ -52,25 +52,53 @@
    columns, the rail width, the results cap and the inspector's two shapes. What
    is left is what the archetype does not know about — the contents of the rail,
    the results column and the cards. */
-.filter-rail { display: grid; gap: var(--s-3); align-content: start; }
-.filter-rail__section { display: grid; gap: var(--s-2); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border-subtle); }
-.filter-rail__section:last-child { border-bottom: 0; }
-.filter-rail__section h2 { color: var(--text-muted); font-size: var(--fs-0); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
-.filter-rail label { display: grid; gap: var(--s-1); color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
-.filter-rail__actions { display: flex; gap: var(--s-2); padding: var(--s-3) var(--s-4); }
+/* The rail flows inside the archetype's scrolling column; it is not a box with
+   a scrollbar of its own. It carries no border either: section 11 gives one to
+   a scroll boundary or an editable region, and the rail is neither — it is the
+   column, and the fields inside it carry their own affordances. */
+.filter-rail { display: grid; gap: var(--s-4); align-content: start; padding-bottom: var(--s-2); }
+.filter-rail__section { display: grid; gap: var(--s-3); }
+.filter-rail__section h2 {
+  color: var(--text-muted); font-size: var(--fs-0); font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+/* Sticky within the rail's one scroll owner, so Search is reachable without
+   scrolling back for it and without a second scrolling box to reach it in. */
+.filter-rail__actions {
+  display: flex; gap: var(--s-2);
+  position: sticky; bottom: 0; z-index: var(--z-sticky);
+  padding: var(--s-3) 0 var(--s-2);
+  background: var(--surface-app);
+  border-top: var(--stroke-hair) solid var(--border-subtle);
+}
 .filter-rail__actions .btn { flex: 1; }
 
 /* The results column is a bounded, scrolling region, so it carries the border
    that says so (section 11). It used to get that from `.panel`, which also
    imposed a two-row grid the column's four regions had to be forced into. */
 .results {
-  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0;
+  display: flex; flex-direction: column; min-height: 0; min-width: 0;
   border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-3);
   background: var(--surface-base);
 }
+/* A column, not a fixed three-row grid: the chip band, the header, the rows,
+   the footer and the states that stand in for the rows come and go
+   independently, and a template that names three of them puts the fourth in
+   whichever row it can reach. Chrome sizes to content and whatever is standing
+   in for the results takes the rest, so the scroll owner is always the middle. */
+.results > * { flex: 0 0 auto; min-height: 0; }
+.results > .results__list, .results > .empty, .results > .results__notice { flex: 1 1 auto; }
 /* A first-page failure or a page-one retry sits where the rows would be, not
    above the header: it is what this column has instead of results. */
 .results__notice { padding: var(--s-4); }
+/* What the results below are a search for (section 11). Above the header
+   because it is the more important of the two statements: the header counts
+   what arrived, the chips say what was asked. */
+.results__chips {
+  padding: var(--s-2) var(--s-4);
+  border-bottom: var(--stroke-hair) solid var(--border-subtle);
+}
+.chip__label { color: var(--text-muted); }
 /* Title, shortcut hint and the view choice, in that order of importance. The
    title keeps its width and the hint gives way first: at the 560px floor the
    column is narrow enough that a shortcut reminder would otherwise push the

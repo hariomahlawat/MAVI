@@ -39,13 +39,6 @@ const VIDEO = '22222222-2222-7222-8222-222222222222';
 const LONG_VIDEO = '44444444-4444-7444-8444-444444444444';
 const FAILED_VIDEO = '55555555-5555-7555-8555-555555555555';
 
-/**
- * The Investigation filter rail's section headings land on the labels beneath
- * them at 1366. Verified identical on main at the UI-1 baseline, so this is not
- * a UI-1 regression; the rail's layout is UI-4's, and section 34.1 leaves it
- * non-conformant until then rather than pulling that work forward.
- */
-const RAIL_OVERLAP = ['overlapping text: .*(THRESHOLDS|Thresholds|Display timezone|Minimum duration)'];
 const TRACK = '55555550-5555-7555-8555-555555555550';
 
 /**
@@ -483,22 +476,16 @@ export const STATES = [
 
   // --- Investigation: declares full width, and must actually use it. ---
   {
-    name: 'search', path: '/search', fullWidth: true, settleMs: 900,
-    // Pre-existing at the UI-1 baseline and verified identical on main: the
-    // THRESHOLDS heading lands on the timezone hint and the duration label.
-    // The Investigation filter rail is UI-4's to lay out; section 34.1 leaves
-    // it non-conformant until then rather than pulling that work forward.
-    knownIssues: RAIL_OVERLAP,
+    name: 'search', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
   },
   {
     name: 'search-empty', path: '/search', fullWidth: true,
     api: { '/api/tracks': { items: [], nextCursor: null, totalCount: 0 } },
-    knownIssues: RAIL_OVERLAP,
+    archetype: 'investigation',
   },
   {
     name: 'search-unavailable', path: '/search', fullWidth: true, settleMs: 4000,
-    api: { '/api/tracks': 'unavailable' }, expectText: 'unavailable',
-    knownIssues: RAIL_OVERLAP,
+    api: { '/api/tracks': 'unavailable' }, expectText: 'unavailable', archetype: 'investigation',
   },
 
   // --- Review: capped today; its archetype migration is UI-5, not UI-1. ---

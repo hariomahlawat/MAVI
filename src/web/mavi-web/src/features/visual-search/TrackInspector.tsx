@@ -88,7 +88,15 @@ export default function TrackInspector({
         {cameraLine ? <p className="track-inspector__camera">{cameraLine}</p> : null}
         {track.isPending ? <LoadingState label="Loading Track evidence…" /> : null}
         {track.isError ? (
-          <Alert tone="error">
+          // §14.1: a failed request is a state the operator can act on. A 404
+          // is the one failure retrying cannot mend — the Track is not there —
+          // so that one is stated without a control that would only fail again.
+          <Alert
+            tone="error"
+            actions={track.error instanceof ApiError && track.error.status === 404
+              ? undefined
+              : <Button size="sm" icon="refresh" onClick={() => void track.refetch()}>Retry</Button>}
+          >
             {track.error instanceof ApiError
               ? track.error.status === 404 ? 'Track was not found.' : `${track.error.detail} (${track.error.code})`
               : 'Track evidence could not be loaded.'}

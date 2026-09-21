@@ -11,34 +11,43 @@ import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
 import Button from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
+import { formatCount } from '../../shared/format/format';
 import Icon from '../../shared/components/Icon';
 import LoadingState from '../../shared/components/LoadingState';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
-import { configuredUtcToWallTime, configuredWallTimeToUtc } from '../../shared/time/wallTime';
+import { configuredUtcToWallTime } from '../../shared/time/wallTime';
 import { ContextBar, InvestigationLayout, Segmented } from '../../shared/workspace';
 import { isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
+import CommittedFilterChips from './CommittedFilterChips';
 import SearchFilterRail, { emptyDraft, type SearchDraft } from './SearchFilterRail';
 import TrackInspector from './TrackInspector';
 import TrackResultCard from './TrackResultCard';
 import TrackResultList, { reviewPath } from './TrackResultList';
 import {
+  canonicalSearchKey,
   canonicalSearchParams,
-  compareUtcInstants,
   confidenceFractionToPercentText,
-  confidencePercentTextToFraction,
   millisecondsToSecondsText,
   parseCommittedSearch,
-  secondsTextToMilliseconds,
   type CommittedTrackSearch,
 } from './searchState';
+import { commitDraft, type SearchFieldErrors, type SearchFieldKey } from './searchValidation';
 
 const PAGE_SIZE = 24;
 const SELECTION_PARAM = 'track';
 const VIEW_STORAGE_KEY = 'mavi.search.view';
 
 type ResultView = 'list' | 'grid';
-type TimeDirtyState = { from: boolean; to: boolean };
-type NumericDirtyState = { duration: boolean; confidence: boolean };
+
+/**
+ * Which draft fields the operator has changed since the committed state last
+ * arrived. It decides two things that used to be decided separately: whether a
+ * numeric or time value is recomputed on submit (an untouched one keeps the
+ * committed value to whatever precision it was bookmarked with), and — new in
+ * UI-4 — which fields survive a committed-state change the operator did not
+ * make by pressing Search.
+ */
+type DirtyState = Partial<Record<keyof SearchDraft, true>>;
 
 function wallValue(utc: string | undefined, timeZoneId: string | undefined): string {
   if (!utc || !timeZoneId) return '';
@@ -47,6 +56,35 @@ function wallValue(utc: string | undefined, timeZoneId: string | undefined): str
   } catch {
     return '';
   }
+}
+
+/** The draft a committed search would produce if nothing had been typed. */
+function draftFromFilters(filters: CommittedTrackSearch, timeZoneId: string | undefined): SearchDraft {
+  return {
+    cameraId: filters.cameraId ?? '',
+    videoAssetId: filters.videoAssetId ?? '',
+    objectClass: filters.objectClass ?? '',
+    fromLocal: wallValue(filters.fromUtc, timeZoneId),
+    toLocal: wallValue(filters.toUtc, timeZoneId),
+    minimumDurationSeconds: millisecondsToSecondsText(filters.minimumDurationMs),
+    minimumConfidencePercent: confidenceFractionToPercentText(filters.minimumConfidence),
+  };
+}
+
+/**
+ * Bring the draft back in line with committed state without discarding work.
+ *
+ * Removing a chip, following a deep link or stepping Back changes the committed
+ * search without the operator having pressed Search, and the rail must not lose
+ * what they were in the middle of typing because of it. Every untouched field
+ * takes the committed value; every field they have changed keeps theirs.
+ */
+function rebaseUntouched(current: SearchDraft, rebased: SearchDraft, dirty: DirtyState): SearchDraft {
+  const next = { ...rebased };
+  for (const key of Object.keys(rebased) as Array<keyof SearchDraft>) {
+    if (dirty[key]) (next as Record<string, string>)[key] = current[key];
+  }
+  return next;
 }
 
 function shouldRetryQuery(failureCount: number, error: unknown): boolean {
@@ -108,9 +146,21 @@ export default function VisualSearchPage() {
   const displayTimeZoneId = systemConfig.data?.displayTimeZoneId;
 
   const [draft, setDraft] = useState<SearchDraft>(emptyDraft);
-  const [timeDirty, setTimeDirty] = useState<TimeDirtyState>({ from: false, to: false });
-  const [numericDirty, setNumericDirty] = useState<NumericDirtyState>({ duration: false, confidence: false });
-  const [formError, setFormError] = useState<string | null>(null);
+  const [dirty, setDirtyState] = useState<DirtyState>({});
+  // The rebase effect below runs on a committed-state change and must know what
+  // is dirty *now*, not what was dirty when it last ran — depending on the
+  // state would re-run it on every keystroke and undo the keystroke. The ref is
+  // written in the same call that sets the state so the two cannot disagree.
+  const dirtyRef = useRef<DirtyState>({});
+  const setDirty = useCallback((update: (current: DirtyState) => DirtyState) => {
+    dirtyRef.current = update(dirtyRef.current);
+    setDirtyState(dirtyRef.current);
+  }, []);
+  // Set when this surface commits a search itself. Only then is the draft known
+  // to already say what the committed state says, so only then are the dirty
+  // marks cleared; every other committed change rebases around them.
+  const submittedFingerprint = useRef<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<SearchFieldErrors>({});
   const [view, setView] = useState<ResultView>(readView);
 
   useEffect(() => {
@@ -121,34 +171,37 @@ export default function VisualSearchPage() {
     }
   }, [view]);
 
-  // Committed filters own draft rehydration. Selecting a result changes the
-  // URL too, but must not discard what the operator has typed in the rail.
+  // Committed filters own draft rehydration. Selecting a result changes the URL
+  // too, but must not discard what the operator has typed in the rail — which
+  // is why this is keyed on the committed fingerprint and not on the URL.
   useEffect(() => {
     const filters = committed.isValid ? committed.filters : {};
-    setDraft({
-      cameraId: filters.cameraId ?? '',
-      videoAssetId: filters.videoAssetId ?? '',
-      objectClass: filters.objectClass ?? '',
-      fromLocal: wallValue(filters.fromUtc, displayTimeZoneId),
-      toLocal: wallValue(filters.toUtc, displayTimeZoneId),
-      minimumDurationSeconds: millisecondsToSecondsText(filters.minimumDurationMs),
-      minimumConfidencePercent: confidenceFractionToPercentText(filters.minimumConfidence),
-    });
-    setTimeDirty({ from: false, to: false });
-    setNumericDirty({ duration: false, confidence: false });
-    setFormError(null);
+    const rebased = draftFromFilters(filters, displayTimeZoneId);
+    if (submittedFingerprint.current === fingerprint) {
+      // Our own commit: the draft produced this state, so it already says what
+      // the URL says and nothing is outstanding.
+      submittedFingerprint.current = null;
+      setDraft(rebased);
+      setDirty(() => ({}));
+    } else {
+      setDraft((current) => rebaseUntouched(current, rebased, dirtyRef.current));
+    }
+    setFieldErrors({});
     // Config recovery is handled separately below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fingerprint]);
 
+  // The display zone arrives asynchronously, and until it does a committed UTC
+  // bound cannot be shown as a wall time at all. When it lands, the two time
+  // fields are filled in — unless the operator has meanwhile typed into them.
   useEffect(() => {
     if (!displayTimeZoneId || !committed.isValid) return;
     setDraft((current) => ({
       ...current,
-      fromLocal: timeDirty.from ? current.fromLocal : wallValue(committed.filters.fromUtc, displayTimeZoneId),
-      toLocal: timeDirty.to ? current.toLocal : wallValue(committed.filters.toUtc, displayTimeZoneId),
+      fromLocal: dirtyRef.current.fromLocal ? current.fromLocal : wallValue(committed.filters.fromUtc, displayTimeZoneId),
+      toLocal: dirtyRef.current.toLocal ? current.toLocal : wallValue(committed.filters.toUtc, displayTimeZoneId),
     }));
-  }, [displayTimeZoneId, committed, timeDirty.from, timeDirty.to]);
+  }, [displayTimeZoneId, committed]);
 
   const tracks = useInfiniteQuery({
     queryKey: trackQueryKey,
@@ -280,94 +333,76 @@ export default function VisualSearchPage() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [items.length, selectedId, goNext, goPrevious, openSelected, selectTrack]);
 
-  const commitFilters = (next: CommittedTrackSearch) => {
-    setFormError(null);
-    // A new committed search is a new snapshot; the old selection no longer applies.
+  // A new committed search is a new snapshot, so the old selection no longer
+  // applies and neither does the cursor chain that produced it. `track` is left
+  // out of the canonical parameters, which is what drops it.
+  const commitFilters = useCallback((next: CommittedTrackSearch) => {
+    setFieldErrors({});
+    pendingAdvance.current = null;
     setSearchParams(canonicalSearchParams(next));
-  };
+  }, [setSearchParams]);
 
-  const onDraftChange = (patch: Partial<SearchDraft>, touched?: { time?: 'from' | 'to'; numeric?: 'duration' | 'confidence' }) => {
+  const onDraftChange = (patch: Partial<SearchDraft>) => {
     setDraft((current) => ({ ...current, ...patch }));
-    if (touched?.time) setTimeDirty((current) => ({ ...current, [touched.time as 'from' | 'to']: true }));
-    if (touched?.numeric) setNumericDirty((current) => ({ ...current, [touched.numeric as 'duration' | 'confidence']: true }));
+    const keys = Object.keys(patch) as Array<keyof SearchDraft>;
+    setDirty((current) => {
+      const next = { ...current };
+      for (const key of keys) next[key] = true;
+      return next;
+    });
+    // A field the operator is correcting stops claiming to be wrong as soon as
+    // they touch it; it is re-judged when they ask for the search again.
+    setFieldErrors((current) => {
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key as SearchFieldKey];
+      return next;
+    });
   };
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const next: CommittedTrackSearch = committed.isValid ? { ...committed.filters } : {};
-
-    if (draft.cameraId) next.cameraId = draft.cameraId.toLowerCase();
-    else delete next.cameraId;
-
-    if (draft.videoAssetId) next.videoAssetId = draft.videoAssetId.toLowerCase();
-    else delete next.videoAssetId;
-
-    if (draft.objectClass) next.objectClass = draft.objectClass;
-    else delete next.objectClass;
-
-    try {
-      if (numericDirty.duration) {
-        const duration = secondsTextToMilliseconds(draft.minimumDurationSeconds);
-        if (duration === undefined) delete next.minimumDurationMs;
-        else next.minimumDurationMs = duration;
-      }
-
-      if (numericDirty.confidence) {
-        const confidence = confidencePercentTextToFraction(draft.minimumConfidencePercent);
-        if (confidence === undefined) delete next.minimumConfidence;
-        else next.minimumConfidence = confidence;
-      }
-
-      if (timeDirty.from) {
-        if (!draft.fromLocal) {
-          delete next.fromUtc;
-        } else {
-          if (!displayTimeZoneId) throw new RangeError('Display timezone is unavailable; the From time cannot be edited safely.');
-          next.fromUtc = configuredWallTimeToUtc(draft.fromLocal, displayTimeZoneId);
-        }
-      }
-
-      if (timeDirty.to) {
-        if (!draft.toLocal) {
-          delete next.toUtc;
-        } else {
-          if (!displayTimeZoneId) throw new RangeError('Display timezone is unavailable; the To time cannot be edited safely.');
-          next.toUtc = configuredWallTimeToUtc(draft.toLocal, displayTimeZoneId);
-        }
-      }
-
-      if (next.fromUtc && next.toUtc && compareUtcInstants(next.fromUtc, next.toUtc) >= 0) {
-        throw new RangeError('From time must be earlier than To time.');
-      }
-
-      commitFilters(next);
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Search filters are invalid.');
+    const result = commitDraft({
+      draft,
+      committed: committed.isValid ? committed.filters : {},
+      timeDirty: { from: Boolean(dirty.fromLocal), to: Boolean(dirty.toLocal) },
+      numericDirty: { duration: Boolean(dirty.minimumDurationSeconds), confidence: Boolean(dirty.minimumConfidencePercent) },
+      displayTimeZoneId,
+    });
+    if (!result.ok) {
+      setFieldErrors(result.errors);
+      return;
     }
+    submittedFingerprint.current = canonicalSearchKey(result.filters);
+    commitFilters(result.filters);
   };
 
   const resetSearch = () => {
-    setFormError(null);
+    setFieldErrors({});
     setDraft(emptyDraft);
-    setTimeDirty({ from: false, to: false });
-    setNumericDirty({ duration: false, confidence: false });
+    setDirty(() => ({}));
+    pendingAdvance.current = null;
+    submittedFingerprint.current = '';
     setSearchParams(new URLSearchParams());
   };
 
-  const clearTimeScope = () => {
+  /**
+   * Remove one committed criterion.
+   *
+   * Everything else about the search is kept: the remaining criteria commit
+   * unchanged, the canonical URL is rewritten, the selection is dropped because
+   * it belongs to a snapshot that no longer exists, and the next request starts
+   * a fresh cursor chain at page one rather than continuing the old one. What it
+   * must *not* do is rehydrate the rail over the operator's head — removing a
+   * chip is not a reason to lose a confidence they were half-way through
+   * typing — which is why it does not set `submittedFingerprint`.
+   */
+  const removeCriterion = useCallback((keys: ReadonlyArray<keyof CommittedTrackSearch>) => {
     if (!committed.isValid) return;
     const next = { ...committed.filters };
-    delete next.fromUtc;
-    delete next.toUtc;
+    for (const key of keys) delete next[key];
     commitFilters(next);
-  };
-
-  const removeAdvancedScope = (key: 'videoAssetId' | 'processingRunId') => {
-    if (!committed.isValid) return;
-    const next = { ...committed.filters };
-    delete next[key];
-    commitFilters(next);
-  };
+  }, [committed, commitFilters]);
 
   const continuationInvalid = tracks.isFetchNextPageError
     && tracks.error instanceof ApiError
@@ -381,7 +416,6 @@ export default function VisualSearchPage() {
   const notices = (
     <>
       {!committed.isValid ? <Alert tone="error">{committed.error}</Alert> : null}
-      {formError ? <Alert tone="error">{formError}</Alert> : null}
       {systemConfig.isError ? (
         <Alert tone="warning" actions={<Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>}>
           Display timezone is unavailable. Existing UTC time scope remains active; time editing is disabled and result timestamps are shown explicitly in UTC.
@@ -399,7 +433,7 @@ export default function VisualSearchPage() {
       ) : null}
     </>
   );
-  const hasNotice = !committed.isValid || formError !== null
+  const hasNotice = !committed.isValid
     || systemConfig.isError || cameras.isError || videos.isError;
 
   return (
@@ -414,6 +448,7 @@ export default function VisualSearchPage() {
         rail={(
           <SearchFilterRail
             draft={draft}
+            errors={fieldErrors}
             onDraftChange={onDraftChange}
             onSubmit={submitSearch}
             onReset={resetSearch}
@@ -421,9 +456,6 @@ export default function VisualSearchPage() {
             videos={videos.data}
             videosUnavailable={videos.isError}
             displayTimeZoneId={displayTimeZoneId}
-            activeFilters={activeFilters}
-            onClearTimeScope={clearTimeScope}
-            onRemoveScope={removeAdvancedScope}
           />
         )}
         inspector={inspecting && selectedId ? (
@@ -443,14 +475,30 @@ export default function VisualSearchPage() {
         ) : undefined}
       >
         <section className="results" aria-label="Search results">
+          {committed.isValid ? (
+            <CommittedFilterChips
+              filters={committed.filters}
+              cameras={cameras.data}
+              videos={videos.data}
+              displayTimeZoneId={displayTimeZoneId}
+              onRemove={removeCriterion}
+            />
+          ) : null}
+
           <div className="results__head">
             <div className="video-title">
+              {/* §13: what the operator has, newest first — not a description
+                  of the pagination mechanism they did not ask about. */}
               <strong>
                 {items.length > 0
-                  ? `${items.length} Track${items.length === 1 ? '' : 's'} loaded${hasMore ? ' · more available' : ''}`
+                  ? `${formatCount(items.length)} Track${items.length === 1 ? '' : 's'}`
                   : 'Results'}
               </strong>
-              <span>Newest Tracks first · stable cursor snapshot · page size {PAGE_SIZE}</span>
+              <span>
+                {items.length > 0
+                  ? hasMore ? 'Newest first · more to load' : 'Newest first · all loaded'
+                  : 'Newest first'}
+              </span>
             </div>
             {items.length > 0 ? (
               <span className="hints" aria-hidden="true">
