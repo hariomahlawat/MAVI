@@ -202,7 +202,7 @@ public sealed class SceneAnalyticsSchemaTests(PostgresFixture fixture)
         var exception = await Assert.ThrowsAsync<PostgresException>(
             () => ExecuteAsync("DELETE FROM tracks WHERE id = @track;", ("track", world.TrackId)));
 
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, exception.SqlState);
+        AssertReferenceRefused(exception);
     }
 
     /// <summary>The unit refuses to let the run or the revision it is pinned to vanish.</summary>
@@ -214,13 +214,13 @@ public sealed class SceneAnalyticsSchemaTests(PostgresFixture fixture)
 
         var run = await Assert.ThrowsAsync<PostgresException>(
             () => ExecuteAsync("DELETE FROM processing_runs WHERE id = @run;", ("run", world.RunId)));
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, run.SqlState);
+        AssertReferenceRefused(run);
 
         var revision = await Assert.ThrowsAsync<PostgresException>(
             () => ExecuteAsync(
                 "DELETE FROM scene_configuration_revisions WHERE id = @revision;",
                 ("revision", world.RevisionId)));
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, revision.SqlState);
+        AssertReferenceRefused(revision);
     }
 
     // Value constraints
@@ -900,6 +900,22 @@ public sealed class SceneAnalyticsSchemaTests(PostgresFixture fixture)
         var value = await command.ExecuteScalarAsync();
         return value == DBNull.Value ? null : value;
     }
+
+    /// <summary>
+    /// Asserts that PostgreSQL refused a delete because a row still references the target.
+    /// </summary>
+    /// <remarks>
+    /// PostgreSQL 18 reports an <c>ON DELETE RESTRICT</c> refusal as
+    /// <c>restrict_violation</c>, where earlier versions used <c>foreign_key_violation</c>
+    /// for both. The refusal is the invariant under test and it holds either way, so the
+    /// test is not pinned to one server version. This mirrors
+    /// <c>SceneConfigurationPersistenceTests.AssertReferenceRefused</c>, which slice 1
+    /// already needed for the same reason.
+    /// </remarks>
+    private static void AssertReferenceRefused(PostgresException exception) =>
+        Assert.Contains(
+            exception.SqlState,
+            new[] { PostgresErrorCodes.RestrictViolation, PostgresErrorCodes.ForeignKeyViolation });
 
     private static async Task AssertCheckViolationAsync(Func<Task> act, string constraint)
     {
