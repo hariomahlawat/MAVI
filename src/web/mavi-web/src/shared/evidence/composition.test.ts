@@ -65,11 +65,19 @@ describe('one Evidence Player', () => {
     expect(adapter).not.toMatch(/^\s*<video/m);
   });
 
-  it('keeps one timeline: nothing else renders a scrubber', () => {
-    const scrubbers = files
-      .filter(({ source }) => /^\s*role="slider"/m.test(source))
+  it('keeps one timeline: one component renders the bar and nothing adds a second', () => {
+    const bars = files
+      .filter(({ source }) => /evidence-timeline__track/.test(source))
       .map(({ path }) => path);
-    expect(scrubbers).toEqual(['shared/evidence/EvidenceTimeline.tsx']);
+    expect(bars).toEqual(['shared/evidence/EvidenceTimeline.tsx']);
+
+    // And no second scrub widget anywhere. The timeline is not a slider of its
+    // own: the player's keyboard grammar is the one transport contract, so a
+    // slider here would be a second vocabulary for the same keys.
+    const scrubbers = files
+      .filter(({ source }) => /role="slider"/.test(source))
+      .map(({ path }) => path);
+    expect(scrubbers).toEqual([]);
   });
 
   it('holds the animation-frame loop in one place', () => {

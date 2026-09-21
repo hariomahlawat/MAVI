@@ -556,11 +556,18 @@ export const WORKSPACE_ASSERTIONS = `(() => {
       problems.push('the stacked Review still pins its player; section 4.5.1 releases that at 1100');
     }
 
-    // One scrubber. Two on one surface is a defect (section 18.3).
-    measured.scrubbers = workspace.querySelectorAll('[role=\"slider\"]').length;
-    if (measured.scrubbers > 1) {
-      problems.push('Review renders ' + measured.scrubbers + ' scrub bars; section 18 allows one timeline');
+    // One timeline. Two scrub bars on one surface is a defect (section 18.3).
+    measured.timelines = workspace.querySelectorAll('.evidence-timeline__track').length;
+    if (measured.timelines !== 1) {
+      problems.push('Review renders ' + measured.timelines + ' timelines; section 18 allows exactly one');
     }
+    // The timeline's evidence must not be hidden from assistive technology, and
+    // must not be shadowed by a second description of itself.
+    const hiddenEvidence = workspace.querySelectorAll('.evidence-timeline__item[aria-hidden]').length;
+    if (hiddenEvidence > 0) {
+      problems.push(hiddenEvidence + ' timeline evidence items are hidden from assistive technology');
+    }
+    measured.timelineItems = workspace.querySelectorAll('.evidence-timeline__item').length;
 
     // Native controls occupy the band where evidence is drawn (section 18.1).
     if (workspace.querySelector('video[controls]')) {

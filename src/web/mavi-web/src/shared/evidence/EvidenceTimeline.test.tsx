@@ -33,24 +33,29 @@ beforeEach(() => {
 });
 
 describe('Evidence timeline', () => {
-  it('is one operable scrubber, not decoration', () => {
-    renderTimeline();
-    const slider = screen.getByRole('slider', { name: 'Person Track 7 timeline' });
-    expect(slider).toHaveAttribute('aria-valuenow', '20000');
-    expect(slider).toHaveAttribute('aria-valuemax', '100000');
-    expect(slider).toHaveAttribute('aria-valuetext', '00:20.0 of 01:40.0');
-    // The transitional player marked its timeline aria-hidden, which hid
-    // meaningful evidence from everyone not using a pointer.
-    expect(slider).not.toHaveAttribute('aria-hidden');
-    // One scrubber. Two on a surface is a defect.
-    expect(screen.getAllByRole('slider')).toHaveLength(1);
+  it('has no keyboard vocabulary of its own', () => {
+    const onSeek = renderTimeline();
+    const track = screen.getByRole('list', { name: 'Person Track 7 timeline evidence' });
+
+    // The player's grammar is one contract. A timeline that answered these keys
+    // itself would give the same key two meanings on one surface depending on
+    // where focus happened to be, so it answers none of them and they reach the
+    // player by bubbling.
+    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'j', 'l', ' ', 'e']) {
+      fireEvent.keyDown(track, { key });
+    }
+    expect(onSeek).not.toHaveBeenCalled();
+
+    // Nor is it a focus stop of its own: there is no slider widget to tab to.
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    expect(track).not.toHaveAttribute('tabindex');
   });
 
   it('seeks where the pointer lands and clamps a scrub that leaves the track', () => {
     const onSeek = renderTimeline();
-    const slider = screen.getByRole('slider');
+    const track = screen.getByRole('list');
 
-    fireEvent.pointerDown(slider, { button: 0, clientX: 300 });
+    fireEvent.pointerDown(track, { button: 0, clientX: 300 });
     expect(onSeek).toHaveBeenLastCalledWith(50_000);
 
     fireEvent.pointerMove(window, { clientX: 200 });
@@ -69,40 +74,52 @@ describe('Evidence timeline', () => {
     expect(onSeek).not.toHaveBeenCalled();
   });
 
-  it('seeks from the keyboard, so the timeline is reachable without a pointer', () => {
-    const onSeek = renderTimeline();
-    const slider = screen.getByRole('slider');
-
-    fireEvent.keyDown(slider, { key: 'ArrowRight' });
-    expect(onSeek).toHaveBeenLastCalledWith(21_000);
-    fireEvent.keyDown(slider, { key: 'ArrowLeft' });
-    expect(onSeek).toHaveBeenLastCalledWith(19_000);
-    fireEvent.keyDown(slider, { key: 'ArrowRight', shiftKey: true });
-    expect(onSeek).toHaveBeenLastCalledWith(30_000);
-    // Up and down move a slider too, and Home and End are its own ends —
-    // distinct from the player's Home and End, which go to the subject.
-    fireEvent.keyDown(slider, { key: 'ArrowUp' });
-    expect(onSeek).toHaveBeenLastCalledWith(21_000);
-    fireEvent.keyDown(slider, { key: 'ArrowDown' });
-    expect(onSeek).toHaveBeenLastCalledWith(19_000);
-    fireEvent.keyDown(slider, { key: 'Home' });
-    expect(onSeek).toHaveBeenLastCalledWith(0);
-    fireEvent.keyDown(slider, { key: 'End' });
-    expect(onSeek).toHaveBeenLastCalledWith(100_000);
-  });
-
-  it('names every interval and marker in a list, as the accessible twin', () => {
+  it('gives each piece of evidence one element that is both the mark and the named item', () => {
     renderTimeline();
-    const entries = screen.getAllByRole('listitem').map((item) => item.textContent);
-    expect(entries).toEqual(['Track 7 interval: 00:10.0 to 00:18.0', 'Representative frame: 00:12.0']);
+
+    // Not an aria-hidden bar shadowed by a hidden description list: the marks
+    // themselves are the items, and they are the only representation.
+    const items = screen.getAllByRole('listitem');
+    expect(items.map((item) => item.textContent)).toEqual([
+      'Track 7 interval: 00:10.0 to 00:18.0',
+      'Representative frame: 00:12.0',
+    ]);
+    for (const item of items) {
+      expect(item).not.toHaveAttribute('aria-hidden');
+      // The element carrying the name is the element carrying the position.
+      expect(item.className).toMatch(/evidence-timeline__(interval|marker)/);
+      expect(item.style.left).not.toBe('');
+    }
+    // One list. A second one would be the parallel surface.
+    expect(screen.getAllByRole('list')).toHaveLength(1);
   });
 
-  it('lists an analytical lane it does not draw, rather than dropping it', () => {
+  it('distinguishes an interval from a marker by more than colour', () => {
+    renderTimeline();
+    const [interval, marker] = screen.getAllByRole('listitem');
+    // Shape and wording, not hue: an interval names two offsets and is a band,
+    // a marker names one and is a tick.
+    expect(interval).toHaveClass('evidence-timeline__interval');
+    expect(interval.textContent).toMatch(/ to /);
+    expect(interval.style.width).not.toBe('');
+    expect(marker).toHaveClass('evidence-timeline__marker');
+    expect(marker.textContent).not.toMatch(/ to /);
+    expect(marker.style.width).toBe('');
+    expect(marker).toHaveAttribute('data-kind', 'representative');
+  });
+
+  it('names the playhead nothing, because it is not evidence', () => {
+    renderTimeline();
+    const playhead = document.querySelector('.evidence-timeline__playhead');
+    expect(playhead).toHaveAttribute('aria-hidden', 'true');
+    expect(playhead?.textContent).toBe('');
+  });
+
+  it('names an analytical lane it does not draw, rather than dropping it', () => {
     // Specification decision 7 leaves the presentation of multiple analytical
     // interval types open until Slice 5 has real zone, dwell and stationary
-    // facts to choose against. So the seam accepts the records and the
-    // accessible twin names them, and nothing is drawn for a lane whose visual
-    // grammar has not been decided. This is deliberate, not an omission.
+    // facts to choose against. The seam accepts the records and names them as
+    // evidence; nothing is drawn for a lane whose visual grammar is undecided.
     renderTimeline(vi.fn(), {
       intervals: [
         ...intervals,
@@ -110,16 +127,17 @@ describe('Evidence timeline', () => {
       ],
     });
 
-    const entries = screen.getAllByRole('listitem').map((item) => item.textContent);
-    expect(entries).toContain('Dwell in Forecourt: 00:11.0 to 00:13.0');
-    expect(document.querySelectorAll('.evidence-timeline__interval')).toHaveLength(1);
+    const dwell = screen.getByText('Dwell in Forecourt: 00:11.0 to 00:13.0').closest('li');
+    expect(dwell).toHaveAttribute('data-lane', 'dwell');
+    expect(dwell).toHaveAttribute('data-drawn', 'false');
+    expect(dwell).not.toHaveAttribute('aria-hidden');
+    // Still named for everyone, still not given a shape nobody has chosen.
+    expect(document.querySelectorAll('[data-drawn="true"]')).toHaveLength(1);
   });
 
   it('holds together when the duration is not yet known', () => {
     renderTimeline(vi.fn(), { durationMs: 0 });
-    const slider = screen.getByRole('slider');
-    expect(slider).toHaveAttribute('aria-valuemax', '0');
-    expect(slider).toHaveAttribute('aria-valuenow', '0');
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
   });
 });
 

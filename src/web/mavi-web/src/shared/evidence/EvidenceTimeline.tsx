@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { formatOffset } from '../format/format';
 import {
-  clampOffset,
   offsetFromPointer,
   percentOf,
   SUBJECT_LANE,
@@ -22,16 +21,24 @@ type Props = {
 /**
  * The one timeline.
  *
- * A single scrub bar spanning the whole media, carrying the subject interval,
- * the markers and the playhead. Two scrub bars on one surface is a defect, so
- * this is both the evidence map and the transport scrubber.
+ * A single bar spanning the whole media, carrying the subject interval, the
+ * markers and the playhead. Two scrub bars on one surface is a defect, so this
+ * is both the evidence map and the pointer scrubber.
  *
- * It is a real control, not decoration: a slider that seeks on click, drag and
- * keyboard, with the media offset as its value. The transitional player marked
- * its timeline `aria-hidden`, which hid meaningful evidence from anyone not
- * using a pointer; here the bar is operable and every interval and marker also
- * appears in a list, which is the accessible twin the specification requires
- * for spatial and temporal content.
+ * **It has no keyboard vocabulary of its own.** The Evidence Player's grammar
+ * is one contract — arrows step a frame, J and L move a second, Home and End go
+ * to the subject — and it holds wherever focus is inside the player, including
+ * here. A timeline that redefined those keys for itself would give the same key
+ * two meanings on one surface depending on where focus happened to be, which is
+ * a contradiction in the product rather than a detail of this component. Coarse
+ * seeking by pointer plus that one grammar is the whole interaction.
+ *
+ * **Each piece of evidence is one element that is both the mark and the
+ * accessible item.** The marks are list items carrying their own names; there is
+ * no `aria-hidden` bar shadowed by a hidden description list, because a parallel
+ * accessibility-only surface is exactly what the specification forbids. Slice 5
+ * adds crossings, zone visits, dwell and stationary intervals as more items of
+ * the same shape.
  */
 export default function EvidenceTimeline({
   durationMs,
@@ -41,7 +48,7 @@ export default function EvidenceTimeline({
   subjectLabel,
   onSeek,
 }: Props) {
-  const trackRef = useRef<HTMLDivElement | null>(null);
+  const trackRef = useRef<HTMLUListElement | null>(null);
   const draggingRef = useRef(false);
 
   const seekFromClientX = useCallback((clientX: number) => {
@@ -72,102 +79,67 @@ export default function EvidenceTimeline({
     };
   }, [seekFromClientX]);
 
-  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    // The slider's own keys, which are the ones a keyboard operator expects
-    // from a slider and what makes seeking reachable without a pointer. The
-    // player's grammar (Space, J/L, E) reaches the container by bubbling; these
-    // are taken here and stopped, because on the focused slider they mean the
-    // slider's own movement rather than the player's frame step and jumps.
-    const step = event.shiftKey ? 10_000 : 1_000;
-    const seek = (offsetMs: number) => {
-      event.preventDefault();
-      event.stopPropagation();
-      onSeek(clampOffset(offsetMs, durationMs));
-    };
-    switch (event.key) {
-      case 'ArrowRight':
-      case 'ArrowUp':
-        seek(currentOffsetMs + step);
-        break;
-      case 'ArrowLeft':
-      case 'ArrowDown':
-        seek(currentOffsetMs - step);
-        break;
-      case 'Home':
-        seek(0);
-        break;
-      case 'End':
-        seek(durationMs);
-        break;
-      default:
-    }
-  };
-
-  const subject = intervals.filter((interval) => interval.lane === SUBJECT_LANE);
-
   return (
     <div className="evidence-timeline">
-      <div
+      <ul
         ref={trackRef}
         className="evidence-timeline__track"
-        role="slider"
-        tabIndex={0}
-        aria-label={`${subjectLabel} timeline`}
-        aria-valuemin={0}
-        aria-valuemax={Math.max(0, Math.round(durationMs))}
-        /* Never above the maximum: before metadata the duration is not known
-           yet, and a value outside its own range is not a valid slider. */
-        aria-valuenow={Math.min(Math.max(0, Math.round(durationMs)), Math.round(clampOffset(currentOffsetMs, durationMs)))}
-        aria-valuetext={`${formatOffset(currentOffsetMs, 'tenths')} of ${formatOffset(durationMs, 'tenths')}`}
-        onKeyDown={onKeyDown}
+        aria-label={`${subjectLabel} timeline evidence`}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           draggingRef.current = true;
-          event.currentTarget.focus();
           seekFromClientX(event.clientX);
         }}
       >
-        {subject.map((interval) => (
-          <div
+        {intervals.map((interval) => (
+          <li
             key={interval.id}
-            className="evidence-timeline__interval"
-            style={{
-              left: percentOf(interval.startOffsetMs, durationMs),
-              width: `calc(${percentOf(interval.endOffsetMs, durationMs)} - ${percentOf(interval.startOffsetMs, durationMs)})`,
-            }}
-            aria-hidden="true"
-          />
+            className="evidence-timeline__item evidence-timeline__interval"
+            data-lane={interval.lane}
+            // Only the subject lane is positioned as a band. Every other lane is
+            // still a named item here, because the presentation of analytical
+            // lanes is decided in Slice 5 against real facts and an item with no
+            // agreed shape must not be invented — but it must not be dropped
+            // from the evidence either.
+            data-drawn={interval.lane === SUBJECT_LANE}
+            style={interval.lane === SUBJECT_LANE
+              ? {
+                left: percentOf(interval.startOffsetMs, durationMs),
+                width: `calc(${percentOf(interval.endOffsetMs, durationMs)} - ${percentOf(interval.startOffsetMs, durationMs)})`,
+              }
+              : undefined}
+          >
+            {/*
+              The name lives inside the mark, so one element is both what the
+              pointer sees and what a screen reader reads. Visually hidden
+              because the bar is a few pixels tall, not because the text is a
+              second copy of the evidence.
+            */}
+            <span className="visually-hidden">
+              {interval.label}: {formatOffset(interval.startOffsetMs, 'tenths')} to {formatOffset(interval.endOffsetMs, 'tenths')}
+            </span>
+          </li>
         ))}
         {markers.map((marker) => (
-          <div
+          <li
             key={marker.id}
-            className="evidence-timeline__marker"
+            className="evidence-timeline__item evidence-timeline__marker"
             data-kind={marker.kind}
             style={{ left: percentOf(marker.offsetMs, durationMs) }}
-            aria-hidden="true"
-          />
+          >
+            <span className="visually-hidden">{marker.label}: {formatOffset(marker.offsetMs, 'tenths')}</span>
+          </li>
         ))}
-        <div
+        {/*
+          The playhead is not evidence. It indicates where the transport is,
+          which the time readout beside it already states, so it carries no
+          accessible name of its own.
+        */}
+        <li
           className="evidence-timeline__playhead"
           style={{ left: percentOf(currentOffsetMs, durationMs) }}
           aria-hidden="true"
         />
-      </div>
-
-      {/*
-        The accessible twin. Every interval and every marker is named here with
-        its offsets, including intervals in lanes this timeline does not yet
-        draw, so evidence is never available to a pointer alone.
-      */}
-      <ul className="evidence-timeline__legend visually-hidden">
-        {intervals.map((interval) => (
-          <li key={interval.id}>
-            {interval.label}: {formatOffset(interval.startOffsetMs, 'tenths')} to {formatOffset(interval.endOffsetMs, 'tenths')}
-          </li>
-        ))}
-        {markers.map((marker) => (
-          <li key={marker.id}>{marker.label}: {formatOffset(marker.offsetMs, 'tenths')}</li>
-        ))}
       </ul>
     </div>
   );

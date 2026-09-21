@@ -44,7 +44,11 @@ The shell owns visibility (persisted per operator in local storage, §18.4) and 
 
 ## Timeline and the extension seam
 
-One timeline. It carries the full media range, the subject interval, markers and the playhead, and it is interactive: click to seek, pointer scrub, and keyboard seek from a focusable slider role. Every marker and every interval also appears in a visually-hidden list, which is the §23 accessible twin. The timeline is not `aria-hidden`, unlike the transitional implementation.
+One timeline. It carries the full media range, the subject interval, markers and the playhead, and it seeks by pointer: click and scrub.
+
+**It has no keyboard vocabulary of its own.** The §22 grammar is one contract for the whole player, so a timeline that answered the arrows or Home and End itself would give the same key two meanings on one surface depending on where focus sat. Arrows step a frame, J and L move a second, Home and End go to the subject — wherever focus is inside the player, the timeline included.
+
+**Each mark is one element that is both the evidence and the named item.** The bar is a list; every interval and marker is a list item carrying its own name. There is no `aria-hidden` bar shadowed by a hidden description list, because a parallel accessibility-only surface is what §23 forbids — the twin has to be the thing the pointer sees.
 
 The seam is two exported types:
 
@@ -53,7 +57,7 @@ type EvidenceTimelineMarker = { id: string; offsetMs: number; label: string; kin
 type EvidenceTimelineInterval = { id: string; startOffsetMs: number; endOffsetMs: number; label: string; lane: string };
 ```
 
-**§32 decision 7 stays open.** UI-5 draws the `subject` lane and every marker, because those have one obvious presentation and real data today. It deliberately does **not** choose between stacked lanes and a single lane with glyphs for analytical intervals: an interval in any other lane is listed in the accessible twin and not drawn, and a test pins that as deliberate. Slice 5 chooses the presentation against real zone, dwell and stationary facts, which is what the specification says that decision waits for.
+**§32 decision 7 stays open.** UI-5 draws the `subject` lane and every marker, because those have one obvious presentation and real data today. It deliberately does **not** choose between stacked lanes and a single lane with glyphs for analytical intervals: an interval in any other lane is still a named evidence item and is not drawn, and a test pins that as deliberate. Slice 5 chooses the presentation against real zone, dwell and stationary facts, which is what the specification says that decision waits for.
 
 **§32 decisions 2a, 2b and 2c stay open.** No event-marker, similarity or heatmap hue is invented. UI-5 renders only the frozen roles it actually draws: `--evidence-box`, `--evidence-track`, plus the halo and matte tokens.
 

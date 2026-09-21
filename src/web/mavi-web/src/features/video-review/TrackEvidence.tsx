@@ -150,12 +150,16 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
         startOffsetMs: detail.startOffsetMs,
         endOffsetMs: detail.endOffsetMs,
       }}
-      representative={representative
-        ? {
-          offsetMs: representative.videoOffsetMs,
-          posterUrl: representative.thumbnailContentUrl ?? undefined,
-        }
-        : undefined}
+      // No poster. The specification asks for the representative frame as the
+      // poster so the frame is never black before metadata, but the only
+      // persisted image is the representative *crop*: the worker stores the
+      // bounding box cut out of the frame. A poster is stretched across the
+      // whole canvas, so that crop would be shown as if it were the source
+      // frame, with full-frame overlay coordinates drawn over unrelated pixels
+      // — and on a slow or failed load it would stay there. A black matte is
+      // honest; false evidence is not. The divergence is declared rather than
+      // papered over, and closes when a full-frame artifact exists.
+      representative={representative ? { offsetMs: representative.videoOffsetMs } : undefined}
       layers={layers}
       intervals={intervals}
       markers={markers}

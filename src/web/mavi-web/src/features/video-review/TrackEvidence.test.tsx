@@ -42,6 +42,9 @@ const sizes = { clientWidth: 1000, clientHeight: 300 };
 let restore: Array<() => void> = [];
 
 beforeEach(() => {
+  // Layer visibility is a persisted operator preference, so one test switching a
+  // layer off would otherwise decide what the next one renders.
+  window.localStorage.clear();
   for (const [name, value] of Object.entries(sizes)) {
     const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name);
     Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value });
@@ -118,6 +121,39 @@ describe('Track evidence overlay', () => {
     render(<TrackEvidence detail={detail} trajectoryError />);
     expect(screen.getByText('The persisted trajectory could not be loaded.')).toBeInTheDocument();
     expect(screen.getByText(/could not be loaded. The Track and its representative frame are unaffected/)).toBeInTheDocument();
+  });
+
+  it('reprojects onto the replacement element when the source changes at the same size', () => {
+    // The element is keyed by source, so a new video mounts. When the new media
+    // declares the same dimensions the measuring callback keeps its identity,
+    // and before this was fixed the metadata listener and the resize observer
+    // stayed on the detached element: the overlay kept the old geometry and
+    // misprojected every box and path on the new one.
+    const other = {
+      ...detail,
+      id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21452',
+      video: { ...detail.video, videoContentUrl: '/api/videos/other/content' },
+    };
+    const view = render(<TrackEvidence detail={detail} trajectory={trajectory} />);
+    const first = screen.getByLabelText(/source video evidence$/);
+
+    // The replacement reports a different intrinsic aspect, which only reaches
+    // the overlay if the new element is the one being measured.
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', { configurable: true, get: () => 300 });
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoHeight', { configurable: true, get: () => 300 });
+    restore.push(() => {
+      delete (HTMLVideoElement.prototype as unknown as Record<string, unknown>).videoWidth;
+      delete (HTMLVideoElement.prototype as unknown as Record<string, unknown>).videoHeight;
+    });
+
+    view.rerender(<TrackEvidence detail={other} trajectory={trajectory} />);
+    const second = screen.getByLabelText(/source video evidence$/);
+    expect(second).not.toBe(first);
+
+    fireEvent(second, new Event('loadedmetadata'));
+    // A square frame inside the 1000x300 element is 300 wide, centred at x=350.
+    const overlay = screen.getByTestId('evidence-overlay');
+    expect(overlay.querySelector('polyline')).toHaveAttribute('points', '350.0,0.0 650.0,300.0');
   });
 
   it('offers no bounding-box layer when no representative frame was persisted', () => {

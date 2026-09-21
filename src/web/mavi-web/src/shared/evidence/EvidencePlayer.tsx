@@ -46,24 +46,24 @@ export function isInsideEvidencePlayer(target: EventTarget | null): boolean {
  * Whether a key press should be treated as a player shortcut rather than left
  * to the control that has focus.
  *
- * `Space` and `Enter` already activate a button or a link, and the arrows
- * already move a slider, a select or a text caret. Taking those keys from the
- * control the operator is actually using is the classic global-shortcut
- * regression, so a shortcut only fires when the focused element has no native
- * meaning for that key.
+ * `Space` and `Enter` already activate a button or a link, and typing already
+ * belongs to a text field or a select. Taking those keys from the control the
+ * operator is actually using is the classic global-shortcut regression, so a
+ * shortcut only fires when the focused element has no native meaning for it.
+ *
+ * Nothing inside the player redefines a key the grammar owns. The grammar is
+ * one contract across the whole player: a key must not mean a frame step in one
+ * corner of it and a one-second seek in another because focus moved.
  */
 function isShortcutTarget(target: EventTarget | null, key: string): boolean {
   if (!(target instanceof HTMLElement)) return true;
   if (target.isContentEditable) return false;
   const tag = target.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
-  const control = target.closest('button, a[href], [role="slider"], input, select, textarea');
+  const control = target.closest('button, a[href], input, select, textarea');
   if (!control) return true;
-  // On a control, only keys that control has no use for remain shortcuts.
-  const native = control.getAttribute('role') === 'slider'
-    ? ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', ' ', 'Enter']
-    : [' ', 'Enter'];
-  return !native.includes(key);
+  // On a button or a link, only the two keys that activate it are its own.
+  return key !== ' ' && key !== 'Enter';
 }
 
 export type EvidenceSubject = {
@@ -83,8 +83,12 @@ type Props = {
   /** The interval the evidence is about: Start and End jump here. */
   subject: EvidenceSubject;
   /**
-   * The representative evidence frame, when one is persisted. `E` seeks to it
-   * and it is used as the poster so the frame is never black before metadata.
+   * The representative evidence frame, when one is persisted. `E` seeks to it.
+   *
+   * `posterUrl` is accepted only for an image of the **whole source frame**. A
+   * poster fills the canvas, so a cropped image would be presented as the frame
+   * itself and the overlay would draw frame coordinates over it. A caller
+   * without such an artifact omits it and gets the matte.
    */
   representative?: { offsetMs: number; posterUrl?: string };
   /** Overlay layers, drawn into the content rectangle in supplied order. */

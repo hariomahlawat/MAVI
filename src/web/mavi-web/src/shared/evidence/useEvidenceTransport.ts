@@ -131,6 +131,12 @@ export function useEvidenceTransport({
     setFrame(contentRect(width, height, intrinsicWidth, intrinsicHeight));
   }, [declaredWidth, declaredHeight]);
 
+  // Keyed on the source as well as on `measure`. The element is keyed by source
+  // in the DOM, so a replacement mounts a new one — and when the new media
+  // declares the same dimensions, `measure` keeps its identity and this effect
+  // would not re-run, leaving the metadata listener and the resize observer
+  // attached to the detached element. The overlay would then keep the old
+  // element's geometry and misproject every box and path on the new one.
   useLayoutEffect(() => {
     measure();
     const video = videoRef.current;
@@ -148,7 +154,7 @@ export function useEvidenceTransport({
       observer?.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [measure]);
+  }, [measure, sourceUrl]);
 
   // Media truth and the single frame loop. Keyed on the source so a replacement
   // tears the old subscription down before the new element is observed.

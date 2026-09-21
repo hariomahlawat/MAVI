@@ -199,6 +199,43 @@ describe('Evidence Player keyboard grammar', () => {
     expect(video().currentTime).toBeCloseTo(12, 3);
   });
 
+  it('keeps one meaning per key when the press comes from the timeline', () => {
+    // The contract is the player's, not the timeline's. Before this was fixed
+    // the timeline answered these keys itself: the arrows seeked a second and
+    // Home and End went to media start and end, so the same key meant two
+    // things on one surface depending on where focus was.
+    const media = stubMedia();
+    renderPlayer({ frameRate: { numerator: 30_000, denominator: 1001 } });
+    const timeline = screen.getByRole('list', { name: /timeline evidence/ });
+    const press = (key: string) => fireEvent.keyDown(timeline, { key });
+
+    video().currentTime = 20;
+    press('ArrowRight');
+    // One source frame, at the rational rate — not one second.
+    expect(video().currentTime).toBeCloseTo(20 + 1001 / 30_000, 6);
+    press('ArrowLeft');
+    expect(video().currentTime).toBeCloseTo(20, 6);
+
+    // The subject runs 10s to 18s inside a 600s video, so subject start and end
+    // are nowhere near media start and end.
+    press('Home');
+    expect(video().currentTime).toBeCloseTo(10, 3);
+    press('End');
+    expect(video().currentTime).toBeCloseTo(18, 3);
+
+    // J and L remain the one-second path.
+    press('l');
+    expect(video().currentTime).toBeCloseTo(19, 3);
+    press('j');
+    expect(video().currentTime).toBeCloseTo(18, 3);
+
+    press(' ');
+    expect(media.play).toHaveBeenCalled();
+
+    press('e');
+    expect(video().currentTime).toBeCloseTo(12, 3);
+  });
+
   it('is reachable by keyboard: the frame takes focus and the shortcuts act there', async () => {
     const media = stubMedia();
     const user = userEvent.setup();

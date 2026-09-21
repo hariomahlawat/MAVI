@@ -263,17 +263,26 @@
 }
 
 .evidence-timeline { position: relative; }
+/* The bar is a list of evidence, and each mark is one list item that carries
+   its own name. There is no second hidden copy of it. */
 .evidence-timeline__track {
   position: relative; height: 22px; width: 100%; cursor: pointer; touch-action: none;
-  background: none; border: 0; display: block;
+  list-style: none; display: block;
 }
 .evidence-timeline__track::before {
   content: ''; position: absolute; left: 0; right: 0; top: 9px; height: 4px;
   border-radius: var(--r-pill); background: var(--surface-raised-2);
 }
-.evidence-timeline__interval { position: absolute; top: 9px; height: 4px; background: var(--evidence-track); border-radius: var(--r-pill); }
-.evidence-timeline__marker { position: absolute; top: 4px; width: 2px; height: 14px; background: var(--evidence-box); transform: translateX(-1px); }
-.evidence-timeline__playhead { position: absolute; top: 2px; width: 2px; height: 18px; background: var(--text-primary); transform: translateX(-1px); }
+.evidence-timeline__item { position: absolute; }
+.evidence-timeline__interval { top: 9px; height: 4px; background: var(--evidence-track); border-radius: var(--r-pill); }
+/* A lane whose presentation is not yet decided is named but not drawn; see the
+   timeline module and open decision 7. */
+.evidence-timeline__interval[data-drawn='false'] { display: none; }
+.evidence-timeline__marker { top: 4px; width: 2px; height: 14px; background: var(--evidence-box); transform: translateX(-1px); }
+.evidence-timeline__playhead {
+  position: absolute; top: 2px; width: 2px; height: 18px; background: var(--text-primary); transform: translateX(-1px);
+  list-style: none;
+}
 
 .evidence-transport { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
 .evidence-transport__time { margin-left: auto; color: var(--text-secondary); font-size: var(--fs-1); font-variant-numeric: tabular-nums; }
