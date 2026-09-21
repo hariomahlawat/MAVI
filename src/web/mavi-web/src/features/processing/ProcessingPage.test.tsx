@@ -4,11 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCamera } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { ApiError } from '../../api/client';
-import { getProcessingStatus, getVideo, queueProcessing } from '../../api/videos';
+import { getRunAnalytics, requestSceneReanalysis, retryRunAnalytics, type ProcessingRunAnalytics, type SceneAnalysisUnit } from '../../api/sceneAnalytics';
+import { getProcessingStatus, getVideo, queueProcessing, type AnalyticsReadiness, type ProcessingRunStatus } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
 import ProcessingPage from './ProcessingPage';
 
 vi.mock('../../api/cameras', () => ({ getCamera: vi.fn() }));
+vi.mock('../../api/sceneAnalytics', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../api/sceneAnalytics')>();
+  return { ...original, getRunAnalytics: vi.fn(), retryRunAnalytics: vi.fn(), requestSceneReanalysis: vi.fn() };
+});
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
 vi.mock('../../api/videos', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../api/videos')>();
@@ -70,6 +75,7 @@ describe('ProcessingPage', () => {
         failureCode: null,
         framesProcessed: 0,
         tracksCreated: 0,
+        analyticsReadiness: 'NotConfigured',
       },
     });
     vi.mocked(queueProcessing).mockResolvedValue({ processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21432' });
@@ -119,10 +125,128 @@ describe('ProcessingPage', () => {
     expect(screen.queryByText('Display timezone')).not.toBeInTheDocument();
   });
 
-  it('adds no Scene Analytics readiness, which belongs to a later slice', async () => {
+  it('shows no scene analytics while the run is still processing', async () => {
     const { container } = render();
     await screen.findByText('CAM-COLD · Cold Cache Camera');
-    expect(container.textContent).not.toMatch(/analytics|readiness|scene analysis/i);
+    expect(container.textContent).not.toMatch(/Scene analytics/);
+    expect(getRunAnalytics).not.toHaveBeenCalled();
+  });
+
+  describe('scene analytics readiness (Slice 4)', () => {
+    const runId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21431';
+    const activeRevision = '018f3f5a-2f70-7a2b-8a12-2d02f4c21482';
+
+    function completedRun(readiness: AnalyticsReadiness): ProcessingRunStatus {
+      return {
+        processingRunId: runId, status: 'Completed', pipeline: 'phase1-detection-tracking', pipelineVersion: 'phase1-v1', workerId: 'worker-a',
+        queuedAtUtc: '2026-09-09T02:30:00Z', startedAtUtc: '2026-09-09T02:30:02Z', completedAtUtc: '2026-09-09T02:35:02Z', progressPercent: 100,
+        attemptCount: 1, failureCode: null, framesProcessed: 1500, tracksCreated: 6, analyticsReadiness: readiness,
+      };
+    }
+
+    function unit(overrides: Partial<SceneAnalysisUnit>): SceneAnalysisUnit {
+      return {
+        analysisId: '018f3f5a-2f70-7a2b-8a12-2d02f4c214a1', processingRunId: runId, sceneRevisionId: activeRevision, sceneRevisionNumber: 2,
+        algorithmVersion: 'scene-analytics-v1', status: 'Completed', attemptCount: 1, queuedAtUtc: '2026-09-09T02:36:00Z', startedAtUtc: '2026-09-09T02:36:01Z',
+        completedAtUtc: '2026-09-09T02:36:30Z', leaseExpiresAtUtc: null, analysedTrackCount: 5, unavailableTrackCount: 1, failureCode: null, ...overrides,
+      };
+    }
+
+    function analytics(readiness: AnalyticsReadiness, units: SceneAnalysisUnit[], active: string | null = activeRevision): ProcessingRunAnalytics {
+      return { processingRunId: runId, readiness, activeSceneRevisionId: active, algorithmVersion: 'scene-analytics-v1', analyses: units };
+    }
+
+    function arrange(readiness: AnalyticsReadiness, units: SceneAnalysisUnit[], active: string | null = activeRevision) {
+      vi.mocked(getVideo).mockResolvedValue({ ...vi.mocked(getVideo).mock.results[0]?.value ?? {}, id: videoId, cameraId, originalFileName: 'source.mp4', recordingStartUtc: '2026-09-09T02:30:00Z', recordingEndUtc: '2026-09-09T02:31:00Z', recordingTimeZoneId: 'UTC', recordingUtcOffsetMinutes: 0, durationMs: 60_000, width: 1920, height: 1080, frameRateNumerator: 25, frameRateDenominator: 1, codecName: 'h264', processingStatus: 'Processed', importedAtUtc: '2026-09-09T02:32:00Z' });
+      vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Processed', latestRun: completedRun(readiness) });
+      vi.mocked(getRunAnalytics).mockResolvedValue(analytics(readiness, units, active));
+    }
+
+    it('names the revision, engine and Track counts once analysed, still with one badge', async () => {
+      arrange('Ready', [unit({})]);
+      const { container } = render();
+
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      expect(within(panel).getByText('Analysed')).toBeInTheDocument();
+      expect(await within(panel).findByText('Revision 2 · scene-analytics-v1')).toBeInTheDocument();
+      expect(within(panel).getByText('Tracks analysed').nextElementSibling).toHaveTextContent('5');
+      expect(within(panel).getByText('Tracks unavailable').nextElementSibling).toHaveTextContent('1');
+      expect(getRunAnalytics).toHaveBeenCalledWith(runId, expect.anything());
+      // Readiness is text: the Context Bar's video badge stays the row's only badge.
+      expect(container.querySelectorAll('.badge')).toHaveLength(1);
+      expect(panel.querySelector('.badge')).toBeNull();
+    });
+
+    it('retries a failed unit through the Slice 3 retry endpoint', async () => {
+      const user = userEvent.setup();
+      arrange('Failed', [unit({ status: 'Failed', attemptCount: 3, failureCode: 'analytics_attempts_exhausted' })]);
+      vi.mocked(retryRunAnalytics).mockResolvedValue(unit({ status: 'Queued', attemptCount: 0 }));
+      render();
+
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      expect(within(panel).getByText('Analysis failed')).toBeInTheDocument();
+      expect(await within(panel).findByText('analytics_attempts_exhausted')).toBeInTheDocument();
+      await user.click(within(panel).getByRole('button', { name: 'Retry analytics' }));
+      await waitFor(() => expect(retryRunAnalytics).toHaveBeenCalledWith(runId));
+      expect(requestSceneReanalysis).not.toHaveBeenCalled();
+    });
+
+    it('explains a stale run and offers the camera-wide re-analysis with its consequence stated', async () => {
+      const user = userEvent.setup();
+      arrange('Stale', [unit({ sceneRevisionId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21481', sceneRevisionNumber: 1, status: 'Superseded' })]);
+      vi.mocked(requestSceneReanalysis).mockResolvedValue({
+        cameraId, sceneRevisionId: activeRevision, algorithmVersion: 'scene-analytics-v1', scope: 'latestRuns',
+        created: 1, alreadyQueued: 0, alreadyRunning: 0, alreadyReady: 2, failedRequiresRetry: 0, alreadySuperseded: 0, runsInScope: 3,
+      });
+      render();
+
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      expect(within(panel).getByText('Stale')).toBeInTheDocument();
+      expect(await within(panel).findByText('Revision 1 · scene-analytics-v1')).toBeInTheDocument();
+      expect(within(panel).getByText(/latest completed run of/)).toHaveTextContent('every video of CAM-COLD · Cold Cache Camera');
+      await user.click(within(panel).getByRole('button', { name: 'Re-analyse camera' }));
+      await waitFor(() => expect(requestSceneReanalysis).toHaveBeenCalledWith(cameraId, 'latestRuns'));
+      expect(await within(panel).findByText(/1 of 3 runs queued/)).toBeInTheDocument();
+      expect(retryRunAnalytics).not.toHaveBeenCalled();
+    });
+
+    it('keeps disabled and never-configured distinct, each pointing at the Scene Editor', async () => {
+      arrange('Disabled', []);
+      const first = render();
+      const disabled = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      expect(within(disabled).getByText('Disabled by scene')).toBeInTheDocument();
+      expect(within(disabled).getByText(/switched off for this camera on purpose/)).toBeInTheDocument();
+      expect(within(disabled).getByRole('link', { name: 'Open Scene Editor' })).toHaveAttribute('href', `/cameras/${cameraId}/scene`);
+      first.unmount();
+
+      arrange('NotConfigured', [], null);
+      render();
+      const unconfigured = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      expect(within(unconfigured).getByText('No scene configured')).toBeInTheDocument();
+      expect(within(unconfigured).getByText(/no scene configuration yet/)).toBeInTheDocument();
+      expect(within(unconfigured).queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('says a pending run is still on its way and shows the unit progress', async () => {
+      arrange('Pending', [unit({ status: 'Running', attemptCount: 2, completedAtUtc: null })]);
+      render();
+
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      expect(within(panel).getByText('Not analysed yet')).toBeInTheDocument();
+      expect(await within(panel).findByText('Running · attempt 2')).toBeInTheDocument();
+      expect(within(panel).getByText(/keeps refreshing until it does/)).toBeInTheDocument();
+    });
+
+    it('falls back to the status readiness when the lifecycle endpoint is unavailable', async () => {
+      arrange('Ready', []);
+      vi.mocked(getRunAnalytics).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'Down.' }));
+      render();
+
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      // The query retries once before failing terminally, so give it the retry.
+      expect(await within(panel).findByText(/Analysis details are unavailable/, {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(within(panel).getByText('Analysed')).toBeInTheDocument();
+    });
   });
 
   it('does not repeat the run state as a second badge when it agrees with the video', async () => {
@@ -149,6 +273,7 @@ describe('ProcessingPage', () => {
         failureCode: null,
         framesProcessed: 0,
         tracksCreated: 0,
+        analyticsReadiness: 'NotConfigured',
       },
     });
     const divergent = render();
@@ -216,6 +341,7 @@ describe('ProcessingPage', () => {
         failureCode: 'worker_watchdog_timeout',
         framesProcessed: 0,
         tracksCreated: 0,
+        analyticsReadiness: 'NotConfigured',
       },
     });
     render();
@@ -254,6 +380,7 @@ describe('ProcessingPage', () => {
         failureCode: null,
         framesProcessed: 6_000,
         tracksCreated: 3,
+        analyticsReadiness: 'NotConfigured',
       },
     });
     const running = renderWithApp(<ProcessingPage />, {
@@ -281,6 +408,7 @@ describe('ProcessingPage', () => {
         failureCode: null,
         framesProcessed: 15_000,
         tracksCreated: 42,
+        analyticsReadiness: 'NotConfigured',
       },
     });
     renderWithApp(<ProcessingPage />, {

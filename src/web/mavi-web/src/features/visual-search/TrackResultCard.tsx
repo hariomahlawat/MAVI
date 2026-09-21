@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { TrackSearchItem } from '../../api/tracks';
+import type { TrackAnalyticsIdentity, TrackSearchItem } from '../../api/tracks';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence } from '../../shared/format/format';
@@ -33,12 +33,14 @@ export default function TrackResultCard({
   displayTimeZoneId,
   selected = false,
   searchContext,
+  analyticsIdentity,
   onSelect,
 }: {
   track: TrackSearchItem;
   displayTimeZoneId?: string;
   selected?: boolean;
   searchContext?: string;
+  analyticsIdentity?: TrackAnalyticsIdentity;
   onSelect?: (id: string) => void;
 }) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
@@ -89,7 +91,7 @@ export default function TrackResultCard({
       </div>
 
       <div className="track-card__foot">
-        <Link className="btn btn--sm track-card__action" to={reviewPath(track, searchContext)}>
+        <Link className="btn btn--sm track-card__action" to={reviewPath(track, searchContext, analyticsIdentity)}>
           Review evidence
         </Link>
       </div>

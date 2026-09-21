@@ -1,7 +1,66 @@
 import { isGuid } from '../../api/client';
-import { serializePlainDecimal, type TrackObjectClass, type TrackSearchFilters } from '../../api/tracks';
+import {
+  ALGORITHM_VERSION_PATTERN,
+  CROSSING_DIRECTIONS,
+  DEFAULT_ZONE_RELATION,
+  MOTION_DIRECTIONS,
+  ZONE_RELATIONS,
+  serializePlainDecimal,
+  type CrossingDirection,
+  type MotionDirection,
+  type TrackObjectClass,
+  type TrackSearchFilters,
+  type ZoneRelation,
+} from '../../api/tracks';
 
 export type CommittedTrackSearch = Omit<TrackSearchFilters, 'cursor' | 'limit'>;
+
+/**
+ * The analytic keys (plan §S), in canonical order. Any of them makes a committed
+ * search analytics-dependent: the results are then evaluated only over analysed
+ * runs and the response carries a coverage block. `analyticsCoverage` is not
+ * among them — it is a control flag the interactive surface never writes, so a
+ * deep link carrying it is treated like any other unknown parameter.
+ */
+export const ANALYTICS_KEYS = [
+  'sceneRevisionId',
+  'analyticsAlgorithmVersion',
+  'zoneId',
+  'zoneRelation',
+  'minDwellMs',
+  'lineId',
+  'crossingDirection',
+  'motionDirection',
+  'minStationaryMs',
+  'loitering',
+] as const;
+
+export type AnalyticsKey = (typeof ANALYTICS_KEYS)[number];
+
+/** The keys whose value chooses which camera a search is about. */
+export const CAMERA_SCOPE_KEYS = ['cameraId', 'videoAssetId', 'processingRunId'] as const;
+
+/**
+ * Geometry and identity belong to one camera's scene, so they cannot survive a
+ * change of camera. Generic motion, stationary and loitering intent can.
+ */
+const SCENE_LOCAL_KEYS = [
+  'sceneRevisionId',
+  'analyticsAlgorithmVersion',
+  'zoneId',
+  'zoneRelation',
+  'minDwellMs',
+  'lineId',
+  'crossingDirection',
+] as const satisfies readonly AnalyticsKey[];
+
+export function isAnalyticSearch(filters: CommittedTrackSearch): boolean {
+  return ANALYTICS_KEYS.some((key) => filters[key] !== undefined);
+}
+
+export function hasCameraScope(filters: CommittedTrackSearch): boolean {
+  return CAMERA_SCOPE_KEYS.some((key) => filters[key] !== undefined);
+}
 
 export type SearchParseResult =
   | { isValid: true; filters: CommittedTrackSearch; canonicalQuery: string }
@@ -16,6 +75,7 @@ const supportedKeys = [
   'toUtc',
   'minimumDurationMs',
   'minimumConfidence',
+  ...ANALYTICS_KEYS,
 ] as const;
 
 type SupportedKey = typeof supportedKeys[number];
@@ -131,7 +191,80 @@ export function canonicalSearchParams(filters: CommittedTrackSearch): URLSearchP
   if (filters.toUtc) params.set('toUtc', canonicalUtc(filters.toUtc) ?? filters.toUtc);
   if (filters.minimumDurationMs !== undefined) params.set('minimumDurationMs', String(filters.minimumDurationMs));
   if (filters.minimumConfidence !== undefined) params.set('minimumConfidence', serializePlainDecimal(filters.minimumConfidence));
+  if (filters.sceneRevisionId) params.set('sceneRevisionId', filters.sceneRevisionId.toLowerCase());
+  if (filters.analyticsAlgorithmVersion) params.set('analyticsAlgorithmVersion', filters.analyticsAlgorithmVersion);
+  if (filters.zoneId) params.set('zoneId', filters.zoneId.toLowerCase());
+  // An explicit `dwelled` and an omitted relation are one search (plan §S), so the
+  // default is never written: the URL, the cache key and the cursor fingerprint agree.
+  if (filters.zoneRelation && filters.zoneRelation !== DEFAULT_ZONE_RELATION) params.set('zoneRelation', filters.zoneRelation);
+  if (filters.minDwellMs !== undefined) params.set('minDwellMs', String(filters.minDwellMs));
+  if (filters.lineId) params.set('lineId', filters.lineId.toLowerCase());
+  if (filters.crossingDirection) params.set('crossingDirection', filters.crossingDirection);
+  if (filters.motionDirection) params.set('motionDirection', filters.motionDirection);
+  if (filters.minStationaryMs !== undefined) params.set('minStationaryMs', String(filters.minStationaryMs));
+  if (filters.loitering) params.set('loitering', 'true');
   return params;
+}
+
+/**
+ * Remove committed criteria and everything that cannot stand without them.
+ *
+ * The dependency graph is the backend's (plan §S), enforced here so the URL this
+ * surface writes is one the backend accepts: `zoneRelation` and `minDwellMs` go
+ * with `zoneId`, `crossingDirection` with `lineId`, `analyticsAlgorithmVersion`
+ * with `sceneRevisionId`. Removing a camera-resolving scope drops every
+ * scene-local identity and geometry criterion, because a zone id means nothing
+ * on another camera; generic motion, stationary and loitering intent survives
+ * only while some committed scope still resolves a camera. `loitering` on its
+ * own survives the removal of its zone.
+ */
+export function removeCriteria(filters: CommittedTrackSearch, keys: ReadonlyArray<keyof CommittedTrackSearch>): CommittedTrackSearch {
+  const next: CommittedTrackSearch = { ...filters };
+  for (const key of keys) delete next[key];
+  return settleDependencies(next, filters);
+}
+
+/**
+ * Replace the camera-resolving scope, clearing what cannot follow it.
+ *
+ * A changed camera, video or run conservatively drops the scene-local criteria
+ * rather than carrying geometry identifiers into another camera's scene. The
+ * caller passes the scope it wants; nothing else about the search moves.
+ */
+export function withCameraScope(
+  filters: CommittedTrackSearch,
+  scope: Pick<CommittedTrackSearch, 'cameraId' | 'videoAssetId' | 'processingRunId'>,
+): CommittedTrackSearch {
+  const next: CommittedTrackSearch = { ...filters };
+  let changed = false;
+  for (const key of CAMERA_SCOPE_KEYS) {
+    const value = scope[key]?.toLowerCase();
+    if ((filters[key] ?? undefined) !== (value ?? undefined)) changed = true;
+    if (value) next[key] = value;
+    else delete next[key];
+  }
+  if (changed) for (const key of SCENE_LOCAL_KEYS) delete next[key];
+  return settleDependencies(next, filters);
+}
+
+function settleDependencies(next: CommittedTrackSearch, previous: CommittedTrackSearch): CommittedTrackSearch {
+  if (next.zoneId === undefined) {
+    delete next.zoneRelation;
+    delete next.minDwellMs;
+  }
+  if (next.lineId === undefined) delete next.crossingDirection;
+  if (next.sceneRevisionId === undefined) delete next.analyticsAlgorithmVersion;
+  if (!hasCameraScope(next)) {
+    for (const key of ANALYTICS_KEYS) delete next[key];
+  } else {
+    for (const key of CAMERA_SCOPE_KEYS) {
+      if (previous[key] !== undefined && next[key] !== previous[key]) {
+        for (const local of SCENE_LOCAL_KEYS) delete next[local];
+        break;
+      }
+    }
+  }
+  return next;
 }
 
 export function canonicalSearchKey(filters: CommittedTrackSearch): string {
@@ -222,11 +355,94 @@ export function parseCommittedSearch(params: URLSearchParams): SearchParseResult
     filters.minimumConfidence = value;
   }
 
+  const analytics = parseAnalytics(raw, filters);
+  if (analytics !== null) return { isValid: false, filters: {}, canonicalQuery: '', error: analytics };
+
   return {
     isValid: true,
     filters,
     canonicalQuery: canonicalSearchKey(filters),
   };
+}
+
+function inVocabulary<T extends string>(vocabulary: readonly T[], value: string): value is T {
+  return (vocabulary as readonly string[]).includes(value);
+}
+
+/**
+ * The analytic half of the committed state: each value in its closed vocabulary
+ * and the dependency matrix intact. Returns the refusal message, or null when the
+ * state is acceptable. Mutates `filters` with the canonical values.
+ */
+function parseAnalytics(raw: Partial<Record<SupportedKey, string>>, filters: CommittedTrackSearch): string | null {
+  for (const key of ['sceneRevisionId', 'zoneId', 'lineId'] as const) {
+    if (raw[key] === undefined) continue;
+    const value = canonicalGuid(raw[key]);
+    if (!value) return "Search parameter '" + key + "' is not a valid identifier.";
+    filters[key] = value;
+  }
+
+  if (raw.analyticsAlgorithmVersion !== undefined) {
+    if (!ALGORITHM_VERSION_PATTERN.test(raw.analyticsAlgorithmVersion)) {
+      return 'Analytics engine version must look like scene-analytics-v1.';
+    }
+    filters.analyticsAlgorithmVersion = raw.analyticsAlgorithmVersion;
+  }
+
+  if (raw.zoneRelation !== undefined) {
+    if (!inVocabulary<ZoneRelation>(ZONE_RELATIONS, raw.zoneRelation)) {
+      return 'Zone relation must be entered, exited or dwelled.';
+    }
+    if (raw.zoneRelation !== DEFAULT_ZONE_RELATION) filters.zoneRelation = raw.zoneRelation;
+  }
+
+  if (raw.minDwellMs !== undefined) {
+    const value = canonicalDuration(raw.minDwellMs);
+    if (value === undefined) return 'Minimum dwell must be a non-negative integer number of milliseconds.';
+    filters.minDwellMs = value;
+  }
+
+  if (raw.crossingDirection !== undefined) {
+    if (!inVocabulary<CrossingDirection>(CROSSING_DIRECTIONS, raw.crossingDirection)) {
+      return 'Crossing direction must be aToB or bToA.';
+    }
+    filters.crossingDirection = raw.crossingDirection;
+  }
+
+  if (raw.motionDirection !== undefined) {
+    if (!inVocabulary<MotionDirection>(MOTION_DIRECTIONS, raw.motionDirection)) {
+      return 'Motion direction must be one of the eight screen headings.';
+    }
+    filters.motionDirection = raw.motionDirection;
+  }
+
+  if (raw.minStationaryMs !== undefined) {
+    const value = canonicalDuration(raw.minStationaryMs);
+    if (value === undefined) return 'Minimum stationary time must be a non-negative integer number of milliseconds.';
+    filters.minStationaryMs = value;
+  }
+
+  if (raw.loitering !== undefined) {
+    // Only `true`; false is represented by omission, so anything else is malformed.
+    if (raw.loitering !== 'true') return "Search parameter 'loitering' accepts only true.";
+    filters.loitering = true;
+  }
+
+  // The dependency matrix, exactly as the backend enforces it.
+  if ((raw.zoneRelation !== undefined || filters.minDwellMs !== undefined) && filters.zoneId === undefined) {
+    return 'Zone relation and minimum dwell need a zone.';
+  }
+  if (filters.crossingDirection !== undefined && filters.lineId === undefined) {
+    return 'Crossing direction needs a trip line.';
+  }
+  if (filters.analyticsAlgorithmVersion !== undefined && filters.sceneRevisionId === undefined) {
+    return 'An analytics engine version needs an explicit scene revision.';
+  }
+  if (isAnalyticSearch(filters) && !hasCameraScope(filters)) {
+    return 'Analytics filters need a camera, video or processing run scope.';
+  }
+
+  return null;
 }
 
 function scalePlainUnsignedDecimalText(value: string, power: number): string {

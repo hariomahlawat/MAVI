@@ -1,11 +1,21 @@
 import type { FormEvent } from 'react';
 import type { Camera } from '../../api/cameras';
-import type { TrackObjectClass } from '../../api/tracks';
+import {
+  CROSSING_DIRECTIONS,
+  MOTION_DIRECTIONS,
+  ZONE_RELATIONS,
+  type CrossingDirection,
+  type MotionDirection,
+  type TrackObjectClass,
+  type ZoneRelation,
+} from '../../api/tracks';
 import type { VideoAsset } from '../../api/videos';
 import Button from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
 import { WALL_TIME_FORMAT } from '../../shared/time/wallTime';
+import { MOTION_DIRECTION_LABELS, ZONE_RELATION_LABELS, crossingDirectionLabel, shortId } from './analyticsLabels';
 import type { SearchFieldErrors } from './searchValidation';
+import type { SceneGeometryState } from './useSceneGeometry';
 
 /**
  * What the surface knows about the configured display timezone.
@@ -20,6 +30,12 @@ export type DisplayZoneState =
   | { status: 'unavailable' }
   | { status: 'ready'; timeZoneId: string };
 
+/**
+ * Every draft field is a string, including the analytics group, so the page's
+ * baseline-comparison dirty model needs no special cases. `zoneRelation` holds
+ * the default when no zone is chosen and `loitering` is `'true'` or empty, which
+ * are the exact two shapes the wire accepts.
+ */
 export type SearchDraft = {
   cameraId: string;
   videoAssetId: string;
@@ -28,6 +44,14 @@ export type SearchDraft = {
   toLocal: string;
   minimumDurationSeconds: string;
   minimumConfidencePercent: string;
+  zoneId: string;
+  zoneRelation: ZoneRelation;
+  minDwellSeconds: string;
+  lineId: string;
+  crossingDirection: '' | CrossingDirection;
+  motionDirection: '' | MotionDirection;
+  minStationarySeconds: string;
+  loitering: '' | 'true';
 };
 
 export const emptyDraft: SearchDraft = {
@@ -38,7 +62,20 @@ export const emptyDraft: SearchDraft = {
   toLocal: '',
   minimumDurationSeconds: '',
   minimumConfidencePercent: '',
+  zoneId: '',
+  zoneRelation: 'dwelled',
+  minDwellSeconds: '',
+  lineId: '',
+  crossingDirection: '',
+  motionDirection: '',
+  minStationarySeconds: '',
+  loitering: '',
 };
+
+/** The analytics fields, which a change of camera scope resets together (plan §S). */
+export const ANALYTICS_DRAFT_FIELDS = [
+  'zoneId', 'zoneRelation', 'minDwellSeconds', 'lineId', 'crossingDirection',
+] as const satisfies readonly (keyof SearchDraft)[];
 
 type Props = {
   draft: SearchDraft;
@@ -50,6 +87,13 @@ type Props = {
   videos: VideoAsset[] | undefined;
   videosUnavailable?: boolean;
   displayZone: DisplayZoneState;
+  /**
+   * Whether the draft resolves a single camera — through the camera, the video
+   * or a committed processing run — which is what analytics filters need.
+   */
+  analyticsScoped: boolean;
+  /** The scene geometry the zone and line choices come from. */
+  geometry: SceneGeometryState;
 };
 
 /**
@@ -91,6 +135,8 @@ export default function SearchFilterRail({
   videos,
   videosUnavailable = false,
   displayZone,
+  analyticsScoped,
+  geometry,
 }: Props) {
   const selectedCameraKnown = draft.cameraId
     ? cameras?.some((camera) => camera.id.toLowerCase() === draft.cameraId.toLowerCase()) ?? false
@@ -111,6 +157,30 @@ export default function SearchFilterRail({
       ? 'Loading the display timezone; time editing opens when it arrives.'
       : 'Display timezone is unavailable, so times cannot be edited.';
   const timeEditable = displayZone.status === 'ready';
+
+  // The Analytics group (plan §S "operator presentation"). Geometry is chosen
+  // from the scene that owns it; a committed id the scene cannot name — because
+  // the scene is loading, unavailable or another revision's — stays selected
+  // and is shown by identifier, so a metadata outage narrows what the control
+  // can say and never what the search does.
+  const names = geometry.status === 'ready' ? geometry.names : undefined;
+  const zoneOptions = names ? [...names.zones.values()] : [];
+  const lineOptions = names ? [...names.lines.values()] : [];
+  const selectedZoneKnown = draft.zoneId ? names?.zones.has(draft.zoneId.toLowerCase()) ?? false : true;
+  const selectedLineKnown = draft.lineId ? names?.lines.has(draft.lineId.toLowerCase()) ?? false : true;
+  const selectedLine = draft.lineId ? names?.lines.get(draft.lineId.toLowerCase()) : undefined;
+  const analyticsHint = !analyticsScoped
+    ? 'Choose a camera, video or processing run to filter by scene analytics.'
+    : geometry.status === 'loading'
+      ? 'Loading the scene geometry…'
+      : geometry.status === 'unavailable'
+        ? 'Scene geometry is unavailable; committed zones and lines stay in force by identifier.'
+        : geometry.status === 'unconfigured'
+          ? 'No scene is configured for this camera, so zone and line filters are not available.'
+          : geometry.status === 'ready' && !geometry.analyticsEnabled
+            ? 'The active scene revision disables analytics; runs will report as disabled.'
+            : null;
+  const geometryEditable = analyticsScoped && geometry.status === 'ready';
 
   return (
     <form className="filter-rail" onSubmit={onSubmit} noValidate aria-label="Search filters">
@@ -226,6 +296,128 @@ export default function SearchFilterRail({
             />
           )}
         </Field>
+      </section>
+
+      <section className="filter-rail__section" aria-labelledby="filter-analytics">
+        <h2 id="filter-analytics">Analytics</h2>
+        {analyticsHint ? <p className="filter-rail__hint">{analyticsHint}</p> : null}
+        <Field label="Zone">
+          {(control) => (
+            <select
+              {...control}
+              value={draft.zoneId}
+              disabled={!geometryEditable && !draft.zoneId}
+              onChange={(event) => onDraftChange({ zoneId: event.target.value })}
+            >
+              <option value="">Any zone</option>
+              {draft.zoneId && !selectedZoneKnown ? (
+                <option value={draft.zoneId}>Zone ID · {shortId(draft.zoneId)}</option>
+              ) : null}
+              {zoneOptions.map((zone) => (
+                <option key={zone.zoneId} value={zone.zoneId.toLowerCase()}>
+                  {zone.name}{zone.enabled ? '' : ' · Disabled'}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Zone relation">
+          {(control) => (
+            <select
+              {...control}
+              value={draft.zoneRelation}
+              disabled={!draft.zoneId}
+              onChange={(event) => onDraftChange({ zoneRelation: event.target.value as ZoneRelation })}
+            >
+              {ZONE_RELATIONS.map((relation) => (
+                <option key={relation} value={relation}>{ZONE_RELATION_LABELS[relation]}</option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Minimum dwell (seconds)" error={errors.minDwellSeconds} help="Up to three decimal places.">
+          {(control) => (
+            <input
+              {...control}
+              inputMode="decimal"
+              value={draft.minDwellSeconds}
+              disabled={!draft.zoneId}
+              onChange={(event) => onDraftChange({ minDwellSeconds: event.target.value })}
+              placeholder="e.g. 30"
+            />
+          )}
+        </Field>
+        <Field label="Trip line">
+          {(control) => (
+            <select
+              {...control}
+              value={draft.lineId}
+              disabled={!geometryEditable && !draft.lineId}
+              onChange={(event) => onDraftChange({ lineId: event.target.value })}
+            >
+              <option value="">Any line</option>
+              {draft.lineId && !selectedLineKnown ? (
+                <option value={draft.lineId}>Line ID · {shortId(draft.lineId)}</option>
+              ) : null}
+              {lineOptions.map((line) => (
+                <option key={line.lineId} value={line.lineId.toLowerCase()}>
+                  {line.name}{line.enabled ? '' : ' · Disabled'}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Crossing direction">
+          {(control) => (
+            <select
+              {...control}
+              value={draft.crossingDirection}
+              disabled={!draft.lineId}
+              onChange={(event) => onDraftChange({ crossingDirection: event.target.value as '' | CrossingDirection })}
+            >
+              <option value="">Either direction</option>
+              {CROSSING_DIRECTIONS.map((direction) => (
+                <option key={direction} value={direction}>{crossingDirectionLabel(direction, selectedLine)}</option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Motion direction" help="Screen direction of travel, not a compass bearing.">
+          {(control) => (
+            <select
+              {...control}
+              value={draft.motionDirection}
+              disabled={!analyticsScoped}
+              onChange={(event) => onDraftChange({ motionDirection: event.target.value as '' | MotionDirection })}
+            >
+              <option value="">Any direction</option>
+              {MOTION_DIRECTIONS.map((direction) => (
+                <option key={direction} value={direction}>{MOTION_DIRECTION_LABELS[direction]}</option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Minimum stationary time (seconds)" error={errors.minStationarySeconds} help="Up to three decimal places.">
+          {(control) => (
+            <input
+              {...control}
+              inputMode="decimal"
+              value={draft.minStationarySeconds}
+              disabled={!analyticsScoped}
+              onChange={(event) => onDraftChange({ minStationarySeconds: event.target.value })}
+              placeholder="e.g. 10"
+            />
+          )}
+        </Field>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={draft.loitering === 'true'}
+            disabled={!analyticsScoped}
+            onChange={(event) => onDraftChange({ loitering: event.target.checked ? 'true' : '' })}
+          />
+          Loitering{draft.zoneId ? ' in this zone' : ''}
+        </label>
       </section>
 
       {/* At the end of the column, in flow. It was briefly sticky to its

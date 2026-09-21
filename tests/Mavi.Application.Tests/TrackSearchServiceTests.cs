@@ -8,11 +8,13 @@ public sealed class TrackSearchServiceTests
     private static readonly DateTimeOffset FixedNow =
         new(2026, 9, 13, 11, 0, 0, TimeSpan.Zero);
     private static readonly TimeProvider FixedClock = new FixedTimeProvider(FixedNow);
+    private static readonly TrackCursorSigningKey SigningKey =
+        TrackCursorSigningKey.FromBytes(Enumerable.Range(0, 32).Select(x => (byte)x).ToArray());
     [Fact]
     public async Task InvalidLimitIsRejectedBeforeRepositoryCall()
     {
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository, FixedClock);
+        var service = new TrackSearchService(repository, FixedClock, SigningKey);
         var query = ValidQuery() with { Limit = 101 };
 
         var result = await service.SearchAsync(query, CancellationToken.None);
@@ -26,7 +28,7 @@ public sealed class TrackSearchServiceTests
     public async Task InvalidConfidenceIsRejected()
     {
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository, FixedClock);
+        var service = new TrackSearchService(repository, FixedClock, SigningKey);
 
         var result = await service.SearchAsync(
             ValidQuery() with { MinimumConfidence = double.NaN },
@@ -40,7 +42,7 @@ public sealed class TrackSearchServiceTests
     public async Task FromMustPrecedeTo()
     {
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository, FixedClock);
+        var service = new TrackSearchService(repository, FixedClock, SigningKey);
         var instant = new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero);
 
         var result = await service.SearchAsync(
@@ -61,7 +63,7 @@ public sealed class TrackSearchServiceTests
             Row(new DateTimeOffset(2026, 9, 13, 10, 0, 1, TimeSpan.Zero)),
         };
         var repository = new FakeTrackSearchRepository(rows);
-        var service = new TrackSearchService(repository, FixedClock);
+        var service = new TrackSearchService(repository, FixedClock, SigningKey);
 
         var result = await service.SearchAsync(
             ValidQuery() with { Limit = 2 },
@@ -89,7 +91,7 @@ public sealed class TrackSearchServiceTests
             Guid.CreateVersion7(),
             TrackCursorCodec.ComputeFilterFingerprint(query));
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository, FixedClock);
+        var service = new TrackSearchService(repository, FixedClock, SigningKey);
 
         var result = await service.SearchAsync(
             query with { Cursor = TrackCursorCodec.Encode(expected) },
@@ -103,7 +105,7 @@ public sealed class TrackSearchServiceTests
     public async Task CursorCannotBeReusedWithDifferentFilters()
     {
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository, FixedClock);
+        var service = new TrackSearchService(repository, FixedClock, SigningKey);
         var original = ValidQuery();
         var cursor = new TrackCursorPosition(
             FixedNow,
@@ -130,7 +132,7 @@ public sealed class TrackSearchServiceTests
     public async Task CursorOutsideValidityWindowIsRejected(int minutesFromNow)
     {
         var repository = new FakeTrackSearchRepository([]);
-        var service = new TrackSearchService(repository, FixedClock);
+        var service = new TrackSearchService(repository, FixedClock, SigningKey);
         var query = ValidQuery();
         var cursor = new TrackCursorPosition(
             FixedNow.AddMinutes(minutesFromNow),
@@ -209,5 +211,18 @@ public sealed class TrackSearchServiceTests
             Guid trackId,
             CancellationToken cancellationToken) =>
             Task.FromResult<TrackDetailRow?>(null);
+
+        public Task<TrackAnalyticsSearchRepositoryResult> SearchAnalyticsAsync(
+            TrackSearchQuery query,
+            TrackAnalyticsCursorPosition? cursor,
+            int take,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The ordinary fake does not serve analytic searches.");
+
+        public Task<TrackDetailAnalyticsResult?> GetDetailAnalyticsAsync(
+            Guid trackId,
+            TrackAnalyticsDetailRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<TrackDetailAnalyticsResult?>(null);
     }
 }

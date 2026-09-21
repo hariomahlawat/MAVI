@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrackDetail } from '../../api/tracks';
+import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import TrackEvidencePlayer from './TrackEvidencePlayer';
 
 const detail: TrackDetail = {
@@ -24,6 +25,7 @@ const detail: TrackDetail = {
   representative: null,
   trajectoryArtifactId: null,
   trajectoryContentUrl: null,
+  analytics: notConfiguredAnalytics(),
 };
 
 /** A controllable animation-frame scheduler: frames run only when the test says so. */

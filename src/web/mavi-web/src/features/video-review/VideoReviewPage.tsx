@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
-import { getTrack } from '../../api/tracks';
+import { ALGORITHM_VERSION_PATTERN, getTrack, type TrackAnalyticsIdentity } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
@@ -30,6 +30,52 @@ function Invalid({ message }: { message: string }) {
   );
 }
 
+/**
+ * What a review link says about the analytics the Track should be read against.
+ *
+ * Three states, because "asked for nothing" and "asked for something that cannot
+ * be honoured" are different claims. A link with no identity is an ordinary
+ * direct link and legitimately resolves the current revision and engine. A link
+ * that *claims* an identity has made a statement about which evidence it refers
+ * to, so if that statement is unreadable the only honest answers are to refuse
+ * it or to ask the server about it — never to quietly answer a different
+ * question with current analytics, which would make a historical link show
+ * something other than what it names.
+ */
+type ParsedAnalyticsIdentity =
+  | { kind: 'none' }
+  | { kind: 'valid'; identity: TrackAnalyticsIdentity }
+  | { kind: 'invalid' };
+
+function readAnalyticsIdentity(params: URLSearchParams): ParsedAnalyticsIdentity {
+  const revisions = params.getAll('sceneRevisionId');
+  const versions = params.getAll('analyticsAlgorithmVersion');
+  if (revisions.length === 0 && versions.length === 0) return { kind: 'none' };
+
+  // Mirrors the API contract: exactly one well-formed revision, at most one
+  // well-formed engine version, and a version never without a revision — an
+  // engine alone does not name an identity, and the server refuses it too.
+  if (revisions.length !== 1 || !isGuid(revisions[0])) return { kind: 'invalid' };
+  if (versions.length > 1) return { kind: 'invalid' };
+  const version = versions[0];
+  if (version !== undefined && !ALGORITHM_VERSION_PATTERN.test(version)) return { kind: 'invalid' };
+
+  // A revision with no version is a complete request, not a half one: it means
+  // that revision read with the current engine, which the API accepts.
+  return {
+    kind: 'valid',
+    identity: { sceneRevisionId: revisions[0].toLowerCase(), analyticsAlgorithmVersion: version },
+  };
+}
+
+/** The cache key half of an identity; an unreadable claim never shares a key with "current". */
+function analyticsIdentityKey(parsed: ParsedAnalyticsIdentity): string {
+  if (parsed.kind === 'invalid') return 'invalid';
+  if (parsed.kind === 'none' || !parsed.identity.sceneRevisionId) return '';
+  const { sceneRevisionId, analyticsAlgorithmVersion } = parsed.identity;
+  return sceneRevisionId + (analyticsAlgorithmVersion ? '@' + analyticsAlgorithmVersion : '');
+}
+
 export default function VideoReviewPage() {
   const { videoAssetId: rawVideoAssetId = '' } = useParams();
   const [searchParams] = useSearchParams();
@@ -40,17 +86,27 @@ export default function VideoReviewPage() {
   const videoAssetId = validVideoId ? rawVideoAssetId.toLowerCase() : '';
   const trackId = validTrackId ? rawTrackId.toLowerCase() : '';
 
+  // The analytic identity the originating search pinned, when a link carried one
+  // (plan §S; ADR-011 Decision 8): the facts reviewed are the facts that search
+  // showed, never silently the camera's current revision. A link whose identity
+  // cannot be read is refused rather than answered — falling back to current
+  // analytics would show evidence the link does not name, and a historical or
+  // superseded link would stop being reproducible.
+  const parsedIdentity = readAnalyticsIdentity(searchParams);
+  const analyticsIdentity = parsedIdentity.kind === 'valid' ? parsedIdentity.identity : undefined;
+  const invalidIdentity = parsedIdentity.kind === 'invalid';
+
   const track = useQuery({
-    queryKey: queryKeys.track(trackId),
-    queryFn: ({ signal }) => getTrack(trackId, signal),
-    enabled: validVideoId && validTrackId,
+    queryKey: queryKeys.track(trackId, analyticsIdentityKey(parsedIdentity)),
+    queryFn: ({ signal }) => getTrack(trackId, signal, analyticsIdentity),
+    enabled: validVideoId && validTrackId && !invalidIdentity,
     retry: shouldRetryQuery,
   });
 
   const systemConfig = useQuery({
     queryKey: queryKeys.systemConfig,
     queryFn: ({ signal }) => getSystemConfig(signal),
-    enabled: validVideoId && validTrackId,
+    enabled: validVideoId && validTrackId && !invalidIdentity,
     staleTime: 60_000,
   });
 
@@ -63,6 +119,7 @@ export default function VideoReviewPage() {
 
   if (!validVideoId) return <Invalid message="The video identifier in this route is invalid." />;
   if (!validTrackId) return <Invalid message="Exactly one valid Track identifier is required in the trackId query parameter." />;
+  if (invalidIdentity) return <Invalid message="This review link names an invalid analytics identity, so the evidence it refers to cannot be identified. Open the Track again from search." />;
   if (track.error instanceof ApiError && track.error.status === 404) return <Invalid message="Track was not found." />;
   if (identityMismatch) return <Invalid message="The selected Track does not belong to the video identified by this review route." />;
 

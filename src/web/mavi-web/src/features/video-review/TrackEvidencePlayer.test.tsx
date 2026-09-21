@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TrackDetail } from '../../api/tracks';
+import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import TrackEvidencePlayer from './TrackEvidencePlayer';
 
 const detail: TrackDetail = {
@@ -27,6 +28,7 @@ const detail: TrackDetail = {
   },
   trajectoryArtifactId: 'a',
   trajectoryContentUrl: '/api/artifacts/a/content',
+  analytics: notConfiguredAnalytics(),
 };
 
 const trajectory = [

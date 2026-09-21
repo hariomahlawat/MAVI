@@ -20,8 +20,10 @@ import { configuredUtcToWallTimeText } from '../../shared/time/wallTime';
 import { ContextBar, InvestigationLayout, Segmented } from '../../shared/workspace';
 import { isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
 import { findSelectControl, isSelectedResultControl } from './resultSelection';
+import type { AnalyticsCoverage, TrackAnalyticsIdentity } from '../../api/tracks';
 import CommittedFilterChips from './CommittedFilterChips';
-import SearchFilterRail, { emptyDraft, type DisplayZoneState, type SearchDraft } from './SearchFilterRail';
+import CoverageStrip from './CoverageStrip';
+import SearchFilterRail, { ANALYTICS_DRAFT_FIELDS, emptyDraft, type DisplayZoneState, type SearchDraft } from './SearchFilterRail';
 import TrackInspector from './TrackInspector';
 import TrackResultCard from './TrackResultCard';
 import TrackResultList, { reviewPath } from './TrackResultList';
@@ -29,11 +31,14 @@ import {
   canonicalSearchKey,
   canonicalSearchParams,
   confidenceFractionToPercentText,
+  isAnalyticSearch,
   millisecondsToSecondsText,
   parseCommittedSearch,
+  removeCriteria,
   type CommittedTrackSearch,
 } from './searchState';
 import { commitDraft, type SearchFieldErrors, type SearchFieldKey } from './searchValidation';
+import { useSceneGeometry } from './useSceneGeometry';
 
 const PAGE_SIZE = 24;
 const SELECTION_PARAM = 'track';
@@ -86,7 +91,38 @@ function draftFromFilters(filters: CommittedTrackSearch, timeZoneId: string | un
     toLocal: wallValue(filters.toUtc, timeZoneId),
     minimumDurationSeconds: millisecondsToSecondsText(filters.minimumDurationMs),
     minimumConfidencePercent: confidenceFractionToPercentText(filters.minimumConfidence),
+    zoneId: filters.zoneId ?? '',
+    zoneRelation: filters.zoneRelation ?? 'dwelled',
+    minDwellSeconds: millisecondsToSecondsText(filters.minDwellMs),
+    lineId: filters.lineId ?? '',
+    crossingDirection: filters.crossingDirection ?? '',
+    motionDirection: filters.motionDirection ?? '',
+    minStationarySeconds: millisecondsToSecondsText(filters.minStationaryMs),
+    loitering: filters.loitering ? 'true' : '',
   };
+}
+
+/**
+ * The zero-results message for an analytic search (plan §S, UI/UX §14, §17).
+ *
+ * It must not reuse the ordinary "No Tracks matched": an analytic search
+ * evaluates only the analysed runs, so "no match" and "nothing was looked at"
+ * are different facts, and the three not-evaluated causes get three verbs.
+ */
+function analyticEmptyState(coverage: AnalyticsCoverage): { title: string; body: string; hatched: boolean } {
+  if (coverage.evaluatedRuns === 0) {
+    if (coverage.notConfiguredRuns > 0 && coverage.disabledRuns === 0 && coverage.pendingRuns === 0 && coverage.failedRuns === 0 && coverage.staleRuns === 0) {
+      return { title: 'No scene configured for this camera.', body: 'Define zones and trip lines in the Scene Editor before searching by analytics.', hatched: true };
+    }
+    if (coverage.disabledRuns > 0 && coverage.pendingRuns === 0 && coverage.failedRuns === 0 && coverage.staleRuns === 0 && coverage.notConfiguredRuns === 0) {
+      return { title: 'Analytics disabled by the active scene revision.', body: 'Runs in this scope were not evaluated. Enable a zone or trip line in the Scene Editor to analyse them.', hatched: true };
+    }
+    return { title: 'Not analysed yet.', body: 'No run in this scope has been evaluated against the scene revision, so there is nothing to match. The coverage above names each run\'s state.', hatched: true };
+  }
+  if (coverage.complete) {
+    return { title: 'No evaluated Tracks matched this search.', body: 'Every run in scope was analysed. Adjust the analytics filters or the committed scope.', hatched: false };
+  }
+  return { title: 'No evaluated Tracks matched.', body: 'Some runs in this scope were not evaluated; the coverage above names them. A match may exist in a run that has not been analysed yet.', hatched: false };
 }
 
 /**
@@ -193,6 +229,9 @@ export default function VisualSearchPage() {
   const outstanding = dirtyFields(draft);
   const hasDraftChanges = outstanding.length > 0;
 
+  const committedFilters = committed.isValid ? committed.filters : {};
+  const analytic = committed.isValid && isAnalyticSearch(committed.filters);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(VIEW_STORAGE_KEY, view);
@@ -244,6 +283,69 @@ export default function VisualSearchPage() {
   const items = useMemo(() => tracks.data?.pages.flatMap((page) => page.items) ?? [], [tracks.data]);
   const position = selectedIndex(items, selectedId);
   const hasMore = Boolean(tracks.hasNextPage);
+
+  // Coverage is part of the snapshot: page one computed it and every continuation
+  // carries the same block, so the first page is the one to read it from.
+  const coverage = analytic ? tracks.data?.pages[0]?.analyticsCoverage : undefined;
+
+  // The camera the analytics group is about: the draft's camera, the draft's
+  // video's camera, or — for a committed run scope the rail has no control for —
+  // the camera the results themselves name. Nothing here broadens the search;
+  // it only decides which scene's geometry the choices are read from.
+  const draftVideoCamera = draft.values.videoAssetId
+    ? videos.data?.find((video) => video.id.toLowerCase() === draft.values.videoAssetId.toLowerCase())?.cameraId
+    : undefined;
+  const analyticsCameraId = draft.values.cameraId
+    || draftVideoCamera
+    || (committedFilters.processingRunId ? items[0]?.cameraId : undefined);
+  const analyticsScoped = Boolean(draft.values.cameraId || draft.values.videoAssetId || committedFilters.processingRunId);
+
+  // (B) The geometry the *controls* are composed from. This one follows the
+  // current configuration on purpose: the rail offers the zones and lines the
+  // backend will accept for the query being composed, which is the explicitly
+  // committed revision when there is one and the camera's active scene
+  // otherwise. It says nothing about results already on screen.
+  const draftGeometry = useSceneGeometry(analyticsCameraId, committedFilters.sceneRevisionId);
+
+  // The identity the results were evaluated against, carried to the inspector,
+  // the detail request and the review links so the facts shown there are the
+  // facts the search evaluated (plan §S).
+  //
+  // The backend resolves this identity at the first page's linearisation point
+  // and returns it whole in coverage. The committed filters are a *request*: an
+  // explicit revision with no engine version is an incomplete pair, and reading
+  // it back as identity lets a later engine upgrade re-point the detail endpoint
+  // at a different algorithm than the search ran. So the resolved pair wins
+  // whenever there is one, and the request is only a fallback for a search the
+  // backend never resolved an identity for.
+  //
+  // Memoised because it is a dependency of the keyboard navigation callback, and
+  // a fresh object each render would re-register the document key listener on
+  // every render.
+  const requestedRevisionId = committedFilters.sceneRevisionId;
+  const requestedAlgorithmVersion = committedFilters.analyticsAlgorithmVersion;
+  const analyticsIdentity: TrackAnalyticsIdentity | undefined = useMemo(() => (coverage
+    ? coverage.sceneRevisionId
+      ? { sceneRevisionId: coverage.sceneRevisionId, analyticsAlgorithmVersion: coverage.algorithmVersion }
+      : undefined
+    : requestedRevisionId
+      ? { sceneRevisionId: requestedRevisionId, analyticsAlgorithmVersion: requestedAlgorithmVersion }
+      : undefined
+  ), [coverage, requestedRevisionId, requestedAlgorithmVersion]);
+
+  // (A) The geometry the *results* are labelled with, read against the revision
+  // the backend pinned rather than whatever is active now. Activating a new
+  // scene must not silently relabel facts that were evaluated against the old
+  // one. The camera comes from the committed scope, not the draft, for the same
+  // reason: editing the rail does not change what the results on screen mean.
+  const committedVideoCamera = committedFilters.videoAssetId
+    ? videos.data?.find((video) => video.id.toLowerCase() === committedFilters.videoAssetId!.toLowerCase())?.cameraId
+    : undefined;
+  const resultCameraId = coverage
+    ? committedFilters.cameraId || committedVideoCamera || items[0]?.cameraId
+    : undefined;
+  const resultGeometry = useSceneGeometry(resultCameraId, analyticsIdentity?.sceneRevisionId, 'pinned');
+  const resultGeometryNames = resultGeometry.status === 'ready' ? resultGeometry.names : undefined;
 
   // A next-page advance the operator asked for; see the effect below.
   const pendingAdvance = useRef<{ fingerprint: string; fromId: string } | null>(null);
@@ -334,10 +436,14 @@ export default function VisualSearchPage() {
   // the Review page can hand back to exactly this search.
   const searchContext = committed.isValid ? committed.canonicalQuery : '';
 
+  // Keyboard Enter is the same operation as the list, grid and inspector Review
+  // links, so it carries the same resolved identity. A navigation that dropped it
+  // would send the operator to Review with no provenance, where the current
+  // revision and engine are then legitimately resolved and different facts shown.
   const openSelected = useCallback(() => {
     const selected = position >= 0 ? items[position] : undefined;
-    if (selected) navigate(reviewPath(selected, searchContext));
-  }, [items, position, navigate, searchContext]);
+    if (selected) navigate(reviewPath(selected, searchContext, analyticsIdentity));
+  }, [items, position, navigate, searchContext, analyticsIdentity]);
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -393,7 +499,19 @@ export default function VisualSearchPage() {
     // Nothing is marked here. Whether a field is outstanding is read off the
     // baseline, so editing a value back to what is committed makes it clean
     // again without anything having to notice that it happened.
-    setDraft((current) => ({ ...current, values: { ...current.values, ...patch } }));
+    setDraft((current) => {
+      const values = { ...current.values, ...patch };
+      // A zone or line belongs to one camera's scene. Changing the camera or the
+      // video clears the geometry draft rather than carrying another camera's
+      // identifiers along (plan §S); generic motion, stationary and loitering
+      // intent stays.
+      const scopeChanged = ('cameraId' in patch && patch.cameraId !== current.values.cameraId)
+        || ('videoAssetId' in patch && patch.videoAssetId !== current.values.videoAssetId);
+      if (scopeChanged) {
+        for (const key of ANALYTICS_DRAFT_FIELDS) (values as Record<string, string>)[key] = emptyDraft[key];
+      }
+      return { ...current, values };
+    });
     // A field the operator is correcting stops claiming to be wrong as soon as
     // they touch it; it is re-judged when they ask for the search again.
     const keys = Object.keys(patch) as DraftField[];
@@ -420,6 +538,8 @@ export default function VisualSearchPage() {
       numericDirty: {
         duration: outstandingNow.has('minimumDurationSeconds'),
         confidence: outstandingNow.has('minimumConfidencePercent'),
+        dwell: outstandingNow.has('minDwellSeconds'),
+        stationary: outstandingNow.has('minStationarySeconds'),
       },
       displayTimeZoneId,
     });
@@ -467,9 +587,9 @@ export default function VisualSearchPage() {
    */
   const removeCriterion = useCallback((keys: ReadonlyArray<keyof CommittedTrackSearch>) => {
     if (!committed.isValid) return;
-    const next = { ...committed.filters };
-    for (const key of keys) delete next[key];
-    commitFilters(next);
+    // Dependents go with the criterion they depend on (plan §S): a removed zone
+    // takes its relation and dwell, a removed camera scope takes the geometry.
+    commitFilters(removeCriteria(committed.filters, keys));
   }, [committed, commitFilters]);
 
   const continuationInvalid = tracks.isFetchNextPageError
@@ -538,6 +658,8 @@ export default function VisualSearchPage() {
             videos={videos.data}
             videosUnavailable={videos.isError}
             displayZone={displayZone}
+            analyticsScoped={analyticsScoped}
+            geometry={draftGeometry}
           />
         )}
         inspector={inspecting && selectedId ? (
@@ -549,6 +671,8 @@ export default function VisualSearchPage() {
             hasMore={hasMore}
             displayTimeZoneId={displayTimeZoneId}
             searchContext={searchContext}
+            analyticsIdentity={analyticsIdentity}
+            geometry={resultGeometryNames}
             summary={position >= 0 ? items[position] : undefined}
             onPrevious={goPrevious}
             onNext={goNext}
@@ -563,6 +687,7 @@ export default function VisualSearchPage() {
               cameras={cameras.data}
               videos={videos.data}
               displayTimeZoneId={displayTimeZoneId}
+              geometry={resultGeometryNames}
               onRemove={removeCriterion}
             />
           ) : null}
@@ -602,6 +727,11 @@ export default function VisualSearchPage() {
             />
           </div>
 
+          {/* §17: the coverage strip sits immediately beneath the header and chips
+              and persists for the snapshot, so an incomplete answer is never
+              read as a complete one. */}
+          {coverage ? <CoverageStrip coverage={coverage} geometry={resultGeometryNames} /> : null}
+
           {committed.isValid && tracks.isPending ? <LoadingState label="Searching visual intelligence…" /> : null}
 
           {tracks.isError && items.length === 0 ? (
@@ -618,14 +748,25 @@ export default function VisualSearchPage() {
           ) : null}
 
           {!tracks.isPending && !tracks.isError && committed.isValid && items.length === 0 ? (
-            <EmptyState icon="search" title="No Tracks matched this search.">
-              Adjust the committed filters or reset to view the newest available Tracks.
-            </EmptyState>
+            coverage ? (
+              (() => {
+                const state = analyticEmptyState(coverage);
+                return (
+                  <EmptyState icon="search" title={state.title} hatched={state.hatched}>
+                    {state.body}
+                  </EmptyState>
+                );
+              })()
+            ) : (
+              <EmptyState icon="search" title="No Tracks matched this search.">
+                Adjust the committed filters or reset to view the newest available Tracks.
+              </EmptyState>
+            )
           ) : null}
 
           {items.length > 0 ? (
             view === 'list' ? (
-              <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} searchContext={searchContext} onSelect={selectTrack} />
+              <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} searchContext={searchContext} analyticsIdentity={analyticsIdentity} onSelect={selectTrack} />
             ) : (
               <div className="results__list">
                 <div className="track-grid">
@@ -636,6 +777,7 @@ export default function VisualSearchPage() {
                       displayTimeZoneId={displayTimeZoneId}
                       selected={selectedId !== null && track.id.toLowerCase() === selectedId}
                       searchContext={searchContext}
+                      analyticsIdentity={analyticsIdentity}
                       onSelect={selectTrack}
                     />
                   ))}

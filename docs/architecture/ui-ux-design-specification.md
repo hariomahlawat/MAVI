@@ -874,7 +874,7 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 - **Prerequisites.** UI-2.
 - **Acceptance.** Committed filters reproducible from the URL, unchanged; no overlapping controls at 1366 or 1440; the inspector threshold validated and either confirmed or amended in §4.4; keyboard navigation unchanged or improved; §26 visual QA pass.
 - **Risks.** Medium — URL, keyboard and pagination interplay is subtle; existing tests must be preserved.
-- **Relation to Scene Analytics.** **Must be in place before Slice 4 Search/readiness UI is added.**
+- **Relation to Scene Analytics.** **Must be in place before Slice 4 Search/readiness UI is added.** Slice 4's Investigation Analytics filter group, committed analytic chips, coverage strip and inspector analytics summary, and its Processing Ledger analytics column and Record readiness panel, landed on this grammar in the Slice 4 PR (open, awaiting cold review) with no change to the archetypes, the state taxonomy or the one-badge-per-row rule.
 
 ### 33.6 UI-5 — Evidence Player + Review
 

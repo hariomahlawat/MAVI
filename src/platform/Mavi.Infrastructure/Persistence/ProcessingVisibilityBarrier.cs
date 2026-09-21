@@ -16,22 +16,50 @@ public static class ProcessingVisibilityBarrier
     // A first-page snapshot sequence is therefore strictly lower than every
     // completion that can commit after that search transaction releases its lock,
     // without depending on host clocks.
+    //
+    // The exclusive side is not "completion" but publication: every commit that can
+    // change what a search snapshot means takes it. There are two. A processing run
+    // completing publishes Tracks and analytic facts. A scene activation publishes a
+    // new active revision, which is what an analytic search without an explicit
+    // revision pins its identity to and what coverage classifies missing units
+    // against. A search that resolved its scope outside this lock could pin one
+    // revision and count against a snapshot taken in a world where another is active,
+    // so both publication paths must hold the exclusive lock through commit and every
+    // first page must hold the shared lock before it reads any scope.
     public const string SequenceName = "processing_visibility_sequence";
 
-    private const string CompletionExclusiveSql =
+    private const string PublicationExclusiveSql =
         "SELECT pg_advisory_xact_lock(1296127561, 1412505908)";
     private const string SearchSharedSql =
         "SELECT pg_advisory_xact_lock_shared(1296127561, 1412505908)";
     private const string NextSequenceSql =
         "SELECT nextval('processing_visibility_sequence')";
 
+    /// <summary>
+    /// Taken by a processing run publishing its Tracks and facts, and held through commit.
+    /// </summary>
     public static Task AcquireCompletionExclusiveAsync(
         MaviDbContext db,
         CancellationToken cancellationToken)
     {
         RequireTransaction(db, "Processing completion visibility lock");
         return db.Database.ExecuteSqlRawAsync(
-            CompletionExclusiveSql,
+            PublicationExclusiveSql,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Taken by a scene activation publishing a new active revision, and held through
+    /// commit. This is the same lock the completion path takes, because it is the same
+    /// question: whether a first-page search sees this change wholly or not at all.
+    /// </summary>
+    public static Task AcquireSceneActivationExclusiveAsync(
+        MaviDbContext db,
+        CancellationToken cancellationToken)
+    {
+        RequireTransaction(db, "Scene activation visibility lock");
+        return db.Database.ExecuteSqlRawAsync(
+            PublicationExclusiveSql,
             cancellationToken);
     }
 

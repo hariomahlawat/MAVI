@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { ApiError } from '../../api/client';
-import { getTrack, type TrackSearchItem } from '../../api/tracks';
+import { getTrack, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
@@ -10,7 +10,15 @@ import { Inspector } from '../../shared/workspace';
 import { RepresentativeEvidence, TrackSummary } from '../video-review/TrackDetailsPanels';
 import TrackEvidencePlayer from '../video-review/TrackEvidencePlayer';
 import { useTrajectory } from '../video-review/useTrajectory';
+import type { GeometryNames } from './analyticsLabels';
+import TrackAnalyticsSummary from './TrackAnalyticsSummary';
 import { reviewPath } from './TrackResultList';
+
+/** The cache key half of an identity: two identities are one entry only when both parts agree. */
+export function analyticsIdentityKey(identity: TrackAnalyticsIdentity | undefined): string {
+  if (!identity?.sceneRevisionId) return '';
+  return identity.sceneRevisionId.toLowerCase() + (identity.analyticsAlgorithmVersion ? '@' + identity.analyticsAlgorithmVersion : '');
+}
 
 type Props = {
   trackId: string;
@@ -20,6 +28,14 @@ type Props = {
   displayTimeZoneId?: string;
   /** Canonical committed search query, carried into the full review link. */
   searchContext?: string;
+  /**
+   * The analytic identity the originating search pinned. The detail is read
+   * against it, so the facts shown are the facts the search evaluated — never
+   * silently the camera's current revision (plan §S).
+   */
+  analyticsIdentity?: TrackAnalyticsIdentity;
+  /** Names for the geometry the identity's facts refer to. */
+  geometry?: GeometryNames;
   summary?: TrackSearchItem;
   onPrevious: () => void;
   onNext: () => void;
@@ -45,14 +61,16 @@ export default function TrackInspector({
   hasMore,
   displayTimeZoneId,
   searchContext,
+  analyticsIdentity,
+  geometry,
   summary,
   onPrevious,
   onNext,
   onClose,
 }: Props) {
   const track = useQuery({
-    queryKey: queryKeys.track(trackId),
-    queryFn: ({ signal }) => getTrack(trackId, signal),
+    queryKey: queryKeys.track(trackId, analyticsIdentityKey(analyticsIdentity)),
+    queryFn: ({ signal }) => getTrack(trackId, signal, analyticsIdentity),
     retry: (count, error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500) && count < 1,
   });
   const detail = track.data;
@@ -76,7 +94,7 @@ export default function TrackInspector({
           <span className="track-inspector__pos" aria-live="polite">{position >= 0 ? `${position + 1} / ${total}${hasMore ? '+' : ''}` : '— / ' + total}</span>
           <Button size="sm" iconOnly icon="chevronRight" onClick={onNext} disabled={!canNext} title="Next result (j / ↓)">Next result</Button>
           {detail ? (
-            <ButtonLink size="sm" to={reviewPath({ id: detail.id, videoAssetId: detail.videoAssetId }, searchContext)} icon="external" title="Open full review (Enter)">
+            <ButtonLink size="sm" to={reviewPath({ id: detail.id, videoAssetId: detail.videoAssetId }, searchContext, analyticsIdentity)} icon="external" title="Open full review (Enter)">
               Open
             </ButtonLink>
           ) : null}
@@ -110,6 +128,11 @@ export default function TrackInspector({
               <span className="small faint">Local track {detail.localTrackNumber} · <code>{detail.id.slice(0, 8)}…</code></span>
             </div>
             <TrackSummary detail={detail} displayTimeZoneId={displayTimeZoneId} />
+            {/* Guarded rather than assumed: a detail from a server without the
+                analytics block must degrade to the Slice-3 inspector, not blank it. */}
+            {detail.analytics ? (
+              <TrackAnalyticsSummary analytics={detail.analytics} geometry={geometry} displayTimeZoneId={displayTimeZoneId} />
+            ) : null}
             <details className="disclosure">
               <summary>Representative frame</summary>
               <div className="disclosure__body">

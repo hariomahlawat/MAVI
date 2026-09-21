@@ -31,6 +31,19 @@ try {
     $genericManifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $genericManifestPath -Encoding UTF8
     [void](Test-MaviManifest -Root $genericRoot -ManifestPath $genericManifestPath -ExpectedSchemaVersion "mavi-test-manifest-v1")
 
+    # Analytic search cursor signing key contract: 32 random bytes, base64, kept across
+    # re-runs and only ever rotated by an explicit act.
+    $cursorKey = New-MaviCursorSigningKey
+    if (-not (Test-MaviCursorSigningKey -Value $cursorKey)) { throw "New-MaviCursorSigningKey did not produce a 32-byte base64 key." }
+    if (Test-MaviCursorSigningKey -Value "AAEC") { throw "Test-MaviCursorSigningKey accepted a short key." }
+    if (Test-MaviCursorSigningKey -Value "not-base64") { throw "Test-MaviCursorSigningKey accepted non-base64 text." }
+    $cursorConfigPath = Join-Path $tempRoot "appsettings.machine.json"
+    if ($null -ne (Get-MaviExistingCursorSigningKey -MachineConfigPath $cursorConfigPath)) { throw "A missing machine configuration must not yield a cursor key." }
+    Write-MaviJson -Value ([ordered]@{ TrackSearch = [ordered]@{ CursorSigningKey = $cursorKey } }) -Path $cursorConfigPath
+    if ((Get-MaviExistingCursorSigningKey -MachineConfigPath $cursorConfigPath) -ne $cursorKey) { throw "An existing cursor key must be reused across setup runs." }
+    Write-MaviJson -Value ([ordered]@{ TrackSearch = [ordered]@{ CursorSigningKey = "AAEC" } }) -Path $cursorConfigPath
+    if ($null -ne (Get-MaviExistingCursorSigningKey -MachineConfigPath $cursorConfigPath)) { throw "A malformed stored cursor key must be replaced, not reused." }
+
     $ffmpegRoot = Join-Path $tempRoot "ffmpeg"
     $ffmpegRuntime = Join-Path $ffmpegRoot "win-x64"
     New-Item -ItemType Directory -Path $ffmpegRuntime -Force | Out-Null

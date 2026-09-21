@@ -48,6 +48,14 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     /// them.
     /// </summary>
     public string? EvidenceRootOverride { get; init; }
+    /// <summary>
+    /// The analytic cursor signing key, base64 of 32 bytes. Fixed rather than ephemeral
+    /// so that two factories can share a key — or deliberately not, to prove rotation.
+    /// </summary>
+    public string CursorSigningKey { get; init; } = DefaultCursorSigningKey;
+
+    public const string DefaultCursorSigningKey = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+
     public int StartupMigrationLockTimeoutSeconds { get; init; } = 30;
     public int StartupMigrationCommandTimeoutSeconds { get; init; } = 120;
 
@@ -73,6 +81,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["DatabaseMigrations:Enabled"] = EnableStartupMigrations ? "true" : "false",
                 ["MediaProcessing:VerifyOnStartup"] = "false",
                 ["SceneAnalytics:Enabled"] = EnableSceneAnalyticsHost ? "true" : "false",
+                ["TrackSearch:CursorSigningKey"] = CursorSigningKey,
                 ["DatabaseMigrations:LockTimeoutSeconds"] =
                     StartupMigrationLockTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["DatabaseMigrations:CommandTimeoutSeconds"] =

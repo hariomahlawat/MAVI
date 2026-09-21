@@ -259,6 +259,15 @@ internal sealed class SceneAnalyticsWorld
     public async Task<Guid> ActivateNewRevisionAsync(DateTimeOffset atUtc)
     {
         await using var db = Read();
+        return await ActivateNewRevisionAsync(db, atUtc);
+    }
+
+    /// <summary>
+    /// The same activation on a caller-supplied context, so a test can own the
+    /// transaction boundary and decide when the activation becomes visible.
+    /// </summary>
+    public async Task<Guid> ActivateNewRevisionAsync(MaviDbContext db, DateTimeOffset atUtc)
+    {
         var repository = new SceneConfigurationRepository(db);
         var configuration = await repository.GetByCameraAsync(CameraId, default)
             ?? throw new InvalidOperationException("The camera has no scene configuration.");

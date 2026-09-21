@@ -273,12 +273,17 @@ try {
     if ($Profile -eq "Development" -and -not $hasDevelopmentFfmpegPack) {
         throw "The approved FFmpeg dependency pack is missing. Attach MAVI-Offline-Binary-Kit or stage vendor\ffmpeg before Development setup."
     }
+    $cursorSigningKey = Get-MaviExistingCursorSigningKey -MachineConfigPath $machineConfigPath
+    if (-not $cursorSigningKey) {
+        $cursorSigningKey = New-MaviCursorSigningKey
+    }
     $machineConfig = [ordered]@{
         ConnectionStrings = [ordered]@{ Mavi = $connectionString }
         MediaStorage = [ordered]@{
             RootPath = $mediaRoot
             EvidenceRootPath = $evidenceRoot
         }
+        TrackSearch = [ordered]@{ CursorSigningKey = $cursorSigningKey }
     }
     if ($Profile -eq "Development") {
         $machineConfig["MediaProcessing"] = [ordered]@{

@@ -6,6 +6,7 @@ import { getSystemConfig } from '../../api/system';
 import { getTrack, type TrackDetail } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
+import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import VideoReviewPage from './VideoReviewPage';
 
 vi.mock('../../api/system', () => ({
@@ -77,6 +78,7 @@ function detail(overrides: Partial<TrackDetail> = {}): TrackDetail {
     },
     trajectoryArtifactId: null,
     trajectoryContentUrl: null,
+    analytics: notConfiguredAnalytics(),
     ...overrides,
   };
 }
@@ -166,7 +168,7 @@ describe('VideoReviewPage', () => {
     });
 
     await screen.findByLabelText('Source video evidence');
-    expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal));
+    expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), undefined);
   });
 
   it('rejects duplicated trackId query parameters without issuing a Track request', async () => {
@@ -275,7 +277,7 @@ describe('VideoReviewPage', () => {
 
     await waitFor(() => expect(screen.getByLabelText('Source video evidence'))
       .toHaveAttribute('src', '/api/videos/' + secondVideoId + '/content'));
-    expect(getTrack).toHaveBeenCalledWith(secondTrackId, expect.any(AbortSignal));
+    expect(getTrack).toHaveBeenCalledWith(secondTrackId, expect.any(AbortSignal), undefined);
   });
 
   it('surfaces Track not found without retrying the stable 404', async () => {
@@ -293,6 +295,62 @@ describe('VideoReviewPage', () => {
 
     expect(await screen.findByText('Track was not found.')).toBeInTheDocument();
     await waitFor(() => expect(getTrack).toHaveBeenCalledTimes(1));
+  });
+
+  describe('analytic identity (Slice 4)', () => {
+    const revision = '018f3f5a-2f70-7a2b-8a12-2d02f4c21481';
+
+    function review(query: string) {
+      return renderWithApp(<VideoReviewPage />, {
+        route: '/review/video/' + videoId + '?trackId=' + trackId + query,
+        routePath: '/review/video/:videoAssetId',
+      });
+    }
+
+    // A link that carries no identity is an ordinary direct link, and the server
+    // legitimately answers it with the current revision and engine.
+    it('reads a link with no identity against the current analytics', async () => {
+      review('');
+      await screen.findByLabelText('Source video evidence');
+      expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), undefined);
+    });
+
+    it('reads the Track against the complete identity the link carries', async () => {
+      review('&sceneRevisionId=' + revision.toUpperCase() + '&analyticsAlgorithmVersion=scene-analytics-v1');
+      await screen.findByLabelText('Source video evidence');
+      expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), {
+        sceneRevisionId: revision, analyticsAlgorithmVersion: 'scene-analytics-v1',
+      });
+    });
+
+    // A revision without an engine is a whole request, not half of one: the API
+    // reads that revision with the current engine.
+    it('accepts a revision with no engine version', async () => {
+      review('&sceneRevisionId=' + revision);
+      await screen.findByLabelText('Source video evidence');
+      expect(getTrack).toHaveBeenCalledWith(trackId, expect.any(AbortSignal), {
+        sceneRevisionId: revision, analyticsAlgorithmVersion: undefined,
+      });
+    });
+
+    // A link that claims an identity has said which evidence it refers to. If
+    // that claim cannot be read, answering with current analytics would show
+    // something the link does not name, and a historical link would stop being
+    // reproducible — so the link is refused and nothing is requested.
+    it.each([
+      ['a malformed revision', '&sceneRevisionId=not-a-guid'],
+      ['duplicate revisions', '&sceneRevisionId=' + revision + '&sceneRevisionId=' + revision],
+      ['duplicate engine versions', '&sceneRevisionId=' + revision + '&analyticsAlgorithmVersion=scene-analytics-v1&analyticsAlgorithmVersion=scene-analytics-v2'],
+      ['a malformed engine version', '&sceneRevisionId=' + revision + '&analyticsAlgorithmVersion=v1'],
+      ['an engine version with no revision', '&analyticsAlgorithmVersion=scene-analytics-v1'],
+      ['a blank revision', '&sceneRevisionId='],
+    ])('refuses a link carrying %s and asks the server for nothing', async (_case, query) => {
+      review(query);
+
+      expect(await screen.findByText(/names an invalid analytics identity/)).toBeInTheDocument();
+      expect(screen.queryByLabelText('Source video evidence')).not.toBeInTheDocument();
+      await waitFor(() => expect(getTrack).not.toHaveBeenCalled());
+    });
   });
 
   describe('return navigation', () => {

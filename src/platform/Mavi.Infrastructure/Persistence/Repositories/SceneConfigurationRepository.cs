@@ -51,7 +51,43 @@ public sealed class SceneConfigurationRepository(MaviDbContext dbContext) : ISce
     public async Task AddRevisionAsync(SceneConfigurationRevision revision, CancellationToken cancellationToken) =>
         await dbContext.SceneConfigurationRevisions.AddAsync(revision, cancellationToken);
 
+    /// <summary>
+    /// Commits the new revision and the activation as one publication.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Activation is a publication event, not an ordinary write: it changes which
+    /// revision an analytic search without an explicit revision pins its identity to,
+    /// and which revision coverage calls "current" when it decides whether a missing
+    /// analysis unit is Pending or Stale. So it takes the exclusive
+    /// processing-visibility barrier before writing and holds it through commit, exactly
+    /// as a processing run's completion does. A first-page search holds the shared
+    /// counterpart across its whole scope resolution, so it sees this activation either
+    /// wholly or not at all.
+    /// </para>
+    /// <para>
+    /// Without this the search side could only pretend to be safe: a lock one party
+    /// never takes orders nothing.
+    /// </para>
+    /// </remarks>
     public async Task SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        // An ambient transaction means a caller already owns the boundary; take the
+        // barrier inside it rather than starting a second one.
+        if (dbContext.Database.CurrentTransaction is not null)
+        {
+            await ProcessingVisibilityBarrier.AcquireSceneActivationExclusiveAsync(dbContext, cancellationToken);
+            await SaveAsync(cancellationToken);
+            return;
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await ProcessingVisibilityBarrier.AcquireSceneActivationExclusiveAsync(dbContext, cancellationToken);
+        await SaveAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private async Task SaveAsync(CancellationToken cancellationToken)
     {
         try
         {

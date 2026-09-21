@@ -186,6 +186,41 @@ function New-MaviPassword {
     return -join $characters
 }
 
+function New-MaviCursorSigningKey {
+    # The analytic search cursor signing key (TrackSearch:CursorSigningKey): exactly
+    # 32 random bytes, base64. The API refuses any other length. It lives only in the
+    # ACL-protected machine configuration; it is never logged or echoed.
+    $bytes = New-Object byte[] 32
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    return [Convert]::ToBase64String($bytes)
+}
+
+function Test-MaviCursorSigningKey {
+    param([AllowNull()][string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    try { return ([Convert]::FromBase64String($Value.Trim())).Length -eq 32 } catch { return $false }
+}
+
+function Get-MaviExistingCursorSigningKey {
+    # Re-running setup must not rotate the key underneath operators' open result
+    # sets: an existing well-formed key is kept, rotation is an explicit act (delete
+    # the member and re-run setup).
+    param([Parameter(Mandatory = $true)][string]$MachineConfigPath)
+    if (-not (Test-Path -LiteralPath $MachineConfigPath -PathType Leaf)) { return $null }
+    try {
+        $existing = Read-MaviJson -Path $MachineConfigPath
+        $section = $existing.PSObject.Properties["TrackSearch"]
+        if ($null -eq $section) { return $null }
+        $member = $section.Value.PSObject.Properties["CursorSigningKey"]
+        if ($null -eq $member) { return $null }
+        $value = [string]$member.Value
+        if (Test-MaviCursorSigningKey -Value $value) { return $value }
+        return $null
+    }
+    catch { return $null }
+}
+
 function Protect-MaviSecret {
     param([Parameter(Mandatory = $true)][string]$PlainText, [Parameter(Mandatory = $true)][string]$Path)
     Add-Type -AssemblyName System.Security

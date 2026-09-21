@@ -90,6 +90,54 @@ const PAGE_ONE_THEN_EXPIRED = {
   }],
 };
 
+// --- Slice 4: analytic search ------------------------------------------------
+
+const ZONE = '77777777-7777-7777-8777-777777777777';
+const REVISION = '66666666-6666-7666-8666-666666666666';
+
+/** The §H coverage block for a partially analysed scope. */
+const PARTIAL_COVERAGE = {
+  sceneRevisionId: REVISION, algorithmVersion: 'scene-analytics-v1',
+  evaluatedRuns: 2, pendingRuns: 1, failedRuns: 0, notConfiguredRuns: 0, disabledRuns: 1, staleRuns: 1,
+  analysedTracks: 17, unavailableTracks: 2, complete: false,
+};
+
+const COMPLETE_COVERAGE = {
+  ...PARTIAL_COVERAGE, evaluatedRuns: 4, pendingRuns: 0, disabledRuns: 0, staleRuns: 0, unavailableTracks: 0, complete: true,
+};
+
+/** An analytic first page: the fixture rows, each explained against the pinned identity. */
+const ANALYTIC_PAGE = (coverage) => ({
+  items: LONG_NAME_TRACKS.items.map((item) => ({
+    ...item,
+    cameraId: CAM, cameraCode: 'CAM-01', cameraName: 'North Gate', videoAssetId: VIDEO,
+    analytics: {
+      sceneRevisionId: REVISION, algorithmVersion: 'scene-analytics-v1',
+      zones: [{ zoneId: ZONE, visitCount: 2, totalDwellMs: 14000, loitering: true }],
+      lines: [], motion: null,
+    },
+  })),
+  nextCursor: null,
+  analyticsCoverage: coverage,
+});
+
+/** Nothing evaluated yet: an analytic zero result that must not read as "no matches". */
+const NOT_ANALYSED_PAGE = {
+  items: [], nextCursor: null,
+  analyticsCoverage: { ...PARTIAL_COVERAGE, evaluatedRuns: 0, pendingRuns: 3, disabledRuns: 0, staleRuns: 0, analysedTracks: 0, unavailableTracks: 0 },
+};
+
+/** Pick the fixture camera in the rail so the Analytics group resolves its scene. */
+const PICK_CAMERA = `(() => {
+  const select = Array.from(document.querySelectorAll('select'))
+    .find((element) => element.labels?.[0]?.textContent.trim() === 'Camera');
+  if (!select || !Array.from(select.options).some((option) => option.value === '${CAM}')) return false;
+  const set = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+  set.call(select, '${CAM}');
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+})()`;
+
 /** Switch the results column to the Grid; the choice is a stored preference. */
 const PICK_GRID = `(() => {
   const control = document.querySelector('[aria-label="Grid view"]');
@@ -722,6 +770,128 @@ export const STATES = [
     // inspector takes the surplus — asserted as geometry, not by eye.
     name: 'search-ultrawide', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
     archetype: 'investigation', widths: [1920, 2560], expectText: INSPECTOR_LOADED,
+  },
+
+  // --- Investigation: Slice 4 analytics on the UI-4 grammar. --------------
+  {
+    // Zone, relation and dwell committed; the chips name the geometry the scene
+    // fixture owns, the coverage strip sits beneath the header and names every
+    // non-zero bucket, and the rows carry no second status badge.
+    name: 'search-analytics',
+    path: `/search?cameraId=${CAM}&zoneId=${ZONE}&zoneRelation=entered&minDwellMs=2500&loitering=true`,
+    fullWidth: true, settleMs: 1500, archetype: 'investigation',
+    api: { '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE) },
+    expectText: ['Entered', 'Loading bay', '2 of 5 runs analysed', 'not yet analysed', 'could not be analysed', 'Revision 4'],
+    forbidText: 'No Tracks matched',
+  },
+  {
+    name: 'search-analytics-complete',
+    path: `/search?cameraId=${CAM}&zoneId=${ZONE}`,
+    fullWidth: true, settleMs: 1500, archetype: 'investigation',
+    api: { '/api/tracks': ANALYTIC_PAGE(COMPLETE_COVERAGE) },
+    // "Processing" is a navigation item, so the absence asserted is the link's
+    // own words in the strip, not the word itself.
+    expectText: ['All 4 runs analysed', 'Dwelled in'], forbidText: 'could not be analysed',
+  },
+  {
+    // Incomplete analytics never render as ordinary zero matches (§14, §17).
+    name: 'search-analytics-not-analysed',
+    path: `/search?cameraId=${CAM}&loitering=true`,
+    fullWidth: true, settleMs: 1500, archetype: 'investigation',
+    api: { '/api/tracks': NOT_ANALYSED_PAGE },
+    expectText: ['Not analysed yet.', '3 runs not yet analysed'], forbidText: 'No Tracks matched',
+  },
+  {
+    // The scene that names the geometry is gone: the committed zone stays in
+    // force by identifier and the rail says why its choices are unavailable.
+    name: 'search-analytics-scene-unavailable',
+    path: `/search?cameraId=${CAM}&zoneId=${ZONE}`,
+    fullWidth: true, settleMs: 4000, archetype: 'investigation',
+    api: { '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE), [`/api/cameras/${CAM}/scene`]: 'unavailable' },
+    expectText: ['Scene geometry is unavailable', '77777777…'],
+  },
+  {
+    // The Analytics group with a camera chosen: zone and line choices resolved
+    // from the active revision, dependents unlocked, the rail tall enough to
+    // scroll at 1366 — which is what the overlap assertion is for.
+    name: 'search-analytics-rail', path: '/search', fullWidth: true, settleMs: 2500, archetype: 'investigation',
+    // The group heading is uppercased on screen; its field labels are not.
+    prepare: PICK_CAMERA, expectText: ['Zone relation', 'Motion direction', 'Loitering', 'Loading bay'],
+    forbidText: 'Choose a camera, video or processing run',
+  },
+  {
+    // The inspector's analytics summary against the pinned identity.
+    name: 'search-analytics-inspecting',
+    path: `/search?cameraId=${CAM}&zoneId=${ZONE}&track=${TRACK}`,
+    fullWidth: true, settleMs: 2500, archetype: 'investigation',
+    // The page override is a prefix match, so the Track detail beneath it is
+    // re-exposed as its fixture; otherwise the inspector would be handed a page.
+    api: { '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE), [`/api/tracks/${TRACK}`]: 'fixture' },
+    expectText: [...INSPECTOR_LOADED, 'Revision 4 · Engine v1', 'Loading bay', 'No line crossed'],
+  },
+
+  // --- Processing: Slice 4 readiness on the Ledger and the Record. ----------
+  {
+    // Readiness as text in its own column; one badge per row still.
+    // The column header is uppercased by the Ledger, so the readiness word the
+    // completed row carries is the text that proves the column rendered.
+    name: 'processing-queue-analytics', path: '/processing', fullWidth: true, archetype: 'ledger', settleMs: 1400,
+    expectText: ['Analysed'],
+  },
+  {
+    name: 'processing-detail-analytics-ready', path: `/processing/${VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 1400,
+    expectText: ['Scene analytics', 'Revision 4 · scene-analytics-v1', 'Tracks unavailable'],
+  },
+  {
+    // Stale: the current geometry is not applied; the camera-wide consequence is
+    // stated before the action.
+    name: 'processing-detail-analytics-stale', path: `/processing/${VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 1400,
+    api: {
+      [`/api/videos/${VIDEO}/processing`]: {
+        videoStatus: 'Processed',
+        latestRun: {
+          processingRunId: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb', status: 'Completed', pipeline: 'phase1-detection-tracking', pipelineVersion: 'phase1-v1',
+          workerId: 'worker-a', queuedAtUtc: '2026-09-14T03:05:00Z', startedAtUtc: '2026-09-14T03:05:10Z', completedAtUtc: '2026-09-14T03:09:40Z',
+          progressPercent: 100, attemptCount: 1, failureCode: null, framesProcessed: 15000, tracksCreated: 6, analyticsReadiness: 'Stale',
+        },
+      },
+      '/api/processing/runs/bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb/analytics': {
+        processingRunId: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb', readiness: 'Stale', activeSceneRevisionId: REVISION, algorithmVersion: 'scene-analytics-v1',
+        analyses: [{
+          analysisId: 'aaaaaaa1-aaaa-7aaa-8aaa-aaaaaaaaaaa1', processingRunId: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb',
+          sceneRevisionId: '66666666-6666-7666-8666-666666666665', sceneRevisionNumber: 3, algorithmVersion: 'scene-analytics-v1', status: 'Superseded',
+          attemptCount: 1, queuedAtUtc: '2026-09-14T03:10:00Z', startedAtUtc: '2026-09-14T03:10:02Z', completedAtUtc: '2026-09-14T03:10:41Z',
+          leaseExpiresAtUtc: null, analysedTrackCount: 5, unavailableTrackCount: 1, failureCode: null,
+        }],
+      },
+    },
+    expectText: ['Stale', 'Re-analyse camera', 'every video of'],
+  },
+  {
+    name: 'processing-detail-analytics-failed', path: `/processing/${VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 1400,
+    api: {
+      [`/api/videos/${VIDEO}/processing`]: {
+        videoStatus: 'Processed',
+        latestRun: {
+          processingRunId: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb', status: 'Completed', pipeline: 'phase1-detection-tracking', pipelineVersion: 'phase1-v1',
+          workerId: 'worker-a', queuedAtUtc: '2026-09-14T03:05:00Z', startedAtUtc: '2026-09-14T03:05:10Z', completedAtUtc: '2026-09-14T03:09:40Z',
+          progressPercent: 100, attemptCount: 1, failureCode: null, framesProcessed: 15000, tracksCreated: 6, analyticsReadiness: 'Failed',
+        },
+      },
+      '/api/processing/runs/bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb/analytics': {
+        processingRunId: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb', readiness: 'Failed', activeSceneRevisionId: REVISION, algorithmVersion: 'scene-analytics-v1',
+        analyses: [{
+          analysisId: 'aaaaaaa1-aaaa-7aaa-8aaa-aaaaaaaaaaa1', processingRunId: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb',
+          sceneRevisionId: REVISION, sceneRevisionNumber: 4, algorithmVersion: 'scene-analytics-v1', status: 'Failed',
+          attemptCount: 3, queuedAtUtc: '2026-09-14T03:10:00Z', startedAtUtc: '2026-09-14T03:10:02Z', completedAtUtc: '2026-09-14T03:12:41Z',
+          leaseExpiresAtUtc: null, analysedTrackCount: 0, unavailableTrackCount: 0, failureCode: 'analytics_attempts_exhausted',
+        }],
+      },
+    },
+    expectText: ['Analysis failed', 'Retry analytics', 'analytics_attempts_exhausted'],
   },
 
   // --- Review: capped today; its archetype migration is UI-5, not UI-1. ---

@@ -13,6 +13,7 @@
   "attemptCount": 1,
   "failureCode": null,
   "framesProcessed": 15000,
-  "tracksCreated": 6
+  "tracksCreated": 6,
+  "analyticsReadiness": "Ready"
  }
 }

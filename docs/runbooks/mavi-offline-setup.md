@@ -42,6 +42,8 @@ C:\ProgramData\MAVI\config\appsettings.machine.json
 
 MAVI loads this file before registering infrastructure services. Environment variables are then reapplied as the final advanced-operator override. Test hosts do not load machine configuration.
 
+Setup also provisions `TrackSearch:CursorSigningKey` in the same file: 32 random bytes, base64-encoded, generated once per installation. The API uses it to authenticate analytic search cursors (Scene Analytics Slice 4). Re-running setup keeps an existing key; deleting the member and re-running setup rotates it, which deliberately invalidates every open analytic result set and nothing else. The key is never logged, never returned by an API and never committed. A Production host with no key refuses to start.
+
 ## Canonical offline media
 
 The normal **Production** setup bundle is deliberately smaller than the companion binary kit:

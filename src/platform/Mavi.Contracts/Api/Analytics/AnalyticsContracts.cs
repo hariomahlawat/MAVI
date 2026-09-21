@@ -55,6 +55,10 @@ public sealed record ProcessingRunAnalyticsResponse(
 /// analytics are counted separately, because an operator is owed the difference
 /// between a gap and a deliberate switch-off, and the UI names each non-zero
 /// bucket. Neither was evaluated, so either makes the answer incomplete.
+/// <paramref name="AnalysedTracks"/> and <paramref name="UnavailableTracks"/> are
+/// evidence accounting within the same candidate set the run buckets describe:
+/// how many of those Tracks the evaluated units could read, and how many they
+/// could not. They are not run buckets and not whole-unit totals.
 /// </remarks>
 public sealed record AnalyticsCoverageResponse(
     Guid? SceneRevisionId,
@@ -64,12 +68,16 @@ public sealed record AnalyticsCoverageResponse(
     int FailedRuns,
     int NotConfiguredRuns,
     int DisabledRuns,
-    int StaleRuns)
+    int StaleRuns,
+    int AnalysedTracks,
+    int UnavailableTracks)
 {
     /// <summary>
     /// True only when every run in scope was evaluable. Computed rather than
     /// supplied, so a coverage block can never claim completeness while
-    /// reporting runs it did not evaluate.
+    /// reporting runs it did not evaluate. Unavailable Tracks do not make it
+    /// false — their unit completed — which is exactly why they are reported
+    /// beside it rather than folded into it (plan §H).
     /// </summary>
     public bool Complete =>
         PendingRuns == 0 &&

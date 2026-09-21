@@ -9,6 +9,7 @@ import { getTrack, searchTracks, type TrackDetail, type TrackSearchItem } from '
 import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
+import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import VisualSearchPage from './VisualSearchPage';
 
 vi.mock('../../api/cameras', () => ({
@@ -111,6 +112,7 @@ function detail(item: TrackSearchItem, localTrackNumber: number): TrackDetail {
     representative: null,
     trajectoryArtifactId: null,
     trajectoryContentUrl: null,
+    analytics: notConfiguredAnalytics(),
   };
 }
 
