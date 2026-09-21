@@ -8,7 +8,11 @@ using Mavi.Domain.Scene;
 using Mavi.Domain.SceneAnalytics;
 using Mavi.Infrastructure.Persistence;
 using Mavi.Infrastructure.Persistence.Repositories;
+using Mavi.Infrastructure.SceneAnalytics;
+using Mavi.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Mavi.IntegrationTests;
@@ -39,11 +43,80 @@ internal sealed class SceneAnalyticsWorld
     public Guid ZoneId { get; private set; }
     public Guid LineId { get; private set; }
     public DateTimeOffset RunCompletedAtUtc { get; private set; }
+    public DateTimeOffset RecordingStartUtc { get; private set; }
+    public string EvidenceRoot { get; private set; } = string.Empty;
+    public string MediaRoot { get; private set; } = string.Empty;
 
     public SceneAnalysisIdentity Identity => IdentityFor(RevisionId, AlgorithmVersion);
 
     public SceneAnalysisIdentity IdentityFor(Guid revisionId, string algorithmVersion) =>
         new(RunId, revisionId, algorithmVersion, ParametersSha256, SourceCommit: null);
+
+    /// <summary>
+    /// An executor wired to the real evidence reader, over this world's evidence root.
+    /// </summary>
+    /// <remarks>
+    /// The reader is the production one, reading real files through the same path safety
+    /// it enforces in the product. Substituting a stub here would leave the one part of
+    /// the executor that touches the filesystem untested.
+    /// </remarks>
+    public (SceneAnalysisExecutor Executor, SceneAnalysisLifecycle Lifecycle, MaviDbContext Db) Executor()
+    {
+        var db = Fixture.CreateDbContext();
+        var lifecycle = new SceneAnalysisLifecycle(db, Clock);
+        var reader = new AcceptedEvidenceReader(Options.Create(new MediaStorageOptions
+        {
+            RootPath = MediaRoot,
+            EvidenceRootPath = EvidenceRoot,
+        }));
+        var executor = new SceneAnalysisExecutor(
+            lifecycle,
+            new SceneAnalysisEvidenceReader(db, reader),
+            new SceneConfigurationRepository(db),
+            NullLogger<SceneAnalysisExecutor>.Instance);
+        return (executor, lifecycle, db);
+    }
+
+    /// <summary>An executor with a substituted evidence reader, for fault injection.</summary>
+    public SceneAnalysisExecutor ExecutorWith(
+        ISceneAnalysisEvidenceReader evidence,
+        SceneAnalysisLifecycle lifecycle) =>
+        new(lifecycle, evidence, new SceneConfigurationRepository(Read()), NullLogger<SceneAnalysisExecutor>.Instance);
+
+    /// <summary>
+    /// Seals a trajectory artefact for the Track and records it, as the worker would.
+    /// </summary>
+    /// <param name="payload">The encoded v1 trajectory.</param>
+    /// <param name="write">False to record the artefact but leave no file behind.</param>
+    /// <param name="declaredSha256">Overrides the recorded digest, to fake corruption.</param>
+    public async Task AttachTrajectoryAsync(
+        byte[] payload,
+        bool write = true,
+        string? declaredSha256 = null)
+    {
+        var storageKey = $"evidence/{RunId:D}/attempt-0001/trajectories/person-000001.msgpack";
+        var artifact = Artifact.Create(
+            ArtifactType.TrackTrajectory,
+            storageKey,
+            "application/x-msgpack",
+            payload.Length,
+            declaredSha256 ?? TrajectoryPayload.Sha256Hex(payload));
+
+        if (write)
+        {
+            var path = Path.Combine(
+                EvidenceRoot,
+                storageKey["evidence/".Length..].Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllBytesAsync(path, payload);
+        }
+
+        await using var db = Read();
+        db.Artifacts.Add(artifact);
+        await db.SaveChangesAsync();
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE tracks SET trajectory_artifact_id = {artifact.Id} WHERE id = {TrackId}");
+    }
 
     /// <summary>A lifecycle bound to its own DbContext, as a separate host would have.</summary>
     public (SceneAnalysisLifecycle Lifecycle, MaviDbContext Db) Host()
@@ -162,6 +235,9 @@ internal sealed class SceneAnalyticsWorld
         world.ZoneId = revision.Zones.Count > 0 ? revision.Zones[0].ZoneId : Guid.Empty;
         world.LineId = revision.TripLines.Count > 0 ? revision.TripLines[0].LineId : Guid.Empty;
         world.RunCompletedAtUtc = completedAtUtc;
+        world.RecordingStartUtc = nowUtc.AddMinutes(-30);
+        world.MediaRoot = CreateRoot("media");
+        world.EvidenceRoot = CreateRoot("evidence");
         return world;
     }
 
@@ -209,6 +285,13 @@ internal sealed class SceneAnalyticsWorld
                     analysisId, TrackId, heading, 0.42, 0.01, 2_500, 2_500,
                     [new StationaryInterval(1_000, 3_500)], [ZoneId]),
             ]);
+
+    private static string CreateRoot(string kind)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mavi-analytics-{kind}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        return path;
+    }
 
     private static SceneRevisionDraft Draft(bool analyticsEnabled) => new(
         "Lifecycle fixture",

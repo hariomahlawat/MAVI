@@ -1,6 +1,7 @@
 using System.Reflection;
 using Mavi.Api.Endpoints;
 using Mavi.Api.Middleware;
+using Mavi.Api.SceneAnalytics;
 using Mavi.Api.Startup;
 using Mavi.Application.Health;
 using Mavi.Application;
@@ -15,6 +16,10 @@ builder.AddMaviMachineConfiguration();
 builder.Services.AddMaviInfrastructure(builder.Configuration);
 builder.Services.AddDatabaseMigrationStartup(builder.Configuration);
 builder.Services.AddHealthChecks();
+// The platform's first background service. It shares this process deliberately (ADR-008
+// puts the API host on the operational plane) and is bounded so it cannot compete with
+// serving requests; SceneAnalytics:Enabled turns it off entirely.
+builder.Services.AddHostedService<SceneAnalyticsHostedService>();
 // Canonical API JSON policy: property names are case-sensitive and numeric properties must be JSON numbers.
 builder.Services.ConfigureHttpJsonOptions(options =>
 {

@@ -8,6 +8,7 @@ using Mavi.Application.Modules.Intelligence;
 using Mavi.Application.Modules.Evidence;
 using Mavi.Application.Modules.SceneAnalytics.Configuration;
 using Mavi.Application.Modules.SceneAnalytics.Lifecycle;
+using Mavi.Infrastructure.SceneAnalytics;
 using Mavi.Infrastructure.Media;
 using Mavi.Infrastructure.Security;
 using Mavi.Infrastructure.Persistence;
@@ -45,6 +46,8 @@ public static class DependencyInjection
         services.AddScoped<ISceneConfigurationRepository, SceneConfigurationRepository>();
         services.AddScoped<SceneConfigurationService>();
         services.AddScoped<ISceneAnalysisLifecycle, SceneAnalysisLifecycle>();
+        services.AddScoped<ISceneAnalysisEvidenceReader, SceneAnalysisEvidenceReader>();
+        services.AddScoped<SceneAnalysisExecutor>();
         services.AddScoped<IContentCatalog, ContentCatalog>();
         services.AddScoped<ContentReadService>();
         services.AddSingleton<VisionRuntimeProvenanceParser>();
@@ -92,6 +95,7 @@ public static class DependencyInjection
             .Validate(x => x.HeartbeatExtensionSeconds is >= 1 and <= 86400,
                 "VisionProcessing:HeartbeatExtensionSeconds must be between 1 and 86400.")
             .ValidateOnStart();
+        services.AddSceneAnalyticsOptions(configuration);
         services.AddOptions<LocalizationOptions>()
             .Bind(configuration.GetSection(LocalizationOptions.SectionName))
             .ValidateOnStart();
@@ -119,4 +123,43 @@ internal sealed class LocalizationOptionsValidator(ITimeZoneService timeZones) :
         timeZones.IsValidIanaTimeZoneId(options.DefaultDisplayTimeZoneId)
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail("Localization:DefaultDisplayTimeZoneId must be a recognized IANA timezone ID.");
+}
+
+/// <summary>
+/// The analytics host's configuration contract, registered separately so that the rules
+/// themselves can be exercised by a test rather than restated in one.
+/// </summary>
+public static class SceneAnalyticsOptionsRegistration
+{
+    public static IServiceCollection AddSceneAnalyticsOptions(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddOptions<SceneAnalyticsOptions>()
+            .Bind(configuration.GetSection(SceneAnalyticsOptions.SectionName))
+            .Validate(x => x.ReconcileIntervalSeconds is >= 1 and <= 3600,
+                "SceneAnalytics:ReconcileIntervalSeconds must be between 1 and 3600.")
+            .Validate(x => x.LeaseSeconds is >= 1 and <= 86400,
+                "SceneAnalytics:LeaseSeconds must be between 1 and 86400.")
+            .Validate(x => x.MaxUnitDurationSeconds is >= 1 and <= 86400,
+                "SceneAnalytics:MaxUnitDurationSeconds must be between 1 and 86400.")
+            .Validate(x => x.ReclaimGraceSeconds is >= 0 and <= 86400,
+                "SceneAnalytics:ReclaimGraceSeconds must be between 0 and 86400.")
+            .Validate(x => x.MaximumAttempts is >= 1 and <= 100,
+                "SceneAnalytics:MaximumAttempts must be between 1 and 100.")
+            .Validate(x => x.MaxConcurrentUnits is >= 1 and <= 16,
+                "SceneAnalytics:MaxConcurrentUnits must be between 1 and 16.")
+            .Validate(x => x.ReconcileBatchSize is >= 1 and <= 1000,
+                "SceneAnalytics:ReconcileBatchSize must be between 1 and 1000.")
+            .Validate(x => x.ReconcileLookbackDays is >= 0 and <= 3650,
+                "SceneAnalytics:ReconcileLookbackDays must be between 0 and 3650.")
+            // There is no heartbeat in v1, so the lease is the only thing between a slow
+            // attempt and being reclaimed underneath itself. Refusing the configuration
+            // is better than shipping a fence that fails intermittently under load.
+            .Validate(x => x.LeaseSeconds >= 2 * x.MaxUnitDurationSeconds,
+                "SceneAnalytics:LeaseSeconds must be at least twice MaxUnitDurationSeconds.")
+            .ValidateOnStart();
+        return services;
+    }
 }

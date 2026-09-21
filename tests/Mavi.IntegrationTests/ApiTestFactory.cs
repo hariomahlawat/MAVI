@@ -24,13 +24,30 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     }
 
     public string ConnectionString { get; }
-    public string MediaRoot => _mediaRoot;
-    public string EvidenceRoot => _evidenceRoot;
+    public string MediaRoot => MediaRootOverride ?? _mediaRoot;
+    public string EvidenceRoot => EvidenceRootOverride ?? _evidenceRoot;
     public TimeProvider Clock { get; init; } = TimeProvider.System;
     public Action<DbContextOptionsBuilder>? ConfigureDbContext { get; init; }
     public Action<IServiceCollection>? OverrideServices { get; init; }
     public string? StaticWebRoot { get; init; }
     public bool EnableStartupMigrations { get; init; }
+
+    /// <summary>
+    /// Whether the analytics background host runs. Off by default, and deliberately so:
+    /// a loop that queues and analyses units on its own schedule would mutate the
+    /// database underneath every other API test. The tests that are about the host turn
+    /// it on and drive one cycle themselves.
+    /// </summary>
+    public bool EnableSceneAnalyticsHost { get; init; }
+
+    /// <summary>Use an existing media root instead of a fresh temporary one.</summary>
+    public string? MediaRootOverride { get; init; }
+
+    /// <summary>
+    /// Use an existing evidence root, so a test can seal artefacts before the host reads
+    /// them.
+    /// </summary>
+    public string? EvidenceRootOverride { get; init; }
     public int StartupMigrationLockTimeoutSeconds { get; init; } = 30;
     public int StartupMigrationCommandTimeoutSeconds { get; init; } = 120;
 
@@ -45,8 +62,8 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Mavi"] = ConnectionString,
-                ["MediaStorage:RootPath"] = _mediaRoot,
-                ["MediaStorage:EvidenceRootPath"] = _evidenceRoot,
+                ["MediaStorage:RootPath"] = MediaRoot,
+                ["MediaStorage:EvidenceRootPath"] = EvidenceRoot,
                 ["MediaProcessing:FfprobePath"] = "ffprobe",
                 ["MediaProcessing:FfmpegPath"] = "ffmpeg",
                 ["MediaProcessing:ProbeTimeoutSeconds"] = "30",
@@ -55,6 +72,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["VideoImport:AllowedExtensions:0"] = ".mp4",
                 ["DatabaseMigrations:Enabled"] = EnableStartupMigrations ? "true" : "false",
                 ["MediaProcessing:VerifyOnStartup"] = "false",
+                ["SceneAnalytics:Enabled"] = EnableSceneAnalyticsHost ? "true" : "false",
                 ["DatabaseMigrations:LockTimeoutSeconds"] =
                     StartupMigrationLockTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["DatabaseMigrations:CommandTimeoutSeconds"] =
@@ -78,8 +96,9 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (disposing && Directory.Exists(_mediaRoot)) Directory.Delete(_mediaRoot, true);
-        if (disposing && Directory.Exists(_evidenceRoot))
+        if (disposing && MediaRootOverride is null && Directory.Exists(_mediaRoot))
+            Directory.Delete(_mediaRoot, true);
+        if (disposing && EvidenceRootOverride is null && Directory.Exists(_evidenceRoot))
         {
             foreach (var file in Directory.GetFiles(_evidenceRoot, "*", SearchOption.AllDirectories))
                 File.SetAttributes(file, FileAttributes.Normal);
