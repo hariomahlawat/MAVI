@@ -1,20 +1,47 @@
+using Mavi.Contracts.Api.Analytics;
+using Mavi.Contracts.Api.Tracks;
+
 namespace Mavi.Application.Modules.Intelligence;
 
+/// <summary>The outcome of a search, in the endpoint's terms.</summary>
+/// <remarks>
+/// <paramref name="Coverage"/> accompanies <see cref="IncompleteCoverage"/>: a caller
+/// that demanded complete coverage is told exactly which buckets were not evaluated, in
+/// the same structured block a partial answer would have carried (plan §H).
+/// </remarks>
 public sealed record TrackSearchServiceResult(
     bool IsSuccess,
     TrackSearchPage? Page,
-    string? ErrorCode)
+    string? ErrorCode,
+    TrackAnalyticsCoverage? Coverage = null)
 {
     public static TrackSearchServiceResult Success(TrackSearchPage page) => new(true, page, null);
     public static TrackSearchServiceResult Invalid() => new(false, null, "track_search_invalid");
+    public static TrackSearchServiceResult IncompleteCoverage(TrackAnalyticsCoverage coverage) =>
+        new(false, null, SceneAnalyticsContractRules.IncompleteCoverageCode, coverage);
+}
+
+/// <summary>A Track's detail, with its analytics for the requested identity.</summary>
+public sealed record TrackDetailServiceResult(
+    bool IsSuccess,
+    TrackDetailRow? Row,
+    TrackDetailAnalytics? Analytics,
+    string? ErrorCode)
+{
+    public static TrackDetailServiceResult NotFound { get; } = new(true, null, null, null);
+    public static TrackDetailServiceResult Invalid { get; } = new(false, null, null, "track_search_invalid");
+    public static TrackDetailServiceResult Found(TrackDetailRow row, TrackDetailAnalytics analytics) =>
+        new(true, row, analytics, null);
 }
 
 public sealed class TrackSearchService(
     ITrackSearchRepository repository,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    TrackCursorSigningKey signingKey)
 {
     private static readonly TimeSpan MaximumCursorAge = TimeSpan.FromHours(1);
     private static readonly TimeSpan MaximumFutureSkew = TimeSpan.FromMinutes(1);
+
     public async Task<TrackSearchServiceResult> SearchAsync(
         TrackSearchQuery query,
         CancellationToken cancellationToken)
@@ -22,14 +49,10 @@ public sealed class TrackSearchService(
         if (!IsValid(query))
             return TrackSearchServiceResult.Invalid();
 
-        // Analytic execution — scope resolution, the pinned identity and the v3 cursor —
-        // arrives with the resolved search context. Until it does, an analytic query is
-        // grammatically checked above and refused here rather than answered as an
-        // ordinary search whose predicates were silently ignored.
-        if (query.IsAnalytic)
-            return TrackSearchServiceResult.Invalid();
-
         var nowUtc = timeProvider.GetUtcNow().ToUniversalTime();
+        if (query.IsAnalytic)
+            return await SearchAnalyticAsync(query, nowUtc, cancellationToken);
+
         var filterFingerprint = TrackCursorCodec.ComputeFilterFingerprint(query);
 
         TrackCursorPosition? cursor = null;
@@ -41,8 +64,7 @@ public sealed class TrackSearchService(
                     cursor.FilterFingerprint,
                     filterFingerprint,
                     StringComparison.Ordinal) ||
-                cursor.SnapshotUtc < nowUtc - MaximumCursorAge ||
-                cursor.SnapshotUtc > nowUtc + MaximumFutureSkew)
+                !IsWithinValidity(cursor.SnapshotUtc, nowUtc))
             {
                 return TrackSearchServiceResult.Invalid();
             }
@@ -71,10 +93,100 @@ public sealed class TrackSearchService(
         return TrackSearchServiceResult.Success(new TrackSearchPage(items, nextCursor));
     }
 
-    public Task<TrackDetailRow?> GetDetailAsync(Guid trackId, CancellationToken cancellationToken) =>
-        trackId == Guid.Empty
-            ? Task.FromResult<TrackDetailRow?>(null)
-            : repository.GetDetailAsync(trackId, cancellationToken);
+    /// <summary>
+    /// An analytics-dependent search (plan §S). The first page lets the repository resolve
+    /// the identity as one operation and then fingerprints the canonical keys <i>plus</i>
+    /// that identity into a v3 cursor; a continuation authenticates the cursor, checks the
+    /// fingerprint against the pinned pair and evaluates as pinned.
+    /// </summary>
+    private async Task<TrackSearchServiceResult> SearchAnalyticAsync(
+        TrackSearchQuery query,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        TrackAnalyticsCursorPosition? cursor = null;
+        if (query.Cursor is not null)
+        {
+            // Authenticated before anything in it is read; the codec refuses a forged or
+            // tampered envelope without parsing it.
+            if (!TrackCursorCodec.TryDecodeAnalytic(query.Cursor, signingKey, out cursor) ||
+                cursor is null ||
+                !IsWithinValidity(cursor.Position.SnapshotUtc, nowUtc) ||
+                !string.Equals(
+                    cursor.Position.FilterFingerprint,
+                    TrackCursorCodec.ComputeAnalyticFilterFingerprint(query, cursor.Identity),
+                    StringComparison.Ordinal))
+            {
+                return TrackSearchServiceResult.Invalid();
+            }
+        }
+
+        var result = await repository.SearchAnalyticsAsync(
+            query,
+            cursor,
+            checked(query.Limit + 1),
+            cancellationToken);
+        if (result.Page is not { } page)
+            return TrackSearchServiceResult.Invalid();
+
+        // The complete-coverage demand is judged on the first page, where coverage is
+        // computed; a continuation carries the same block and the same verdict.
+        if (query.Analytics!.RequireCompleteCoverage && !page.Coverage.Complete)
+            return TrackSearchServiceResult.IncompleteCoverage(page.Coverage);
+
+        var fingerprint = cursor?.Position.FilterFingerprint
+            ?? TrackCursorCodec.ComputeAnalyticFilterFingerprint(query, page.Identity);
+
+        var hasMore = page.Items.Count > query.Limit;
+        var items = hasMore ? page.Items.Take(query.Limit).ToArray() : page.Items;
+        var nextCursor = hasMore && items.Count > 0
+            ? TrackCursorCodec.EncodeAnalytic(
+                new TrackAnalyticsCursorPosition(
+                    new TrackCursorPosition(
+                        page.SnapshotUtc,
+                        page.SnapshotVisibilitySequence,
+                        items[^1].StartTimestampUtc,
+                        items[^1].Id,
+                        fingerprint),
+                    page.Identity,
+                    page.Coverage),
+                signingKey)
+            : null;
+
+        return TrackSearchServiceResult.Success(new TrackSearchPage(items, nextCursor, page.Coverage, page.ItemAnalytics));
+    }
+
+    public async Task<TrackDetailServiceResult> GetDetailAsync(
+        Guid trackId,
+        TrackAnalyticsDetailRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (trackId == Guid.Empty)
+            return TrackDetailServiceResult.NotFound;
+
+        // The same dependency the search grammar imposes: a historical engine version
+        // means nothing without the revision it was computed against.
+        if (request.SceneRevisionId == Guid.Empty ||
+            (request.AlgorithmVersion is { } version &&
+             (request.SceneRevisionId is null || !TrackSearchContractRules.IsAlgorithmVersion(version))))
+            return TrackDetailServiceResult.Invalid;
+
+        var row = await repository.GetDetailAsync(trackId, cancellationToken);
+        if (row is null)
+            return TrackDetailServiceResult.NotFound;
+
+        var analytics = await repository.GetDetailAnalyticsAsync(trackId, request, cancellationToken);
+        if (analytics is null)
+            return TrackDetailServiceResult.NotFound;
+        if (analytics.Analytics is not { } resolved)
+            return TrackDetailServiceResult.Invalid;
+
+        return TrackDetailServiceResult.Found(row, resolved);
+    }
+
+    private static bool IsWithinValidity(DateTimeOffset snapshotUtc, DateTimeOffset nowUtc) =>
+        snapshotUtc >= nowUtc - MaximumCursorAge && snapshotUtc <= nowUtc + MaximumFutureSkew;
 
     private static bool IsValid(TrackSearchQuery query)
     {

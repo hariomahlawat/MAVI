@@ -38,10 +38,12 @@ public static class TrackEndpoints
         TrackSearchService service,
         CancellationToken cancellationToken)
     {
-        var row = await service.GetDetailAsync(id, cancellationToken);
-        return row is null
+        var result = await service.GetDetailAsync(id, TrackAnalyticsDetailRequest.Current, cancellationToken);
+        if (!result.IsSuccess)
+            return Problem(400, result.ErrorCode!, "Track detail parameters are invalid.");
+        return result.Row is null
             ? Problem(404, "track_not_found", "Track was not found.")
-            : Results.Ok(ToDetail(row));
+            : Results.Ok(ToDetail(result.Row));
     }
 
     private static readonly HashSet<string> SupportedQueryKeys =
