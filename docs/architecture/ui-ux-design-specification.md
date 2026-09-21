@@ -726,7 +726,7 @@ Scene Analytics slices are numbered 0–7; capability roadmap stages are numbere
 |---|---|---|---|
 | Analytics readiness and coverage indicators | **Slice 3, surfaced in Slice 4** | Ledger analytics-state column/text (**not a second row status badge**), Investigation coverage strip, Workbench context chip | `stale` and `partially available` tokens and taxonomy (§8.2, §14); UI-3 for the Ledger indicators; §16's one-badge-per-row rule remains in force |
 | Search integration and analytics predicates | **Slice 4** | Investigation | UI-4 in place; committed-filter chips and coverage strip (§17) |
-| Evidence overlays and explanation | **Slice 5** | Review and Investigation inspector | UI-5 in place; one player with lane extension points (§18) |
+| Evidence overlays and explanation | **Slice 5** | Review and Investigation inspector | UI-5 implemented; one player with lane extension points (§18), pending review |
 | Aggregates, occupancy, heatmap | **Slice 6** | Workbench | Workbench grammar from UI-2; sequential scale and legend; zone colour already separated from accent (§8.3) |
 | Hardening, acceptance, qualification | **Slice 7** | — | Visual QA standard (§26) as part of acceptance evidence |
 | Visual attributes | Capability stage 2 | Investigation filter chips and inspector key/value | committed-filter chips (§17) |
@@ -885,6 +885,7 @@ A backend slice that would normally ship a UI surface before its gating UI PR me
 - **Acceptance.** Exactly one player implementation in the codebase; no native controls beneath overlays; one timeline; overlays correct under letterbox and pillarbox; **at 1366×768 the migrated Review page shows the player and the primary evidence summary in the initial viewport** (§4.5.1, §25) — the check deferred here from UI-2; §26 visual QA against bright, dark, saturated, low-contrast and letterboxed footage; existing player tests preserved or replaced with equivalents.
 - **Risks.** Medium-high — media element lifecycle. The existing animation-frame and seek logic is tested and should be reused rather than rewritten.
 - **Relation to Scene Analytics.** **Must be in place before Slice 5 evidence-overlay/explanation UI is added.** Slice 5 draws into this player's lanes.
+- **Status.** **Implemented**, awaiting review. The player is `shared/evidence/EvidencePlayer`, composed for Track evidence by `features/video-review/TrackEvidence` and mounted by both Review and the Investigation inspector; the media controller is `useEvidenceTransport`. Native controls are gone and a source-level test keeps them gone. The timeline seam is `EvidenceTimelineMarker` and `EvidenceTimelineInterval`; UI-5 draws the subject lane and the markers only, so **decision 7 remains open** and an interval in any other lane is named in the accessible twin and not drawn until Slice 5 chooses the presentation against real facts. Decisions 2a, 2b and 2c remain open: no event-marker, similarity or heatmap hue was invented.
 
 ---
 
