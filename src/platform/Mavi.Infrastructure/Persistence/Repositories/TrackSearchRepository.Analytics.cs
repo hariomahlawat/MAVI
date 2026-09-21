@@ -12,13 +12,25 @@ namespace Mavi.Infrastructure.Persistence.Repositories;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The first page is one linearisation point. Inside the read transaction that already
-/// takes the shared processing-visibility barrier, the query's scope is resolved to one
-/// camera, the explicit or active scene revision is read, the engine version is
-/// captured, the snapshot sequence is allocated, coverage is computed over the base
-/// candidate scope and the page is fetched. Nothing about the search can change between
-/// those steps: a scene activation committing between two unrelated reads cannot make
-/// the first page mean one thing and its cursor another.
+/// The first page is one linearisation point. The read transaction takes the shared
+/// processing-visibility barrier <i>first</i>, before any scope is read; only then is
+/// the query resolved to one camera, the explicit or active scene revision read, the
+/// engine version captured, the snapshot sequence allocated, coverage computed over the
+/// base candidate scope and the page fetched. Both publication events — run completion
+/// and scene activation — take the exclusive counterpart of that barrier and hold it
+/// through commit, so neither can commit while the page is being assembled. Nothing
+/// about the search can change between those steps: a scene activation committing
+/// between two unrelated reads cannot make the first page mean one thing and its cursor
+/// another.
+/// </para>
+/// <para>
+/// The identity this establishes — camera, scene revision, algorithm version and
+/// snapshot sequence — is the search result set's identity. It is resolved here and
+/// nowhere else: the request's filters are a request, and what the first page returns
+/// in its coverage block is the answer. Every later read that belongs to these results
+/// —a continuation, the geometry their labels are drawn from, the detail of one of
+/// them — is made against that identity rather than against whatever is current when
+/// the read happens.
 /// </para>
 /// <para>
 /// A continuation never re-resolves "current". It evaluates against the pinned revision,
@@ -54,9 +66,22 @@ public sealed partial class TrackSearchRepository
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        // Scope, identity and snapshot are read under the same shared lock the ordinary
-        // first page takes, so a completion or a scene activation is either wholly before
-        // or wholly after everything this page says.
+        // The barrier is the first thing this transaction does, before a single byte of
+        // scope is read. Both publication events — a run completion and a scene
+        // activation — take the exclusive counterpart and hold it through commit, so
+        // while this shared lock is held neither can commit. Everything read after this
+        // line therefore describes one world: the camera, the active revision, the
+        // resolved revision's geometry, the snapshot sequence, coverage and the page.
+        //
+        // Reading scope before the lock would not be a smaller window, it would be a
+        // different world: an activation committing in the gap leaves the page pinned to
+        // revision 1 while its snapshot already contains revision-2 work, and coverage
+        // then calls revision-1 gaps Pending although reconciliation will only ever
+        // create revision-2 units.
+        await ProcessingVisibilityBarrier.AcquireSearchSharedAsync(db, cancellationToken);
+        var snapshotVisibilitySequence = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
+        var snapshotUtc = timeProvider.GetUtcNow().ToUniversalTime();
+
         var cameraId = await ResolveCameraAsync(query, cancellationToken);
         if (cameraId is null)
             return TrackAnalyticsSearchRepositoryResult.Invalid;
@@ -72,10 +97,6 @@ public sealed partial class TrackSearchRepository
 
         if (!OwnsGeometry(scope.Revision, analytics))
             return TrackAnalyticsSearchRepositoryResult.Invalid;
-
-        await ProcessingVisibilityBarrier.AcquireSearchSharedAsync(db, cancellationToken);
-        var snapshotVisibilitySequence = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
-        var snapshotUtc = timeProvider.GetUtcNow().ToUniversalTime();
 
         var coverage = await ComputeCoverageAsync(query, identity, scope, snapshotVisibilitySequence, cancellationToken);
         var (rows, itemAnalytics) = await FetchPageAsync(
