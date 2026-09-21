@@ -62,13 +62,16 @@
   color: var(--text-muted); font-size: var(--fs-0); font-weight: 600;
   letter-spacing: 0.06em; text-transform: uppercase;
 }
-/* Sticky within the rail's one scroll owner, so Search is reachable without
-   scrolling back for it and without a second scrolling box to reach it in. */
+/* At the end of the column, in flow — not stuck to its bottom edge. A sticky
+   bar here reads as free reachability and is not: the moment the rail is tall
+   enough to scroll, which is the only moment stickiness does anything, the bar
+   is sitting on top of the last field. Section 26 caught exactly that at 1366
+   with the video-outage hint in the rail. The rail is short enough to read at
+   the acceptance widths, and where it is not, scrolling to the end of a form to
+   submit it is what a form does. */
 .filter-rail__actions {
   display: flex; gap: var(--s-2);
-  position: sticky; bottom: 0; z-index: var(--z-sticky);
-  padding: var(--s-3) 0 var(--s-2);
-  background: var(--surface-app);
+  padding-top: var(--s-3);
   border-top: var(--stroke-hair) solid var(--border-subtle);
 }
 .filter-rail__actions .btn { flex: 1; }

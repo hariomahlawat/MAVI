@@ -202,11 +202,11 @@ export default function SearchFilterRail({
         </Field>
       </section>
 
-      {/* Search is what the rail is for, so it stays put while the fields
-          scroll past it. Sticky within the rail's single scroll owner, not a
-          second scrolling box above it: a rail with a scrolling field area
-          *and* a scrolling column is how the headings came to be laid out
-          against one box and painted against another. */}
+      {/* At the end of the column, in flow. It was briefly sticky to its
+          bottom edge, which reads as free reachability and is not: the only
+          moment stickiness does anything is when the rail is tall enough to
+          scroll, and that is exactly the moment the bar covers the last field
+          (§26 found it at 1366 with the video-outage hint in the rail). */}
       <div className="filter-rail__actions">
         <Button variant="primary" type="submit" icon="search">Search</Button>
         <Button type="button" onClick={onReset}>Reset</Button>
