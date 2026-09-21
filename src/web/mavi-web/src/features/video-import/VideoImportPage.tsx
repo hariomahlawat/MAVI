@@ -12,10 +12,14 @@ import {
 } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
-import Button from '../../shared/components/Button';
+import Button, { ButtonLink } from '../../shared/components/Button';
+import EmptyState from '../../shared/components/EmptyState';
+import Field from '../../shared/components/Field';
+import KeyValue from '../../shared/components/KeyValue';
 import LoadingState from '../../shared/components/LoadingState';
-import PageHeader from '../../shared/components/PageHeader';
 import Panel from '../../shared/components/Panel';
+import { formatBytes } from '../../shared/format/format';
+import { ContextBar, RecordLayout } from '../../shared/workspace';
 
 type ImportWorkflowInput = {
   cameraId: string;
@@ -111,7 +115,7 @@ export default function VideoImportPage() {
   const [cameraId, setCameraId] = useState('');
   const [recordingStartLocal, setRecordingStartLocal] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
 
   const selectedCamera = activeCameras.find((camera) => camera.id === cameraId);
 
@@ -135,87 +139,146 @@ export default function VideoImportPage() {
     },
   });
 
+  /**
+   * Field-level validation (§21). The messages are computed rather than stored
+   * so that correcting a field clears its message as the operator types, which
+   * a stored error only does if something remembers to clear it.
+   */
+  function fileProblem(): string | null {
+    if (!file) return 'An MP4 file is required.';
+    if (!file.name.toLowerCase().endsWith('.mp4')) return 'Select an MP4 file.';
+    if (file.size > MAXIMUM_VIDEO_FILE_SIZE_BYTES) return 'The selected video exceeds the 3 GiB import limit.';
+    return null;
+  }
+
+  const errors = {
+    camera: submitted && !cameraId ? 'Select the camera this recording came from.' : null,
+    recordingStartLocal: submitted && !recordingStartLocal ? 'Enter the recording date and time.' : null,
+    file: submitted ? fileProblem() : null,
+  };
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setValidationError(null);
-    if (!cameraId || !recordingStartLocal || !file) {
-      setValidationError('Camera, recording local date/time and MP4 file are required.');
-      return;
-    }
-    if (!file.name.toLowerCase().endsWith('.mp4')) {
-      setValidationError('Select an MP4 file.');
-      return;
-    }
-    if (file.size > MAXIMUM_VIDEO_FILE_SIZE_BYTES) {
-      setValidationError('The selected video exceeds the 3 GiB import limit.');
-      return;
-    }
-    if (workflow.isPending) return;
+    setSubmitted(true);
+    if (!cameraId || !recordingStartLocal || !file || fileProblem() || workflow.isPending) return;
     workflow.mutate({ cameraId, recordingStartLocal, file });
   }
 
+  // Three different answers, and §14 refuses to let them look alike: the
+  // request is in flight, the request failed, or the request succeeded and the
+  // deployment genuinely has no camera that can receive media.
+  const blocked = cameras.isSuccess && activeCameras.length === 0;
+
+  const facts = (
+    <Panel title="Before you import">
+      <KeyValue
+        items={[
+          {
+            label: 'Recording timezone',
+            value: selectedCamera
+              ? selectedCamera.timeZoneId
+              : 'Select a camera',
+            mono: Boolean(selectedCamera),
+          },
+          { label: 'Accepted format', value: 'MP4 container only' },
+          { label: 'Maximum size', value: formatBytes(MAXIMUM_VIDEO_FILE_SIZE_BYTES) },
+          { label: 'After import', value: 'Processing is queued automatically.' },
+        ]}
+      />
+    </Panel>
+  );
+
   return (
     <section className="page">
-      <PageHeader
-        title="Import video"
-        description="Register source MP4 media and queue authoritative processing without converting camera-local wall time in the browser."
-      />
+      <ContextBar crumbs={[{ label: 'Videos', to: '/videos' }, { label: 'Import' }]} />
 
-      <Panel title="New import" description="One MP4 per import. Processing is queued automatically." className="panel--narrow">
-        <div className="stack">
-        {cameras.isPending ? <LoadingState label="Loading active cameras…" /> : null}
-        {cameras.isError ? <Alert tone="error">Camera inventory is unavailable.</Alert> : null}
-        {validationError ? <Alert tone="warning">{validationError}</Alert> : null}
-        {workflow.isError ? <Alert tone="error">{importError(workflow.error)}</Alert> : null}
+      <RecordLayout facts={blocked ? undefined : facts}>
+        {cameras.isPending ? (
+          <Panel title="New import"><LoadingState label="Loading active cameras…" /></Panel>
+        ) : cameras.isError ? (
+          <Panel title="New import">
+            <Alert
+              tone="error"
+              actions={<Button size="sm" onClick={() => cameras.refetch()}>Retry</Button>}
+            >
+              Camera inventory is unavailable, so an import cannot be attributed to a camera.
+            </Alert>
+          </Panel>
+        ) : blocked ? (
+          <Panel title="New import">
+            <EmptyState
+              icon="camera"
+              title="No active camera to import against"
+              hatched
+              actions={<ButtonLink to="/cameras" variant="primary">Open Cameras</ButtonLink>}
+            >
+              Media is always imported against a camera, because the camera's timezone is what
+              interprets the recording's local time. Register or reactivate one first.
+            </EmptyState>
+          </Panel>
+        ) : (
+          <Panel title="New import">
+            <form className="form-stack" onSubmit={submit} noValidate>
+              {workflow.isError ? <Alert tone="error">{importError(workflow.error)}</Alert> : null}
 
-        <form className="form-stack" onSubmit={submit} noValidate>
-          <label>
-            Camera
-            <select value={cameraId} onChange={(event) => setCameraId(event.target.value)} required>
-              <option value="">Select active camera</option>
-              {activeCameras.map((camera) => (
-                <option key={camera.id} value={camera.id}>
-                  {camera.code} — {camera.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              <Field label="Camera" error={errors.camera}>
+                {(control) => (
+                  <select {...control} value={cameraId} onChange={(event) => setCameraId(event.target.value)}>
+                    <option value="">Select active camera</option>
+                    {activeCameras.map((camera) => (
+                      <option key={camera.id} value={camera.id}>
+                        {camera.code} — {camera.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </Field>
 
-          <label>
-            Recording local date/time
-            <input
-              type="datetime-local"
-              value={recordingStartLocal}
-              onChange={(event) => setRecordingStartLocal(event.target.value)}
-              required
-            />
-          </label>
+              {/* §24: the operative timezone is visible beside the wall-time
+                  field, not only in the rail, because this is the one field
+                  whose meaning depends on it. The browser's zone is never the
+                  authority (ADR-004). */}
+              <Field
+                label="Recording local date/time"
+                error={errors.recordingStartLocal}
+                help={selectedCamera
+                  ? <>Read as local time in <code>{selectedCamera.timeZoneId}</code>, the timezone of {selectedCamera.code}. Your browser's timezone is not used.</>
+                  : "Read as local time in the selected camera's timezone, never the browser's."}
+              >
+                {(control) => (
+                  <input
+                    {...control}
+                    type="datetime-local"
+                    value={recordingStartLocal}
+                    onChange={(event) => setRecordingStartLocal(event.target.value)}
+                  />
+                )}
+              </Field>
 
-          <div className="field-help field-help--boxed">
-            {selectedCamera
-              ? <>Interpreted in <code>{selectedCamera.timeZoneId}</code> for {selectedCamera.code}.</>
-              : 'Select a camera to see the authoritative recording timezone.'}
-          </div>
+              <Field
+                label="MP4 file"
+                error={errors.file}
+                help={`One MP4 per import, up to ${formatBytes(MAXIMUM_VIDEO_FILE_SIZE_BYTES)}. Backend media validation remains authoritative.`}
+              >
+                {(control) => (
+                  <input
+                    {...control}
+                    type="file"
+                    accept=".mp4,video/mp4"
+                    onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                  />
+                )}
+              </Field>
 
-          <label>
-            MP4 file
-            <input
-              type="file"
-              accept=".mp4,video/mp4"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-              required
-            />
-          </label>
-          <p className="field-help">Phase-1 single-request import limit: 3 GiB. Backend media validation remains authoritative.</p>
-
-          <div className="row">
-            <Button variant="primary" type="submit" icon="upload" disabled={workflow.isPending || cameras.isPending}>
-              {workflow.isPending ? 'Importing and queueing…' : 'Import and process'}
-            </Button>
-          </div>
-        </form>
-        </div>
-      </Panel>
+              <div className="row">
+                <Button variant="primary" type="submit" icon="upload" disabled={workflow.isPending}>
+                  {workflow.isPending ? 'Importing and queueing…' : 'Import and process'}
+                </Button>
+              </div>
+            </form>
+          </Panel>
+        )}
+      </RecordLayout>
     </section>
   );
 }
