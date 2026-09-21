@@ -29,6 +29,7 @@ vi.mock('../../api/videos', async () => {
 
 const cameraId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21412';
 const revisionId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21481';
+const laterRevisionId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21482';
 const zoneId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21461';
 const lineId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21471';
 const trackId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21451';
@@ -313,4 +314,67 @@ describe('Slice 4 Investigation analytics', () => {
     expect(query.get('analyticsAlgorithmVersion')).toBe('scene-analytics-v1');
     expect(reviewPath({ id: trackId, videoAssetId: 'v' }, '')).not.toContain('sceneRevisionId');
   });
+
+  // --- One identity for one result set -----------------------------------
+  //
+  // A result set is evaluated against one (camera, scene revision, algorithm
+  // version) and the backend returns that identity whole in coverage. These two
+  // hold the line where the page could otherwise read "current" instead.
+
+  it('labels results with the revision the backend pinned, while the rail follows the active scene', async () => {
+    // The search ran with no explicit revision and the backend pinned revision 4.
+    // Revision 5 has since been activated: it keeps the zone but renames it.
+    const laterScene: CameraScene = {
+      ...scene,
+      activeRevision: {
+        ...scene.activeRevision!,
+        revisionId: laterRevisionId,
+        revisionNumber: 5,
+        zones: [{ ...scene.activeRevision!.zones[0], name: 'Apron' }],
+      },
+      history: [
+        ...scene.history,
+        { revisionId: laterRevisionId, revisionNumber: 5, createdAtUtc: '2026-09-21T06:30:00Z', createdBy: 'development-unattributed', note: null, analyticsEnabled: true, zoneCount: 1, tripLineCount: 1 },
+      ],
+    };
+    vi.mocked(getCameraScene).mockResolvedValue(laterScene);
+    vi.mocked(getCameraSceneRevision).mockResolvedValue(scene.activeRevision!);
+    vi.mocked(searchTracks).mockResolvedValue({
+      items: [item()], nextCursor: null, analyticsCoverage: coverage({ sceneRevisionId: revisionId }),
+    });
+
+    renderWithApp(<VisualSearchPage />, { route: `/search?cameraId=${cameraId}&zoneId=${zoneId}&loitering=true` });
+    const chips = await screen.findByRole('group', { name: 'Committed filters' });
+
+    // Results are labelled with revision 4's geometry, which is what they mean.
+    await waitFor(() => expect(within(chips).getByTitle(/^Dwelled in:/)).toHaveTextContent('Forecourt'));
+    expect(within(chips).queryByText('Apron')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Analytics coverage' })).toHaveTextContent('Revision 4');
+    expect(getCameraSceneRevision).toHaveBeenCalledWith(cameraId, 4, expect.anything());
+
+    // The rail composes the next search, so it offers the active scene's names.
+    expect(within(screen.getByLabelText('Zone')).getByRole('option', { name: 'Apron' })).toBeInTheDocument();
+  });
+
+  it('carries the engine the backend resolved, not the half-identity the query asked for', async () => {
+    // An explicit revision with no explicit engine: the search pinned v2, and the
+    // detail and Review must be read against v2 even after v3 becomes current.
+    vi.mocked(searchTracks).mockResolvedValue({
+      items: [item()], nextCursor: null,
+      analyticsCoverage: coverage({ sceneRevisionId: revisionId, algorithmVersion: 'scene-analytics-v2' }),
+    });
+
+    const user = userEvent.setup();
+    renderWithApp(<VisualSearchPage />, { route: `/search?cameraId=${cameraId}&sceneRevisionId=${revisionId}&loitering=true` });
+    const review = await screen.findByRole('link', { name: 'Review evidence' });
+
+    expect(review.getAttribute('href')).toContain('analyticsAlgorithmVersion=scene-analytics-v2');
+    expect(reviewPath(item(), undefined, { sceneRevisionId: revisionId, analyticsAlgorithmVersion: 'scene-analytics-v2' }))
+      .toContain('analyticsAlgorithmVersion=scene-analytics-v2');
+
+    await user.click(screen.getByRole('button', { name: /Track 7|Person/ }));
+    await waitFor(() => expect(getTrack).toHaveBeenCalledWith(
+      trackId, expect.anything(), { sceneRevisionId: revisionId, analyticsAlgorithmVersion: 'scene-analytics-v2' }));
+  });
+
 });

@@ -5,16 +5,12 @@ import { queryKeys } from '../../app/queryClient';
 import { geometryNames, type GeometryNames } from './analyticsLabels';
 
 /**
- * What the Analytics rail group and the analytic chips know about the scene
- * they name geometry from.
+ * What a surface knows about the scene it names geometry from.
  *
  * Four states, not two. `none` is the ordinary case — no camera to ask about.
  * `loading` and `unavailable` are kept apart because the operator's next move
  * differs (§14), and neither drops or broadens a committed id: an unresolved
- * zone stays in force and is shown by its identifier. `ready` carries the
- * geometry of the revision the search evaluates against — the explicitly
- * committed one when there is one, else the camera's active revision — so the
- * choices offered are the choices the backend will accept.
+ * zone stays in force and is shown by its identifier.
  */
 export type SceneGeometryState =
   | { status: 'none' }
@@ -23,7 +19,26 @@ export type SceneGeometryState =
   | { status: 'unconfigured' }
   | { status: 'ready'; names: GeometryNames; analyticsEnabled: boolean };
 
-export function useSceneGeometry(cameraId: string | undefined, sceneRevisionId: string | undefined): SceneGeometryState {
+/**
+ * Which revision a caller means, because the two are different questions.
+ *
+ * `current` is what the next search would evaluate against: the explicitly
+ * committed revision when there is one, else whatever the camera has active
+ * now. The filter rail asks this, so the zones and lines it offers are the ones
+ * the backend will accept for the query being composed.
+ *
+ * `pinned` is the revision a result set was actually evaluated against, as the
+ * backend resolved and returned it. It never falls back to "active": a result
+ * set pinned to no revision was evaluated against no geometry, and labelling
+ * its facts with a revision activated afterwards would state something untrue.
+ */
+export type SceneGeometryMode = 'current' | 'pinned';
+
+export function useSceneGeometry(
+  cameraId: string | undefined,
+  sceneRevisionId: string | undefined,
+  mode: SceneGeometryMode = 'current',
+): SceneGeometryState {
   const camera = cameraId && isGuid(cameraId) ? cameraId.toLowerCase() : '';
   const scene = useQuery({
     queryKey: queryKeys.cameraScene(camera),
@@ -38,6 +53,8 @@ export function useSceneGeometry(cameraId: string | undefined, sceneRevisionId: 
   const historical = wanted && scene.data
     ? scene.data.history.find((entry) => entry.revisionId.toLowerCase() === wanted)
     : undefined;
+  // A pinned revision is never served by the active one unless they are the same
+  // revision; revisions are immutable, so that identity is enough.
   const wantsHistorical = Boolean(wanted) && scene.data?.activeRevision?.revisionId.toLowerCase() !== wanted;
   const revision = useQuery({
     queryKey: queryKeys.cameraSceneRevision(camera, historical?.revisionNumber ?? 0),
@@ -60,6 +77,13 @@ export function useSceneGeometry(cameraId: string | undefined, sceneRevisionId: 
       analyticsEnabled: revision.data.analyticsEnabled,
     };
   }
+
+  // Reaching here means either no revision was asked for, or the one asked for is
+  // the revision that is active — and revisions are immutable, so serving it from
+  // the active scene is the same geometry. Only the first case differs by mode: a
+  // pinned caller with nothing to name must say so rather than adopt whatever is
+  // active now.
+  if (mode === 'pinned' && !wanted) return { status: 'unconfigured' };
 
   const active = scene.data.activeRevision;
   if (!active) return { status: 'unconfigured' };

@@ -299,18 +299,46 @@ export default function VisualSearchPage() {
     || draftVideoCamera
     || (committedFilters.processingRunId ? items[0]?.cameraId : undefined);
   const analyticsScoped = Boolean(draft.values.cameraId || draft.values.videoAssetId || committedFilters.processingRunId);
-  const geometry = useSceneGeometry(analyticsCameraId, committedFilters.sceneRevisionId);
-  const geometryNames = geometry.status === 'ready' ? geometry.names : undefined;
 
-  // The identity the results were evaluated against, carried to the inspector and
-  // the review links so the facts shown there are the facts the search evaluated
-  // (plan §S). An explicit committed identity wins; otherwise the snapshot's
-  // pinned pair; an ordinary search pins nothing and reads the current identity.
-  const analyticsIdentity: TrackAnalyticsIdentity | undefined = committedFilters.sceneRevisionId
-    ? { sceneRevisionId: committedFilters.sceneRevisionId, analyticsAlgorithmVersion: committedFilters.analyticsAlgorithmVersion }
-    : coverage?.sceneRevisionId
+  // (B) The geometry the *controls* are composed from. This one follows the
+  // current configuration on purpose: the rail offers the zones and lines the
+  // backend will accept for the query being composed, which is the explicitly
+  // committed revision when there is one and the camera's active scene
+  // otherwise. It says nothing about results already on screen.
+  const draftGeometry = useSceneGeometry(analyticsCameraId, committedFilters.sceneRevisionId);
+
+  // The identity the results were evaluated against, carried to the inspector,
+  // the detail request and the review links so the facts shown there are the
+  // facts the search evaluated (plan §S).
+  //
+  // The backend resolves this identity at the first page's linearisation point
+  // and returns it whole in coverage. The committed filters are a *request*: an
+  // explicit revision with no engine version is an incomplete pair, and reading
+  // it back as identity lets a later engine upgrade re-point the detail endpoint
+  // at a different algorithm than the search ran. So the resolved pair wins
+  // whenever there is one, and the request is only a fallback for a search the
+  // backend never resolved an identity for.
+  const analyticsIdentity: TrackAnalyticsIdentity | undefined = coverage
+    ? coverage.sceneRevisionId
       ? { sceneRevisionId: coverage.sceneRevisionId, analyticsAlgorithmVersion: coverage.algorithmVersion }
+      : undefined
+    : committedFilters.sceneRevisionId
+      ? { sceneRevisionId: committedFilters.sceneRevisionId, analyticsAlgorithmVersion: committedFilters.analyticsAlgorithmVersion }
       : undefined;
+
+  // (A) The geometry the *results* are labelled with, read against the revision
+  // the backend pinned rather than whatever is active now. Activating a new
+  // scene must not silently relabel facts that were evaluated against the old
+  // one. The camera comes from the committed scope, not the draft, for the same
+  // reason: editing the rail does not change what the results on screen mean.
+  const committedVideoCamera = committedFilters.videoAssetId
+    ? videos.data?.find((video) => video.id.toLowerCase() === committedFilters.videoAssetId!.toLowerCase())?.cameraId
+    : undefined;
+  const resultCameraId = coverage
+    ? committedFilters.cameraId || committedVideoCamera || items[0]?.cameraId
+    : undefined;
+  const resultGeometry = useSceneGeometry(resultCameraId, analyticsIdentity?.sceneRevisionId, 'pinned');
+  const resultGeometryNames = resultGeometry.status === 'ready' ? resultGeometry.names : undefined;
 
   // A next-page advance the operator asked for; see the effect below.
   const pendingAdvance = useRef<{ fingerprint: string; fromId: string } | null>(null);
@@ -620,7 +648,7 @@ export default function VisualSearchPage() {
             videosUnavailable={videos.isError}
             displayZone={displayZone}
             analyticsScoped={analyticsScoped}
-            geometry={geometry}
+            geometry={draftGeometry}
           />
         )}
         inspector={inspecting && selectedId ? (
@@ -633,7 +661,7 @@ export default function VisualSearchPage() {
             displayTimeZoneId={displayTimeZoneId}
             searchContext={searchContext}
             analyticsIdentity={analyticsIdentity}
-            geometry={geometryNames}
+            geometry={resultGeometryNames}
             summary={position >= 0 ? items[position] : undefined}
             onPrevious={goPrevious}
             onNext={goNext}
@@ -648,7 +676,7 @@ export default function VisualSearchPage() {
               cameras={cameras.data}
               videos={videos.data}
               displayTimeZoneId={displayTimeZoneId}
-              geometry={geometryNames}
+              geometry={resultGeometryNames}
               onRemove={removeCriterion}
             />
           ) : null}
@@ -691,7 +719,7 @@ export default function VisualSearchPage() {
           {/* §17: the coverage strip sits immediately beneath the header and chips
               and persists for the snapshot, so an incomplete answer is never
               read as a complete one. */}
-          {coverage ? <CoverageStrip coverage={coverage} geometry={geometryNames} /> : null}
+          {coverage ? <CoverageStrip coverage={coverage} geometry={resultGeometryNames} /> : null}
 
           {committed.isValid && tracks.isPending ? <LoadingState label="Searching visual intelligence…" /> : null}
 
