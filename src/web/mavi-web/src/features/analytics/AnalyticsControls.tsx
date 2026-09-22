@@ -45,6 +45,7 @@ export default function AnalyticsControls({
   displayTimeZoneId,
   problem,
   refreshing,
+  canRefresh,
   onChange,
   onPreset,
   onRefresh,
@@ -54,6 +55,13 @@ export default function AnalyticsControls({
   displayTimeZoneId: string | null;
   problem: string | null;
   refreshing: boolean;
+  /**
+   * Whether the mode in view has a question that may be asked at all.
+   *
+   * Decided by the page from its single executability predicate, not
+   * recomputed here: the control states the answer, it does not have its own.
+   */
+  canRefresh: boolean;
   onChange: (patch: Partial<AnalyticsQueryState>) => void;
   onPreset: (preset: WindowPresetId) => void;
   onRefresh: () => void;
@@ -170,7 +178,21 @@ export default function AnalyticsControls({
         </Field>
       ) : null}
 
-      <Button size="sm" variant="ghost" icon="refresh" onClick={onRefresh} disabled={refreshing}>
+      {/*
+        Disabled while the query is refused, rather than left enabled over a
+        callback that silently declines: a control that looks available and does
+        nothing teaches the operator that the surface is broken. The reason is
+        already on the field that repairs it, and `title` carries it to anyone
+        who reaches the button first.
+      */}
+      <Button
+        size="sm"
+        variant="ghost"
+        icon="refresh"
+        onClick={onRefresh}
+        disabled={refreshing || !canRefresh}
+        title={canRefresh ? undefined : 'Adjust the window above before refreshing.'}
+      >
         {refreshing ? 'Refreshing…' : 'Refresh'}
       </Button>
     </div>

@@ -210,6 +210,51 @@ describe('Analytics Workbench', () => {
     expect(vi.mocked(getAnalyticsAggregates).mock.calls.length).toBe(calls);
   });
 
+  it('will not let manual Refresh ask a question the contract would refuse', async () => {
+    // The automatic path is gated on the query being executable, but TanStack
+    // Query's imperative refetch() ignores `enabled`. Without the same gate on
+    // the manual path the surface promises "a question the contract will refuse
+    // is not asked" and then asks it anyway the moment Refresh is pressed.
+    vi.mocked(getAnalyticsAggregates).mockClear();
+    render();
+    await screen.findByRole('table');
+
+    await userEvent.selectOptions(screen.getByLabelText('Interval'), '60');
+    await userEvent.clear(screen.getByLabelText('From'));
+    await userEvent.type(screen.getByLabelText('From'), '2026-08-01T00:00');
+    expect(await screen.findByText(/Adjust the window/i)).toBeInTheDocument();
+
+    // The contract first: what must not happen is the request. Asserted on the
+    // query function itself, not on rendered text, and proven to fail against
+    // the pre-repair head (it issued a second call).
+    const refresh = screen.getByRole('button', { name: /Refresh/i });
+    const calls = vi.mocked(getAnalyticsAggregates).mock.calls.length;
+    await userEvent.click(refresh);
+    expect(vi.mocked(getAnalyticsAggregates).mock.calls.length).toBe(calls);
+
+    // Then the affordance: a control that silently does nothing is worse than
+    // one that says it cannot act, so the button carries the refusal too.
+    expect(refresh).toBeDisabled();
+
+    // And the refusal is still on screen and still true afterwards.
+    expect(screen.getByText(/Adjust the window/i)).toBeInTheDocument();
+  });
+
+  it('still refreshes an ordinary valid query', async () => {
+    // The complement: the gate must refuse refused questions, not Refresh.
+    render();
+    await screen.findByRole('table');
+
+    const refresh = screen.getByRole('button', { name: /Refresh/i });
+    expect(refresh).toBeEnabled();
+
+    const calls = vi.mocked(getAnalyticsAggregates).mock.calls.length;
+    await userEvent.click(refresh);
+
+    await waitFor(() =>
+      expect(vi.mocked(getAnalyticsAggregates).mock.calls.length).toBeGreaterThan(calls));
+  });
+
   it('will not stamp figures with a timezone it does not have', async () => {
     // Every number here is stamped with an instant. Formatting them against a
     // guessed UTC would present a wall-clock time the operator does not live in

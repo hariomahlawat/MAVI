@@ -83,6 +83,18 @@ export default function AnalyticsPage() {
   // not be refused because Activity's leftover interval would overflow its axis.
   const problem = queryProblem(state);
   const bucketRefusal = state.mode === 'activity' ? bucketProblem(state) : null;
+
+  /**
+   * Whether the mode currently in view has a question worth asking.
+   *
+   * This is the *one* definition of executability on this surface, and it is
+   * already mode-aware: `queryProblem` applies Activity's bucket bound only in
+   * Activity, so a window the heatmap would answer is never refused here for an
+   * interval the heatmap does not use. Every path that can start a request —
+   * automatic or manual — is gated on this same value, because a second,
+   * slightly different predicate for the manual path is how the two drift apart.
+   */
+  const canRunQuery = problem === null;
   const aggregateQuery = {
     fromUtc: state.fromUtc,
     toUtc: state.toUtc,
@@ -97,7 +109,7 @@ export default function AnalyticsPage() {
     // A question the contract will refuse is not asked. The operator is told
     // what to change instead of being shown a failure they caused and cannot
     // read the cause of.
-    enabled: Boolean(cameraId) && state.mode === 'activity' && problem === null,
+    enabled: Boolean(cameraId) && state.mode === 'activity' && canRunQuery,
   });
 
   const heatmapRequest = {
@@ -110,7 +122,7 @@ export default function AnalyticsPage() {
   const heatmap = useQuery({
     queryKey: queryKeys.cameraAnalyticsHeatmap(cameraId, serializeHeatmapQuery(heatmapRequest)),
     queryFn: ({ signal }) => getAnalyticsHeatmap(cameraId, heatmapRequest, signal),
-    enabled: Boolean(cameraId) && state.mode === 'heatmap' && problem === null,
+    enabled: Boolean(cameraId) && state.mode === 'heatmap' && canRunQuery,
     // Reading sealed evidence is expensive and the answer is pinned to a
     // snapshot, so it is not refetched behind the operator's back.
     staleTime: Infinity,
@@ -124,6 +136,23 @@ export default function AnalyticsPage() {
   );
   const subjects = subjectsFor(response, state.metric);
   const reading = response ? readActivity(response, state.metric, subjectId) : null;
+
+  /**
+   * The manual execution path, obeying the same rule as the automatic one.
+   *
+   * `enabled: false` stops TanStack Query from running a query on its own, but
+   * it does not stop `refetch()`, which is imperative and runs regardless. So a
+   * surface that promises "a question the contract will refuse is not asked"
+   * has to restate the gate here, or pressing Refresh on a refused window sends
+   * exactly the request the refusal said it would not.
+   *
+   * Defined during render rather than memoised: it closes over this render's
+   * query objects, so it cannot act on a stale `enabled` decision.
+   */
+  const refresh = () => {
+    if (!canRunQuery) return;
+    void active.refetch();
+  };
 
   const update = (patch: Partial<AnalyticsQueryState>) => setState((current) => ({ ...current, ...patch }));
   const applyPreset = (preset: WindowPresetId) => update(presetWindow(preset, new Date()));
@@ -188,12 +217,13 @@ export default function AnalyticsPage() {
               displayTimeZoneId={displayTimeZoneId}
               problem={windowProblem(state) ?? bucketRefusal}
               refreshing={active.isFetching}
+              canRefresh={canRunQuery}
               onChange={update}
               onPreset={applyPreset}
-              onRefresh={() => void active.refetch()}
+              onRefresh={refresh}
             />
             {aggregates.isError && response && state.mode === 'activity' ? (
-              <Alert tone="stale" actions={<Button size="sm" onClick={() => void aggregates.refetch()}>Retry</Button>}>
+              <Alert tone="stale" actions={<Button size="sm" disabled={!canRunQuery} onClick={refresh}>Retry</Button>}>
                 These figures are the last answer that arrived. A refresh since then has failed, so they may no
                 longer be current.
               </Alert>
@@ -232,11 +262,12 @@ export default function AnalyticsPage() {
                 opacity={opacity}
                 onOpacityChange={setOpacity}
                 onNarrow={() => applyPreset('lastHour')}
+                onRetry={refresh}
               />
             ) : aggregates.isLoading ? (
               <LoadingState label="Reading analytics…" />
             ) : aggregates.isError && !response ? (
-              <Alert tone="error" actions={<Button size="sm" onClick={() => void aggregates.refetch()}>Retry</Button>}>
+              <Alert tone="error" actions={<Button size="sm" onClick={refresh}>Retry</Button>}>
                 {aggregates.error instanceof ApiError ? aggregates.error.detail : 'Analytics could not be read.'}
               </Alert>
             ) : response ? (
@@ -284,11 +315,14 @@ function HeatmapPane({
   opacity,
   onOpacityChange,
   onNarrow,
+  onRetry,
 }: {
   query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof getAnalyticsHeatmap>>>>;
   opacity: number;
   onOpacityChange: (value: number) => void;
   onNarrow: () => void;
+  /** The page's guarded refresh, so this retry cannot bypass the gate either. */
+  onRetry: () => void;
 }) {
   const refusal = heatmapScopeRefusal(query.error);
   if (refusal) {
@@ -314,7 +348,7 @@ function HeatmapPane({
   if (query.isError) {
     const evidence = query.error instanceof ApiError && query.error.status === 503;
     return (
-      <Alert tone="error" actions={<Button size="sm" onClick={() => void query.refetch()}>Retry</Button>}>
+      <Alert tone="error" actions={<Button size="sm" onClick={onRetry}>Retry</Button>}>
         {evidence
           ? 'Trajectory evidence for an analysed Track could not be read, so no map was built. '
             + 'A partial map would show where the readable files went, not where anything went.'

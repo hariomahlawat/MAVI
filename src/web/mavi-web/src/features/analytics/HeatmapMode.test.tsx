@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -173,6 +173,17 @@ describe('Heatmap mode', () => {
 
     expect(await screen.findByRole('region', { name: 'Heatmap summary' })).toBeInTheDocument();
     expect(screen.queryByText(/Adjust the window/i)).not.toBeInTheDocument();
+
+    // And the manual path must not inherit it either: gating Refresh on the
+    // Activity bucket bound would reintroduce the same coupling one layer down,
+    // leaving a valid map unrefreshable because of an interval it never uses.
+    const refresh = screen.getByRole('button', { name: /Refresh/i });
+    expect(refresh).toBeEnabled();
+
+    const calls = vi.mocked(getAnalyticsHeatmap).mock.calls.length;
+    await userEvent.click(refresh);
+    await waitFor(() =>
+      expect(vi.mocked(getAnalyticsHeatmap).mock.calls.length).toBeGreaterThan(calls));
   });
 
   it('says which bound a refused scope exceeded and offers a narrower window', async () => {
