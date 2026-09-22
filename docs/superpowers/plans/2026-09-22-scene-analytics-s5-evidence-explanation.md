@@ -271,7 +271,7 @@ A compact prop may change density only, not semantics or available facts.
 - Enabled contextual zone: frozen `--geo-zone` treatment with low fill.
 - Zone with one or more facts for this Track: emphasis stroke/non-colour treatment in addition to the same evidence role.
 - Disabled zone in the revision: dashed neutral/minimal fill per §19; never presented as matched.
-- Accessible description names zone, enabled/disabled state, kind, normalized vertices and whether this Track visited it.
+- Accessible description names the zone, enabled/disabled state, kind, whether this Track visited it, and a bounded geometry summary. The always-mounted description must not enumerate every vertex: give normalized x/y extent, vertex count, and at most the first 4 normalized vertices; if more exist, state the remaining count. Full geometry remains the visual source of truth and may be exposed only through explicit on-demand disclosure if needed. `describe(currentOffsetMs)` must remain bounded in work and output.
 - Never infer a visit from the trajectory in the browser; use persisted analytics facts only.
 
 ### 10.2 Trip-lines layer
@@ -282,7 +282,7 @@ A compact prop may change density only, not semantics or available facts.
 - Direction, when semantically meaningful, retains arrowhead + A/B letters + labels; colour is not the only cue.
 - A line with crossings for this Track receives emphasis treatment.
 - Disabled line is dashed neutral and never presented as matched.
-- Accessible description names line, endpoints, direction state and crossing count.
+- Accessible description names line, its two normalized endpoints, direction state and crossing count. Trip lines are inherently bounded at two endpoints.
 
 ### 10.3 Crossings layer
 
@@ -337,8 +337,8 @@ Why stacked lanes:
 - zone occupancy and stationary are different facts and may overlap;
 - a single interval lane would make overlaps visually ambiguous;
 - dynamic one-row-per-zone layouts would grow without a bounded height;
-- two fixed analytical families keep the timeline compact and predictable;
-- the accessible list retains the exact object identity even when visual bands overlap within a family.
+- the zone/dwell family uses bounded interval packing inside its family, so overlapping visits remain visually distinguishable rather than painting over one another;
+- the accessible list retains exact object identity independently of visual packing.
 
 ### 12.1 Visual grammar
 
@@ -348,9 +348,15 @@ Why stacked lanes:
 - markers use glyph + position + accessible wording;
 - no opacity is used to encode evidence confidence.
 
-### 12.2 Timeline height
+### 12.2 Bounded overlap packing
 
-The timeline may grow from the UI-5 base height only by the fixed analytical rows required above. It MUST NOT grow with the number of zones, visits or stationary intervals.
+The Zone / dwell family is one semantic lane family, not one row per zone. Its renderer uses a deterministic bounded packing rule: sort by start, end, then stable evidence id; greedily place each interval in the first non-overlapping visual sub-row; expose at most 3 visual sub-rows. A fourth-or-greater concurrent visit goes to one fixed overflow aggregate rail for the affected span, labelled with the concurrent count, rather than painting over an existing visit. The complete semantic list still names every visit individually, and selecting/focusing an overflowed visit must identify/highlight its exact persisted interval without adding a row. Endpoint-touching intervals may reuse a sub-row; positive-duration overlaps may not. Packing is presentation only: never merge visits, change offsets, infer facts, or create one persistent row per zone.
+
+Stationary remains one fixed visual row because persisted stationary intervals for one Track are expected not to overlap. Malformed overlapping stationary facts must fail visibly in tests/model handling rather than silently occlude.
+
+### 12.3 Timeline height
+
+The timeline may grow only by the fixed analytical families, the capped Zone/dwell sub-rows, and its fixed overflow rail. It MUST NOT grow with the number of zones, visits or stationary intervals.
 
 ---
 
@@ -581,12 +587,15 @@ Before implementation, add/define fixtures covering these facts.
 3. `endedInside` → no fabricated exit marker.
 4. `closedByGap` → no fabricated boundary exit marker.
 5. Two visits to one zone remain two intervals.
-6. Overlapping visits to different zones do not create unbounded timeline rows.
-7. Line crossing → exact marker + exact projected point.
-8. A→B and B→A retain distinct direction semantics beyond colour.
-9. Stationary intervals map exactly from persisted offsets.
-10. No analytical fact is derived from the browser trajectory.
-11. One-sample raw Track + analytics `trajectory_too_short` preserves raw evidence while showing analytics unavailable.
+6. Overlapping visits to different zones are deterministically packed into at most 3 visual sub-rows; positive-duration overlaps never share a sub-row.
+7. Fourth-or-greater concurrency uses the fixed overflow aggregate rail and does not obscure an existing visit.
+8. Packing is deterministic for equal starts/ends; endpoint-touching intervals may reuse a sub-row.
+9. An overflowed visit remains individually identifiable from the semantic list without adding an unbounded row.
+10. Line crossing → exact marker + exact projected point.
+11. A→B and B→A retain distinct direction semantics beyond colour.
+12. Stationary intervals map exactly from persisted offsets.
+13. No analytical fact is derived from the browser trajectory.
+14. One-sample raw Track + analytics `trajectory_too_short` preserves raw evidence while showing analytics unavailable.
 
 ### 21.2 Revision identity tests
 
@@ -619,6 +628,8 @@ Before implementation, add/define fixtures covering these facts.
 5. Matched vs contextual geometry has a non-colour cue.
 6. Disabled geometry uses disabled grammar and cannot appear matched.
 7. SVG raw geometry remains hidden where the UI-5 accessibility model requires it; layer-control semantics remain available.
+8. A maximum-complexity zone set (64 zones × 64 vertices) produces bounded always-mounted descriptions: per-zone vertex count + normalized extent + at most 4 sample vertices, never a full vertex dump.
+9. Repeated `describe(currentOffsetMs)` calls do not expand description size with playhead position or enumerate full polygon geometry.
 
 ### 21.5 Explanation tests
 
@@ -679,6 +690,7 @@ Measure/assert:
 
 - no horizontal page overflow;
 - no unexpected overlap;
+- concurrent zone visits remain visually distinguishable through bounded packing/overflow aggregation at 2, 3 and greater-than-3 concurrency;
 - one timeline;
 - one video element/player implementation;
 - Review player >=65%;
@@ -820,7 +832,7 @@ Slice 5 is complete only when all are true:
 3. every persisted analytical fact shown is explainable from typed detail data;
 4. zone/line/crossing overlays align under letterbox and pillarbox;
 5. crossing/entry/exit markers seek to exact evidence offsets by pointer and keyboard;
-6. zone/dwell and stationary intervals use the single timeline and fixed analytical lanes;
+6. zone/dwell and stationary intervals use the single timeline and bounded analytical lane families; overlapping zone visits remain distinguishable through deterministic capped packing/overflow aggregation without unbounded height;
 7. raw one-sample evidence remains valid even when Scene Analytics reports `trajectory_too_short`;
 8. unavailable/pending/failed/stale/not-configured/disabled remain distinct;
 9. event/crossing marker hue decision 2a is closed with rendered evidence;
