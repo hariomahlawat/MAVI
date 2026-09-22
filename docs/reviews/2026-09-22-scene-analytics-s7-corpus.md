@@ -1,7 +1,7 @@
 # Scene Analytics Slice 7 — qualification corpus and harnesses
 
 **Date:** 2026-09-22
-**Branch:** `feature/scene-analytics-s7-hardening-acceptance`
+**Branch:** `harioahlawat/execute-postgresql-18-qualification-pass` (PR #71), stacked on `feature/scene-analytics-s7-hardening-acceptance` (PR #70)
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668` (PR #69, Slice-7 plan merged)
 **Plan:** `docs/superpowers/plans/2026-09-22-scene-analytics-s7-hardening-acceptance.md` §6
 
@@ -11,8 +11,8 @@
 
 | Item | Value |
 |---|---|
-| PostgreSQL qualification server | **18.6** (Ubuntu 18.6-1.pgdg24.04+2), pgvector 0.8.6 |
-| PostgreSQL 18 available | **Yes** — native Ubuntu cluster on port 5432; no container |
+| PostgreSQL in the current repair/handoff container | **16.15** (Ubuntu 16.15-0ubuntu0.24.04.1) — cannot qualify |
+| PostgreSQL 18 used by the earlier, superseded pass | **18.6** (Ubuntu 18.6-1.pgdg24.04+2), pgvector 0.8.6, native cluster — real, but its commit was not repository-reachable |
 | Vision runtime | **Absent** — no `onnxruntime`, no `cv2`, no GPU, no model weights (weights are correctly never in Git) |
 
 Consequences, stated once and applied throughout this slice's documents:
@@ -67,7 +67,7 @@ Integrity expectations are fatal on any server, because a measurement that did n
 
 | Corpus | Status | Note |
 |---|---|---|
-| **C3 heavy synthetic** | **PASS** — built and measured at 110,000 relevant facts | 40 runs × 250 Tracks; 30,000 visits, 20,000 crossings, 40,000 zone summaries, 10,000 motion summaries and 10,000 outcomes; seed 20260922 |
+| **C3 heavy synthetic** | **Built**, and observed at 110,000 relevant facts in the superseded pass | 40 runs × 250 Tracks; 30,000 visits, 20,000 crossings, 40,000 zone summaries, 10,000 motion summaries and 10,000 outcomes; seed 20260922. The shape is reproducible, but the observation does not close a gate until it is rerun from a reachable head |
 | **C2 representative operational** | **Partially built** — the same generator at representative scale | The existing `SceneAnalyticsWorld` and the visual-QA fixtures already serve the operator-path and UI acceptance cases |
 | **C1 semantic reference** | **PARTIAL** — authored trajectory passes trajectory → facts → §S → §T | The bounded explanation, heatmap and UI projection legs remain owed |
 

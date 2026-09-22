@@ -1,7 +1,7 @@
 # Scene Analytics Slice 7 — performance and bounded-resource evidence
 
 **Date:** 2026-09-22
-**Branch:** `feature/scene-analytics-s7-hardening-acceptance`
+**Branch:** `harioahlawat/execute-postgresql-18-qualification-pass` (PR #71), stacked on `feature/scene-analytics-s7-hardening-acceptance` (PR #70)
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668`
 
 ---
@@ -10,7 +10,7 @@
 
 **PostgreSQL 18 qualification is BLOCKED pending an exact-head rerun from a pushed, repository-reachable PR #71 commit.** Earlier PostgreSQL 16 observations and the superseded local PostgreSQL 18 pass remain labelled as observations and are not qualification evidence for this head.
 
-The harness does not rely on a reader remembering this. `QualificationGate.CaptureEnvironmentAsync` reads the live `server_version`, records it beside every result, and computes `isQualificationGradeDatabase`. It is `false` for the PostgreSQL 16 engineering observations in §4 and `true` for valid PostgreSQL 18 qualification runs in §6.
+The harness does not rely on a reader remembering this. `QualificationGate.CaptureEnvironmentAsync` reads the live `server_version`, records it beside every result, and computes `isQualificationGradeDatabase`. It is `false` for the PostgreSQL 16 engineering observations in §4. It read `true` for the superseded PostgreSQL 18 pass recorded in §6, which is precisely why the server check alone was not sufficient: the run was on the right server and still could not qualify, because its source provenance was not trustworthy. That is the gap the provenance guard now closes.
 
 ## 2. Harnesses built
 
@@ -113,6 +113,21 @@ Every harness now routes its expectations through `QualificationVerdict`, which 
 
 Every expectation is written into the evidence file beside the numbers it qualifies, and the file names its own status: `qualification evidence`, `engineering observation — not qualification evidence`, or `qualification failure`. The governing rule is that no evidence is better than false evidence, so an unmet expectation fails the run — and the evidence is still written, so the failure can be investigated. Qualification-grade runs additionally require a clean working tree and a reported SHA that resolves to a local commit object; pushed/repository reachability remains an external handoff check because qualification must also work offline.
 
+## 3d. The provenance round, and why a right-server run still failed to qualify
+
+The PostgreSQL 18 pass in §6 was executed on the correct server, completed its workloads, and wrote three evidence files whose own verdicts read as satisfied. It still cannot qualify PR #71, and the reason is worth stating plainly because it is a class of false-green the earlier rounds did not cover: **the harness knew what database it was talking to, and nothing about where its own code came from.** The commit its evidence named was not reachable in the repository, so the numbers described a source state nobody can check out.
+
+Four findings came out of that review, and all four are repaired here.
+
+| Finding | Root cause | Repair |
+|---|---|---|
+| **P1** — evidence referenced an unreachable commit | The gate recorded `gitSha` from `.git/HEAD` and never asked whether that SHA resolved, or whether the tree it was built from was clean | `RequireRepositoryProvenance` adds two qualification prerequisites — clean working tree, and a reported SHA that resolves to a local commit object — wired into all three heavy harnesses. Both are captured from live `git`, and a missing signal is refused rather than assumed |
+| **P2** — heatmap cold/warm labelling was wrong | Repetition 1 of *each* width was called cold-ish, but all widths share one process, so only the very first call is anything like cold | A single global invocation counter: invocation 1 is `cold-ish`, 2+ are `warm`. Grid width, repetition within width, global invocation number and cache state are all recorded. The workload is unchanged, and no process isolation was added to manufacture a cold sample |
+| **P2** — qualification documentation contradicted itself | The same head was described as both PASS on PostgreSQL 18 and not qualification evidence | Each environment now carries one standing: this container's PostgreSQL 16 is observations, the earlier PostgreSQL 18 pass is superseded, and qualification is pending a reachable-head rerun. The PASS claims drawn from the superseded run are gone |
+| **P2** — exact-head CI marked PASS from the parent SHA | PR #70's green checks were read as PR #71's | Exit-gate item 21 is PENDING until every required workflow passes on the final pushed PR #71 head. A parent-head result does not qualify a child head whose executable code differs |
+
+**What the guard does not claim.** A clean tree plus a resolvable commit is an inference, not an attestation: it does not cryptographically bind the compiled assembly to that commit. It is deliberately the simplest check that closes the observed hole, and the evidence records `testAssemblyModuleId` and `testAssemblyBuiltUtc` beside it so a reader can tell which binary produced a file. Pushed-to-remote reachability stays an external handoff check, because qualification has to work on a disconnected Development machine.
+
 ## 4. Engineering observations (PostgreSQL 16.15, NOT qualification)
 
 Environment: Ubuntu 24.04, 4 logical cores, .NET 10.0.12, PostgreSQL 16.15, pgvector 0.6.0, `shared_buffers` 128MB, `work_mem` 4MB.
@@ -142,7 +157,7 @@ Cost is dominated by evidence I/O rather than grid size, which is what the desig
 **P2 — the aggregate read materialises an unbounded number of fact rows.** Query *count* is constant in geometry (proven by an always-on test at 4 zones/2 lines versus 12 zones/6 lines), so there is no N+1. Row *volume* is bounded only by the requested window. A limit decision requires PostgreSQL 18 measurement, and the parent brief forbids introducing speculative indexes, caches or limits from PostgreSQL 16 observations alone. It therefore stays open, recorded, and assigned to the qualification run.
 
 
-## 6. Independent PostgreSQL 18 qualification
+## 6. The superseded independent PostgreSQL 18 pass (observations only)
 
 **Status: superseded; requalification required.** The measurements below came from the earlier local pass and are retained only as historical observations. Review established that its claimed SHA was not repository-reachable, so they are not qualification evidence for PR #71. A new PostgreSQL 18 run must be made from the final pushed PR head; only that exact-head run may restore PASS.
 
@@ -171,7 +186,7 @@ Every combination of 60/900/3,600-second buckets and unfiltered/Person/Vehicle c
 | 900 / any | 2,241 | 302 | 2,542 | 37.4 MiB | 2/1/1 |
 | 3,600 / any | 2,590 | 117 | 2,707 | 36.8 MiB | 2/1/1 |
 
-The evidence confirms linear row-volume and allocation exposure even though query count is bounded. At 110,000 relevant facts it completed without spill or failure, but the 60-second unfiltered case consumed 7.5 seconds and 41.8 MiB of managed allocation. **Conclusion on the carried P2:** do not disguise the response cap as a work bound and do not add a speculative row cutoff that would make aggregates wrong. Retain the implementation for this slice, explicitly carry a P2 to design a semantics-preserving server-side aggregation or documented scope bound before a wider production envelope. This means the PostgreSQL measurement streams pass, but Stage 1's “no open P1/P2” exit item remains FAIL.
+The evidence confirms linear row-volume and allocation exposure even though query count is bounded. At 110,000 relevant facts it completed without spill or failure, but the 60-second unfiltered case consumed 7.5 seconds and 41.8 MiB of managed allocation. **Conclusion on the carried P2:** do not disguise the response cap as a work bound and do not add a speculative row cutoff that would make aggregates wrong. Retain the implementation for this slice, explicitly carry a P2 to design a semantics-preserving server-side aggregation or documented scope bound before a wider production envelope. The measurement streams completed without integrity failure, but nothing here is a pass: the pass/fail decision on the carried P2 belongs to the reachable-head rerun, and Stage 1's “no open P1/P2” exit item remains FAIL regardless.
 
 ### Analytical unit
 
@@ -181,4 +196,4 @@ The requested and claimed population was 1,000 Tracks. All 1,000 were analysed, 
 
 Scope resolution proved exactly **50 covered runs and 2,000 candidate Tracks**. Every one contributed; every call opened the deterministic population and read 48,000 samples. Timings in execution order were: width 48, 738/675/570 ms (median 675); width 96, 540/591/537 ms (median 540); width 128, 611/451/571 ms (median 571). Grids contained 1,296/5,184/9,216 cells. The result remained well below one second here with no integrity failure.
 
-**Recommendation: retain both 50-run and 2,000-Track bounds.** The envelope is safe on this constrained Development reference process and protects evidence I/O fan-out; one machine's speed is not a reason to raise or remove a resource guard. Cancellation phase timing, evidence-byte totals and per-phase read/SHA/decode/grid timings are not exposed by the current seam and remain observations not claimed by this pass.
+**Provisional recommendation, to be confirmed by the reachable-head rerun: retain both 50-run and 2,000-Track bounds.** The envelope is safe on this constrained Development reference process and protects evidence I/O fan-out; one machine's speed is not a reason to raise or remove a resource guard. Cancellation phase timing, evidence-byte totals and per-phase read/SHA/decode/grid timings are not exposed by the current seam and remain observations not claimed by this pass.

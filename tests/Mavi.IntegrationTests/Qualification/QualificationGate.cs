@@ -275,8 +275,15 @@ public static class QualificationGate
             process.WaitForExit();
             return process.ExitCode == 0 ? output : "unknown";
         }
-        catch (Exception exception) when (exception is InvalidOperationException or IOException)
+        catch (Exception exception) when (exception
+            is InvalidOperationException
+            or IOException
+            or System.ComponentModel.Win32Exception)
         {
+            // A machine without git on PATH throws Win32Exception from Process.Start.
+            // Returning the sentinel keeps the provenance guard fail-closed — neither
+            // signal can read "true" — instead of tearing the harness down with an
+            // unhandled exception that says nothing about provenance.
             return "unknown";
         }
     }

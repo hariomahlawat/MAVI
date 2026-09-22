@@ -1,7 +1,7 @@
 # Spatial & Temporal Track Analytics — Stage-1 acceptance status
 
 **Date:** 2026-09-22
-**Branch:** `feature/scene-analytics-s7-hardening-acceptance`
+**Branch:** `harioahlawat/execute-postgresql-18-qualification-pass` (PR #71), stacked on `feature/scene-analytics-s7-hardening-acceptance` (PR #70)
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668`
 
 ---
@@ -12,9 +12,15 @@
 
 This slice is **partially complete**. What was executed is recorded truthfully below; what was not is explicitly marked and is not waived, re-scoped or softened.
 
-## Independent PostgreSQL 18 reference environment
+## Environments, and which of them can qualify
 
-PostgreSQL 18.6 with pgvector 0.8.6 was executed natively on Ubuntu 24.04.4 LTS (x86-64, Xeon Platinum 8272CL, 17 GiB RAM, 2 .NET-available logical cores). PostgreSQL settings and complete methodology are recorded in the performance report. The real RTMDet/ByteTrack worker remains unavailable: no runtime pack/model weights/GPU were supplied.
+| Environment | Server | Standing |
+|---|---|---|
+| This repair/handoff container | PostgreSQL **16.15** | Engineering observations only. The plan is explicit that PostgreSQL 16 cannot qualify, and the harness computes `isQualificationGradeDatabase` from the live server rather than from a claim |
+| The earlier independent pass | PostgreSQL **18.6**, pgvector 0.8.6, native on Ubuntu 24.04.4 | **Superseded.** The run was real and its methodology is recorded in the performance report, but the commit it claimed was not repository-reachable, so it closes no gate |
+| The Development machine | PostgreSQL 18 exactly | Where qualification must be rerun, from the final pushed PR #71 head |
+
+The real RTMDet/ByteTrack worker remains unavailable in every environment above: no runtime pack, model weights or GPU were supplied.
 
 ## Exit gate
 
@@ -36,22 +42,26 @@ PostgreSQL 18.6 with pgvector 0.8.6 was executed natively on Ubuntu 24.04.4 LTS 
 | 14 | Operator workflow / accessibility / visual QA | **NOT EXECUTED** in this pass |
 | 15 | Development offline/real-worker acceptance | **NOT EXECUTED — environment blocked** |
 | 16 | No policy-violating dependency/runtime drift | **PASS** — no dependency added; `verify_repo.py` green |
-| 17 | Relevant suites green | **PASS** — 644 integration tests passed on PostgreSQL 18.6; see §Validation below |
+| 17 | Relevant suites green | **PASS for the ordinary suites, on PostgreSQL 16.15.** See §Validation below. This gate is about the ordinary suites, not about PG18 qualification, which is item 3–7 and remains BLOCKED |
 | 18 | Documentation reflects measured reality | **PASS** for this pass's documents |
 | 19 | Independent cold review has no P1/P2 | **FAIL.** The reviewed false-green paths are repaired but await reachable-head requalification; the aggregate-materialisation P2 also remains open |
-| 20 | Zero unresolved material review threads | **PENDING.** The four PR #71 findings are repaired locally, but threads must not be resolved until the repair is pushed and the required exact-head evidence exists |
+| 20 | Zero unresolved material review threads | **PENDING.** The four PR #71 findings are repaired and pushed. The two that depend on evidence rather than code — reachable-head qualification and exact-head CI — stay open until that evidence exists, so threads are not resolved merely because the code changed |
 | 21 | Exact-head CI green | **PENDING.** Parent-head checks do not qualify PR #71; this gate remains pending until every required workflow passes on the final pushed PR #71 head |
 
 ## Validation
+
+Executed in the repair/handoff container, on **PostgreSQL 16.15**. These are ordinary-suite results; none of them is PostgreSQL 18 qualification evidence.
 
 | Suite | Result |
 |---|---|
 | Domain | 195 passed |
 | Application | 369 passed |
-| Integration | 644 passed on PostgreSQL 18.6 |
-| Frontend | 821 passed, typecheck clean, production build succeeds |
+| Integration | **649 passed, 2 failed of 651.** Both failures are `DatabaseStartupMigrationTests` asserting the PostgreSQL 18 prerequisite against this container's 16.15 — the product correctly refusing a server it does not support |
+| Frontend | **not re-run in this pass, and not required:** no frontend file differs between PR #70's head and this one. The parent's result stands for the unchanged code |
 | `python tools/verify_repo.py` | PASSED |
-| Dependency surface | unchanged — no diff in any `*.csproj`, `package.json` or `config/dependencies/` between the baseline and this head |
+| Dependency surface | unchanged — no diff in any `*.csproj`, `package.json`, lockfile or `config/dependencies/` between the baseline and this head |
+
+The heavy qualification harnesses were **not** run to produce evidence here: this container cannot qualify, and the working tree was not a clean reachable commit for most of the pass. That is the provenance guard behaving as designed rather than an omission.
 
 ## What this pass did complete
 
