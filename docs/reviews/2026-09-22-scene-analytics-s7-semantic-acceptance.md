@@ -1,7 +1,7 @@
 # Scene Analytics Slice 7 — semantic acceptance (corpus C1)
 
 **Date:** 2026-09-22
-**Branch:** `feature/scene-analytics-s7-hardening-acceptance`
+**Branch:** `feature/scene-analytics-s7-hardening-acceptance` (PR #70), with PR #71 integrated by fast-forward
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668`
 **Test:** `tests/Mavi.IntegrationTests/SemanticAcceptanceTests.cs`
 
@@ -53,4 +53,6 @@ Both are now pinned where they had been documented only in a comment.
 
 ## 5. What C1 does **not** yet cover
 
-The trace stops at the §S and §T read sides. It does not extend to the **bounded explanation**, the **heatmap** or the **UI projection** of the same authored path. Exit-gate item 2 therefore remains **PARTIAL**, not PASS: the cross-layer trace exists for the layers named above and does not exist for the other three.
+The trace stops at the §S and §T read sides. It does not extend to the **bounded explanation**, the **heatmap** or the **UI projection** of the same authored path. Exit-gate item 2 (plan §25) therefore remains **PARTIAL**, not PASS: the cross-layer trace exists for the layers named above and does not exist for the other three.
+
+**Corroboration since, and why it is not the same thing.** The Development-machine real-worker run exercised exactly those three missing layers on real data, and they agreed with one another: Evidence Review reported the Track's zone visit and heading under *Scene revision 2 · Engine v1*, and Activity and the Heatmap both counted the same 12 Person Tracks under the same identity with complete coverage. That is real evidence the layers are wired consistently. It is not C1, whose value is that a human states the exact expected answer before the run; nobody predicted the real video's facts in advance. Item 2 stays PARTIAL until the authored path is traced through the explanation, the heatmap and the UI projection.

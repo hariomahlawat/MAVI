@@ -1,14 +1,16 @@
 # Scene Analytics Slice 7 — resilience, concurrency and cancellation
 
 **Date:** 2026-09-22
-**Branch:** `feature/scene-analytics-s7-hardening-acceptance`
+**Branch:** `feature/scene-analytics-s7-hardening-acceptance` (PR #70), with PR #71 integrated by fast-forward
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668`
 
 ---
 
 ## Status: NOT EXECUTED in this pass
 
-Exit-gate items 9 and 10 are **not met**. This document records what exists, what does not, and what must be run — it does not convert either into a pass.
+Plan §25 items **8** (cancellation/failure at realistic volume) and **9** (snapshot/revision consistency under concurrency) are **not met**. This document records what exists, what does not, and what must be run — it does not convert either into a pass.
+
+One resilience case *was* executed since this document was written: **API restart persistence — PASS** on the Development machine. After `Mavi.Api` was restarted, the real-worker analytics, the Revision 2 identity, the zone facts, the Activity values and the Heatmap were all unchanged. That is plan §11's API-restart case. It does not touch items 8 or 9.
 
 ## 1. What already exists, from Slices 3–6
 
@@ -30,8 +32,8 @@ Corpus building added one more, incidentally: the corpus now **refuses to return
 
 | Exit-gate item | Missing |
 |---|---|
-| 9 — cancellation and failure **at realistic volume** | Every failure test above runs on a one-Track world. None runs against the C3 corpus, so nothing shows what a cancelled or failed unit costs, leaves behind, or holds a lease over at 10^5 facts. **Environment-blocked for the qualification form** (PostgreSQL 18), but the harness to do it is **not written**, so this is engineering work as well as execution |
-| 10 — snapshot/revision consistency **under concurrency** | The deterministic race probes are not written: a scene revision activated *while* an aggregate is being resolved, a unit completing *between* scope resolution and fact read, two readers interleaved across a publication. The ordering tests above prove the barrier is taken in the right place; they do not prove the outcome when a writer actually races a reader |
+| §25 item 8 — cancellation and failure **at realistic volume** | Every failure test above runs on a one-Track world. None runs against the C3 corpus, so nothing shows what a cancelled or failed unit costs, leaves behind, or holds a lease over at 10^5 facts. PostgreSQL 18 is now available on the Development machine, so this is no longer environment-blocked; the harness is simply **not written** |
+| §25 item 9 — snapshot/revision consistency **under concurrency** | The deterministic race probes are not written: a scene revision activated *while* an aggregate is being resolved, a unit completing *between* scope resolution and fact read, two readers interleaved across a publication. The ordering tests above prove the barrier is taken in the right place; they do not prove the outcome when a writer actually races a reader |
 
 ## 3. What must be run, and built
 
@@ -40,4 +42,4 @@ Corpus building added one more, incidentally: the corpus now **refuses to return
 3. Extend both, and the existing cancellation and failure tests, to run against the C3 corpus under `MAVI_QUALIFICATION=1`, recording lease state and orphaned rows after a cancelled unit.
 4. Execute all of it on PostgreSQL 18 on the Development machine.
 
-Until 1–4 are done, items 9 and 10 stay **NOT EXECUTED**, and Stage 1 stays open.
+Until 1–4 are done, §25 items 8 and 9 stay **NOT EXECUTED**, and Stage 1 stays open.

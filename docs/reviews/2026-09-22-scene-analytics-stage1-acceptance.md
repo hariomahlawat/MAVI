@@ -1,83 +1,98 @@
 # Spatial & Temporal Track Analytics — Stage-1 acceptance status
 
 **Date:** 2026-09-22
-**Branch:** `harioahlawat/execute-postgresql-18-qualification-pass` (PR #71), stacked on `feature/scene-analytics-s7-hardening-acceptance` (PR #70)
+**Branch:** `feature/scene-analytics-s7-hardening-acceptance` (PR #70), with PR #71's qualification-harness branch integrated by fast-forward
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668`
+**Qualification candidate (measured):** `5f5166628b0c4af04cc8f7efcd40f7022f5095c4`
+**Governing gate:** `docs/superpowers/plans/2026-09-22-scene-analytics-s7-hardening-acceptance.md` §25 — the numbering below is that section's, item for item
 
 ---
 
 ## Verdict
 
-**Stage 1 is NOT closed.** PostgreSQL 18 qualification for PR #71 is blocked pending a rerun from a pushed, repository-reachable final head; mandatory non-PG18 evidence and the aggregate-materialisation P2 also remain open.
+**Stage 1 is NOT closed.**
 
-This slice is **partially complete**. What was executed is recorded truthfully below; what was not is explicitly marked and is not waived, re-scoped or softened.
+The PostgreSQL 18 qualification, the real-worker Development acceptance and restart persistence all **passed** on the Development machine, against the exact reachable commit above. That closes the evidence gap that held this register open.
 
-## Environments, and which of them can qualify
+It does not close Stage 1. Formal §25 items remain unmet or partly met — the carried aggregate-materialisation P2 has not been dispositioned, and cancellation at volume, concurrency race probes, accessibility/visual QA and the explanation/heatmap/UI legs of C1 were never executed. They are listed exactly in *Open items* below. Nothing unexecuted is marked PASS.
 
-| Environment | Server | Standing |
+## Evidence, and which of it is authoritative
+
+| Evidence | Where | Standing |
 |---|---|---|
-| This repair/handoff container | PostgreSQL **16.15** | Engineering observations only. The plan is explicit that PostgreSQL 16 cannot qualify, and the harness computes `isQualificationGradeDatabase` from the live server rather than from a claim |
-| The earlier independent pass | PostgreSQL **18.6**, pgvector 0.8.6, native on Ubuntu 24.04.4 | **Superseded.** The run was real and its methodology is recorded in the performance report, but the commit it claimed was not repository-reachable, so it closes no gate |
-| The Development machine | PostgreSQL 18 exactly | Where qualification must be rerun, from the final pushed PR #71 head |
+| **Development-machine PostgreSQL 18 qualification** | Windows Development machine, PostgreSQL **18.6**, pgvector **0.8.6**, port 5433, qualification database `mavi_test`; clean tree; SHA `5f516662…` repository-reachable | **Authoritative — PASS.** The only PostgreSQL 18 result that closes a gate |
+| **Development-machine real-worker acceptance** | Same machine, live database `mavi_dev`, real RTMDet + ByteTrack path | **Authoritative — PASS**, including restart persistence |
+| Earlier independent PostgreSQL 18 pass | PostgreSQL 18.6 on Ubuntu 24.04.4 | **Superseded, non-authoritative.** A real run whose named commit was not repository-reachable; kept in the performance report as history only |
+| Repair/handoff container runs | PostgreSQL **16.15** | **Engineering observations only.** PostgreSQL 16 cannot qualify |
 
-The real RTMDet/ByteTrack worker remains unavailable in every environment above: no runtime pack, model weights or GPU were supplied.
+The three qualification evidence files — `plan-qualification.json`, `analytics-unit-throughput.json`, `heatmap-envelope.json` — each report status `qualification evidence` and are tied to `5f516662…`. They are held outside the repository by the operator, with SHA-256 hashes recorded alongside them, and are deliberately **not** committed: evidence artefacts belong with the Development-machine record, not in Git.
 
-## Exit gate
+## Why the measured SHA still describes the integrated head
+
+PR #71 was integrated into PR #70 by **fast-forward**, so PR #70's history contains `5f5166628b0c4af04cc8f7efcd40f7022f5095c4` itself — not a replay, cherry-pick or merge of it. Every commit after it on this branch changes documentation only. That is checked, not asserted: `git diff 5f516662 HEAD` over every path outside `docs/` is empty. The executable qualification semantics that produced the evidence are therefore byte-identical in the integrated head.
+
+## Formal exit gate (plan §25)
 
 | # | Requirement | Status |
 |---|---|---|
-| 1 | Stage-1 functional acceptance met | **NOT EXECUTED** — depends on 2–6, 15 |
-| 2 | C1 agrees across trajectory/facts/search/explanation/aggregate/heatmap/UI | **PARTIAL.** C1 is built and passing across trajectory → facts → §S search → §T aggregate (`SemanticAcceptanceTests`, expected answers hand-derived from the frozen rules before running). The trace does **not** extend to the bounded explanation, the heatmap or the UI projection |
-| 3 | PG18 plan/timing for every §S predicate and §T aggregate at 10^5 facts | **BLOCKED.** Prior local measurements are superseded; rerun required from the pushed final PR #71 head |
-| 4 | Analytics-unit duration/rows for Development corpus and synthetic 1,000-Track run | **BLOCKED/PARTIAL.** Synthetic qualification must be rerun from the pushed final PR #71 head; real Development scripted corpus remains NOT EXECUTED |
-| 5 | Aggregate 10^5-fact qualification | **BLOCKED.** Exact-head rerun required; the unbounded materialisation design remains an open P2 |
-| 6 | Heatmap 50-run/candidate envelope | **BLOCKED.** Exact-head rerun required with only the first overall call labelled cold-ish |
-| 7 | Both fan-out limits have evidence-backed decisions | **BLOCKED** pending the exact-head heatmap rerun |
-| 8 | No demonstrated N+1/unbounded DB or evidence-I/O path | **PARTIAL.** N+1 disproven for the aggregate by an always-on test holding query count constant across geometry. **An unbounded materialisation path is OPEN (P2)** — see the security document |
-| 9 | Cancellation/failure proven at realistic volume | **NOT EXECUTED.** Failure and cancellation are tested, but only on a one-Track world; the harness to run them against the C3 corpus is not written, so this is engineering work as well as a blocked execution |
-| 10 | Snapshot/revision consistency under concurrency | **NOT EXECUTED** in this pass. Slice-4/6 barrier ordering tests exist; the deterministic race probes do not |
-| 11 | Incomplete/unknown never appears as observed zero | **PASS** for the surfaces built in Slices 4–6, by existing tests: incomplete scopes render no figure and no map, and complete-zero renders as a real observation |
-| 12 | Browser trajectory parser obeys `[0,1]` | **PASS** — fixed this pass, RED tests first, shared rule, complement tests guard the closed interval |
-| 13 | Security/resource review has no open P1/P2 | **FAIL** — one open P2 (unbounded aggregate materialisation). No P1 |
-| 14 | Operator workflow / accessibility / visual QA | **NOT EXECUTED** in this pass |
-| 15 | Development offline/real-worker acceptance | **NOT EXECUTED — environment blocked** |
-| 16 | No policy-violating dependency/runtime drift | **PASS** — no dependency added; `verify_repo.py` green |
-| 17 | Relevant suites green | **PASS for the ordinary suites, on PostgreSQL 16.15.** See §Validation below. This gate is about the ordinary suites, not about PG18 qualification, which is item 3–7 and remains BLOCKED |
-| 18 | Documentation reflects measured reality | **PASS** for this pass's documents |
-| 19 | Independent cold review has no P1/P2 | **FAIL.** The reviewed false-green paths are repaired but await reachable-head requalification; the aggregate-materialisation P2 also remains open |
-| 20 | Zero unresolved material review threads | **PENDING.** The four PR #71 findings are repaired and pushed. The two that depend on evidence rather than code — reachable-head qualification and exact-head CI — stay open until that evidence exists, so threads are not resolved merely because the code changed |
-| 21 | Exact-head CI green | **PENDING.** Parent-head checks do not qualify PR #71; this gate remains pending until every required workflow passes on the final pushed PR #71 head |
+| 1 | Stage-1 functional acceptance met | **NOT MET** — depends on items 2, 8, 9 and 13 below |
+| 2 | C1 agrees across trajectory/facts/search/explanation/aggregate/heatmap/UI | **PARTIAL.** `SemanticAcceptanceTests` proves exact hand-derived answers across trajectory → facts → §S search → §T aggregate. The explanation, heatmap and UI legs are **not** in the exact-answer trace. The real-worker run corroborates those layers on real data but is not a hand-derived C1 comparison |
+| 3 | PostgreSQL 18 plans and timings for every §S predicate and §T aggregate at 10^5 facts | **PASS.** `PlanQualificationTests` on PostgreSQL 18.6, 110,000 relevant facts, status `qualification evidence`, SHA `5f516662…`. The harness fails closed unless every §S case reaches its predicate's fact table and every measurement captured SQL and a real `EXPLAIN` plan |
+| 4 | Analytics-unit duration and rows for (a) the Development corpus and (b) a synthetic 1,000-Track run | **PARTIAL.** (b) **PASS**: 1,000 Tracks, 1,000 analysed, 0 unavailable, unit `Completed`, ≈3.11 s (≈3.11 ms/Track); rows written 1,000 outcomes, 4,000 zone summaries, 185 zone visits, 1,391 line crossings, 1,000 motion summaries. (a) The real-video unit ran to `Analysed` on the Development machine, but its duration and rows-written figures were not recorded |
+| 5 | Aggregate scale qualification, including 10^5-fact cases | **PASS** as a recorded measurement — the nine §T cases (three bucket sizes × unfiltered/Person/Vehicle) ran inside the same qualifying `PlanQualificationTests` at 110,000 facts. The P2 disposition that depends on these figures is item 7 |
+| 6 | Heatmap 50-run/candidate envelope recorded, and both fan-out limits explicitly decided | **PASS.** `TheHeatmapIsTimedAtItsFrozenFanOutEnvelope`: 50 covered runs, 2,000 candidate Tracks, 2,000 contributing, 48,000 samples, status `qualification evidence`. **Decision: RETAIN both the 50-run and the 2,000-Track limits** — the product completed its full envelope with every integrity expectation met, and one machine's speed is not a reason to widen a resource guard. Not measured: plan §10's 1/5/10/25-run sweep, per-phase read/SHA/decode/grid timings, and cancellation latency |
+| 7 | No demonstrated N+1/unbounded DB/evidence-I/O path remains | **NOT MET.** No N+1 — query count is constant in geometry, held by an always-on test. The aggregate read's **unbounded materialisation P2 remains OPEN**: its required retain/bound decision needs the §T rows-materialised, allocation and latency figures from the authoritative `plan-qualification.json`, which are not yet recorded here |
+| 8 | Cancellation/failure proven at realistic volume | **NOT EXECUTED.** Failure and cancellation are tested on a one-Track world only; no harness runs them against the C3 corpus |
+| 9 | Snapshot/revision consistency proven under concurrency | **NOT EXECUTED.** Barrier ordering tests exist; the deterministic race probes do not |
+| 10 | Incomplete/unknown never appears as observed zero | **PASS**, by existing tests on the Slice 4–6 surfaces |
+| 11 | Browser parser matches the normalised-coordinate contract | **PASS** — fixed test-first; one shared rule; complement tests guard the closed interval |
+| 12 | Security/resource review has no open P1/P2 | **NOT MET** — the item-7 P2 is open. No P1 |
+| 13 | Operator workflow / accessibility / visual QA pass | **PARTIAL.** The real-worker run exercised Camera → Scene Configuration → Processing/readiness → evidence explanation → Analytics Activity → Heatmap on real data. The Search → Investigation leg was not reported. **Accessibility and visual QA at 1366/1440/1920/~2560 were not executed** |
+| 14 | Development offline/real-worker acceptance recorded with no undeclared dependency | **PARTIAL — real-worker acceptance PASS, restart persistence PASS.** Not recorded: the plan §17 verification that no undeclared Internet fetch occurred, and the exact package/runtime identities of the run. The run used one real video (`2min.mp4`); the parent plan's evidence line asks for the **three scripted videos**, which were not run |
+| 15 | No policy-violating dependency/runtime drift | **PASS** — zero files differ across `*.csproj`, `package.json`, lockfiles and `config/dependencies/`; `verify_repo.py` green |
+| 16 | Relevant suites and exact-head CI green | **PENDING.** Local suites below; exact-head CI is reported on PR #70 for the final integrated head only |
+| 17 | Documentation reflects measured reality, limits and known limitations | **PASS** for these documents at this head |
+| 18 | Independent cold review clean of P1/P2 | **NOT MET** while the item-7 P2 is open |
+| 19 | No unresolved material review thread | **PENDING** — see PR #70 and PR #71 |
+| 20 | Post-merge critical verification on `main` green | **NOT APPLICABLE YET** — PR #70 is not merged |
 
-## Validation
+## Development-machine real-worker acceptance
 
-Executed in the repair/handoff container, on **PostgreSQL 16.15**. These are ordinary-suite results; none of them is PostgreSQL 18 qualification evidence.
-
-| Suite | Result |
+| Check | Observed |
 |---|---|
-| Domain | 195 passed |
-| Application | 369 passed |
-| Integration | **649 passed, 2 failed of 651.** Both failures are `DatabaseStartupMigrationTests` asserting the PostgreSQL 18 prerequisite against this container's 16.15 — the product correctly refusing a server it does not support |
-| Frontend | **not re-run in this pass, and not required:** no frontend file differs between PR #70's head and this one. The parent's result stands for the unchanged code |
-| `python tools/verify_repo.py` | PASSED |
-| Dependency surface | unchanged — no diff in any `*.csproj`, `package.json`, lockfile or `config/dependencies/` between the baseline and this head |
+| Input | Real video `2min.mp4`, camera CAM-04 / G4 |
+| Worker path | Real RTMDet detector; real ByteTrack tracker; existing sealed Tracks and trajectories reused |
+| Scene | Revision 2 with 1 zone and 1 trip line |
+| Analysis request | Explicit queue through the existing API for the latest runs: first call `created: 1`, repeat call `alreadyReady: 1` — idempotent, as designed |
+| Readiness | Processing UI showed **Analysed** |
+| Evidence Review | Status Analysed; identity *Scene revision 2 · Engine v1*; reference point *Box centre*; one real Track with *Zone 1 · 1 visit · dwell 2s*, no line crossing, heading *Up (image direction)*, *Never stationary*; trajectory and geometry overlays rendered against the real video |
+| Activity (stored window, 20 Sep 2025) | 12 distinct Person Tracks, 0 Vehicle Tracks, non-zero minute buckets, peak 7 Tracks in the 1-minute view |
+| Heatmap | 3,002 trajectory samples, 12 contributing Tracks, grid 64 × 36, busiest cell 986 samples, provenance Revision 2 / Engine v1, coverage *All 1 run analysed* |
+| Restart persistence | `Mavi.Api` restarted; the same analytics, Revision 2 identity, zone facts, Activity values and Heatmap were all still present |
 
-The heavy qualification harnesses were **not** run to produce evidence here: this container cannot qualify, and the working tree was not a clean reachable commit for most of the pass. That is the provenance guard behaving as designed rather than an omission.
+**Real-worker Development acceptance: PASS. Restart persistence: PASS.**
 
-## What this pass did complete
+The Activity and Heatmap agree with each other and with Evidence Review on the same population and identity: 12 Person Tracks in Activity, 12 contributing Tracks in the Heatmap, both under Revision 2 / Engine v1 with complete coverage.
 
-1. **Browser trajectory parser `[0,1]` parity** — the one known deferred code defect, closed test-first against the frozen Domain rule.
-2. **Qualification corpus and measurement harnesses** — deterministic, invariant-obeying, dependency-free, and runnable unchanged against PostgreSQL 18.
-3. **An always-on N+1 regression guard** for the aggregate read.
-4. **A reconciled obligation register** and the security/bounded-resource review, including one previously unrecorded P2.
-5. **Corpus C1**, the cross-layer semantic trace Stage 1 did not have, which pinned two frozen rules that had been documented but never asserted.
-6. **The analytical-unit and heatmap-envelope harnesses**, and with them a defect in the qualification corpus itself: visibility sequences issued from a local counter made the corpus nearly invisible to any reader's snapshot, so every §S and §T measurement the plan harness would have produced would have been taken over a near-empty database. The corpus now publishes under the real barrier and refuses to return a manifest a reader cannot see.
-7. **A fail-closed qualification mechanism.** Two further review rounds found seven more ways the harness could report green without measuring its subject — the worst being that all 23 §S measurements used the non-analytic search and therefore exercised no §S predicate whatsoever. Every harness now states its expectations through `QualificationVerdict`, which separates an integrity failure (the measurement did not happen, fatal anywhere) from a missing qualification prerequisite (recorded, and fatal only on the required server), writes every expectation into the evidence, and refuses to call an unproven run evidence. Details in `2026-09-22-scene-analytics-s7-performance.md` §3c.
+## Open items that stand between this head and closure
 
-## Remaining work
+1. **P2 — aggregate materialisation (items 7, 12, 18).** Record the §T rows-materialised, allocation and latency figures from the authoritative `plan-qualification.json`, then take the explicit retain/bound decision the security review requires. No performance objective was frozen before measurement (plan §5), so this decision cannot be a pass/fail against a target and has to be an explicit, reasoned disposition.
+2. **Cancellation and failure at realistic volume (item 8)** — harness not written.
+3. **Deterministic concurrency race probes (item 9)** — not written.
+4. **Accessibility and visual QA at four widths (item 13)**, and the Search → Investigation leg of the operator workflow.
+5. **C1 explanation/heatmap/UI legs (item 2).**
+6. **Development-corpus unit duration and rows (item 4a).**
+7. **Offline no-undeclared-fetch verification, runtime identities, and the three scripted videos (item 14).**
+8. **Exact-head CI, thread closure and post-merge verification (items 16, 19, 20).**
 
-Environment-bound items are listed with executable commands in the handoff report and in `2026-09-22-scene-analytics-s7-corpus.md` §4. Items 2, 9, 10 and 14 need further engineering as well as execution, and that engineering is not environment-blocked: the explanation/heatmap/UI legs of the C1 trace, the concurrency race probes, the failure-at-volume harness, and the UI acceptance pass.
+## Validation of the integrated head
 
+Executed in the repair/handoff container on **PostgreSQL 16.15**. Ordinary-suite results only; none is qualification evidence — that is the Development-machine run above.
 
-## PostgreSQL 18 qualification addendum
+Domain 195 passed; Application 369 passed; Integration 649 passed, 2 failed of 651 — both `DatabaseStartupMigrationTests` asserting the PostgreSQL 18 prerequisite against 16.15; `verify_repo.py` passed; frontend unchanged since PR #70's CI-validated `aa17a19`; dependency surface unchanged. Details in `2026-09-22-scene-analytics-s7-performance.md` §7.
 
-The prior local qualification SHA was not repository-reachable, so its three JSON verdicts are superseded and close no gate. The repaired harness must be pushed and all three workloads rerun from the final PR #71 head. It does not close the C1 explanation/heatmap/UI trace, realistic-volume cancellation and deterministic races, real-worker/runtime-pack/GPU/CPU Development acceptance, operator workflow, accessibility or visual QA.
+## History
+
+- **Slice 7, first pass.** Browser parser `[0,1]` parity; C1 corpus; the qualification corpus and harnesses; the N+1 guard; the reconciled obligation register; the P2.
+- **Harness defects, three rounds.** An invisible corpus from locally issued visibility sequences; a half-sized default corpus and four sibling false greens; and §S measurements that called the non-analytic search and so exercised no predicate at all. All fixed, and replaced by the fail-closed `QualificationVerdict` mechanism. Details in the performance report §3–3c.
+- **Provenance round.** An earlier PostgreSQL 18 pass named an unreachable commit. The harness now refuses qualification from a dirty tree or an unresolvable SHA (performance report §3d). That pass is superseded by the Development-machine run on `5f516662…`.

@@ -1,7 +1,7 @@
 # Scene Analytics Slice 7 — security and bounded-resource review
 
 **Date:** 2026-09-22
-**Branch:** `feature/scene-analytics-s7-hardening-acceptance`
+**Branch:** `feature/scene-analytics-s7-hardening-acceptance` (PR #70), with PR #71 integrated by fast-forward
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668`
 **Scope:** plan §12 / brief §16. Review by reading the merged implementation and testing execution boundaries, not by scanning.
 
@@ -9,7 +9,7 @@
 
 ## 1. Findings
 
-### P2 — the aggregate read has no work bound (OPEN, decision deferred to PostgreSQL 18)
+### P2 — the aggregate read has no work bound (OPEN — PostgreSQL 18 measurement taken, decision not yet recorded)
 
 **What.** `AnalyticsAggregateRepository.ReadFactsAsync` materialises four fact families with `ToListAsync` and no `Take`. The row count scales with facts-in-window, bounded only by the camera and the requested window.
 
@@ -20,6 +20,8 @@
 **Why no fix is proposed here.** Choosing a limit requires knowing what real hardware does at 10^5+ facts, and the plan assigns that decision to the PostgreSQL 18 measurement. Inventing a cap from PostgreSQL 16 intuition is exactly the speculative change §8 of the plan forbids. The harness that will produce the number exists and is committed.
 
 **Required action on the Development machine:** run the plan qualification at 10^5 facts, record rows materialised, peak memory and latency, then take an explicit retain/bound decision in the performance document.
+
+**Where that action stands.** The first half is done: `PlanQualificationTests` passed on PostgreSQL 18.6 at 110,000 facts on the Development machine, at reachable SHA `5f5166628b0c4af04cc8f7efcd40f7022f5095c4`, and its evidence file records the rows materialised, database and application time, allocated bytes and GC deltas for all nine §T cases. The second half is not: those figures have not been transcribed into this repository and no retain/bound decision has been taken. The finding therefore remains **OPEN**, and it is the P2 that holds formal exit-gate items 7, 12 and 18. No performance objective was frozen before measurement, so the disposition must be reasoned rather than a comparison against a target.
 
 ### P3 — the Python worker decoder does not enforce the `[0,1]` centre range (RECORDED, not changed)
 
@@ -48,7 +50,9 @@ Not changed deliberately: tightening read validation in the worker changes what 
 
 ## 3. Not executed in this environment
 
-- Cancellation under realistic C3 volume, and PostgreSQL restart/reconnect — both need the PG18 qualification run.
-- Resource-exhaustion measurement behind the P2 above.
+- Cancellation under realistic C3 volume — **NOT EXECUTED**; no harness exercises it at volume.
+- PostgreSQL restart/reconnect — **NOT EXECUTED**.
+- API restart — **PASS**, on the Development machine: after restarting `Mavi.Api`, the real-worker analytics, the Revision 2 identity, the zone facts, the Activity values and the Heatmap were all still present.
+- Resource-exhaustion measurement behind the P2 above — **measured** on PostgreSQL 18, **decision not yet recorded**.
 
-These are **NOT EXECUTED — environment blocked**, not passes.
+Nothing in this list is converted into a pass except the API restart, which was actually executed.

@@ -1,7 +1,7 @@
 # Spatial & Temporal Track Analytics — Implementation Plan
 
 **Date:** 2026-09-20 (implementation-grade revision)  
-**Status:** Stage 1 active. **Slices 0–6 and UI-1 through UI-5 are merged. Slice 7 (hardening, performance, acceptance and Stage-1 closure) is next**, governed by `docs/superpowers/plans/2026-09-22-scene-analytics-s7-hardening-acceptance.md`. Slice 6 merged in PR #68 as `27179187`, delivering aggregates, occupancy and on-demand heatmap.  
+**Status:** Stage 1 active. **Slices 0–6 and UI-1 through UI-5 are merged. Slice 7 (hardening, performance, acceptance and Stage-1 closure) is in progress**: PostgreSQL 18 qualification and real-worker Development acceptance have passed, and the remaining exit-gate items are recorded in `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md`. It is governed by `docs/superpowers/plans/2026-09-22-scene-analytics-s7-hardening-acceptance.md`. Slice 6 merged in PR #68 as `27179187`, delivering aggregates, occupancy and on-demand heatmap.  
 **Current implementation base:** `main@2717918761fb35e4845b6887772ebdd5c7c6edf8` (PR #68 merge commit). §T/§U remain the frozen aggregate/heatmap semantics; Slice 7 now qualifies the complete Stage-1 system without adding capability.  
 **Product intent:** turn the trajectories MAVI already persists into searchable, explainable scene facts (zones, trip lines, dwell, crossings, direction, stationary and stopped objects, loitering, counts, occupancy, heatmaps) without a new model, a new dependency, or any change to the qualified detector/tracker worker.
 

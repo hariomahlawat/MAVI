@@ -1,7 +1,7 @@
 # Scene Analytics Slice 7 — qualification corpus and harnesses
 
 **Date:** 2026-09-22
-**Branch:** `harioahlawat/execute-postgresql-18-qualification-pass` (PR #71), stacked on `feature/scene-analytics-s7-hardening-acceptance` (PR #70)
+**Branch:** `feature/scene-analytics-s7-hardening-acceptance` (PR #70), with PR #71 integrated by fast-forward
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668` (PR #69, Slice-7 plan merged)
 **Plan:** `docs/superpowers/plans/2026-09-22-scene-analytics-s7-hardening-acceptance.md` §6
 
@@ -12,13 +12,14 @@
 | Item | Value |
 |---|---|
 | PostgreSQL in the current repair/handoff container | **16.15** (Ubuntu 16.15-0ubuntu0.24.04.1) — cannot qualify |
-| PostgreSQL 18 used by the earlier, superseded pass | **18.6** (Ubuntu 18.6-1.pgdg24.04+2), pgvector 0.8.6, native cluster — real, but its commit was not repository-reachable |
+| PostgreSQL 18 used by the earlier, superseded pass | **18.6** (Ubuntu 18.6-1.pgdg24.04+2), pgvector 0.8.6, native cluster — real, but its commit was not repository-reachable; non-authoritative |
+| **PostgreSQL 18 used for authoritative qualification** | **18.6**, pgvector **0.8.6**, Windows Development machine, port 5433, database `mavi_test`; clean tree at reachable SHA `5f5166628b0c4af04cc8f7efcd40f7022f5095c4` |
 | Vision runtime | **Absent** — no `onnxruntime`, no `cv2`, no GPU, no model weights (weights are correctly never in Git) |
 
 Consequences, stated once and applied throughout this slice's documents:
 
-- PostgreSQL 18 qualification is **BLOCKED** until the repaired harness is pushed and rerun from the final repository-reachable PR #71 head. The prior local SHA and its files are superseded observations, not qualification evidence.
-- Real-worker Development acceptance remains **NOT EXECUTED — environment blocked**; PostgreSQL qualification does not waive it.
+- PostgreSQL 18 qualification **PASSED** on the Development machine at exact reachable SHA `5f5166628b0c4af04cc8f7efcd40f7022f5095c4`. The earlier Ubuntu pass and its files remain superseded observations and are not reused.
+- Real-worker Development acceptance **PASSED** on the same machine, including restart persistence. PostgreSQL qualification and real-worker acceptance are separate results; neither stands in for the other.
 
 ## 2. What was built
 
@@ -67,7 +68,7 @@ Integrity expectations are fatal on any server, because a measurement that did n
 
 | Corpus | Status | Note |
 |---|---|---|
-| **C3 heavy synthetic** | **Built**, and observed at 110,000 relevant facts in the superseded pass | 40 runs × 250 Tracks; 30,000 visits, 20,000 crossings, 40,000 zone summaries, 10,000 motion summaries and 10,000 outcomes; seed 20260922. The shape is reproducible, but the observation does not close a gate until it is rerun from a reachable head |
+| **C3 heavy synthetic** | **PASS** — qualified at 110,000 relevant facts on the Development machine, SHA `5f516662…` | 40 runs × 250 Tracks; seed 20260922. The same deterministic shape the superseded pass had observed, now measured from a reachable commit |
 | **C2 representative operational** | **Partially built** — the same generator at representative scale | The existing `SceneAnalyticsWorld` and the visual-QA fixtures already serve the operator-path and UI acceptance cases |
 | **C1 semantic reference** | **PARTIAL** — authored trajectory passes trajectory → facts → §S → §T | The bounded explanation, heatmap and UI projection legs remain owed |
 
@@ -100,4 +101,6 @@ The §T aggregate issues **10 database round trips** per call, not the four fact
 
 ## 7. PostgreSQL 18 evidence disposition
 
-The superseded local PostgreSQL 18 pass observed all 40 runs and meaningful §S/§T populations, but its commit provenance was not repository-reachable and therefore cannot qualify PR #71. Its raw files must not be reused. Fresh `plan-qualification.json`, `analytics-unit-throughput.json`, and `heatmap-envelope.json` files are required after the repaired final head is pushed.
+The superseded local PostgreSQL 18 pass observed all 40 runs and meaningful §S/§T populations, but its commit provenance was not repository-reachable, so it qualified nothing and its raw files are not reused.
+
+The fresh files it called for now exist: `plan-qualification.json`, `analytics-unit-throughput.json` and `heatmap-envelope.json` from the Development machine at `5f516662…`, each reporting `qualification evidence`. They are held outside the repository with SHA-256 hashes; see the performance report §8.

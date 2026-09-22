@@ -1,14 +1,14 @@
 # Scene Analytics Slice 7 — operator workflow, accessibility and visual acceptance
 
 **Date:** 2026-09-22
-**Branch:** `feature/scene-analytics-s7-hardening-acceptance`
+**Branch:** `feature/scene-analytics-s7-hardening-acceptance` (PR #70), with PR #71 integrated by fast-forward
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668`
 
 ---
 
-## Status: NOT EXECUTED in this pass
+## Status: PARTIAL — operator workflow executed on real data; accessibility and visual QA NOT EXECUTED
 
-Exit-gate item 14 is **not met**. Nothing below is presented as acceptance.
+Plan §25 item **13** is **not met**. The operator workflow has now been driven end to end on the Development machine with the real worker; accessibility and visual QA have not been executed at all. Nothing below is presented as more than it is.
 
 ## 1. What this pass did change in the frontend
 
@@ -18,11 +18,11 @@ The rule now has one frontend definition, `src/web/mavi-web/src/shared/evidence/
 
 **Frontend suite: 821 tests pass; typecheck clean; production build succeeds.**
 
-## 2. What item 14 requires and did not get
+## 2. What item 13 requires, and what it got
 
 | Required | Status |
 |---|---|
-| Operator workflow acceptance — the full investigative path driven end to end against a real API | **NOT EXECUTED.** Requires a running stack; the existing per-surface tests cover components, not the journey |
+| Operator workflow acceptance — the full investigative path driven end to end against a real API | **PARTIAL — executed on real data, one leg not reported.** On the Development machine, against a real video (`2min.mp4`, CAM-04 / G4) through the real RTMDet + ByteTrack path: Scene Configuration (Revision 2, one zone, one trip line) → explicit analysis queue (`created: 1`, then idempotent `alreadyReady: 1`) → Processing readiness *Analysed* → Evidence Review (identity *Scene revision 2 · Engine v1*, *Zone 1 · 1 visit · dwell 2s*, heading *Up (image direction)*, *Never stationary*, overlays rendered on the real video) → Analytics Activity (12 Person Tracks, 0 Vehicle, peak 7 in the 1-minute view) → Heatmap (3,002 samples, 12 contributing Tracks, 64 × 36, provenance Revision 2 / Engine v1, *All 1 run analysed*). The **Search → Investigation** leg of plan §15 was not reported, so it is not claimed |
 | Accessibility acceptance across the analytics surfaces | **NOT EXECUTED in this pass.** The shared accessibility infrastructure and per-surface assertions from UI-2 to UI-5 are in place and green, but no Slice-7 audit was performed |
 | Visual QA at 1366 / 1440 / 1920 / 2560 | **NOT EXECUTED in this pass.** The visual QA matrix from the UI slices covers the archetypes and the Slice-6 Analytics Workbench states; it was not re-driven at the four widths for this slice |
 
@@ -32,4 +32,4 @@ The rule now has one frontend definition, `src/web/mavi-web/src/shared/evidence/
 2. Audit keyboard reachability and screen-reader semantics on the Analytics Workbench, the Investigation analytics rail and the Evidence Player's analytics lanes.
 3. Drive the operator journey — import, process, configure scene, analyse, search, aggregate, inspect evidence — against a real API on the Development machine, and record where it breaks or misleads.
 
-Until then item 14 stays **NOT EXECUTED**, and no claim of UI acceptance is made anywhere in this repository.
+Step 3 is done except for its search leg. Steps 1 and 2 are not. Until they are, plan §25 item 13 stays **not met**, and no claim of accessibility or visual acceptance is made anywhere in this repository.
