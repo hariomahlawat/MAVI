@@ -1,9 +1,9 @@
 # MAVI Capability Implementation Roadmap
 
 **Status:** Authoritative implementation-level roadmap. `capability-roadmap.md` answers *what we build next*; this document answers *how the stages depend on one another, what each changes technically, and what must be true before advancing*.  
-**Baseline:** `main@370b65fb2e149d97720825d2e09a7d6876c611aa` (PR #49 `ed1acf4`, PR #50 `bdf834a`, PR #51 `370b65f` merged; post-merge CI green).  
+**Baseline:** `main@179786e2f4e09930a2c70119080ae565a92474f6` (Scene Analytics Slice 5 / PR #66 merged; Slice-6 planning rebaseline).  
 **Written:** 2026-09-20. Planning only; no feature code, migration, dependency or runtime change accompanies this document.  
-**Companion:** `2026-09-20-spatial-temporal-track-analytics.md` remains the parent implementation-grade plan for stage 1; `2026-09-22-scene-analytics-s5-evidence-explanation.md` is the rebaselined Slice-5 execution plan written against merged UI-5. `docs/architecture/ui-ux-design-specification.md` is the adopted UI/UX specification. **UI-1 through UI-5 are merged; Slice 4 merged as `b505a97`; UI-5 / PR #64 merged as `273718c`; the Slice-5 plan merged as `d639353`. Slice 5 evidence overlays/explanation is implemented on `feature/scene-analytics-s5-evidence-explanation` from that base and awaits independent review; Slice 6 aggregates/heatmap is next once it merges.** Task 18 (`2026-09-18-task-18-phase1-production-qualification-rebaseline.md`) remains a separate, parallel qualification stream and is not a stage here.
+**Companion:** `2026-09-20-spatial-temporal-track-analytics.md` remains the parent implementation-grade plan for stage 1; `2026-09-22-scene-analytics-s6-aggregates-heatmap.md` is the rebaselined Slice-6 execution plan written against merged Slice 5 / PR #66. `docs/architecture/ui-ux-design-specification.md` is the adopted UI/UX specification. **UI-1 through UI-5 and Scene Analytics Slices 0–5 are merged. Slice 6 aggregates/occupancy/heatmap is the next bounded implementation unit; Slice 7 hardening/performance/acceptance follows.** Task 18 (`2026-09-18-task-18-phase1-production-qualification-rebaseline.md`) remains a separate, parallel qualification stream and is not a stage here.
 
 ## 0. The baseline this roadmap builds on
 
