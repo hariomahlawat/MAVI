@@ -29,13 +29,72 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
     private static int Setting(string name, int fallback) =>
         int.TryParse(Environment.GetEnvironmentVariable(name), out var value) && value > 0 ? value : fallback;
 
+    /// <summary>
+    /// The §S predicate families this harness measures, keyed by the contract key
+    /// each one exercises.
+    /// </summary>
+    /// <remarks>
+    /// Declared separately from the measurement so the coverage guard below can
+    /// check it without a database, and so both share one definition of "every
+    /// predicate" rather than drifting apart.
+    /// </remarks>
+    internal static IReadOnlyList<(string Key, string Name)> PredicateCoverage =>
+    [
+        ("SceneRevisionId", "sceneRevisionId (explicit)"),
+        ("AnalyticsAlgorithmVersion", "sceneRevisionId + analyticsAlgorithmVersion"),
+        ("ZoneId", "zoneId (default dwelled)"),
+        ("ZoneRelation", "zoneRelation=entered|exited|dwelled"),
+        ("MinDwellMs", "minDwellMs"),
+        ("LineId", "lineId"),
+        ("CrossingDirection", "crossingDirection=aToB|bToA"),
+        ("MotionDirection", "motionDirection, all eight headings"),
+        ("MinStationaryMs", "minStationaryMs"),
+        ("Loitering", "loitering, alone and with zoneId"),
+        ("RequireCompleteCoverage", "analyticsCoverage control flag — not a predicate (§S)"),
+    ];
+
+    /// <summary>
+    /// Every key of the frozen §S contract is named by the measurement plan.
+    /// </summary>
+    /// <remarks>
+    /// Runs in the ordinary suite and needs no database, because it is a statement
+    /// about the contract rather than about a server: if a future slice adds a
+    /// search predicate, the parent plan's "every §S predicate" requirement is
+    /// silently no longer met unless the harness is extended too. Reflecting over
+    /// the query record is what makes that impossible to forget — a new property
+    /// fails this immediately.
+    /// </remarks>
+    [Fact]
+    public void TheMeasurementPlanNamesEverySearchPredicateTheContractDefines()
+    {
+        // The record's primary constructor is exactly the contract's key set.
+        // Reading properties instead would drag in computed helpers such as
+        // EffectiveZoneRelation, which are derived from keys rather than being
+        // keys — the first version of this guard failed on precisely those two.
+        var contractKeys = typeof(TrackAnalyticsQuery)
+            .GetConstructors()
+            .OrderByDescending(constructor => constructor.GetParameters().Length)
+            .First()
+            .GetParameters()
+            .Select(parameter => parameter.Name!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var covered = PredicateCoverage.Select(entry => entry.Key).ToHashSet(StringComparer.Ordinal);
+
+        var missing = contractKeys.Where(key => !covered.Contains(key)).OrderBy(key => key, StringComparer.Ordinal).ToList();
+        Assert.True(
+            missing.Count == 0,
+            $"§S predicates not covered by the qualification harness: {string.Join(", ", missing)}");
+    }
+
     /*
      * A plain Fact that returns when the gate is closed, rather than a skippable
      * one: adding a package to make a harness print "skipped" would be a new
-     * dependency for a report's convenience, which Slice 7 forbids. When the gate
-     * is closed this measures nothing and claims nothing; the evidence file it
-     * would have written is simply absent, and absence is what the evidence
-     * documents record as NOT EXECUTED.
+     * dependency for a report's convenience, which Slice 7 forbids. The always-on
+     * guard above is what stops this pair being vacuous in the ordinary suite —
+     * this half measures, that half keeps the measurement honest about its own
+     * coverage. When the gate is closed the evidence file is simply absent, and
+     * absence is what the evidence documents record as NOT EXECUTED.
      */
     [Fact]
     public async Task EverySearchPredicateAndEveryAggregateIsPlannedAndTimed()
