@@ -116,7 +116,9 @@ describe('Analytics Workbench', () => {
     expect(screen.getByText('6')).toBeInTheDocument();
     const inspector = screen.getByRole('complementary', { name: 'Analytics inspector' });
     expect(within(inspector).getByText('Not additive')).toBeInTheDocument();
-    expect(within(inspector).getByText(/counts each Track once/i)).toBeInTheDocument();
+    // Once in the metric's definition, once in the table's caption, which is
+    // the same definition serving as the accessible name of the numbers.
+    expect(within(inspector).getAllByText(/counts each Track once/i)).toHaveLength(2);
   });
 
   it('never presents the buckets of a non-additive metric as a total', async () => {

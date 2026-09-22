@@ -13,9 +13,14 @@ import { METRICS, readingMaximum, type ActivityReading } from './analyticsState'
  *
  * The chart itself is `aria-hidden`. Section 11 of the plan is explicit that
  * hundreds of SVG rectangles must not be exposed as individual nodes; what
- * assistive technology gets instead is the table below it, which carries the
- * same numbers with their bucket start times and is the authoritative reading
+ * assistive technology gets instead is `ActivityTable`, which carries the same
+ * numbers against their bucket start times and is the authoritative reading
  * either way.
+ *
+ * That table lives in the inspector rather than under the chart, and not for
+ * taste: §4.3.2 gives the Workbench one scroll owner, the inspector body, and a
+ * stage that grows but never scrolls. An arbitrarily long table under the chart
+ * made the stage a second scroll owner, which the §26 harness catches.
  */
 
 const VIEW_WIDTH = 1_000;
@@ -89,6 +94,12 @@ export default function ActivityChart({
         ))}
       </svg>
 
+      <p className="visually-hidden">
+        {reading.series.map((series) => `${series.label}: peak ${Math.max(...series.points.map((p) => p.value))} `
+          + `${reading.unit} across ${bucketCount} buckets.`).join(' ')}
+        {' '}The figures for each bucket are listed in the inspector.
+      </p>
+
       {seriesCount > 1 ? (
         <ul className="activity-chart__legend">
           {reading.series.map((series, index) => (
@@ -100,37 +111,6 @@ export default function ActivityChart({
         </ul>
       ) : null}
 
-      {/*
-        The semantic twin. It is the chart's accessible form and a perfectly
-        ordinary way to read the numbers, so it is not hidden from sight either:
-        it scrolls within the stage rather than being tucked behind a toggle no
-        one finds.
-      */}
-      <div className="activity-chart__table" role="region" aria-label={`${METRICS[reading.metric].label} by bucket`} tabIndex={0}>
-        <table className="table table--compact">
-          <caption className="visually-hidden">
-            {reading.definition}
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">Bucket start</th>
-              {reading.series.map((series) => (
-                <th key={series.label} scope="col" className="num">{series.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {reading.series[0].points.map((point, index) => (
-              <tr key={point.startUtc}>
-                <th scope="row">{formatDateTime(point.startUtc, displayTimeZoneId)}</th>
-                {reading.series.map((series) => (
-                  <td key={series.label} className="num">{formatCount(series.points[index]?.value ?? 0)}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </figure>
   );
 }

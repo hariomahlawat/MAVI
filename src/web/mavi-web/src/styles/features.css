@@ -789,6 +789,7 @@
 
 .activity-chart {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
   gap: var(--s-2);
@@ -802,10 +803,16 @@
   align-items: baseline;
 }
 
+/*
+ * The plot is the stage. It grew to a fixed band while the numbers sat beneath
+ * it; once those moved to the inspector there was nothing else competing for
+ * the height, and a chart that uses half its canvas is harder to read for no
+ * reason.
+ */
 .activity-chart__plot {
   width: 100%;
-  height: clamp(160px, 32vh, 320px);
-  flex: 0 0 auto;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .activity-chart__axis {
@@ -842,10 +849,30 @@
 .activity-chart__swatch--1 { background: var(--evidence-series-1); }
 .activity-chart__swatch--2 { background: var(--evidence-series-2); }
 
-.activity-chart__table {
-  min-height: 0;
-  overflow: auto;
-  border-top: 1px solid var(--border-subtle);
+/*
+ * The inspector is 300-360px and a two-series table does not fit at its natural
+ * widths, so the columns are apportioned and the cells wrap. Letting it scroll
+ * sideways instead would put a second scroll owner inside the one region of a
+ * Workbench that is allowed one.
+ */
+.analytics-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.analytics-table th,
+.analytics-table td {
+  overflow-wrap: anywhere;
+}
+
+.analytics-table th:first-child {
+  width: 44%;
+}
+
+/* The shared table keeps headers on one line; here there is not the width for
+   it, and a clipped column heading is a column the reader cannot name. */
+.analytics-table thead th {
+  white-space: normal;
 }
 
 .analytics-inspector__definition {

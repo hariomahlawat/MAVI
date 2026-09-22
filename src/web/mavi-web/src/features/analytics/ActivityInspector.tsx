@@ -5,6 +5,7 @@ import { formatCount } from '../../shared/format/format';
 import { formatDateTime } from '../../shared/time/time';
 import { engineLabel, shortId } from '../../shared/evidence/analyticsLabels';
 import CoverageStrip from '../../shared/evidence/CoverageStrip';
+import ActivityTable from './ActivityTable';
 import { METRICS, type ActivityReading } from './analyticsState';
 
 /**
@@ -47,6 +48,12 @@ export default function ActivityInspector({
           */}
           {!descriptor.additive ? <p className="analytics-inspector__caution">Not additive</p> : null}
           <p className="analytics-inspector__definition">{descriptor.definition}</p>
+        </Panel>
+      ) : null}
+
+      {reading ? (
+        <Panel title="By bucket" body="flush">
+          <ActivityTable reading={reading} displayTimeZoneId={displayTimeZoneId} />
         </Panel>
       ) : null}
 
