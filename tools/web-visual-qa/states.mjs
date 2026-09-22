@@ -2130,7 +2130,10 @@ export const STATES = [
     // The page override is a prefix match, so the Track detail beneath it is
     // re-exposed as its fixture; otherwise the inspector would be handed a page.
     api: { '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE), [`/api/tracks/${TRACK}`]: 'fixture' },
-    expectText: [...INSPECTOR_LOADED, 'Revision 4 · Engine v1', 'Loading bay', 'No line crossed'],
+    // Slice 5 gives the shared Track detail a crossing, so the inspector's
+    // explanation states it rather than "no line crossed", and it names the
+    // revision in the fuller wording section 16 settles on.
+    expectText: [...INSPECTOR_LOADED, 'Scene revision 4 · Engine v1', 'Loading bay', 'Gate A · 1 crossing'],
   },
 
   // --- Processing: Slice 4 readiness on the Ledger and the Record. ----------

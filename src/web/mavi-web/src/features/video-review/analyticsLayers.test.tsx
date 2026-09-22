@@ -10,7 +10,8 @@ import {
   sceneZone,
   zoneVisit,
 } from '../../test/analyticsFixtures';
-import { buildAnalyticsEvidence } from './analyticsEvidence';
+import { buildAnalyticsEvidence, hasOverlappingStationary } from './analyticsEvidence';
+import { STATIONARY_LANE } from '../../shared/evidence/timeline';
 import { analyticsLayers } from './analyticsLayers';
 
 /**
@@ -197,5 +198,31 @@ describe('drawing cost does not follow the playhead', () => {
       const layer = analyticsLayers(model).find((l) => l.id === id)!;
       expect(layer.render(PILLARBOX, 5_000)).toBe(layer.render(PILLARBOX, 0));
     }
+  });
+});
+
+describe('malformed stationary facts are reported, not tidied away', () => {
+  it('says so when the persisted stationary intervals overlap', () => {
+    // One fixed lane means overlapping intervals paint over each other. The
+    // engine should not emit them, so the honest response is to say the facts
+    // are wrong rather than to repack them into a layout that makes the
+    // overlap look intended.
+    const overlapping = buildAnalyticsEvidence(
+      analysedAnalytics({
+        motion: {
+          heading: 'E', pathLengthNormalised: 0, meanDisplacementRate: 0,
+          longestStationaryMs: 0, totalStationaryMs: 0,
+          stationaryIntervals: [
+            { startOffsetMs: 1_000, endOffsetMs: 5_000 },
+            { startOffsetMs: 3_000, endOffsetMs: 8_000 },
+          ],
+          stationaryZoneIds: [],
+        },
+      }),
+      sceneRevision(),
+    );
+    expect(hasOverlappingStationary(
+      overlapping.intervals.filter((i) => i.lane === STATIONARY_LANE),
+    )).toBe(true);
   });
 });

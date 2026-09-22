@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TrackDetail } from '../../api/tracks';
 import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import TrackEvidence from './TrackEvidence';
+import { buildAnalyticsEvidence } from './analyticsEvidence';
+import { analysedAnalytics } from '../../test/analyticsFixtures';
 
 const detail: TrackDetail = {
   id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21451',
@@ -358,6 +360,51 @@ describe('Track evidence overlay', () => {
     const lanes = screen.getAllByRole('listitem').map((item) => item.dataset.lane).filter(Boolean);
     expect(lanes).not.toContain('zone');
     expect(lanes).not.toContain('stationary');
+  });
+
+  it('warns the operator when persisted stationary intervals overlap', () => {
+    // The stationary family is one fixed lane, so overlapping facts would hide
+    // one another on the timeline. They are still drawn as given and the
+    // condition is stated, because a fact the engine should not have produced
+    // is something to report rather than something to lay out more neatly.
+    const analytics = buildAnalyticsEvidence(
+      analysedAnalytics({
+        motion: {
+          heading: 'E', pathLengthNormalised: 0, meanDisplacementRate: 0,
+          longestStationaryMs: 0, totalStationaryMs: 0,
+          stationaryIntervals: [
+            { startOffsetMs: 11_000, endOffsetMs: 15_000 },
+            { startOffsetMs: 13_000, endOffsetMs: 18_000 },
+          ],
+          stationaryZoneIds: [],
+        },
+      }),
+      undefined,
+    );
+    render(<TrackEvidence detail={detail} analytics={analytics} />);
+    expect(screen.getByText(/stationary intervals for this Track overlap/)).toBeInTheDocument();
+    // Both are still present as evidence.
+    const lanes = screen.getAllByRole('listitem').filter((i) => i.dataset.lane === 'stationary');
+    expect(lanes).toHaveLength(2);
+  });
+
+  it('stays quiet when the stationary intervals are disjoint, as they should be', () => {
+    const analytics = buildAnalyticsEvidence(
+      analysedAnalytics({
+        motion: {
+          heading: 'E', pathLengthNormalised: 0, meanDisplacementRate: 0,
+          longestStationaryMs: 0, totalStationaryMs: 0,
+          stationaryIntervals: [
+            { startOffsetMs: 11_000, endOffsetMs: 13_000 },
+            { startOffsetMs: 13_000, endOffsetMs: 18_000 },
+          ],
+          stationaryZoneIds: [],
+        },
+      }),
+      undefined,
+    );
+    render(<TrackEvidence detail={detail} analytics={analytics} />);
+    expect(screen.queryByText(/stationary intervals for this Track overlap/)).not.toBeInTheDocument();
   });
 
   it('reprojects onto the replacement element when the source changes at the same size', () => {

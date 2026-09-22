@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { formatOffset } from '../format/format';
 import {
+  MARKER_TARGET_PX,
   MAX_ZONE_SUBROWS,
   STATIONARY_LANE,
   SUBJECT_LANE,
@@ -255,7 +256,7 @@ export default function EvidenceTimeline({
               className="evidence-timeline__item evidence-timeline__marker"
               data-kind={placed.marker.kind}
               data-cluster={String(placed.cluster.length)}
-              style={{ left: percentOf(placed.marker.offsetMs, durationMs), top: `${placed.row * 24}px` }}
+              style={{ left: percentOf(placed.marker.offsetMs, durationMs), top: `${placed.row * MARKER_TARGET_PX}px` }}
             >
               <button
                 type="button"

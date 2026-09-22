@@ -270,6 +270,10 @@ export function timelineLayout(options: {
   hasZoneOverflow: boolean;
   hasStationary: boolean;
 }): TimelineLayout {
+  // At least one row even with no markers: the rail is what gives the scrub
+  // surface its 24px pointer target, and the thin lanes below it come to ten
+  // pixels between them. Capped at the top so the rail cannot grow with the
+  // evidence.
   const markerRows = Math.min(MAX_MARKER_ROWS, Math.max(1, options.markerRows));
   const markerRail = markerRows * MARKER_TARGET_PX;
 

@@ -11,6 +11,7 @@ import type { EvidenceTimelineInterval, EvidenceTimelineMarker } from '../../sha
 import { STATIONARY_LANE, ZONE_LANE } from '../../shared/evidence/timeline';
 import {
   crossingDirectionLabel,
+  geometryNames,
   lineLabel,
   shortId,
   zoneLabel,
@@ -323,11 +324,7 @@ export function buildAnalyticsEvidence(
   if (!analytics) return EMPTY_ANALYTICS_EVIDENCE;
 
   const names: GeometryNames | undefined = revision
-    ? {
-      zones: new Map(revision.zones.map((zone) => [zone.zoneId.toLowerCase(), zone])),
-      lines: new Map(revision.tripLines.map((line) => [line.lineId.toLowerCase(), line])),
-      revisionNumber: revision.revisionNumber,
-    }
+    ? geometryNames(revision.zones, revision.tripLines, revision.revisionNumber)
     : undefined;
 
   const zoneIds = matchedZoneIds(analytics);
@@ -406,9 +403,4 @@ export function buildAnalyticsEvidence(
   ];
 
   return { zones, lines, crossings, intervals, markers, matchedZoneIds: zoneIds, matchedLineIds: lineIds };
-}
-
-/** A crossing's media time, as the explanation and the marker both say it. */
-export function crossingTimeLabel(offsetMs: number): string {
-  return formatOffset(offsetMs, 'tenths');
 }

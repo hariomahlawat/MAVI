@@ -4,11 +4,11 @@ import Alert from '../../shared/components/Alert';
 import { formatOffset } from '../../shared/format/format';
 import EvidencePlayer from '../../shared/evidence/EvidencePlayer';
 import type { EvidenceDescription, EvidenceLayer } from '../../shared/evidence/layers';
-import type { TrackAnalyticsEvidenceModel } from './analyticsEvidence';
+import { hasOverlappingStationary, type TrackAnalyticsEvidenceModel } from './analyticsEvidence';
 import { analyticsLayers } from './analyticsLayers';
 import { isBoxVisibleAt, projectBox, projectPoint } from '../../shared/evidence/projection';
 import type { EvidenceTimelineInterval, EvidenceTimelineMarker } from '../../shared/evidence/timeline';
-import { SUBJECT_LANE } from '../../shared/evidence/timeline';
+import { STATIONARY_LANE, SUBJECT_LANE } from '../../shared/evidence/timeline';
 import { calculateReviewSeekSeconds } from './seek';
 import { hasSampleAt, trajectoryPositionAt, type TrajectoryPoint } from './trajectory';
 
@@ -233,6 +233,13 @@ export default function TrackEvidence({ detail, analytics, trajectory, trajector
     [analytics, layers],
   );
 
+  // Checked here rather than inside the pure model, which reports facts and
+  // does not judge them; the host is what can tell the operator.
+  const stationaryOverlaps = useMemo(
+    () => hasOverlappingStationary((analytics?.intervals ?? []).filter((i) => i.lane === STATIONARY_LANE)),
+    [analytics],
+  );
+
   const intervals: EvidenceTimelineInterval[] = useMemo(() => [
     {
       id: 'track-' + detail.id,
@@ -286,11 +293,30 @@ export default function TrackEvidence({ detail, analytics, trajectory, trajector
       // Review opens one second before the Track so the operator sees it enter.
       initialOffsetMs={calculateReviewSeekSeconds(detail.startOffsetMs) * 1000}
       seekKey={detail.id}
-      notices={trajectoryError ? (
-        <Alert tone="warning">
-          The persisted trajectory could not be loaded. The Track and its representative frame are unaffected.
-        </Alert>
-      ) : null}
+      notices={(
+        <>
+          {trajectoryError ? (
+            <Alert tone="warning">
+              The persisted trajectory could not be loaded. The Track and its representative frame are unaffected.
+            </Alert>
+          ) : null}
+          {/*
+            Stationary intervals for one Track are not expected to overlap, and
+            the stationary family is one fixed row — so overlapping facts would
+            paint over each other and hide evidence without saying so. The
+            drawing is left as it is rather than repacked, because a fact the
+            engine should not have produced is a thing to report, not to tidy
+            away into a layout that makes it look intentional.
+          */}
+          {stationaryOverlaps ? (
+            <Alert tone="warning">
+              The persisted stationary intervals for this Track overlap one another, which
+              the analytics engine should not produce. They are drawn in one lane, so some
+              may be obscured; the explanation lists every interval.
+            </Alert>
+          ) : null}
+        </>
+      )}
     />
   );
 }
