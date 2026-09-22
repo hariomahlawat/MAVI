@@ -59,6 +59,36 @@ The plan explicitly protects the central Stage-1 invariants: pinned revision/alg
 
 The stop rule is bounded. P1/P2-equivalent findings block closure; non-material P3/cosmetic findings do not create an infinite review loop. Internal cold review is the normal gate; external Codex is optional only for unresolved material architectural uncertainty.
 
+## Post-PR review repair and second cold pass
+
+PR review on the first planning head found three P2 defects. All were reproduced against the branch rather than accepted mechanically:
+
+1. **Formal exit gate omitted the write-side §Z evidence — CLOSED.** The gate is now renumbered and explicitly requires SceneAnalysis duration/rows-written evidence for both the Development corpus and synthetic 1,000-Track run.
+2. **Literal escaped newlines damaged Markdown structure — CLOSED.** Seven literal `\\n` sequences introduced by the earlier programmatic edit were replaced with real line breaks. The full changed-file set was then checked for remaining literal escaped-newline artifacts; none remain.
+3. **Implementation roadmap still pointed Stage-1 acceptance to Slice 6 — CLOSED.** The authoritative Stage-1 acceptance pointer now names the current Slice-7 hardening/performance/acceptance plan.
+
+A fresh cold pass after those repairs found one additional internal consistency issue that the PR comments did not identify:
+
+### P2 — stale parent-plan sequencing after Slice 6 — CLOSED
+
+The parent plan's mid-document UI Foundation status still said Slices 0–5 were merged and Slice 6 was unblocked, and its trajectory-v2 note called that worker change “the first follow-up after acceptance.” Both statements conflicted with the PR #68 baseline and the authoritative capability roadmap, which now makes Slice 7 the remaining Stage-1 unit and Stage 2 — Visual Attributes the next capability after closure.
+
+**Correction:** the parent status block now records Slices 0–6 merged / Slice 7 remaining. Trajectory v2 remains a separately qualified future improvement and no longer overrides the capability-roadmap sequence.
+
+### Second-pass checks
+
+The repaired five-document planning set was checked directly on the branch for:
+
+- remaining literal `\\n` corruption;
+- stale `main@179786e2...` baseline references in current status;
+- “Slice 6 next” / “current Slice-6 execution plan” wording;
+- Slices-0–5 current-status wording;
+- Stage-1/Task-18 scope leakage;
+- missing parent §Z write-side and 100k-fact read-side obligations;
+- conflict between the Stage-1 closure sequence and the capability roadmap.
+
+No open P1/P2-equivalent planning defect remains from this pass.
+
 ## Final planning verdict
 
 After the corrections above:
