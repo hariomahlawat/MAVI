@@ -633,9 +633,28 @@ export const WORKSPACE_ASSERTIONS = `(() => {
     // keeps the timeline's height fixed, so both halves are measured: no two
     // drawn visits share a row, and the rail never grows past the cap.
     const zoneBands = Array.from(workspace.querySelectorAll(
-      '.evidence-timeline__item[data-lane="zone"][data-drawn="true"]'));
+      '.evidence-timeline__item[data-lane="zone"][data-drawn="true"]:not([data-shown])'));
     const overflowed = workspace.querySelectorAll(
       '.evidence-timeline__item[data-lane="zone"][data-drawn="overflow"]');
+
+    // A singled-out overflowed visit is a highlight drawn on the fixed overflow
+    // rail, not a fourth packed sub-row, so it is counted separately — and
+    // pinned to that rail here, because a highlight that took a row of its own
+    // would defeat the cap the moment an operator used it.
+    const shownBands = Array.from(workspace.querySelectorAll(
+      '.evidence-timeline__item[data-shown="true"]'));
+    measured.shownOverflowed = shownBands.length;
+    if (shownBands.length > 1) {
+      problems.push(shownBands.length
+        + ' overflowed visits are drawn at once; only one can be singled out without occluding another');
+    }
+    const railTops = new Set(Array.from(workspace.querySelectorAll('.evidence-timeline__overflow'))
+      .map((rail) => rail.style.top));
+    for (const band of shownBands) {
+      if (railTops.size > 0 && !railTops.has(band.style.top)) {
+        problems.push('a singled-out overflowed visit is drawn off the overflow rail, adding a row to the zone lane');
+      }
+    }
     measured.zoneBands = zoneBands.length;
     measured.zoneOverflowed = overflowed.length;
     const zoneRows = new Set(zoneBands.map((band) => band.style.top));
@@ -698,6 +717,52 @@ export const WORKSPACE_ASSERTIONS = `(() => {
       }
       if (outside > 0) {
         problems.push(outside + ' analytical overlay shapes fall outside the video content rectangle');
+      }
+    }
+
+    // A directed trip line's crossing indicator is perpendicular to the line
+    // as drawn, and says which way is which without relying on hue.
+    //
+    // The overlay's viewBox is the content rectangle in pixels, so the
+    // attributes are already projected screen coordinates: the angle measured
+    // here is the angle the operator sees. A normal taken in normalised space
+    // and used as a pixel offset passes on a horizontal line and fails on a
+    // diagonal one under letterbox or pillarbox, which is why this measures
+    // rather than checks that a ray exists.
+    const directedLines = Array.from(workspace.querySelectorAll('[data-testid="evidence-line"]'))
+      .filter((group) => group.querySelector('.evidence-line__dir'));
+    measured.directedLines = directedLines.length;
+    for (const group of directedLines) {
+      const segment = group.querySelector('.evidence-line__segment');
+      if (!segment) continue;
+      const lx = Number(segment.getAttribute('x2')) - Number(segment.getAttribute('x1'));
+      const ly = Number(segment.getAttribute('y2')) - Number(segment.getAttribute('y1'));
+      const cues = Array.from(group.querySelectorAll('.evidence-line__dir'));
+      if (cues.length !== 2) {
+        problems.push('a directed trip line draws ' + cues.length
+          + ' direction cues; both directions of travel have to be shown');
+      }
+      for (const cue of cues) {
+        const ray = cue.querySelector('line');
+        if (!ray) continue;
+        const rx = Number(ray.getAttribute('x2')) - Number(ray.getAttribute('x1'));
+        const ry = Number(ray.getAttribute('y2')) - Number(ray.getAttribute('y1'));
+        const lengths = Math.hypot(lx, ly) * Math.hypot(rx, ry);
+        if (lengths <= 0) continue;
+        const degrees = Math.acos(Math.min(1, Math.max(-1,
+          (lx * rx + ly * ry) / lengths))) * 180 / Math.PI;
+        measured.directionAngle = Math.round(degrees * 10) / 10;
+        if (Math.abs(degrees - 90) > 1) {
+          problems.push('a crossing direction cue is ' + Math.round(degrees)
+            + ' degrees from the line it is drawn on, not perpendicular to it as drawn');
+        }
+        if (!cue.querySelector('polygon')) {
+          problems.push('a crossing direction cue has no arrowhead, so which way it points depends on colour');
+        }
+        const label = cue.querySelector('text');
+        if (!label || label.textContent.trim() === '') {
+          problems.push('a crossing direction cue is unlabelled, so the two directions differ only by hue');
+        }
       }
     }
 

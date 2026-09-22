@@ -1665,6 +1665,316 @@ const SINGLE_SAMPLE_TRACK = (() => {
   return detail;
 })();
 
+const REVIEW_OVERFLOW_SPANS = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Analysed",
+    "unavailableReason": null,
+    "referencePoint": "bbox-centre",
+    "sampleCount": 42,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitCount": 5,
+        "totalDwellMs": 4000,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitCount": 5,
+        "totalDwellMs": 4000,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      }
+    ],
+    "zoneVisits": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 0,
+        "entryOffsetMs": 400,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 1000,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 1,
+        "entryOffsetMs": 460,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 940,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 2,
+        "entryOffsetMs": 520,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 880,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 3,
+        "entryOffsetMs": 580,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 820,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 4,
+        "entryOffsetMs": 640,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 760,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 5,
+        "entryOffsetMs": 2200,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 1000,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 6,
+        "entryOffsetMs": 2260,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 940,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 7,
+        "entryOffsetMs": 2320,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 880,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 8,
+        "entryOffsetMs": 2380,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 820,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 9,
+        "entryOffsetMs": 2440,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 760,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      }
+    ],
+    "lineCrossings": [
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 0,
+        "offsetMs": 2000,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.487,
+        "pointY": 0.523
+      }
+    ],
+    "motion": {
+      "heading": "E",
+      "pathLengthNormalised": 0.31,
+      "meanDisplacementRate": 0.11,
+      "longestStationaryMs": 0,
+      "totalStationaryMs": 0,
+      "stationaryIntervals": [],
+      "stationaryZoneIds": []
+    },
+    "otherIdentities": []
+  }
+};
+
+/**
+ * Same-instant density, derived rather than re-pasted.
+ *
+ * Five concurrent visits that all begin together, and five crossings that share
+ * one exact millisecond. Both are the cases where a rail that positions by
+ * offset alone puts controls on top of each other: the first fills the overflow
+ * span with no stagger available, the second must collapse into one control
+ * because there is one destination, while still naming all five facts.
+ */
+const REVIEW_OVERFLOW_SAME_START = {
+  ...REVIEW_OVERLAP_5,
+  analytics: {
+    ...REVIEW_OVERLAP_5.analytics,
+    zoneVisits: REVIEW_OVERLAP_5.analytics.zoneVisits.map((visit) => ({
+      ...visit, entryOffsetMs: 700,
+    })),
+  },
+};
+
+const REVIEW_MARKERS_SAME_OFFSET = {
+  ...REVIEW_DENSE_MARKERS,
+  analytics: {
+    ...REVIEW_DENSE_MARKERS.analytics,
+    lineCrossings: REVIEW_DENSE_MARKERS.analytics.lineCrossings.map((crossing) => ({
+      ...crossing, offsetMs: 1900,
+    })),
+  },
+};
+
+/**
+ * Seek to the evidence, then single out one overflowed visit.
+ *
+ * The overflow disclosure is the only route to a visit the capped sub-rows
+ * could not hold, so the captured state is the one an operator actually
+ * reaches: disclosure open, one exact interval highlighted on the rail.
+ */
+const SHOW_OVERFLOWED = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const v = document.querySelector('.evidence-player__video');
+  if (v) {
+    if (v.readyState < 2) { try { v.load(); v.play().then(() => v.pause()).catch(() => {}); } catch { /* ignore */ } }
+    const jump = Array.from(document.querySelectorAll('button')).find((b) => /Evidence/.test(b.textContent || ''));
+    if (jump) jump.click();
+    v.pause();
+  }
+  const disclosure = document.querySelector('.evidence-timeline__dense');
+  if (!disclosure) return false;
+  disclosure.open = true;
+  await wait(120);
+  const control = disclosure.querySelector('button');
+  if (!control) return false;
+  control.click();
+  await wait(120);
+  return Boolean(document.querySelector('.evidence-timeline__shown'));
+})()`;
+
 export const STATES = [
   // --- Ledger-summary: Overview, the one Ledger permitted to stay capped. ---
   { name: 'overview', path: '/', fullWidth: false, archetype: 'ledger-summary' },
@@ -2043,6 +2353,15 @@ export const STATES = [
     archetype: 'investigation', prepare: PICK_GRID, expectText: INSPECTOR_LOADED,
   },
   {
+    // The narrow host. Marker separation is measured from the rendered track,
+    // not assumed from Review's wider column, so dense markers have to stay
+    // individually clickable in the drawer too.
+    name: 'search-inspecting-dense', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2200,
+    archetype: 'investigation',
+    api: { [`/api/tracks/${TRACK}`]: REVIEW_DENSE_MARKERS },
+    expectText: INSPECTOR_LOADED,
+  },
+  {
     name: 'search-inspector-unavailable', path: `/search?track=${TRACK}`, fullWidth: true,
     settleMs: 4000, archetype: 'investigation',
     api: { [`/api/tracks/${TRACK}`]: 'unavailable' },
@@ -2218,7 +2537,7 @@ export const STATES = [
   // the play/pause transition is covered by the component tests.
   { name: 'review-transport', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, expectText: ['Play', 'Start', 'Evidence', 'End', 'Speed', 'Bounding box', 'Trajectory'] },
   { name: 'review-zone-visit', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, expectText: ['Loading bay', 'Scene revision 4'] },
-  { name: 'review-multi-visit', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_MULTI_VISIT }, expectText: ['2 visits', 'Loitering'] },
+  { name: 'review-multi-visit', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_MULTI_VISIT }, expectText: ['2 visits', '2s dwell against a 1s threshold'] },
   { name: 'review-overlap-2', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_2 } },
   { name: 'review-overlap-3', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_3 } },
   // More concurrent visits than the capped sub-rows, so the overflow rail
@@ -2233,4 +2552,20 @@ export const STATES = [
   { name: 'review-analytics-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': SINGLE_SAMPLE_TRACK }, expectText: ['trajectory_too_short'] },
   { name: 'review-analytics-pending', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_PENDING }, expectText: ['has not been analysed yet'] },
   { name: 'review-analytics-stale', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_STALE }, expectText: ['earlier revision or engine'] },
+  // Two separate runs of concurrency: the rail must aggregate each span on
+  // its own terms rather than stating one total for the whole timeline.
+  { name: 'review-overflow-spans', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SPANS } },
+  // Nothing separates visits that begin at the same instant, so the span is
+  // the only honest unit: one band, its own count, and a route to each visit.
+  { name: 'review-overflow-same-start', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
+  // One overflowed visit singled out through the disclosure: the recovery path
+  // is captured in the state it leaves the rail in, not only asserted.
+  { name: 'review-overflow-selected', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SHOW_OVERFLOWED, prepareSettleMs: 900, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
+  // Five crossings at one millisecond: one destination, so one control — which
+  // has to carry all five names or four of them become unreachable.
+  { name: 'review-markers-same-offset', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_MARKERS_SAME_OFFSET }, expectText: ['5 crossings'] },
+  // The directed diagonal line over letterboxed and pillarboxed footage: the
+  // perpendicular is measured in projected space, where the operator sees it.
+  { name: 'review-direction-letterbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'letterbox', prepare: SEEK, requireOverlay: true, expectText: ['Inbound', 'Outbound'] },
+  { name: 'review-direction-pillarbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'pillarbox', prepare: SEEK, requireOverlay: true, expectText: ['Inbound', 'Outbound'] },
 ];

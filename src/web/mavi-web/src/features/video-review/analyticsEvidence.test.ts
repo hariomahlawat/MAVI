@@ -3,6 +3,7 @@ import {
   MAX_ZONE_SUBROWS,
   STATIONARY_LANE,
   ZONE_LANE,
+  overflowClusters,
   packIntervals,
   type EvidenceTimelineInterval,
 } from '../../shared/evidence/timeline';
@@ -504,5 +505,129 @@ describe('the extent helper', () => {
     expect(extentOf([{ x: 0.2, y: 0.8 }, { x: 0.6, y: 0.1 }, { x: 0.4, y: 0.5 }]))
       .toEqual({ x0: 0.2, y0: 0.1, x1: 0.6, y1: 0.8 });
     expect(extentOf([])).toEqual({ x0: 0, y0: 0, x1: 0, y1: 0 });
+  });
+});
+
+describe('concurrency means simultaneous, not merely overlapping somewhere', () => {
+  it('does not claim a three-way overlap that never happened', () => {
+    // A runs the whole span. B is early, C is late, and B and C never share an
+    // instant. A pairwise tally would call this three concurrent visits and
+    // claim an overlap the evidence does not contain.
+    const packed = packIntervals([
+      span('a', 0, 100),
+      span('b', 0, 40),
+      span('c', 60, 100),
+    ]);
+    const by = (id: string) => packed.find((p) => p.interval.id === id)!;
+    expect(by('a').concurrent).toBe(2);
+    expect(by('b').concurrent).toBe(2);
+    expect(by('c').concurrent).toBe(2);
+  });
+
+  it('counts a genuine three-way overlap as three', () => {
+    const packed = packIntervals([span('a', 0, 100), span('b', 10, 90), span('c', 20, 80)]);
+    for (const entry of packed) expect(entry.concurrent).toBe(3);
+  });
+
+  it('counts a lone interval as one', () => {
+    expect(packIntervals([span('a', 0, 10)])[0].concurrent).toBe(1);
+    // Touching is not sharing an instant.
+    const touching = packIntervals([span('a', 0, 10), span('b', 10, 20)]);
+    expect(touching.map((p) => p.concurrent)).toEqual([1, 1]);
+  });
+
+  it('reports the peak inside a visit, not the count at its start', () => {
+    // Nothing overlaps `a` when it begins; the crowd arrives later.
+    const packed = packIntervals([span('a', 0, 100), span('b', 50, 100), span('c', 60, 100)]);
+    expect(packed.find((p) => p.interval.id === 'a')!.concurrent).toBe(3);
+  });
+});
+
+describe('the packer survives evidence it should never be handed', () => {
+  it('places a zero-duration interval without claiming concurrency', () => {
+    const packed = packIntervals([span('a', 0, 100), span('point', 50, 50)]);
+    expect(packed).toHaveLength(2);
+    expect(packed.find((p) => p.interval.id === 'point')!.concurrent).toBe(1);
+    expect(packed.every((p) => p.row !== null)).toBe(true);
+  });
+
+  it('does not lose a malformed interval whose end precedes its start', () => {
+    // Failing visibly beats silently repairing evidence: the interval keeps the
+    // offsets it was given, and nothing pretends they are sensible.
+    const packed = packIntervals([span('a', 0, 100), span('backwards', 80, 20)]);
+    expect(packed).toHaveLength(2);
+    const bad = packed.find((p) => p.interval.id === 'backwards')!;
+    expect(bad.interval.startOffsetMs).toBe(80);
+    expect(bad.interval.endOffsetMs).toBe(20);
+  });
+
+  it('keeps duplicate ids as separate entries rather than collapsing them', () => {
+    const packed = packIntervals([span('same', 0, 50), span('same', 10, 60)]);
+    expect(packed).toHaveLength(2);
+    expect(packed.map((p) => p.row)).toEqual([0, 1]);
+  });
+
+  it('handles an interval at offset zero and one ending at the duration', () => {
+    const packed = packIntervals([span('start', 0, 10), span('end', 90, 100)]);
+    expect(packed.map((p) => p.row)).toEqual([0, 0]);
+  });
+
+  it('keeps a hundred overlapping visits bounded and complete', () => {
+    const many = Array.from({ length: 100 }, (_, i) => span(`v${i}`, i, 1_000));
+    const packed = packIntervals(many);
+    expect(packed).toHaveLength(100);
+    expect(packed.filter((p) => p.row !== null)).toHaveLength(MAX_ZONE_SUBROWS);
+    // Every one of them is still an interval with its own identity.
+    expect(new Set(packed.map((p) => p.interval.id)).size).toBe(100);
+  });
+
+  it('lets a visit take a row again once the earlier crowd has ended', () => {
+    // Four concurrent at the start, but the last one begins after three have
+    // finished, so it is drawn rather than pushed into overflow.
+    const packed = packIntervals([
+      span('a', 0, 20), span('b', 1, 20), span('c', 2, 20), span('later', 30, 40),
+    ]);
+    expect(packed.find((p) => p.interval.id === 'later')!.row).toBe(0);
+    expect(packed.filter((p) => p.row === null)).toHaveLength(0);
+  });
+});
+
+describe('overflow spans', () => {
+  it('groups overflowed visits into disjoint runs', () => {
+    const packed = packIntervals([
+      ...['a', 'b', 'c', 'd'].map((id, i) => span(id, i, 50)),
+      ...['e', 'f', 'g', 'h'].map((id, i) => span(id, 100 + i, 150)),
+    ]);
+    const clusters = overflowClusters(packed);
+    expect(clusters).toHaveLength(2);
+    expect(clusters.map((c) => c.count)).toEqual([1, 1]);
+    // Disjoint, so one can never be drawn over the other.
+    expect(clusters[0].endOffsetMs).toBeLessThanOrEqual(clusters[1].startOffsetMs);
+  });
+
+  it('keeps several same-start overflowed visits in one span rather than one tick', () => {
+    const packed = packIntervals(
+      Array.from({ length: 6 }, (_, i) => span(`v${i}`, 10, 20 + i)),
+    );
+    const clusters = overflowClusters(packed);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].count).toBe(3);
+    // Each is still its own member, so none is merged away.
+    expect(new Set(clusters[0].members.map((m) => m.id)).size).toBe(3);
+  });
+
+  it('separates near-identical starts that do not overlap from those that do', () => {
+    const packed = packIntervals([
+      ...['a', 'b', 'c', 'd'].map((id, i) => span(id, 10 + i, 30)),
+      span('apart', 500, 520),
+    ]);
+    const clusters = overflowClusters(packed);
+    // Only the crowded run overflows; the distant one had a row free.
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].startOffsetMs).toBeLessThan(30);
+  });
+
+  it('has no spans when nothing overflowed', () => {
+    expect(overflowClusters(packIntervals([span('a', 0, 10), span('b', 5, 15)]))).toEqual([]);
   });
 });

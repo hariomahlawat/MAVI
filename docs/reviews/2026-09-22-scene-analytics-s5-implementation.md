@@ -37,9 +37,9 @@ The plan lists bounded zone packing under "pure evidence-model tests". It is imp
 
 A zone is where it was, for the whole media. The zone, line and crossing layers are therefore drawn whenever their layer is enabled, and `appliesNow` is true for all of them; the crossing's media time is stated in its description rather than implied by a glyph appearing and disappearing. This keeps the UI-5 rule that a layer never says "enabled" and "not drawn here" about something that is in fact on screen.
 
-### 2.4 Overflow is a tick, not a band
+### 2.4 Overflow is a span, not a tick
 
-An overflowed zone visit is drawn in the fixed overflow rail as a tick at its start offset, not as a band. A band there would paint over whatever already occupies the rail, which is the occlusion the cap exists to prevent. The visit keeps its own list item, its own name, its own offsets and its own position, so the exact persisted interval can still be identified and highlighted; the rail states how many visits it holds.
+Originally an overflowed zone visit was drawn as a tick at its start offset. That was wrong for the case overflow exists to serve — visits that start together, whose ticks land on one another — and was replaced in the repair pass (§7A.5). The rail now draws **one band per disjoint span of overflowed visits**, carrying that span's own count, and an overflowed visit takes no position of its own. Every one of them remains an individual control in the rail's disclosure, and singling one out draws it at its exact persisted offsets on the rail's own row.
 
 ### 2.5 Names degrade to identifiers, never to another revision
 
@@ -138,15 +138,77 @@ The bytes are **encoded from a JSON fixture at serve time** rather than committe
 
 ---
 
+## 7A. Post-review repair pass
+
+Two independent passes were made over the pushed head `cf6da56` — a second internal cold review and an external one. Six substantive findings came out of them. Each is corrected below with the discriminating test that fails on `cf6da56` and passes now.
+
+### 7A.1 Loitering was stated as excess dwell when it is total dwell (P1)
+
+`loiteringDwellMs` is the **total** dwell the engine attributes to the loitering judgement, not the amount by which it exceeded the threshold. The explanation rendered it as *"2m 20s past 1m 00s"*, which reads as 3m 20s of dwell — overstating the excess by exactly the threshold.
+
+The analytical fact is not reinterpreted. Only the sentence changed:
+
+> Loitering: **2m 20s dwell against a 1m 00s threshold**
+
+Discriminating test: a case where total and excess differ materially (140s against 60s), alongside a near-threshold case (61s against 60s) where the old wording happened to look plausible.
+
+### 7A.2 Direction cues were perpendicular in the wrong space (P2)
+
+The two crossing-direction rays took their normal from **normalised** coordinates and then used it as a **pixel** offset. Projection scales x and y by different amounts whenever the content rectangle is not square, so the cue sat visibly off the perpendicular for any line that is not axis-aligned — which is most real trip lines, and worst under letterbox or pillarbox.
+
+The Scene Editor already draws this correctly and says why. Rather than write a second geometry algorithm, `arrowHead` was extracted from `SceneCanvas.tsx` into `scene-editor/lineDirection.ts` beside the normals it already exported, and both surfaces now call the same helpers on **projected pixel endpoints**. Projection is a positive axis-aligned scaling, so the *side* a normal points to is unchanged: this is still the side the engine calls A to B, asserted against `crossProduct` rather than against a second copy of the convention.
+
+Discriminating tests: unit tests measuring the angle at letterbox, pillarbox and square content rectangles on a diagonal line (`toBeCloseTo(90, 4)`), and a visual-QA assertion that measures the rendered angle in the overlay's own projected coordinates. Standing the pre-fix arithmetic back up makes the harness report **68°/112° under letterbox and 75°/105° under pillarbox** across all four acceptance widths. A horizontal-only test passes either way, which is why there is no horizontal-only test.
+
+### 7A.3 Two opposing rays collapse without hue (P2)
+
+A plain ray each way is one undirected line as soon as the two hues cannot be told apart. No colour was added. Each ray now carries an **arrowhead** and the operator's **own word** for that direction (`aToBLabel`/`bToALabel`, falling back to `A → B`/`B → A`) — the Scene Editor's existing grammar, not a new one. The letters at the ends say which end is A; these say which way is which.
+
+The harness now fails a directed line whose cue has no arrowhead `polygon` or no non-empty `text`.
+
+### 7A.4 Marker separation assumed Review's width (P2)
+
+`MARKER_COLLISION_RATIO = 0.035` was derived from Review's ~690px timeline. The Investigation inspector is much narrower, so the same offsets are far closer together in pixels and 24px targets overlapped there. Worse, the "best row" fallback reused an occupied row even when the chosen gap was still under the threshold, which placed a control the operator could not click.
+
+The ratio is gone. The rail **measures itself** through a `ResizeObserver` and derives separation as `MARKER_TARGET_PX / actualTimelineWidth`; the fallback width `ASSUMED_TRACK_WIDTH_PX = 400` is deliberately the narrow case, so an unmeasured rail errs towards staggering. The packer now **never places a colliding control**: a marker with no clear row goes to the disclosure instead, at its own exact offset. Different offsets are never merged into one seek destination; only markers sharing one exact millisecond cluster, and that control names every fact it carries.
+
+Discriminating tests include wide→narrow and narrow→wide resize as rendered-component tests (a stubbed `ResizeObserver` and a changing rectangle), same-offset clustering, 1ms-apart non-clustering, media half a second long, and "every marker is a control somewhere, and no two do the same thing".
+
+### 7A.5 Overflow was not recoverable (P2, internal)
+
+Three defects in one: per-visit ticks occluded each other at the same or near-identical starts; the `+N` count was one global total rather than span-aware; and overflowed visits were not individually focusable or selectable.
+
+The rail is now **span-aware**. `overflowClusters` merges transitively overlapping overflowed intervals into **disjoint spans**, each drawn as one band carrying its own count. An overflowed item takes **no position** on the rail (`__unplaced`) rather than a tick that lands on a neighbour. A `<details>` disclosure makes **every** overflowed visit and **every** overflowed marker its own control, and selecting one draws it as a `__shown` band at its **exact persisted offsets** — one at a time, on the overflow rail's own row, so recovery can never add a row or cover another visit.
+
+This supersedes the P3 deferral recorded in §10 of the original write-up.
+
+### 7A.6 "Concurrent" claimed overlaps that never happened
+
+`PackedInterval.concurrent` counted how many other intervals overlapped an interval *anywhere*, which is not concurrency: A–B and B–C can each overlap B without the three ever coexisting. Three distinct quantities are now distinguished:
+
+| Quantity | Meaning | Where it is used |
+|---|---|---|
+| pairwise overlap | two intervals share any time | internal packing decisions |
+| **maximum instantaneous concurrency** | the most intervals simultaneously open at any instant of this interval | `PackedInterval.concurrent` |
+| overflow-span concurrency | how many visits the span holds | what the `+N` band states |
+
+The UI states the **overflow-span** figure when describing overflow, because that is the question the badge answers. Discriminating test: a chain whose pairwise tally is 3 and whose true maximum concurrency is 2.
+
+### 7A.7 One harness defect, found by the repair
+
+The new `review-overflow-selected` state reported the zone lane using four sub-rows. It was not: the singled-out band is a highlight on the **fixed overflow rail**, which exists whether or not anything is shown. The sub-row count now excludes it and two sharper invariants replace the loose one — at most one singled-out band at a time, and it must sit on the overflow rail's own row. Strictly more precise, so the cap is still gated.
+
+---
+
 ## 8. Validation
 
 | Gate | Result |
 |---|---|
-| Web Vitest | 715 tests across 49 files, green |
+| Web Vitest | 747 tests across 49 files, green |
 | `tsc -b` | clean |
 | `vite build` | clean |
 | `python tools/verify_repo.py` | clean |
-| §26 visual QA | 358 state/viewport combinations, no findings |
+| §26 visual QA | 386 state/viewport combinations, no findings |
 
 Backend and .NET suites were not run: no backend, contract or shared file is touched. The one API-shaped change is a **test-only** harness route.
 
@@ -161,7 +223,7 @@ Backend and .NET suites were not run: no backend, contract or shared file is tou
 ## 10. Deferred
 
 - **Slice 7 (recorded, unchanged):** the browser's `parseTrajectory` validates finite coordinates but does not enforce normalised `[0,1]` centres as strictly as the worker and the application decoder do. Correct worker output cannot reach that path, so it is not a Slice-5 blocker.
-- **P3, new:** the overflow rail's aggregate count is stated once for the whole rail rather than per concurrent span. With the capped three sub-rows a span with more than three concurrent visits is already unusual, and the semantic list names every visit individually, so per-span counts would add layout for a case that has no evidence behind it yet. Worth revisiting if real scenes produce sustained high concurrency.
+- ~~**P3:** the overflow rail's aggregate count is stated once for the whole rail rather than per concurrent span.~~ **Closed** in the repair pass (§7A.5): the rail is span-aware and every overflowed visit is individually recoverable.
 
 ---
 

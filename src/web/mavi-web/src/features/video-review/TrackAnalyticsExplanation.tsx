@@ -133,9 +133,17 @@ export default function TrackAnalyticsExplanation({
                   {summary.loitering ? (
                     <>
                       {' · '}
+                      {/*
+                        `loiteringDwellMs` is the *total* dwell the rule measured,
+                        not the amount by which it exceeded the threshold. Calling
+                        all of it "past" the threshold overstated the excess by a
+                        whole threshold's worth — 140s against a 60s rule read as
+                        though the Track had loitered 140s too long. The persisted
+                        fact is a total, so it is stated as one.
+                      */}
                       <span className="text-warn">
-                        Loitering: {formatDuration(summary.loiteringDwellMs)} past
-                        {' '}{formatDuration(summary.loiteringThresholdSeconds * 1000)}
+                        Loitering: {formatDuration(summary.loiteringDwellMs)} dwell
+                        {' '}against a {formatDuration(summary.loiteringThresholdSeconds * 1000)} threshold
                       </span>
                     </>
                   ) : null}

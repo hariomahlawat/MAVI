@@ -107,13 +107,47 @@ export type PackedInterval = {
   interval: EvidenceTimelineInterval;
   /** Visual sub-row, or `null` when it went to the fixed overflow rail. */
   row: number | null;
-  /** How many intervals in this family positively overlap it, itself included. */
+  /**
+   * The largest number of intervals that are inside this one *at the same
+   * instant*, itself included.
+   *
+   * Not a count of how many intervals it overlaps somewhere along its length.
+   * A visit that overlaps one interval early and a different one late never
+   * shared a moment with both, and calling it "one of three concurrent visits"
+   * would claim a three-way overlap that never happened — a claim about the
+   * evidence, not about the drawing.
+   */
   concurrent: number;
 };
 
 /** Two spans share time, rather than merely touching at an endpoint. */
 function overlaps(a: EvidenceTimelineInterval, b: EvidenceTimelineInterval): boolean {
   return a.startOffsetMs < b.endOffsetMs && b.startOffsetMs < a.endOffsetMs;
+}
+
+/**
+ * The most intervals that share any one instant inside `interval`.
+ *
+ * Concurrency can only rise at a start, so probing the starts of the intervals
+ * that overlap this one is enough to find the peak. Bounded evidence makes the
+ * quadratic sweep the right trade for code that is obviously correct.
+ */
+function maxConcurrencyDuring(
+  interval: EvidenceTimelineInterval,
+  all: readonly EvidenceTimelineInterval[],
+): number {
+  const overlapping = all.filter((other) => other === interval || overlaps(interval, other));
+  let highest = 1;
+  for (const probe of overlapping) {
+    const at = Math.max(probe.startOffsetMs, interval.startOffsetMs);
+    if (at >= interval.endOffsetMs) continue;
+    const here = overlapping.reduce(
+      (count, other) => count + (other.startOffsetMs <= at && at < other.endOffsetMs ? 1 : 0),
+      0,
+    );
+    if (here > highest) highest = here;
+  }
+  return highest;
 }
 
 /**
@@ -144,10 +178,7 @@ export function packIntervals(
   // on a row can conflict.
   const rows: EvidenceTimelineInterval[] = [];
   return sorted.map((interval) => {
-    const concurrent = sorted.reduce(
-      (count, other) => count + (other === interval || overlaps(interval, other) ? 1 : 0),
-      0,
-    );
+    const concurrent = maxConcurrencyDuring(interval, sorted);
 
     let row: number | null = null;
     for (let index = 0; index < maxRows; index += 1) {
@@ -163,17 +194,61 @@ export function packIntervals(
 }
 
 /**
- * How near two markers must be before their 24px targets collide.
+ * One run of overflowed intervals that overlap each other.
  *
- * Expressed as a fraction of the media, because the timeline is laid out in
- * percentages and its pixel width is not known when the markers are placed.
- * The figure is the worst case the layout actually produces: at 1366x768 the
- * Review timeline is about 690px wide, and 24/690 is a little under 3.5%.
- * Staggering two markers that would not in fact have collided on a wider
- * display costs nothing; failing to stagger two that do makes one of them
- * unclickable.
+ * Clusters are **disjoint by construction**: two intervals that share time end
+ * up in the same cluster, so two clusters can never overlap and their bands can
+ * never paint over one another. That is what makes the overflow rail one row
+ * that shows real spans rather than a pile of ticks, and it is why the count a
+ * cluster states is the concurrency *of that span* rather than a total for the
+ * whole timeline — a total says nothing about where the evidence is dense.
  */
-export const MARKER_COLLISION_RATIO = 0.035;
+export type IntervalCluster = {
+  id: string;
+  startOffsetMs: number;
+  endOffsetMs: number;
+  /** How many overflowed intervals this span holds. */
+  count: number;
+  members: EvidenceTimelineInterval[];
+};
+
+/** Group the intervals that did not fit into disjoint, non-overlapping spans. */
+export function overflowClusters(packed: readonly PackedInterval[]): IntervalCluster[] {
+  const overflowed = packed
+    .filter((entry) => entry.row === null)
+    .map((entry) => entry.interval)
+    .sort((a, b) => a.startOffsetMs - b.startOffsetMs || (a.id < b.id ? -1 : 1));
+
+  const clusters: IntervalCluster[] = [];
+  for (const interval of overflowed) {
+    const open = clusters[clusters.length - 1];
+    // Touching at an endpoint is not overlapping, so it starts a new span.
+    if (open && interval.startOffsetMs < open.endOffsetMs) {
+      open.endOffsetMs = Math.max(open.endOffsetMs, interval.endOffsetMs);
+      open.count += 1;
+      open.members.push(interval);
+      continue;
+    }
+    clusters.push({
+      id: `overflow-${interval.id}`,
+      startOffsetMs: interval.startOffsetMs,
+      endOffsetMs: interval.endOffsetMs,
+      count: 1,
+      members: [interval],
+    });
+  }
+  return clusters;
+}
+
+/**
+ * The track width assumed before the element has been measured.
+ *
+ * Deliberately the *narrow* case — the Investigation inspector's drawer, not
+ * Review's wider column — because assuming a wide track under-staggers, and an
+ * under-staggered marker is one the operator cannot click. The real width
+ * replaces this as soon as the element is measured.
+ */
+export const ASSUMED_TRACK_WIDTH_PX = 400;
 
 /** How many rows the marker rail may use. Fixed, so the rail height never grows. */
 export const MAX_MARKER_ROWS = 3;
@@ -187,24 +262,44 @@ export type PlacedMarker = {
   row: number;
 };
 
+export type MarkerLayout = {
+  /** Controls placed on the rail. No two of these can overlap. */
+  placed: PlacedMarker[];
+  /**
+   * Markers too dense to place without covering another control. They are not
+   * dropped and not merged: each keeps its own exact offset and is offered as
+   * its own control in the overflow disclosure, so every marker stays
+   * separately activatable however dense the evidence gets.
+   */
+  overflow: EvidenceTimelineMarker[];
+};
+
 /**
  * Lay markers out so every one of them stays independently activatable.
  *
- * Two rules, in order. Markers at *exactly* the same offset become one control:
- * they have one common exact destination, so a second control would be a second
- * button that does the same thing, and the cluster's accessible name carries
- * every item at that instant. Markers at *different* offsets always stay
- * separate controls — they seek to different places — and are staggered onto
- * different rows when their targets would otherwise overlap.
+ * Markers at *exactly* the same offset become one control: they have one common
+ * exact destination, so a second button would do the same thing, and the
+ * cluster's accessible name carries every item at that instant. Markers at
+ * *different* offsets are never merged — they seek to different places — and are
+ * staggered onto different rows when their targets would otherwise overlap.
  *
- * The rail is bounded: a marker that cannot find a clear row takes the row whose
- * nearest neighbour is furthest away, which is deterministic and is the best
- * available separation rather than an unbounded new row.
+ * The rail is bounded at {@link MAX_MARKER_ROWS} rows, and a marker that cannot
+ * find a row with real clearance is **not placed at all**. An earlier version
+ * fell back to the row with the largest gap, which still put two 24px targets
+ * on top of each other once four markers packed tightly enough; the one
+ * underneath was then unclickable, which is exactly the failure the staggering
+ * exists to prevent. Density beyond the rail goes to the disclosure instead.
+ *
+ * `trackWidthPx` is the **measured** width of the rendered track. The threshold
+ * has to come from it rather than from a constant, because this component is
+ * reused in the Investigation inspector, whose track is far narrower than
+ * Review's: the same offsets are that much closer together in pixels there.
  */
 export function layOutMarkers(
   markers: readonly EvidenceTimelineMarker[],
   durationMs: number,
-): PlacedMarker[] {
+  trackWidthPx = 0,
+): MarkerLayout {
   // Sorted by offset alone. `sort` is stable, so markers sharing an offset keep
   // the order the caller supplied — which is the order their evidence reads in
   // — while controls at different offsets are still ordered deterministically.
@@ -220,23 +315,31 @@ export function layOutMarkers(
     clusters.push({ marker, cluster: [marker], row: 0 });
   }
 
-  const separation = durationMs > 0 ? durationMs * MARKER_COLLISION_RATIO : 0;
-  // The offset of the last control placed on each row.
+  // The media span that one control's target covers at the measured width.
+  const width = trackWidthPx > 0 ? trackWidthPx : ASSUMED_TRACK_WIDTH_PX;
+  const separation = durationMs > 0 ? durationMs * (MARKER_TARGET_PX / width) : 0;
+
   const lastOnRow: number[] = [];
-  for (const placed of clusters) {
-    let chosen = 0;
-    let bestGap = -1;
+  const placed: PlacedMarker[] = [];
+  const overflow: EvidenceTimelineMarker[] = [];
+  for (const candidate of clusters) {
+    let chosen = -1;
     for (let row = 0; row < MAX_MARKER_ROWS; row += 1) {
       const previous = lastOnRow[row];
-      if (previous === undefined) { chosen = row; bestGap = Number.POSITIVE_INFINITY; break; }
-      const gap = placed.marker.offsetMs - previous;
-      if (gap >= separation) { chosen = row; bestGap = Number.POSITIVE_INFINITY; break; }
-      if (gap > bestGap) { bestGap = gap; chosen = row; }
+      if (previous === undefined || candidate.marker.offsetMs - previous >= separation) {
+        chosen = row;
+        break;
+      }
     }
-    placed.row = chosen;
-    lastOnRow[chosen] = placed.marker.offsetMs;
+    if (chosen === -1) {
+      overflow.push(...candidate.cluster);
+      continue;
+    }
+    candidate.row = chosen;
+    lastOnRow[chosen] = candidate.marker.offsetMs;
+    placed.push(candidate);
   }
-  return clusters;
+  return { placed, overflow };
 }
 
 /**

@@ -115,10 +115,32 @@ describe('facts', () => {
     expect(panel).toHaveTextContent('Loading bay · 1 visit · dwell 4s');
   });
 
-  it('states loitering with the threshold it passed', () => {
-    // "Loitering" alone is an accusation without a measurement; the threshold
-    // is what lets an operator judge it.
-    expect(show(rich)).toHaveTextContent('Loitering: 2m 20s past 1m 00s');
+  it('states loitering as total dwell against the threshold, not as excess', () => {
+    // `loiteringDwellMs` is the *total* dwell the rule measured. Calling all of
+    // it "past" the threshold overstated the excess by a whole threshold's
+    // worth: 140s against a 60s rule read as though the Track had loitered 140s
+    // too long, when it was 80s. The two numbers differ materially here, which
+    // is the point of the case.
+    const panel = show(rich);
+    expect(panel).toHaveTextContent('Loitering: 2m 20s dwell against a 1m 00s threshold');
+    expect(panel.textContent).not.toContain('2m 20s past');
+
+    // Both figures are present and distinguishable, so an operator can work out
+    // the excess; the UI does not silently assert it.
+    expect(panel).toHaveTextContent('2m 20s');
+    expect(panel).toHaveTextContent('1m 00s');
+  });
+
+  it('does not call a dwell that barely passed the threshold a long one', () => {
+    const panel = show(analysedAnalytics({
+      zoneSummaries: [zoneSummary({
+        visitCount: 1, totalDwellMs: 61_000, loitering: true,
+        loiteringDwellMs: 61_000, loiteringThresholdSeconds: 60,
+      })],
+    }));
+    // One second over. The wording has to make that visible rather than
+    // reading as "61 seconds past a 60 second threshold".
+    expect(panel).toHaveTextContent('Loitering: 1m 01s dwell against a 1m 00s threshold');
   });
 
   it('lists each visit of a zone that was entered more than once', () => {

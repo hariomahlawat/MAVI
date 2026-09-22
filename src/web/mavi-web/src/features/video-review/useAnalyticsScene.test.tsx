@@ -158,6 +158,53 @@ describe('pinned analytics scene revision', () => {
     await waitFor(() => expect(screen.getAllByTestId('state')[1].textContent).toMatch(/^ready:/));
   });
 
+  it('cannot bind a previous Track\'s revision to the Track now selected', async () => {
+    // The operator moves on before the first answer arrives. The reply to
+    // Track A's request lands while Track B is on screen; if it were allowed to
+    // settle into the surface, B's facts would be drawn over A's geometry for
+    // as long as it took B's own request to finish, and nothing would say so.
+    let releaseA: (() => void) | undefined;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).includes('/revisions/4')) {
+        return new Promise<Response>((resolve) => {
+          releaseA = () => resolve(new Response(JSON.stringify(sceneRevision()), {
+            status: 200, headers: { 'content-type': 'application/json' },
+          }));
+        });
+      }
+      return respond(sceneRevision({ revisionNumber: 5, revisionId: OTHER_REVISION_ID }));
+    });
+
+    const trackB = analysedAnalytics({ sceneRevisionNumber: 5, sceneRevisionId: OTHER_REVISION_ID });
+    const queryClient = createMaviQueryClient();
+    queryClient.setDefaultOptions({ queries: { retry: false, refetchOnWindowFocus: false } });
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <Probe cameraId={CAMERA_ID} analytics={analysedAnalytics()} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(state()).toBe('loading:4'));
+
+    // Track B selected while A's request is still open.
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <Probe cameraId={CAMERA_ID} analytics={trackB} />
+      </QueryClientProvider>,
+    );
+    // Not A's geometry, and not a stale "ready" from the identity just left:
+    // the new Track is honestly unresolved until its own revision arrives.
+    expect(state()).toBe('loading:5');
+
+    releaseA?.();
+    await waitFor(() => expect(state()).toBe(`ready:5:${OTHER_REVISION_ID}:zones=1`));
+
+    // A's answer settled in its own immutable cache entry and never reached the
+    // surface: the revision number is part of the key, so the two identities
+    // cannot overwrite one another.
+    expect(state()).not.toContain(ANALYSED_REVISION_ID);
+    expect(state()).not.toContain('ready:4');
+  });
+
   it('asks nothing without a camera', () => {
     renderProbe({ cameraId: undefined, analytics: analysedAnalytics() });
     expect(state()).toBe('none');

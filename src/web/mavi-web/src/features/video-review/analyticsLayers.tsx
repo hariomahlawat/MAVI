@@ -1,7 +1,7 @@
 import type { EvidenceLayer } from '../../shared/evidence/layers';
 import type { ReactNode } from 'react';
 import { projectPoint, type PixelRect } from '../../shared/evidence/projection';
-import { aToBNormal, bToANormal } from '../scene-editor/lineDirection';
+import { aToBNormal, arrowHead, bToANormal } from '../scene-editor/lineDirection';
 import type { TrackAnalyticsEvidenceModel } from './analyticsEvidence';
 
 /**
@@ -124,29 +124,53 @@ function lineLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
   };
 }
 
-/** The two travel directions that count as a crossing, drawn across the line. */
+/**
+ * The two travel directions that count as a crossing, drawn across the line.
+ *
+ * **Computed in projected pixel space.** Projection scales x and y by different
+ * amounts whenever the content rectangle is not square — which is most of the
+ * time, since evidence video rarely matches the panel it is shown in — so a
+ * normal taken in normalised coordinates and then used as a pixel offset sits
+ * visibly off the perpendicular for any line that is not axis-aligned. The
+ * Scene Editor already draws it this way and says so; this is the same
+ * arithmetic on the same helpers, not a second one.
+ *
+ * Projection is a positive axis-aligned scaling, so the *side* a normal points
+ * to is unchanged by it: this is still the side the engine calls A to B.
+ *
+ * **Direction survives without colour.** Two plain opposing rays collapse into
+ * one undirected line as soon as their hues cannot be told apart, so each ray
+ * carries an arrowhead and the operator's own word for that direction. The
+ * letters at the ends say which end is A; these say which way is which.
+ */
 function directionCue(
   entry: TrackAnalyticsEvidenceModel['lines'][number],
   a: { x: number; y: number },
   b: { x: number; y: number },
 ) {
-  const toB = aToBNormal(entry.line.a, entry.line.b);
-  const toA = bToANormal(entry.line.a, entry.line.b);
+  const toB = aToBNormal(a, b);
+  const toA = bToANormal(a, b);
   if (!toB || !toA) return null;
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   const reach = 14;
+  const ray = (
+    direction: { x: number; y: number },
+    kind: 'atob' | 'btoa',
+    label: string,
+  ) => {
+    const tip = { x: mid.x + direction.x * reach, y: mid.y + direction.y * reach };
+    return (
+      <g className={`evidence-line__dir evidence-line__dir--${kind}`} data-testid={`evidence-line-${kind}`}>
+        <line x1={mid.x} y1={mid.y} x2={tip.x} y2={tip.y} />
+        <polygon points={arrowHead(tip.x, tip.y, direction.x, direction.y)} />
+        <text x={mid.x + direction.x * (reach + 12)} y={mid.y + direction.y * (reach + 12)}>{label}</text>
+      </g>
+    );
+  };
   return (
     <>
-      <line
-        className="evidence-line__dir evidence-line__dir--atob"
-        x1={mid.x} y1={mid.y}
-        x2={mid.x + toB.x * reach} y2={mid.y + toB.y * reach}
-      />
-      <line
-        className="evidence-line__dir evidence-line__dir--btoa"
-        x1={mid.x} y1={mid.y}
-        x2={mid.x + toA.x * reach} y2={mid.y + toA.y * reach}
-      />
+      {ray(toB, 'atob', entry.line.aToBLabel || 'A → B')}
+      {ray(toA, 'btoa', entry.line.bToALabel || 'B → A')}
     </>
   );
 }

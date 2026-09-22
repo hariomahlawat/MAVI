@@ -128,23 +128,116 @@ describe('overlay evidence grammar', () => {
     expect(points(svg.querySelector('.evidence-crossing__glyph'))).toHaveLength(4);
   });
 
-  it('labels the endpoints with letters so direction survives a monochrome view', () => {
+  it('labels the endpoints with letters so orientation survives a monochrome view', () => {
     const svg = draw('analytics-lines', PILLARBOX);
     const letters = [...svg.querySelectorAll('.evidence-line__endpoint')].map((n) => n.textContent);
     expect(letters).toEqual(['A', 'B']);
-    // The travel directions that count as a crossing are perpendicular to the
-    // line, matching the engine's own convention.
-    const cues = svg.querySelectorAll('.evidence-line__dir');
-    expect(cues).toHaveLength(2);
-    const horizontalLine = { x1: 0.1, x2: 0.9 };
-    expect(horizontalLine.x1).toBeLessThan(horizontalLine.x2);
-    // A horizontal line's cues must move vertically, never along it.
-    for (const cue of cues) {
-      expect(Number(cue.getAttribute('x1'))).toBeCloseTo(Number(cue.getAttribute('x2')), 5);
-      expect(Number(cue.getAttribute('y1'))).not.toBeCloseTo(Number(cue.getAttribute('y2')), 1);
-    }
   });
 
+  it('distinguishes the two crossing directions without relying on hue', () => {
+    // A and B say which end is which; they do not say which perpendicular ray
+    // is the A-to-B crossing. Two plain opposing rays collapse into one
+    // undirected line as soon as their hues cannot be told apart, so each ray
+    // carries an arrowhead and the operator's own word for that direction.
+    const svg = draw('analytics-lines', PILLARBOX);
+    const atob = svg.querySelector('[data-testid="evidence-line-atob"]')!;
+    const btoa = svg.querySelector('[data-testid="evidence-line-btoa"]')!;
+
+    for (const ray of [atob, btoa]) {
+      // An arrowhead: three points, so the ray has a head and a tail.
+      expect(points(ray.querySelector('polygon'))).toHaveLength(3);
+    }
+    // And the operator's own words, which is what actually names the direction.
+    expect(atob.querySelector('text')?.textContent).toBe('Inbound');
+    expect(btoa.querySelector('text')?.textContent).toBe('Outbound');
+  });
+
+  it('falls back to neutral direction wording when the line has no labels', () => {
+    const unlabelled = buildAnalyticsEvidence(
+      analysedAnalytics(),
+      sceneRevision({ zones: [], tripLines: [sceneTripLine({ aToBLabel: '', bToALabel: '' })] }),
+    );
+    const layer = analyticsLayers(unlabelled).find((l) => l.id === 'analytics-lines')!;
+    const view = render(<svg>{layer.render(PILLARBOX, 0)}</svg>);
+    const texts = [...view.container.querySelectorAll('.evidence-line__dir text')].map((n) => n.textContent);
+    expect(texts).toEqual(['A → B', 'B → A']);
+  });
+});
+
+/** The angle between two vectors, in degrees. */
+function angleBetween(u: { x: number; y: number }, v: { x: number; y: number }): number {
+  const dot = u.x * v.x + u.y * v.y;
+  const magnitude = Math.hypot(u.x, u.y) * Math.hypot(v.x, v.y);
+  return Math.acos(Math.max(-1, Math.min(1, dot / magnitude))) * (180 / Math.PI);
+}
+
+describe('direction cues are perpendicular in the space they are drawn in', () => {
+  // A diagonal line is the case that exposes the defect: projection scales x
+  // and y by different amounts, so a normal taken in normalised coordinates and
+  // used as a pixel offset is not perpendicular to the *rendered* line. An
+  // axis-aligned line hides this completely, which is why the original test
+  // passed while the geometry was wrong.
+  const diagonal = buildAnalyticsEvidence(
+    analysedAnalytics(),
+    sceneRevision({
+      zones: [],
+      tripLines: [sceneTripLine({ a: { x: 0.15, y: 0.2 }, b: { x: 0.85, y: 0.9 } })],
+    }),
+  );
+
+  function measure(frame: typeof PILLARBOX) {
+    const layer = analyticsLayers(diagonal).find((l) => l.id === 'analytics-lines')!;
+    const view = render(<svg>{layer.render(frame, 0)}</svg>);
+    const segment = view.container.querySelector('.evidence-line__segment')!;
+    const along = {
+      x: Number(segment.getAttribute('x2')) - Number(segment.getAttribute('x1')),
+      y: Number(segment.getAttribute('y2')) - Number(segment.getAttribute('y1')),
+    };
+    const rays = [...view.container.querySelectorAll('.evidence-line__dir line')].map((ray) => ({
+      x: Number(ray.getAttribute('x2')) - Number(ray.getAttribute('x1')),
+      y: Number(ray.getAttribute('y2')) - Number(ray.getAttribute('y1')),
+    }));
+    view.unmount();
+    return { along, rays };
+  }
+
+  it.each([
+    ['pillarboxed', PILLARBOX],
+    ['letterboxed', LETTERBOX],
+    ['square', contentRect(600, 600, 600, 600)],
+  ])('keeps both cues perpendicular to the drawn line on %s evidence', (_name, frame) => {
+    const { along, rays } = measure(frame);
+    expect(rays).toHaveLength(2);
+    for (const ray of rays) {
+      expect(angleBetween(along, ray)).toBeCloseTo(90, 4);
+    }
+    // And they point to opposite sides of it, so they are two directions.
+    expect(angleBetween(rays[0], rays[1])).toBeCloseTo(180, 4);
+  });
+
+  it('keeps the A-to-B cue on the side the engine calls A to B', () => {
+    // Projection is a positive axis-aligned scaling, so it cannot flip which
+    // side of the line a point is on. The rendered cue must therefore agree
+    // with the engine's own cross-product convention.
+    const { along, rays } = measure(LETTERBOX);
+    // Image axes put y downwards, so the A-to-B side is where the cross product
+    // of the line direction with the vector to the point is negative.
+    const cross = along.x * rays[0].y - along.y * rays[0].x;
+    expect(cross).toBeLessThan(0);
+  });
+
+  it('draws no cue for an undirected line', () => {
+    const undirected = buildAnalyticsEvidence(
+      analysedAnalytics(),
+      sceneRevision({ zones: [], tripLines: [sceneTripLine({ directed: false })] }),
+    );
+    const layer = analyticsLayers(undirected).find((l) => l.id === 'analytics-lines')!;
+    const view = render(<svg>{layer.render(PILLARBOX, 0)}</svg>);
+    expect(view.container.querySelectorAll('.evidence-line__dir')).toHaveLength(0);
+  });
+});
+
+describe('overlay evidence grammar, continued', () => {
   it('names the crossing layer Crossings, not Events', () => {
     // Stage-7 defines behaviour events; a persisted line crossing is a
     // geometric fact, and borrowing the word now would pull that vocabulary

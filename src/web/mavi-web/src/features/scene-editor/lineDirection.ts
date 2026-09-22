@@ -59,3 +59,21 @@ export function crossProduct(a: ScenePoint, b: ScenePoint, point: ScenePoint): n
 export function midpoint(a: ScenePoint, b: ScenePoint): ScenePoint {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
+
+/**
+ * A triangular head for a direction ray, pointing along `(dx, dy)`.
+ *
+ * Takes the direction it is given rather than deriving one, so the caller
+ * decides which space it is in — and every caller works in **projected pixel**
+ * space, because that is the only space in which "perpendicular" means what the
+ * operator sees.
+ */
+export function arrowHead(x: number, y: number, dx: number, dy: number, size = 5): string {
+  const nx = -dy;
+  const ny = dx;
+  return [
+    `${x + dx * size},${y + dy * size}`,
+    `${x - dx * size + nx * size * 0.7},${y - dy * size + ny * size * 0.7}`,
+    `${x - dx * size - nx * size * 0.7},${y - dy * size - ny * size * 0.7}`,
+  ].join(' ');
+}

@@ -309,17 +309,47 @@
   );
 }
 
-/* A visit that did not fit the capped sub-rows. Drawn as a tick at its start,
-   not as a band: a band here would paint over whatever already occupies the
-   rail, which is the occlusion the cap exists to prevent. */
+/* One band per run of overflowed visits, spanning the time they actually cover
+   and carrying that span's own concurrency. Runs are disjoint by construction,
+   so two of these can never paint over one another. Hatched like the zone lane
+   it belongs to, but fainter, because it is an aggregate rather than one fact. */
 .evidence-timeline__overflow {
-  width: 2px; height: 4px; background: var(--geo-zone); transform: translateX(-1px);
+  height: 4px; border-radius: var(--r-pill);
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--geo-zone) 55%, transparent) 0 2px,
+    transparent 2px 5px
+  );
 }
-.evidence-timeline__overflow-count { position: absolute; right: 0; height: 4px; list-style: none; }
 .evidence-timeline__overflow-badge {
-  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  position: absolute; left: 100%; top: 50%; transform: translateY(-50%);
+  margin-left: var(--s-1);
   color: var(--text-muted); font-size: var(--fs-0); font-variant-numeric: tabular-nums;
-  background: var(--surface-base); padding-inline: var(--s-1);
+}
+/* One singled-out overflowed visit, drawn at its exact offsets over the rail so
+   the interval can be seen rather than only read. Only ever one at a time. */
+.evidence-timeline__shown {
+  background: var(--geo-zone);
+  outline: var(--stroke-1) solid var(--text-primary);
+}
+/* An overflowed visit keeps its name in the list and takes no position on the
+   rail. Only the band is suppressed — deleting the item would delete the name
+   with it, and the whole point is that the evidence stays reachable. */
+.evidence-timeline__unplaced { position: static; height: 0; background: none; }
+
+/* Everything the rail could not place, as real controls. */
+.evidence-timeline__dense { border-top: none; }
+.evidence-timeline__dense summary { font-size: var(--fs-0); color: var(--text-muted); }
+.evidence-timeline__dense-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-1); }
+.evidence-timeline__dense-list button {
+  width: 100%; text-align: left; min-height: var(--control-h-sm);
+  background: none; border: var(--stroke-hair) solid var(--border-subtle); border-radius: var(--r-1);
+  color: var(--text-secondary); font-size: var(--fs-0); cursor: pointer;
+  padding-block: var(--s-1); padding-inline: var(--s-2);
+}
+.evidence-timeline__dense-list button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-inner); }
+.evidence-timeline__dense-list button[aria-pressed='true'] {
+  border-color: var(--accent); color: var(--text-primary);
 }
 
 /* A lane whose presentation is not yet decided is named but not drawn.
@@ -408,10 +438,23 @@
   stroke-linejoin: round;
 }
 .evidence-line[data-enabled='false'] .evidence-line__endpoint { fill: var(--status-neutral); }
-.evidence-line__dir { stroke-width: var(--stroke-2); vector-effect: non-scaling-stroke; }
-.evidence-line__dir--atob { stroke: var(--geo-dir-ab); }
-.evidence-line__dir--btoa { stroke: var(--geo-dir-ba); }
-.evidence-line[data-enabled='false'] .evidence-line__dir { stroke: var(--status-neutral); }
+/* The two travel directions that count as a crossing. The arrowhead and the
+   operator's own word for the direction are what distinguish them; the hues are
+   a second cue, not the only one, because two plain opposing rays collapse into
+   one undirected line as soon as their colours cannot be told apart. */
+.evidence-line__dir line { stroke-width: var(--stroke-2); vector-effect: non-scaling-stroke; }
+.evidence-line__dir text {
+  font: 600 var(--fs-0) var(--font-ui); text-anchor: middle; dominant-baseline: middle;
+  paint-order: stroke; stroke: var(--evidence-matte); stroke-width: var(--evidence-halo-w);
+  stroke-linejoin: round;
+}
+.evidence-line__dir--atob line, .evidence-line__dir--atob polygon { stroke: var(--geo-dir-ab); fill: var(--geo-dir-ab); }
+.evidence-line__dir--atob text { fill: var(--geo-dir-ab); }
+.evidence-line__dir--btoa line, .evidence-line__dir--btoa polygon { stroke: var(--geo-dir-ba); fill: var(--geo-dir-ba); }
+.evidence-line__dir--btoa text { fill: var(--geo-dir-ba); }
+.evidence-line[data-enabled='false'] .evidence-line__dir line,
+.evidence-line[data-enabled='false'] .evidence-line__dir polygon { stroke: var(--status-neutral); fill: var(--status-neutral); }
+.evidence-line[data-enabled='false'] .evidence-line__dir text { fill: var(--status-neutral); }
 
 /* The crossing point: the decision-2a evidence role, on a diamond so the shape
    carries the distinction when the hue cannot. Direction is a dashed versus

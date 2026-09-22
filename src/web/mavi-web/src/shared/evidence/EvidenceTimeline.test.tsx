@@ -1,10 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import featuresCss from '../../styles/features.css?raw';
 import EvidenceTimeline from './EvidenceTimeline';
 import {
   MAX_MARKER_ROWS,
+  layOutMarkers,
   STATIONARY_LANE,
   SUBJECT_LANE,
   ZONE_LANE,
@@ -303,6 +304,71 @@ describe('dense markers stay usable', () => {
     expect(rows.size).toBeLessThanOrEqual(MAX_MARKER_ROWS);
   });
 
+  it('never places a marker on a row where its target would still collide', async () => {
+    const user = userEvent.setup();
+    // Four markers packed tighter than one target's worth of media. Three rows
+    // can hold three of them; the fourth has nowhere clear to go. The earlier
+    // layout fell back to "the row with the largest gap" even when that gap was
+    // still under the threshold, which put two 24px buttons on top of each
+    // other and made the lower one unclickable.
+    const onSeek = renderTimeline(vi.fn(), {
+      markers: [0, 1, 2, 3].map((n) => ({
+        id: `d${n}`, offsetMs: 30_000 + n * 20, label: `Crossed ${n}`, kind: 'crossing',
+      })),
+    });
+
+    const placed = screen.getAllByRole('listitem').filter((i) => i.className.includes('__marker'));
+    expect(placed).toHaveLength(3);
+    // Every placed control is on a row of its own, so none covers another.
+    expect(new Set(placed.map((i) => i.style.top)).size).toBe(3);
+
+    // And the one that could not be placed is still separately activatable,
+    // at its own exact offset — not merged into another control, not dropped.
+    const control = screen.getByRole('button', { name: /Seek to Crossed 3: 00:30.0/ });
+    await user.click(control);
+    expect(onSeek).toHaveBeenCalledExactlyOnceWith(30_060);
+  });
+
+  it('measures the track rather than assuming Review is the only host', () => {
+    // The same offsets are far closer together in pixels in the narrower
+    // Investigation inspector, so a threshold derived from Review's width
+    // under-staggers there and the operator cannot hit the markers.
+    const narrow = layOutMarkers(
+      [0, 1, 2].map((n) => ({ id: `n${n}`, offsetMs: 1_000 + n * 2_000, label: `m${n}`, kind: 'crossing' })),
+      100_000,
+      400,
+    );
+    const wide = layOutMarkers(
+      [0, 1, 2].map((n) => ({ id: `n${n}`, offsetMs: 1_000 + n * 2_000, label: `m${n}`, kind: 'crossing' })),
+      100_000,
+      1_600,
+    );
+
+    // 2s apart in a 100s media is 2% of the track. At 1600px that is 32px, so
+    // three 24px targets fit in one row; at 400px it is 8px, so they must
+    // stagger.
+    expect(wide.placed.map((p) => p.row)).toEqual([0, 0, 0]);
+    expect(narrow.placed.map((p) => p.row)).toEqual([0, 1, 2]);
+    expect(narrow.overflow).toHaveLength(0);
+  });
+
+  it('keeps every marker reachable however dense, without unbounded rows', () => {
+    const many = Array.from({ length: 12 }, (_, index) => ({
+      id: `m${index}`, offsetMs: 30_000 + index * 20, label: `Crossed ${index}`, kind: 'crossing',
+    }));
+    renderTimeline(vi.fn(), { markers: many });
+
+    const placed = screen.getAllByRole('listitem').filter((i) => i.className.includes('__marker'));
+    expect(placed.length).toBeLessThanOrEqual(MAX_MARKER_ROWS);
+    // Every one of the twelve is a control somewhere — on the rail where there
+    // was clearance, in the disclosure where there was not — so none is merged
+    // away or left unreachable.
+    const controls = screen.getAllByRole('button', { name: /Seek to Crossed/ });
+    expect(controls).toHaveLength(12);
+    // And each names its own destination, so no two do the same thing.
+    expect(new Set(controls.map((c) => c.getAttribute('title') ?? c.textContent)).size).toBe(12);
+  });
+
   it('clusters only what shares one exact destination, and names all of it', async () => {
     const user = userEvent.setup();
     // Two facts at the same instant: leaving one zone and entering the next.
@@ -331,6 +397,109 @@ describe('dense markers stay usable', () => {
     });
     // One millisecond apart is still two destinations, so it stays two controls.
     expect(screen.getAllByRole('button')).toHaveLength(2);
+  });
+});
+
+describe('the rail re-measures when its host changes width', () => {
+  /**
+   * jsdom implements neither `ResizeObserver` nor layout, so a resize has to be
+   * staged: one stub that remembers the callback, and a rectangle the test
+   * changes underneath it. The component sees exactly the sequence a real
+   * browser delivers — observe, then a callback after the box changed.
+   */
+  function stageResize(width: number) {
+    const callbacks: Array<() => void> = [];
+    class StubResizeObserver {
+      constructor(callback: () => void) { callbacks.push(callback); }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', StubResizeObserver);
+    setTrackWidth(width);
+    return (next: number) => {
+      setTrackWidth(next);
+      act(() => { for (const callback of callbacks) callback(); });
+    };
+  }
+
+  function setTrackWidth(width: number) {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 100, top: 0, right: 100 + width, bottom: 22,
+      width, height: 22, x: 100, y: 0, toJSON: () => ({}),
+    } as DOMRect);
+  }
+
+  /** Three crossings 2s apart in a 100s media: 2% of the track, whatever it is. */
+  const spaced = [0, 1, 2].map((n) => ({
+    id: `s${n}`, offsetMs: 1_000 + n * 2_000, label: `Crossed ${n}`, kind: 'crossing',
+  }));
+
+  const rowsOnRail = () => new Set(
+    screen.getAllByRole('listitem')
+      .filter((item) => item.className.includes('__marker'))
+      .map((item) => item.style.top),
+  );
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('staggers markers that stop fitting when the host narrows', async () => {
+    const user = userEvent.setup();
+    const resizeTo = stageResize(1_600);
+    const onSeek = renderTimeline(vi.fn(), { markers: spaced });
+
+    // 32px apart at 1600px: three 24px targets sit side by side on one row.
+    expect(rowsOnRail().size).toBe(1);
+
+    resizeTo(400);
+
+    // 8px apart at 400px: side by side they would overlap, so they stagger.
+    expect(rowsOnRail().size).toBe(3);
+    // And each still seeks to its own persisted millisecond after the relayout.
+    await user.click(screen.getByRole('button', { name: /Seek to Crossed 2: 00:05.0/ }));
+    expect(onSeek).toHaveBeenCalledExactlyOnceWith(5_000);
+  });
+
+  it('collapses the stagger again when the host widens', async () => {
+    const user = userEvent.setup();
+    const resizeTo = stageResize(400);
+    const onSeek = renderTimeline(vi.fn(), { markers: spaced });
+
+    expect(rowsOnRail().size).toBe(3);
+
+    resizeTo(1_600);
+
+    // Rows exist to avoid collisions, not for their own sake: once there is
+    // room the rail flattens rather than keeping a stagger nothing needs.
+    expect(rowsOnRail().size).toBe(1);
+    await user.click(screen.getByRole('button', { name: /Seek to Crossed 0: 00:01.0/ }));
+    expect(onSeek).toHaveBeenCalledExactlyOnceWith(1_000);
+  });
+
+  it('keeps every marker reachable in media too short to separate them', async () => {
+    const user = userEvent.setup();
+    stageResize(400);
+    // Half a second of media with three crossings in it. No width separates
+    // them, so the rail cannot hold all three — and all three must still be
+    // controls that seek to their own offset, including one at zero and one at
+    // the very end of the media.
+    const onSeek = renderTimeline(vi.fn(), {
+      durationMs: 500,
+      currentOffsetMs: 0,
+      intervals: [],
+      markers: [
+        { id: 'a', offsetMs: 0, label: 'Crossed A', kind: 'crossing' },
+        { id: 'b', offsetMs: 240, label: 'Crossed B', kind: 'crossing' },
+        { id: 'c', offsetMs: 500, label: 'Crossed C', kind: 'crossing' },
+      ],
+    });
+
+    const controls = screen.getAllByRole('button', { name: /Seek to Crossed/ });
+    expect(controls).toHaveLength(3);
+    await user.click(screen.getByRole('button', { name: /Seek to Crossed C/ }));
+    expect(onSeek).toHaveBeenCalledExactlyOnceWith(500);
   });
 });
 
@@ -372,21 +541,92 @@ describe('analytical lane families (decision 7)', () => {
     expect(new Set(drawn.map((i) => i.style.top)).size).toBe(3);
   });
 
-  it('sends a fourth concurrent visit to the overflow rail with its count, keeping its identity', () => {
+  it('sends a fourth concurrent visit to the overflow rail and keeps it named', () => {
     renderTimeline(vi.fn(), { intervals: zoneVisits });
     const zoneItems = screen.getAllByRole('listitem').filter((i) => i.dataset.lane === ZONE_LANE);
     expect(zoneItems).toHaveLength(4);
 
     const overflowed = zoneItems.filter((i) => i.dataset.drawn === 'overflow');
     expect(overflowed).toHaveLength(1);
-    // Still named individually, still positioned at its own start: the exact
-    // persisted interval can be identified and highlighted.
+    // Still named individually with its exact offsets.
     expect(overflowed[0].textContent).toContain('In Dock for 8s');
     expect(overflowed[0].textContent).toContain('00:22.0 to 00:30.0');
-    expect(overflowed[0].textContent).toContain('one of 4 overlapping visits');
-    expect(overflowed[0].style.left).not.toBe('');
-    // And the rail says how much is aggregated there.
+    // It takes no position of its own on the rail: ticks at true starts covered
+    // each other whenever two overflowed visits began together.
+    expect(overflowed[0].style.left).toBe('');
+    // The rail carries one band for the span, with that span's concurrency.
     expect(screen.getByText('+1')).toBeInTheDocument();
+  });
+
+  it('aggregates overflow by span, not as one total for the whole timeline', () => {
+    // Two separate bursts of concurrency, far apart. A single total would say
+    // "+4" somewhere on the right and tell the operator nothing about where the
+    // evidence is dense.
+    const burst = (at: number, index: number) => ([0, 1, 2, 3, 4].map((n) => ({
+      id: `b${index}-${n}`,
+      startOffsetMs: at + n * 100,
+      endOffsetMs: at + 5_000,
+      label: `Visit ${index}-${n}`,
+      lane: ZONE_LANE,
+    })));
+    renderTimeline(vi.fn(), { intervals: [...burst(10_000, 0), ...burst(60_000, 1)] });
+
+    const bands = document.querySelectorAll('.evidence-timeline__overflow');
+    expect(bands).toHaveLength(2);
+    // Each band states its own span's concurrency, and covers its own span.
+    for (const band of bands) {
+      expect(band.getAttribute('data-concurrent')).toBe('2');
+      expect((band as HTMLElement).style.width).not.toBe('');
+    }
+    // The two bands are disjoint, so neither can paint over the other.
+    const [first, second] = [...bands].map((b) => (b as HTMLElement).style.left);
+    expect(first).not.toBe(second);
+    expect(screen.getAllByText('+2')).toHaveLength(2);
+  });
+
+  it('clusters overflowed visits that start together instead of stacking ticks', () => {
+    // Four visits with the *same* start. The earlier drawing gave each a 2px
+    // tick at its start, so all four landed on the same pixel and three were
+    // invisible.
+    renderTimeline(vi.fn(), {
+      intervals: [0, 1, 2, 3].map((n) => ({
+        id: `same-${n}`, startOffsetMs: 10_000, endOffsetMs: 20_000 + n * 1_000,
+        label: `Visit ${n}`, lane: ZONE_LANE,
+      })),
+    });
+    const bands = document.querySelectorAll('.evidence-timeline__overflow');
+    expect(bands).toHaveLength(1);
+    expect(bands[0].getAttribute('data-concurrent')).toBe('1');
+    // And the one that overflowed is still named in the list.
+    const overflowed = screen.getAllByRole('listitem')
+      .filter((i) => i.dataset.drawn === 'overflow');
+    expect(overflowed).toHaveLength(1);
+    expect(overflowed[0].textContent).toMatch(/Visit \d/);
+  });
+
+  it('lets the operator recover one exact overflowed interval', async () => {
+    const user = userEvent.setup();
+    const onSeek = renderTimeline(vi.fn(), { intervals: zoneVisits });
+
+    // Every overflowed visit is its own control, so none of them is merely
+    // aggregated away.
+    const control = screen.getByRole('button', { name: /In Dock for 8s: 00:22.0 to 00:30.0/ });
+    expect(control).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(control);
+    // Singling it out seeks to its entry and draws it at its exact offsets.
+    expect(onSeek).toHaveBeenCalledWith(22_000);
+    expect(control).toHaveAttribute('aria-pressed', 'true');
+    const shown = document.querySelector('[data-shown="true"]') as HTMLElement;
+    expect(shown).toBeTruthy();
+    expect(shown.textContent).toContain('In Dock for 8s');
+    expect(shown.style.left).not.toBe('');
+    expect(shown.style.width).not.toBe('');
+
+    // Only ever one at a time, so singling one out can never add a row.
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(1);
+    await user.click(control);
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(0);
   });
 
   it('keeps the timeline height bounded however many visits overlap', () => {
@@ -404,7 +644,7 @@ describe('analytical lane families (decision 7)', () => {
           onSeek={vi.fn()}
         />,
       );
-      const height = view.getByRole('list').style.height;
+      const height = view.getByRole('list', { name: /timeline evidence/ }).style.height;
       view.unmount();
       return height;
     };

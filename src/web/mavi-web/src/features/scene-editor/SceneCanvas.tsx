@@ -11,7 +11,7 @@ import {
 import type { ScenePoint } from '../../api/scene';
 import { SCENE_LIMITS } from '../../api/scene';
 import { contentRect, isInsideFrame, projectPoint, unprojectPoint, type PixelRect } from '../../shared/evidence/projection';
-import { aToBNormal, alongLine, bToANormal, midpoint } from './lineDirection';
+import { aToBNormal, alongLine, arrowHead, bToANormal, midpoint } from './lineDirection';
 import type { Drawing, EditorTool, Selection } from './editorState';
 import type { DraftTripLine, DraftZone, SceneDraft } from './sceneDraft';
 
@@ -504,18 +504,6 @@ function LineShape({
       ) : null}
     </g>
   );
-}
-
-/** A small filled head at the tip of a direction indicator. */
-function arrowHead(x: number, y: number, dx: number, dy: number): string {
-  const size = 5;
-  const nx = -dy;
-  const ny = dx;
-  return [
-    `${x + dx * size},${y + dy * size}`,
-    `${x - dx * size + nx * size * 0.7},${y - dy * size + ny * size * 0.7}`,
-    `${x - dx * size - nx * size * 0.7},${y - dy * size - ny * size * 0.7}`,
-  ].join(' ');
 }
 
 function DrawingPreview({
