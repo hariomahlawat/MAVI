@@ -79,7 +79,7 @@ Representative cameras/videos/runs/Tracks/facts/geometries/evidence for normal o
 
 At least `10^5` relevant facts; increasing Track/fact volume, window width, geometry count, bucket count through normal values toward 512, heatmap runs 1/5/10/25/50, and candidate Analysed Tracks increasing to near 2,000.
 
-**Corpus integrity:** synthetic rows obey real visibility/revision/relational invariants. Heatmap tests use sealed artifacts with real SHA-256 metadata and the accepted storage seam. Each corpus records deterministic seed/config and a reproducible manifest.
+**Corpus integrity:** synthetic rows obey real visibility/revision/relational invariants. Pure deterministic geometry/temporal fixtures must also reproduce the parent-plan cross-OS contract: identical facts on Windows and Linux CI, comparing doubles after the frozen six-decimal rounding. Heatmap tests use sealed artifacts with real SHA-256 metadata and the accepted storage seam. Each corpus records deterministic seed/config and a reproducible manifest.
 
 ## 7. Semantic end-to-end golden matrix
 
@@ -89,7 +89,7 @@ Explicitly verify unique Tracks vs repeated visits, entry/exit/direction, sample
 
 ## 8. PostgreSQL 18 plan qualification
 
-On C2/C3 capture `EXPLAIN (ANALYZE, BUFFERS)` for analytical Track search; each predicate family and meaningful combinations; coverage; zone/dwell/stationary; crossing/direction; counts; occupancy/peak; repeated visits; class-filtered aggregates; heatmap scope/candidate resolution.
+On C2/C3 capture `EXPLAIN (ANALYZE, BUFFERS)` for analytical Track search; each §S predicate family and meaningful combinations; coverage; zone/dwell/stationary; crossing/direction; each §T aggregate; repeated visits; class-filtered aggregates; heatmap scope/candidate resolution. **The parent §Z requirement is explicit: measure the latency of every §S predicate and every §T aggregate at `10^5` facts**, not merely an aggregate-only 100k-fact case.
 
 Record planning/execution time, actual/estimated rows, buffers, scan types, sort/hash, spills and API query count.
 
