@@ -8,9 +8,9 @@
 
 ## 1. Qualification status, stated first
 
-**PostgreSQL 18 qualification is PASS for the §S/§T, synthetic analytical-unit, and heatmap-envelope streams recorded in §6.** Earlier PostgreSQL 16 observations remain labelled as observations and are not reused as qualification evidence.
+**PostgreSQL 18 qualification is BLOCKED pending an exact-head rerun from a pushed, repository-reachable PR #71 commit.** Earlier PostgreSQL 16 observations and the superseded local PostgreSQL 18 pass remain labelled as observations and are not qualification evidence for this head.
 
-The harness does not rely on a reader remembering this. `QualificationGate.CaptureEnvironmentAsync` reads the live `server_version`, records it beside every result, and computes `isQualificationGradeDatabase`, which is `false` for every run in this document.
+The harness does not rely on a reader remembering this. `QualificationGate.CaptureEnvironmentAsync` reads the live `server_version`, records it beside every result, and computes `isQualificationGradeDatabase`. It is `false` for the PostgreSQL 16 engineering observations in §4 and `true` for valid PostgreSQL 18 qualification runs in §6.
 
 ## 2. Harnesses built
 
@@ -111,7 +111,7 @@ Every harness now routes its expectations through `QualificationVerdict`, which 
 - **Integrity** — the measurement did not exercise its subject. Fatal on any server, because a harness that measured the wrong thing is broken on PostgreSQL 16 just as much as on 18.
 - **Prerequisite** — the run is real but cannot be called qualification evidence (server version, corpus volume, workload shape). Fatal only on the required server; elsewhere recorded, and the run stays an engineering observation.
 
-Every expectation is written into the evidence file beside the numbers it qualifies, and the file names its own status: `qualification evidence`, `engineering observation — not qualification evidence`, or `qualification failure`. The governing rule is that no evidence is better than false evidence, so an unmet expectation fails the run — and the evidence is still written, so the failure can be investigated.
+Every expectation is written into the evidence file beside the numbers it qualifies, and the file names its own status: `qualification evidence`, `engineering observation — not qualification evidence`, or `qualification failure`. The governing rule is that no evidence is better than false evidence, so an unmet expectation fails the run — and the evidence is still written, so the failure can be investigated. Qualification-grade runs additionally require a clean working tree and a reported SHA that resolves to a local commit object; pushed/repository reachability remains an external handoff check because qualification must also work offline.
 
 ## 4. Engineering observations (PostgreSQL 16.15, NOT qualification)
 
@@ -144,14 +144,14 @@ Cost is dominated by evidence I/O rather than grid size, which is what the desig
 
 ## 6. Independent PostgreSQL 18 qualification
 
-**Status: PASS.** Qualification was executed on code commit `4d110490b3413eda5cd36c171581c6560314ffc0`; the subsequent documentation-only commit does not alter the measured binary. Raw JSON and console logs are retained outside Git at `/tmp/mavi-qual-4d11049/` and `/tmp/mavi-qual-4d11049.log`; they are intentionally not committed.
+**Status: superseded; requalification required.** The measurements below came from the earlier local pass and are retained only as historical observations. Review established that its claimed SHA was not repository-reachable, so they are not qualification evidence for PR #71. A new PostgreSQL 18 run must be made from the final pushed PR head; only that exact-head run may restore PASS.
 
 ### Reference environment and method
 
 - Ubuntu 24.04.4 LTS, Linux 6.18.44, x86-64; Intel Xeon Platinum 8272CL; 3 host-visible CPUs / 2 .NET process-available cores; 17 GiB RAM; overlay filesystem with 32 GiB total and 29 GiB free. No host or PostgreSQL tuning was performed.
 - PostgreSQL `18.6 (Ubuntu 18.6-1.pgdg24.04+2)`, pgvector `0.8.6`; `shared_buffers=128MB`, `work_mem=4MB`, `effective_cache_size=4GB`, `maintenance_work_mem=64MB`, `max_parallel_workers_per_gather=2`, `random_page_cost=4`, `jit=on`; native Ubuntu cluster, no container/resource limit added.
-- .NET 10.0.12; deterministic seed `20260922`. Corpus setup was excluded from per-query timing. §S/§T ran sequentially after corpus construction. Heatmap retained the first call per width as `cold-ish` and made two further warm calls; no fastest-run selection.
-- Command: `MAVI_QUALIFICATION=1 MAVI_QUALIFICATION_OUT=/tmp/mavi-qual-4d11049 MAVI_TEST_DB_CONNECTION=... dotnet test tests/Mavi.IntegrationTests/Mavi.IntegrationTests.csproj --no-restore --filter '<the three qualification facts>'`. All three facts passed in 2.52 minutes.
+- .NET 10.0.12; deterministic seed `20260922`. Corpus setup was excluded from per-query timing. §S/§T ran sequentially after corpus construction. In the single heatmap process only the first overall call is `cold-ish`; all eight subsequent calls are `warm`. No fastest-run selection.
+- Superseded command: `MAVI_QUALIFICATION=1 MAVI_QUALIFICATION_OUT=/tmp/mavi-qual-4d11049 MAVI_TEST_DB_CONNECTION=... dotnet test tests/Mavi.IntegrationTests/Mavi.IntegrationTests.csproj --no-restore --filter '<the three qualification facts>'`. Its timings below are retained only to explain the prior decision; they do not qualify PR #71.
 
 ### §S and plans
 

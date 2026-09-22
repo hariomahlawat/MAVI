@@ -17,7 +17,7 @@
 
 Consequences, stated once and applied throughout this slice's documents:
 
-- The independent PostgreSQL 18 §S/§T, analytical-unit and heatmap streams are **PASS** on code commit `4d110490b3413eda5cd36c171581c6560314ffc0`.
+- PostgreSQL 18 qualification is **BLOCKED** until the repaired harness is pushed and rerun from the final repository-reachable PR #71 head. The prior local SHA and its files are superseded observations, not qualification evidence.
 - Real-worker Development acceptance remains **NOT EXECUTED — environment blocked**; PostgreSQL qualification does not waive it.
 
 ## 2. What was built
@@ -100,4 +100,4 @@ The §T aggregate issues **10 database round trips** per call, not the four fact
 
 ## 7. PostgreSQL 18 evidence disposition
 
-The live reader snapshot saw all 40 generated runs, and every §S predicate selected meaningful rows. Class-filtered §T populations differed and partitioned the deterministic Person/Vehicle population. A deliberately undersized PostgreSQL 18 smoke run failed closed (including empty heading cases and the 100,000-fact prerequisite), while the default 110,000-fact run emitted `qualification evidence`. The three raw files are `plan-qualification.json`, `analytics-unit-throughput.json`, and `heatmap-envelope.json`; the final exact-head copies are retained under `/tmp/mavi-qual-final-head/`. They are environment artefacts and are not committed.
+The superseded local PostgreSQL 18 pass observed all 40 runs and meaningful §S/§T populations, but its commit provenance was not repository-reachable and therefore cannot qualify PR #71. Its raw files must not be reused. Fresh `plan-qualification.json`, `analytics-unit-throughput.json`, and `heatmap-envelope.json` files are required after the repaired final head is pushed.

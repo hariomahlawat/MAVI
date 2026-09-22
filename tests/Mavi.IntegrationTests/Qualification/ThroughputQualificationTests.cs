@@ -93,6 +93,7 @@ public sealed class ThroughputQualificationTests(PostgresFixture fixture)
 
         var environment = await QualificationGate.CaptureEnvironmentAsync(fixture.ConnectionString);
         var verdict = new QualificationVerdict(QualificationGate.IsQualificationGrade(environment));
+        QualificationGate.RequireRepositoryProvenance(verdict, environment);
         var runId = QualificationGate.NewRunId();
         QualificationGate.Begin(EvidenceFile, runId, environment);
 
@@ -248,6 +249,7 @@ public sealed class ThroughputQualificationTests(PostgresFixture fixture)
 
         var environment = await QualificationGate.CaptureEnvironmentAsync(fixture.ConnectionString);
         var verdict = new QualificationVerdict(QualificationGate.IsQualificationGrade(environment));
+        QualificationGate.RequireRepositoryProvenance(verdict, environment);
         var runId = QualificationGate.NewRunId();
         QualificationGate.Begin(HeatmapEvidenceFile, runId, environment);
 
@@ -291,10 +293,12 @@ public sealed class ThroughputQualificationTests(PostgresFixture fixture)
             "candidate Tracks are the product's maximum", AnalyticsQueryRules.MaximumHeatmapTracks, scope.CandidateTrackCount);
 
         var measurements = new List<object>();
+        var invocation = 0;
         foreach (var gridWidth in HeatmapGridWidths)
         {
             for (var repetition = 1; repetition <= HeatmapRepetitions; repetition++)
             {
+                invocation++;
                 var stopwatch = Stopwatch.StartNew();
                 var result = await service.HeatmapAsync(
                     new AnalyticsHeatmapQuery(
@@ -330,7 +334,8 @@ public sealed class ThroughputQualificationTests(PostgresFixture fixture)
                 {
                     gridWidth,
                     repetition,
-                    cacheState = repetition == 1 ? "cold-ish" : "warm",
+                    invocation,
+                    cacheState = invocation == 1 ? "cold-ish" : "warm",
                     failure = result.Failure.ToString(),
                     elapsedMs = stopwatch.Elapsed.TotalMilliseconds,
                     cells = result.Grid is null ? 0 : result.Grid.Width * result.Grid.Height,

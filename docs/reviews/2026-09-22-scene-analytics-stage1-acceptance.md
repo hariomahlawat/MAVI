@@ -8,7 +8,7 @@
 
 ## Verdict
 
-**Stage 1 is NOT closed.** The PostgreSQL 18 qualification streams are complete, but mandatory non-PG18 exit-gate evidence and one measured aggregate-materialisation P2 remain open. Nothing in this document, and nothing in the roadmaps, claims otherwise.
+**Stage 1 is NOT closed.** PostgreSQL 18 qualification for PR #71 is blocked pending a rerun from a pushed, repository-reachable final head; mandatory non-PG18 evidence and the aggregate-materialisation P2 also remain open.
 
 This slice is **partially complete**. What was executed is recorded truthfully below; what was not is explicitly marked and is not waived, re-scoped or softened.
 
@@ -22,11 +22,11 @@ PostgreSQL 18.6 with pgvector 0.8.6 was executed natively on Ubuntu 24.04.4 LTS 
 |---|---|---|
 | 1 | Stage-1 functional acceptance met | **NOT EXECUTED** — depends on 2–6, 15 |
 | 2 | C1 agrees across trajectory/facts/search/explanation/aggregate/heatmap/UI | **PARTIAL.** C1 is built and passing across trajectory → facts → §S search → §T aggregate (`SemanticAcceptanceTests`, expected answers hand-derived from the frozen rules before running). The trace does **not** extend to the bounded explanation, the heatmap or the UI projection |
-| 3 | PG18 plan/timing for every §S predicate and §T aggregate at 10^5 facts | **PASS.** PostgreSQL 18.6, 110,000 facts, all 23 §S cases and all nine §T bucket/class cases with generated SQL and `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)` |
-| 4 | Analytics-unit duration/rows for Development corpus and synthetic 1,000-Track run | **PARTIAL.** Synthetic 1,000-Track PostgreSQL 18 run PASS: 1,000 analysed, 0 unavailable, 7,576 facts in 4.089 s. Real Development scripted corpus remains NOT EXECUTED |
-| 5 | Aggregate 10^5-fact qualification | **PASS with carried P2.** All nine cases completed; full-path timing, DB/app split, allocation and GC observations recorded. The unbounded materialisation design remains an open P2 |
-| 6 | Heatmap 50-run/candidate envelope | **PASS.** Exactly 50 covered runs, 2,000 candidates/contributors and 48,000 samples; three repetitions at each of 48/96/128 widths |
-| 7 | Both fan-out limits have evidence-backed decisions | **PASS.** Retain 50 runs / 2,000 Tracks; measured safely below one second without treating one machine as grounds to raise/remove protection |
+| 3 | PG18 plan/timing for every §S predicate and §T aggregate at 10^5 facts | **BLOCKED.** Prior local measurements are superseded; rerun required from the pushed final PR #71 head |
+| 4 | Analytics-unit duration/rows for Development corpus and synthetic 1,000-Track run | **BLOCKED/PARTIAL.** Synthetic qualification must be rerun from the pushed final PR #71 head; real Development scripted corpus remains NOT EXECUTED |
+| 5 | Aggregate 10^5-fact qualification | **BLOCKED.** Exact-head rerun required; the unbounded materialisation design remains an open P2 |
+| 6 | Heatmap 50-run/candidate envelope | **BLOCKED.** Exact-head rerun required with only the first overall call labelled cold-ish |
+| 7 | Both fan-out limits have evidence-backed decisions | **BLOCKED** pending the exact-head heatmap rerun |
 | 8 | No demonstrated N+1/unbounded DB or evidence-I/O path | **PARTIAL.** N+1 disproven for the aggregate by an always-on test holding query count constant across geometry. **An unbounded materialisation path is OPEN (P2)** — see the security document |
 | 9 | Cancellation/failure proven at realistic volume | **NOT EXECUTED.** Failure and cancellation are tested, but only on a one-Track world; the harness to run them against the C3 corpus is not written, so this is engineering work as well as a blocked execution |
 | 10 | Snapshot/revision consistency under concurrency | **NOT EXECUTED** in this pass. Slice-4/6 barrier ordering tests exist; the deterministic race probes do not |
@@ -36,11 +36,11 @@ PostgreSQL 18.6 with pgvector 0.8.6 was executed natively on Ubuntu 24.04.4 LTS 
 | 14 | Operator workflow / accessibility / visual QA | **NOT EXECUTED** in this pass |
 | 15 | Development offline/real-worker acceptance | **NOT EXECUTED — environment blocked** |
 | 16 | No policy-violating dependency/runtime drift | **PASS** — no dependency added; `verify_repo.py` green |
-| 17 | Relevant suites green | **PASS** — see §Validation below. The only integration failures are the PostgreSQL 18 prerequisite assertion, reproduced and explained |
+| 17 | Relevant suites green | **PASS** — 644 integration tests passed on PostgreSQL 18.6; see §Validation below |
 | 18 | Documentation reflects measured reality | **PASS** for this pass's documents |
-| 19 | Independent cold review has no P1/P2 | **FAIL.** Harness false-green defects are repaired and requalified, but PostgreSQL 18 measurement confirms the pre-existing aggregate-materialisation P2 remains open pending a semantics-preserving bound/server-side design |
-| 20 | Zero unresolved material review threads | **PASS based on public REST state** — five author replies address the five automated findings; anonymous API access cannot independently read GitHub thread-resolution flags |
-| 21 | Exact-head CI green | **PASS at reviewed head `aa17a19a`** (quality, deterministic-validation, windows-script-validation). Local commits require new CI |
+| 19 | Independent cold review has no P1/P2 | **FAIL.** The reviewed false-green paths are repaired but await reachable-head requalification; the aggregate-materialisation P2 also remains open |
+| 20 | Zero unresolved material review threads | **PENDING.** The four PR #71 findings are repaired locally, but threads must not be resolved until the repair is pushed and the required exact-head evidence exists |
+| 21 | Exact-head CI green | **PENDING.** Parent-head checks do not qualify PR #71; this gate remains pending until every required workflow passes on the final pushed PR #71 head |
 
 ## Validation
 
@@ -70,4 +70,4 @@ Environment-bound items are listed with executable commands in the handoff repor
 
 ## PostgreSQL 18 qualification addendum
 
-Qualification code commit: `4d110490b3413eda5cd36c171581c6560314ffc0`. All three mandatory harness facts passed, and each JSON verdict says `qualification evidence`. This closes only the PostgreSQL measurement portion. It does not close the C1 explanation/heatmap/UI trace, realistic-volume cancellation and deterministic races, real-worker/runtime-pack/GPU/CPU Development acceptance, operator workflow, accessibility or visual QA.
+The prior local qualification SHA was not repository-reachable, so its three JSON verdicts are superseded and close no gate. The repaired harness must be pushed and all three workloads rerun from the final PR #71 head. It does not close the C1 explanation/heatmap/UI trace, realistic-volume cancellation and deterministic races, real-worker/runtime-pack/GPU/CPU Development acceptance, operator workflow, accessibility or visual QA.

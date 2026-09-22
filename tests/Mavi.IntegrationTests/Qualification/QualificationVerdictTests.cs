@@ -77,6 +77,21 @@ public sealed class QualificationVerdictTests
         var check = Assert.Single(verdict.Unmet);
         Assert.Equal("expected 1000, measured 40", check.Detail);
     }
+
+    [Fact]
+    public void DirtyOrUnresolvableSourceCannotProduceQualificationEvidence()
+    {
+        var verdict = new QualificationVerdict(qualificationGrade: true);
+
+        QualificationGate.RequireRepositoryProvenance(verdict, new Dictionary<string, string>
+        {
+            [QualificationGate.GitWorkingTreeCleanKey] = "false",
+            [QualificationGate.GitCommitObjectPresentKey] = "false",
+        });
+
+        Assert.Equal(2, verdict.BlockingFailures.Count);
+        Assert.Equal("qualification failure", verdict.Status);
+    }
 }
 
 /// <summary>The switch that decides whether the heavy pass runs at all.</summary>

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Diagnostics;
 using System.Text.Json;
 using Npgsql;
 
@@ -65,6 +66,33 @@ public static class QualificationGate
     }
 
     public const string QualificationGradeKey = "isQualificationGradeDatabase";
+
+    public const string GitWorkingTreeCleanKey = "gitWorkingTreeClean";
+
+    public const string GitCommitObjectPresentKey = "gitCommitObjectPresent";
+
+    /// <summary>Adds the source-provenance prerequisites shared by every heavy harness.</summary>
+    public static void RequireRepositoryProvenance(
+        QualificationVerdict verdict,
+        IReadOnlyDictionary<string, string> environment)
+    {
+        ArgumentNullException.ThrowIfNull(verdict);
+        ArgumentNullException.ThrowIfNull(environment);
+
+        var clean = environment.TryGetValue(GitWorkingTreeCleanKey, out var cleanValue)
+            && string.Equals(cleanValue, "true", StringComparison.Ordinal);
+        var commitPresent = environment.TryGetValue(GitCommitObjectPresentKey, out var presentValue)
+            && string.Equals(presentValue, "true", StringComparison.Ordinal);
+
+        verdict.RequireForQualification(
+            "the measured source tree is clean",
+            clean,
+            $"{GitWorkingTreeCleanKey}={cleanValue ?? "missing"}");
+        verdict.RequireForQualification(
+            "the reported Git SHA resolves to a local commit object",
+            commitPresent,
+            $"{GitCommitObjectPresentKey}={presentValue ?? "missing"}");
+    }
 
     /// <summary>Where evidence is written. Created on demand.</summary>
     public static string OutputDirectory
@@ -146,6 +174,9 @@ public static class QualificationGate
         environment["testAssembly"] = assembly.GetName().Name ?? "unknown";
         environment["testAssemblyModuleId"] = assembly.ManifestModule.ModuleVersionId.ToString("N");
         environment["testAssemblyBuiltUtc"] = SafeWriteTimeUtc(assembly.Location);
+        environment[GitWorkingTreeCleanKey] = RunGit("status --porcelain").Length == 0 ? "true" : "false";
+        environment[GitCommitObjectPresentKey] =
+            RunGit($"cat-file -t {environment["gitSha"]}") == "commit" ? "true" : "false";
 
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -223,6 +254,28 @@ public static class QualificationGate
             return File.Exists(refPath) ? File.ReadAllText(refPath).Trim() : "unknown";
         }
         catch (IOException)
+        {
+            return "unknown";
+        }
+    }
+
+    private static string RunGit(string arguments)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo("git", arguments)
+            {
+                WorkingDirectory = AppContext.BaseDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            });
+            if (process is null) return "unknown";
+            var output = process.StandardOutput.ReadToEnd().Trim();
+            process.WaitForExit();
+            return process.ExitCode == 0 ? output : "unknown";
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException)
         {
             return "unknown";
         }

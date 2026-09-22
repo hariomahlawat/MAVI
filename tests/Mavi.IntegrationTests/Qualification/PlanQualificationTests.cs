@@ -125,6 +125,7 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
 
         var environment = await QualificationGate.CaptureEnvironmentAsync(fixture.ConnectionString);
         var verdict = new QualificationVerdict(QualificationGate.IsQualificationGrade(environment));
+        QualificationGate.RequireRepositoryProvenance(verdict, environment);
         var runId = QualificationGate.NewRunId();
         QualificationGate.Begin(EvidenceFile, runId, environment);
 
