@@ -56,7 +56,7 @@ States: **Merged and verified** (on `main`, exact-head CI and cited evidence) ·
 | Sealed Track/observation/trajectory persistence | Merged and verified | Task 13; ADR-006 | Foundation for stage 1 |
 | Structured Track search with stable cursor snapshot; Search → inspector → Review → back | Merged and verified | Task 14, Task 16, PR #50 | Extended by stages 1, 2, 4, 8 |
 | Evidence playback with bounding-box and trajectory overlay; provenance panel | Merged and verified | Task 14, PR #50 | Reused by stage 1 to explain analytic matches |
-| Spatial & temporal Track analytics | **Next** | Trajectory data exists; no scene configuration or derived facts yet | Stage 1 — `2026-09-20-spatial-temporal-track-analytics.md` |
+| Spatial & temporal Track analytics | **Next — Slice 5 evidence UI** | Slices 0–4 are merged: scene configuration, deterministic derived facts, lifecycle/readiness, analytic search and identity-aware detail are present; UI-5 Evidence Player foundation is merged. Slice 5 makes those facts visually verifiable on Review/Investigation before aggregates/heatmap in Slice 6. | Stage 1 — parent plan + `2026-09-22-scene-analytics-s5-evidence-explanation.md` |
 | Visual attributes | Groundwork → Planned | `VisualAttribute` table, unpopulated | Stage 2 |
 | Expanded object / vehicle subclasses | Planned | Product semantics are person/vehicle | Stage 3 |
 | ANPR / OCR | Planned | No plate or OCR pipeline | Stage 4 |
@@ -139,9 +139,9 @@ Historical plans and evidence documents are never rewritten to match this roadma
 
 1. ~~Finish and merge PR #49~~ — merged as `ed1acf4`.
 2. ~~Establish the post-merge baseline~~ — §1.
-3. Spatial & Temporal Track Analytics: Slice 0 (ADR and contracts) then the bounded slices in its plan; stage dependencies and impacts per `capability-implementation-roadmap.md`. Slices 0–3 are done; Slice 3 (analytics lifecycle and derived facts) merged through PR #59.
+3. Spatial & Temporal Track Analytics: Slices 0–4 are merged. Slice 4 (search integration/readiness) merged as `b505a97`; UI-5 / PR #64 merged as `273718c`, so the next bounded implementation unit is **Slice 5 — Evidence overlays and explanation**, governed by `2026-09-22-scene-analytics-s5-evidence-explanation.md`. Post-PR-64 Task 17 Acceptance and MAVI Quality Gate are both green on exact `main@273718c`; the Slice-5 start gate is satisfied. After Slice 5: Slice 6 aggregates/heatmap, then Slice 7 hardening/acceptance.
 
-   **UI Foundation programme — inserted after Scene Analytics Slice 2, before Slice 3.** Strictly sequential: **UI-1 → UI-2 → UI-3 → UI-4 → UI-5**, defined in §33 of `docs/architecture/ui-ux-design-specification.md`. **UI-1, UI-2, UI-3 and UI-4 are merged**; UI-4 merged through PR #61 as `9dbd74d7`. Scene Analytics Slice 3 is merged through PR #59. Slice 4's Ledger and Investigation prerequisites are therefore satisfied; PR #61 post-merge Task 17 Acceptance #1010 and Quality Gate #1866 are green on exact `main`. **Slice 4 is implemented on `feature/scene-analytics-s4-search-readiness` and awaits its independent cold review (PR open, not merged)**; Slice 5 follows once it merges and UI-5 is in place. UI-5 remains required before Slice 5 evidence-overlay UI, while Slice 6 heatmap UI uses the UI-2 Workbench grammar. This programme is UI sequencing; it does not renumber Scene Analytics slices (0–7) or capability stages.
+   **UI Foundation programme is complete:** UI-1 → UI-5 are merged. Slice 5 must extend the one Evidence Player/timeline/layer contract established by UI-5; Slice 6 heatmap UI continues to use the UI-2 Workbench grammar. This UI sequencing does not renumber Scene Analytics slices (0–7) or capability stages.
 
 4. Visual Attributes.
 5. Expanded operational object / vehicle classes where useful.
