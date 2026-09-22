@@ -309,8 +309,10 @@ public sealed class AnalyticsAggregateRepository(MaviDbContext db) : IAnalyticsA
     /// <remarks>
     /// One definition, used by both the count that guards the work and the listing
     /// that does it, so the bound can never be measured against a different set from
-    /// the one that is read. A Track with no trajectory artefact is not a candidate:
-    /// there is nothing to open.
+    /// the one that is read. A Track whose artefact row has since been deleted stays
+    /// in the set: an <c>Analysed</c> outcome is only ever recorded after a trajectory
+    /// was read and hashed, so its absence now is an integrity failure to report, not
+    /// a Track to leave quietly out of the count and out of the map.
     /// </remarks>
     private IQueryable<HeatmapCandidateTrack> CandidateTracks(
         IQueryable<TrackCandidate> candidates,
@@ -323,12 +325,19 @@ public sealed class AnalyticsAggregateRepository(MaviDbContext db) : IAnalyticsA
                 x => new { TrackId = x.track.Id, AnalysisId = x.unit.Id },
                 outcome => new { outcome.TrackId, outcome.AnalysisId },
                 (x, outcome) => x)
-            .Where(x => x.track.TrajectoryArtifactId != null)
-            .Join(
+            // A left join, and deliberately so. `trajectory_artifact_id` is ON DELETE
+            // SET NULL, so removing an artefact row silently de-references the Track
+            // that was analysed from it. An inner join would drop that Track out of
+            // the candidate set and the map would come back thinner, with nothing
+            // saying why — which is exactly the "partial map presented as the answer"
+            // this slice refuses. The Track stays a candidate and the service rejects
+            // the missing reference.
+            .GroupJoin(
                 db.Artifacts.AsNoTracking(),
                 x => x.track.TrajectoryArtifactId,
                 artifact => (Guid?)artifact.Id,
-                (x, artifact) => new { x.track, x.video, artifact })
+                (x, artifacts) => new { x.track, x.video, artifacts })
+            .SelectMany(x => x.artifacts.DefaultIfEmpty(), (x, artifact) => new { x.track, x.video, artifact })
             // Ordered here rather than at the call site, so the order is part of the one
             // definition: two executions of the same scope read the same artefacts in the
             // same sequence and produce the same matrix.
@@ -336,5 +345,6 @@ public sealed class AnalyticsAggregateRepository(MaviDbContext db) : IAnalyticsA
             .Select(x => new HeatmapCandidateTrack(
                 x.track.Id,
                 x.video.RecordingStartUtc,
-                x.artifact.StorageKey));
+                x.artifact == null ? null : x.artifact.StorageKey,
+                x.artifact == null ? null : x.artifact.Sha256));
 }

@@ -91,24 +91,37 @@ describe('window presets', () => {
 });
 
 describe('queryProblem', () => {
+  const activity = { mode: 'activity' } as const;
+  const heatmap = { mode: 'heatmap' } as const;
+
   it('accepts an ordinary window', () => {
-    expect(queryProblem({ fromUtc: '2026-09-21T00:00:00Z', toUtc: '2026-09-21T02:00:00Z', bucketSeconds: 900 }))
+    expect(queryProblem({ ...activity, fromUtc: '2026-09-21T00:00:00Z', toUtc: '2026-09-21T02:00:00Z', bucketSeconds: 900 }))
       .toBeNull();
   });
 
-  it('refuses an empty or inverted window', () => {
-    expect(queryProblem({ fromUtc: '2026-09-21T02:00:00Z', toUtc: '2026-09-21T02:00:00Z', bucketSeconds: 900 }))
-      .toMatch(/after its start/);
+  it('refuses an empty or inverted window in either mode', () => {
+    const inverted = { fromUtc: '2026-09-21T02:00:00Z', toUtc: '2026-09-21T02:00:00Z', bucketSeconds: 900 } as const;
+    expect(queryProblem({ ...activity, ...inverted })).toMatch(/after its start/);
+    expect(queryProblem({ ...heatmap, ...inverted })).toMatch(/after its start/);
   });
 
   it('says what to do about a window that would overflow the response', () => {
     const problem = queryProblem({
+      ...activity,
       fromUtc: '2026-09-01T00:00:00Z',
       toUtc: '2026-09-21T00:00:00Z',
       bucketSeconds: 60,
     });
     expect(problem).toMatch(/512/);
     expect(problem).toMatch(/Shorten the window or use a longer interval/);
+  });
+
+  it('never applies the bucket bound to a heatmap, which takes no interval', () => {
+    // The interval left over from Activity says nothing about a map the server
+    // would answer perfectly well under its own run and Track bounds.
+    const window = { fromUtc: '2026-09-01T00:00:00Z', toUtc: '2026-09-21T00:00:00Z', bucketSeconds: 60 } as const;
+    expect(queryProblem({ ...activity, ...window })).not.toBeNull();
+    expect(queryProblem({ ...heatmap, ...window })).toBeNull();
   });
 });
 

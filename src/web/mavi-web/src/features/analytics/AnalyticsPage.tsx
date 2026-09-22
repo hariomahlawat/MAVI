@@ -31,9 +31,11 @@ import {
   initialQueryState,
   METRICS,
   presetWindow,
+  bucketProblem,
   queryProblem,
   readActivity,
   resolveSubject,
+  windowProblem,
   scopePresence,
   subjectsFor,
   type AnalyticsMode,
@@ -70,11 +72,17 @@ export default function AnalyticsPage() {
     staleTime: 60_000,
   });
   // Null rather than a silent 'UTC' fallback: a time shown in the wrong zone
-  // reads as a fact about when something happened.
+  // reads as a fact about when something happened. Every figure this surface
+  // reports is stamped with an instant, so until the zone is known there is
+  // nothing here that can be rendered truthfully — the results wait for it
+  // rather than being formatted against a guess.
   const displayTimeZoneId = systemConfig.data?.displayTimeZoneId ?? null;
-  const renderZoneId = displayTimeZoneId ?? 'UTC';
+  const zoneUnavailable = systemConfig.isError && !displayTimeZoneId;
 
+  // Split, because the heatmap takes no interval: a window it would answer must
+  // not be refused because Activity's leftover interval would overflow its axis.
   const problem = queryProblem(state);
+  const bucketRefusal = state.mode === 'activity' ? bucketProblem(state) : null;
   const aggregateQuery = {
     fromUtc: state.fromUtc,
     toUtc: state.toUtc,
@@ -178,7 +186,7 @@ export default function AnalyticsPage() {
             <AnalyticsControls
               state={state}
               displayTimeZoneId={displayTimeZoneId}
-              problem={problem}
+              problem={windowProblem(state) ?? bucketRefusal}
               refreshing={active.isFetching}
               onChange={update}
               onPreset={applyPreset}
@@ -204,8 +212,20 @@ export default function AnalyticsPage() {
               </EmptyState>
             ) : problem !== null ? (
               <EmptyState icon="info" title="Adjust the window">
-                The window and interval above have to be changed before there is anything to read.
+                {state.mode === 'activity' && bucketRefusal !== null
+                  ? 'The window and interval above have to be changed before there is anything to read.'
+                  : 'The window above has to be changed before there is anything to read.'}
               </EmptyState>
+            ) : zoneUnavailable ? (
+              <Alert
+                tone="error"
+                actions={<Button size="sm" onClick={() => void systemConfig.refetch()}>Retry</Button>}
+              >
+                The configured display timezone is unavailable. Every figure here is stamped with an
+                instant, so none of them can be shown until it is known.
+              </Alert>
+            ) : displayTimeZoneId === null ? (
+              <LoadingState label="Reading the configured timezone…" />
             ) : state.mode === 'heatmap' ? (
               <HeatmapPane
                 query={heatmap}
@@ -223,7 +243,7 @@ export default function AnalyticsPage() {
               <ActivityStage
                 response={response}
                 reading={reading}
-                displayTimeZoneId={renderZoneId}
+                displayTimeZoneId={displayTimeZoneId}
                 cameraId={cameraId}
               />
             ) : null}
@@ -231,12 +251,16 @@ export default function AnalyticsPage() {
         )}
         inspector={(
           <Inspector label="Analytics inspector" title="Analytics">
-            {state.mode === 'heatmap' ? (
+            {displayTimeZoneId === null ? (
+              <p className="faint">
+                Figures appear once the configured display timezone is known.
+              </p>
+            ) : state.mode === 'heatmap' ? (
               heatmap.data
-                ? <HeatmapInspector response={heatmap.data} displayTimeZoneId={renderZoneId} />
+                ? <HeatmapInspector response={heatmap.data} displayTimeZoneId={displayTimeZoneId} />
                 : <p className="faint">Figures appear once a density map has been built.</p>
             ) : response ? (
-              <ActivityInspector response={response} reading={reading} displayTimeZoneId={renderZoneId} />
+              <ActivityInspector response={response} reading={reading} displayTimeZoneId={displayTimeZoneId} />
             ) : (
               <p className="faint">Figures appear once a window has been read.</p>
             )}

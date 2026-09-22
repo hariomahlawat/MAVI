@@ -210,6 +210,19 @@ describe('Analytics Workbench', () => {
     expect(vi.mocked(getAnalyticsAggregates).mock.calls.length).toBe(calls);
   });
 
+  it('will not stamp figures with a timezone it does not have', async () => {
+    // Every number here is stamped with an instant. Formatting them against a
+    // guessed UTC would present a wall-clock time the operator does not live in
+    // as a fact about when something happened.
+    vi.mocked(getSystemConfig).mockRejectedValue(new Error('config unavailable'));
+    render();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/display timezone is unavailable/i);
+    expect(screen.queryByRole('figure')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
   it('keeps the last answer on screen when a refresh fails, and says it may be stale', async () => {
     render();
     await screen.findByRole('table');

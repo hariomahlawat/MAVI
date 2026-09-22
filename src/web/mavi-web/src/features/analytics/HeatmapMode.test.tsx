@@ -154,6 +154,27 @@ describe('Heatmap mode', () => {
     expect(document.querySelectorAll('.heatmap__cell')).toHaveLength(2);
   });
 
+  it('is not refused by the aggregate bucket bound, which it has no interval for', async () => {
+    // A 60-second interval over a long window overflows Activity's axis. The
+    // heatmap takes no interval at all, so the same window is a perfectly good
+    // question for it and must still be asked.
+    renderWithApp(<AnalyticsPage />, {
+      route: `/cameras/${cameraId}/analytics`,
+      routePath: '/cameras/:cameraId/analytics',
+    });
+    await screen.findByRole('button', { name: 'Heatmap' });
+
+    await userEvent.selectOptions(screen.getByLabelText('Interval'), '60');
+    await userEvent.clear(screen.getByLabelText('From'));
+    await userEvent.type(screen.getByLabelText('From'), '2026-08-01T00:00');
+    expect(await screen.findByText(/Adjust the window/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Heatmap' }));
+
+    expect(await screen.findByRole('region', { name: 'Heatmap summary' })).toBeInTheDocument();
+    expect(screen.queryByText(/Adjust the window/i)).not.toBeInTheDocument();
+  });
+
   it('says which bound a refused scope exceeded and offers a narrower window', async () => {
     vi.mocked(getAnalyticsHeatmap).mockRejectedValue(new ApiError({
       status: 422,

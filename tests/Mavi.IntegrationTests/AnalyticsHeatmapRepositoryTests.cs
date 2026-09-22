@@ -88,16 +88,61 @@ public sealed class AnalyticsHeatmapRepositoryTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task ATrackWithNoTrajectoryArtefactIsNotACandidate()
+    public async Task AnAnalysedTrackWhoseArtefactIsGoneIsStillACandidate()
     {
-        // Nothing to open, so nothing to bound or read.
+        // `trajectory_artifact_id` is ON DELETE SET NULL, so deleting an artefact
+        // de-references the Track silently. An Analysed outcome is only ever recorded
+        // after a trajectory was read and hashed, so this Track must stay counted and
+        // listed: dropping it would thin the map with nothing saying why, which is the
+        // partial answer this slice refuses to present as the answer.
         var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
         await CommitFactsAsync(world);
 
         var scope = await Repository().ResolveHeatmapScopeAsync(Query(world), default);
 
         Assert.Equal(1, scope.CoveredRunCount);
-        Assert.Equal(0, scope.CandidateTrackCount);
+        Assert.Equal(1, scope.CandidateTrackCount);
+
+        var candidate = Assert.Single(await Repository().ListHeatmapCandidatesAsync(
+            Query(world), scope.Identity!, default));
+        Assert.Null(candidate.StorageKey);
+
+        // And the service turns that into the integrity failure, not a thinner map.
+        var result = await Service(world).HeatmapAsync(Query(world), default);
+        Assert.Equal(AnalyticsFailure.EvidenceUnreadable, result.Failure);
+    }
+
+    [Fact]
+    public async Task ACandidateCarriesTheDigestItsBytesMustMatch()
+    {
+        // The digest is what makes the map's provenance checkable at all; a candidate
+        // projection that dropped it could not tell this Track's evidence from any
+        // other syntactically valid trajectory.
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        await CommitFactsAsync(world);
+        var payload = TrajectoryPayload.StraightCrossing();
+        await world.AttachTrajectoryAsync(payload);
+
+        var scope = await Repository().ResolveHeatmapScopeAsync(Query(world), default);
+        var candidate = Assert.Single(await Repository().ListHeatmapCandidatesAsync(
+            Query(world), scope.Identity!, default));
+
+        Assert.Equal(TrajectoryPayload.Sha256Hex(payload), candidate.Sha256);
+    }
+
+    [Fact]
+    public async Task EvidenceThatDoesNotMatchItsSealedDigestIsRefused()
+    {
+        // Real bytes, a real decode, and a digest that says they are not this Track's.
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        await CommitFactsAsync(world);
+        await world.AttachTrajectoryAsync(
+            TrajectoryPayload.StraightCrossing(),
+            declaredSha256: new string('d', 64));
+
+        var result = await Service(world).HeatmapAsync(Query(world), default);
+
+        Assert.Equal(AnalyticsFailure.EvidenceUnreadable, result.Failure);
     }
 
     // --- Evidence semantics -------------------------------------------------

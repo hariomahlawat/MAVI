@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Application.Modules.SceneAnalytics.Aggregates;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -65,8 +66,67 @@ public sealed class AnalyticsHeatmapServiceTests
             NullLogger<AnalyticsAggregateService>.Instance);
     }
 
-    private static HeatmapCandidateTrack Candidate(string key) =>
-        new(Guid.NewGuid(), RecordingStart, key);
+    /// <summary>
+    /// A candidate whose digest matches the payload it will be served, unless the
+    /// caller deliberately says otherwise.
+    /// </summary>
+    private static HeatmapCandidateTrack Candidate(string key, byte[]? payload = null, string? sha256 = null) =>
+        new(Guid.NewGuid(), RecordingStart, key,
+            sha256 ?? (payload is null ? null : Convert.ToHexStringLower(SHA256.HashData(payload))));
+
+    [Fact]
+    public async Task ADeReferencedArtefactFailsRatherThanThinningTheMap()
+    {
+        // `trajectory_artifact_id` is ON DELETE SET NULL, so deleting an artefact
+        // leaves an Analysed Track pointing at nothing. The executor only ever
+        // records Analysed after reading and hashing a trajectory, so this is
+        // evidence that has gone missing — not a Track that never had any.
+        var service = Build(
+            [new HeatmapCandidateTrack(Guid.NewGuid(), RecordingStart, null, null)],
+            new Dictionary<string, byte[]?>(),
+            out var evidence);
+
+        var result = await service.HeatmapAsync(Query(), default);
+
+        Assert.Equal(AnalyticsFailure.EvidenceUnreadable, result.Failure);
+        Assert.Null(result.Grid);
+        // There is no key to open, so nothing was opened; the failure comes from the
+        // reference being gone, not from a read that returned nothing.
+        Assert.Empty(evidence.Opened);
+    }
+
+    [Fact]
+    public async Task BytesThatDoNotMatchTheSealedDigestAreRefused()
+    {
+        // Syntactically valid, decodes cleanly, and is not this Track's evidence.
+        // A map drawn from it would carry a provenance it does not have.
+        var payload = MsgPackWriter.Trajectory((300_000, 0.5, 0.5), (360_000, 0.6, 0.6));
+        var service = Build(
+            [Candidate("key-1", sha256: new string('0', 64))],
+            new Dictionary<string, byte[]?> { ["key-1"] = payload },
+            out _);
+
+        var result = await service.HeatmapAsync(Query(), default);
+
+        Assert.Equal(AnalyticsFailure.EvidenceUnreadable, result.Failure);
+        Assert.Null(result.Grid);
+    }
+
+    [Fact]
+    public async Task BytesThatMatchTheSealedDigestAreAccepted()
+    {
+        // The complement, so the check cannot pass by refusing everything.
+        var payload = MsgPackWriter.Trajectory((300_000, 0.5, 0.5), (360_000, 0.6, 0.6));
+        var service = Build(
+            [Candidate("key-1", payload)],
+            new Dictionary<string, byte[]?> { ["key-1"] = payload },
+            out _);
+
+        var result = await service.HeatmapAsync(Query(), default);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Grid!.SampleCount);
+    }
 
     [Fact]
     public async Task OnlySamplesInsideTheWindowContributeEvenWhenTheTrackOverlapsIt()

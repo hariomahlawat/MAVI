@@ -166,19 +166,40 @@ export function initialQueryState(nowUtc: Date): AnalyticsQueryState {
   };
 }
 
-/** Why a question cannot be asked, in the words shown to the operator. */
-export function queryProblem(state: Pick<AnalyticsQueryState, 'fromUtc' | 'toUtc' | 'bucketSeconds'>): string | null {
+/**
+ * Why the window itself cannot be asked about, in the words shown to the operator.
+ *
+ * Both modes share this. Nothing here mentions the interval: the heatmap takes no
+ * `bucketSeconds` at all, and a window it would happily answer must not be refused
+ * because the interval left over from Activity would have produced too many buckets.
+ */
+export function windowProblem(state: Pick<AnalyticsQueryState, 'fromUtc' | 'toUtc'>): string | null {
   const from = Date.parse(state.fromUtc);
   const to = Date.parse(state.toUtc);
   if (!Number.isFinite(from) || !Number.isFinite(to)) return 'Enter a start and end time.';
   if (to <= from) return 'The end of the window must be after its start.';
+  return null;
+}
 
+/**
+ * Why this window and interval together cannot be transported. Activity only.
+ */
+export function bucketProblem(state: Pick<AnalyticsQueryState, 'fromUtc' | 'toUtc' | 'bucketSeconds'>): string | null {
   const count = bucketCount(state.fromUtc, state.toUtc, state.bucketSeconds);
   if (count > MAXIMUM_BUCKETS) {
     return `That window and interval would produce ${count.toLocaleString()} buckets; the most that can be shown is `
       + `${MAXIMUM_BUCKETS.toLocaleString()}. Shorten the window or use a longer interval.`;
   }
   return null;
+}
+
+/** What stops the current mode's question being asked, if anything. */
+export function queryProblem(
+  state: Pick<AnalyticsQueryState, 'fromUtc' | 'toUtc' | 'bucketSeconds' | 'mode'>,
+): string | null {
+  const window = windowProblem(state);
+  if (window !== null) return window;
+  return state.mode === 'activity' ? bucketProblem(state) : null;
 }
 
 // --- Reading the answer ----------------------------------------------------

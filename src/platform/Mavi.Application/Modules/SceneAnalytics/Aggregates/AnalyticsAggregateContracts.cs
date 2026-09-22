@@ -89,10 +89,20 @@ public sealed record AnalyticsHeatmapScope(
 /// The immutable source recording start. A sample's absolute instant is this plus
 /// its media-relative offset; nothing else reconstructs it.
 /// </param>
+/// <param name="StorageKey">
+/// Null when the artefact row the Track referenced is gone. The Track is still a
+/// candidate: the unit recorded it as <c>Analysed</c>, which the executor only does
+/// after reading and hashing a trajectory, so evidence that has since disappeared is
+/// an integrity failure rather than a Track with nothing to read.
+/// </param>
+/// <param name="Sha256">
+/// The digest the artefact was sealed with, which is the authority on its bytes.
+/// </param>
 public sealed record HeatmapCandidateTrack(
     Guid TrackId,
     DateTimeOffset RecordingStartUtc,
-    string StorageKey);
+    string? StorageKey,
+    string? Sha256);
 
 /// <summary>The heatmap answer, or why there is not one.</summary>
 public sealed record AnalyticsHeatmapResult(

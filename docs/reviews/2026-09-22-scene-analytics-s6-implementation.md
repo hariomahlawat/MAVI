@@ -136,6 +136,30 @@ Two smaller corrections: an ordering clause that did not translate to SQL now li
 
 ---
 
+## 6a. What the independent Codex pass found
+
+Four findings on `d414120`, all valid, all fixed. It was not requested — the repository triggers it on PR open.
+
+### P1 — a de-referenced artefact silently thinned the map
+
+`tracks.trajectory_artifact_id` is `ON DELETE SET NULL`, so deleting an artefact row leaves an `Analysed` Track pointing at nothing. The candidate projection filtered on `TrajectoryArtifactId != null` and inner-joined the artefact, so that Track fell out of both the bound and the listing: the request succeeded with a sparser map and nothing said why.
+
+I had documented the filter as intentional — "a Track with no trajectory artefact is not a candidate: there is nothing to open" — and written a test asserting it. That reasoning was wrong, and the executor proves it: `SceneAnalysisExecutor` returns `TrajectoryMissing` when a Track has no trajectory, which becomes an `Unavailable` outcome, never `Analysed`. **`Analysed` therefore means a trajectory was read and hashed at analysis time**, so its absence at read time is an integrity failure of exactly the kind this slice already refuses to paper over. The join is now a left join, `StorageKey` is nullable, and the service rejects the missing reference. The old test asserted the bug and was corrected rather than kept.
+
+### P1 — trajectory bytes were not checked against their sealed digest
+
+The candidate projection discarded `Artifact.Sha256`, so the heatmap decoded whatever the storage key returned. Corrupted or restored-but-different bytes that happen to be syntactically valid would have produced a map published under a provenance it does not have. `SceneAnalysisExecutor` verifies the digest on exactly this evidence when it produces the facts; the read path now applies the same rule, with the same "the artefact is sealed, so its recorded digest is the authority" reasoning.
+
+### P2 — the aggregate bucket bound refused valid heatmaps
+
+`queryProblem` folded the 512-bucket limit into one predicate and both queries were gated on it, so a 60-second Activity interval over a long window made the Heatmap mode report "Adjust the window" — for a request that carries no `bucketSeconds` at all and that the server would have answered under its own run and Track bounds. Window validation and interval validation are now separate, and the interval one is Activity's alone.
+
+### P2 — instants were formatted against a guessed UTC
+
+I made `displayTimeZoneId` null rather than falling back, wrote a comment saying a time shown in the wrong zone reads as a fact about when something happened — and then passed `?? 'UTC'` to the chart and both inspectors. The controls said the zone was unavailable while the figures beside them were being stamped with it. Every figure this surface reports carries an instant, so results now wait for the zone: loading while it is in flight, an error with a retry if it failed, and no time-bearing output in either case.
+
+---
+
 ## 7. Test inventory
 
 | Suite | Count | What it pins |
@@ -143,13 +167,13 @@ Two smaller corrections: an ordering clause that did not translate to SQL now li
 | `AnalyticsAggregatorTests` | 19 | The frozen counting rules, boundary by boundary |
 | `HeatmapGridTests` | 17 | Cell indexing, corners including exactly 0 and 1, every grid size |
 | `AnalyticsHeatmapGuardTests` | 5 | Both bounds fire **before** evidence access, by call ordering |
-| `AnalyticsHeatmapServiceTests` | 7 | Evidence decode, window clipping, failure propagation |
+| `AnalyticsHeatmapServiceTests` | 10 | Evidence decode, digest verification, de-referenced artefacts, window clipping |
 | `AnalyticsAggregateRepositoryTests` | 10 | Barrier ordering, scope, coverage, facts over a real database |
-| `AnalyticsHeatmapRepositoryTests` | 10 | Scope without evidence, DB-derived counts, missing and corrupt evidence |
+| `AnalyticsHeatmapRepositoryTests` | 12 | Scope without evidence, DB-derived counts, de-referenced artefacts, digest mismatch |
 | `AnalyticsApiTests` | 69 | The closed query vocabulary, bounds, typed refusals, provenance, non-enumeration |
-| `analyticsState.test.ts` | 14 | Non-additive totals, absent subjects, window snapping, the transport bound |
-| `AnalyticsPage.test.tsx` | 10 | The five activity states, including complete-zero versus incomplete |
-| `HeatmapMode.test.tsx` | 9 | Summary not enumeration, wording, both evidence refusals, complete-zero |
+| `analyticsState.test.ts` | 15 | Non-additive totals, absent subjects, window snapping, window versus interval refusals |
+| `AnalyticsPage.test.tsx` | 11 | The activity states, complete-zero versus incomplete, and refusing to stamp a guessed zone |
+| `HeatmapMode.test.tsx` | 10 | Summary not enumeration, wording, both evidence refusals, independence from the bucket bound |
 | `contrast.test.ts` (decision 2c) | 4 | The scale's three defended properties, recomputed |
 | §26 visual QA | 10 states × 4 widths | Rendered structure, focus, archetype conformance |
 

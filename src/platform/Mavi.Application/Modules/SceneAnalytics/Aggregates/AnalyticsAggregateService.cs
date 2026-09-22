@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Mavi.Application.Modules.SceneAnalytics.Engine;
 using Mavi.Contracts.Api.Analytics;
 using Microsoft.Extensions.Logging;
@@ -176,7 +177,16 @@ public sealed class AnalyticsAggregateService(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var payload = await evidence.ReadTrajectoryAsync(candidate.StorageKey, cancellationToken);
+            if (candidate.StorageKey is not { } storageKey)
+            {
+                // The artefact row the Track pointed at is gone, and the foreign key
+                // was nulled with it. The unit still says this Track was analysed, so
+                // this is the same integrity failure as evidence that will not open.
+                LogTrajectoryMissing(logger, candidate.TrackId, null);
+                return new AnalyticsHeatmapResult(AnalyticsFailure.EvidenceUnreadable);
+            }
+
+            var payload = await evidence.ReadTrajectoryAsync(storageKey, cancellationToken);
             if (payload is null)
             {
                 // The analytical unit said this Track was analysed, so its trajectory
@@ -184,6 +194,21 @@ public sealed class AnalyticsAggregateService(
                 // integrity failure, not a reason to draw a sparser map and call it
                 // the answer.
                 LogTrajectoryMissing(logger, candidate.TrackId, null);
+                return new AnalyticsHeatmapResult(AnalyticsFailure.EvidenceUnreadable);
+            }
+
+            // The artefact is sealed, so its recorded digest is the authority on its
+            // bytes — the same rule the executor applies when it produces the facts.
+            // Bytes that decode cleanly but hash differently are not this Track's
+            // evidence, and a map drawn from them would carry a provenance it does
+            // not have.
+            if (candidate.Sha256 is { } expected
+                && !string.Equals(
+                    Convert.ToHexStringLower(SHA256.HashData(payload)),
+                    expected,
+                    StringComparison.Ordinal))
+            {
+                LogTrajectoryUnreadable(logger, candidate.TrackId, "trajectory_integrity_failed", null);
                 return new AnalyticsHeatmapResult(AnalyticsFailure.EvidenceUnreadable);
             }
 
