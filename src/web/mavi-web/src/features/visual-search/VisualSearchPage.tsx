@@ -672,7 +672,6 @@ export default function VisualSearchPage() {
             displayTimeZoneId={displayTimeZoneId}
             searchContext={searchContext}
             analyticsIdentity={analyticsIdentity}
-            geometry={resultGeometryNames}
             summary={position >= 0 ? items[position] : undefined}
             onPrevious={goPrevious}
             onNext={goNext}

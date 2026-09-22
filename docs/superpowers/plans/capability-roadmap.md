@@ -56,7 +56,7 @@ States: **Merged and verified** (on `main`, exact-head CI and cited evidence) ·
 | Sealed Track/observation/trajectory persistence | Merged and verified | Task 13; ADR-006 | Foundation for stage 1 |
 | Structured Track search with stable cursor snapshot; Search → inspector → Review → back | Merged and verified | Task 14, Task 16, PR #50 | Extended by stages 1, 2, 4, 8 |
 | Evidence playback with bounding-box and trajectory overlay; provenance panel | Merged and verified | Task 14, PR #50 | Reused by stage 1 to explain analytic matches |
-| Spatial & temporal Track analytics | **Next — Slice 5 evidence UI** | Slices 0–4 are merged: scene configuration, deterministic derived facts, lifecycle/readiness, analytic search and identity-aware detail are present; UI-5 Evidence Player foundation is merged. Slice 5 makes those facts visually verifiable on Review/Investigation before aggregates/heatmap in Slice 6. | Stage 1 — parent plan + `2026-09-22-scene-analytics-s5-evidence-explanation.md` |
+| Spatial & temporal Track analytics | **Slice 5 implemented, awaiting review — Slice 6 next** | Slices 0–4 are merged. Slice 5 makes the persisted facts visually verifiable on Review and Investigation: zone, trip-line and persisted crossing overlays drawn from the exact pinned scene revision, bounded analytical lanes and exact-seek markers on the one timeline, and a shared explanation. Aggregates/heatmap follow in Slice 6. | Stage 1 — parent plan + `2026-09-22-scene-analytics-s5-evidence-explanation.md` |
 | Visual attributes | Groundwork → Planned | `VisualAttribute` table, unpopulated | Stage 2 |
 | Expanded object / vehicle subclasses | Planned | Product semantics are person/vehicle | Stage 3 |
 | ANPR / OCR | Planned | No plate or OCR pipeline | Stage 4 |
@@ -139,7 +139,7 @@ Historical plans and evidence documents are never rewritten to match this roadma
 
 1. ~~Finish and merge PR #49~~ — merged as `ed1acf4`.
 2. ~~Establish the post-merge baseline~~ — §1.
-3. Spatial & Temporal Track Analytics: Slices 0–4 are merged. Slice 4 (search integration/readiness) merged as `b505a97`; UI-5 / PR #64 merged as `273718c`, so the next bounded implementation unit is **Slice 5 — Evidence overlays and explanation**, governed by `2026-09-22-scene-analytics-s5-evidence-explanation.md`. Post-PR-64 Task 17 Acceptance and MAVI Quality Gate are both green on exact `main@273718c`; the Slice-5 start gate is satisfied. After Slice 5: Slice 6 aggregates/heatmap, then Slice 7 hardening/acceptance.
+3. Spatial & Temporal Track Analytics: Slices 0–4 are merged. **Slice 5 — Evidence overlays and explanation** is implemented on `feature/scene-analytics-s5-evidence-explanation` from `main@d6393532` and awaits independent review; it closes UI-specification decisions 7 and 2a. After Slice 5 merges: Slice 6 aggregates/heatmap, then Slice 7 hardening/acceptance.
 
    **UI Foundation programme is complete:** UI-1 → UI-5 are merged. Slice 5 must extend the one Evidence Player/timeline/layer contract established by UI-5; Slice 6 heatmap UI continues to use the UI-2 Workbench grammar. This UI sequencing does not renumber Scene Analytics slices (0–7) or capability stages.
 

@@ -52,8 +52,8 @@
   "thumbnailArtifactId": null,
   "thumbnailContentUrl": null
  },
- "trajectoryArtifactId": null,
- "trajectoryContentUrl": null,
+ "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+ "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
  "analytics": {
   "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
   "sceneRevisionNumber": 4,
@@ -92,7 +92,17 @@
     "exitHeading": "E"
    }
   ],
-  "lineCrossings": [],
+  "lineCrossings": [
+   {
+    "lineId": "99999999-9999-7999-8999-999999999999",
+    "crossingIndex": 0,
+    "offsetMs": 2000,
+    "timestampUtc": "2026-09-14T02:30:02Z",
+    "direction": "aToB",
+    "pointX": 0.487,
+    "pointY": 0.523
+   }
+  ],
   "motion": {
    "heading": "E",
    "pathLengthNormalised": 0.31,

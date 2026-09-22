@@ -14,7 +14,6 @@ import TrackAnalyticsExplanation from '../video-review/TrackAnalyticsExplanation
 import { buildAnalyticsEvidence } from '../video-review/analyticsEvidence';
 import { pinnedNames, pinnedRevision, useAnalyticsScene } from '../video-review/useAnalyticsScene';
 import { useTrajectory } from '../video-review/useTrajectory';
-import type { GeometryNames } from './analyticsLabels';
 import { reviewPath } from './TrackResultList';
 
 /** The cache key half of an identity: two identities are one entry only when both parts agree. */
@@ -37,8 +36,6 @@ type Props = {
    * silently the camera's current revision (plan §S).
    */
   analyticsIdentity?: TrackAnalyticsIdentity;
-  /** Names for the geometry the identity's facts refer to. */
-  geometry?: GeometryNames;
   summary?: TrackSearchItem;
   onPrevious: () => void;
   onNext: () => void;
@@ -65,7 +62,6 @@ export default function TrackInspector({
   displayTimeZoneId,
   searchContext,
   analyticsIdentity,
-  geometry,
   summary,
   onPrevious,
   onNext,
@@ -152,10 +148,14 @@ export default function TrackInspector({
               <TrackAnalyticsExplanation
                 analytics={detail.analytics}
                 scene={scene}
-                // The pinned revision's names, falling back to the originating
-                // search's geometry only for a Track with no analytical
-                // revision of its own to pin.
-                geometry={pinnedNames(scene) ?? geometry}
+                // The pinned revision's names only. The originating search has
+                // geometry names of its own, but they belong to the revision
+                // the *search* resolved; for a stale or re-read Track that is
+                // not the revision these facts were measured against, and
+                // labelling a dwell with another revision's zone name would be
+                // a quiet substitution. Review names these facts from the
+                // pinned revision or by stable id, and so does this.
+                geometry={pinnedNames(scene)}
                 displayTimeZoneId={displayTimeZoneId}
                 compact
               />

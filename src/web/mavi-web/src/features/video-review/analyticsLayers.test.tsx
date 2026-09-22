@@ -168,3 +168,34 @@ describe('overlay evidence grammar', () => {
     }
   });
 });
+
+describe('drawing cost does not follow the playhead', () => {
+  it('returns the same geometry for the same content rectangle', () => {
+    // The player calls render on every animation frame while the media plays.
+    // None of this geometry moves with the media, so re-projecting a scene of
+    // 64 zones sixty times a second would spend a quarter of a million
+    // operations producing an identical picture. The same element reference
+    // also lets React skip reconciling the subtree.
+    const layer = analyticsLayers(model).find((l) => l.id === 'analytics-zones')!;
+    const first = layer.render(PILLARBOX, 0);
+    expect(layer.render(PILLARBOX, 12_000)).toBe(first);
+    expect(layer.render(PILLARBOX, 599_000)).toBe(first);
+  });
+
+  it('redraws when the video is resized, because the projection changes then', () => {
+    const layer = analyticsLayers(model).find((l) => l.id === 'analytics-zones')!;
+    const wide = layer.render(PILLARBOX, 0);
+    const tall = layer.render(LETTERBOX, 0);
+    expect(tall).not.toBe(wide);
+    // And back again is a fresh projection, not a stale cached one.
+    const again = layer.render(PILLARBOX, 0);
+    expect(again).not.toBe(tall);
+  });
+
+  it('holds for the line and crossing layers too', () => {
+    for (const id of ['analytics-lines', 'analytics-crossings']) {
+      const layer = analyticsLayers(model).find((l) => l.id === id)!;
+      expect(layer.render(PILLARBOX, 5_000)).toBe(layer.render(PILLARBOX, 0));
+    }
+  });
+});

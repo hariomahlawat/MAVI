@@ -22,8 +22,8 @@ export const PAGE_ASSERTIONS = `(() => {
   // element is clipped by every scrolling or hidden ancestor, and by the
   // viewport, before anything is compared — and an element clipped to nothing
   // takes no part in the comparison at all.
-  const visibleRect = (el) => {
-    const r = el.getBoundingClientRect();
+  /** Clip a rectangle to every scrolling ancestor and to the viewport. */
+  const clipRect = (el, r) => {
     let box = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
     for (let node = el.parentElement; node; node = node.parentElement) {
       const style = getComputedStyle(node);
@@ -39,6 +39,37 @@ export const PAGE_ASSERTIONS = `(() => {
       right: Math.min(box.right, doc.clientWidth), bottom: Math.min(box.bottom, doc.clientHeight),
     };
     return { ...box, width: box.right - box.left, height: box.bottom - box.top };
+  };
+
+  const visibleRect = (el) => clipRect(el, el.getBoundingClientRect());
+
+  /**
+   * The boxes an element actually paints into, rather than their union.
+   *
+   * An inline element that wraps has one box per line, and its *union* is a
+   * rectangle covering everything between the start of the first line and the
+   * end of the last — including space occupied by its own siblings. Comparing
+   * unions therefore reports a collision every time a sentence wraps around
+   * another inline element, which is ordinary text layout rather than a defect.
+   * The line boxes are what the operator sees, so they are what is compared.
+   */
+  const visibleRects = (el) => {
+    const rects = Array.from(el.getClientRects());
+    return (rects.length ? rects : [el.getBoundingClientRect()])
+      .map((r) => clipRect(el, r))
+      .filter((r) => r.width > 0 && r.height > 0);
+  };
+
+  /** Whether any painted box of one element overlaps any painted box of another. */
+  const boxesOverlap = (a, b, slack) => {
+    for (const ra of visibleRects(a)) {
+      for (const rb of visibleRects(b)) {
+        const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+        const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+        if (ox > slack && oy > slack) return true;
+      }
+    }
+    return false;
   };
 
   /**
@@ -61,6 +92,23 @@ export const PAGE_ASSERTIONS = `(() => {
     }
     return null;
   };
+  /**
+   * Whether the browser actually paints this element.
+   *
+   * Chromium lays out the content of a *closed* disclosure and reports real
+   * rectangles for it, even though it paints none of it: the content sits
+   * behind content-visibility hidden. Geometry alone therefore reports a
+   * closed disclosure's rows as colliding with whatever is drawn below it,
+   * which is a collision no operator can see. checkVisibility is the standards
+   * predicate for "would this be painted", so the overlap checks ask that
+   * rather than inferring it from a rectangle.
+   */
+  const painted = (el) => (
+    typeof el.checkVisibility === 'function'
+      ? el.checkVisibility({ contentVisibilityAuto: true, opacityProperty: false, visibilityProperty: true })
+      : getComputedStyle(el).visibility !== 'hidden'
+  );
+
   const deliberatelyLayered = (a, b) => {
     const oa = overlayOf(a);
     const ob = overlayOf(b);
@@ -81,18 +129,15 @@ export const PAGE_ASSERTIONS = `(() => {
   const controls = Array.from(document.querySelectorAll('button, a[href], input, select, textarea'))
     .filter((el) => {
       const r = visibleRect(el);
-      return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+      return r.width > 0 && r.height > 0 && painted(el);
     });
   for (let i = 0; i < controls.length; i++) {
     for (let j = i + 1; j < controls.length; j++) {
       const a = controls[i], b = controls[j];
       if (a.contains(b) || b.contains(a)) continue;
       if (deliberatelyLayered(a, b)) continue;
-      const ra = visibleRect(a), rb = visibleRect(b);
-      const overlapX = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
-      const overlapY = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
       // A couple of pixels is antialiasing and adjacency, not an overlap.
-      if (overlapX > 2 && overlapY > 2) {
+      if (boxesOverlap(a, b, 2)) {
         problems.push('overlapping controls: <' + a.tagName.toLowerCase() + '> "' +
           (a.textContent || '').trim().slice(0, 24) + '" and <' + b.tagName.toLowerCase() + '> "' +
           (b.textContent || '').trim().slice(0, 24) + '"');
@@ -109,17 +154,14 @@ export const PAGE_ASSERTIONS = `(() => {
       const text = (el.textContent || '').trim();
       if (!text) return false;
       const r = visibleRect(el);
-      return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+      return r.width > 0 && r.height > 0 && painted(el);
     });
   for (let i = 0; i < leaves.length; i++) {
     for (let j = i + 1; j < leaves.length; j++) {
       const a = leaves[i], b = leaves[j];
       if (a.contains(b) || b.contains(a)) continue;
       if (deliberatelyLayered(a, b)) continue;
-      const ra = visibleRect(a), rb = visibleRect(b);
-      const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
-      const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
-      if (ox > 4 && oy > 4) {
+      if (boxesOverlap(a, b, 4)) {
         problems.push('overlapping text: "' + (a.textContent || '').trim().slice(0, 28) +
           '" and "' + (b.textContent || '').trim().slice(0, 28) + '"');
       }
@@ -584,6 +626,80 @@ export const WORKSPACE_ASSERTIONS = `(() => {
       problems.push(hiddenEvidence + ' timeline evidence items are hidden from assistive technology');
     }
     measured.timelineItems = workspace.querySelectorAll('.evidence-timeline__item').length;
+
+    // --- Scene Analytics Slice 5 ---------------------------------------
+    //
+    // Overlapping zone visits must stay individually visible. The cap is what
+    // keeps the timeline's height fixed, so both halves are measured: no two
+    // drawn visits share a row, and the rail never grows past the cap.
+    const zoneBands = Array.from(workspace.querySelectorAll(
+      '.evidence-timeline__item[data-lane="zone"][data-drawn="true"]'));
+    const overflowed = workspace.querySelectorAll(
+      '.evidence-timeline__item[data-lane="zone"][data-drawn="overflow"]');
+    measured.zoneBands = zoneBands.length;
+    measured.zoneOverflowed = overflowed.length;
+    const zoneRows = new Set(zoneBands.map((band) => band.style.top));
+    measured.zoneRows = zoneRows.size;
+    if (zoneRows.size > 3) {
+      problems.push('the zone lane uses ' + zoneRows.size
+        + ' sub-rows; the cap that keeps the timeline height fixed is 3');
+    }
+    // Two bands on one row that actually overlap in time would hide evidence.
+    for (let i = 0; i < zoneBands.length; i += 1) {
+      for (let j = i + 1; j < zoneBands.length; j += 1) {
+        if (zoneBands[i].style.top !== zoneBands[j].style.top) continue;
+        const a = zoneBands[i].getBoundingClientRect();
+        const b = zoneBands[j].getBoundingClientRect();
+        if (a.left < b.right - 0.5 && b.left < a.right - 0.5) {
+          problems.push('two concurrent zone visits are drawn over each other on one sub-row');
+        }
+      }
+    }
+    if (overflowed.length > 0 && !workspace.querySelector('.evidence-timeline__overflow-badge')) {
+      problems.push(overflowed.length + ' zone visits are in the overflow rail with no count shown');
+    }
+
+    // Every marker is a real control with a usable target, and no two of them
+    // may sit on top of each other: a covered marker cannot be activated.
+    const markerButtons = Array.from(workspace.querySelectorAll('.evidence-timeline__marker-button'));
+    measured.markerControls = markerButtons.length;
+    const smallMarkers = markerButtons.filter((button) => {
+      const box = button.getBoundingClientRect();
+      return box.width < 23.5 || box.height < 23.5;
+    });
+    if (smallMarkers.length > 0) {
+      problems.push(smallMarkers.length + ' timeline marker controls are under the 24x24 minimum');
+    }
+    for (let i = 0; i < markerButtons.length; i += 1) {
+      for (let j = i + 1; j < markerButtons.length; j += 1) {
+        const a = markerButtons[i].getBoundingClientRect();
+        const b = markerButtons[j].getBoundingClientRect();
+        const overlap = a.left < b.right - 0.5 && b.left < a.right - 0.5
+          && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+        if (overlap) {
+          problems.push('two timeline marker controls overlap, so one of them cannot be clicked');
+        }
+      }
+    }
+
+    // Analytical geometry stays inside the true video content rectangle: a
+    // zone drawn against the element box lands on the letterbox bars.
+    const stage = workspace.querySelector('.evidence-player__stage');
+    const geometry = workspace.querySelectorAll('[data-testid="evidence-zone"], [data-testid="evidence-line"], [data-testid="evidence-crossing"]');
+    measured.analyticalGeometry = geometry.length;
+    if (stage && geometry.length > 0) {
+      const frame = stage.getBoundingClientRect();
+      let outside = 0;
+      for (const node of geometry) {
+        const box = node.getBoundingClientRect();
+        if (box.width === 0 && box.height === 0) continue;
+        if (box.left < frame.left - 1 || box.right > frame.right + 1
+          || box.top < frame.top - 1 || box.bottom > frame.bottom + 1) outside += 1;
+      }
+      if (outside > 0) {
+        problems.push(outside + ' analytical overlay shapes fall outside the video content rectangle');
+      }
+    }
 
     // Native controls occupy the band where evidence is drawn (section 18.1).
     if (workspace.querySelector('video[controls]')) {

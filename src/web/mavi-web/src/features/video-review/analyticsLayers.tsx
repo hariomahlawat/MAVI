@@ -1,4 +1,5 @@
 import type { EvidenceLayer } from '../../shared/evidence/layers';
+import type { ReactNode } from 'react';
 import { projectPoint, type PixelRect } from '../../shared/evidence/projection';
 import { aToBNormal, bToANormal } from '../scene-editor/lineDirection';
 import type { TrackAnalyticsEvidenceModel } from './analyticsEvidence';
@@ -21,6 +22,31 @@ import type { TrackAnalyticsEvidenceModel } from './analyticsEvidence';
  * from it.
  */
 
+/**
+ * Draw once per content rectangle, not once per playhead tick.
+ *
+ * The player calls `render(frame, currentOffsetMs)` on every animation frame
+ * while the media plays, but none of the analytical geometry moves with the
+ * media: a zone is where it was. A valid scene may hold 64 zones of 64
+ * vertices, so projecting all of them sixty times a second would spend a
+ * quarter of a million operations a second producing the identical picture.
+ * The frame rectangle changes only when the element is resized, so it is the
+ * whole cache key — and returning the *same* element keeps React from
+ * reconciling the subtree as well.
+ */
+function perFrameRect(draw: (frame: PixelRect) => ReactNode): (frame: PixelRect) => ReactNode {
+  let key = '';
+  let drawn: ReactNode = null;
+  return (frame) => {
+    const next = `${frame.x}:${frame.y}:${frame.width}:${frame.height}`;
+    if (next !== key) {
+      key = next;
+      drawn = draw(frame);
+    }
+    return drawn;
+  };
+}
+
 function zoneLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
   const descriptions = model.zones.map((zone) => zone.description);
   return {
@@ -29,7 +55,7 @@ function zoneLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
     label: 'Zones',
     available: model.zones.length > 0,
     unavailableReason: 'The pinned scene revision has no zones, or could not be loaded.',
-    render: (frame: PixelRect) => (
+    render: perFrameRect((frame) => (
       <>
         {model.zones.map((entry) => {
           const points = entry.zone.vertices
@@ -48,7 +74,7 @@ function zoneLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
           );
         })}
       </>
-    ),
+    )),
     // Returned, not rebuilt: the descriptions were computed once when the
     // evidence model was built, because scene geometry does not move with the
     // playhead and walking every polygon on every frame would produce the same
@@ -65,7 +91,7 @@ function lineLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
     label: 'Trip lines',
     available: model.lines.length > 0,
     unavailableReason: 'The pinned scene revision has no trip lines, or could not be loaded.',
-    render: (frame: PixelRect) => (
+    render: perFrameRect((frame) => (
       <>
         {model.lines.map((entry) => {
           const a = projectPoint(entry.line.a.x, entry.line.a.y, frame);
@@ -93,7 +119,7 @@ function lineLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
           );
         })}
       </>
-    ),
+    )),
     describe: () => descriptions,
   };
 }
@@ -136,7 +162,7 @@ function crossingLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
     label: 'Crossings',
     available: model.crossings.length > 0,
     unavailableReason: 'This Track has no persisted line crossing.',
-    render: (frame: PixelRect) => (
+    render: perFrameRect((frame) => (
       <>
         {model.crossings.map((crossing) => {
           const p = projectPoint(crossing.x, crossing.y, frame);
@@ -161,7 +187,7 @@ function crossingLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
           );
         })}
       </>
-    ),
+    )),
     describe: () => descriptions,
   };
 }
