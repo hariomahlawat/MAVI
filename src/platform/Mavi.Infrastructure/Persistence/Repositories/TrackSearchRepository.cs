@@ -159,77 +159,20 @@ public sealed partial class TrackSearchRepository(
     }
 
     /// <summary>
-    /// The non-analytic base candidate set: every existing Track filter and the latest-run
-    /// scope, before any analytic predicate, keyset or ordering. Ordinary search orders and
-    /// pages it directly; analytic search takes its coverage denominator from it (plan §H)
-    /// and then narrows it.
+    /// The non-analytic base candidate set, from the one shared implementation.
     /// </summary>
+    /// <remarks>
+    /// The chain itself lives in <see cref="AnalyticsScopeQuery"/> because the Slice-6
+    /// aggregate and heatmap queries need exactly this denominator. Keeping one
+    /// implementation is what stops an aggregate and an Investigation search disagreeing
+    /// about the same camera and window.
+    /// </remarks>
     private IQueryable<TrackCandidate> BaseCandidates(
         TrackSearchQuery query,
-        long snapshotVisibilitySequence)
-    {
-        var tracks =
-            from track in db.Tracks.AsNoTracking()
-            join run in db.ProcessingRuns.AsNoTracking() on track.ProcessingRunId equals run.Id
-            join video in db.VideoAssets.AsNoTracking() on track.VideoAssetId equals video.Id
-            join camera in db.Cameras.AsNoTracking() on video.CameraId equals camera.Id
-            join observation in db.Observations.AsNoTracking()
-                on track.RepresentativeObservationId equals observation.Id into observations
-            from observation in observations.DefaultIfEmpty()
-            where run.Status == ProcessingRunStatus.Completed &&
-                  run.CompletedAtUtc != null &&
-                  run.VisibilitySequence != null &&
-                  run.VisibilitySequence <= snapshotVisibilitySequence
-            select new TrackCandidate { track = track, run = run, video = video, camera = camera, observation = observation };
+        long snapshotVisibilitySequence) =>
+        AnalyticsScopeQuery.BaseCandidates(
+            db,
+            AnalyticsScopeRequest.From(query),
+            snapshotVisibilitySequence);
 
-        if (query.ProcessingRunId is { } runId)
-        {
-            tracks = tracks.Where(x => x.run.Id == runId);
-        }
-        else
-        {
-            tracks = tracks.Where(x =>
-                !db.ProcessingRuns.AsNoTracking().Any(other =>
-                    other.VideoAssetId == x.video.Id &&
-                    other.Status == ProcessingRunStatus.Completed &&
-                    other.CompletedAtUtc != null &&
-                    other.VisibilitySequence != null &&
-                    other.VisibilitySequence <= snapshotVisibilitySequence &&
-                    other.VisibilitySequence > x.run.VisibilitySequence));
-        }
-
-        if (query.CameraId is { } cameraId)
-            tracks = tracks.Where(x => x.camera.Id == cameraId);
-        if (query.VideoAssetId is { } videoId)
-            tracks = tracks.Where(x => x.video.Id == videoId);
-        if (query.ObjectClass is { } objectClass)
-            tracks = tracks.Where(x => x.track.ObjectClass == objectClass);
-        if (query.FromUtc is { } fromUtc)
-            tracks = tracks.Where(x => x.track.EndTimestampUtc >= fromUtc);
-        if (query.ToUtc is { } toUtc)
-            tracks = tracks.Where(x => x.track.StartTimestampUtc < toUtc);
-        if (query.MinimumDurationMs is { } minimumDurationMs)
-            tracks = tracks.Where(x => x.track.DurationMs >= minimumDurationMs);
-        if (query.MinimumConfidence is { } minimumConfidence)
-            tracks = tracks.Where(x => x.track.MeanConfidence >= minimumConfidence);
-
-        return tracks;
-    }
-
-    /// <summary>
-    /// One candidate row of the base chain, named so both search paths can share it.
-    /// Member-initialised rather than constructed: EF Core inlines an object initialiser
-    /// into later correlated subqueries the way it does an anonymous type, and does not
-    /// do the same for a constructor call.
-    /// </summary>
-#pragma warning disable IDE1006 // Lower-case members keep the query text identical to the anonymous type it replaces.
-    private sealed class TrackCandidate
-    {
-        public required Domain.Intelligence.Track track { get; init; }
-        public required ProcessingRun run { get; init; }
-        public required Domain.Media.VideoAsset video { get; init; }
-        public required Domain.Cameras.Camera camera { get; init; }
-        public Domain.Intelligence.Observation? observation { get; init; }
-    }
-#pragma warning restore IDE1006
 }
