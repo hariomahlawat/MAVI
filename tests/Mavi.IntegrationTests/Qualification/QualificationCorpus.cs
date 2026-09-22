@@ -29,7 +29,10 @@ public sealed record CorpusManifest(
     int LineCrossingCount,
     int ZoneSummaryCount,
     int MotionSummaryCount,
-    int OutcomeCount)
+    int OutcomeCount,
+    string? EvidenceRoot = null,
+    string? MediaRoot = null,
+    bool UnitsCompleted = true)
 {
     /// <summary>The fact total the parent plan's 10^5 requirement is measured against.</summary>
     public int RelevantFactCount =>
@@ -59,7 +62,7 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
 {
     public const string AlgorithmVersion = "scene-analytics-v1";
 
-    private static readonly string ParametersSha256 = new('c', 64);
+    public static readonly string ParametersSha256 = new('c', 64);
 
     private ulong _state;
 
@@ -87,6 +90,16 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
     /// <param name="lineCount">Enabled trip lines in the revision.</param>
     /// <param name="visitsPerTrack">Zone visits generated per Track.</param>
     /// <param name="crossingsPerTrack">Line crossings generated per Track.</param>
+    /// <param name="sealTrajectories">
+    /// Seals a real v1 trajectory artefact per Track, on disk and recorded, so the
+    /// harnesses that read evidence — the executor and the heatmap — have something
+    /// to read. Off by default because the query harnesses never open one.
+    /// </param>
+    /// <param name="completeUnits">
+    /// False leaves each analytical unit Queued with no facts, which is the state the
+    /// executor is measured from. True completes it and writes the generated facts,
+    /// which is the state the read side is measured from.
+    /// </param>
     public async Task<CorpusManifest> BuildAsync(
         int seed,
         int videoCount,
@@ -95,6 +108,8 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
         int lineCount,
         int visitsPerTrack,
         int crossingsPerTrack,
+        bool sealTrajectories = false,
+        bool completeUnits = true,
         CancellationToken cancellationToken = default)
     {
         _state = (ulong)seed;
@@ -104,6 +119,9 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
         await db.Database.MigrateAsync(cancellationToken);
 
         var windowFrom = new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var evidenceRoot = sealTrajectories ? CreateRoot("evidence") : null;
+        var mediaRoot = sealTrajectories ? CreateRoot("media") : null;
 
         var camera = Camera.Create("CAM-QUAL-01", "Qualification Camera", "UTC");
         var configuration = SceneConfiguration.Create(camera.Id, windowFrom.AddDays(-1));
@@ -126,10 +144,14 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
         var summaryCount = 0;
         var motionCount = 0;
         var outcomeCount = 0;
-        long visibilitySequence = 0;
 
         for (var videoIndex = 0; videoIndex < videoCount; videoIndex++)
         {
+            // One transaction per video, holding the completion barrier across the
+            // sequence allocations inside it — the shape the pipeline publishes under.
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            await ProcessingVisibilityBarrier.AcquireCompletionExclusiveAsync(db, cancellationToken);
+
             // One video per hour, so a window sweep selects a predictable number of runs.
             var recordingStart = windowFrom.AddHours(videoIndex);
             var completedAt = recordingStart.AddMinutes(30);
@@ -150,7 +172,13 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
             var run = ProcessingRun.Create(video.Id, "phase1-detection-tracking-v1", "{}", recordingStart);
             run.MarkRunning("qualification-worker", recordingStart.AddMinutes(1));
             run.MarkCompleted(tracksPerRun * 10, tracksPerRun, 600_000, completedAt);
-            run.AssignCompletionVisibilitySequence(++visibilitySequence);
+            // From the database's own sequence, never a local counter. A reader takes
+            // its snapshot from the same sequence and admits only rows at or below it,
+            // so counter-issued values are not comparable with a snapshot: a corpus
+            // numbered 1..n locally is almost entirely invisible to the first reader
+            // that runs, and the harness measures an empty database very quickly.
+            run.AssignCompletionVisibilitySequence(
+                await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken));
             var job = VisionJob.Create(run.Id, "phase1-detection-tracking", recordingStart);
 
             db.AddRange(source, video, run, job);
@@ -160,24 +188,29 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
             // Driven through the real lifecycle, claim token and all, so the unit
             // reaches Completed the way the executor takes it there rather than by
             // having its columns written directly.
-            var analysis = SceneAnalysis.Queue(
-                run.Id, revision.Id, AlgorithmVersion, ParametersSha256, null, completedAt);
-            var claimToken = new byte[SceneAnalysis.ClaimTokenByteLength];
-            for (var i = 0; i < claimToken.Length; i++) claimToken[i] = (byte)Next(256);
-            analysis.Claim(
-                System.Security.Cryptography.SHA256.HashData(claimToken),
-                completedAt,
-                TimeSpan.FromMinutes(15),
-                maximumAttempts: 3,
-                reclaimGrace: TimeSpan.FromMinutes(1));
-            analysis.Complete(
-                analysis.AttemptCount,
-                claimToken,
-                ++visibilitySequence,
-                analysedTrackCount: tracksPerRun,
-                unavailableTrackCount: 0,
-                completedAt.AddSeconds(30));
-            db.Add(analysis);
+            SceneAnalysis? analysis = null;
+            if (completeUnits)
+            {
+                analysis = SceneAnalysis.Queue(
+                    run.Id, revision.Id, AlgorithmVersion, ParametersSha256, null, completedAt);
+                var claimToken = new byte[SceneAnalysis.ClaimTokenByteLength];
+                for (var i = 0; i < claimToken.Length; i++) claimToken[i] = (byte)Next(256);
+                analysis.Claim(
+                    System.Security.Cryptography.SHA256.HashData(claimToken),
+                    completedAt,
+                    TimeSpan.FromMinutes(15),
+                    maximumAttempts: 3,
+                    reclaimGrace: TimeSpan.FromMinutes(1));
+                var unitSequence = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
+                analysis.Complete(
+                    analysis.AttemptCount,
+                    claimToken,
+                    unitSequence,
+                    analysedTrackCount: tracksPerRun,
+                    unavailableTrackCount: 0,
+                    completedAt.AddSeconds(30));
+                db.Add(analysis);
+            }
 
             var tracks = new List<Track>(tracksPerRun);
             for (var trackIndex = 0; trackIndex < tracksPerRun; trackIndex++)
@@ -197,6 +230,13 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
 
             foreach (var track in tracks)
             {
+                if (analysis is null)
+                {
+                    // No unit, so no facts: the executor is about to derive them, and a
+                    // corpus that pre-wrote them would measure a run with nothing to do.
+                    continue;
+                }
+
                 db.Add(TrackAnalysisOutcome.Analysed(analysis.Id, track.Id, "bbox-centre", 120, 1, 400));
                 outcomeCount++;
 
@@ -262,10 +302,33 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
 
             trackCount += tracks.Count;
 
+            if (evidenceRoot is not null)
+            {
+                await SealTrajectoriesAsync(db, evidenceRoot, run.Id, tracks, cancellationToken);
+            }
+
             // Saved per video to keep the change tracker bounded; a single
             // SaveChanges over 10^5 rows is where this would otherwise fall over.
             await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             db.ChangeTracker.Clear();
+        }
+
+        if (completeUnits)
+        {
+            // The corpus is only a measurement subject if a reader can see it. This is
+            // the assertion the harness lacked when its visibility sequences came from
+            // a local counter: everything built, nothing measurable.
+            await using var check = await db.Database.BeginTransactionAsync(cancellationToken);
+            await ProcessingVisibilityBarrier.AcquireSearchSharedAsync(db, cancellationToken);
+            var snapshot = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
+            var visibleRuns = await db.ProcessingRuns
+                .CountAsync(run => run.VisibilitySequence != null && run.VisibilitySequence <= snapshot, cancellationToken);
+            if (visibleRuns != videoCount)
+            {
+                throw new InvalidOperationException(
+                    $"The corpus is not visible to a reader's snapshot: {visibleRuns} of {videoCount} runs are at or below it.");
+            }
         }
 
         return new CorpusManifest(
@@ -273,6 +336,72 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
             zoneIds, lineIds, runIds,
             windowFrom, windowFrom.AddHours(videoCount),
             videoCount, videoCount, trackCount,
-            visitCount, crossingCount, summaryCount, motionCount, outcomeCount);
+            visitCount, crossingCount, summaryCount, motionCount, outcomeCount,
+            evidenceRoot, mediaRoot, completeUnits);
+    }
+
+    /// <summary>
+    /// Seals one real v1 trajectory artefact per Track: written to disk under the
+    /// evidence root, recorded with its true digest, and attached to the Track.
+    /// </summary>
+    /// <remarks>
+    /// The path and the digest are the product's, not the harness's, because the
+    /// evidence reader verifies both. A fixture that recorded a digest it had not
+    /// computed would measure the failure path instead of the read path.
+    /// </remarks>
+    private async Task SealTrajectoriesAsync(
+        MaviDbContext db,
+        string evidenceRoot,
+        Guid runId,
+        List<Track> tracks,
+        CancellationToken cancellationToken)
+    {
+        var artifacts = new List<Artifact>(tracks.Count);
+        var attachments = new List<(Guid TrackId, Guid ArtifactId)>(tracks.Count);
+
+        foreach (var track in tracks)
+        {
+            // A short diagonal walk, varied by the seed so no two Tracks share bytes.
+            var originX = 0.05 + (NextUnit() * 0.4);
+            var originY = 0.05 + (NextUnit() * 0.4);
+            var payload = TrajectoryPayload.Encode(Enumerable.Range(0, 24).Select(step => (
+                (long)step * 200,
+                Math.Round(Math.Min(originX + (step * 0.02), 0.99), 6),
+                Math.Round(Math.Min(originY + (step * 0.015), 0.99), 6))));
+
+            var storageKey =
+                $"evidence/{runId:D}/attempt-0001/trajectories/track-{track.LocalTrackNumber:D6}.msgpack";
+            var path = Path.Combine(
+                evidenceRoot,
+                storageKey["evidence/".Length..].Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllBytesAsync(path, payload, cancellationToken);
+
+            var artifact = Artifact.Create(
+                ArtifactType.TrackTrajectory,
+                storageKey,
+                "application/x-msgpack",
+                payload.Length,
+                TrajectoryPayload.Sha256Hex(payload));
+            artifacts.Add(artifact);
+            attachments.Add((track.Id, artifact.Id));
+        }
+
+        db.AddRange(artifacts);
+        await db.SaveChangesAsync(cancellationToken);
+
+        foreach (var (trackId, artifactId) in attachments)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE tracks SET trajectory_artifact_id = {artifactId} WHERE id = {trackId}",
+                cancellationToken);
+        }
+    }
+
+    private static string CreateRoot(string kind)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mavi-qualification-{kind}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        return path;
     }
 }
