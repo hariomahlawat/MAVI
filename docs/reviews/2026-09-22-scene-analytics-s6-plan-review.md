@@ -170,6 +170,8 @@ The exact-head external review found three additional contract defects after the
 
 Required regression/contract tests must discriminate each repaired rule: snapshot sequence serialization, empty-denominator versus uncovered-denominator behavior, and both heatmap guards firing before evidence I/O.
 
+A final independent cold pass then checked the repaired plan against ADR-011 itself rather than only against the review comments. It found one documentation-level ambiguity: §7 said the endpoints obtain one visibility snapshot, but did not explicitly restate ADR-011 Decision 8's ordering requirement that the shared processing-visibility barrier is acquired **before any scope/active-revision read**. That omission could let a correct-looking implementation allocate a sequence after reading an old revision. The plan now freezes the barrier ordering and same-sequence run filter explicitly. The same pass also added the missing >2,000-Track API boundary assertion and snapshot-sequence success-contract assertion. No additional P1/P2 issue remained after those corrections.
+
 ## 8. Final planning gate
 
 **P1:** 0 open after the post-review repairs.  
