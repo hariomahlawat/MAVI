@@ -726,7 +726,7 @@ Scene Analytics slices are numbered 0–7; capability roadmap stages are numbere
 |---|---|---|---|
 | Analytics readiness and coverage indicators | **Slice 3, surfaced in Slice 4** | Ledger analytics-state column/text (**not a second row status badge**), Investigation coverage strip, Workbench context chip | `stale` and `partially available` tokens and taxonomy (§8.2, §14); UI-3 for the Ledger indicators; §16's one-badge-per-row rule remains in force |
 | Search integration and analytics predicates | **Slice 4** | Investigation | UI-4 in place; committed-filter chips and coverage strip (§17) |
-| Evidence overlays and explanation | **Slice 5** | Review and Investigation inspector | UI-5 implemented; one player with lane extension points (§18), pending review |
+| Evidence overlays and explanation | **Slice 5 — merged in PR #66** | Review and Investigation inspector | One shared Evidence Player; exact-revision analytical overlays/explanation; bounded analytical lanes; decision 7 closed |
 | Aggregates, occupancy, heatmap | **Slice 6** | Workbench | Workbench grammar from UI-2; sequential scale and legend; zone colour already separated from accent (§8.3) |
 | Hardening, acceptance, qualification | **Slice 7** | — | Visual QA standard (§26) as part of acceptance evidence |
 | Visual attributes | Capability stage 2 | Investigation filter chips and inspector key/value | committed-filter chips (§17) |
