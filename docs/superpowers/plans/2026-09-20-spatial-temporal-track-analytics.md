@@ -1,8 +1,8 @@
 # Spatial & Temporal Track Analytics — Implementation Plan
 
 **Date:** 2026-09-20 (implementation-grade revision)  
-**Status:** Stage 1 active. **Slices 0–5 are merged; UI-1 through UI-5 are merged. Slice 6 (Aggregates, occupancy and heatmap) is next**, governed by `docs/superpowers/plans/2026-09-22-scene-analytics-s6-aggregates-heatmap.md`. Slice 5 merged in PR #66 as `179786e2`, closing UI decision 7 (bounded stacked analytical lanes) and decision 2a (`--evidence-crossing` `#fde047`).  
-**Current implementation base:** `main@179786e2f4e09930a2c70119080ae565a92474f6` (PR #66 merge commit). §T/§U remain the frozen aggregate/heatmap semantics; §AJ is rebaselined for Slice 6.  
+**Status:** Stage 1 active. **Slices 0–6 and UI-1 through UI-5 are merged. Slice 7 (hardening, performance, acceptance and Stage-1 closure) is next**, governed by `docs/superpowers/plans/2026-09-22-scene-analytics-s7-hardening-acceptance.md`. Slice 6 merged in PR #68 as `27179187`, delivering aggregates, occupancy and on-demand heatmap.  
+**Current implementation base:** `main@2717918761fb35e4845b6887772ebdd5c7c6edf8` (PR #68 merge commit). §T/§U remain the frozen aggregate/heatmap semantics; Slice 7 now qualifies the complete Stage-1 system without adding capability.  
 **Product intent:** turn the trajectories MAVI already persists into searchable, explainable scene facts (zones, trip lines, dwell, crossings, direction, stationary and stopped objects, loitering, counts, occupancy, heatmaps) without a new model, a new dependency, or any change to the qualified detector/tracker worker.
 
 Every rule below that begins with **Decision** is frozen for implementation; changing it is a plan change, not an improvisation.
