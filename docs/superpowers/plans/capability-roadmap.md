@@ -139,7 +139,7 @@ Historical plans and evidence documents are never rewritten to match this roadma
 
 1. ~~Finish and merge PR #49~~ — merged as `ed1acf4`.
 2. ~~Establish the post-merge baseline~~ — §1.
-3. Spatial & Temporal Track Analytics: Slices 0–4 are merged. **Slice 5 — Evidence overlays and explanation** is implemented on `feature/scene-analytics-s5-evidence-explanation` from `main@d6393532` and awaits independent review; it closes UI-specification decisions 7 and 2a. After Slice 5 merges: Slice 6 aggregates/heatmap, then Slice 7 hardening/acceptance.
+3. Spatial & Temporal Track Analytics: **Slices 0–5 are merged. Slice 6 — Aggregates, occupancy and heatmap is next**, governed by `2026-09-22-scene-analytics-s6-aggregates-heatmap.md`; Slice 7 hardening/performance/acceptance follows after it merges.
 
    **UI Foundation programme is complete:** UI-1 → UI-5 are merged. Slice 5 extended the one Evidence Player/timeline/layer contract and is merged; Slice 6 heatmap UI uses the UI-2 Workbench grammar. This UI sequencing does not renumber Scene Analytics slices (0–7) or capability stages.
 
