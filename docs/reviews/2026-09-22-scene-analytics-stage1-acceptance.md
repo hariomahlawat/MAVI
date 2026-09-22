@@ -53,7 +53,7 @@ The plan states that PostgreSQL 16 observations are not qualification evidence. 
 |---|---|
 | Domain | 195 passed |
 | Application | 369 passed |
-| Integration | 2 failed of 629 — both `DatabaseStartupMigrationTests`, asserting the PostgreSQL 18 prerequisite against this container's 16.15 |
+| Integration | 2 failed of 632 — both `DatabaseStartupMigrationTests`, asserting the PostgreSQL 18 prerequisite against this container's 16.15 |
 | Frontend | 821 passed, typecheck clean, production build succeeds |
 | `python tools/verify_repo.py` | PASSED |
 | Dependency surface | unchanged — no diff in any `*.csproj`, `package.json` or `config/dependencies/` between the baseline and this head |
