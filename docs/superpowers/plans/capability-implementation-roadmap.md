@@ -97,7 +97,7 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 - **Qualification.** RTMDet, ByteTrack, CPU and CUDA runtime evidence untouched; new analytics evidence is deterministic golden fixtures plus a small staged-video corpus.
 - **Performance risks.** Fact-table growth linear in Tracks × zones; aggregate queries over long windows; heatmap computation over many trajectories.
 - **Security/privacy.** None new; scene edits should become attributable when identity exists (stage 10).
-- **Acceptance / non-goals / slices / exit gate.** See the stage-1 parent plan and the current Slice-6 execution plan. Slices 0–6 and UI-1–UI-5 are merged; Slice 7 hardening/performance/acceptance is next and closes Stage 1. Stage exit: acceptance criteria met on the development laptop with the real worker path; analytics-specific evidence recorded; no P1/P2 open; exact-head CI green; ADR-011 remains authoritative.
+- **Acceptance / non-goals / slices / exit gate.** See the stage-1 parent plan and the current Slice-7 hardening/performance/acceptance plan. Slices 0–6 and UI-1–UI-5 are merged; Slice 7 hardening/performance/acceptance is next and closes Stage 1. Stage exit: acceptance criteria met on the development laptop with the real worker path; analytics-specific evidence recorded; no P1/P2 open; exact-head CI green; ADR-011 remains authoritative.
 
 ### Stage 2 — Visual Attributes
 
