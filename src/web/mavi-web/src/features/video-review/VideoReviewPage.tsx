@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
@@ -13,6 +14,9 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { ContextBar, ReviewLayout } from '../../shared/workspace';
 import { ProvenancePanel, RepresentativeEvidence, TrackIdentity, TrackSummary } from './TrackDetailsPanels';
 import TrackEvidence from './TrackEvidence';
+import TrackAnalyticsExplanation from './TrackAnalyticsExplanation';
+import { buildAnalyticsEvidence } from './analyticsEvidence';
+import { pinnedNames, pinnedRevision, useAnalyticsScene } from './useAnalyticsScene';
 import { returnToSearchPath } from './returnContext';
 import { useTrajectory } from './useTrajectory';
 
@@ -117,6 +121,16 @@ export default function VideoReviewPage() {
     detail && !identityMismatch ? detail.trajectoryContentUrl : null,
   );
 
+  // The exact revision these facts were measured against, verified after it
+  // arrives. Never the camera's current revision: a Track analysed under
+  // revision 4 must be drawn over revision 4's geometry or over none.
+  const usable = detail && !identityMismatch ? detail : undefined;
+  const scene = useAnalyticsScene(usable?.camera.id, usable?.analytics);
+  const analyticsEvidence = useMemo(
+    () => buildAnalyticsEvidence(usable?.analytics, pinnedRevision(scene)),
+    [usable?.analytics, scene],
+  );
+
   if (!validVideoId) return <Invalid message="The video identifier in this route is invalid." />;
   if (!validTrackId) return <Invalid message="Exactly one valid Track identifier is required in the trackId query parameter." />;
   if (invalidIdentity) return <Invalid message="This review link names an invalid analytics identity, so the evidence it refers to cannot be identified. Open the Track again from search." />;
@@ -161,7 +175,14 @@ export default function VideoReviewPage() {
       {detail ? (
         <ReviewLayout
           notices={hasNotice ? notices : undefined}
-          player={<TrackEvidence detail={detail} trajectory={trajectory.data} trajectoryError={trajectory.isError} />}
+          player={(
+            <TrackEvidence
+              detail={detail}
+              analytics={analyticsEvidence}
+              trajectory={trajectory.data}
+              trajectoryError={trajectory.isError}
+            />
+          )}
           rail={(
             <>
               {/*
@@ -173,6 +194,22 @@ export default function VideoReviewPage() {
               <Panel title="Track summary" description="What this Track asserts, from persisted evidence.">
                 <TrackSummary detail={detail} displayTimeZoneId={displayTimeZoneId} />
               </Panel>
+              {/* The analytical explanation follows the primary summary, so
+                  section 4.5.1 still holds at 1366x768: the summary and the
+                  player are both in the initial viewport, and the explanation
+                  is the next thing the operator scrolls to. Guarded rather than
+                  assumed: a detail from a server without the analytics block
+                  degrades to the Slice-3 page rather than blanking it. */}
+              {detail.analytics ? (
+                <Panel title="Scene analytics" description="What the pinned scene revision says about this Track.">
+                  <TrackAnalyticsExplanation
+                    analytics={detail.analytics}
+                    scene={scene}
+                    geometry={pinnedNames(scene)}
+                    displayTimeZoneId={displayTimeZoneId}
+                  />
+                </Panel>
+              ) : null}
               <Panel title="Representative evidence" description="Persisted representative frame and stable Track identity.">
                 <div className="stack">
                   <RepresentativeEvidence detail={detail} />

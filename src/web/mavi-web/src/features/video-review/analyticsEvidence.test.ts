@@ -21,10 +21,13 @@ import {
   zoneVisit,
 } from '../../test/analyticsFixtures';
 import {
+  DESCRIBED_VERTEX_SAMPLE,
   buildAnalyticsEvidence,
+  extentOf,
   hasOverlappingStationary,
   visitBoundaryNote,
 } from './analyticsEvidence';
+import { analyticsLayers } from './analyticsLayers';
 
 const revision = sceneRevision({
   zones: [
@@ -400,5 +403,106 @@ describe('the zone family is not one row per zone', () => {
     );
     const packed = packIntervals(model.intervals.filter((i) => i.lane === ZONE_LANE));
     expect(packed.every((p) => p.row === 0)).toBe(true);
+  });
+});
+
+describe('accessible descriptions stay bounded at maximum scene complexity', () => {
+  /** The largest scene the contract allows: 64 zones of 64 vertices each. */
+  const maximal = sceneRevision({
+    zones: Array.from({ length: 64 }, (_, zoneIndex) => sceneZone({
+      zoneId: `018f3f5a-2f70-7a2b-8a12-2d02f4c2${(0x1500 + zoneIndex).toString(16)}`,
+      name: `Zone ${zoneIndex}`,
+      vertices: Array.from({ length: 64 }, (_, vertexIndex) => ({
+        x: 0.5 + 0.4 * Math.cos((vertexIndex / 64) * 2 * Math.PI),
+        y: 0.5 + 0.4 * Math.sin((vertexIndex / 64) * 2 * Math.PI),
+      })),
+    })),
+    tripLines: [],
+  });
+
+  it('never enumerates every vertex, however many a zone has', () => {
+    const model = buildAnalyticsEvidence(analysedAnalytics(), maximal);
+    expect(model.zones).toHaveLength(64);
+
+    for (const zone of model.zones) {
+      // Four sample vertices, not sixty-four. Counting the coordinate pairs is
+      // what catches a regression here: a full dump would still "contain" the
+      // extent and the count, so asserting on those alone would pass.
+      const pairs = zone.description.detail.match(/\(\d\.\d{3}, \d\.\d{3}\)/g) ?? [];
+      expect(pairs).toHaveLength(DESCRIBED_VERTEX_SAMPLE);
+      // It says what it left out rather than pretending the shape is a square.
+      expect(zone.description.detail).toContain('64-sided');
+      expect(zone.description.detail).toContain('60 further vertices not listed here');
+      // And it gives where the shape is, which is the part that is actually
+      // usable without sight of the outline.
+      expect(zone.description.detail).toMatch(/spanning x \d\.\d{3} to \d\.\d{3}, y \d\.\d{3} to \d\.\d{3}/);
+    }
+  });
+
+  it('keeps each zone description short enough to be read', () => {
+    const model = buildAnalyticsEvidence(analysedAnalytics(), maximal);
+    for (const zone of model.zones) {
+      expect(zone.description.detail.length).toBeLessThan(400);
+    }
+  });
+
+  it('does not grow or rebuild the description as the playhead moves', () => {
+    const model = buildAnalyticsEvidence(analysedAnalytics(), maximal);
+    const [layer] = analyticsLayers(model);
+
+    const atStart = layer.kind === 'spatial' ? layer.describe(0) : [];
+    const atMiddle = layer.kind === 'spatial' ? layer.describe(45_000) : [];
+    const atEnd = layer.kind === 'spatial' ? layer.describe(600_000) : [];
+
+    // Same size at every playhead position: the description of a polygon does
+    // not depend on where the media is.
+    expect(atStart).toHaveLength(64);
+    expect(atMiddle).toHaveLength(64);
+    expect(atEnd).toHaveLength(64);
+    expect(atMiddle.map((d) => d.detail)).toEqual(atStart.map((d) => d.detail));
+
+    // And the same objects, not equal copies: the work of walking 4096
+    // vertices happened once when the model was built, not on every frame.
+    expect(atMiddle[0]).toBe(atStart[0]);
+    expect(atEnd).toBe(atStart);
+  });
+
+  it('gives a trip line its complete geometry, because two endpoints are bounded', () => {
+    const model = buildAnalyticsEvidence(analysedAnalytics(), sceneRevision({ zones: [] }));
+    expect(model.lines[0].description.detail).toContain('From (0.100, 0.500) to (0.900, 0.500)');
+    expect(model.lines[0].description.detail).toContain('Inbound one way, Outbound the other');
+  });
+
+  it('names a crossing by its persisted point, direction and media time', () => {
+    const model = buildAnalyticsEvidence(
+      analysedAnalytics({ lineCrossings: [lineCrossing()] }),
+      revision,
+    );
+    const detail = model.crossings[0].description.detail;
+    expect(detail).toContain('Inbound');
+    expect(detail).toContain('00:12.5');
+    expect(detail).toContain('(0.400, 0.600)');
+  });
+
+  it('says a zone is disabled rather than merely unmatched', () => {
+    // Three different facts an operator must be able to tell apart: evaluated
+    // and matched, evaluated and not matched, and never evaluated at all.
+    const model = buildAnalyticsEvidence(
+      analysedAnalytics({ zoneVisits: [zoneVisit()], zoneSummaries: [zoneSummary()] }),
+      revision,
+    );
+    const [matched, context, disabled] = model.zones;
+    expect(matched.description.detail).toContain('This Track was inside it: 1 visit');
+    expect(context.description.detail).toContain('Context only');
+    expect(disabled.description.detail).toContain('Disabled in this revision');
+    expect(disabled.description.detail).not.toContain('Context only');
+  });
+});
+
+describe('the extent helper', () => {
+  it('bounds a polygon and survives a degenerate one', () => {
+    expect(extentOf([{ x: 0.2, y: 0.8 }, { x: 0.6, y: 0.1 }, { x: 0.4, y: 0.5 }]))
+      .toEqual({ x0: 0.2, y0: 0.1, x1: 0.6, y1: 0.8 });
+    expect(extentOf([])).toEqual({ x0: 0, y0: 0, x1: 0, y1: 0 });
   });
 });

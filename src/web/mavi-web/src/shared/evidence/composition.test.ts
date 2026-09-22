@@ -55,8 +55,15 @@ describe('one Evidence Player', () => {
     const review = read('features/video-review/VideoReviewPage.tsx');
     const inspector = read('features/visual-search/TrackInspector.tsx');
     // Both mount the same Track adapter, which composes the one player.
-    expect(review).toContain('<TrackEvidence detail={detail}');
-    expect(inspector).toContain('<TrackEvidence detail={detail}');
+    // Matched across lines and whitespace: what matters is that each host
+    // mounts `TrackEvidence` with the detail, not how its props are wrapped.
+    const mountsAdapter = /<TrackEvidence\b[^>]*\bdetail=\{detail\}/s;
+    expect(review).toMatch(mountsAdapter);
+    expect(inspector).toMatch(mountsAdapter);
+    // And both hand it the same analytical evidence model, so the geometry and
+    // the lanes cannot differ between the two surfaces.
+    expect(review).toMatch(/<TrackEvidence\b[^>]*\banalytics=\{analyticsEvidence\}/s);
+    expect(inspector).toMatch(/<TrackEvidence\b[^>]*\banalytics=\{analyticsEvidence\}/s);
 
     const adapter = read('features/video-review/TrackEvidence.tsx');
     expect(adapter).toContain("import EvidencePlayer from '../../shared/evidence/EvidencePlayer'");

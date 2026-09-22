@@ -4,6 +4,8 @@ import Alert from '../../shared/components/Alert';
 import { formatOffset } from '../../shared/format/format';
 import EvidencePlayer from '../../shared/evidence/EvidencePlayer';
 import type { EvidenceDescription, EvidenceLayer } from '../../shared/evidence/layers';
+import type { TrackAnalyticsEvidenceModel } from './analyticsEvidence';
+import { analyticsLayers } from './analyticsLayers';
 import { isBoxVisibleAt, projectBox, projectPoint } from '../../shared/evidence/projection';
 import type { EvidenceTimelineInterval, EvidenceTimelineMarker } from '../../shared/evidence/timeline';
 import { SUBJECT_LANE } from '../../shared/evidence/timeline';
@@ -12,6 +14,12 @@ import { hasSampleAt, trajectoryPositionAt, type TrajectoryPoint } from './traje
 
 type Props = {
   detail: TrackDetail;
+  /**
+   * Persisted analytical evidence for the pinned revision, when the host has
+   * resolved one. Absent means no analytical overlay and no analytical lane —
+   * never geometry borrowed from whatever revision is active now.
+   */
+  analytics?: TrackAnalyticsEvidenceModel;
   trajectory?: TrajectoryPoint[];
   /** The trajectory artefact exists but could not be fetched or parsed. */
   trajectoryError?: boolean;
@@ -34,7 +42,7 @@ type Props = {
  * sampled centre path; between samples the position is interpolated and says
  * so, and outside the sampled range nothing is drawn at all.
  */
-export default function TrackEvidence({ detail, trajectory, trajectoryError = false, compact = false }: Props) {
+export default function TrackEvidence({ detail, analytics, trajectory, trajectoryError = false, compact = false }: Props) {
   const representative = detail.representative;
   // Two different facts, and conflating them discarded valid evidence. The
   // worker finalises a Track on one observation — `finalization.py` requires
@@ -214,6 +222,17 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
     },
   ], [detail.objectClass, detail.trajectoryArtifactId, representative, trajectory, trajectoryError, hasTrajectoryEvidence, canDrawTrajectoryPath]);
 
+  /*
+    Analytical context is drawn beneath the raw evidence: the zones and lines
+    say what the scene was, and the Track's own box and path are what the
+    operator is actually reviewing. Putting the context on top would let a zone
+    fill sit over the evidence it is supposed to explain.
+  */
+  const allLayers: EvidenceLayer[] = useMemo(
+    () => (analytics ? [...analyticsLayers(analytics), ...layers] : layers),
+    [analytics, layers],
+  );
+
   const intervals: EvidenceTimelineInterval[] = useMemo(() => [
     {
       id: 'track-' + detail.id,
@@ -222,18 +241,20 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
       label: `Track ${detail.localTrackNumber} interval`,
       lane: SUBJECT_LANE,
     },
-  ], [detail.id, detail.startOffsetMs, detail.endOffsetMs, detail.localTrackNumber]);
+    ...(analytics?.intervals ?? []),
+  ], [detail.id, detail.startOffsetMs, detail.endOffsetMs, detail.localTrackNumber, analytics]);
 
-  const markers: EvidenceTimelineMarker[] = useMemo(() => (
-    representative
+  const markers: EvidenceTimelineMarker[] = useMemo(() => [
+    ...(representative
       ? [{
         id: 'representative-' + representative.observationId,
         offsetMs: representative.videoOffsetMs,
         label: 'Representative frame',
         kind: 'representative',
       }]
-      : []
-  ), [representative]);
+      : []),
+    ...(analytics?.markers ?? []),
+  ], [representative, analytics]);
 
   return (
     <EvidencePlayer
@@ -257,7 +278,7 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
       // honest; false evidence is not. The divergence is declared rather than
       // papered over, and closes when a full-frame artifact exists.
       representative={representative ? { offsetMs: representative.videoOffsetMs } : undefined}
-      layers={layers}
+      layers={allLayers}
       intervals={intervals}
       markers={markers}
       preferenceScope="track"

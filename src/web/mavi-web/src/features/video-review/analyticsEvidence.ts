@@ -1,4 +1,4 @@
-import type { SceneRevision, SceneTripLine, SceneZone } from '../../api/scene';
+import type { ScenePoint, SceneRevision, SceneTripLine, SceneZone } from '../../api/scene';
 import type {
   TrackDetailAnalytics,
   TrackDetailLineCrossing,
@@ -6,6 +6,7 @@ import type {
 } from '../../api/tracks';
 import { formatDuration } from '../../shared/format/duration';
 import { formatOffset } from '../../shared/format/format';
+import type { EvidenceDescription } from '../../shared/evidence/layers';
 import type { EvidenceTimelineInterval, EvidenceTimelineMarker } from '../../shared/evidence/timeline';
 import { STATIONARY_LANE, ZONE_LANE } from '../../shared/evidence/timeline';
 import {
@@ -45,6 +46,7 @@ export type CrossingPoint = {
   /** The operator's wording for this direction, from the pinned line when known. */
   directionLabel: string;
   lineName: string;
+  description: EvidenceDescription;
 };
 
 /** One zone from the pinned revision, with what this Track did in it. */
@@ -54,6 +56,7 @@ export type ZoneEvidence = {
   /** This Track has at least one persisted visit or summary for this zone. */
   interacted: boolean;
   visitCount: number;
+  description: EvidenceDescription;
 };
 
 /** One trip line from the pinned revision, with what this Track did to it. */
@@ -62,6 +65,7 @@ export type LineEvidence = {
   name: string;
   interacted: boolean;
   crossingCount: number;
+  description: EvidenceDescription;
 };
 
 export type TrackAnalyticsEvidenceModel = {
@@ -78,6 +82,106 @@ export const EMPTY_ANALYTICS_EVIDENCE: TrackAnalyticsEvidenceModel = {
   zones: [], lines: [], crossings: [], intervals: [], markers: [],
   matchedZoneIds: new Set(), matchedLineIds: new Set(),
 };
+
+/**
+ * How many of a zone's vertices the accessible description names.
+ *
+ * A valid scene may hold 64 zones of 64 vertices each. Reading four thousand
+ * coordinates aloud is not an accessible equivalent of a polygon — it is a data
+ * dump that no operator can hold in their head, and it would be rebuilt on
+ * every playhead tick. The description therefore gives the shape's *size and
+ * place* — vertex count and normalised extent — plus the first few vertices as
+ * orientation, and says how many it did not name. The drawn outline remains the
+ * complete source of truth for the geometry itself.
+ */
+export const DESCRIBED_VERTEX_SAMPLE = 4;
+
+/** The normalised bounding extent of a polygon. */
+export function extentOf(vertices: readonly ScenePoint[]): { x0: number; y0: number; x1: number; y1: number } {
+  if (vertices.length === 0) return { x0: 0, y0: 0, x1: 0, y1: 0 };
+  let x0 = vertices[0].x; let x1 = x0; let y0 = vertices[0].y; let y1 = y0;
+  for (const vertex of vertices) {
+    if (vertex.x < x0) x0 = vertex.x;
+    if (vertex.x > x1) x1 = vertex.x;
+    if (vertex.y < y0) y0 = vertex.y;
+    if (vertex.y > y1) y1 = vertex.y;
+  }
+  return { x0, y0, x1, y1 };
+}
+
+const coordinate = (value: number) => value.toFixed(3);
+const point = (p: ScenePoint) => `(${coordinate(p.x)}, ${coordinate(p.y)})`;
+
+/**
+ * A zone's accessible description. Bounded in both output and work, and
+ * independent of the playhead: scene geometry does not move with the media, so
+ * this is computed once when the model is built and simply returned thereafter.
+ */
+export function zoneDescription(
+  zone: SceneZone,
+  name: string,
+  interacted: boolean,
+  visitCount: number,
+): EvidenceDescription {
+  const extent = extentOf(zone.vertices);
+  const sample = zone.vertices.slice(0, DESCRIBED_VERTEX_SAMPLE);
+  const remaining = zone.vertices.length - sample.length;
+  const state = !zone.enabled
+    ? 'Disabled in this revision, so analytics did not evaluate it.'
+    : interacted
+      ? `This Track was inside it: ${visitCount} ${visitCount === 1 ? 'visit' : 'visits'}.`
+      : 'Context only: this Track has no persisted facts for it.';
+  return {
+    id: `zone-${zone.zoneId}`,
+    label: `${name} zone`,
+    detail: `${state} ${zone.vertices.length}-sided, spanning `
+      + `x ${coordinate(extent.x0)} to ${coordinate(extent.x1)}, `
+      + `y ${coordinate(extent.y0)} to ${coordinate(extent.y1)} of the source frame. `
+      + `Starts at ${sample.map(point).join(', ')}`
+      + (remaining > 0 ? `, and ${remaining} further ${remaining === 1 ? 'vertex' : 'vertices'} not listed here.` : '.'),
+    // Scene geometry is drawn wherever the playhead is: it is where the zone
+    // was, not something the Track asserts at one instant.
+    appliesNow: true,
+  };
+}
+
+/** A trip line's description. Two endpoints, so the geometry is given completely. */
+export function lineDescription(
+  line: SceneTripLine,
+  name: string,
+  interacted: boolean,
+  crossingCount: number,
+): EvidenceDescription {
+  const state = !line.enabled
+    ? 'Disabled in this revision, so analytics did not evaluate it.'
+    : interacted
+      ? `This Track crossed it ${crossingCount} ${crossingCount === 1 ? 'time' : 'times'}.`
+      : 'Context only: this Track has no persisted crossing of it.';
+  const directions = line.directed
+    ? ` Directed: ${line.aToBLabel} one way, ${line.bToALabel} the other.`
+    : ' Undirected.';
+  return {
+    id: `line-${line.lineId}`,
+    label: `${name} trip line`,
+    detail: `${state} From ${point(line.a)} to ${point(line.b)} of the source frame.${directions}`,
+    appliesNow: true,
+  };
+}
+
+/** A persisted crossing point: where and when, exactly as the engine recorded it. */
+export function crossingDescription(crossing: Omit<CrossingPoint, 'description'>): EvidenceDescription {
+  return {
+    id: crossing.id,
+    label: `Crossing ${crossing.crossingIndex + 1} of ${crossing.lineName}`,
+    detail: `${crossing.directionLabel}, at ${formatOffset(crossing.offsetMs, 'tenths')}, `
+      + `at ${point({ x: crossing.x, y: crossing.y })} of the source frame. `
+      + 'The position the engine persisted for this crossing.',
+    // The point is where the crossing happened; it stays on the frame so the
+    // operator can see every crossing location at once, and the media time is
+    // stated rather than implied by the glyph appearing and disappearing.
+    appliesNow: true,
+  };
+}
 
 /** Zone ids this Track has any persisted fact for. Visits and summaries both count. */
 export function matchedZoneIds(analytics: TrackDetailAnalytics): ReadonlySet<string> {
@@ -242,29 +346,41 @@ export function buildAnalyticsEvidence(
 
   const zones: ZoneEvidence[] = (revision?.zones ?? []).map((zone) => {
     const key = zone.zoneId.toLowerCase();
+    const name = zone.name || shortId(zone.zoneId);
+    const interacted = zone.enabled && zoneIds.has(key);
+    const visitCount = visitsByZone.get(key) ?? 0;
     return {
       zone,
-      name: zone.name || shortId(zone.zoneId),
+      name,
       // A disabled zone was not evaluated by the engine that produced these
       // facts, so it can never be a match however the ids line up.
-      interacted: zone.enabled && zoneIds.has(key),
-      visitCount: visitsByZone.get(key) ?? 0,
+      interacted,
+      visitCount,
+      // Built once, here, rather than on every `describe` call: the geometry
+      // does not change with the playhead, and walking 64 polygons of 64
+      // vertices on every animation frame would be work done to produce the
+      // same string each time.
+      description: zoneDescription(zone, name, interacted, visitCount),
     };
   });
 
   const lines: LineEvidence[] = (revision?.tripLines ?? []).map((line) => {
     const key = line.lineId.toLowerCase();
+    const name = line.name || shortId(line.lineId);
+    const interacted = line.enabled && lineIds.has(key);
+    const crossingCount = crossingsByLine.get(key) ?? 0;
     return {
       line,
-      name: line.name || shortId(line.lineId),
-      interacted: line.enabled && lineIds.has(key),
-      crossingCount: crossingsByLine.get(key) ?? 0,
+      name,
+      interacted,
+      crossingCount,
+      description: lineDescription(line, name, interacted, crossingCount),
     };
   });
 
   const crossings: CrossingPoint[] = analytics.lineCrossings.map((crossing) => {
     const line = names?.lines.get(crossing.lineId.toLowerCase());
-    return {
+    const record = {
       id: `crossing-${crossing.lineId}-${crossing.crossingIndex}`,
       lineId: crossing.lineId,
       crossingIndex: crossing.crossingIndex,
@@ -276,6 +392,7 @@ export function buildAnalyticsEvidence(
       directionLabel: crossingDirectionLabel(crossing.direction, line),
       lineName: lineLabel(crossing.lineId, names),
     };
+    return { ...record, description: crossingDescription(record) };
   });
 
   const intervals: EvidenceTimelineInterval[] = [
