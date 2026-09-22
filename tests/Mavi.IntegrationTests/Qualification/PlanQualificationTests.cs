@@ -26,6 +26,12 @@ namespace Mavi.IntegrationTests.Qualification;
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class PlanQualificationTests(PostgresFixture fixture)
 {
+    /// <summary>The §T bucket sizes measured, from a minute to an hour.</summary>
+    private static readonly int[] AggregateBucketSizes = [60, 900, 3_600];
+
+    /// <summary>The class filters each §T bucket size is measured under.</summary>
+    private static readonly ObjectClass?[] AggregateClassFilters = [null, ObjectClass.Person, ObjectClass.Vehicle];
+
     private static int Setting(string name, int fallback) =>
         int.TryParse(Environment.GetEnvironmentVariable(name), out var value) && value > 0 ? value : fallback;
 
@@ -103,14 +109,19 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
 
         var environment = await QualificationGate.CaptureEnvironmentAsync(fixture.ConnectionString);
 
-        // Defaults reach ~10^5 facts: 40 runs x 120 Tracks x (1 outcome + 1 motion
-        // + 4 summaries + 3 visits + 2 crossings) = 528,000... deliberately
-        // overridable so a shape check is cheap.
+        // 40 runs x 250 Tracks x (1 outcome + 1 motion + 4 zone summaries + 3 visits
+        // + 2 crossings) = 10,000 Tracks x 11 = 110,000 relevant facts, over the
+        // parent plan's 10^5 prerequisite. The earlier default was 120 Tracks, which
+        // this comment claimed was 528,000 and was in fact 52,800 — half the
+        // prerequisite, so the unchanged command would have measured every §S and §T
+        // plan below the volume the plan requires. The shape stays overridable so a
+        // cheap check is still possible; the assertion below is what stops an
+        // undersized run being mistaken for qualification evidence.
         var corpus = new QualificationCorpus(fixture);
         var manifest = await corpus.BuildAsync(
             seed: Setting("MAVI_QUAL_SEED", 20260922),
             videoCount: Setting("MAVI_QUAL_RUNS", 40),
-            tracksPerRun: Setting("MAVI_QUAL_TRACKS", 120),
+            tracksPerRun: Setting("MAVI_QUAL_TRACKS", 250),
             zoneCount: Setting("MAVI_QUAL_ZONES", 4),
             lineCount: Setting("MAVI_QUAL_LINES", 2),
             visitsPerTrack: Setting("MAVI_QUAL_VISITS", 3),
@@ -199,18 +210,37 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
             });
         }
 
-        // Every §T aggregate, through the real service, once per metric family.
-        foreach (var bucketSeconds in new[] { 60, 900, 3_600 })
+        // Every §T aggregate, at three bucket sizes, unfiltered and class-filtered.
+        //
+        // The class filter is its own measurement, not a variant of the unfiltered
+        // one: it changes AnalyticsScopeQuery.BaseCandidates and with it the joins
+        // and cardinalities of every fact query, and this corpus holds both people
+        // and vehicles, so the unfiltered call cannot stand in for it.
+        var aggregateCases =
+            from bucketSeconds in AggregateBucketSizes
+            from objectClass in AggregateClassFilters
+            select (bucketSeconds, objectClass);
+
+        foreach (var (bucketSeconds, objectClass) in aggregateCases)
         {
             await using var db = new MaviDbContext(options);
             var repository = new AnalyticsAggregateRepository(db);
             capture.Clear();
 
+            var aggregateQuery = new AnalyticsAggregateQuery(
+                manifest.CameraId, manifest.WindowFromUtc, manifest.WindowToUtc, bucketSeconds, objectClass);
+
+            // Timed across the whole §T path. The repository only materialises the
+            // fact set; the counting rules — occupancy, unique tracks, repeated
+            // visits, the per-bucket series — are the aggregator, and their cost
+            // grows with facts and buckets. Stopping the clock at the repository
+            // would report a latency the operator never experiences.
             var stopwatch = Stopwatch.StartNew();
-            var aggregate = await repository.AggregateAsync(
-                new AnalyticsAggregateQuery(
-                    manifest.CameraId, manifest.WindowFromUtc, manifest.WindowToUtc, bucketSeconds, null),
-                default);
+            var aggregate = await repository.AggregateAsync(aggregateQuery, default);
+            var series = aggregate.Facts is null
+                ? null
+                : AnalyticsAggregator.Compute(
+                    aggregate.Facts, aggregateQuery.FromUtc, aggregateQuery.ToUtc, bucketSeconds);
             stopwatch.Stop();
 
             var plans = new List<object>();
@@ -226,13 +256,15 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
             results.Add(new
             {
                 family = "T",
-                predicate = $"aggregate all metrics, bucketSeconds={bucketSeconds}",
+                predicate = $"aggregate all metrics, bucketSeconds={bucketSeconds}, "
+                    + $"objectClass={objectClass?.ToString() ?? "any"}",
                 elapsedMs = stopwatch.Elapsed.TotalMilliseconds,
                 // Every §T metric is produced by this one call: zoneEntryCount,
                 // zoneExitCount, zoneUniqueTrackCount, lineCrossingCount[direction],
                 // occupancy/peakOccupancy, repeatedVisitTrackCount and classCount.
                 zones = aggregate.Facts?.Zones.Count ?? 0,
                 lines = aggregate.Facts?.Lines.Count ?? 0,
+                buckets = series?.Buckets.Count ?? 0,
                 zoneVisits = aggregate.Facts?.ZoneVisits.Count ?? 0,
                 lineCrossings = aggregate.Facts?.LineCrossings.Count ?? 0,
                 zoneSummaries = aggregate.Facts?.ZoneSummaries.Count ?? 0,
@@ -242,14 +274,28 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
             });
         }
 
+        var qualificationGrade =
+            string.Equals(environment["isQualificationGradeDatabase"], "true", StringComparison.Ordinal);
+        var meetsFactPrerequisite = manifest.RelevantFactCount >= QualificationGate.MinimumRelevantFactCount;
+
         var path = QualificationGate.Write("plan-qualification.json", new
         {
             environment,
             manifest,
             relevantFactCount = manifest.RelevantFactCount,
+            minimumRelevantFactCount = QualificationGate.MinimumRelevantFactCount,
+            meetsFactPrerequisite,
             results,
         });
 
         Assert.True(File.Exists(path));
+
+        // A run on the required server is claiming to be qualification evidence, so
+        // an undersized corpus is a failure rather than a footnote. On any other
+        // server the file records the shortfall and the run is an observation.
+        Assert.True(
+            !qualificationGrade || meetsFactPrerequisite,
+            $"A qualification-grade run measured {manifest.RelevantFactCount} relevant facts, "
+            + $"below the required {QualificationGate.MinimumRelevantFactCount}. Evidence: {path}");
     }
 }

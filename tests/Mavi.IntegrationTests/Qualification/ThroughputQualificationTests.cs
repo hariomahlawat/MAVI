@@ -60,6 +60,23 @@ public sealed class ThroughputQualificationTests(PostgresFixture fixture)
         Assert.Equal(AnalyticsQueryRules.MaximumHeatmapTracks, EnvelopeRuns * EnvelopeTracksPerRun);
     }
 
+    /// <summary>
+    /// The version that qualifies is the version the platform requires — the same
+    /// number, not a copy of it that can drift.
+    /// </summary>
+    /// <remarks>
+    /// Runs in the ordinary suite and needs no database. The product refuses any
+    /// major version other than its required one, so treating "18 or later" as
+    /// qualification-grade would let a run on a planner the platform does not accept
+    /// be presented as satisfying the exit gate. This states the two are equal; the
+    /// gate itself now compares for equality rather than a lower bound.
+    /// </remarks>
+    [Fact]
+    public void TheVersionThatQualifiesIsTheVersionTheProductRequires() =>
+        Assert.Equal(
+            QualificationGate.RequiredPostgreSqlMajorVersion,
+            new Mavi.Api.Startup.DatabasePrerequisiteOptions().RequiredPostgreSqlMajorVersion);
+
     private const int EnvelopeRuns = AnalyticsQueryRules.MaximumHeatmapRuns;
     private const int EnvelopeTracksPerRun = AnalyticsQueryRules.MaximumHeatmapTracks / AnalyticsQueryRules.MaximumHeatmapRuns;
 
@@ -114,13 +131,19 @@ public sealed class ThroughputQualificationTests(PostgresFixture fixture)
 
         if (claim is null)
         {
-            QualificationGate.Write("analytics-unit-throughput.json", new
+            // Write the diagnostic, then fail. Returning green here would let a
+            // regression in corpus construction or lifecycle eligibility pass the
+            // qualification command while measuring no throughput at all — the same
+            // shape of silent emptiness the visibility-sequence defect produced.
+            var diagnostic = QualificationGate.Write("analytics-unit-throughput.json", new
             {
                 environment,
                 manifest,
                 status = "no unit claimable — corpus did not produce an eligible run",
             });
-            return;
+            Assert.Fail(
+                "No analytical unit was claimable, so no throughput was measured. "
+                + $"Diagnostic: {diagnostic}");
         }
 
         var stopwatch = Stopwatch.StartNew();

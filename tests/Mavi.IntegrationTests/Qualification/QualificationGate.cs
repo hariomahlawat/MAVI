@@ -27,6 +27,12 @@ namespace Mavi.IntegrationTests.Qualification;
 /// </remarks>
 public static class QualificationGate
 {
+    /// <summary>The one major version the platform accepts, and so the only one that qualifies.</summary>
+    public const int RequiredPostgreSqlMajorVersion = 18;
+
+    /// <summary>The parent plan's relevant-fact prerequisite for a qualification measurement.</summary>
+    public const int MinimumRelevantFactCount = 100_000;
+
     public const string EnabledVariable = "MAVI_QUALIFICATION";
     public const string OutputVariable = "MAVI_QUALIFICATION_OUT";
 
@@ -102,9 +108,15 @@ public static class QualificationGate
         }
 
         // The qualification rule in one field, so no reader has to infer it.
+        //
+        // Exactly 18, not "18 or later". The product's own prerequisite check is an
+        // equality (`DatabaseMigrationStartup`: majorVersion != required is refused),
+        // so a run against 19 is a run against a planner the platform does not accept
+        // — and labelling it qualification-grade would let it be presented as
+        // satisfying the PostgreSQL 18 exit gate.
         var major = environment["postgresVersion"].Split('.')[0];
         environment["isQualificationGradeDatabase"] =
-            (int.TryParse(major, out var parsed) && parsed >= 18) ? "true" : "false";
+            (int.TryParse(major, out var parsed) && parsed == RequiredPostgreSqlMajorVersion) ? "true" : "false";
 
         return environment;
     }

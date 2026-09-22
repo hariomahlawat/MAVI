@@ -18,14 +18,15 @@ All under `tests/Mavi.IntegrationTests/Qualification/`, gated on `MAVI_QUALIFICA
 
 | Harness | Exit-gate item | What it measures |
 |---|---|---|
-| `PlanQualificationTests` | 3, 5 | Every §S predicate family (23, including all eight headings) and every §T aggregate at three bucket sizes, each timed and `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)`-captured from the SQL the product actually issued |
+| `PlanQualificationTests` | 3, 5 | Every §S predicate family (23, including all eight headings), and every §T aggregate at three bucket sizes × three class filters (unfiltered, Person, Vehicle) — nine measurements, because the class filter changes `BaseCandidates` and so the joins and cardinalities of every fact query. Each is timed across the whole §T path (repository fetch **and** `AnalyticsAggregator.Compute`, whose cost grows with facts and buckets) and `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)`-captured from the SQL the product actually issued |
 | `ThroughputQualificationTests.OneAnalyticalUnit…` | 4 | One analytical unit over a synthetic 1,000-Track run with real sealed trajectories: duration, ms/Track, analysed and unavailable counts, rows written per fact table |
 | `ThroughputQualificationTests.TheHeatmap…` | 6 | The heatmap at the **frozen** envelope — `MaximumHeatmapRuns` covered runs and `MaximumHeatmapTracks` candidates — at three grid widths |
 
-Two always-on guards keep these from drifting into decoration:
+Three always-on guards keep these from drifting into decoration:
 
 - `TheMeasurementPlanNamesEverySearchPredicateTheContractDefines` reflects over `TrackAnalyticsQuery`'s primary constructor, so a §S predicate added in a later slice fails the build rather than quietly falling out of "every predicate".
 - `TheEnvelopeMeasuredIsTheEnvelopeEnforced` reads `AnalyticsQueryRules`, so the harness cannot keep measuring a limit the product no longer has.
+- `TheVersionThatQualifiesIsTheVersionTheProductRequires` reads `DatabasePrerequisiteOptions`, so the version that counts as qualification-grade cannot drift from the one the platform accepts.
 
 ## 3. A defect in the harness, found by running it
 
@@ -38,6 +39,20 @@ The first heatmap-envelope run built 50 runs and 2,000 Tracks and then reported 
 **Fix.** The corpus now publishes the way the pipeline does — one transaction per video, the completion barrier held across a real `nextval` — and, before returning a manifest, takes a reader's own snapshot and refuses to hand back a corpus that snapshot cannot see.
 
 **After the fix:** all 23 §S predicate families return rows and the aggregate sees its facts.
+
+## 3b. Three further defects in the harness, from independent review
+
+All three were in the harness rather than the product, and all three would have produced qualification evidence that looked fine.
+
+1. **The default corpus was half the required volume.** 40 runs × 120 Tracks × 11 facts is **52,800** relevant facts, not the 528,000 a comment claimed — a tenfold arithmetic error on my part. Since those defaults drive the unchanged PostgreSQL 18 command, every §S and §T plan would have been measured below the mandatory 10⁵ prerequisite. Defaults are now 40 × 250 = 110,000 (11.0 facts per Track, confirmed by measurement rather than by arithmetic), the fact count and the prerequisite are both written into the evidence file, and a run on the required server **fails** if the corpus is undersized rather than quietly reporting it.
+
+2. **The §T timer stopped at the repository.** `AggregateAsync` only materialises the fact set; the counting rules — occupancy, unique tracks, repeated visits, the per-bucket series — are `AnalyticsAggregator.Compute`, and their cost grows with facts and buckets. The reported latency was one an operator never experiences. The clock now spans both.
+
+3. **The class-filtered §T path was never planned.** Every aggregate measurement passed `null` for the object class, so the filtered path — which changes `BaseCandidates` and therefore the joins and cardinalities of every fact query — went unmeasured. Now measured as its own case: at a 4-run shape check the filters partition cleanly (1,992 Person + 1,008 Vehicle = 3,000 unfiltered visits), so they are demonstrably not the unfiltered call in disguise.
+
+4. **The throughput harness returned green when nothing was claimable.** A regression in corpus construction or lifecycle eligibility would have passed the qualification command having measured no throughput at all — the same shape of silent emptiness as the visibility defect above. It now writes the diagnostic and then fails.
+
+5. **`isQualificationGradeDatabase` accepted 18 or later.** The platform's own prerequisite check is an equality, so a run against 19 is a run against a planner the product refuses; labelling it qualification-grade would let it be presented as satisfying the PostgreSQL 18 exit gate. It now requires exactly 18, and an always-on test pins that number to the product's.
 
 ## 4. Engineering observations (PostgreSQL 16.15, NOT qualification)
 
