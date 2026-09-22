@@ -52,7 +52,8 @@ The parent plan was written before the final Slice-5 architecture landed. The me
 - The run denominator follows Slice 4/ADR-011: distinct runs represented by the ordinary base Track candidate set after camera/window/class/latest-run scope and before analytical aggregation.
 - `complete` retains exactly the ADR-011 rule: pending, failed, stale, not-configured and disabled run buckets must all be zero.
 - `UnavailableTracks` limits evidence but does not make a completed run-level answer incomplete.
-- A scope with **zero covered runs** returns HTTP 200 with empty analytical data and truthful non-zero coverage buckets. The UI MUST render a not-analysed/disabled/not-configured state, never a zero-valued chart that implies observation.
+- A scope with **zero covered runs and a non-empty base-scope denominator** returns HTTP 200 with empty analytical data and truthful non-zero coverage buckets. The UI MUST render a not-analysed/disabled/not-configured state, never a zero-valued chart that implies observation.
+- A **genuinely empty base scope** (the ordinary Track candidate set yields zero denominator runs) is a complete-zero observation: coverage is complete with all coverage buckets zero, analytical arrays/totals are empty or zero as appropriate, and the UI may render the explicit complete-zero state. No synthetic run or non-zero coverage bucket is fabricated merely to distinguish emptiness from incompleteness.
 - Partial coverage MAY render the data from covered runs, but the coverage strip remains persistently visible.
 - Coverage wording and bucket names are reused from Investigation; Slice 6 does not create a fourth readiness vocabulary.
 
@@ -138,6 +139,7 @@ The contract should be compact and identity-explicit rather than repeating geome
 - camera id;
 - scene revision id and number when resolved;
 - algorithm version;
+- `snapshotVisibilitySequence` used to resolve the response;
 - requested `fromUtc`, `toUtc`, `bucketSeconds`;
 - optional class filter;
 - `AnalyticsCoverageResponse`;
@@ -233,6 +235,7 @@ Return:
 - camera id;
 - scene revision id/number when resolved;
 - algorithm version;
+- `snapshotVisibilitySequence` used to resolve the response;
 - window + optional class filter;
 - coverage;
 - grid width/height;
@@ -247,9 +250,11 @@ The UI gets the exact scene revision through the existing scene-revision endpoin
 
 ### 5.5 Heatmap work bound
 
-Raw trajectory I/O is the expensive part. Until Slice 7 measures the real §Z workload, a single heatmap request may resolve at most **50 covered runs**. A larger resolved run set returns a typed 422 problem (`analytics_heatmap_scope_too_large`) telling the caller to narrow the time window.
+Raw trajectory I/O is the expensive part, so run count alone is not an adequate resource bound. Before opening any trajectory artefact, the service MUST materialise only the cheap covered-scope metadata needed to enforce both pre-fan-out limits: **at most 50 covered runs** and **at most 2,000 Analysed Track outcomes whose trajectories are candidates** after camera/window/class/optional-run scope is applied.
 
-This number is intentionally aligned with the parent plan's required Slice-7 “heatmap time for 50 runs” measurement. Slice 7 may raise/remove the cap only with measured evidence.
+Exceeding either limit returns the typed 422 problem (`analytics_heatmap_scope_too_large`) **before any trajectory artefact is opened**, telling the caller to narrow the time window and identifying the exceeded bounded dimension. The Track guard is based on candidate Analysed outcomes, not post-read sample contribution, so enforcement cannot require the expensive I/O it bounds.
+
+The 50-run limit remains aligned with the parent plan's Slice-7 benchmark. The 2,000-Track limit is a conservative pre-measurement ceiling that bounds sequential artefact opens even when one run approaches the worker's much larger completion-track allowance. Slice 7 MUST record both resolved-run count and candidate-trajectory Track count during heatmap timing and may raise/remove either cap only with measured evidence. If cheap accepted-evidence byte metadata becomes available at the scope seam, Slice 7 should also record aggregate bytes; Slice 6 does not open artefacts merely to discover their sizes.
 
 There is **no heatmap cache in Slice 6**. §U permits a short-TTL memory cache only after measurement shows need; implementing one before measurement would create invalidation/concurrency complexity without evidence.
 
@@ -580,7 +585,7 @@ Implementation should:
 - project only required columns;
 - stream/read heatmap trajectories sequentially;
 - check cancellation between artefacts;
-- enforce 512-bucket and 50-run heatmap bounds before expensive work;
+- enforce the 512-bucket bound plus both heatmap pre-fan-out bounds (50 runs / 2,000 candidate Analysed Tracks) before expensive artefact work;
 - log request duration and bounded dimensions/run count without logging operator-sensitive evidence content.
 
 Slice 7 performs the parent plan's measured `EXPLAIN (ANALYZE, BUFFERS)`, 10^5-fact aggregate tests and 50-run heatmap timing, then changes indexes/cache only from evidence.
@@ -630,9 +635,10 @@ No offline packaging document change unless dependency drift is introduced (not 
 ### Task 3 — Heatmap builder/service
 1. Implement pure grid mapper.
 2. Resolve bounded covered run set.
-3. Read trajectories through accepted evidence.
-4. Fail closed on analysed-evidence corruption.
-5. Add 50-run guard and tests.
+3. Enforce the 50-run and 2,000-candidate-Track guards before opening any trajectory artefact.
+4. Read trajectories through accepted evidence.
+5. Fail closed on analysed-evidence corruption.
+6. Add boundary tests proving both guards discriminate before evidence I/O.
 
 **Gate:** matrix totals/identity/coverage exact; no persistence/cache.
 
@@ -685,9 +691,9 @@ No offline packaging document change unless dependency drift is introduced (not 
 Slice 6 is complete only when all are true:
 
 1. Every §T metric has one unambiguous, tested counting rule.
-2. Every aggregate and heatmap response carries truthful coverage.
+2. Every aggregate and heatmap response carries truthful coverage and the exact `snapshotVisibilitySequence` that resolved it.
 3. Incomplete/zero-covered analytics cannot appear as a normal zero result.
-4. Aggregate scope uses the same fact-bearing/snapshot semantics as Slice 4.
+4. Aggregate scope uses the same fact-bearing/snapshot semantics as Slice 4, including the genuinely-empty-denominator complete-zero exception.
 5. Heatmap values come only from sealed accepted trajectories.
 6. Heatmap sample totals are reproducible for the same scope/grid.
 7. No raster heatmap is persisted.
