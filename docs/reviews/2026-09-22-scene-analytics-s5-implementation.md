@@ -223,6 +223,7 @@ Backend and .NET suites were not run: no backend, contract or shared file is tou
 ## 10. Deferred
 
 - **Slice 7 (recorded, unchanged):** the browser's `parseTrajectory` validates finite coordinates but does not enforce normalised `[0,1]` centres as strictly as the worker and the application decoder do. Correct worker output cannot reach that path, so it is not a Slice-5 blocker.
+- **P3, new:** an overflowed zone visit is named twice in the accessibility tree — once as its positionless list item on the rail, once as its control in the disclosure. Both are deliberate (positional evidence against a control), but a screen reader traversing both hears the same visit twice. Worth revisiting once there is operator feedback on which of the two is actually used.
 - ~~**P3:** the overflow rail's aggregate count is stated once for the whole rail rather than per concurrent span.~~ **Closed** in the repair pass (§7A.5): the rail is span-aware and every overflowed visit is individually recoverable.
 
 ---
