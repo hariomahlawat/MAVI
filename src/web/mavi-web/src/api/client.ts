@@ -3,7 +3,30 @@ export type ApiErrorShape = {
   code: string;
   detail: string;
   videoAssetId?: string;
+  /**
+   * The problem's non-standard members, verbatim. RFC 7807 lets a problem carry
+   * typed data alongside its code, and some refusals are only actionable with it
+   * — a rejected scope says which bound fired and what it is, which is what lets
+   * a surface tell the operator how to narrow the request instead of only that
+   * it was refused. Read through a narrowing accessor; the wire is not trusted
+   * to have the shape a caller hopes for.
+   */
+  extensions?: Readonly<Record<string, unknown>>;
 };
+
+const standardProblemMembers = new Set(['type', 'title', 'status', 'detail', 'instance', 'code']);
+
+/** One extension as a number, or undefined if the wire did not carry one. */
+export function problemNumber(error: unknown, key: string): number | undefined {
+  const value = error instanceof ApiError ? error.extensions[key] : undefined;
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** One extension as a non-empty string, or undefined. */
+export function problemText(error: unknown, key: string): string | undefined {
+  const value = error instanceof ApiError ? error.extensions[key] : undefined;
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
 
 const genericDetail = 'The request could not be completed.';
 
@@ -21,6 +44,7 @@ export class ApiError extends Error implements ApiErrorShape {
   readonly code: string;
   readonly detail: string;
   readonly videoAssetId?: string;
+  readonly extensions: Readonly<Record<string, unknown>>;
 
   constructor(shape: ApiErrorShape) {
     super(shape.detail);
@@ -29,6 +53,7 @@ export class ApiError extends Error implements ApiErrorShape {
     this.code = shape.code;
     this.detail = shape.detail;
     this.videoAssetId = shape.videoAssetId;
+    this.extensions = shape.extensions ?? {};
   }
 }
 
@@ -45,7 +70,12 @@ async function readError(response: Response): Promise<ApiError> {
   const detail = typeof body.detail === 'string' && body.detail.trim() ? body.detail : genericDetail;
   const videoAssetId = code === 'video_duplicate' && isGuid(body.videoAssetId) ? body.videoAssetId : undefined;
 
-  return new ApiError({ status: response.status, code, detail, videoAssetId });
+  const extensions: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (!standardProblemMembers.has(key)) extensions[key] = value;
+  }
+
+  return new ApiError({ status: response.status, code, detail, videoAssetId, extensions });
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {

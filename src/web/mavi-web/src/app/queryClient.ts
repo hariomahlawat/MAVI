@@ -34,6 +34,16 @@ export const queryKeys = {
   trajectory: (artifactId: string) => ['trajectory', artifactId] as const,
   runAttestation: (processingRunId: string) => ['processing-run', processingRunId, 'attestation'] as const,
   runAnalytics: (processingRunId: string) => ['processing-run', processingRunId, 'analytics'] as const,
+  /**
+   * One cache entry per camera and per exact question. The analytics answer is
+   * pinned to the scene revision and visibility sequence the server resolved it
+   * against, so two windows, two bucket sizes or two grids are different answers
+   * and must never overwrite each other.
+   */
+  cameraAnalyticsAggregates: (cameraId: string, query: string) =>
+    ['camera-analytics', cameraId, 'aggregates', query] as const,
+  cameraAnalyticsHeatmap: (cameraId: string, query: string) =>
+    ['camera-analytics', cameraId, 'heatmap', query] as const,
   systemConfig: ['system-config'] as const,
   platformHealth: ['platform-health'] as const,
 };
