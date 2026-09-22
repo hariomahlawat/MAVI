@@ -176,6 +176,34 @@
      never the only thing distinguishing a crossing from a direction arrow. */
   --evidence-crossing: var(--p-yellow-300);
 
+  /* Specification decision 2c, closed in Scene Analytics Slice 6 against the
+     first surface that draws a density map. Chosen by measurement: linear-light
+     sRGB, Vienot dichromat simulation, CIEDE2000 in CIE L*a*b*.
+
+     A sequential scale has to traverse the whole luminance range, so it passes
+     near every hue on the way; the candidates that keep a hue (viridis 2.0,
+     magma 1.4, cividis 1.4) come closer to a frozen evidence role than decision
+     2a's own 7.1 floor. Keeping chroma low instead puts this ramp at 7.8 from
+     the nearest role under any vision, while luminance still rises
+     monotonically from 0.009 to 0.776 — so density reads in greyscale and under
+     protan, deutan and tritan, where hue alone would not. Adjacent steps stay
+     9.8 apart, which is what makes two density levels distinguishable.
+
+     It is not a red-to-green scale, and cannot be mistaken for one.
+
+     The scrim is part of the decision, not decoration. Against bright footage
+     the top of any light-ended scale measures 1.02:1 and simply disappears; at
+     50% the top clears 3:1 against every reference frame — bright 3.73, dark
+     15.49, saturated 10.82, low-contrast 9.09. The bottom of the scale is
+     deliberately left low-contrast: it means "almost nothing here" and should
+     recede into the frame. */
+  --heat-0: #111827;
+  --heat-1: #27374d;
+  --heat-2: #44566e;
+  --heat-3: #7b8ea6;
+  --heat-4: #dde5ee;
+  --heat-scrim: rgb(0 0 0 / 50%);
+
   /* Chart series. Two roles, because the only multi-series readings in the
      product are a trip line's two directions and the two object classes. They
      are evidence, not status: a bar is a count that was observed, never a state

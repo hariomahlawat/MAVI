@@ -4,7 +4,10 @@ import { useParams } from 'react-router-dom';
 import {
   ANALYTICS_CAMERA_NOT_FOUND,
   getAnalyticsAggregates,
+  getAnalyticsHeatmap,
+  heatmapScopeRefusal,
   serializeAggregateQuery,
+  serializeHeatmapQuery,
 } from '../../api/analytics';
 import { getCamera } from '../../api/cameras';
 import { ApiError } from '../../api/client';
@@ -22,6 +25,8 @@ import { WorkbenchLayout } from '../../shared/workspace';
 import ActivityChart from './ActivityChart';
 import ActivityInspector from './ActivityInspector';
 import AnalyticsControls from './AnalyticsControls';
+import HeatmapInspector from './HeatmapInspector';
+import HeatmapStage from './HeatmapStage';
 import {
   initialQueryState,
   METRICS,
@@ -51,6 +56,7 @@ import {
 export default function AnalyticsPage() {
   const { cameraId = '' } = useParams();
   const [state, setState] = useState<AnalyticsQueryState>(() => initialQueryState(new Date()));
+  const [opacity, setOpacity] = useState(0.75);
 
   const camera = useQuery({
     queryKey: queryKeys.camera(cameraId),
@@ -86,6 +92,23 @@ export default function AnalyticsPage() {
     enabled: Boolean(cameraId) && state.mode === 'activity' && problem === null,
   });
 
+  const heatmapRequest = {
+    fromUtc: state.fromUtc,
+    toUtc: state.toUtc,
+    gridWidth: state.gridWidth,
+    ...(state.objectClass ? { objectClass: state.objectClass } : {}),
+  };
+
+  const heatmap = useQuery({
+    queryKey: queryKeys.cameraAnalyticsHeatmap(cameraId, serializeHeatmapQuery(heatmapRequest)),
+    queryFn: ({ signal }) => getAnalyticsHeatmap(cameraId, heatmapRequest, signal),
+    enabled: Boolean(cameraId) && state.mode === 'heatmap' && problem === null,
+    // Reading sealed evidence is expensive and the answer is pinned to a
+    // snapshot, so it is not refetched behind the operator's back.
+    staleTime: Infinity,
+    retry: false,
+  });
+
   const response = aggregates.data;
   const subjectId = useMemo(
     () => resolveSubject(response, state.metric, state.subjectId),
@@ -97,10 +120,11 @@ export default function AnalyticsPage() {
   const update = (patch: Partial<AnalyticsQueryState>) => setState((current) => ({ ...current, ...patch }));
   const applyPreset = (preset: WindowPresetId) => update(presetWindow(preset, new Date()));
 
+  const active = state.mode === 'heatmap' ? heatmap : aggregates;
   const cameraMissing = camera.isError && camera.error instanceof ApiError && camera.error.status === 404;
-  const analyticsCameraMissing = aggregates.isError
-    && aggregates.error instanceof ApiError
-    && aggregates.error.code === ANALYTICS_CAMERA_NOT_FOUND;
+  const analyticsCameraMissing = active.isError
+    && active.error instanceof ApiError
+    && active.error.code === ANALYTICS_CAMERA_NOT_FOUND;
 
   const crumbs = [
     { label: 'Cameras', to: '/cameras' },
@@ -112,7 +136,10 @@ export default function AnalyticsPage() {
     <>
       <ContextBar
         crumbs={crumbs}
-        status={response ? <CoverageChip complete={response.coverage.complete} /> : null}
+        status={(() => {
+          const coverage = state.mode === 'heatmap' ? heatmap.data?.coverage : response?.coverage;
+          return coverage ? <CoverageChip complete={coverage.complete} /> : null;
+        })()}
         actions={<ButtonLink size="sm" variant="ghost" to={`/cameras/${cameraId}/scene`}>Scene configuration</ButtonLink>}
       />
 
@@ -152,12 +179,12 @@ export default function AnalyticsPage() {
               state={state}
               displayTimeZoneId={displayTimeZoneId}
               problem={problem}
-              refreshing={aggregates.isFetching}
+              refreshing={active.isFetching}
               onChange={update}
               onPreset={applyPreset}
-              onRefresh={() => void aggregates.refetch()}
+              onRefresh={() => void active.refetch()}
             />
-            {aggregates.isError && response ? (
+            {aggregates.isError && response && state.mode === 'activity' ? (
               <Alert tone="stale" actions={<Button size="sm" onClick={() => void aggregates.refetch()}>Retry</Button>}>
                 These figures are the last answer that arrived. A refresh since then has failed, so they may no
                 longer be current.
@@ -180,7 +207,12 @@ export default function AnalyticsPage() {
                 The window and interval above have to be changed before there is anything to read.
               </EmptyState>
             ) : state.mode === 'heatmap' ? (
-              <EmptyState icon="info" title="Heatmap" compact>Select a window to build the density map.</EmptyState>
+              <HeatmapPane
+                query={heatmap}
+                opacity={opacity}
+                onOpacityChange={setOpacity}
+                onNarrow={() => applyPreset('lastHour')}
+              />
             ) : aggregates.isLoading ? (
               <LoadingState label="Reading analytics…" />
             ) : aggregates.isError && !response ? (
@@ -199,7 +231,11 @@ export default function AnalyticsPage() {
         )}
         inspector={(
           <Inspector label="Analytics inspector" title="Analytics">
-            {response ? (
+            {state.mode === 'heatmap' ? (
+              heatmap.data
+                ? <HeatmapInspector response={heatmap.data} displayTimeZoneId={renderZoneId} />
+                : <p className="faint">Figures appear once a density map has been built.</p>
+            ) : response ? (
               <ActivityInspector response={response} reading={reading} displayTimeZoneId={renderZoneId} />
             ) : (
               <p className="faint">Figures appear once a window has been read.</p>
@@ -209,6 +245,76 @@ export default function AnalyticsPage() {
       />
     </>
   );
+}
+
+/**
+ * The heatmap's own answers, which are not the aggregate's.
+ *
+ * Two of them are specific to reading sealed evidence: a scope the server
+ * refuses to open before it opens anything, and evidence it could not read.
+ * Neither is an empty map. A map drawn from the artefacts that happened to open
+ * would be a map of which files survived, not of where anything went.
+ */
+function HeatmapPane({
+  query,
+  opacity,
+  onOpacityChange,
+  onNarrow,
+}: {
+  query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof getAnalyticsHeatmap>>>>;
+  opacity: number;
+  onOpacityChange: (value: number) => void;
+  onNarrow: () => void;
+}) {
+  const refusal = heatmapScopeRefusal(query.error);
+  if (refusal) {
+    const dimension = refusal.dimension === 'coveredRuns' ? 'processing runs'
+      : refusal.dimension === 'candidateTracks' ? 'analysed Tracks'
+        : 'covered work';
+    return (
+      <EmptyState
+        icon="info"
+        title="This window covers too much to map"
+        actions={<Button onClick={onNarrow}>Use the last hour</Button>}
+      >
+        {refusal.limit === null
+          ? `The window covers more ${dimension} than a single map is allowed to read.`
+          : `The window covers more than ${refusal.limit.toLocaleString()} ${dimension}, which is the most a single `
+            + 'map is allowed to read. Narrow the window and try again.'}
+      </EmptyState>
+    );
+  }
+
+  if (query.isLoading) return <LoadingState label="Reading trajectory evidence…" />;
+
+  if (query.isError) {
+    const evidence = query.error instanceof ApiError && query.error.status === 503;
+    return (
+      <Alert tone="error" actions={<Button size="sm" onClick={() => void query.refetch()}>Retry</Button>}>
+        {evidence
+          ? 'Trajectory evidence for an analysed Track could not be read, so no map was built. '
+            + 'A partial map would show where the readable files went, not where anything went.'
+          : query.error instanceof ApiError ? query.error.detail : 'The density map could not be built.'}
+      </Alert>
+    );
+  }
+
+  if (!query.data) return null;
+
+  if (scopePresence(query.data.coverage) === 'incomplete') {
+    return (
+      <EmptyState
+        icon="clock"
+        title="Not every run in this window has been analysed"
+        actions={<ButtonLink to="/processing">Go to Processing</ButtonLink>}
+      >
+        No map is drawn rather than a partial one: an empty region would read as somewhere nothing went,
+        when it may simply be somewhere nothing has been analysed yet.
+      </EmptyState>
+    );
+  }
+
+  return <HeatmapStage response={query.data} opacity={opacity} onOpacityChange={onOpacityChange} />;
 }
 
 function CoverageChip({ complete }: { complete: boolean }) {
