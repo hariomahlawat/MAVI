@@ -27,10 +27,10 @@ The plan states that PostgreSQL 16 observations are not qualification evidence. 
 |---|---|---|
 | 1 | Stage-1 functional acceptance met | **NOT EXECUTED** — depends on 2–6, 15 |
 | 2 | C1 agrees across trajectory/facts/search/explanation/aggregate/heatmap/UI | **PARTIAL.** C1 is built and passing across trajectory → facts → §S search → §T aggregate (`SemanticAcceptanceTests`, expected answers hand-derived from the frozen rules before running). The trace does **not** extend to the bounded explanation, the heatmap or the UI projection |
-| 3 | PG18 plan/timing for every §S predicate and §T aggregate at 10^5 facts | **NOT EXECUTED — environment blocked.** Harness built, committed and smoke-proven end to end |
-| 4 | Analytics-unit duration/rows for Development corpus and synthetic 1,000-Track run | **NOT EXECUTED — environment blocked.** Harness built and smoke-proven end to end (real sealed trajectories, real executor); the qualification run needs PostgreSQL 18 |
+| 3 | PG18 plan/timing for every §S predicate and §T aggregate at 10^5 facts | **NOT EXECUTED — environment blocked.** Harness built and repaired: until this pass it called the non-analytic search and so planned **no** §S predicate at all. It now uses the analytic entry point and fails closed unless each measurement reaches the fact table its predicate names |
+| 4 | Analytics-unit duration/rows for Development corpus and synthetic 1,000-Track run | **NOT EXECUTED — environment blocked.** Harness built, and now fails unless the unit completed, every Track was analysed, none was unavailable and every required fact family was written |
 | 5 | Aggregate 10^5-fact qualification | **NOT EXECUTED — environment blocked.** Harness covers it |
-| 6 | Heatmap 50-run/candidate envelope | **NOT EXECUTED — environment blocked.** Harness built and run at the true envelope (50 covered runs, 2,000 candidates, 48,000 samples) against PostgreSQL 16, which is not qualification evidence |
+| 6 | Heatmap 50-run/candidate envelope | **NOT EXECUTED — environment blocked.** Harness built and run at the true envelope (50 covered runs, 2,000 candidates, 48,000 samples) against PostgreSQL 16, which is not qualification evidence. It now asserts that envelope against the product's own constants rather than merely recording it |
 | 7 | Both fan-out limits have evidence-backed decisions | **NOT EXECUTED** — requires 6 |
 | 8 | No demonstrated N+1/unbounded DB or evidence-I/O path | **PARTIAL.** N+1 disproven for the aggregate by an always-on test holding query count constant across geometry. **An unbounded materialisation path is OPEN (P2)** — see the security document |
 | 9 | Cancellation/failure proven at realistic volume | **NOT EXECUTED.** Failure and cancellation are tested, but only on a one-Track world; the harness to run them against the C3 corpus is not written, so this is engineering work as well as a blocked execution |
@@ -43,7 +43,7 @@ The plan states that PostgreSQL 16 observations are not qualification evidence. 
 | 16 | No policy-violating dependency/runtime drift | **PASS** — no dependency added; `verify_repo.py` green |
 | 17 | Relevant suites green | **PASS** — see §Validation below. The only integration failures are the PostgreSQL 18 prerequisite assertion, reproduced and explained |
 | 18 | Documentation reflects measured reality | **PASS** for this pass's documents |
-| 19 | Independent cold review has no P1/P2 | **PARTIAL** — performed on this diff; the pre-existing P2 above remains open by design |
+| 19 | Independent cold review has no P1/P2 | **PARTIAL** — two independent cold reviews performed on this diff. The second found three P1s in the qualification harness, and auditing around them found four more defects, including one that meant no §S predicate was ever exercised. All are fixed. The pre-existing aggregate-materialisation P2 remains open by design, pending PostgreSQL 18 measurement |
 | 20 | Zero unresolved material review threads | **PASS** — none open |
 | 21 | Exact-head CI green | Reported on the PR |
 
@@ -66,6 +66,7 @@ The plan states that PostgreSQL 16 observations are not qualification evidence. 
 4. **A reconciled obligation register** and the security/bounded-resource review, including one previously unrecorded P2.
 5. **Corpus C1**, the cross-layer semantic trace Stage 1 did not have, which pinned two frozen rules that had been documented but never asserted.
 6. **The analytical-unit and heatmap-envelope harnesses**, and with them a defect in the qualification corpus itself: visibility sequences issued from a local counter made the corpus nearly invisible to any reader's snapshot, so every §S and §T measurement the plan harness would have produced would have been taken over a near-empty database. The corpus now publishes under the real barrier and refuses to return a manifest a reader cannot see.
+7. **A fail-closed qualification mechanism.** Two further review rounds found seven more ways the harness could report green without measuring its subject — the worst being that all 23 §S measurements used the non-analytic search and therefore exercised no §S predicate whatsoever. Every harness now states its expectations through `QualificationVerdict`, which separates an integrity failure (the measurement did not happen, fatal anywhere) from a missing qualification prerequisite (recorded, and fatal only on the required server), writes every expectation into the evidence, and refuses to call an unproven run evidence. Details in `2026-09-22-scene-analytics-s7-performance.md` §3c.
 
 ## Remaining work
 

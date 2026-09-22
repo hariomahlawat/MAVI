@@ -52,7 +52,10 @@ public sealed class SqlCapture : DbCommandInterceptor
     private void Record(DbCommand command)
     {
         // Only SELECTs are planned; the advisory-lock and sequence calls that
-        // bracket a snapshot are control statements, not analytical queries.
+        // bracket a snapshot are control statements, not analytical queries. They
+        // also never arrive here, because only reader execution is intercepted and
+        // those go out as scalar or non-query commands — this filter is the second
+        // line rather than the first.
         var sql = command.CommandText.TrimStart();
         if (!sql.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)) return;
 

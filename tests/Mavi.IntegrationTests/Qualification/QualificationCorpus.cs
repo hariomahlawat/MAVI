@@ -64,6 +64,14 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
 
     public static readonly string ParametersSha256 = new('c', 64);
 
+    /// <summary>
+    /// Samples in every sealed trajectory. Public because a harness that reads the
+    /// evidence back can then state exactly how many samples the whole corpus holds,
+    /// which is what turns "the heatmap returned something" into "the heatmap read
+    /// every sample the corpus sealed".
+    /// </summary>
+    public const int SealedTrajectorySampleCount = 24;
+
     private ulong _state;
 
     private int Next(int maxExclusive)
@@ -364,7 +372,7 @@ public sealed class QualificationCorpus(PostgresFixture fixture)
             // A short diagonal walk, varied by the seed so no two Tracks share bytes.
             var originX = 0.05 + (NextUnit() * 0.4);
             var originY = 0.05 + (NextUnit() * 0.4);
-            var payload = TrajectoryPayload.Encode(Enumerable.Range(0, 24).Select(step => (
+            var payload = TrajectoryPayload.Encode(Enumerable.Range(0, SealedTrajectorySampleCount).Select(step => (
                 (long)step * 200,
                 Math.Round(Math.Min(originX + (step * 0.02), 0.99), 6),
                 Math.Round(Math.Min(originY + (step * 0.015), 0.99), 6))));

@@ -37,8 +37,34 @@ public static class QualificationGate
     public const string OutputVariable = "MAVI_QUALIFICATION_OUT";
 
     /// <summary>Whether the operator asked for the heavy qualification pass.</summary>
-    public static bool Enabled =>
-        string.Equals(Environment.GetEnvironmentVariable(EnabledVariable), "1", StringComparison.Ordinal);
+    /// <remarks>
+    /// Unset means "not asked for", and the harness is a no-op. Set to anything other
+    /// than <c>1</c> throws rather than skipping: an operator who typed
+    /// <c>MAVI_QUALIFICATION=true</c> believes they are running the qualification, and
+    /// silently returning green would be a run that passed without executing.
+    /// </remarks>
+    public static bool Enabled => IsEnabledValue(Environment.GetEnvironmentVariable(EnabledVariable));
+
+    /// <summary>The rule above, as a function, so it can be pinned without touching the process environment.</summary>
+    public static bool IsEnabledValue(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+        if (string.Equals(value, "1", StringComparison.Ordinal)) return true;
+        throw new InvalidOperationException(
+            $"{EnabledVariable} is set to '{value}'. The qualification harness runs only when it is "
+            + "exactly '1'; leave it unset to skip. Refusing to skip silently, because a run that is "
+            + "believed to have happened and did not is worse than no run.");
+    }
+
+    /// <summary>Whether this environment's server is the one that can qualify.</summary>
+    public static bool IsQualificationGrade(IReadOnlyDictionary<string, string> environment)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+        return environment.TryGetValue(QualificationGradeKey, out var value)
+            && string.Equals(value, "true", StringComparison.Ordinal);
+    }
+
+    public const string QualificationGradeKey = "isQualificationGradeDatabase";
 
     /// <summary>Where evidence is written. Created on demand.</summary>
     public static string OutputDirectory
@@ -65,6 +91,30 @@ public static class QualificationGate
     }
 
     /// <summary>
+    /// Claims an evidence filename at the start of a measurement, overwriting whatever
+    /// was there with an explicitly incomplete record.
+    /// </summary>
+    /// <remarks>
+    /// Without this, a run that throws part-way leaves the <em>previous</em> run's
+    /// evidence on disk: complete, plausible, correctly named and quietly stale. An
+    /// operator collecting results after a failed run would collect the old ones.
+    /// Claiming the name first means a failed run leaves a file that says so.
+    /// </remarks>
+    public static string Begin(string name, string runId, IReadOnlyDictionary<string, string> environment)
+    {
+        return Write(name, new
+        {
+            status = "incomplete — the measurement did not finish; this file is not evidence",
+            runId,
+            startedAtUtc = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            environment,
+        });
+    }
+
+    /// <summary>A fresh identifier stamped into both the placeholder and the result.</summary>
+    public static string NewRunId() => Guid.NewGuid().ToString("N");
+
+    /// <summary>
     /// The reference environment, captured from the machine actually running the
     /// measurement rather than described by hand.
     /// </summary>
@@ -87,6 +137,15 @@ public static class QualificationGate
             ["dotnet"] = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
             ["logicalCores"] = Environment.ProcessorCount.ToString(CultureInfo.InvariantCulture),
         };
+
+        // The committed SHA says what was checked out, not what was built and run. A
+        // tree with uncommitted edits reports its parent commit quite happily, so the
+        // built assembly identifies itself too: module id and build timestamp pin the
+        // evidence to one binary even when the SHA does not.
+        var assembly = typeof(QualificationGate).Assembly;
+        environment["testAssembly"] = assembly.GetName().Name ?? "unknown";
+        environment["testAssemblyModuleId"] = assembly.ManifestModule.ModuleVersionId.ToString("N");
+        environment["testAssemblyBuiltUtc"] = SafeWriteTimeUtc(assembly.Location);
 
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -119,6 +178,20 @@ public static class QualificationGate
             (int.TryParse(major, out var parsed) && parsed == RequiredPostgreSqlMajorVersion) ? "true" : "false";
 
         return environment;
+    }
+
+    private static string SafeWriteTimeUtc(string? path)
+    {
+        try
+        {
+            return string.IsNullOrEmpty(path) || !File.Exists(path)
+                ? "unknown"
+                : File.GetLastWriteTimeUtc(path).ToString("O", CultureInfo.InvariantCulture);
+        }
+        catch (IOException)
+        {
+            return "unknown";
+        }
     }
 
     private static async Task<string> ScalarAsync(

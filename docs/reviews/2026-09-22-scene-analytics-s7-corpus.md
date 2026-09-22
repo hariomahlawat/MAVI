@@ -48,6 +48,21 @@ A generator that wrote rows directly would have "succeeded" at all three and mea
 
 The seeded sequence is a written-out linear congruential generator, not `System.Random`, whose output is explicitly not guaranteed stable across runtimes. The same seed must rebuild the same corpus on the Development machine as here. The manifest records seed, camera, revision, geometry ids, run ids, window and every fact-family count.
 
+## 2b. Fail-closed measurement
+
+Building a valid corpus is necessary and not sufficient: a harness can hold a perfect corpus and still measure nothing over it. Two later review rounds found seven ways that could happen here, including one in which every §S predicate measurement ran the non-analytic search and so exercised no predicate at all.
+
+Every harness now declares its expectations through `QualificationVerdict` and refuses to call an unproven run evidence. The distinction it enforces:
+
+| State | Meaning |
+|---|---|
+| `qualification evidence` | On PostgreSQL 18 exactly, with every integrity and prerequisite expectation met |
+| `engineering observation — not qualification evidence` | The measurement happened and is sound, but the run cannot qualify — usually the server version or corpus volume |
+| `qualification failure` | The harness could not show it measured its subject. The evidence file is still written, and is not evidence |
+| absent | NOT EXECUTED — the gate was closed |
+
+Integrity expectations are fatal on any server, because a measurement that did not exercise its subject is broken regardless of where it ran. Prerequisite expectations are fatal only where the run could otherwise have been filed as qualification evidence.
+
 ## 3. Corpus coverage against plan §6
 
 | Corpus | Status | Note |

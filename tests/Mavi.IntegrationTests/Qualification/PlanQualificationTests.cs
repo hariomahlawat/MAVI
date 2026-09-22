@@ -26,6 +26,22 @@ namespace Mavi.IntegrationTests.Qualification;
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class PlanQualificationTests(PostgresFixture fixture)
 {
+    private const string EvidenceFile = "plan-qualification.json";
+
+    private const int PageSize = 50;
+
+    /// <summary>One §S measurement: the predicate, and the tables its SQL must reach.</summary>
+    private sealed record PredicateCase(
+        string Name,
+        TrackAnalyticsQuery Analytics,
+        IReadOnlyList<string> ExpectedTables);
+
+    private static readonly string[] ZoneTables = ["track_zone_visits", "track_zone_summaries"];
+    private static readonly string[] ZoneSummaryTables = ["track_zone_summaries"];
+    private static readonly string[] LineTables = ["track_line_crossings"];
+    private static readonly string[] MotionTables = ["track_motion_summaries"];
+    private static readonly string[] AnalysisTables = ["scene_analyses"];
+
     /// <summary>The §T bucket sizes measured, from a minute to an hour.</summary>
     private static readonly int[] AggregateBucketSizes = [60, 900, 3_600];
 
@@ -108,6 +124,9 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
         if (!QualificationGate.Enabled) return;
 
         var environment = await QualificationGate.CaptureEnvironmentAsync(fixture.ConnectionString);
+        var verdict = new QualificationVerdict(QualificationGate.IsQualificationGrade(environment));
+        var runId = QualificationGate.NewRunId();
+        QualificationGate.Begin(EvidenceFile, runId, environment);
 
         // 40 runs x 250 Tracks x (1 outcome + 1 motion + 4 zone summaries + 3 visits
         // + 2 crossings) = 10,000 Tracks x 11 = 110,000 relevant facts, over the
@@ -136,45 +155,52 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
         var zoneId = manifest.ZoneIds[0];
         var lineId = manifest.LineIds[0];
 
-        // Every §S predicate family, named exactly as the contract names it.
-        var predicates = new List<(string Name, TrackAnalyticsQuery Analytics)>
+        // Every §S predicate family, named exactly as the contract names it, and
+        // carrying the fact table whose presence in the generated SQL proves the
+        // predicate was actually applied rather than silently dropped.
+        var predicates = new List<PredicateCase>
         {
-            ("zoneId (default dwelled)", TrackAnalyticsQuery.Empty with { ZoneId = zoneId }),
-            ("zoneRelation=entered", TrackAnalyticsQuery.Empty with { ZoneId = zoneId, ZoneRelation = TrackZoneRelation.Entered }),
-            ("zoneRelation=exited", TrackAnalyticsQuery.Empty with { ZoneId = zoneId, ZoneRelation = TrackZoneRelation.Exited }),
-            ("zoneRelation=dwelled", TrackAnalyticsQuery.Empty with { ZoneId = zoneId, ZoneRelation = TrackZoneRelation.Dwelled }),
-            ("minDwellMs", TrackAnalyticsQuery.Empty with { ZoneId = zoneId, MinDwellMs = 5_000 }),
-            ("lineId", TrackAnalyticsQuery.Empty with { LineId = lineId }),
-            ("crossingDirection=aToB", TrackAnalyticsQuery.Empty with { LineId = lineId, CrossingDirection = TrackCrossingDirection.AToB }),
-            ("crossingDirection=bToA", TrackAnalyticsQuery.Empty with { LineId = lineId, CrossingDirection = TrackCrossingDirection.BToA }),
-            ("minStationaryMs", TrackAnalyticsQuery.Empty with { MinStationaryMs = 5_000 }),
-            ("loitering", TrackAnalyticsQuery.Empty with { Loitering = true }),
-            ("loitering + zoneId", TrackAnalyticsQuery.Empty with { Loitering = true, ZoneId = zoneId }),
-            ("sceneRevisionId (explicit)", TrackAnalyticsQuery.Empty with { SceneRevisionId = manifest.RevisionId }),
-            ("sceneRevisionId + analyticsAlgorithmVersion", TrackAnalyticsQuery.Empty with
+            new("zoneId (default dwelled)", TrackAnalyticsQuery.Empty with { ZoneId = zoneId }, ZoneTables),
+            new("zoneRelation=entered", TrackAnalyticsQuery.Empty with { ZoneId = zoneId, ZoneRelation = TrackZoneRelation.Entered }, ZoneTables),
+            new("zoneRelation=exited", TrackAnalyticsQuery.Empty with { ZoneId = zoneId, ZoneRelation = TrackZoneRelation.Exited }, ZoneTables),
+            new("zoneRelation=dwelled", TrackAnalyticsQuery.Empty with { ZoneId = zoneId, ZoneRelation = TrackZoneRelation.Dwelled }, ZoneTables),
+            new("minDwellMs", TrackAnalyticsQuery.Empty with { ZoneId = zoneId, MinDwellMs = 5_000 }, ZoneTables),
+            new("lineId", TrackAnalyticsQuery.Empty with { LineId = lineId }, LineTables),
+            new("crossingDirection=aToB", TrackAnalyticsQuery.Empty with { LineId = lineId, CrossingDirection = TrackCrossingDirection.AToB }, LineTables),
+            new("crossingDirection=bToA", TrackAnalyticsQuery.Empty with { LineId = lineId, CrossingDirection = TrackCrossingDirection.BToA }, LineTables),
+            new("minStationaryMs", TrackAnalyticsQuery.Empty with { MinStationaryMs = 5_000 }, MotionTables),
+            new("loitering", TrackAnalyticsQuery.Empty with { Loitering = true }, ZoneSummaryTables),
+            new("loitering + zoneId", TrackAnalyticsQuery.Empty with { Loitering = true, ZoneId = zoneId }, ZoneSummaryTables),
+            // Identity-only predicates pin the analytical scope rather than a fact
+            // family, so the analysis table is what must appear.
+            new("sceneRevisionId (explicit)", TrackAnalyticsQuery.Empty with { SceneRevisionId = manifest.RevisionId }, AnalysisTables),
+            new("sceneRevisionId + analyticsAlgorithmVersion", TrackAnalyticsQuery.Empty with
             {
                 SceneRevisionId = manifest.RevisionId,
                 AnalyticsAlgorithmVersion = QualificationCorpus.AlgorithmVersion,
-            }),
-            ("combination: zone + line + direction", TrackAnalyticsQuery.Empty with
+            }, AnalysisTables),
+            new("combination: zone + line + direction", TrackAnalyticsQuery.Empty with
             {
                 ZoneId = zoneId, MinDwellMs = 2_000, LineId = lineId, CrossingDirection = TrackCrossingDirection.AToB,
-            }),
-            ("combination: zone + motion + stationary + loitering", TrackAnalyticsQuery.Empty with
+            }, LineTables),
+            new("combination: zone + motion + stationary + loitering", TrackAnalyticsQuery.Empty with
             {
                 ZoneId = zoneId, MotionDirection = "NE", MinStationaryMs = 1_000, Loitering = true,
-            }),
+            }, MotionTables),
         };
 
         // motionDirection accepts eight values and each is its own predicate.
         foreach (var heading in QualificationScene.Headings)
         {
-            predicates.Add(($"motionDirection={heading}", TrackAnalyticsQuery.Empty with { MotionDirection = heading }));
+            predicates.Add(new(
+                $"motionDirection={heading}",
+                TrackAnalyticsQuery.Empty with { MotionDirection = heading },
+                MotionTables));
         }
 
         var results = new List<object>();
 
-        foreach (var (name, analytics) in predicates)
+        foreach (var (name, analytics, expectedTables) in predicates)
         {
             await using var db = new MaviDbContext(options);
             var repository = new TrackSearchRepository(db, TimeProvider.System);
@@ -183,28 +209,63 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
             var query = new TrackSearchQuery(
                 manifest.CameraId, null, null, null,
                 manifest.WindowFromUtc, manifest.WindowToUtc,
-                null, null, null, 50, analytics);
+                null, null, null, PageSize, analytics);
 
+            // SearchAnalyticsAsync, not SearchAsync. SearchAsync applies only the
+            // non-analytic base candidate set, so every §S predicate handed to it was
+            // silently discarded: each of these measurements planned and timed the
+            // plain Track search, identically, while the evidence named a different
+            // predicate each time. The table assertion below is what makes that
+            // impossible to reintroduce.
             var stopwatch = Stopwatch.StartNew();
-            var page = await repository.SearchAsync(query, cursor: null, take: 50, cancellationToken: default);
+            var search = await repository.SearchAnalyticsAsync(
+                query, cursor: null, take: PageSize + 1, cancellationToken: default);
             stopwatch.Stop();
+
+            var page = search.Page as TrackAnalyticsSearchRepositoryPage;
 
             var plans = new List<object>();
             foreach (var statement in capture.Statements)
             {
-                plans.Add(new
-                {
-                    sql = statement.Sql,
-                    plan = await SqlCapture.ExplainAsync(fixture.ConnectionString, statement),
-                });
+                var plan = await SqlCapture.ExplainAsync(fixture.ConnectionString, statement);
+                verdict.RequireIntegrity(
+                    $"§S {name}: EXPLAIN produced a plan",
+                    plan.Contains("cost=", StringComparison.Ordinal),
+                    $"plan text was {plan.Length} characters");
+                plans.Add(new { sql = statement.Sql, plan });
             }
+
+            var sql = string.Concat(capture.Statements.Select(statement => statement.Sql));
+
+            verdict.RequireIntegrity($"§S {name}: the query was accepted", search.IsValid,
+                $"repository reported IsValid={search.IsValid}");
+            verdict.RequireIntegrity($"§S {name}: an analytic page came back", page is not null,
+                $"page type is {search.Page?.GetType().Name ?? "null"}");
+            verdict.RequireIntegrity($"§S {name}: SQL was captured", capture.Statements.Count > 0,
+                $"{capture.Statements.Count} statements intercepted");
+            verdict.RequireIntegrity(
+                $"§S {name}: the predicate reached the database",
+                expectedTables.Any(table => sql.Contains(table, StringComparison.Ordinal)),
+                $"generated SQL references none of {string.Join(", ", expectedTables)}");
+
+            // The corpus gives every Track visits, crossings and a heading, so each of
+            // these predicates has matching data by construction. An empty page here
+            // means the measurement exercised nothing, not that the answer is zero.
+            verdict.RequireIntegrity(
+                $"§S {name}: the predicate selected from the corpus",
+                page is { Items.Count: > 0 },
+                $"{page?.Items.Count ?? 0} rows returned");
 
             results.Add(new
             {
                 family = "S",
                 predicate = name,
                 elapsedMs = stopwatch.Elapsed.TotalMilliseconds,
-                rows = page.Items.Count,
+                rows = page?.Items.Count ?? 0,
+                valid = search.IsValid,
+                coverageComplete = page?.Coverage.Complete,
+                evaluatedRuns = page?.Coverage.EvaluatedRuns,
+                expectedTables,
                 dbQueryCount = capture.Statements.Count,
                 plans,
             });
@@ -243,15 +304,38 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
                     aggregate.Facts, aggregateQuery.FromUtc, aggregateQuery.ToUtc, bucketSeconds);
             stopwatch.Stop();
 
+            var label = $"bucketSeconds={bucketSeconds}, objectClass={objectClass?.ToString() ?? "any"}";
+
             var plans = new List<object>();
             foreach (var statement in capture.Statements)
             {
-                plans.Add(new
-                {
-                    sql = statement.Sql,
-                    plan = await SqlCapture.ExplainAsync(fixture.ConnectionString, statement),
-                });
+                var plan = await SqlCapture.ExplainAsync(fixture.ConnectionString, statement);
+                verdict.RequireIntegrity(
+                    $"§T {label}: EXPLAIN produced a plan",
+                    plan.Contains("cost=", StringComparison.Ordinal),
+                    $"plan text was {plan.Length} characters");
+                plans.Add(new { sql = statement.Sql, plan });
             }
+
+            verdict.RequireIntegrity($"§T {label}: the aggregate resolved", aggregate.IsSuccess,
+                $"failure is {aggregate.Failure}");
+            verdict.RequireIntegrity($"§T {label}: SQL was captured", capture.Statements.Count > 0,
+                $"{capture.Statements.Count} statements intercepted");
+            verdict.RequireIntegrity($"§T {label}: the series was computed", series is not null,
+                series is null ? "no fact set to compute from" : $"{series.Buckets.Count} buckets");
+            verdict.RequireIntegrity($"§T {label}: the window produced buckets", series is { Buckets.Count: > 0 },
+                $"{series?.Buckets.Count ?? 0} buckets");
+            verdict.RequireIntegrity($"§T {label}: the geometry was resolved",
+                aggregate.Facts is { Zones.Count: > 0, Lines.Count: > 0 },
+                $"{aggregate.Facts?.Zones.Count ?? 0} zones, {aggregate.Facts?.Lines.Count ?? 0} lines");
+
+            // The corpus writes visits and crossings for every Track of both classes,
+            // so every one of these nine cases has facts to count. A case that fetched
+            // none would be timing an empty aggregate under a populated heading.
+            verdict.RequireIntegrity($"§T {label}: zone visits were fetched",
+                aggregate.Facts is { ZoneVisits.Count: > 0 }, $"{aggregate.Facts?.ZoneVisits.Count ?? 0} visits");
+            verdict.RequireIntegrity($"§T {label}: line crossings were fetched",
+                aggregate.Facts is { LineCrossings.Count: > 0 }, $"{aggregate.Facts?.LineCrossings.Count ?? 0} crossings");
 
             results.Add(new
             {
@@ -274,28 +358,27 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
             });
         }
 
-        var qualificationGrade =
-            string.Equals(environment["isQualificationGradeDatabase"], "true", StringComparison.Ordinal);
-        var meetsFactPrerequisite = manifest.RelevantFactCount >= QualificationGate.MinimumRelevantFactCount;
+        verdict.RequireForQualification(
+            "the corpus meets the plan's relevant-fact prerequisite",
+            manifest.RelevantFactCount >= QualificationGate.MinimumRelevantFactCount,
+            $"{manifest.RelevantFactCount} relevant facts against a required {QualificationGate.MinimumRelevantFactCount}");
 
-        var path = QualificationGate.Write("plan-qualification.json", new
+        var path = QualificationGate.Write(EvidenceFile, new
         {
+            runId,
+            verdict = verdict.ToEvidence(),
             environment,
             manifest,
             relevantFactCount = manifest.RelevantFactCount,
             minimumRelevantFactCount = QualificationGate.MinimumRelevantFactCount,
-            meetsFactPrerequisite,
+            meetsFactPrerequisite = manifest.RelevantFactCount >= QualificationGate.MinimumRelevantFactCount,
             results,
         });
 
         Assert.True(File.Exists(path));
 
-        // A run on the required server is claiming to be qualification evidence, so
-        // an undersized corpus is a failure rather than a footnote. On any other
-        // server the file records the shortfall and the run is an observation.
-        Assert.True(
-            !qualificationGrade || meetsFactPrerequisite,
-            $"A qualification-grade run measured {manifest.RelevantFactCount} relevant facts, "
-            + $"below the required {QualificationGate.MinimumRelevantFactCount}. Evidence: {path}");
+        // Everything above is recorded in the evidence; this is what decides whether
+        // the evidence may be called evidence at all.
+        verdict.Enforce(path);
     }
 }

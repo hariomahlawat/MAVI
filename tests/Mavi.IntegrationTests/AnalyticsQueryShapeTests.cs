@@ -48,7 +48,13 @@ public sealed class AnalyticsQueryShapeTests(PostgresFixture fixture)
             default);
 
         Assert.True(result.IsSuccess);
-        return (capture.Statements.Count, result.Facts!.Zones.Count, result.Facts.Lines.Count);
+
+        // A constant query count over an empty read would be constant and worthless,
+        // so the measurement has to have had facts to fetch.
+        Assert.NotEmpty(result.Facts!.ZoneVisits);
+        Assert.NotEmpty(result.Facts.LineCrossings);
+
+        return (capture.Statements.Count, result.Facts.Zones.Count, result.Facts.Lines.Count);
     }
 
     [Fact]

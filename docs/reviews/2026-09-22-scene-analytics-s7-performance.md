@@ -54,6 +54,65 @@ All three were in the harness rather than the product, and all three would have 
 
 5. **`isQualificationGradeDatabase` accepted 18 or later.** The platform's own prerequisite check is an equality, so a run against 19 is a run against a planner the product refuses; labelling it qualification-grade would let it be presented as satisfying the PostgreSQL 18 exit gate. It now requires exactly 18, and an always-on test pins that number to the product's.
 
+## 3c. A second independent review, and the worst defect yet
+
+A cold review of the harness found three more ways a PostgreSQL 18 run could report green without having measured its subject. Auditing around them found three more again. All are fixed, and the fix is a shared mechanism rather than six patches, because this is now the third time the same shape of mistake has appeared.
+
+### The §S measurements never exercised a single §S predicate
+
+`PlanQualificationTests` called `TrackSearchRepository.SearchAsync`. That method applies only the **non-analytic** base candidate set — camera, window, class — and discards the analytics query entirely; the §S predicates live in `SearchAnalyticsAsync`.
+
+So all 23 §S predicate families planned and timed **the same plain Track search**, while the evidence named a different predicate each time. Nothing looked wrong: rows came back, the plans were real `EXPLAIN` output, the file was complete.
+
+The evidence from before the fix shows it plainly — every predicate returning exactly the page size, from exactly one database query:
+
+| Predicate | rows | DB queries |
+|---|---|---|
+| `zoneId (default dwelled)` | 50 | 1 |
+| `motionDirection=N` … `NW` | 50 each | 1 each |
+
+and the captured SQL for `motionDirection=N` referenced `tracks` and **none** of `track_motion_summaries`, `track_zone_visits`, `track_line_crossings`, `track_zone_summaries`, `scene_analyses`.
+
+After the fix, the same shape check over a 120-Track corpus:
+
+| Predicate | rows | DB queries |
+|---|---|---|
+| `zoneId (default dwelled)` | 51 | 8 |
+| `motionDirection=N` | 18 | 8 |
+| `motionDirection=NE` | 13 | 8 |
+| `motionDirection=E` | 15 | 8 |
+| `motionDirection=SE` | 17 | 8 |
+| `motionDirection=S` | 10 | 8 |
+| `motionDirection=SW` | 14 | 8 |
+| `motionDirection=W` | 16 | 8 |
+| `motionDirection=NW` | 17 | 8 |
+
+The eight headings now sum to 120 — the whole population, partitioned — which is what a real `motionDirection` filter must do.
+
+This is exit-gate item 3. Had PostgreSQL 18 been available before this review, the slice would have produced a complete plan/timing document for "every §S predicate" in which no §S predicate was ever planned.
+
+### The other five
+
+| Finding | Why it could pass falsely | Repair |
+|---|---|---|
+| Throughput green despite failed or partial execution | The only acceptance assertion was that the evidence file existed, so a failed executor, a short population or missing facts all passed | Ten integrity expectations derived from product semantics: unit succeeded, every Track analysed, none unavailable, one outcome and one motion summary per Track, one zone summary per Track per zone, visits and crossings both exercised, unit `Completed` and published |
+| Heatmap envelope not proven | Resolved scope and service result were recorded but never asserted, so a fraction of the corpus — or none — still emitted a timing file | Scope must equal the product's own `MaximumHeatmapRuns` and `MaximumHeatmapTracks`; every measurement must succeed, have every candidate contribute, read exactly `candidates × sealed samples`, honour the requested grid width and produce a populated grid |
+| §S/§T could measure nothing | Corpus volume was enforced but not per-measurement meaning | Each measurement must be valid, capture SQL, produce a real `EXPLAIN` plan, reach the fact table its predicate names, and select from the corpus |
+| SQL or plan capture could vanish silently | Zero captured statements produced zero plans and stayed green | Captured-statement count and plan text are now expectations |
+| Stale evidence could be mistaken for current | A run that threw left the previous run's complete, plausible file in place | Each harness claims its filename first with an explicitly incomplete record, so a failed run leaves a file that says so |
+| `MAVI_QUALIFICATION=true` skipped silently | Only `1` enabled the pass; anything else was treated as unset | Any other value throws — an operator who believes the qualification ran must not be told it passed |
+| Overrides could shrink a qualification run | `MAVI_QUAL_UNIT_TRACKS=20` produced a file headed "1,000-Track run" | The workload shape is a qualification prerequisite, recorded and enforced on the required server |
+| Provenance could not identify the binary | `gitSha` reports the parent commit of a dirty tree quite happily | The built assembly's module id and build timestamp are recorded beside it |
+
+### The mechanism, not the six patches
+
+Every harness now routes its expectations through `QualificationVerdict`, which separates two things that were previously conflated:
+
+- **Integrity** — the measurement did not exercise its subject. Fatal on any server, because a harness that measured the wrong thing is broken on PostgreSQL 16 just as much as on 18.
+- **Prerequisite** — the run is real but cannot be called qualification evidence (server version, corpus volume, workload shape). Fatal only on the required server; elsewhere recorded, and the run stays an engineering observation.
+
+Every expectation is written into the evidence file beside the numbers it qualifies, and the file names its own status: `qualification evidence`, `engineering observation — not qualification evidence`, or `qualification failure`. The governing rule is that no evidence is better than false evidence, so an unmet expectation fails the run — and the evidence is still written, so the failure can be investigated.
+
 ## 4. Engineering observations (PostgreSQL 16.15, NOT qualification)
 
 Environment: Ubuntu 24.04, 4 logical cores, .NET 10.0.12, PostgreSQL 16.15, pgvector 0.6.0, `shared_buffers` 128MB, `work_mem` 4MB.
