@@ -31,7 +31,7 @@ After the planning corrections recorded below:
 - **P2 planning defects: 0**
 - **P3 follow-ups: 1** — browser trajectory parser range parity, explicitly deferred to Slice 7.
 
-The plan is implementation-ready. On exact `main@273718ca078b5d86879d5a166af6c9eaff4c1c28`, both required post-merge workflows are green: Task 17 Acceptance Validation and MAVI Quality Gate.
+The plan is implementation-ready after incorporating the subsequent PR review corrections for overlapping zone visits and bounded accessible geometry descriptions. On exact `main@273718ca078b5d86879d5a166af6c9eaff4c1c28`, both required post-merge workflows are green: Task 17 Acceptance Validation and MAVI Quality Gate.
 
 ## Defects found and corrected during the cold review
 
@@ -167,6 +167,14 @@ The plan now freezes semantic HTML first: each marker is a real list item contai
 ### 11. Incomplete analysed identity
 
 An `Analysed` payload with missing revision id/number would be internally inconsistent. The plan now fails closed rather than letting a revision-dependent overlay guess current geometry.
+
+### 12. Overlapping zone-visit occlusion
+
+The initial fixed zone/dwell row bounded height but did not guarantee visual distinguishability when valid zone visits overlap. The plan now freezes deterministic bounded packing: up to 3 visual sub-rows plus one fixed overflow aggregate rail. Positive-duration overlaps cannot share a sub-row; fourth-or-greater concurrency is aggregated rather than painted over; every visit remains individually named in the semantic evidence list and can be identified/highlighted without creating unbounded rows.
+
+### 13. Accessible geometry description bound
+
+The initial wording could require every polygon vertex to be emitted into the always-mounted accessibility description. At the valid maximum of 64 zones with 64 vertices, that would be excessive and would repeat work on playhead-driven `describe` calls. The plan now bounds each zone description to vertex count, normalized extent, and at most 4 sample vertices, with any complete-coordinate disclosure explicitly on demand. Trip lines remain fully described because they have exactly two endpoints.
 
 ## Existing contract sufficiency
 
