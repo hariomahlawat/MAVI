@@ -7,7 +7,7 @@ namespace Mavi.Application.Modules.SceneAnalytics.Aggregates;
 // can be exercised without a database.
 
 /// <summary>One persisted zone visit, as the aggregate reads it.</summary>
-public readonly record struct ZoneVisitFact(
+public readonly record struct AggregateZoneVisit(
     Guid TrackId,
     Guid ZoneId,
     DateTimeOffset EntryUtc,
@@ -16,7 +16,7 @@ public readonly record struct ZoneVisitFact(
     bool EndedInside);
 
 /// <summary>One persisted line crossing.</summary>
-public readonly record struct LineCrossingFact(
+public readonly record struct AggregateLineCrossing(
     Guid LineId,
     DateTimeOffset TimestampUtc,
     bool IsAToB);
@@ -24,10 +24,10 @@ public readonly record struct LineCrossingFact(
 /// <summary>
 /// One persisted per-Track zone summary, for the whole-Track repeated-visit metric.
 /// </summary>
-public readonly record struct ZoneSummaryFact(Guid TrackId, Guid ZoneId, int VisitCount);
+public readonly record struct AggregateZoneSummary(Guid TrackId, Guid ZoneId, int VisitCount);
 
 /// <summary>One analysed Track's interval and class, for the class-count series.</summary>
-public readonly record struct TrackIntervalFact(
+public readonly record struct AggregateTrackInterval(
     Guid TrackId,
     ObjectClass ObjectClass,
     DateTimeOffset StartUtc,
@@ -43,10 +43,10 @@ public readonly record struct EnabledLine(Guid LineId, string Name, string AToBL
 public sealed record AnalyticsFactSet(
     IReadOnlyList<EnabledZone> Zones,
     IReadOnlyList<EnabledLine> Lines,
-    IReadOnlyList<ZoneVisitFact> ZoneVisits,
-    IReadOnlyList<LineCrossingFact> LineCrossings,
-    IReadOnlyList<ZoneSummaryFact> ZoneSummaries,
-    IReadOnlyList<TrackIntervalFact> TrackIntervals)
+    IReadOnlyList<AggregateZoneVisit> ZoneVisits,
+    IReadOnlyList<AggregateLineCrossing> LineCrossings,
+    IReadOnlyList<AggregateZoneSummary> ZoneSummaries,
+    IReadOnlyList<AggregateTrackInterval> TrackIntervals)
 {
     public static AnalyticsFactSet Empty { get; } = new([], [], [], [], [], []);
 }

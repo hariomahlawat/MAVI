@@ -8,6 +8,7 @@ using Mavi.Application.Modules.Intelligence;
 using Mavi.Application.Modules.Evidence;
 using Mavi.Application.Modules.SceneAnalytics.Configuration;
 using Mavi.Application.Modules.SceneAnalytics.Lifecycle;
+using Mavi.Application.Modules.SceneAnalytics.Aggregates;
 using Mavi.Infrastructure.SceneAnalytics;
 using Mavi.Infrastructure.Media;
 using Mavi.Infrastructure.Security;
@@ -47,6 +48,13 @@ public static class DependencyInjection
         services.AddScoped<SceneConfigurationService>();
         services.AddScoped<ISceneAnalysisLifecycle, SceneAnalysisLifecycle>();
         services.AddScoped<ISceneAnalysisEvidenceReader, SceneAnalysisEvidenceReader>();
+
+        // Slice 6: the read-only analytics projections. Scoped like every other
+        // repository; the evidence adapter is the same accepted-evidence boundary the
+        // lifecycle reader uses.
+        services.AddScoped<IAnalyticsAggregateRepository, AnalyticsAggregateRepository>();
+        services.AddScoped<IHeatmapEvidenceReader, HeatmapEvidenceReader>();
+        services.AddScoped<AnalyticsAggregateService>();
         services.AddScoped<SceneAnalysisExecutor>();
         services.AddScoped<ISceneAnalyticsStatusReader, SceneAnalyticsStatusReader>();
         services.AddScoped<SceneAnalyticsStatusService>();

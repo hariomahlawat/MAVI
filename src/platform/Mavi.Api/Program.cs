@@ -68,6 +68,7 @@ app.MapProcessingEndpoints();
 app.MapStorageTopologyEndpoints();
 app.MapVisionJobEndpoints();
 app.MapTrackEndpoints();
+app.MapAnalyticsEndpoints();
 app.MapArtifactEndpoints();
 app.MapSceneEndpoints();
 app.MapSceneAnalyticsEndpoints();

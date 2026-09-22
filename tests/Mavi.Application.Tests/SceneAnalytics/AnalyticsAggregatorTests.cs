@@ -28,10 +28,10 @@ public sealed class AnalyticsAggregatorTests
         From.AddMinutes(minutes).AddSeconds(seconds);
 
     private static AnalyticsFactSet Facts(
-        IEnumerable<ZoneVisitFact>? visits = null,
-        IEnumerable<LineCrossingFact>? crossings = null,
-        IEnumerable<ZoneSummaryFact>? summaries = null,
-        IEnumerable<TrackIntervalFact>? tracks = null,
+        IEnumerable<AggregateZoneVisit>? visits = null,
+        IEnumerable<AggregateLineCrossing>? crossings = null,
+        IEnumerable<AggregateZoneSummary>? summaries = null,
+        IEnumerable<AggregateTrackInterval>? tracks = null,
         IEnumerable<EnabledZone>? zones = null,
         IEnumerable<EnabledLine>? lines = null) =>
         new(
@@ -86,7 +86,7 @@ public sealed class AnalyticsAggregatorTests
     public void AnEntryExactlyOnABucketBoundaryBelongsToTheLaterBucket()
     {
         // The discriminating case: closed intervals would put this in bucket 0 as well.
-        var facts = Facts(visits: [new ZoneVisitFact(Track1, ZoneA, At(1), At(2), false, false)]);
+        var facts = Facts(visits: [new AggregateZoneVisit(Track1, ZoneA, At(1), At(2), false, false)]);
 
         var zone = Compute(facts).Zones.Single();
 
@@ -99,9 +99,9 @@ public sealed class AnalyticsAggregatorTests
     {
         var facts = Facts(visits:
         [
-            new ZoneVisitFact(Track1, ZoneA, From, At(0, 30), false, false),
+            new AggregateZoneVisit(Track1, ZoneA, From, At(0, 30), false, false),
             // Exits exactly at toUtc: outside the half-open window entirely.
-            new ZoneVisitFact(Track2, ZoneA, At(4), To, false, false),
+            new AggregateZoneVisit(Track2, ZoneA, At(4), To, false, false),
         ]);
 
         var zone = Compute(facts).Zones.Single();
@@ -116,7 +116,7 @@ public sealed class AnalyticsAggregatorTests
     public void AVisitAlreadyInsideTheZoneIsNotAnEntryEvent()
     {
         // beganInside means the Track was already there; there is no crossing to count.
-        var facts = Facts(visits: [new ZoneVisitFact(Track1, ZoneA, At(1), At(2), true, true)]);
+        var facts = Facts(visits: [new AggregateZoneVisit(Track1, ZoneA, At(1), At(2), true, true)]);
 
         var zone = Compute(facts).Zones.Single();
 
@@ -134,8 +134,8 @@ public sealed class AnalyticsAggregatorTests
         // Event counting would say 2. Distinct-Track counting says 1.
         var facts = Facts(visits:
         [
-            new ZoneVisitFact(Track1, ZoneA, At(0, 5), At(0, 15), false, false),
-            new ZoneVisitFact(Track1, ZoneA, At(0, 30), At(0, 45), false, false),
+            new AggregateZoneVisit(Track1, ZoneA, At(0, 5), At(0, 15), false, false),
+            new AggregateZoneVisit(Track1, ZoneA, At(0, 30), At(0, 45), false, false),
         ]);
 
         var zone = Compute(facts).Zones.Single();
@@ -150,7 +150,7 @@ public sealed class AnalyticsAggregatorTests
     {
         // The non-additive case the window total exists for: summing the series gives
         // 3, and the window answer is 1.
-        var facts = Facts(visits: [new ZoneVisitFact(Track1, ZoneA, At(0, 30), At(2, 30), false, false)]);
+        var facts = Facts(visits: [new AggregateZoneVisit(Track1, ZoneA, At(0, 30), At(2, 30), false, false)]);
 
         var zone = Compute(facts).Zones.Single();
 
@@ -163,7 +163,7 @@ public sealed class AnalyticsAggregatorTests
     public void AVisitOnlyTouchingABucketEndpointIsNotActivityInIt()
     {
         // Ends exactly where bucket 1 starts: positive overlap requires end > start.
-        var facts = Facts(visits: [new ZoneVisitFact(Track1, ZoneA, At(0, 10), At(1), false, false)]);
+        var facts = Facts(visits: [new AggregateZoneVisit(Track1, ZoneA, At(0, 10), At(1), false, false)]);
 
         var zone = Compute(facts).Zones.Single();
 
@@ -177,7 +177,7 @@ public sealed class AnalyticsAggregatorTests
     {
         // Wholly inside bucket 0 and never present at any bucket start: a sampled
         // metric reports zero, an integrated one would not.
-        var facts = Facts(visits: [new ZoneVisitFact(Track1, ZoneA, At(0, 10), At(0, 50), false, false)]);
+        var facts = Facts(visits: [new AggregateZoneVisit(Track1, ZoneA, At(0, 10), At(0, 50), false, false)]);
 
         var zone = Compute(facts).Zones.Single();
 
@@ -193,9 +193,9 @@ public sealed class AnalyticsAggregatorTests
     {
         var facts = Facts(visits:
         [
-            new ZoneVisitFact(Track1, ZoneA, At(1), At(3), false, false),
+            new AggregateZoneVisit(Track1, ZoneA, At(1), At(3), false, false),
             // Leaves exactly at bucket 3's start, so it is gone by then.
-            new ZoneVisitFact(Track2, ZoneA, At(0), At(3), false, false),
+            new AggregateZoneVisit(Track2, ZoneA, At(0), At(3), false, false),
         ]);
 
         var zone = Compute(facts).Zones.Single();
@@ -208,9 +208,9 @@ public sealed class AnalyticsAggregatorTests
     {
         var facts = Facts(visits:
         [
-            new ZoneVisitFact(Track1, ZoneA, At(0), At(2), false, false),
-            new ZoneVisitFact(Track2, ZoneA, At(0), At(2), false, false),
-            new ZoneVisitFact(Track3, ZoneA, At(3), At(5), false, false),
+            new AggregateZoneVisit(Track1, ZoneA, At(0), At(2), false, false),
+            new AggregateZoneVisit(Track2, ZoneA, At(0), At(2), false, false),
+            new AggregateZoneVisit(Track3, ZoneA, At(3), At(5), false, false),
         ]);
 
         var zone = Compute(facts).Zones.Single();
@@ -228,11 +228,11 @@ public sealed class AnalyticsAggregatorTests
         // Track1 visited twice over its life; only one of those visits is in scope.
         // Track2 visited once. The metric reads the persisted summary, not the window.
         var facts = Facts(
-            visits: [new ZoneVisitFact(Track1, ZoneA, At(1), At(2), false, false)],
+            visits: [new AggregateZoneVisit(Track1, ZoneA, At(1), At(2), false, false)],
             summaries:
             [
-                new ZoneSummaryFact(Track1, ZoneA, 2),
-                new ZoneSummaryFact(Track2, ZoneA, 1),
+                new AggregateZoneSummary(Track1, ZoneA, 2),
+                new AggregateZoneSummary(Track2, ZoneA, 1),
             ]);
 
         var zone = Compute(facts).Zones.Single();
@@ -248,9 +248,9 @@ public sealed class AnalyticsAggregatorTests
         // A crossing each way is two crossings, never a net flow of zero.
         var facts = Facts(crossings:
         [
-            new LineCrossingFact(LineA, At(1, 10), true),
-            new LineCrossingFact(LineA, At(1, 20), false),
-            new LineCrossingFact(LineA, At(2), true),
+            new AggregateLineCrossing(LineA, At(1, 10), true),
+            new AggregateLineCrossing(LineA, At(1, 20), false),
+            new AggregateLineCrossing(LineA, At(2), true),
         ]);
 
         var line = Compute(facts).Lines.Single();
@@ -264,7 +264,7 @@ public sealed class AnalyticsAggregatorTests
     [Fact]
     public void ACrossingExactlyAtTheWindowEndIsOutsideTheRequest()
     {
-        var facts = Facts(crossings: [new LineCrossingFact(LineA, To, true)]);
+        var facts = Facts(crossings: [new AggregateLineCrossing(LineA, To, true)]);
 
         var line = Compute(facts).Lines.Single();
 
@@ -278,9 +278,9 @@ public sealed class AnalyticsAggregatorTests
     {
         var facts = Facts(tracks:
         [
-            new TrackIntervalFact(Track1, ObjectClass.Person, At(0, 30), At(2, 30)),
-            new TrackIntervalFact(Track2, ObjectClass.Person, At(1), At(1, 30)),
-            new TrackIntervalFact(Track3, ObjectClass.Vehicle, At(4), At(4, 30)),
+            new AggregateTrackInterval(Track1, ObjectClass.Person, At(0, 30), At(2, 30)),
+            new AggregateTrackInterval(Track2, ObjectClass.Person, At(1), At(1, 30)),
+            new AggregateTrackInterval(Track3, ObjectClass.Vehicle, At(4), At(4, 30)),
         ]);
 
         var classes = Compute(facts).Classes;
@@ -311,7 +311,7 @@ public sealed class AnalyticsAggregatorTests
     public void EverySeriesHasExactlyOneValuePerBucket()
     {
         var result = AnalyticsAggregator.Compute(
-            Facts(visits: [new ZoneVisitFact(Track1, ZoneA, At(1), At(2), false, false)]),
+            Facts(visits: [new AggregateZoneVisit(Track1, ZoneA, At(1), At(2), false, false)]),
             From,
             From.AddSeconds(150),
             Minute);
@@ -333,7 +333,7 @@ public sealed class AnalyticsAggregatorTests
         // The repository supplies enabled geometry only. A disabled zone's facts
         // cannot conjure a row of zeros that would read as an observed absence.
         var facts = Facts(
-            visits: [new ZoneVisitFact(Track1, ZoneA, At(1), At(2), false, false)],
+            visits: [new AggregateZoneVisit(Track1, ZoneA, At(1), At(2), false, false)],
             zones: []);
 
         Assert.Empty(Compute(facts).Zones);
