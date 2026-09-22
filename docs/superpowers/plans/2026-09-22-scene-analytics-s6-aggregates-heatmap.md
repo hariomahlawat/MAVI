@@ -142,7 +142,7 @@ The contract should be compact and identity-explicit rather than repeating geome
 - optional class filter;
 - `AnalyticsCoverageResponse`;
 - ordered bucket descriptors `{ startUtc, endUtc }`;
-- per-zone series keyed by stable zone id:
+- per-zone series keyed by stable zone id **for zones enabled in the resolved revision**:
   - display name from the resolved revision;
   - entry counts;
   - exit counts;
@@ -151,7 +151,7 @@ The contract should be compact and identity-explicit rather than repeating geome
   - peak occupancy + instant;
   - **window-level** entry count, exit count and distinct unique-Track count;
   - repeated-visit Track count;
-- per-line series keyed by stable line id:
+- per-line series keyed by stable line id **for trip lines enabled in the resolved revision**:
   - display name;
   - A→B label;
   - B→A label;
@@ -159,6 +159,8 @@ The contract should be compact and identity-explicit rather than repeating geome
   - B→A counts;
   - window-level A→B and B→A totals;
 - class-count series plus window-level distinct Track count per class.
+
+Disabled geometry is not returned as a zero series. It was not evaluated, and a row of zeros would falsely read as an observed absence. The exact revision remains retrievable through the scene API if the UI needs configuration context.
 
 Array lengths MUST equal the bucket count. Contract tests pin this invariant.
 
@@ -168,7 +170,7 @@ Do not return internal `SceneAnalysis.Id`, claim/fencing data, filesystem paths,
 
 ### 4.4 Response-size bound
 
-The server rejects a bucket request that would produce more than **2048 buckets** with a typed 400 problem (`analytics_bucket_count_invalid`). This is a response-shape bound, not a performance claim.
+The server rejects a bucket request that would produce more than **512 buckets** with a typed 400 problem (`analytics_bucket_count_invalid`). This is a response-shape bound, not a performance claim.
 
 The UI chooses deterministic human-friendly bucket sizes so normal requests stay well below the bound:
 
@@ -176,7 +178,7 @@ The UI chooses deterministic human-friendly bucket sizes so normal requests stay
 - choose the smallest value from `60, 300, 900, 3600, 21600, 86400` seconds that satisfies that target;
 - the operator may choose another allowed value explicitly.
 
-This is presentation policy; the API continues accepting every integer 60–86400 as long as the 2048-bucket bound is respected.
+This is presentation policy; the API continues accepting every integer 60–86400 as long as the 512-bucket bound is respected.
 
 ## 5. Heatmap semantics
 
@@ -484,7 +486,8 @@ Must cover:
 - explicit heatmap `processingRunId` is camera-bound and visibility-checked;
 - corrupt/missing accepted evidence for an `Analysed` outcome fails rather than under-counting;
 - >50 covered heatmap runs rejected before trajectory fan-out;
-- aggregate >2048 buckets rejected.
+- aggregate >512 buckets rejected.
+- disabled zones/trip lines are absent from analytical series rather than rendered as observed-zero data.
 
 ### 13.3 API/contract tests
 
@@ -577,7 +580,7 @@ Implementation should:
 - project only required columns;
 - stream/read heatmap trajectories sequentially;
 - check cancellation between artefacts;
-- enforce 2048-bucket and 50-run heatmap bounds before expensive work;
+- enforce 512-bucket and 50-run heatmap bounds before expensive work;
 - log request duration and bounded dimensions/run count without logging operator-sensitive evidence content.
 
 Slice 7 performs the parent plan's measured `EXPLAIN (ANALYZE, BUFFERS)`, 10^5-fact aggregate tests and 50-run heatmap timing, then changes indexes/cache only from evidence.
