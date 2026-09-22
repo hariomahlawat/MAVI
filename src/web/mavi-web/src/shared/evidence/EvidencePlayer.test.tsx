@@ -2,6 +2,13 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import EvidencePlayer from './EvidencePlayer';
+import {
+  evidenceDrawSentence,
+  layerPreferenceSentence,
+  type EvidenceLayer,
+  type NonSpatialEvidenceLayer,
+  type SpatialEvidenceLayer,
+} from './layers';
 import { frameDurationSeconds } from './useEvidenceTransport';
 import { SUBJECT_LANE } from './timeline';
 
@@ -294,10 +301,42 @@ describe('Evidence Player keyboard grammar', () => {
 });
 
 describe('Evidence Player layers', () => {
-  const layers = [
-    { id: 'box', label: 'Bounding box', available: true, render: () => <rect data-testid="box-layer" /> },
-    { id: 'path', label: 'Trajectory', available: false, unavailableReason: 'No trajectory was persisted.', render: () => null },
+  const layers: EvidenceLayer[] = [
+    {
+      kind: 'spatial',
+      id: 'box',
+      label: 'Bounding box',
+      available: true,
+      render: () => <rect data-testid="box-layer" />,
+      describe: (offsetMs) => [{
+        id: 'the-box',
+        label: 'Person bounding box',
+        detail: 'Normalised source frame: x 0.500, y 0.250.',
+        appliesNow: offsetMs < 11_000,
+        inapplicableReason: 'the playhead is away from the frame it describes',
+      }],
+    },
+    {
+      kind: 'spatial',
+      id: 'path',
+      label: 'Trajectory',
+      available: false,
+      unavailableReason: 'No trajectory was persisted.',
+      render: () => null,
+      describe: () => [],
+    },
   ];
+
+  /** The element bound to a layer control by aria-describedby. */
+  function descriptionOf(label: string): HTMLElement[] {
+    const control = screen.getByRole('button', { name: label });
+    const ids = (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean);
+    return ids.map((id) => {
+      const element = document.getElementById(id);
+      expect(element, `aria-describedby points at a missing element: ${id}`).not.toBeNull();
+      return element as HTMLElement;
+    });
+  }
 
   it('draws available layers, and states why an unavailable one is not offered', () => {
     renderPlayer({ layers });
@@ -327,6 +366,128 @@ describe('Evidence Player layers', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
     renderPlayer({ layers });
     expect(screen.getByTestId('box-layer')).toBeInTheDocument();
+  });
+
+  it('carries spatial semantics on the operator\'s own control, not on a parallel surface', () => {
+    renderPlayer({ layers });
+
+    // Section 23: the twin is the same control the pointer uses. There is no
+    // standalone spatial-evidence tree anywhere on the surface — that is what a
+    // parallel accessibility-only surface is, and it is exactly what the
+    // previous implementation rendered beside the stage.
+    expect(screen.queryByRole('group', { name: /spatial evidence/i })).not.toBeInTheDocument();
+    // The spatial semantics exist in exactly one place, and that place is the
+    // layer's own row. Anything naming this object anywhere else is a second
+    // representation of it. (Visually hidden text elsewhere on the player is
+    // the accessible *name* of something visible — a timeline mark, an
+    // icon-only button — which is the opposite arrangement.)
+    const naming = Array.from(document.querySelectorAll('*'))
+      .filter((node) => node.textContent?.includes('Person bounding box'))
+      .filter((node) => !node.querySelector('*'));
+    expect(naming).toHaveLength(1);
+    expect(naming[0].closest('.evidence-layers__item')).not.toBeNull();
+
+    // One layer object, one visible row, and the semantics hang off that row's
+    // own control rather than off a second representation of it.
+    const [description] = descriptionOf('Bounding box');
+    expect(description).toHaveTextContent('Normalised source frame: x 0.500, y 0.250.');
+    expect(description.closest('.evidence-layers__item'))
+      .toBe(screen.getByRole('button', { name: 'Bounding box' }).closest('.evidence-layers__item'));
+
+    // The raw geometry stays hidden: narrating SVG path data helps nobody.
+    expect(screen.getByTestId('evidence-overlay')).toHaveAttribute('aria-hidden', 'true');
+    // And none of it is a focus stop; the semantics cost no extra tabbing.
+    expect(description.tabIndex).toBeLessThan(0);
+    expect(document.querySelectorAll('.evidence-layers__item [tabindex]')).toHaveLength(0);
+  });
+
+  it('never states a layer preference and a draw state that contradict each other', async () => {
+    const user = userEvent.setup();
+    renderPlayer({ layers });
+    const text = () => descriptionOf('Bounding box').map((node) => node.textContent).join(' ');
+    const seek = (seconds: number) => {
+      const element = video();
+      element.currentTime = seconds;
+      fireEvent(element, new Event('timeupdate'));
+    };
+
+    // Case B — enabled and the evidence applies here.
+    seek(10);
+    expect(text()).toContain('Layer enabled.');
+    expect(text()).toContain('Drawn at the current position.');
+
+    // Case A — still enabled, but the playhead has left the frame the box
+    // describes. "Layer enabled" is a fact about the toggle and stays true;
+    // the drawing statement is a different fact and changes on its own.
+    seek(40);
+    expect(text()).toContain('Layer enabled.');
+    expect(text()).toContain('Not drawn here: the playhead is away from the frame it describes.');
+    expect(text()).not.toContain('Drawn at the current position.');
+
+    // Case C — switched off while the playhead sits on the representative
+    // frame. The old wording said "Hidden by the layer control." and "Drawn at
+    // the current position." in the same breath, which cannot both be true.
+    await user.click(screen.getByRole('button', { name: 'Bounding box' }));
+    seek(10);
+    expect(text()).toContain('Layer hidden by operator.');
+    expect(text()).not.toContain('Drawn at the current position.');
+    expect(text()).toContain('Not drawn: the layer is switched off.');
+
+    // Off and inapplicable at once names both reasons, and still claims nothing
+    // is on screen.
+    seek(40);
+    expect(text()).toContain('Layer hidden by operator.');
+    expect(text()).toContain('Not drawn: the layer is switched off, and the playhead is away from the frame it describes.');
+  });
+
+  it('leaves an unavailable layer with its reason and nothing invented to describe', () => {
+    renderPlayer({ layers });
+    const bound = descriptionOf('Trajectory');
+    expect(bound).toHaveLength(1);
+    expect(bound[0]).toHaveTextContent('No trajectory was persisted.');
+    // Not "Layer unavailable." repeated beside a reason that already says so.
+    expect(bound[0].textContent).not.toContain('Layer');
+  });
+});
+
+describe('the spatial layer contract', () => {
+  it('requires a spatial layer to supply its accessible semantics', () => {
+    // A type-level assertion, checked by `tsc -b` rather than at runtime: if
+    // `describe` were optional on a spatial layer — as it was when every layer
+    // shared one shape — `undefined` would be assignable to it, the conditional
+    // would resolve to `never`, and this declaration would not compile. A future
+    // layer therefore cannot draw geometry without an accessible equivalent.
+    type Describe = SpatialEvidenceLayer['describe'];
+    const enforced: undefined extends Describe ? never : true = true;
+    expect(enforced).toBe(true);
+
+    // The discriminant is what makes that enforceable: a layer with nothing
+    // spatial to say declares so rather than silently omitting the semantics.
+    const plain: NonSpatialEvidenceLayer = {
+      kind: 'non-spatial', id: 'matte', label: 'Matte', available: true, render: () => null,
+    };
+    expect(plain.describe).toBeUndefined();
+  });
+
+  it('separates the preference state from the evidence state', () => {
+    const applies = { id: 'a', label: 'A', detail: 'at x 0.5.', appliesNow: true } as const;
+    const away = {
+      id: 'b', label: 'B', detail: 'at x 0.5.', appliesNow: false,
+      inapplicableReason: 'the playhead is away from the frame it describes',
+    } as const;
+
+    expect(layerPreferenceSentence('enabled')).toBe('Layer enabled.');
+    expect(layerPreferenceSentence('hidden')).toBe('Layer hidden by operator.');
+
+    // Enabled is never by itself a claim that something is on the frame.
+    expect(evidenceDrawSentence('enabled', applies)).toBe('Drawn at the current position.');
+    expect(evidenceDrawSentence('enabled', away))
+      .toBe('Not drawn here: the playhead is away from the frame it describes.');
+    // And switched off is never accompanied by a claim that it is drawn.
+    for (const item of [applies, away]) {
+      expect(evidenceDrawSentence('hidden', item)).toContain('the layer is switched off');
+      expect(evidenceDrawSentence('hidden', item)).not.toContain('Drawn at the current position.');
+    }
   });
 });
 

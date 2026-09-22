@@ -296,8 +296,18 @@
    of (width - gap) and quietly missed the floor. A percentage track resolves
    against the full width, so the player is 65% of the working width exactly and
    the gap comes out of the rail. */
+/* Section 4.5 freezes the player at 65% or more of the working width, and
+   section 25 sends ultra-wide surplus to it. Both at once: the rail is the
+   smaller of 35% minus the gap and its readable maximum, and the player takes
+   everything else. The percentage branch is what holds the floor — the player
+   is the remainder after the gap, so a rail capped at 35% minus the gap leaves
+   exactly 65% and never less. Past roughly 1500px of working width the fixed
+   branch wins, the rail stops growing, and every further pixel is the
+   player's. A larger percentage would not do this: it would still hand the
+   rail a fixed share of an arbitrarily wide display. */
 .workspace__review-grid {
-  display: grid; grid-template-columns: minmax(0, 65%) minmax(0, 1fr);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(calc(35% - var(--s-4)), 440px));
   gap: var(--s-4); align-items: start;
 }
 .workspace__review-main { display: grid; gap: var(--s-3); min-width: 0; align-content: start; }

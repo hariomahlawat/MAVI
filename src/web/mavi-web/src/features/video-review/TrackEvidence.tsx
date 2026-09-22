@@ -3,7 +3,7 @@ import type { TrackDetail } from '../../api/tracks';
 import Alert from '../../shared/components/Alert';
 import { formatOffset } from '../../shared/format/format';
 import EvidencePlayer from '../../shared/evidence/EvidencePlayer';
-import type { EvidenceLayer } from '../../shared/evidence/layers';
+import type { EvidenceDescription, EvidenceLayer } from '../../shared/evidence/layers';
 import { isBoxVisibleAt, projectBox, projectPoint } from '../../shared/evidence/projection';
 import type { EvidenceTimelineInterval, EvidenceTimelineMarker } from '../../shared/evidence/timeline';
 import { SUBJECT_LANE } from '../../shared/evidence/timeline';
@@ -40,6 +40,7 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
 
   const layers: EvidenceLayer[] = useMemo(() => [
     {
+      kind: 'spatial',
       id: 'bounding-box',
       label: 'Bounding box',
       available: representative !== null,
@@ -76,14 +77,17 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
           detail: `persisted for the frame at ${formatOffset(representative.videoOffsetMs, 'tenths')}, `
             + `${(representative.confidence * 100).toFixed(0)}% confidence. `
             + `Normalised source frame: x ${coordinate(box.x)}, y ${coordinate(box.y)}, `
-            + `width ${coordinate(box.width)}, height ${coordinate(box.height)}. `
-            + (isBoxVisibleAt(currentOffsetMs, representative.videoOffsetMs)
-              ? 'Drawn at the current position.'
-              : 'Not drawn here: the playhead is away from the frame it describes.'),
+            + `width ${coordinate(box.width)}, height ${coordinate(box.height)}.`,
+          // Applicability, not drawing: the box asserts a position only near the
+          // one frame the detector claimed it for. Whether that is on screen
+          // also depends on the layer toggle, which is the player's to know.
+          appliesNow: isBoxVisibleAt(currentOffsetMs, representative.videoOffsetMs),
+          inapplicableReason: 'the playhead is away from the frame it describes',
         }];
       },
     },
     {
+      kind: 'spatial',
       id: 'trajectory',
       label: 'Trajectory',
       available: hasTrajectory,
@@ -149,25 +153,34 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
         // accessibility tree with thousands of entries in it is not accessible.
         // The path is described by its extent and its ends, plus the one
         // position that is actually being asserted right now.
-        const items = [{
+        const items: EvidenceDescription[] = [{
           id: 'trajectory-path',
           label: 'Persisted trajectory',
           detail: `${trajectory.length} samples of the Track centre from `
             + `${formatOffset(first.offsetMs, 'tenths')} to ${formatOffset(last.offsetMs, 'tenths')}. `
-            + `Starts at ${coordinate(first)} and ends at ${coordinate(last)}, normalised to the source frame. `
-            + 'Nothing is drawn outside that range.',
+            + `Starts at ${coordinate(first)} and ends at ${coordinate(last)}, normalised to the source frame.`,
+          appliesNow: true,
         }];
-        if (current) {
-          const exact = hasSampleAt(trajectory, currentOffsetMs);
-          items.push({
+        // Stated in both directions. Outside the sampled range there is no
+        // position, and saying so is evidence; dropping the item would leave
+        // the operator unable to tell "nothing here" from "nothing described".
+        items.push(current
+          ? {
             id: 'trajectory-position',
             label: 'Position at the playhead',
             detail: `x ${current.x.toFixed(3)}, y ${current.y.toFixed(3)}, normalised to the source frame. `
-              + (exact
+              + (hasSampleAt(trajectory, currentOffsetMs)
                 ? 'A persisted sample the worker recorded.'
                 : 'Interpolated between the two surrounding samples, not a recorded position.'),
+            appliesNow: true,
+          }
+          : {
+            id: 'trajectory-position',
+            label: 'Position at the playhead',
+            detail: 'No position is asserted at this playhead.',
+            appliesNow: false,
+            inapplicableReason: 'the playhead is outside the sampled range',
           });
-        }
         return items;
       },
     },

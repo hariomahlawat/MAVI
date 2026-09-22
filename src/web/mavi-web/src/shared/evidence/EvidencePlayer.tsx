@@ -5,7 +5,10 @@ import Icon from '../components/Icon';
 import { formatOffset } from '../format/format';
 import EvidenceTimeline from './EvidenceTimeline';
 import {
+  evidenceDrawSentence,
   isLayerVisible,
+  layerPreferenceSentence,
+  layerPreferenceState,
   readLayerPreferences,
   writeLayerPreferences,
   type EvidenceLayer,
@@ -267,41 +270,6 @@ export default function EvidencePlayer({
         ) : null}
       </div>
 
-      {/*
-        The accessible twin of the stage above. The stage is SVG and is hidden
-        from assistive technology on purpose — narrating raw geometry helps
-        nobody — so the spatial evidence is named here instead, from the same
-        layers that draw it. Nothing in it is focusable, so it adds no tab stop.
-      */}
-      <div className="visually-hidden" role="group" aria-label={`${subject.label} spatial evidence`}>
-        {layers.map((layer) => {
-          const visible = isLayerVisible(layer, preferences);
-          const described = layer.describe?.(currentOffsetMs) ?? [];
-          return (
-            <section key={layer.id} aria-label={layer.label}>
-              {!layer.available ? (
-                // The reason itself is beside the layer control and is bound to
-                // it, so it is announced once and in the right place. Repeating
-                // it here would be a second copy of the same statement.
-                <p>No spatial evidence to describe.</p>
-              ) : (
-                <>
-                  {/* The evidence exists whether or not the operator is drawing
-                      it, so switching a layer off states that rather than
-                      deleting what it describes. */}
-                  <p>{visible ? 'Shown on the frame.' : 'Hidden by the layer control.'}</p>
-                  {described.length > 0 ? (
-                    <ul>
-                      {described.map((item) => <li key={item.id}>{item.label}: {item.detail}</li>)}
-                    </ul>
-                  ) : null}
-                </>
-              )}
-            </section>
-          );
-        })}
-      </div>
-
       {failed ? <Alert tone="error">Source video could not be loaded from the evidence API.</Alert> : null}
       {notices}
 
@@ -395,26 +363,50 @@ export default function EvidencePlayer({
       <div className="evidence-layers" role="group" aria-label="Evidence layers">
         <Icon name="layers" size="sm" aria-hidden="true" />
         {layers.map((layer) => {
-          const visible = isLayerVisible(layer, preferences);
+          const state = layerPreferenceState(layer, preferences);
           const reasonId = `${preferenceScope}-${layer.id}-reason`;
+          const evidenceId = `${preferenceScope}-${layer.id}-evidence`;
           const showReason = !layer.available && Boolean(layer.unavailableReason);
+          // The accessible equivalent of what this layer draws, carried by the
+          // layer's own control. Section 23 requires the twin to be the thing
+          // the pointer uses, so there is no second spatial tree elsewhere on
+          // the page: one layer, one visible row, one semantic object.
+          const described = layer.available && layer.kind === 'spatial'
+            ? layer.describe(currentOffsetMs)
+            : [];
+          const describedBy = [showReason ? reasonId : null, layer.available ? evidenceId : null]
+            .filter(Boolean).join(' ');
           return (
             <span key={layer.id} className="evidence-layers__item">
               <Button
                 size="sm"
                 variant="ghost"
-                aria-pressed={visible}
+                aria-pressed={state === 'enabled'}
                 disabled={!layer.available}
                 // Section 12: a disabled control states its reason adjacently,
                 // and the two are bound so the reason is announced with it
-                // rather than being loose text near a control.
-                aria-describedby={showReason ? reasonId : undefined}
-                onClick={() => toggleLayer(layer.id, !visible)}
+                // rather than being loose text near a control. The evidence
+                // description rides the same binding.
+                aria-describedby={describedBy || undefined}
+                onClick={() => toggleLayer(layer.id, state !== 'enabled')}
               >
                 {layer.label}
               </Button>
               {showReason ? (
                 <span className="evidence-layers__reason" id={reasonId}>{layer.unavailableReason}</span>
+              ) : null}
+              {layer.available ? (
+                // Visually hidden because the geometry is already on the frame
+                // and the coordinates would be noise beside a toggle; it is not
+                // a parallel surface, because it describes this control's own
+                // layer and is reachable only through this control. Nothing in
+                // it is focusable, so it adds no tab stop.
+                <span className="visually-hidden" id={evidenceId}>
+                  {layerPreferenceSentence(state)}
+                  {described.map((item) => (
+                    ` ${item.label}: ${item.detail} ${evidenceDrawSentence(state, item)}`
+                  )).join('')}
+                </span>
               ) : null}
             </span>
           );

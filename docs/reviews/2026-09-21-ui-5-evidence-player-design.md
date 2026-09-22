@@ -5,7 +5,7 @@
 
 ## What already exists and is reused rather than rewritten
 
-- `ReviewLayout` (`shared/workspace/layouts.tsx`) was built by UI-2 for exactly this migration: a 65/35 grid, a sticky player column above 1100px, `useScrollPolicy('page')`. UI-5 migrates the Review page onto it and deletes the legacy `.review-layout` grid that §34.1 forbids extending.
+- `ReviewLayout` (`shared/workspace/layouts.tsx`) was built by UI-2 for exactly this migration: a two-column grid with the player at 65% of the working width or more, a sticky player column above 1100px, `useScrollPolicy('page')`. UI-5 corrects the track sizing so the floor is met exactly and the **surplus goes to the player**: the rail is the smaller of 35% minus the gap and its readable maximum of 440px, and the player is what is left. The percentage branch holds the floor at every width; past roughly 1500px of working width the rail stops growing and every further pixel is the player's, which is what §25 asks for on an ultra-wide display and what a fixed 65% cannot do. UI-5 migrates the Review page onto it and deletes the legacy `.review-layout` grid that §34.1 forbids extending.
 - `overlay.ts` — `contentRect`, `projectBox`, `projectPoint`, `isBoxVisibleAt`. The letterbox/pillarbox-correct projection path is already right and is not touched.
 - `trajectory.ts` — `trajectoryPositionAt` returns null outside the sampled range. Kept exactly.
 - `seek.ts` — the one-second-before-start review seek. Kept exactly.
@@ -28,25 +28,61 @@ Promotion of the player to `shared/` is argued against the §27.1 four-point tes
 
 ## Overlay layer model
 
-A small typed record, not a plugin framework:
+A small discriminated union, not a plugin framework:
 
 ```ts
-type EvidenceLayer = {
+type EvidenceLayerBase = {
   id: string;
   label: string;
   available: boolean;
   unavailableReason?: string;
   render: (frame: PixelRect, currentOffsetMs: number) => ReactNode;
 };
+
+type EvidenceLayer =
+  | (EvidenceLayerBase & { kind: 'spatial'; describe: (currentOffsetMs: number) => readonly EvidenceDescription[] })
+  | (EvidenceLayerBase & { kind: 'non-spatial'; describe?: never });
 ```
 
-A layer may also describe itself:
+`describe` is **required** on a spatial layer. An optional one would have left a
+conformance hole the type system was quietly holding open: a Slice 5 zone layer
+could have drawn geometry with no accessible equivalent and compiled cleanly.
 
-```ts
-describe?: (currentOffsetMs: number) => readonly EvidenceDescription[];
-```
+### Where the §23 twin lives
 
-That is the §23 accessible twin for spatial content. The stage is SVG and is hidden from assistive technology on purpose, because narrating raw geometry helps nobody; the layers name their objects, their state and their coordinates instead, from the same evidence they draw from. Coordinates are **normalised source-frame** values rather than projected pixels: a pixel position describes whatever window the operator happens to have, while the normalised position is the evidence. A layer that draws an unbounded number of objects summarises — a real trajectory carries thousands of samples, and an accessibility tree with thousands of entries in it is not accessible. Slice 5 supplies zones, lines and crossings through the same seam without the media controller changing.
+**It is the layer control the operator already uses.** §23 says the twin is the
+same control the pointer uses, not a parallel accessibility-only surface, so
+there is no hidden spatial tree rendered beside the stage. Each layer has one
+visible row — its toggle — and that row's control carries the layer's evidence
+as its own accessible description. One layer object, one visible control, one
+semantic object.
+
+The raw SVG stage stays `aria-hidden`. That is not the parallel-surface problem
+and does not become one: narrating path data helps nobody, and what is narrated
+instead is the evidence, from the same data the layer draws from. Coordinates
+are **normalised source-frame** values rather than projected pixels: a pixel
+position describes whatever window the operator happens to have, while the
+normalised position is the evidence. A layer that draws an unbounded number of
+objects summarises — a real trajectory carries thousands of samples, and an
+accessibility tree with thousands of entries in it is not accessible. Nothing
+in the description is focusable, so the semantics cost no extra tab stop.
+
+### Two states, never one
+
+A description says what an object is and where it is. It deliberately does not
+say whether it is on screen, because that is not one fact:
+
+- **Layer preference** — enabled, hidden by the operator, unavailable. Generic,
+  and the player's, since only the player knows the toggle.
+- **Evidence applicability** — whether the layer has anything to assert at this
+  playhead. Evidence-specific, and the layer's: a representative box applies
+  only near the frame it was persisted for, a trajectory only inside its
+  sampled range.
+
+The two are composed into one drawing sentence rather than announced
+separately. Announcing them separately is how "Shown on the frame." came to sit
+beside "Not drawn here: the playhead is away from the frame it describes." An
+enabled toggle is not by itself a claim that anything is on the frame.
 
 The shell owns visibility (persisted per operator in local storage, §18.4) and renders the visible layers into one SVG stage aligned to the content rectangle. A layer that is unavailable states why next to its disabled control rather than only in a `title`, per §12. This replaces two hard-coded checkboxes and two `show*` booleans, so adding scene geometry in Slice 5 does not touch the media controller.
 

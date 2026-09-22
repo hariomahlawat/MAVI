@@ -145,59 +145,98 @@ describe('Track evidence overlay', () => {
     expect(screen.getByText(/could not be loaded. The Track and its representative frame are unaffected/)).toBeInTheDocument();
   });
 
-  it('describes its spatial evidence for anyone who cannot see the stage', () => {
+  /** The text bound to a layer's own control by aria-describedby. */
+  function describedText(label: string): string {
+    const control = screen.getByRole('button', { name: label });
+    return (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+      .map((id) => document.getElementById(id)?.textContent ?? '')
+      .join(' ');
+  }
+
+  it('names its spatial evidence on the layer control the operator uses', () => {
     render(<TrackEvidence detail={detail} trajectory={trajectory} />);
 
     // The stage itself stays hidden: narrating raw SVG geometry helps nobody.
     expect(screen.getByTestId('evidence-overlay')).toHaveAttribute('aria-hidden', 'true');
+    // And there is no separate spatial tree beside it. Section 23 requires the
+    // twin to be the control the pointer uses, so the semantics ride the layer
+    // rows instead: one layer, one visible row, one semantic object.
+    expect(screen.queryByRole('group', { name: /spatial evidence/i })).not.toBeInTheDocument();
 
-    const twin = screen.getByRole('group', { name: /spatial evidence$/ });
-    const box = within(twin).getByRole('region', { name: 'Bounding box' });
+    const box = describedText('Bounding box');
     // Normalised source-frame coordinates, which are the evidence. Projected
     // pixels would describe this viewport and change with the window.
-    expect(box).toHaveTextContent('x 0.500, y 0.500, width 0.250, height 0.500');
-    expect(box).toHaveTextContent('96% confidence');
-    expect(box).toHaveTextContent('00:12.0');
+    expect(box).toContain('x 0.500, y 0.500, width 0.250, height 0.500');
+    expect(box).toContain('96% confidence');
+    expect(box).toContain('00:12.0');
 
-    const path = within(twin).getByRole('region', { name: 'Trajectory' });
-    expect(path).toHaveTextContent('2 samples');
-    expect(path).toHaveTextContent('00:10.0 to 00:14.0');
-    expect(path).toHaveTextContent('Starts at x 0.000, y 0.000 and ends at x 1.000, y 1.000');
-    // Bounded on purpose: a real trajectory carries thousands of samples.
-    expect(within(path).getAllByRole('listitem').length).toBeLessThanOrEqual(2);
+    const path = describedText('Trajectory');
+    expect(path).toContain('2 samples');
+    expect(path).toContain('00:10.0 to 00:14.0');
+    expect(path).toContain('Starts at x 0.000, y 0.000 and ends at x 1.000, y 1.000');
+    // Bounded on purpose: a real trajectory carries thousands of samples, so
+    // the path is summarised and only the asserted position is enumerated.
+    expect(path).not.toMatch(/sample .*sample .*sample/);
   });
 
-  it('tells a persisted position from a derived one in the accessible twin', () => {
+  it('tells a persisted position from a derived one, and says when there is none', () => {
     render(<TrackEvidence detail={detail} trajectory={trajectory} />);
     const video = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
-    const path = () => within(screen.getByRole('group', { name: /spatial evidence$/ }))
-      .getByRole('region', { name: 'Trajectory' });
 
     seek(video, 10);
-    expect(path()).toHaveTextContent('A persisted sample the worker recorded.');
+    expect(describedText('Trajectory')).toContain('A persisted sample the worker recorded.');
     seek(video, 12);
-    expect(path()).toHaveTextContent('Interpolated between the two surrounding samples');
+    expect(describedText('Trajectory')).toContain('Interpolated between the two surrounding samples');
+
+    // Outside the sampled range the position is absent rather than missing:
+    // "nothing here" and "nothing described" are different facts, and the
+    // second one leaves the operator unable to trust either.
+    seek(video, 40);
+    expect(describedText('Trajectory')).toContain('No position is asserted at this playhead.');
+    expect(describedText('Trajectory'))
+      .toContain('Not drawn here: the playhead is outside the sampled range.');
   });
 
-  it('states unavailable evidence honestly in the twin, and keeps semantics when a layer is switched off', async () => {
+  it('never announces a layer preference and a draw state that contradict each other', async () => {
     const user = userEvent.setup();
-    render(<TrackEvidence detail={{ ...detail, trajectoryArtifactId: null, trajectoryContentUrl: null }} />);
-    const twin = screen.getByRole('group', { name: /spatial evidence$/ });
+    render(<TrackEvidence detail={detail} trajectory={trajectory} />);
+    const video = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
 
-    // The twin says there is nothing to describe; the reason itself lives with
-    // the control and is bound to it, so it is stated once.
-    expect(within(twin).getByRole('region', { name: 'Trajectory' }))
-      .toHaveTextContent('No spatial evidence to describe.');
+    // Enabled and on the frame the box was persisted for.
+    seek(video, 12);
+    expect(describedText('Bounding box')).toContain('Layer enabled.');
+    expect(describedText('Bounding box')).toContain('Drawn at the current position.');
+
+    // Still enabled, playhead away. The toggle has not changed, so the
+    // preference sentence must not change either — only the draw state does.
+    seek(video, 40);
+    expect(describedText('Bounding box')).toContain('Layer enabled.');
+    expect(describedText('Bounding box'))
+      .toContain('Not drawn here: the playhead is away from the frame it describes.');
+    expect(describedText('Bounding box')).not.toContain('Drawn at the current position.');
+
+    // Switched off while the playhead sits on the representative frame. The
+    // previous wording said "Hidden by the layer control." and "Drawn at the
+    // current position." at once, which cannot both be true.
+    await user.click(screen.getByRole('button', { name: 'Bounding box' }));
+    seek(video, 12);
+    const hidden = describedText('Bounding box');
+    expect(hidden).toContain('Layer hidden by operator.');
+    expect(hidden).toContain('Not drawn: the layer is switched off.');
+    expect(hidden).not.toContain('Drawn at the current position.');
+    // Switching a layer off changes what is drawn, not what the evidence is.
+    expect(hidden).toContain('x 0.500, y 0.500');
+  });
+
+  it('states unavailable evidence honestly, without inventing semantics for it', () => {
+    render(<TrackEvidence detail={{ ...detail, trajectoryArtifactId: null, trajectoryContentUrl: null }} />);
+
     const control = screen.getByRole('button', { name: 'Trajectory' });
     expect(control).toBeDisabled();
-    expect(document.getElementById(control.getAttribute('aria-describedby') ?? ''))
-      .toHaveTextContent('No trajectory was persisted for this Track.');
-
-    // Switching a layer off changes what is drawn, not what the evidence is.
-    await user.click(screen.getByRole('button', { name: 'Bounding box' }));
-    const box = within(twin).getByRole('region', { name: 'Bounding box' });
-    expect(box).toHaveTextContent('Hidden by the layer control.');
-    expect(box).toHaveTextContent('x 0.500, y 0.500');
+    // The reason lives with the control and is bound to it, so it is stated
+    // once, in the one place the operator is already looking.
+    expect(describedText('Trajectory')).toContain('No trajectory was persisted for this Track.');
+    expect(describedText('Trajectory')).not.toContain('Layer');
   });
 
   it('reprojects onto the replacement element when the source changes at the same size', () => {

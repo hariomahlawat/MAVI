@@ -531,6 +531,19 @@ export const WORKSPACE_ASSERTIONS = `(() => {
         + '% of the working width; section 4.5 requires at least 65%');
     }
 
+    measured.reviewRailWidth = rail ? round(rail.getBoundingClientRect().width) : null;
+
+    // Section 25: on a wide display the surplus goes to the player, as it does
+    // to the stage on the Workbench and the inspector on Investigation. A
+    // player pinned at exactly the 65% floor hands better than a third of every
+    // extra pixel to a rail that has a readable maximum and no use for more, so
+    // the floor alone is not the whole rule and cannot be tested as if it were.
+    if (doc.clientWidth >= 1900 && measured.playerShare !== null && measured.playerShare < 70) {
+      problems.push('Review gives the player only ' + measured.playerShare
+        + '% of the working width at ' + doc.clientWidth
+        + 'px; section 25 sends ultra-wide surplus to the player, not to the rail');
+    }
+
     // The primary evidence summary is the first panel in the rail.
     const summary = rail ? rail.querySelector('.panel') : null;
     if (!summary) {
