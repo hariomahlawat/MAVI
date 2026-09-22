@@ -268,17 +268,53 @@
 /* 24px tall so the scrub target meets the minimum pointer size (section 23).
    The bar drawn inside it stays thin: only the hit area has to be 24. */
 .evidence-timeline__track {
-  position: relative; height: 24px; width: 100%; cursor: pointer; touch-action: none;
+  position: relative; width: 100%; cursor: pointer; touch-action: none;
   list-style: none; display: block;
 }
-.evidence-timeline__track::before {
-  content: ''; position: absolute; left: 0; right: 0; top: 10px; height: 4px;
+/* The scrub rail the subject band sits on. It is a list item rather than a
+   ::before so it can be positioned under the marker rail, whose height depends
+   on how many rows the markers actually needed. */
+.evidence-timeline__rail {
+  position: absolute; left: 0; right: 0; height: 4px;
   border-radius: var(--r-pill); background: var(--surface-raised-2);
 }
 .evidence-timeline__item { position: absolute; }
-.evidence-timeline__interval { top: 10px; height: 4px; background: var(--evidence-track); border-radius: var(--r-pill); }
-/* A lane whose presentation is not yet decided is named but not drawn; see the
-   timeline module and open decision 7.
+.evidence-timeline__interval { height: 4px; background: var(--evidence-track); border-radius: var(--r-pill); }
+
+/* Analytical lane families (decision 7). Hatches and fixed lane positions, not
+   new hues: section 8.3 freezes the evidence roles, and inventing a colour for
+   dwell would put an unvalidated hue next to the ones that were validated. The
+   two families differ by hatch orientation as well as by position, so neither
+   colour nor location alone carries the distinction. */
+.evidence-timeline__interval[data-lane='zone'] {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--geo-zone) 0 3px,
+    color-mix(in srgb, var(--geo-zone) 35%, transparent) 3px 6px
+  );
+}
+.evidence-timeline__interval[data-lane='stationary'] {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--text-muted) 0 3px,
+    color-mix(in srgb, var(--text-muted) 30%, transparent) 3px 6px
+  );
+}
+
+/* A visit that did not fit the capped sub-rows. Drawn as a tick at its start,
+   not as a band: a band here would paint over whatever already occupies the
+   rail, which is the occlusion the cap exists to prevent. */
+.evidence-timeline__overflow {
+  width: 2px; height: 4px; background: var(--geo-zone); transform: translateX(-1px);
+}
+.evidence-timeline__overflow-count { position: absolute; right: 0; height: 4px; list-style: none; }
+.evidence-timeline__overflow-badge {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  color: var(--text-muted); font-size: var(--fs-0); font-variant-numeric: tabular-nums;
+  background: var(--surface-base); padding-inline: var(--s-1);
+}
+
+/* A lane whose presentation is not yet decided is named but not drawn.
 
    Only the band is suppressed. `display: none` or `visibility: hidden` here
    would take the item out of the accessibility tree with it, which would delete
@@ -288,9 +324,41 @@
 .evidence-timeline__interval[data-drawn='false'] {
   position: static; height: 0; background: none;
 }
-.evidence-timeline__marker { top: 5px; width: 2px; height: 14px; background: var(--evidence-box); transform: translateX(-1px); }
+
+/* The marker rail. Each marker is a real control with a 24x24 effective target;
+   the tick drawn inside it stays thin, so the evidence reads as an instant
+   while the thing the pointer has to hit is the minimum size. */
+.evidence-timeline__marker { width: 24px; height: 24px; transform: translateX(-12px); }
+.evidence-timeline__marker-button {
+  display: block; width: 24px; height: 24px; padding: 0; border: 0; background: none;
+  cursor: pointer; border-radius: var(--r-1);
+}
+.evidence-timeline__marker-button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-inner); }
+.evidence-timeline__marker-tick {
+  position: absolute; left: 11px; top: 5px; width: 2px; height: 14px; background: var(--evidence-box);
+}
+/* Crossings are the analytical instant this slice draws, so they take the
+   crossing evidence role and a diamond rather than a bar: the shape is the cue
+   that survives when the hue does not. */
+.evidence-timeline__marker[data-kind='crossing'] .evidence-timeline__marker-tick {
+  left: 7px; top: 7px; width: 10px; height: 10px; background: var(--evidence-crossing);
+  transform: rotate(45deg);
+}
+/* Zone boundaries: a tick that leans the way the Track went through the edge. */
+.evidence-timeline__marker[data-kind='zone-entry'] .evidence-timeline__marker-tick,
+.evidence-timeline__marker[data-kind='zone-exit'] .evidence-timeline__marker-tick {
+  background: var(--geo-zone);
+}
+.evidence-timeline__marker[data-kind='zone-entry'] .evidence-timeline__marker-tick { transform: skewX(-20deg); }
+.evidence-timeline__marker[data-kind='zone-exit'] .evidence-timeline__marker-tick { transform: skewX(20deg); }
+/* Several items at one instant seek to one place, so they are one control; the
+   doubled tick says the instant carries more than one piece of evidence. */
+.evidence-timeline__marker:not([data-cluster='1']) .evidence-timeline__marker-tick {
+  box-shadow: 3px 0 0 0 currentcolor; color: var(--text-muted);
+}
+
 .evidence-timeline__playhead {
-  position: absolute; top: 3px; width: 2px; height: 18px; background: var(--text-primary); transform: translateX(-1px);
+  position: absolute; width: 2px; height: 18px; background: var(--text-primary); transform: translateX(-1px);
   list-style: none;
 }
 
