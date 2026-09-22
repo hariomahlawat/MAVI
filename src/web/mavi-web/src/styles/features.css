@@ -753,3 +753,109 @@
 @media (max-width: 1100px) {
   .scene-stage__surface { min-height: 360px; }
 }
+
+/* --- Analytics Workbench (Scene Analytics Slice 6) ----------------------- */
+
+.analytics-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s-3);
+}
+
+.analytics-controls__presets {
+  display: flex;
+  gap: var(--s-1);
+}
+
+.analytics-modes {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+/*
+ * The stage is the Workbench canvas: it grows and never scrolls, so the one
+ * thing inside it that can be arbitrarily long — the chart's semantic twin —
+ * owns its own scroll rather than pushing the surface past its bounds.
+ */
+.analytics-stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  padding: var(--s-4);
+}
+
+.activity-chart {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--s-2);
+  margin: 0;
+}
+
+.activity-chart__caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: baseline;
+}
+
+.activity-chart__plot {
+  width: 100%;
+  height: clamp(160px, 32vh, 320px);
+  flex: 0 0 auto;
+}
+
+.activity-chart__axis {
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.activity-chart__series--1 rect { fill: var(--evidence-series-1); }
+.activity-chart__series--2 rect { fill: var(--evidence-series-2); }
+
+.activity-chart__legend {
+  display: flex;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-2);
+}
+
+.activity-chart__legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.activity-chart__swatch {
+  width: var(--s-3);
+  height: var(--s-3);
+  border-radius: var(--r-1);
+}
+
+.activity-chart__swatch--1 { background: var(--evidence-series-1); }
+.activity-chart__swatch--2 { background: var(--evidence-series-2); }
+
+.activity-chart__table {
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.analytics-inspector__definition {
+  color: var(--text-secondary);
+  font-size: var(--fs-2);
+}
+
+.analytics-inspector__caution {
+  color: var(--text-secondary);
+  font-size: var(--fs-2);
+  border-left: 2px solid var(--status-warn-border);
+  padding-left: var(--s-2);
+}

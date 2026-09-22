@@ -176,6 +176,15 @@
      never the only thing distinguishing a crossing from a direction arrow. */
   --evidence-crossing: var(--p-yellow-300);
 
+  /* Chart series. Two roles, because the only multi-series readings in the
+     product are a trip line's two directions and the two object classes. They
+     are evidence, not status: a bar is a count that was observed, never a state
+     that is good or bad. Every series also carries its name in the legend and
+     in the table beside the chart, so the hue is never what distinguishes
+     them. */
+  --evidence-series-1: var(--p-sky-300);
+  --evidence-series-2: var(--p-violet-400);
+
   /* The matte a frame is laid on, and the halo every overlay layer carries.
      Both are theme-invariant: letterbox bars must not tint the image, and a
      halo that followed the surface colour would vanish on bright video. */

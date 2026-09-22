@@ -331,6 +331,9 @@ export default function CamerasPage() {
                         <ButtonLink size="sm" variant="ghost" icon="layers" to={`/cameras/${camera.id}/scene`}>
                           Scene
                         </ButtonLink>
+                        <ButtonLink size="sm" variant="ghost" icon="activity" to={`/cameras/${camera.id}/analytics`}>
+                          Analytics
+                        </ButtonLink>
                       </div>
                     </td>
                   </tr>
