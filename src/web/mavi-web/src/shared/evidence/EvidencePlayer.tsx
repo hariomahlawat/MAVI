@@ -279,6 +279,10 @@ export default function EvidencePlayer({
         intervals={intervals}
         markers={markers}
         subjectLabel={subject.label}
+        // The player already holds the subject's identity, for reopening at the
+        // subject's start. The timeline needs the same key so its one piece of
+        // transient state cannot outlive the subject that produced it.
+        subjectKey={seekKey}
         onSeek={transport.seekTo}
       />
 

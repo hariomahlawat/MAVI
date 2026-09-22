@@ -44,6 +44,7 @@ function renderTimeline(onSeek = vi.fn(), overrides: Partial<React.ComponentProp
       intervals={intervals}
       markers={markers}
       subjectLabel="Person Track 7"
+      subjectKey="track-7"
       onSeek={onSeek}
       {...overrides}
     />,
@@ -57,6 +58,32 @@ beforeEach(() => {
     left: 100, top: 0, right: 500, bottom: 22, width: 400, height: 22, x: 100, y: 0, toJSON: () => ({}),
   } as DOMRect);
 });
+
+/**
+ * Open the dense-evidence navigator and walk it end to end, collecting what
+ * each step named and where it seeked.
+ *
+ * Written as a walk rather than as a lookup of per-item controls on purpose:
+ * the point of the navigator is that there are no per-item controls, so a test
+ * that found one would be testing the design it replaced.
+ */
+async function walkDenseEvidence(user: ReturnType<typeof userEvent.setup>) {
+  const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement | null;
+  if (!disclosure) return { names: [] as string[], total: 0 };
+  fireEvent.click(disclosure.querySelector('summary')!);
+
+  const status = () => disclosure.querySelector('[role="status"]')!.textContent ?? '';
+  const next = () => screen.getByRole('button', { name: 'Next' });
+  const names: string[] = [];
+  await user.click(next());
+  const total = Number(/of (\d+)/.exec(status())?.[1] ?? 0);
+  names.push(status());
+  for (let step = 1; step < total; step += 1) {
+    await user.click(next());
+    names.push(status());
+  }
+  return { names, total };
+}
 
 describe('Evidence timeline', () => {
   it('has no keyboard vocabulary of its own', () => {
@@ -322,10 +349,13 @@ describe('dense markers stay usable', () => {
     // Every placed control is on a row of its own, so none covers another.
     expect(new Set(placed.map((i) => i.style.top)).size).toBe(3);
 
-    // And the one that could not be placed is still separately activatable,
-    // at its own exact offset — not merged into another control, not dropped.
-    const control = screen.getByRole('button', { name: /Seek to Crossed 3: 00:30.0/ });
-    await user.click(control);
+    // And the one that could not be placed is still recoverable at its own
+    // exact offset — not merged into another control, not dropped. It is not a
+    // control of its own: the navigator exposes it, which is what keeps the
+    // number of controls fixed however dense the evidence gets.
+    const { names, total } = await walkDenseEvidence(user);
+    expect(total).toBe(1);
+    expect(names[0]).toMatch(/1 of 1 — Crossed 3: 00:30.0/);
     expect(onSeek).toHaveBeenCalledExactlyOnceWith(30_060);
   });
 
@@ -352,21 +382,26 @@ describe('dense markers stay usable', () => {
     expect(narrow.overflow).toHaveLength(0);
   });
 
-  it('keeps every marker reachable however dense, without unbounded rows', () => {
+  it('keeps every marker reachable however dense, without unbounded rows', async () => {
+    const user = userEvent.setup();
     const many = Array.from({ length: 12 }, (_, index) => ({
       id: `m${index}`, offsetMs: 30_000 + index * 20, label: `Crossed ${index}`, kind: 'crossing',
     }));
-    renderTimeline(vi.fn(), { markers: many });
+    const onSeek = renderTimeline(vi.fn(), { markers: many });
 
     const placed = screen.getAllByRole('listitem').filter((i) => i.className.includes('__marker'));
     expect(placed.length).toBeLessThanOrEqual(MAX_MARKER_ROWS);
-    // Every one of the twelve is a control somewhere — on the rail where there
-    // was clearance, in the disclosure where there was not — so none is merged
-    // away or left unreachable.
-    const controls = screen.getAllByRole('button', { name: /Seek to Crossed/ });
-    expect(controls).toHaveLength(12);
-    // And each names its own destination, so no two do the same thing.
-    expect(new Set(controls.map((c) => c.getAttribute('title') ?? c.textContent)).size).toBe(12);
+
+    // Every one of the twelve is reachable at its own exact millisecond — on
+    // the rail where there was clearance, through the navigator where there
+    // was not — so none is merged away or left unreachable.
+    const { total } = await walkDenseEvidence(user);
+    expect(total + placed.length).toBe(12);
+    // Each step went to a different persisted millisecond, so no two do the
+    // same thing and nothing was rounded to a neighbour.
+    const seeked = onSeek.mock.calls.map((call: unknown[]) => call[0] as number);
+    expect(new Set(seeked).size).toBe(total);
+    for (const offset of seeked) expect(many.some((m) => m.offsetMs === offset)).toBe(true);
   });
 
   it('clusters only what shares one exact destination, and names all of it', async () => {
@@ -496,6 +531,9 @@ describe('the rail re-measures when its host changes width', () => {
       ],
     });
 
+    // All three fit here — 30ms of clearance at 400px, and they are further
+    // apart than that — so all three are controls on the rail, including the
+    // one at zero and the one at the very end of the media.
     const controls = screen.getAllByRole('button', { name: /Seek to Crossed/ });
     expect(controls).toHaveLength(3);
     await user.click(screen.getByRole('button', { name: /Seek to Crossed C/ }));
@@ -541,21 +579,25 @@ describe('analytical lane families (decision 7)', () => {
     expect(new Set(drawn.map((i) => i.style.top)).size).toBe(3);
   });
 
-  it('sends a fourth concurrent visit to the overflow rail and keeps it named', () => {
-    renderTimeline(vi.fn(), { intervals: zoneVisits });
-    const zoneItems = screen.getAllByRole('listitem').filter((i) => i.dataset.lane === ZONE_LANE);
-    expect(zoneItems).toHaveLength(4);
+  it('sends a fourth concurrent visit off the sub-rows and keeps it recoverable', async () => {
+    const user = userEvent.setup();
+    const onSeek = renderTimeline(vi.fn(), { intervals: zoneVisits });
+    const drawn = screen.getAllByRole('listitem')
+      .filter((i) => i.dataset.lane === ZONE_LANE && i.dataset.drawn === 'true');
+    expect(drawn).toHaveLength(3);
 
-    const overflowed = zoneItems.filter((i) => i.dataset.drawn === 'overflow');
-    expect(overflowed).toHaveLength(1);
-    // Still named individually with its exact offsets.
-    expect(overflowed[0].textContent).toContain('In Dock for 8s');
-    expect(overflowed[0].textContent).toContain('00:22.0 to 00:30.0');
-    // It takes no position of its own on the rail: ticks at true starts covered
-    // each other whenever two overflowed visits began together.
-    expect(overflowed[0].style.left).toBe('');
-    // The rail carries one band for the span, with that span's concurrency.
+    // The overflowed visit takes no position of its own: a tick at its true
+    // start covered its neighbours the moment two of them began together. The
+    // rail states what is in progress instead.
     expect(screen.getByText('+1')).toBeInTheDocument();
+
+    // And it is still named individually, with its exact persisted offsets,
+    // through the navigator — which is one control, not one per visit.
+    const { names, total } = await walkDenseEvidence(user);
+    expect(total).toBe(1);
+    expect(names[0]).toContain('In Dock for 8s');
+    expect(names[0]).toContain('00:22.0 to 00:30.0');
+    expect(onSeek).toHaveBeenCalledExactlyOnceWith(22_000);
   });
 
   it('aggregates overflow by span, not as one total for the whole timeline', () => {
@@ -571,20 +613,22 @@ describe('analytical lane families (decision 7)', () => {
     })));
     renderTimeline(vi.fn(), { intervals: [...burst(10_000, 0), ...burst(60_000, 1)] });
 
-    const bands = document.querySelectorAll('.evidence-timeline__overflow');
-    expect(bands).toHaveLength(2);
-    // Each band states its own span's concurrency, and covers its own span.
-    for (const band of bands) {
-      expect(band.getAttribute('data-concurrent')).toBe('2');
-      expect((band as HTMLElement).style.width).not.toBe('');
-    }
-    // The two bands are disjoint, so neither can paint over the other.
-    const [first, second] = [...bands].map((b) => (b as HTMLElement).style.left);
-    expect(first).not.toBe(second);
-    expect(screen.getAllByText('+2')).toHaveLength(2);
+    const bands = [...document.querySelectorAll('.evidence-timeline__overflow')] as HTMLElement[];
+    // Two dense regions, far apart. Each band covers its own stretch and states
+    // what is genuinely in progress across it; the bands never overlap, so one
+    // can never be drawn over another.
+    expect(bands.length).toBeGreaterThanOrEqual(2);
+    for (const band of bands) expect(band.style.width).not.toBe('');
+    const lefts = bands.map((band) => Number.parseFloat(band.style.left));
+    for (let i = 1; i < lefts.length; i += 1) expect(lefts[i]).toBeGreaterThan(lefts[i - 1]);
+    // Two regions, so the density is stated in two places rather than once for
+    // the whole timeline.
+    expect(new Set(lefts).size).toBe(bands.length);
+    expect(lefts.some((left) => left < 50)).toBe(true);
+    expect(lefts.some((left) => left >= 50)).toBe(true);
   });
 
-  it('clusters overflowed visits that start together instead of stacking ticks', () => {
+  it('clusters overflowed visits that start together instead of stacking ticks', async () => {
     // Four visits with the *same* start. The earlier drawing gave each a 2px
     // tick at its start, so all four landed on the same pixel and three were
     // invisible.
@@ -595,38 +639,42 @@ describe('analytical lane families (decision 7)', () => {
       })),
     });
     const bands = document.querySelectorAll('.evidence-timeline__overflow');
+    // One band: the active set never changes across it, so a boundary that
+    // changes nothing does not split it into two.
     expect(bands).toHaveLength(1);
     expect(bands[0].getAttribute('data-concurrent')).toBe('1');
-    // And the one that overflowed is still named in the list.
-    const overflowed = screen.getAllByRole('listitem')
-      .filter((i) => i.dataset.drawn === 'overflow');
-    expect(overflowed).toHaveLength(1);
-    expect(overflowed[0].textContent).toMatch(/Visit \d/);
+    expect((bands[0] as HTMLElement).style.width).not.toBe('');
+    // And the one that overflowed is still recoverable, named with its own
+    // offsets, through the one navigator.
+    const { names, total } = await walkDenseEvidence(userEvent.setup());
+    expect(total).toBe(1);
+    expect(names[0]).toMatch(/Visit \d/);
   });
 
   it('lets the operator recover one exact overflowed interval', async () => {
     const user = userEvent.setup();
     const onSeek = renderTimeline(vi.fn(), { intervals: zoneVisits });
 
-    // Every overflowed visit is its own control, so none of them is merely
-    // aggregated away.
-    const control = screen.getByRole('button', { name: /In Dock for 8s: 00:22.0 to 00:30.0/ });
-    expect(control).toHaveAttribute('aria-pressed', 'false');
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    fireEvent.click(disclosure.querySelector('summary')!);
+    // Nothing is singled out until the operator steps to it.
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(0);
 
-    await user.click(control);
-    // Singling it out seeks to its entry and draws it at its exact offsets.
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+
+    // Stepping names the visit, seeks to its persisted entry and draws it at
+    // its exact persisted offsets — no rounding, no aggregate stand-in.
+    expect(disclosure.querySelector('[role="status"]')!.textContent)
+      .toMatch(/1 of 1 — In Dock for 8s: 00:22.0 to 00:30.0/);
     expect(onSeek).toHaveBeenCalledWith(22_000);
-    expect(control).toHaveAttribute('aria-pressed', 'true');
     const shown = document.querySelector('[data-shown="true"]') as HTMLElement;
     expect(shown).toBeTruthy();
     expect(shown.textContent).toContain('In Dock for 8s');
     expect(shown.style.left).not.toBe('');
     expect(shown.style.width).not.toBe('');
 
-    // Only ever one at a time, so singling one out can never add a row.
+    // Only ever one drawn at a time, so recovery can never add a row.
     expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(1);
-    await user.click(control);
-    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(0);
   });
 
   it('keeps the timeline height bounded however many visits overlap', () => {
@@ -641,6 +689,7 @@ describe('analytical lane families (decision 7)', () => {
           }))}
           markers={[]}
           subjectLabel="Person Track 7"
+          subjectKey="track-7"
           onSeek={vi.fn()}
         />,
       );
@@ -652,6 +701,253 @@ describe('analytical lane families (decision 7)', () => {
     // Four concurrent visits already fill the capped rows plus the rail; a
     // hundred must not make the timeline any taller than that.
     expect(heightFor(100)).toBe(heightFor(4));
+  });
+});
+
+describe('dense evidence costs a fixed number of controls', () => {
+  /**
+   * The bound this suite asserts.
+   *
+   * Three: the disclosure that opens the navigator, Previous and Next. It does
+   * not move with the evidence — that is the whole point of a navigator rather
+   * than a list, and it is why 4, 12 and 100 members are all checked against
+   * the same number.
+   */
+  const DENSE_CONTROL_BUDGET = 3;
+
+  const crowd = (count: number) => Array.from({ length: count }, (_, index) => ({
+    id: `v${index}`, startOffsetMs: 10_000 + index * 10, endOffsetMs: 50_000,
+    label: `Visit ${index}`, lane: ZONE_LANE,
+  }));
+
+  /** Controls that exist because evidence is dense, open or closed. */
+  const denseControls = () => {
+    const disclosure = document.querySelector('.evidence-timeline__dense');
+    if (!disclosure) return 0;
+    return disclosure.querySelectorAll('summary, button').length;
+  };
+
+  it.each([4, 12, 100])('needs the same controls for %i dense visits', (count) => {
+    renderTimeline(vi.fn(), { intervals: crowd(count), markers: [] });
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    fireEvent.click(disclosure.querySelector('summary')!);
+    expect(denseControls()).toBe(DENSE_CONTROL_BUDGET);
+  });
+
+  it('creates no second evidence list, open or closed', () => {
+    renderTimeline(vi.fn(), { intervals: crowd(100), markers: [] });
+    // One list on the surface: the timeline itself. A hundred dense visits add
+    // no parallel list of the same evidence, opened or not.
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    expect(document.querySelectorAll('ul')).toHaveLength(1);
+    expect(document.querySelector('ul')).toHaveClass('evidence-timeline__track');
+    fireEvent.click(disclosure.querySelector('summary')!);
+    expect(document.querySelectorAll('ul')).toHaveLength(1);
+    // And no dense member is named twice: the rail states density, the
+    // navigator names one member at a time.
+    const mentions = [...document.querySelectorAll('li, p')]
+      .filter((node) => (node.textContent ?? '').includes('Visit 57:'));
+    expect(mentions.length).toBeLessThanOrEqual(1);
+  });
+
+  it('reaches an arbitrary member of a hundred at its exact offsets', async () => {
+    const user = userEvent.setup();
+    const onSeek = renderTimeline(vi.fn(), { intervals: crowd(100), markers: [] });
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    fireEvent.click(disclosure.querySelector('summary')!);
+    const status = () => disclosure.querySelector('[role="status"]')!.textContent ?? '';
+    const railRows = () => new Set(
+      [...document.querySelectorAll('.evidence-timeline__track > li')].map((i) => (i as HTMLElement).style.top),
+    ).size;
+    const rowsBefore = railRows();
+
+    // Step to the fifth of ninety-seven and check it is that member, exactly.
+    for (let i = 0; i < 5; i += 1) await user.click(screen.getByRole('button', { name: 'Next' }));
+    // Three took the sub-rows, so the fifth recoverable member is Visit 7.
+    expect(status()).toMatch(/^5 of 97 — Visit 7: /);
+    // Its own persisted start, not the aggregate's and not a rounded one.
+    expect(onSeek).toHaveBeenLastCalledWith(10_000 + 7 * 10);
+    const shown = document.querySelector('[data-shown="true"]') as HTMLElement;
+    expect(shown.textContent).toContain('Visit 7');
+    // No new row appeared for it.
+    expect(railRows()).toBe(rowsBefore);
+  });
+
+  it('stops at each end rather than wrapping past the evidence', async () => {
+    const user = userEvent.setup();
+    renderTimeline(vi.fn(), { intervals: crowd(4), markers: [] });
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    fireEvent.click(disclosure.querySelector('summary')!);
+    const status = () => disclosure.querySelector('[role="status"]')!.textContent ?? '';
+
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(status()).toMatch(/^1 of 1 /);
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+  });
+});
+
+describe('the dense cursor follows the member, not its position', () => {
+  it('keeps the same marker selected when a resize changes how many fit', async () => {
+    const callbacks: Array<() => void> = [];
+    class StubResizeObserver {
+      constructor(callback: () => void) { callbacks.push(callback); }
+      observe() {} unobserve() {} disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', StubResizeObserver);
+    const setWidth = (width: number) => {
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        left: 100, top: 0, right: 100 + width, bottom: 22,
+        width, height: 22, x: 100, y: 0, toJSON: () => ({}),
+      } as DOMRect);
+    };
+    const user = userEvent.setup();
+
+    setWidth(400);
+    renderTimeline(vi.fn(), {
+      markers: Array.from({ length: 8 }, (_, index) => ({
+        id: `m${index}`, offsetMs: 30_000 + index * 300, label: `Crossed ${index}`, kind: 'crossing',
+      })),
+    });
+
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    fireEvent.click(disclosure.querySelector('summary')!);
+    const status = () => disclosure.querySelector('[role="status"]')!.textContent ?? '';
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    const selected = /— (Crossed \d+):/.exec(status())?.[1];
+    expect(selected).toBeDefined();
+
+    // Widening lets the rail place more markers, so the dense sequence gets
+    // shorter and everything after the change moves position. A cursor held by
+    // position would now be pointing at different evidence; held by identity it
+    // is either the same member or nothing.
+    setWidth(1_600);
+    act(() => { for (const callback of callbacks) callback(); });
+
+    const after = disclosure.querySelector('[role="status"]')!.textContent ?? '';
+    if (after.includes('—')) expect(after).toContain(selected!);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('the navigator can be left as well as entered', () => {
+  it('puts the rail back when it is closed', async () => {
+    const user = userEvent.setup();
+    renderTimeline(vi.fn(), {
+      intervals: [
+        ...[0, 1, 2].map((n) => ({
+          id: `filler-${n}`, startOffsetMs: 0, endOffsetMs: 30_000,
+          label: `Filler ${n}`, lane: ZONE_LANE,
+        })),
+        { id: 'z4', startOffsetMs: 4_000, endOffsetMs: 9_000, label: 'In Dock', lane: ZONE_LANE },
+      ],
+    });
+
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    fireEvent.click(disclosure.querySelector('summary')!);
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(1);
+
+    // With one member both steps are at an end, so closing the navigator is
+    // the way out — an action with no undo would be worse than a third control.
+    disclosure.open = false;
+    fireEvent(disclosure, new Event('toggle'));
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(0);
+  });
+});
+
+describe('transient state belongs to the subject that made it', () => {
+  /** Three long visits fill the sub-rows; the fourth overflows. */
+  const crowded = (label: string) => ([
+    ...[0, 1, 2].map((n) => ({
+      id: `filler-${n}`, startOffsetMs: 0, endOffsetMs: 30_000,
+      label: `Filler ${n}`, lane: ZONE_LANE,
+    })),
+    // The id a real adapter produces: zone and visit index, unique within one
+    // Track and identical between two Tracks through the same zone.
+    { id: 'zone-visit-forecourt-0', startOffsetMs: 4_000, endOffsetMs: 9_000, label, lane: ZONE_LANE },
+  ]);
+
+  const render1 = (key: string, label: string, currentOffsetMs = 0) => (
+    <EvidenceTimeline
+      durationMs={100_000}
+      currentOffsetMs={currentOffsetMs}
+      intervals={crowded(label)}
+      markers={[]}
+      subjectLabel={`Person ${key}`}
+      subjectKey={key}
+      onSeek={vi.fn()}
+    />
+  );
+
+  async function selectTheOverflowedVisit(user: ReturnType<typeof userEvent.setup>) {
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    fireEvent.click(disclosure.querySelector('summary')!);
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+  }
+
+  it('does not carry one Track\'s selection into the next Track', async () => {
+    const user = userEvent.setup();
+    const view = render(render1('track-a', 'In Forecourt on Track A'));
+    await selectTheOverflowedVisit(user);
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(1);
+
+    // The inspector keeps this component mounted across Track navigation, and
+    // Track B has a visit through the same zone — so the same evidence id. It
+    // must come up with nothing selected: the operator chose on Track A, and
+    // that says nothing about Track B.
+    view.rerender(render1('track-b', 'In Forecourt on Track B'));
+
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(0);
+    const status = document.querySelector('[role="status"]')!.textContent ?? '';
+    expect(status).not.toContain('Track A');
+    expect(status).not.toContain('Track B');
+  });
+
+  it('does not resurrect the old selection on the way back', async () => {
+    const user = userEvent.setup();
+    const view = render(render1('track-a', 'In Forecourt on Track A'));
+    await selectTheOverflowedVisit(user);
+    view.rerender(render1('track-b', 'In Forecourt on Track B'));
+    view.rerender(render1('track-a', 'In Forecourt on Track A'));
+
+    // Returning to a Track is not the operator selecting anything. Nothing is
+    // shown until they step again.
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(0);
+  });
+
+  it('keeps the selection while the same subject is on screen', async () => {
+    const user = userEvent.setup();
+    const view = render(render1('track-a', 'In Forecourt'));
+    await selectTheOverflowedVisit(user);
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(1);
+
+    // The playhead moving is not a change of subject.
+    view.rerender(render1('track-a', 'In Forecourt', 40_000));
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(1);
+  });
+
+  it('keeps the selection across a resize of the same subject', async () => {
+    const callbacks: Array<() => void> = [];
+    class StubResizeObserver {
+      constructor(callback: () => void) { callbacks.push(callback); }
+      observe() {} unobserve() {} disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', StubResizeObserver);
+    const user = userEvent.setup();
+    render(render1('track-a', 'In Forecourt'));
+    await selectTheOverflowedVisit(user);
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(1);
+
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 100, top: 0, right: 1_700, bottom: 22, width: 1_600, height: 22, x: 100, y: 0, toJSON: () => ({}),
+    } as DOMRect);
+    act(() => { for (const callback of callbacks) callback(); });
+
+    // Re-measuring the rail is not a change of subject either.
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(1);
+    vi.unstubAllGlobals();
   });
 });
 

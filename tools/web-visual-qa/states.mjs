@@ -1955,7 +1955,15 @@ const REVIEW_MARKERS_SAME_OFFSET = {
  * could not hold, so the captured state is the one an operator actually
  * reaches: disclosure open, one exact interval highlighted on the rail.
  */
-const SHOW_OVERFLOWED = `(async () => {
+/**
+ * Seek to the evidence, then step the dense-evidence navigator.
+ *
+ * The navigator is the only route to a visit the capped sub-rows could not
+ * hold, and it exposes one member at a time, so the captured state is reached
+ * the way an operator reaches it: open the disclosure, then step.
+ */
+function stepDenseEvidence(steps) {
+  return `(async () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const v = document.querySelector('.evidence-player__video');
   if (v) {
@@ -1968,12 +1976,58 @@ const SHOW_OVERFLOWED = `(async () => {
   if (!disclosure) return false;
   disclosure.open = true;
   await wait(120);
-  const control = disclosure.querySelector('button');
-  if (!control) return false;
-  control.click();
-  await wait(120);
-  return Boolean(document.querySelector('.evidence-timeline__shown'));
+  const next = Array.from(disclosure.querySelectorAll('button'))
+    .find((b) => (b.textContent || '').trim() === 'Next');
+  if (!next) return false;
+  for (let step = 0; step < ${steps}; step += 1) {
+    if (next.disabled) break;
+    next.click();
+    await wait(60);
+  }
+  return Boolean(document.querySelector('[data-shown="true"]'));
 })()`;
+}
+
+const SHOW_OVERFLOWED = stepDenseEvidence(1);
+const SHOW_OVERFLOWED_LATER = stepDenseEvidence(3);
+
+/**
+ * A bridging chain of overflowed visits, where grouping by transitive overlap
+ * would claim a concurrency that never happened.
+ *
+ * Three long visits fill the capped sub-rows; A, B and C then overflow with
+ * A overlapping B, B overlapping C and A never meeting C. The rail must show
+ * the density rising and falling across the run rather than one flat "+3".
+ */
+const REVIEW_OVERFLOW_BRIDGING = {
+  ...REVIEW_OVERLAP_5,
+  analytics: {
+    ...REVIEW_OVERLAP_5.analytics,
+    zoneVisits: [
+      ...[0, 1, 2].map((n) => ({
+        ...REVIEW_OVERLAP_5.analytics.zoneVisits[n],
+        visitIndex: n, entryOffsetMs: 600, exitOffsetMs: 3_400,
+      })),
+      { ...REVIEW_OVERLAP_5.analytics.zoneVisits[0], visitIndex: 3, entryOffsetMs: 700, exitOffsetMs: 1_700 },
+      { ...REVIEW_OVERLAP_5.analytics.zoneVisits[1], visitIndex: 4, entryOffsetMs: 1_200, exitOffsetMs: 2_200 },
+      { ...REVIEW_OVERLAP_5.analytics.zoneVisits[0], visitIndex: 5, entryOffsetMs: 2_100, exitOffsetMs: 3_000 },
+    ],
+  },
+};
+
+/** A hundred concurrent visits: the control count must not notice. */
+const REVIEW_OVERFLOW_CROWD = {
+  ...REVIEW_OVERLAP_5,
+  analytics: {
+    ...REVIEW_OVERLAP_5.analytics,
+    zoneVisits: Array.from({ length: 100 }, (_, n) => ({
+      ...REVIEW_OVERLAP_5.analytics.zoneVisits[n % 2],
+      visitIndex: n,
+      entryOffsetMs: 600 + n * 10,
+      exitOffsetMs: 3_400,
+    })),
+  },
+};
 
 export const STATES = [
   // --- Ledger-summary: Overview, the one Ledger permitted to stay capped. ---
@@ -2568,4 +2622,14 @@ export const STATES = [
   // perpendicular is measured in projected space, where the operator sees it.
   { name: 'review-direction-letterbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'letterbox', prepare: SEEK, requireOverlay: true, expectText: ['Inbound', 'Outbound'] },
   { name: 'review-direction-pillarbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'pillarbox', prepare: SEEK, requireOverlay: true, expectText: ['Inbound', 'Outbound'] },
+  // Density that rises and falls inside one contiguous run: the rail has to
+  // show that profile rather than one flat count for the whole run.
+  { name: 'review-overflow-bridging', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_BRIDGING } },
+  // A hundred overlapping visits: bounded height, bounded controls, and the
+  // navigator still names one of them exactly.
+  { name: 'review-overflow-crowd', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_CROWD } },
+  { name: 'review-overflow-crowd-stepped', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SHOW_OVERFLOWED_LATER, prepareSettleMs: 1200, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_CROWD } },
+  // A member other than the first, so the captured state is not only ever
+  // "1 of N" and the exact interval drawn is one from the middle of the run.
+  { name: 'review-overflow-stepped', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SHOW_OVERFLOWED_LATER, prepareSettleMs: 1000, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
 ];

@@ -3,7 +3,7 @@ import {
   MAX_ZONE_SUBROWS,
   STATIONARY_LANE,
   ZONE_LANE,
-  overflowClusters,
+  overflowSegments,
   packIntervals,
   type EvidenceTimelineInterval,
 } from '../../shared/evidence/timeline';
@@ -592,42 +592,80 @@ describe('the packer survives evidence it should never be handed', () => {
   });
 });
 
-describe('overflow spans', () => {
-  it('groups overflowed visits into disjoint runs', () => {
+describe('overflow segments state simultaneous density, not membership', () => {
+  it('never reports a bridging chain as three at once', () => {
+    // A overlaps B, B overlaps C, A never meets C. Grouping by transitive
+    // overlap called that "3"; no instant in it holds three visits.
+    const packed = packIntervals([
+      ...['f1', 'f2', 'f3'].map((id) => span(id, 0, 30)),
+      span('a', 1, 11), span('b', 6, 16), span('c', 15, 21),
+    ]);
+    const segments = overflowSegments(packed);
+    expect(Math.max(...segments.map((segment) => segment.count))).toBe(2);
+    // And the density really does vary across the run rather than being flat.
+    expect(new Set(segments.map((segment) => segment.count))).toEqual(new Set([1, 2]));
+  });
+
+  it('reports a genuine three-way overlap as three', () => {
+    const packed = packIntervals([
+      ...['f1', 'f2', 'f3'].map((id) => span(id, 0, 30)),
+      span('a', 1, 20), span('b', 5, 15), span('c', 7, 12),
+    ]);
+    const segments = overflowSegments(packed);
+    // 7 to 12 is the common intersection of all three.
+    const peak = segments.find((segment) => segment.count === 3);
+    expect(peak).toBeDefined();
+    expect(peak!.startOffsetMs).toBe(7);
+    expect(peak!.endOffsetMs).toBe(12);
+  });
+
+  it('follows the active set up and down within one contiguous run', () => {
+    const packed = packIntervals([
+      ...['f1', 'f2', 'f3'].map((id) => span(id, 0, 40)),
+      span('a', 1, 30), span('b', 10, 20), span('c', 12, 16),
+    ]);
+    const segments = overflowSegments(packed);
+    // Contiguous, disjoint, and the counts rise then fall with the evidence.
+    expect(segments.map((segment) => segment.count)).toEqual([1, 2, 3, 2, 1]);
+    for (let i = 1; i < segments.length; i += 1) {
+      expect(segments[i].startOffsetMs).toBe(segments[i - 1].endOffsetMs);
+    }
+  });
+
+  it('does not count an interval that only touches another end to end', () => {
+    const packed = packIntervals([
+      ...['f1', 'f2', 'f3'].map((id) => span(id, 0, 40)),
+      span('a', 1, 10), span('b', 10, 20), span('c', 20, 30),
+    ]);
+    const segments = overflowSegments(packed);
+    expect(segments.map((segment) => segment.count)).toEqual([1, 1, 1]);
+  });
+
+  it('keeps two independent dense regions apart', () => {
     const packed = packIntervals([
       ...['a', 'b', 'c', 'd'].map((id, i) => span(id, i, 50)),
       ...['e', 'f', 'g', 'h'].map((id, i) => span(id, 100 + i, 150)),
     ]);
-    const clusters = overflowClusters(packed);
-    expect(clusters).toHaveLength(2);
-    expect(clusters.map((c) => c.count)).toEqual([1, 1]);
+    const segments = overflowSegments(packed);
+    expect(segments).toHaveLength(2);
     // Disjoint, so one can never be drawn over the other.
-    expect(clusters[0].endOffsetMs).toBeLessThanOrEqual(clusters[1].startOffsetMs);
+    expect(segments[0].endOffsetMs).toBeLessThanOrEqual(segments[1].startOffsetMs);
   });
 
-  it('keeps several same-start overflowed visits in one span rather than one tick', () => {
+  it('coalesces a boundary that changes nothing', () => {
+    // Three identical overflowed visits: one band, not three, because the
+    // active set never changes across them.
     const packed = packIntervals(
-      Array.from({ length: 6 }, (_, i) => span(`v${i}`, 10, 20 + i)),
+      Array.from({ length: 6 }, (_, i) => span(`v${i}`, 10, 20)),
     );
-    const clusters = overflowClusters(packed);
-    expect(clusters).toHaveLength(1);
-    expect(clusters[0].count).toBe(3);
-    // Each is still its own member, so none is merged away.
-    expect(new Set(clusters[0].members.map((m) => m.id)).size).toBe(3);
+    const segments = overflowSegments(packed);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].count).toBe(3);
+    expect(segments[0].startOffsetMs).toBe(10);
+    expect(segments[0].endOffsetMs).toBe(20);
   });
 
-  it('separates near-identical starts that do not overlap from those that do', () => {
-    const packed = packIntervals([
-      ...['a', 'b', 'c', 'd'].map((id, i) => span(id, 10 + i, 30)),
-      span('apart', 500, 520),
-    ]);
-    const clusters = overflowClusters(packed);
-    // Only the crowded run overflows; the distant one had a row free.
-    expect(clusters).toHaveLength(1);
-    expect(clusters[0].startOffsetMs).toBeLessThan(30);
-  });
-
-  it('has no spans when nothing overflowed', () => {
-    expect(overflowClusters(packIntervals([span('a', 0, 10), span('b', 5, 15)]))).toEqual([]);
+  it('has no segments when nothing overflowed', () => {
+    expect(overflowSegments(packIntervals([span('a', 0, 10), span('b', 5, 15)]))).toEqual([]);
   });
 });

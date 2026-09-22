@@ -194,50 +194,105 @@ export function packIntervals(
 }
 
 /**
- * One run of overflowed intervals that overlap each other.
+ * One stretch of time over which exactly the same overflowed visits are open.
  *
- * Clusters are **disjoint by construction**: two intervals that share time end
- * up in the same cluster, so two clusters can never overlap and their bands can
- * never paint over one another. That is what makes the overflow rail one row
- * that shows real spans rather than a pile of ticks, and it is why the count a
- * cluster states is the concurrency *of that span* rather than a total for the
- * whole timeline — a total says nothing about where the evidence is dense.
+ * Derived by a **sweep line** over the overflowed intervals' own boundaries,
+ * not by grouping intervals that happen to touch. The difference is the whole
+ * point: grouping by transitive overlap puts [0,10], [5,15] and [14,20] in one
+ * group of three, and no instant in that group ever holds three visits. A
+ * segment's count is the size of the set that is actually open across it, so
+ * it cannot describe an overlap that did not happen.
+ *
+ * Segments are consecutive boundary pairs, so they are **disjoint by
+ * construction** and their bands can never paint over one another; the rail
+ * stays one row whatever the evidence does.
  */
-export type IntervalCluster = {
+export type OverflowSegment = {
   id: string;
   startOffsetMs: number;
   endOffsetMs: number;
-  /** How many overflowed intervals this span holds. */
+  /**
+   * How many overflowed visits are in progress **simultaneously**, throughout
+   * this segment. This is the number `+N` states, and it is a true
+   * simultaneous count rather than a membership tally.
+   */
   count: number;
+  /** Those visits, in the order they start. */
   members: EvidenceTimelineInterval[];
 };
 
-/** Group the intervals that did not fit into disjoint, non-overlapping spans. */
-export function overflowClusters(packed: readonly PackedInterval[]): IntervalCluster[] {
-  const overflowed = packed
+/** Deterministic order for the overflowed set: by start, then end, then id. */
+function byStartThenEndThenId(a: EvidenceTimelineInterval, b: EvidenceTimelineInterval): number {
+  return a.startOffsetMs - b.startOffsetMs
+    || a.endOffsetMs - b.endOffsetMs
+    || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+/** The intervals that did not fit a sub-row, in a deterministic order. */
+export function overflowedIntervals(packed: readonly PackedInterval[]): EvidenceTimelineInterval[] {
+  return packed
     .filter((entry) => entry.row === null)
     .map((entry) => entry.interval)
-    .sort((a, b) => a.startOffsetMs - b.startOffsetMs || (a.id < b.id ? -1 : 1));
+    .sort(byStartThenEndThenId);
+}
 
-  const clusters: IntervalCluster[] = [];
-  for (const interval of overflowed) {
-    const open = clusters[clusters.length - 1];
-    // Touching at an endpoint is not overlapping, so it starts a new span.
-    if (open && interval.startOffsetMs < open.endOffsetMs) {
-      open.endOffsetMs = Math.max(open.endOffsetMs, interval.endOffsetMs);
-      open.count += 1;
-      open.members.push(interval);
+/**
+ * The overflow density profile: disjoint segments, each with the set genuinely
+ * open across it.
+ *
+ * Boundaries are the starts and ends of the overflowed intervals, so the active
+ * set can only change at one of them; between two consecutive boundaries it is
+ * constant. A segment is emitted only where something is open, and adjacent
+ * segments holding **the same members** are coalesced, so a boundary that
+ * changes nothing does not split a band in two.
+ *
+ * Intervals are half-open: one ending exactly where another begins is not an
+ * overlap, here or in the packer.
+ *
+ * Cost is O(B log B + B·M) for M overflowed intervals and B ≤ 2M boundaries,
+ * computed from the evidence alone. Nothing here depends on the playhead, so it
+ * never runs on an animation frame.
+ */
+export function overflowSegments(packed: readonly PackedInterval[]): OverflowSegment[] {
+  // A zero-length interval is open at no instant, so it cannot contribute to a
+  // density band. It is still evidence: it keeps its turn in the navigator,
+  // where it is named with the offsets it actually has rather than being
+  // quietly repaired into a band.
+  const overflowed = overflowedIntervals(packed)
+    .filter((interval) => interval.startOffsetMs < interval.endOffsetMs);
+  if (overflowed.length === 0) return [];
+
+  const boundaries = [...new Set(
+    overflowed.flatMap((interval) => [interval.startOffsetMs, interval.endOffsetMs]),
+  )].sort((a, b) => a - b);
+
+  const segments: OverflowSegment[] = [];
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const startOffsetMs = boundaries[index];
+    const endOffsetMs = boundaries[index + 1];
+    const members = overflowed.filter(
+      (interval) => interval.startOffsetMs <= startOffsetMs && startOffsetMs < interval.endOffsetMs,
+    );
+    if (members.length === 0) continue;
+
+    const open = segments[segments.length - 1];
+    const sameMembers = open !== undefined
+      && open.endOffsetMs === startOffsetMs
+      && open.members.length === members.length
+      && open.members.every((member, at) => member === members[at]);
+    if (sameMembers) {
+      open.endOffsetMs = endOffsetMs;
       continue;
     }
-    clusters.push({
-      id: `overflow-${interval.id}`,
-      startOffsetMs: interval.startOffsetMs,
-      endOffsetMs: interval.endOffsetMs,
-      count: 1,
-      members: [interval],
+    segments.push({
+      id: `overflow-${startOffsetMs}-${members[0].id}`,
+      startOffsetMs,
+      endOffsetMs,
+      count: members.length,
+      members,
     });
   }
-  return clusters;
+  return segments;
 }
 
 /**

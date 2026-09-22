@@ -332,24 +332,30 @@
   background: var(--geo-zone);
   outline: var(--stroke-1) solid var(--text-primary);
 }
-/* An overflowed visit keeps its name in the list and takes no position on the
-   rail. Only the band is suppressed — deleting the item would delete the name
-   with it, and the whole point is that the evidence stays reachable. */
-.evidence-timeline__unplaced { position: static; height: 0; background: none; }
-
-/* Everything the rail could not place, as real controls. */
+/* The dense-evidence navigator: one member at a time, so the control count
+   stays fixed however much evidence the rail could not place. There is no list
+   here on purpose — a list would be one permanent control per fact. */
 .evidence-timeline__dense { border-top: none; }
 .evidence-timeline__dense summary { font-size: var(--fs-0); color: var(--text-muted); }
-.evidence-timeline__dense-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-1); }
-.evidence-timeline__dense-list button {
-  width: 100%; text-align: left; min-height: var(--control-h-sm);
+.evidence-timeline__navigator {
+  display: grid; gap: var(--s-1);
+  padding-block-start: var(--s-1);
+}
+.evidence-timeline__navigator-status {
+  margin: 0; font-size: var(--fs-0); color: var(--text-secondary);
+}
+.evidence-timeline__navigator-controls { display: flex; gap: var(--s-1); }
+.evidence-timeline__navigator-controls button {
+  min-height: var(--control-h-sm); min-width: var(--control-h-sm);
   background: none; border: var(--stroke-hair) solid var(--border-subtle); border-radius: var(--r-1);
   color: var(--text-secondary); font-size: var(--fs-0); cursor: pointer;
   padding-block: var(--s-1); padding-inline: var(--s-2);
 }
-.evidence-timeline__dense-list button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-inner); }
-.evidence-timeline__dense-list button[aria-pressed='true'] {
-  border-color: var(--accent); color: var(--text-primary);
+.evidence-timeline__navigator-controls button:focus-visible {
+  outline: var(--focus-ring); outline-offset: var(--focus-ring-inner);
+}
+.evidence-timeline__navigator-controls button:disabled {
+  color: var(--text-muted); cursor: not-allowed;
 }
 
 /* A lane whose presentation is not yet decided is named but not drawn.

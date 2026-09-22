@@ -3,7 +3,8 @@ import { formatOffset } from '../format/format';
 import {
   MARKER_TARGET_PX,
   MAX_ZONE_SUBROWS,
-  overflowClusters,
+  overflowSegments,
+  overflowedIntervals,
   STATIONARY_LANE,
   SUBJECT_LANE,
   ZONE_LANE,
@@ -16,6 +17,30 @@ import {
   type EvidenceTimelineMarker,
 } from './timeline';
 
+/**
+ * One piece of evidence the rail could not place, of either kind.
+ *
+ * Kept as a discriminated union rather than two parallel sequences so the
+ * navigator is one cursor over one ordering: "3 of 17" has to count everything
+ * that is recoverable, not everything of one sort.
+ */
+type DenseMember =
+  | { kind: 'visit'; interval: EvidenceTimelineInterval }
+  | { kind: 'marker'; marker: EvidenceTimelineMarker };
+
+/** A dense member's identity, namespaced so a visit and a marker cannot collide. */
+function memberId(member: DenseMember): string {
+  return member.kind === 'visit' ? `visit:${member.interval.id}` : `marker:${member.marker.id}`;
+}
+
+/** What the disclosure states before it is opened. */
+function denseSummary(visits: number, markers: number): string {
+  const parts: string[] = [];
+  if (visits > 0) parts.push(`${visits} zone ${visits === 1 ? 'visit' : 'visits'}`);
+  if (markers > 0) parts.push(`${markers} ${markers === 1 ? 'marker' : 'markers'}`);
+  return `${parts.join(' and ')} not drawn side by side`;
+}
+
 type Props = {
   durationMs: number;
   currentOffsetMs: number;
@@ -23,6 +48,18 @@ type Props = {
   markers: readonly EvidenceTimelineMarker[];
   /** What the timeline is a timeline of, for its accessible name. */
   subjectLabel: string;
+  /**
+   * Stable identity of the evidence subject.
+   *
+   * The timeline is generic and must stay so: it knows nothing about Tracks.
+   * It does need to know *that the subject changed*, because it holds one piece
+   * of transient state — which dense member is being inspected — and evidence
+   * ids are unique only within one subject. A zone visit is
+   * `zone-visit-{zoneId}-{visitIndex}`, so two Tracks through the same zone
+   * produce the same id, and a cursor kept across the switch would show the
+   * next Track a selection its operator never made.
+   */
+  subjectKey: string;
   onSeek: (offsetMs: number) => void;
 };
 
@@ -66,6 +103,7 @@ export default function EvidenceTimeline({
   intervals,
   markers,
   subjectLabel,
+  subjectKey,
   onSeek,
 }: Props) {
   const trackRef = useRef<HTMLUListElement | null>(null);
@@ -78,8 +116,30 @@ export default function EvidenceTimeline({
    * are that much closer together in pixels there.
    */
   const [trackWidth, setTrackWidth] = useState(0);
-  /** Which overflowed zone visit the operator has singled out, if any. */
-  const [shownOverflow, setShownOverflow] = useState<string | null>(null);
+  /**
+   * Where the dense-evidence navigator is: **which member**, and **whose**.
+   *
+   * The member rather than its position, because the sequence is not fixed —
+   * a resize changes how many markers the rail can place, so an index would
+   * quietly come to mean a different piece of evidence. An id cannot: the same
+   * member stays selected, or, if it is no longer recoverable, nothing is.
+   */
+  const [cursor, setCursor] = useState<{ key: string; id: string } | null>(null);
+  const [seenSubject, setSeenSubject] = useState(subjectKey);
+  if (seenSubject !== subjectKey) {
+    // Reset **during render**, the documented way to derive state from a prop
+    // that changed. An effect would run after the render that already drew the
+    // previous subject's selection, so there would be one frame in which the
+    // new Track showed the old Track's highlight; React instead re-runs this
+    // component before committing anything.
+    //
+    // Cleared rather than remembered per subject: coming back to a Track is
+    // navigation, not the operator choosing a visit, and resurrecting a
+    // selection they made two Tracks ago would be a highlight nobody asked
+    // for.
+    setSeenSubject(subjectKey);
+    setCursor(null);
+  }
 
   useEffect(() => {
     const element = trackRef.current;
@@ -152,17 +212,58 @@ export default function EvidenceTimeline({
     (highest, packed) => (packed.row === null ? highest : Math.max(highest, packed.row + 1)),
     0,
   );
-  const overflowed = zones.filter((packed) => packed.row === null);
-  const clusters = useMemo(() => overflowClusters(zones), [zones]);
-  // Only one overflowed visit is ever drawn as its own band, so singling one
-  // out can never add a row or paint over another.
-  const shown = overflowed.find((packed) => packed.interval.id === shownOverflow)?.interval;
+  const segments = useMemo(() => overflowSegments(zones), [zones]);
+
+  /**
+   * Everything the rail could not give a place of its own, in time order: the
+   * zone visits beyond the capped sub-rows, then the markers too close
+   * together to carry separate targets.
+   *
+   * One flat sequence, because the navigator that recovers them is one control
+   * however much there is — the count of members changes, the count of controls
+   * does not.
+   */
+  const dense = useMemo<DenseMember[]>(() => ([
+    ...overflowedIntervals(zones).map((interval) => ({ kind: 'visit' as const, interval })),
+    ...markerLayout.overflow.map((marker) => ({ kind: 'marker' as const, marker })),
+  ]), [zones, markerLayout]);
+
+  // The key is still compared on read: the reset above has not committed yet in
+  // the render that triggers it. A member that is no longer dense — because the
+  // rail widened and can place it again — is simply no longer selected.
+  const found = cursor?.key === subjectKey
+    ? dense.findIndex((member) => memberId(member) === cursor.id)
+    : -1;
+  const at = found === -1 ? null : found;
+  const current = at === null ? null : dense[at];
+  // Only ever one member is drawn at its own offsets, so recovering an exact
+  // interval can never add a row or paint over another.
+  const shown = current?.kind === 'visit' ? current.interval : undefined;
   const layout = timelineLayout({
     markerRows: placedMarkers.reduce((highest, placed) => Math.max(highest, placed.row + 1), 0),
     zoneRows: zoneRowsUsed,
-    hasZoneOverflow: overflowed.length > 0,
+    hasZoneOverflow: segments.length > 0,
     hasStationary: stationary.length > 0,
   });
+
+  const overflowedVisitCount = dense.filter((member) => member.kind === 'visit').length;
+
+  /**
+   * Move the cursor and take the operator there.
+   *
+   * Stepping *is* the selection: the member is named, a visit is drawn at its
+   * exact persisted offsets and the playhead goes to its exact persisted
+   * millisecond. A separate "show" control would be a second button for what
+   * the step already did.
+   */
+  const step = (by: number) => {
+    const next = at === null
+      ? (by > 0 ? 0 : dense.length - 1)
+      : Math.min(dense.length - 1, Math.max(0, at + by));
+    const member = dense[next];
+    setCursor({ key: subjectKey, id: memberId(member) });
+    onSeek(member.kind === 'visit' ? member.interval.startOffsetMs : member.marker.offsetMs);
+  };
 
   const band = (interval: EvidenceTimelineInterval) => ({
     left: percentOf(interval.startOffsetMs, durationMs),
@@ -170,6 +271,12 @@ export default function EvidenceTimeline({
   });
   const span = (interval: EvidenceTimelineInterval) => (
     `${formatOffset(interval.startOffsetMs, 'tenths')} to ${formatOffset(interval.endOffsetMs, 'tenths')}`
+  );
+  /** A dense member named with its own exact offsets, never a rounded one. */
+  const describeMember = (member: DenseMember) => (
+    member.kind === 'visit'
+      ? `${member.interval.label}: ${span(member.interval)}`
+      : `${member.marker.label}: ${formatOffset(member.marker.offsetMs, 'tenths')}`
   );
 
   return (
@@ -212,27 +319,15 @@ export default function EvidenceTimeline({
 
         {zones.map((packed) => {
           if (packed.row === null) {
-            // An overflowed visit keeps its place in the semantic list — every
-            // visit is named individually whatever the drawing does — but it
-            // takes no position of its own on the rail. Ticks at true starts
-            // covered each other whenever two overflowed visits began
-            // together, hiding the very evidence the rail exists to account
-            // for. It is reachable as a control in the disclosure below.
-            return (
-              <li
-                key={packed.interval.id}
-                className="evidence-timeline__item evidence-timeline__unplaced"
-                data-lane={ZONE_LANE}
-                data-drawn="overflow"
-                data-row="overflow"
-                data-concurrent={String(packed.concurrent)}
-              >
-                <span className="visually-hidden">
-                  {packed.interval.label}: {span(packed.interval)} — one of {packed.concurrent} overlapping
-                  visits, listed under the overflow control below the timeline.
-                </span>
-              </li>
-            );
+            // An overflowed visit has no position on this rail: a tick at its
+            // true start covered its neighbours the moment two of them began
+            // together, hiding the evidence the rail exists to account for.
+            //
+            // It is not named here either. The segments below state what is
+            // in progress and when, and the navigator names and recovers each
+            // visit individually — so one piece of evidence has one element,
+            // rather than a name here and a control there.
+            return null;
           }
           return (
             <li
@@ -250,29 +345,38 @@ export default function EvidenceTimeline({
         })}
 
         {/*
-          One band per disjoint run of overflowed visits, carrying that span's
-          own concurrency. Runs cannot overlap each other by construction, so
-          the rail stays one row and nothing is painted over; a single total for
-          the whole timeline would say nothing about *where* the evidence is
-          dense, which is the only thing the operator needs from an aggregate.
+          The overflow density profile.
+
+          One band per stretch of time over which exactly the same visits are
+          open, from a sweep over their own boundaries — so `+N` is the number
+          genuinely in progress together across that band, and never a tally of
+          visits that merely touch end to end. Bands are consecutive boundary
+          pairs, so they are disjoint and the rail stays one row.
         */}
-        {clusters.map((cluster) => (
+        {segments.map((segment) => (
           <li
-            key={cluster.id}
+            key={segment.id}
             className="evidence-timeline__item evidence-timeline__overflow"
-            data-concurrent={String(cluster.count)}
+            data-lane={ZONE_LANE}
+            // "density", not "overflow": this band is a stretch of time, not an
+            // overflowed visit. No element on this rail stands for an
+            // individual overflowed visit any more — the navigator names those,
+            // one at a time — and keeping the two words apart is what lets the
+            // harness check that.
+            data-drawn="density"
+            data-concurrent={String(segment.count)}
             style={{
-              left: percentOf(cluster.startOffsetMs, durationMs),
-              width: `calc(${percentOf(cluster.endOffsetMs, durationMs)} - ${percentOf(cluster.startOffsetMs, durationMs)})`,
+              left: percentOf(segment.startOffsetMs, durationMs),
+              width: `calc(${percentOf(segment.endOffsetMs, durationMs)} - ${percentOf(segment.startOffsetMs, durationMs)})`,
               top: `${layout.zoneOverflow ?? 0}px`,
             }}
           >
             <span className="visually-hidden">
-              {cluster.count} overlapping zone {cluster.count === 1 ? 'visit' : 'visits'} between{' '}
-              {formatOffset(cluster.startOffsetMs, 'tenths')} and {formatOffset(cluster.endOffsetMs, 'tenths')},
-              beyond what the timeline draws side by side.
+              {segment.count} zone {segment.count === 1 ? 'visit' : 'visits'} in progress together from{' '}
+              {formatOffset(segment.startOffsetMs, 'tenths')} to{' '}
+              {formatOffset(segment.endOffsetMs, 'tenths')}, beyond what the timeline draws side by side.
             </span>
-            <span aria-hidden="true" className="evidence-timeline__overflow-badge">+{cluster.count}</span>
+            <span aria-hidden="true" className="evidence-timeline__overflow-badge">+{segment.count}</span>
           </li>
         ))}
 
@@ -361,49 +465,69 @@ export default function EvidenceTimeline({
       </ul>
 
       {/*
-        Everything the rail could not give a place of its own.
+        The dense-evidence navigator.
 
         The timeline's height is fixed, so past a point evidence cannot each
-        have a band or a 24px target on it — but "not drawn side by side" must
-        not become "not reachable". This disclosure is the guarantee: every
-        overflowed visit and every marker too dense to place is its own control
-        here, seeking to its own exact offset. It costs one tab stop, and only
-        when there is something in it.
+        have a band or a 24px target — but "not drawn side by side" must not
+        become "not reachable". This is how the rest stays reachable, and it is
+        deliberately **not** a list of them.
+
+        A list would put one permanent control on the surface per fact, so a
+        hundred dense visits would cost a hundred tab stops between the timeline
+        and the next control, and announce the same evidence the rail already
+        accounts for. Instead one member is exposed at a time: the navigator is
+        three controls — the disclosure, Previous and Next — whether there are
+        four members or a hundred, and stepping to a member names it, draws a
+        visit at its exact persisted offsets and seeks to its exact persisted
+        millisecond.
+
+        Previous and Next are ordinary buttons on purpose. Enter and Space are
+        theirs by native semantics; the arrows, J, L, Home and End stay the
+        player's (section 22), so nothing here gives a key a second meaning.
       */}
-      {overflowed.length > 0 || markerLayout.overflow.length > 0 ? (
-        <details className="evidence-timeline__dense">
+      {dense.length > 0 ? (
+        <details
+          className="evidence-timeline__dense"
+          // Closing the navigator puts the rail back. Without this there is no
+          // way out of a selection once both steps are at an end — with a
+          // single dense member that is immediately — and an action the
+          // operator cannot undo is worse than one more control would be.
+          onToggle={(event) => {
+            if (!(event.currentTarget as HTMLDetailsElement).open) setCursor(null);
+          }}
+        >
           <summary>
-            {overflowed.length > 0 ? `${overflowed.length} overlapping zone ${overflowed.length === 1 ? 'visit' : 'visits'}` : ''}
-            {overflowed.length > 0 && markerLayout.overflow.length > 0 ? ' and ' : ''}
-            {markerLayout.overflow.length > 0 ? `${markerLayout.overflow.length} closely spaced ${markerLayout.overflow.length === 1 ? 'marker' : 'markers'}` : ''}
-            {' not drawn side by side'}
+            {denseSummary(overflowedVisitCount, markerLayout.overflow.length)}
           </summary>
-          <ul className="evidence-timeline__dense-list">
-            {overflowed.map((packed) => (
-              <li key={packed.interval.id}>
-                <button
-                  type="button"
-                  // Pressed rather than selected: this singles the interval out
-                  // for drawing, and pressing it again puts the rail back.
-                  aria-pressed={shownOverflow === packed.interval.id}
-                  onClick={() => {
-                    const next = shownOverflow === packed.interval.id ? null : packed.interval.id;
-                    setShownOverflow(next);
-                    if (next) onSeek(packed.interval.startOffsetMs);
-                  }}
-                >
-                  {packed.interval.label}: {span(packed.interval)}
-                </button>
-              </li>
-            ))}
-            {markerLayout.overflow.map((marker) => (
-              <li key={marker.id}>
-                <button type="button" onClick={() => onSeek(marker.offsetMs)}>
-                  Seek to {marker.label}: {formatOffset(marker.offsetMs, 'tenths')}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="evidence-timeline__navigator">
+            {/*
+              The member itself, announced politely as the operator steps. It
+              is text rather than a control: the stepping is the interaction,
+              and a third button here would be a control that does what the
+              step already did.
+            */}
+            <p className="evidence-timeline__navigator-status" role="status">
+              {current === null
+                ? `Step through ${dense.length} ${dense.length === 1 ? 'item' : 'items'} one at a time.`
+                : `${at! + 1} of ${dense.length} — ${describeMember(current)}`}
+            </p>
+            <div className="evidence-timeline__navigator-controls">
+              <button
+                type="button"
+                onClick={() => step(-1)}
+                disabled={at !== null && at === 0}
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => step(1)}
+                disabled={at !== null && at === dense.length - 1}
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </details>
       ) : null}
     </div>

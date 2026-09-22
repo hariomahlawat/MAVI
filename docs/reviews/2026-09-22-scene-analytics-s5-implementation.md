@@ -200,6 +200,69 @@ The new `review-overflow-selected` state reported the zone lane using four sub-r
 
 ---
 
+## 7B. Second repair pass — three findings the first repair introduced
+
+An independent cold review of `4e50629` found three P2 defects **in the repair**, not in what it replaced. Each was real, and each came from accepting a local fix without re-checking the whole invariant set — so this pass began by writing the invariants down and answering twelve questions about the proposed design before any code changed.
+
+### 7B.1 The overflow aggregate was still not concurrency
+
+§7A.6 corrected `PackedInterval.concurrent` and then the rail reintroduced the same error one level up. `overflowClusters` grouped overflowed intervals by **transitive overlap** and reported the size of each connected component. A bridging chain — A `[0,10]`, B `[5,15]`, C `[14,20]` — is one component of three in which no instant holds three visits.
+
+**Root cause.** A connected component is a fact about a *graph*; concurrency is a fact about an *instant*. The first repair fixed the instant-level count and left the graph-level count wearing the same word.
+
+**The correction is a sweep line.** `overflowSegments` collects the overflowed intervals' own start and end boundaries, walks consecutive pairs, and emits a segment wherever something is open, carrying the set genuinely active across it. Adjacent segments holding the same members are coalesced, so a boundary that changes nothing does not split a band. Intervals are half-open, so one ending exactly where another begins is not an overlap — the same rule the packer uses.
+
+Segments are consecutive boundary pairs, therefore **disjoint by construction**: the rail stays one row and two bands can never paint over one another. `+N` now has one meaning, everywhere it appears: *N overflowed zone visits are simultaneously in progress throughout this band.*
+
+Cost is O(B log B + B·M) for M overflowed intervals and B ≤ 2M boundaries, computed from the evidence alone in a `useMemo`. Nothing in it depends on the playhead, so it never runs on an animation frame; a hundred visits is 200 boundaries.
+
+Six discriminating tests: the bridging chain (peak 2, never 3), a genuine three-way overlap resolved to its exact common intersection `[7,12]`, an active set that rises and falls inside one contiguous run (`[1,2,3,2,1]` with the segments meeting end to end), endpoint touching counted as one, two independent dense regions kept apart, and a boundary that changes nothing coalesced away.
+
+### 7B.2 The selection could follow the operator to the next Track
+
+`shownOverflow` was component state and the Investigation inspector keeps the timeline **mounted** across Track navigation. Evidence ids are unique only within a subject — a zone visit is `zone-visit-{zoneId}-{visitIndex}` — so two Tracks through the same zone reuse an id, and a visit singled out on Track A came back highlighted on Track B.
+
+**Root cause.** Transient state was keyed by something reusable.
+
+The timeline takes a `subjectKey`, passed from the player's existing `seekKey`, which `TrackEvidence` already sets to the Track's own id. No Track-specific knowledge entered the generic component: it only learns *that the subject changed*. The cursor is reset **during render** — the documented way to derive state from a changed prop — so there is no frame in which the new subject shows the old one's selection, which an effect would have allowed. Returning to a Track does not resurrect the old selection: navigation is not the operator choosing.
+
+The cursor holds the **member's id**, not its position, found in a later cold pass of this diff: a resize changes how many markers the rail can place, so an index would quietly come to mean different evidence. Five tests: switch away, switch back, playhead movement, resize, and a resize that changes the dense sequence's length.
+
+### 7B.3 Dense recovery was a second evidence list
+
+The disclosure rendered one permanent control per overflowed item inside its own `<ul>` — a parallel evidence surface, and one tab stop per fact, so a hundred dense visits cost a hundred tab stops. The comment claiming it cost "one tab stop" was true only while it was closed.
+
+**Root cause.** "Reachable" was implemented as "present", which makes the interaction grow with the evidence.
+
+**The correction is a bounded navigator.** There is no list. The disclosure contains a status line and two buttons, and exposes **one member at a time**:
+
+> `3 of 17 — In Dock for 8s: 00:22.0 to 00:30.0`
+> `Previous | Next`
+
+Stepping *is* the selection: the member is named, a visit is drawn at its exact persisted offsets on the overflow row, and the playhead goes to its exact persisted millisecond. A separate "show" control would repeat what the step did.
+
+| Dense members | Visual rows | Controls |
+|---|---|---|
+| 4 | unchanged | 3 |
+| 12 | unchanged | 3 |
+| 100 | unchanged | 3 |
+
+Previous and Next are ordinary buttons, so Enter and Space are theirs by native semantics and the arrows, J, L, Home and End stay the player's (§22). Nothing here gives a key a second meaning.
+
+Closing the navigator clears the selection. A later pass over this diff found that with a single dense member both steps are immediately at an end, leaving an action with no undo; closing the disclosure is the way out, which costs no control because the disclosure is already one.
+
+An overflowed visit is no longer named on the rail at all: its one element is its turn in the navigator. The rail's bands are the density profile and are marked as such (`data-drawn="density"`), so nothing on the rail stands for an individual overflowed visit — which is what lets the harness check the rule rather than take it on trust.
+
+**The accessibility P3 from the first pass is closed.** No overflowed visit is announced twice, because it exists in one place.
+
+### 7B.4 What the harness now checks, and one assertion that was wrong
+
+New assertions: overflow bands never overlap; exactly one timeline rail per surface; no rail item stands for an individual overflowed visit; dense evidence offers at most three controls; the navigator contains no list. New states: a bridging chain, a hundred concurrent visits, and a member other than the first singled out.
+
+One assertion was corrected rather than loosened. Written for the previous structure, it read `data-drawn="overflow"` as "an overflowed visit's own item" and fired on the new density bands. The bands are a different thing, so they say so, and the assertion still fails a per-visit item on the rail — which is exactly what it fired on before the rename. Nothing was weakened to make the patch pass.
+
+---
+
 ## 8. Validation
 
 | Gate | Result |
@@ -223,7 +286,7 @@ Backend and .NET suites were not run: no backend, contract or shared file is tou
 ## 10. Deferred
 
 - **Slice 7 (recorded, unchanged):** the browser's `parseTrajectory` validates finite coordinates but does not enforce normalised `[0,1]` centres as strictly as the worker and the application decoder do. Correct worker output cannot reach that path, so it is not a Slice-5 blocker.
-- **P3, new:** an overflowed zone visit is named twice in the accessibility tree — once as its positionless list item on the rail, once as its control in the disclosure. Both are deliberate (positional evidence against a control), but a screen reader traversing both hears the same visit twice. Worth revisiting once there is operator feedback on which of the two is actually used.
+- ~~**P3:** an overflowed zone visit is named twice in the accessibility tree.~~ **Closed** in the second repair pass (§7B.3): it has exactly one element — its turn in the navigator — and nothing on the rail stands for an individual overflowed visit.
 - ~~**P3:** the overflow rail's aggregate count is stated once for the whole rail rather than per concurrent span.~~ **Closed** in the repair pass (§7A.5): the rail is span-aware and every overflowed visit is individually recoverable.
 
 ---

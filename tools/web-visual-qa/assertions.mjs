@@ -634,8 +634,11 @@ export const WORKSPACE_ASSERTIONS = `(() => {
     // drawn visits share a row, and the rail never grows past the cap.
     const zoneBands = Array.from(workspace.querySelectorAll(
       '.evidence-timeline__item[data-lane="zone"][data-drawn="true"]:not([data-shown])'));
+    // The overflow density profile: one band per stretch over which the same
+    // visits are open. Identified by data rather than by counting list items,
+    // because an overflowed visit is not an item on the rail at all.
     const overflowed = workspace.querySelectorAll(
-      '.evidence-timeline__item[data-lane="zone"][data-drawn="overflow"]');
+      '[data-lane="zone"][data-drawn="density"]');
 
     // A singled-out overflowed visit is a highlight drawn on the fixed overflow
     // rail, not a fourth packed sub-row, so it is counted separately — and
@@ -676,6 +679,52 @@ export const WORKSPACE_ASSERTIONS = `(() => {
     }
     if (overflowed.length > 0 && !workspace.querySelector('.evidence-timeline__overflow-badge')) {
       problems.push(overflowed.length + ' zone visits are in the overflow rail with no count shown');
+    }
+    // Overflow bands are a sweep over the evidence's own boundaries, so they
+    // are disjoint: two bands on one row that overlapped would paint over each
+    // other and their counts would be about overlapping stretches of time.
+    const bands = Array.from(workspace.querySelectorAll('.evidence-timeline__overflow'));
+    measured.overflowBands = bands.length;
+    for (let i = 0; i < bands.length; i += 1) {
+      for (let j = i + 1; j < bands.length; j += 1) {
+        const a = bands[i].getBoundingClientRect();
+        const b = bands[j].getBoundingClientRect();
+        if (a.left < b.right - 0.5 && b.left < a.right - 0.5) {
+          problems.push('two overflow density bands overlap, so one is drawn over the other');
+        }
+      }
+    }
+
+    // One evidence list, and a fixed number of controls for dense evidence.
+    // A list of the overflowed items would be a parallel evidence surface and
+    // would grow a tab stop per fact; the navigator is three controls whether
+    // there are four members or a hundred.
+    const rails = workspace.querySelectorAll('.evidence-timeline__track');
+    measured.timelineRails = rails.length;
+    if (rails.length > 1) {
+      problems.push(rails.length + ' evidence timelines are on one surface; the specification allows one');
+    }
+    for (const rail of rails) {
+      // A per-visit overflow item would be the same evidence the navigator
+      // names, in the tree a second time. Density bands are a different thing
+      // and are marked as density rather than as overflow.
+      const onRail = rail.querySelectorAll(':scope > li[data-drawn="overflow"]').length;
+      if (onRail > 0) {
+        problems.push(onRail + ' overflowed visits are named on the rail as well as in the navigator, '
+          + 'so the same evidence is in the accessibility tree twice');
+      }
+    }
+    const navigator = workspace.querySelector('.evidence-timeline__dense');
+    if (navigator) {
+      const controls = navigator.querySelectorAll('summary, button').length;
+      measured.denseControls = controls;
+      if (controls > 3) {
+        problems.push('dense evidence is offering ' + controls
+          + ' controls; the navigator is meant to be a fixed three however dense the evidence');
+      }
+      if (navigator.querySelector('ul, ol')) {
+        problems.push('dense evidence has grown a second list beside the one timeline');
+      }
     }
 
     // Every marker is a real control with a usable target, and no two of them
