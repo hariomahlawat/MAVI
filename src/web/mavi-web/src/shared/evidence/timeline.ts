@@ -308,25 +308,43 @@ export const ASSUMED_TRACK_WIDTH_PX = 400;
 /** How many rows the marker rail may use. Fixed, so the rail height never grows. */
 export const MAX_MARKER_ROWS = 3;
 
-/** One marker control: a single instant, or several evidence items at one instant. */
-export type PlacedMarker = {
-  /** The marker that names the control's position. */
+/**
+ * One unit of marker evidence: a single instant, or several evidence items at
+ * one instant.
+ *
+ * **The same shape whether or not the rail had room for it.** Clustering
+ * happens once, before placement; a cluster that cannot be placed is still a
+ * cluster. If the two paths carried different shapes the meaning of the
+ * evidence would depend on the width of the panel showing it — one combined
+ * control in a wide host, several identical steps in a narrow one — and there
+ * would be two clustering rules to keep in agreement.
+ */
+export type MarkerCluster = {
+  /** The marker that names the unit's position. */
   marker: EvidenceTimelineMarker;
   /** Every evidence item at this exact offset, in supplied order. */
   cluster: EvidenceTimelineMarker[];
-  row: number;
 };
+
+/** A marker cluster the rail had room for, on its chosen row. */
+export type PlacedMarker = MarkerCluster & { row: number };
+
+/** The one name a cluster answers to, wherever it is shown. */
+export function clusterName(cluster: readonly EvidenceTimelineMarker[]): string {
+  return cluster.map((marker) => marker.label).join('; ');
+}
 
 export type MarkerLayout = {
   /** Controls placed on the rail. No two of these can overlap. */
   placed: PlacedMarker[];
   /**
-   * Markers too dense to place without covering another control. They are not
-   * dropped and not merged: each keeps its own exact offset and is offered as
-   * its own control in the overflow disclosure, so every marker stays
-   * separately activatable however dense the evidence gets.
+   * The clusters too dense to place without covering another control.
+   *
+   * Same shape as {@link MarkerLayout.placed} minus the row it did not get, so
+   * a cluster means the same thing on either side of the boundary. Nothing is
+   * dropped and nothing is merged across offsets.
    */
-  overflow: EvidenceTimelineMarker[];
+  overflow: MarkerCluster[];
 };
 
 /**
@@ -376,7 +394,7 @@ export function layOutMarkers(
 
   const lastOnRow: number[] = [];
   const placed: PlacedMarker[] = [];
-  const overflow: EvidenceTimelineMarker[] = [];
+  const overflow: MarkerCluster[] = [];
   for (const candidate of clusters) {
     let chosen = -1;
     for (let row = 0; row < MAX_MARKER_ROWS; row += 1) {
@@ -387,7 +405,9 @@ export function layOutMarkers(
       }
     }
     if (chosen === -1) {
-      overflow.push(...candidate.cluster);
+      // The whole unit, not its members: one exact destination stays one unit
+      // of recovery whether or not the rail had room for it.
+      overflow.push({ marker: candidate.marker, cluster: candidate.cluster });
       continue;
     }
     candidate.row = chosen;

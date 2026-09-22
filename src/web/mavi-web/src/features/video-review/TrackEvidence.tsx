@@ -42,6 +42,24 @@ type Props = {
  * sampled centre path; between samples the position is interpolated and says
  * so, and outside the sampled range nothing is drawn at all.
  */
+/**
+ * A stable key for the exact analytical answer these facts came from.
+ *
+ * The Track alone is not enough: MAVI deliberately lets the same Track be read
+ * under other identities, and a zone visit is `zone-visit-{zoneId}-{index}` in
+ * every one of them. The revision and the engine are what make two answers
+ * different, so they belong in the key.
+ */
+function evidenceIdentity(detail: TrackDetail): string {
+  const analytics = detail.analytics;
+  return [
+    detail.id,
+    analytics?.sceneRevisionId ?? 'no-revision',
+    analytics?.sceneRevisionNumber ?? 'no-revision-number',
+    analytics?.algorithmVersion ?? 'no-engine',
+  ].join('|');
+}
+
 export default function TrackEvidence({ detail, analytics, trajectory, trajectoryError = false, compact = false }: Props) {
   const representative = detail.representative;
   // Two different facts, and conflating them discarded valid evidence. The
@@ -293,6 +311,12 @@ export default function TrackEvidence({ detail, analytics, trajectory, trajector
       // Review opens one second before the Track so the operator sees it enter.
       initialOffsetMs={calculateReviewSeekSeconds(detail.startOffsetMs) * 1000}
       seekKey={detail.id}
+      // The evidence's identity, not the Track's. The same Track can be read
+      // under a different analytical identity — another scene revision, another
+      // engine — and those answers carry different facts under record ids that
+      // are only unique within one of them. Anything the player holds about a
+      // record has to be scoped to the answer it came from.
+      evidenceKey={evidenceIdentity(detail)}
       notices={(
         <>
           {trajectoryError ? (

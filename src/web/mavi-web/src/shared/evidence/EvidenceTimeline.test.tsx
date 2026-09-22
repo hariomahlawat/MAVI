@@ -831,6 +831,155 @@ describe('the dense cursor follows the member, not its position', () => {
   });
 });
 
+describe('a same-offset cluster stays one unit of recovery at any width', () => {
+  it('does not split one destination into several identical steps', async () => {
+    const user = userEvent.setup();
+    // Two facts at one instant — leaving a zone and entering the next — inside
+    // a run too dense for the rail to place. On the rail they would be one
+    // control naming both; in the navigator they must be one member naming
+    // both, or the same evidence would mean different things in a wide host
+    // and a narrow one, with two steps seeking to the identical millisecond.
+    const onSeek = renderTimeline(vi.fn(), {
+      markers: [
+        { id: 'a', offsetMs: 30_000, label: 'Crossed A', kind: 'crossing' },
+        { id: 'b', offsetMs: 30_020, label: 'Crossed B', kind: 'crossing' },
+        { id: 'c', offsetMs: 30_040, label: 'Crossed C', kind: 'crossing' },
+        { id: 'exit', offsetMs: 30_060, label: 'Left Forecourt', kind: 'zone-exit' },
+        { id: 'entry', offsetMs: 30_060, label: 'Entered Loading bay', kind: 'zone-entry' },
+      ],
+    });
+
+    const { names, total } = await walkDenseEvidence(user);
+    // Three placed on the rail, and the pair at one instant is one step.
+    expect(total).toBe(1);
+    expect(names[0]).toContain('Left Forecourt; Entered Loading bay');
+    expect(names[0]).toContain('00:30.0');
+    // One destination, visited once.
+    expect(onSeek).toHaveBeenCalledExactlyOnceWith(30_060);
+  });
+
+  it('steps through the evidence in media order, not in order of sort', async () => {
+    const user = userEvent.setup();
+    // A dense marker run early in the media and dense zone visits later. The
+    // navigator walks the media, so Next must not jump backwards at the seam
+    // between the two kinds of evidence.
+    const onSeek = renderTimeline(vi.fn(), {
+      markers: [0, 1, 2, 3].map((n) => ({
+        id: `m${n}`, offsetMs: 10_000 + n * 20, label: `Crossed ${n}`, kind: 'crossing',
+      })),
+      intervals: [
+        ...[0, 1, 2].map((n) => ({
+          id: `filler-${n}`, startOffsetMs: 50_000, endOffsetMs: 80_000,
+          label: `Filler ${n}`, lane: ZONE_LANE,
+        })),
+        { id: 'late', startOffsetMs: 60_000, endOffsetMs: 70_000, label: 'In Dock', lane: ZONE_LANE },
+      ],
+    });
+
+    await walkDenseEvidence(user);
+    const seeked = onSeek.mock.calls.map((call: unknown[]) => call[0] as number);
+    expect(seeked.length).toBeGreaterThan(1);
+    for (let i = 1; i < seeked.length; i += 1) {
+      expect(seeked[i]).toBeGreaterThanOrEqual(seeked[i - 1]);
+    }
+  });
+});
+
+describe('a dense cluster survives the round trip through both hosts', () => {
+  function stageResize(width: number) {
+    const callbacks: Array<() => void> = [];
+    class StubResizeObserver {
+      constructor(callback: () => void) { callbacks.push(callback); }
+      observe() {} unobserve() {} disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', StubResizeObserver);
+    setWidth(width);
+    return (next: number) => {
+      setWidth(next);
+      act(() => { for (const callback of callbacks) callback(); });
+    };
+  }
+  function setWidth(width: number) {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 100, top: 0, right: 100 + width, bottom: 22,
+      width, height: 22, x: 100, y: 0, toJSON: () => ({}),
+    } as DOMRect);
+  }
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  /** Two facts at one instant, among others close enough to crowd the rail. */
+  const markers = [
+    { id: 'a', offsetMs: 30_000, label: 'Crossed A', kind: 'crossing' },
+    { id: 'b', offsetMs: 30_600, label: 'Crossed B', kind: 'crossing' },
+    { id: 'c', offsetMs: 31_200, label: 'Crossed C', kind: 'crossing' },
+    { id: 'exit', offsetMs: 31_800, label: 'Left Forecourt', kind: 'zone-exit' },
+    { id: 'entry', offsetMs: 31_800, label: 'Entered Loading bay', kind: 'zone-entry' },
+  ];
+  const bothLabels = /Left Forecourt; Entered Loading bay/;
+
+  it('is one unit on the rail when wide, one member when narrow, and one again when wide', async () => {
+    const resizeTo = stageResize(1_600);
+    const onSeek = renderTimeline(vi.fn(), { markers });
+
+    // Wide: room for everything, so the pair is one control naming both facts.
+    const wide = screen.getAllByRole('button', { name: bothLabels });
+    expect(wide).toHaveLength(1);
+    expect(document.querySelector('.evidence-timeline__dense')).toBeNull();
+
+    resizeTo(400);
+
+    // Narrow: the pair no longer fits, and is one member of the navigator —
+    // still one destination, still naming both facts. The evidence model does
+    // not change because the panel got narrower.
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    expect(disclosure).toBeTruthy();
+    fireEvent.click(disclosure.querySelector('summary')!);
+    const status = () => disclosure.querySelector('[role="status"]')!.textContent ?? '';
+    const next = screen.getByRole('button', { name: 'Next' });
+
+    let seen = '';
+    for (let step = 0; step < 5 && !bothLabels.test(seen); step += 1) {
+      fireEvent.click(next);
+      seen = status();
+    }
+    expect(seen).toMatch(bothLabels);
+    expect(seen).toContain('00:31.8');
+    // One seek for the pair, to the exact persisted millisecond.
+    const toPair = onSeek.mock.calls.filter((call: unknown[]) => call[0] === 31_800);
+    expect(toPair).toHaveLength(1);
+
+    resizeTo(1_600);
+
+    // Back to wide: one rail control again, still carrying both labels.
+    expect(screen.getAllByRole('button', { name: bothLabels })).toHaveLength(1);
+  });
+
+  it('orders a visit before a marker that shares its instant', async () => {
+    const user = userEvent.setup();
+    stageResize(400);
+    renderTimeline(vi.fn(), {
+      markers: [0, 1, 2, 3].map((n) => ({
+        id: `m${n}`, offsetMs: 20_000 + n * 20, label: `Crossed ${n}`, kind: 'crossing',
+      })),
+      intervals: [
+        ...[0, 1, 2].map((n) => ({
+          id: `filler-${n}`, startOffsetMs: 0, endOffsetMs: 40_000,
+          label: `Filler ${n}`, lane: ZONE_LANE,
+        })),
+        // A visit starting at the same millisecond as the first crowded marker.
+        { id: 'tie', startOffsetMs: 20_000, endOffsetMs: 25_000, label: 'In Dock', lane: ZONE_LANE },
+      ],
+    });
+
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    fireEvent.click(disclosure.querySelector('summary')!);
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    // The documented tie rule: a span that starts at an instant comes before a
+    // marker at that instant.
+    expect(disclosure.querySelector('[role="status"]')!.textContent).toContain('In Dock');
+  });
+});
+
 describe('the navigator can be left as well as entered', () => {
   it('puts the rail back when it is closed', async () => {
     const user = userEvent.setup();

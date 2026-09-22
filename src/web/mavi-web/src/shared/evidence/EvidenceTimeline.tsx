@@ -3,6 +3,7 @@ import { formatOffset } from '../format/format';
 import {
   MARKER_TARGET_PX,
   MAX_ZONE_SUBROWS,
+  clusterName,
   overflowSegments,
   overflowedIntervals,
   STATIONARY_LANE,
@@ -15,6 +16,7 @@ import {
   timelineLayout,
   type EvidenceTimelineInterval,
   type EvidenceTimelineMarker,
+  type MarkerCluster,
 } from './timeline';
 
 /**
@@ -26,11 +28,23 @@ import {
  */
 type DenseMember =
   | { kind: 'visit'; interval: EvidenceTimelineInterval }
-  | { kind: 'marker'; marker: EvidenceTimelineMarker };
+  /**
+   * A marker **cluster**: the markers sharing one exact offset, kept together.
+   *
+   * The same `MarkerCluster` the rail places, so a cluster means one thing on
+   * either side of the boundary and there is one clustering rule rather than
+   * two to keep in agreement.
+   */
+  | { kind: 'marker'; unit: MarkerCluster };
 
 /** A dense member's identity, namespaced so a visit and a marker cannot collide. */
 function memberId(member: DenseMember): string {
-  return member.kind === 'visit' ? `visit:${member.interval.id}` : `marker:${member.marker.id}`;
+  return member.kind === 'visit' ? `visit:${member.interval.id}` : `marker:${member.unit.marker.id}`;
+}
+
+/** Where a dense member sits in the media, for ordering and for seeking. */
+function memberOffset(member: DenseMember): number {
+  return member.kind === 'visit' ? member.interval.startOffsetMs : member.unit.marker.offsetMs;
 }
 
 /** What the disclosure states before it is opened. */
@@ -225,8 +239,19 @@ export default function EvidenceTimeline({
    */
   const dense = useMemo<DenseMember[]>(() => ([
     ...overflowedIntervals(zones).map((interval) => ({ kind: 'visit' as const, interval })),
-    ...markerLayout.overflow.map((marker) => ({ kind: 'marker' as const, marker })),
-  ]), [zones, markerLayout]);
+    ...markerLayout.overflow.map((unit) => ({ kind: 'marker' as const, unit })),
+    // Ordered by where each member sits in the media, not by what sort it is.
+    // Stepping is a walk through the evidence, so Previous and Next have to
+    // move the playhead one way; concatenating all the visits before all the
+    // markers made Next jump backwards at the seam between them.
+    //
+    // The tie rule, fixed so two runs never differ: same offset, a visit comes
+    // before a marker — a span that starts there contains the instant — and
+    // two of a kind fall back to their member ids, which are unique.
+  ]).sort((a, b) => memberOffset(a) - memberOffset(b)
+    || (a.kind === b.kind ? 0 : a.kind === 'visit' ? -1 : 1)
+    || (memberId(a) < memberId(b) ? -1 : 1)),
+  [zones, markerLayout]);
 
   // The key is still compared on read: the reset above has not committed yet in
   // the render that triggers it. A member that is no longer dense — because the
@@ -262,7 +287,7 @@ export default function EvidenceTimeline({
       : Math.min(dense.length - 1, Math.max(0, at + by));
     const member = dense[next];
     setCursor({ key: subjectKey, id: memberId(member) });
-    onSeek(member.kind === 'visit' ? member.interval.startOffsetMs : member.marker.offsetMs);
+    onSeek(memberOffset(member));
   };
 
   const band = (interval: EvidenceTimelineInterval) => ({
@@ -272,11 +297,17 @@ export default function EvidenceTimeline({
   const span = (interval: EvidenceTimelineInterval) => (
     `${formatOffset(interval.startOffsetMs, 'tenths')} to ${formatOffset(interval.endOffsetMs, 'tenths')}`
   );
-  /** A dense member named with its own exact offsets, never a rounded one. */
+  /**
+   * A dense member named with its own exact offsets, never a rounded one.
+   *
+   * A marker cluster carries every label it holds, the same way a placed
+   * cluster's control does: one destination, one name, and no fact left
+   * unnamed because it shares an instant with another.
+   */
   const describeMember = (member: DenseMember) => (
     member.kind === 'visit'
       ? `${member.interval.label}: ${span(member.interval)}`
-      : `${member.marker.label}: ${formatOffset(member.marker.offsetMs, 'tenths')}`
+      : `${clusterName(member.unit.cluster)}: ${formatOffset(member.unit.marker.offsetMs, 'tenths')}`
   );
 
   return (
@@ -422,7 +453,7 @@ export default function EvidenceTimeline({
         ))}
 
         {placedMarkers.map((placed) => {
-          const names = placed.cluster.map((marker) => marker.label).join('; ');
+          const names = clusterName(placed.cluster);
           const at = formatOffset(placed.marker.offsetMs, 'tenths');
           return (
             <li

@@ -263,11 +263,53 @@ One assertion was corrected rather than loosened. Written for the previous struc
 
 ---
 
+## 7C. Third repair pass — evidence identity and cluster integrity
+
+A fresh independent cold review of `3b3ea5c` confirmed the second repair holds — sweep-line density, the bounded navigator, the one-list invariant, measured marker width, projected direction cues and the loitering wording all stand — and found two P2 defects plus one ordering cleanup.
+
+### 7C.1 Transient state was scoped to the Track, not to the evidence
+
+§7B.2 scoped the dense cursor to `subjectKey`, fed from the player's `seekKey`, which `TrackEvidence` sets to `detail.id`. That closes Track A → Track B, but MAVI deliberately allows the **same** Track to be read under different analytical identities — another scene revision, another engine — and those answers carry different facts under record ids that are identical between them, because a zone visit is `zone-visit-{zoneId}-{visitIndex}` in every one of them.
+
+**Root cause.** The key named the *subject*. The state is about a *record*, and records are unique only within one answer.
+
+The player now takes an `evidenceKey` alongside `seekKey`, and the timeline's `subjectKey` comes from that. They are separate on purpose: a different reading of the same subject is not a reason to move the playhead, and the same reading shown again is not a reason to keep a selection made in a different one. `TrackEvidence` builds it, because that is the one place where both identities are in hand:
+
+```
+detail.id | sceneRevisionId | sceneRevisionNumber | algorithmVersion
+```
+
+with a fixed placeholder for each part that is absent, so the key stays deterministic when analysis is unavailable. Nothing presentational is in it — not the playhead, not the measured width, not `compact`, not layer visibility, not loading state — so ordinary viewing never disturbs a selection. `status` is deliberately excluded: a stale answer is a judgement about currency, not a different set of facts.
+
+The regression test is at the **host** level, `TrackEvidence` rendered twice with the same Track id, the same local visit id and two analytical identities; it fails when `evidenceKey` is `detail.id`. The generic timeline keeps its own tests for Track change, return, playhead and resize.
+
+### 7C.2 A same-offset cluster lost its meaning when the rail was full
+
+`layOutMarkers` clusters markers sharing one exact offset and gives the cluster one control with one destination and a name carrying every fact. When the cluster could not be placed, the overflow path spread its members: the navigator then offered two steps at the identical millisecond. The same evidence was one combined control in a wide host and several separate steps in a narrow one.
+
+**Root cause.** Two shapes for one idea. Placement returned clusters; overflow returned markers.
+
+There is now one shape, `MarkerCluster`, and `PlacedMarker` is that plus the row it was given. Overflow carries the same records minus a row, so a cluster means the same thing on either side of the boundary. The name comes from one exported `clusterName`, used by the rail and the navigator alike — the inline join the rail used has gone, so there is no second copy to keep in agreement.
+
+The test drives the full round trip: wide (one rail control naming both facts), narrow (one navigator member naming both, one seek to the exact persisted millisecond), wide again (one rail control, both labels). It fails on `3b3ea5c`.
+
+### 7C.3 The navigator now really is chronological
+
+`dense` was documented as time-ordered and built by concatenating all overflowed visits and then all overflowed markers, so Next could jump backwards at the seam. It is now sorted by each member's actual media position, with a tie rule stated once and tested:
+
+1. earlier offset first — a visit by its `startOffsetMs`, a marker cluster by its exact offset;
+2. at the same instant, a **visit before a marker**, because a span that starts there contains the instant;
+3. otherwise by member id, which is unique.
+
+Persisted offsets are untouched; only the walking order changed.
+
+---
+
 ## 8. Validation
 
 | Gate | Result |
 |---|---|
-| Web Vitest | 762 tests across 49 files, green |
+| Web Vitest | 767 tests across 49 files, green |
 | `tsc -b` | clean |
 | `vite build` | clean |
 | `python tools/verify_repo.py` | clean |
