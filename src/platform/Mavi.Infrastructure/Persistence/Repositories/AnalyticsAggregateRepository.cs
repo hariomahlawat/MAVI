@@ -299,11 +299,7 @@ public sealed class AnalyticsAggregateRepository(MaviDbContext db) : IAnalyticsA
         var units = AnalyticsScopeQuery.VisibleUnits(
             db, revisionId, identity.AlgorithmVersion, identity.SnapshotVisibilitySequence);
 
-        return await CandidateTracks(candidates, units)
-            // Stable order, so two executions of the same scope read the same artefacts
-            // in the same sequence and produce the same matrix.
-            .OrderBy(x => x.TrackId)
-            .ToListAsync(cancellationToken);
+        return await CandidateTracks(candidates, units).ToListAsync(cancellationToken);
     }
 
     /// <summary>
@@ -332,8 +328,13 @@ public sealed class AnalyticsAggregateRepository(MaviDbContext db) : IAnalyticsA
                 db.Artifacts.AsNoTracking(),
                 x => x.track.TrajectoryArtifactId,
                 artifact => (Guid?)artifact.Id,
-                (x, artifact) => new HeatmapCandidateTrack(
-                    x.track.Id,
-                    x.video.RecordingStartUtc,
-                    artifact.StorageKey));
+                (x, artifact) => new { x.track, x.video, artifact })
+            // Ordered here rather than at the call site, so the order is part of the one
+            // definition: two executions of the same scope read the same artefacts in the
+            // same sequence and produce the same matrix.
+            .OrderBy(x => x.track.Id)
+            .Select(x => new HeatmapCandidateTrack(
+                x.track.Id,
+                x.video.RecordingStartUtc,
+                x.artifact.StorageKey));
 }
