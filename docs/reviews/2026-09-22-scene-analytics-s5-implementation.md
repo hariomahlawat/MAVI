@@ -267,11 +267,11 @@ One assertion was corrected rather than loosened. Written for the previous struc
 
 | Gate | Result |
 |---|---|
-| Web Vitest | 747 tests across 49 files, green |
+| Web Vitest | 762 tests across 49 files, green |
 | `tsc -b` | clean |
 | `vite build` | clean |
 | `python tools/verify_repo.py` | clean |
-| §26 visual QA | 386 state/viewport combinations, no findings |
+| §26 visual QA | 402 state/viewport combinations, no findings |
 
 Backend and .NET suites were not run: no backend, contract or shared file is touched. The one API-shaped change is a **test-only** harness route.
 
