@@ -22,8 +22,8 @@ export const PAGE_ASSERTIONS = `(() => {
   // element is clipped by every scrolling or hidden ancestor, and by the
   // viewport, before anything is compared — and an element clipped to nothing
   // takes no part in the comparison at all.
-  const visibleRect = (el) => {
-    const r = el.getBoundingClientRect();
+  /** Clip a rectangle to every scrolling ancestor and to the viewport. */
+  const clipRect = (el, r) => {
     let box = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
     for (let node = el.parentElement; node; node = node.parentElement) {
       const style = getComputedStyle(node);
@@ -39,6 +39,37 @@ export const PAGE_ASSERTIONS = `(() => {
       right: Math.min(box.right, doc.clientWidth), bottom: Math.min(box.bottom, doc.clientHeight),
     };
     return { ...box, width: box.right - box.left, height: box.bottom - box.top };
+  };
+
+  const visibleRect = (el) => clipRect(el, el.getBoundingClientRect());
+
+  /**
+   * The boxes an element actually paints into, rather than their union.
+   *
+   * An inline element that wraps has one box per line, and its *union* is a
+   * rectangle covering everything between the start of the first line and the
+   * end of the last — including space occupied by its own siblings. Comparing
+   * unions therefore reports a collision every time a sentence wraps around
+   * another inline element, which is ordinary text layout rather than a defect.
+   * The line boxes are what the operator sees, so they are what is compared.
+   */
+  const visibleRects = (el) => {
+    const rects = Array.from(el.getClientRects());
+    return (rects.length ? rects : [el.getBoundingClientRect()])
+      .map((r) => clipRect(el, r))
+      .filter((r) => r.width > 0 && r.height > 0);
+  };
+
+  /** Whether any painted box of one element overlaps any painted box of another. */
+  const boxesOverlap = (a, b, slack) => {
+    for (const ra of visibleRects(a)) {
+      for (const rb of visibleRects(b)) {
+        const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+        const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+        if (ox > slack && oy > slack) return true;
+      }
+    }
+    return false;
   };
 
   /**
@@ -61,6 +92,23 @@ export const PAGE_ASSERTIONS = `(() => {
     }
     return null;
   };
+  /**
+   * Whether the browser actually paints this element.
+   *
+   * Chromium lays out the content of a *closed* disclosure and reports real
+   * rectangles for it, even though it paints none of it: the content sits
+   * behind content-visibility hidden. Geometry alone therefore reports a
+   * closed disclosure's rows as colliding with whatever is drawn below it,
+   * which is a collision no operator can see. checkVisibility is the standards
+   * predicate for "would this be painted", so the overlap checks ask that
+   * rather than inferring it from a rectangle.
+   */
+  const painted = (el) => (
+    typeof el.checkVisibility === 'function'
+      ? el.checkVisibility({ contentVisibilityAuto: true, opacityProperty: false, visibilityProperty: true })
+      : getComputedStyle(el).visibility !== 'hidden'
+  );
+
   const deliberatelyLayered = (a, b) => {
     const oa = overlayOf(a);
     const ob = overlayOf(b);
@@ -81,18 +129,15 @@ export const PAGE_ASSERTIONS = `(() => {
   const controls = Array.from(document.querySelectorAll('button, a[href], input, select, textarea'))
     .filter((el) => {
       const r = visibleRect(el);
-      return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+      return r.width > 0 && r.height > 0 && painted(el);
     });
   for (let i = 0; i < controls.length; i++) {
     for (let j = i + 1; j < controls.length; j++) {
       const a = controls[i], b = controls[j];
       if (a.contains(b) || b.contains(a)) continue;
       if (deliberatelyLayered(a, b)) continue;
-      const ra = visibleRect(a), rb = visibleRect(b);
-      const overlapX = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
-      const overlapY = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
       // A couple of pixels is antialiasing and adjacency, not an overlap.
-      if (overlapX > 2 && overlapY > 2) {
+      if (boxesOverlap(a, b, 2)) {
         problems.push('overlapping controls: <' + a.tagName.toLowerCase() + '> "' +
           (a.textContent || '').trim().slice(0, 24) + '" and <' + b.tagName.toLowerCase() + '> "' +
           (b.textContent || '').trim().slice(0, 24) + '"');
@@ -109,17 +154,14 @@ export const PAGE_ASSERTIONS = `(() => {
       const text = (el.textContent || '').trim();
       if (!text) return false;
       const r = visibleRect(el);
-      return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+      return r.width > 0 && r.height > 0 && painted(el);
     });
   for (let i = 0; i < leaves.length; i++) {
     for (let j = i + 1; j < leaves.length; j++) {
       const a = leaves[i], b = leaves[j];
       if (a.contains(b) || b.contains(a)) continue;
       if (deliberatelyLayered(a, b)) continue;
-      const ra = visibleRect(a), rb = visibleRect(b);
-      const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
-      const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
-      if (ox > 4 && oy > 4) {
+      if (boxesOverlap(a, b, 4)) {
         problems.push('overlapping text: "' + (a.textContent || '').trim().slice(0, 28) +
           '" and "' + (b.textContent || '').trim().slice(0, 28) + '"');
       }
@@ -584,6 +626,194 @@ export const WORKSPACE_ASSERTIONS = `(() => {
       problems.push(hiddenEvidence + ' timeline evidence items are hidden from assistive technology');
     }
     measured.timelineItems = workspace.querySelectorAll('.evidence-timeline__item').length;
+
+    // --- Scene Analytics Slice 5 ---------------------------------------
+    //
+    // Overlapping zone visits must stay individually visible. The cap is what
+    // keeps the timeline's height fixed, so both halves are measured: no two
+    // drawn visits share a row, and the rail never grows past the cap.
+    const zoneBands = Array.from(workspace.querySelectorAll(
+      '.evidence-timeline__item[data-lane="zone"][data-drawn="true"]:not([data-shown])'));
+    // The overflow density profile: one band per stretch over which the same
+    // visits are open. Identified by data rather than by counting list items,
+    // because an overflowed visit is not an item on the rail at all.
+    const overflowed = workspace.querySelectorAll(
+      '[data-lane="zone"][data-drawn="density"]');
+
+    // A singled-out overflowed visit is a highlight drawn on the fixed overflow
+    // rail, not a fourth packed sub-row, so it is counted separately — and
+    // pinned to that rail here, because a highlight that took a row of its own
+    // would defeat the cap the moment an operator used it.
+    const shownBands = Array.from(workspace.querySelectorAll(
+      '.evidence-timeline__item[data-shown="true"]'));
+    measured.shownOverflowed = shownBands.length;
+    if (shownBands.length > 1) {
+      problems.push(shownBands.length
+        + ' overflowed visits are drawn at once; only one can be singled out without occluding another');
+    }
+    const railTops = new Set(Array.from(workspace.querySelectorAll('.evidence-timeline__overflow'))
+      .map((rail) => rail.style.top));
+    for (const band of shownBands) {
+      if (railTops.size > 0 && !railTops.has(band.style.top)) {
+        problems.push('a singled-out overflowed visit is drawn off the overflow rail, adding a row to the zone lane');
+      }
+    }
+    measured.zoneBands = zoneBands.length;
+    measured.zoneOverflowed = overflowed.length;
+    const zoneRows = new Set(zoneBands.map((band) => band.style.top));
+    measured.zoneRows = zoneRows.size;
+    if (zoneRows.size > 3) {
+      problems.push('the zone lane uses ' + zoneRows.size
+        + ' sub-rows; the cap that keeps the timeline height fixed is 3');
+    }
+    // Two bands on one row that actually overlap in time would hide evidence.
+    for (let i = 0; i < zoneBands.length; i += 1) {
+      for (let j = i + 1; j < zoneBands.length; j += 1) {
+        if (zoneBands[i].style.top !== zoneBands[j].style.top) continue;
+        const a = zoneBands[i].getBoundingClientRect();
+        const b = zoneBands[j].getBoundingClientRect();
+        if (a.left < b.right - 0.5 && b.left < a.right - 0.5) {
+          problems.push('two concurrent zone visits are drawn over each other on one sub-row');
+        }
+      }
+    }
+    if (overflowed.length > 0 && !workspace.querySelector('.evidence-timeline__overflow-badge')) {
+      problems.push(overflowed.length + ' zone visits are in the overflow rail with no count shown');
+    }
+    // Overflow bands are a sweep over the evidence's own boundaries, so they
+    // are disjoint: two bands on one row that overlapped would paint over each
+    // other and their counts would be about overlapping stretches of time.
+    const bands = Array.from(workspace.querySelectorAll('.evidence-timeline__overflow'));
+    measured.overflowBands = bands.length;
+    for (let i = 0; i < bands.length; i += 1) {
+      for (let j = i + 1; j < bands.length; j += 1) {
+        const a = bands[i].getBoundingClientRect();
+        const b = bands[j].getBoundingClientRect();
+        if (a.left < b.right - 0.5 && b.left < a.right - 0.5) {
+          problems.push('two overflow density bands overlap, so one is drawn over the other');
+        }
+      }
+    }
+
+    // One evidence list, and a fixed number of controls for dense evidence.
+    // A list of the overflowed items would be a parallel evidence surface and
+    // would grow a tab stop per fact; the navigator is three controls whether
+    // there are four members or a hundred.
+    const rails = workspace.querySelectorAll('.evidence-timeline__track');
+    measured.timelineRails = rails.length;
+    if (rails.length > 1) {
+      problems.push(rails.length + ' evidence timelines are on one surface; the specification allows one');
+    }
+    for (const rail of rails) {
+      // A per-visit overflow item would be the same evidence the navigator
+      // names, in the tree a second time. Density bands are a different thing
+      // and are marked as density rather than as overflow.
+      const onRail = rail.querySelectorAll(':scope > li[data-drawn="overflow"]').length;
+      if (onRail > 0) {
+        problems.push(onRail + ' overflowed visits are named on the rail as well as in the navigator, '
+          + 'so the same evidence is in the accessibility tree twice');
+      }
+    }
+    const navigator = workspace.querySelector('.evidence-timeline__dense');
+    if (navigator) {
+      const controls = navigator.querySelectorAll('summary, button').length;
+      measured.denseControls = controls;
+      if (controls > 3) {
+        problems.push('dense evidence is offering ' + controls
+          + ' controls; the navigator is meant to be a fixed three however dense the evidence');
+      }
+      if (navigator.querySelector('ul, ol')) {
+        problems.push('dense evidence has grown a second list beside the one timeline');
+      }
+    }
+
+    // Every marker is a real control with a usable target, and no two of them
+    // may sit on top of each other: a covered marker cannot be activated.
+    const markerButtons = Array.from(workspace.querySelectorAll('.evidence-timeline__marker-button'));
+    measured.markerControls = markerButtons.length;
+    const smallMarkers = markerButtons.filter((button) => {
+      const box = button.getBoundingClientRect();
+      return box.width < 23.5 || box.height < 23.5;
+    });
+    if (smallMarkers.length > 0) {
+      problems.push(smallMarkers.length + ' timeline marker controls are under the 24x24 minimum');
+    }
+    for (let i = 0; i < markerButtons.length; i += 1) {
+      for (let j = i + 1; j < markerButtons.length; j += 1) {
+        const a = markerButtons[i].getBoundingClientRect();
+        const b = markerButtons[j].getBoundingClientRect();
+        const overlap = a.left < b.right - 0.5 && b.left < a.right - 0.5
+          && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+        if (overlap) {
+          problems.push('two timeline marker controls overlap, so one of them cannot be clicked');
+        }
+      }
+    }
+
+    // Analytical geometry stays inside the true video content rectangle: a
+    // zone drawn against the element box lands on the letterbox bars.
+    const stage = workspace.querySelector('.evidence-player__stage');
+    const geometry = workspace.querySelectorAll('[data-testid="evidence-zone"], [data-testid="evidence-line"], [data-testid="evidence-crossing"]');
+    measured.analyticalGeometry = geometry.length;
+    if (stage && geometry.length > 0) {
+      const frame = stage.getBoundingClientRect();
+      let outside = 0;
+      for (const node of geometry) {
+        const box = node.getBoundingClientRect();
+        if (box.width === 0 && box.height === 0) continue;
+        if (box.left < frame.left - 1 || box.right > frame.right + 1
+          || box.top < frame.top - 1 || box.bottom > frame.bottom + 1) outside += 1;
+      }
+      if (outside > 0) {
+        problems.push(outside + ' analytical overlay shapes fall outside the video content rectangle');
+      }
+    }
+
+    // A directed trip line's crossing indicator is perpendicular to the line
+    // as drawn, and says which way is which without relying on hue.
+    //
+    // The overlay's viewBox is the content rectangle in pixels, so the
+    // attributes are already projected screen coordinates: the angle measured
+    // here is the angle the operator sees. A normal taken in normalised space
+    // and used as a pixel offset passes on a horizontal line and fails on a
+    // diagonal one under letterbox or pillarbox, which is why this measures
+    // rather than checks that a ray exists.
+    const directedLines = Array.from(workspace.querySelectorAll('[data-testid="evidence-line"]'))
+      .filter((group) => group.querySelector('.evidence-line__dir'));
+    measured.directedLines = directedLines.length;
+    for (const group of directedLines) {
+      const segment = group.querySelector('.evidence-line__segment');
+      if (!segment) continue;
+      const lx = Number(segment.getAttribute('x2')) - Number(segment.getAttribute('x1'));
+      const ly = Number(segment.getAttribute('y2')) - Number(segment.getAttribute('y1'));
+      const cues = Array.from(group.querySelectorAll('.evidence-line__dir'));
+      if (cues.length !== 2) {
+        problems.push('a directed trip line draws ' + cues.length
+          + ' direction cues; both directions of travel have to be shown');
+      }
+      for (const cue of cues) {
+        const ray = cue.querySelector('line');
+        if (!ray) continue;
+        const rx = Number(ray.getAttribute('x2')) - Number(ray.getAttribute('x1'));
+        const ry = Number(ray.getAttribute('y2')) - Number(ray.getAttribute('y1'));
+        const lengths = Math.hypot(lx, ly) * Math.hypot(rx, ry);
+        if (lengths <= 0) continue;
+        const degrees = Math.acos(Math.min(1, Math.max(-1,
+          (lx * rx + ly * ry) / lengths))) * 180 / Math.PI;
+        measured.directionAngle = Math.round(degrees * 10) / 10;
+        if (Math.abs(degrees - 90) > 1) {
+          problems.push('a crossing direction cue is ' + Math.round(degrees)
+            + ' degrees from the line it is drawn on, not perpendicular to it as drawn');
+        }
+        if (!cue.querySelector('polygon')) {
+          problems.push('a crossing direction cue has no arrowhead, so which way it points depends on colour');
+        }
+        const label = cue.querySelector('text');
+        if (!label || label.textContent.trim() === '') {
+          problems.push('a crossing direction cue is unlabelled, so the two directions differ only by hue');
+        }
+      }
+    }
 
     // Native controls occupy the band where evidence is drawn (section 18.1).
     if (workspace.querySelector('video[controls]')) {

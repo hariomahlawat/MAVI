@@ -1,8 +1,8 @@
 # Spatial & Temporal Track Analytics — Implementation Plan
 
 **Date:** 2026-09-20 (implementation-grade revision)  
-**Status:** Stage 1 active. Slices 0–4 are merged; UI-1 through UI-5 are merged. **Slice 5 (Evidence overlays and explanation) is next**, with its rebaselined execution plan at `docs/superpowers/plans/2026-09-22-scene-analytics-s5-evidence-explanation.md`. UI-5 / PR #64 merged as `273718c`; post-merge Task 17 Acceptance and MAVI Quality Gate are both green on that exact `main`, so the Slice-5 implementation gate is satisfied.  
-**Current planning base:** `main@273718ca078b5d86879d5a166af6c9eaff4c1c28` (PR #64 merge). The earlier Slice-4 freeze remains historical context; §W and §AJ are rebaselined for Slice 5.  
+**Status:** Stage 1 active. Slices 0–4 are merged; UI-1 through UI-5 are merged. **Slice 5 (Evidence overlays and explanation) is implemented and awaiting independent review**, on `feature/scene-analytics-s5-evidence-explanation` from `main@d6393532`, against the execution plan at `docs/superpowers/plans/2026-09-22-scene-analytics-s5-evidence-explanation.md`. It closes UI-specification decisions 7 (bounded stacked analytical lanes) and 2a (`--evidence-crossing` `#fde047`, chosen by measurement). **Slice 6 (aggregates and heatmap) is next once Slice 5 merges.**  
+**Current implementation base:** `main@d6393532b0456ccf1fe2e24261b963ae7fab35ef` (PR #65, the Slice-5 plan merge). The earlier Slice-4 freeze remains historical context; §W and §AJ are rebaselined for Slice 5.  
 **Product intent:** turn the trajectories MAVI already persists into searchable, explainable scene facts (zones, trip lines, dwell, crossings, direction, stationary and stopped objects, loitering, counts, occupancy, heatmaps) without a new model, a new dependency, or any change to the qualified detector/tracker worker.
 
 Every rule below that begins with **Decision** is frozen for implementation; changing it is a plan change, not an improvisation.
@@ -480,7 +480,7 @@ Frozen Slice-5 presentation decisions:
 - Marker activation seeks to the exact persisted/interpolated evidence `offsetMs` by pointer, Enter or Space, with a ≥24×24 effective target. The Evidence Player keyboard grammar remains authoritative for arrows, J/L and Home/End.
 - A visit with `BeganInside`, `EndedInside` or `ClosedByGap` never fabricates a boundary crossing marker that did not occur.
 - The shared analytics explanation names the selected revision/engine/reference point and explains zone visits/dwell/loitering, line crossings, heading and stationary intervals; `Unavailable`, `Pending`, `Failed`, `Stale`, `NotConfigured` and `Disabled` remain distinct.
-- Slice 5 closes UI decision 2a only after the crossing/event-marker evidence token is validated against real footage and the frozen evidence palette; hue is never the sole cue.
+- Slice 5 closed UI decision 2a with `--evidence-crossing` `#fde047`, measured at ΔE00 7.1 or better from every frozen evidence role under normal, protan, deutan and tritan vision and rendered across the §26 footage conditions; the crossing glyph is a diamond, so hue is never the sole cue.
 - Review and Investigation use the same evidence model. Review keeps the Track summary first in the rail so §4.5.1 remains true at 1366×768.
 
 No aggregate/heatmap work, Stage-7 event records, trajectory-v2 work, metric motion, live cameras or new dependency belongs in Slice 5.

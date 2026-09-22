@@ -119,6 +119,14 @@
    above it, with lists where a Track touched several zones or lines. */
 .analytics-summary { display: grid; gap: var(--s-2); }
 .analytics-summary__title { margin: 0; font-size: var(--fs-1); font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+/* Why the state is what it is, in operator words, above the facts. */
+.analytics-summary__state { margin: 0; color: var(--text-secondary); font-size: var(--fs-1); }
+/* The pinned analytical identity every analysed fact above was measured
+   against. It closes the panel because it qualifies everything in it. */
+.analytics-summary__footer {
+  margin: 0; padding-top: var(--s-2); border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted); font-size: var(--fs-0);
+}
 .analytics-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--stroke-2); }
 
 /* The results column is a bounded, scrolling region, so it carries the border
@@ -268,17 +276,89 @@
 /* 24px tall so the scrub target meets the minimum pointer size (section 23).
    The bar drawn inside it stays thin: only the hit area has to be 24. */
 .evidence-timeline__track {
-  position: relative; height: 24px; width: 100%; cursor: pointer; touch-action: none;
+  position: relative; width: 100%; cursor: pointer; touch-action: none;
   list-style: none; display: block;
 }
-.evidence-timeline__track::before {
-  content: ''; position: absolute; left: 0; right: 0; top: 10px; height: 4px;
+/* The scrub rail the subject band sits on. It is a list item rather than a
+   ::before so it can be positioned under the marker rail, whose height depends
+   on how many rows the markers actually needed. */
+.evidence-timeline__rail {
+  position: absolute; left: 0; right: 0; height: 4px;
   border-radius: var(--r-pill); background: var(--surface-raised-2);
 }
 .evidence-timeline__item { position: absolute; }
-.evidence-timeline__interval { top: 10px; height: 4px; background: var(--evidence-track); border-radius: var(--r-pill); }
-/* A lane whose presentation is not yet decided is named but not drawn; see the
-   timeline module and open decision 7.
+.evidence-timeline__interval { height: 4px; background: var(--evidence-track); border-radius: var(--r-pill); }
+
+/* Analytical lane families (decision 7). Hatches and fixed lane positions, not
+   new hues: section 8.3 freezes the evidence roles, and inventing a colour for
+   dwell would put an unvalidated hue next to the ones that were validated. The
+   two families differ by hatch orientation as well as by position, so neither
+   colour nor location alone carries the distinction. */
+.evidence-timeline__interval[data-lane='zone'] {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--geo-zone) 0 3px,
+    color-mix(in srgb, var(--geo-zone) 35%, transparent) 3px 6px
+  );
+}
+.evidence-timeline__interval[data-lane='stationary'] {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--text-muted) 0 3px,
+    color-mix(in srgb, var(--text-muted) 30%, transparent) 3px 6px
+  );
+}
+
+/* One band per run of overflowed visits, spanning the time they actually cover
+   and carrying that span's own concurrency. Runs are disjoint by construction,
+   so two of these can never paint over one another. Hatched like the zone lane
+   it belongs to, but fainter, because it is an aggregate rather than one fact. */
+.evidence-timeline__overflow {
+  height: 4px; border-radius: var(--r-pill);
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--geo-zone) 55%, transparent) 0 2px,
+    transparent 2px 5px
+  );
+}
+.evidence-timeline__overflow-badge {
+  position: absolute; left: 100%; top: 50%; transform: translateY(-50%);
+  margin-left: var(--s-1);
+  color: var(--text-muted); font-size: var(--fs-0); font-variant-numeric: tabular-nums;
+}
+/* One singled-out overflowed visit, drawn at its exact offsets over the rail so
+   the interval can be seen rather than only read. Only ever one at a time. */
+.evidence-timeline__shown {
+  background: var(--geo-zone);
+  outline: var(--stroke-1) solid var(--text-primary);
+}
+/* The dense-evidence navigator: one member at a time, so the control count
+   stays fixed however much evidence the rail could not place. There is no list
+   here on purpose — a list would be one permanent control per fact. */
+.evidence-timeline__dense { border-top: none; }
+.evidence-timeline__dense summary { font-size: var(--fs-0); color: var(--text-muted); }
+.evidence-timeline__navigator {
+  display: grid; gap: var(--s-1);
+  padding-block-start: var(--s-1);
+}
+.evidence-timeline__navigator-status {
+  margin: 0; font-size: var(--fs-0); color: var(--text-secondary);
+}
+.evidence-timeline__navigator-controls { display: flex; gap: var(--s-1); }
+.evidence-timeline__navigator-controls button {
+  min-height: var(--control-h-sm); min-width: var(--control-h-sm);
+  background: none; border: var(--stroke-hair) solid var(--border-subtle); border-radius: var(--r-1);
+  color: var(--text-secondary); font-size: var(--fs-0); cursor: pointer;
+  padding-block: var(--s-1); padding-inline: var(--s-2);
+}
+.evidence-timeline__navigator-controls button:focus-visible {
+  outline: var(--focus-ring); outline-offset: var(--focus-ring-inner);
+}
+.evidence-timeline__navigator-controls button:disabled {
+  color: var(--text-muted); cursor: not-allowed;
+}
+
+/* A lane whose presentation is not yet decided is named but not drawn.
 
    Only the band is suppressed. `display: none` or `visibility: hidden` here
    would take the item out of the accessibility tree with it, which would delete
@@ -288,10 +368,111 @@
 .evidence-timeline__interval[data-drawn='false'] {
   position: static; height: 0; background: none;
 }
-.evidence-timeline__marker { top: 5px; width: 2px; height: 14px; background: var(--evidence-box); transform: translateX(-1px); }
+
+/* The marker rail. Each marker is a real control with a 24x24 effective target;
+   the tick drawn inside it stays thin, so the evidence reads as an instant
+   while the thing the pointer has to hit is the minimum size. */
+.evidence-timeline__marker { width: 24px; height: 24px; transform: translateX(-12px); }
+.evidence-timeline__marker-button {
+  display: block; width: 24px; height: 24px; padding: 0; border: 0; background: none;
+  cursor: pointer; border-radius: var(--r-1);
+}
+.evidence-timeline__marker-button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-ring-inner); }
+.evidence-timeline__marker-tick {
+  position: absolute; left: 11px; top: 5px; width: 2px; height: 14px; background: var(--evidence-box);
+}
+/* Crossings are the analytical instant this slice draws, so they take the
+   crossing evidence role and a diamond rather than a bar: the shape is the cue
+   that survives when the hue does not. */
+.evidence-timeline__marker[data-kind='crossing'] .evidence-timeline__marker-tick {
+  left: 7px; top: 7px; width: 10px; height: 10px; background: var(--evidence-crossing);
+  transform: rotate(45deg);
+}
+/* Zone boundaries: a tick that leans the way the Track went through the edge. */
+.evidence-timeline__marker[data-kind='zone-entry'] .evidence-timeline__marker-tick,
+.evidence-timeline__marker[data-kind='zone-exit'] .evidence-timeline__marker-tick {
+  background: var(--geo-zone);
+}
+.evidence-timeline__marker[data-kind='zone-entry'] .evidence-timeline__marker-tick { transform: skewX(-20deg); }
+.evidence-timeline__marker[data-kind='zone-exit'] .evidence-timeline__marker-tick { transform: skewX(20deg); }
+/* Several items at one instant seek to one place, so they are one control; the
+   doubled tick says the instant carries more than one piece of evidence. */
+.evidence-timeline__marker:not([data-cluster='1']) .evidence-timeline__marker-tick {
+  box-shadow: 3px 0 0 0 currentcolor; color: var(--text-muted);
+}
+
 .evidence-timeline__playhead {
-  position: absolute; top: 3px; width: 2px; height: 18px; background: var(--text-primary); transform: translateX(-1px);
+  position: absolute; width: 2px; height: 18px; background: var(--text-primary); transform: translateX(-1px);
   list-style: none;
+}
+
+/* Analytical spatial overlays (Scene Analytics Slice 5).
+
+   The frozen evidence roles are reused exactly: a zone is --geo-zone whether or
+   not this Track visited it. What separates matched from contextual geometry is
+   stroke weight and a halo, never hue, so the distinction survives colour-vision
+   differences, low-contrast footage and a monochrome print. Disabled geometry
+   keeps the dashed neutral grammar the Scene Editor established, and is never
+   given the matched treatment: analytics did not evaluate it, so no fact can
+   have come from it. */
+.evidence-zone {
+  fill: color-mix(in srgb, var(--geo-zone) 10%, transparent);
+  stroke: var(--geo-zone); stroke-width: var(--stroke-1);
+  vector-effect: non-scaling-stroke;
+}
+.evidence-zone[data-matched='true'] {
+  fill: color-mix(in srgb, var(--geo-zone) 20%, transparent);
+  stroke-width: var(--evidence-halo-w);
+  paint-order: stroke;
+}
+.evidence-zone[data-enabled='false'] {
+  fill: color-mix(in srgb, var(--status-neutral) 6%, transparent);
+  stroke: var(--status-neutral); stroke-dasharray: 5 4; stroke-width: var(--stroke-1);
+}
+
+.evidence-line__segment {
+  stroke: var(--geo-line); stroke-width: var(--stroke-2); vector-effect: non-scaling-stroke;
+}
+.evidence-line[data-matched='true'] .evidence-line__segment { stroke-width: var(--evidence-halo-w); }
+.evidence-line[data-enabled='false'] .evidence-line__segment {
+  stroke: var(--status-neutral); stroke-dasharray: 5 4; stroke-width: var(--stroke-1);
+}
+.evidence-line__endpoint {
+  fill: var(--geo-line); font: 600 var(--fs-0) var(--font-mono);
+  text-anchor: middle; dominant-baseline: middle;
+  paint-order: stroke; stroke: var(--evidence-matte); stroke-width: var(--evidence-halo-w);
+  stroke-linejoin: round;
+}
+.evidence-line[data-enabled='false'] .evidence-line__endpoint { fill: var(--status-neutral); }
+/* The two travel directions that count as a crossing. The arrowhead and the
+   operator's own word for the direction are what distinguish them; the hues are
+   a second cue, not the only one, because two plain opposing rays collapse into
+   one undirected line as soon as their colours cannot be told apart. */
+.evidence-line__dir line { stroke-width: var(--stroke-2); vector-effect: non-scaling-stroke; }
+.evidence-line__dir text {
+  font: 600 var(--fs-0) var(--font-ui); text-anchor: middle; dominant-baseline: middle;
+  paint-order: stroke; stroke: var(--evidence-matte); stroke-width: var(--evidence-halo-w);
+  stroke-linejoin: round;
+}
+.evidence-line__dir--atob line, .evidence-line__dir--atob polygon { stroke: var(--geo-dir-ab); fill: var(--geo-dir-ab); }
+.evidence-line__dir--atob text { fill: var(--geo-dir-ab); }
+.evidence-line__dir--btoa line, .evidence-line__dir--btoa polygon { stroke: var(--geo-dir-ba); fill: var(--geo-dir-ba); }
+.evidence-line__dir--btoa text { fill: var(--geo-dir-ba); }
+.evidence-line[data-enabled='false'] .evidence-line__dir line,
+.evidence-line[data-enabled='false'] .evidence-line__dir polygon { stroke: var(--status-neutral); fill: var(--status-neutral); }
+.evidence-line[data-enabled='false'] .evidence-line__dir text { fill: var(--status-neutral); }
+
+/* The crossing point: the decision-2a evidence role, on a diamond so the shape
+   carries the distinction when the hue cannot. Direction is a dashed versus
+   solid outline as well as the two frozen direction hues. */
+.evidence-crossing__glyph {
+  fill: color-mix(in srgb, var(--evidence-crossing) 55%, transparent);
+  stroke: var(--evidence-crossing); stroke-width: var(--stroke-2);
+  vector-effect: non-scaling-stroke; paint-order: stroke;
+}
+.evidence-crossing[data-direction='aToB'] .evidence-crossing__glyph { stroke: var(--geo-dir-ab); }
+.evidence-crossing[data-direction='bToA'] .evidence-crossing__glyph {
+  stroke: var(--geo-dir-ba); stroke-dasharray: 3 2;
 }
 
 .evidence-transport { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }

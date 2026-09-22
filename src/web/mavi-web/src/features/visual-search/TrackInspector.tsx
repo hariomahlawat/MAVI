@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { ApiError } from '../../api/client';
 import { getTrack, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
@@ -9,9 +10,10 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { Inspector } from '../../shared/workspace';
 import { RepresentativeEvidence, TrackSummary } from '../video-review/TrackDetailsPanels';
 import TrackEvidence from '../video-review/TrackEvidence';
+import TrackAnalyticsExplanation from '../video-review/TrackAnalyticsExplanation';
+import { buildAnalyticsEvidence } from '../video-review/analyticsEvidence';
+import { pinnedNames, pinnedRevision, useAnalyticsScene } from '../video-review/useAnalyticsScene';
 import { useTrajectory } from '../video-review/useTrajectory';
-import type { GeometryNames } from './analyticsLabels';
-import TrackAnalyticsSummary from './TrackAnalyticsSummary';
 import { reviewPath } from './TrackResultList';
 
 /** The cache key half of an identity: two identities are one entry only when both parts agree. */
@@ -34,8 +36,6 @@ type Props = {
    * silently the camera's current revision (plan §S).
    */
   analyticsIdentity?: TrackAnalyticsIdentity;
-  /** Names for the geometry the identity's facts refer to. */
-  geometry?: GeometryNames;
   summary?: TrackSearchItem;
   onPrevious: () => void;
   onNext: () => void;
@@ -62,7 +62,6 @@ export default function TrackInspector({
   displayTimeZoneId,
   searchContext,
   analyticsIdentity,
-  geometry,
   summary,
   onPrevious,
   onNext,
@@ -75,6 +74,15 @@ export default function TrackInspector({
   });
   const detail = track.data;
   const trajectory = useTrajectory(detail?.trajectoryArtifactId ?? null, detail?.trajectoryContentUrl ?? null);
+
+  // The same pinned revision the full Review page resolves, through the same
+  // hook and the same immutable cache key. The inspector and Review must not be
+  // able to draw different geometry for one Track under one identity.
+  const scene = useAnalyticsScene(detail?.camera.id, detail?.analytics);
+  const analyticsEvidence = useMemo(
+    () => buildAnalyticsEvidence(detail?.analytics, pinnedRevision(scene)),
+    [detail?.analytics, scene],
+  );
 
   const title = detail ? `${detail.objectClass} · Track ${detail.localTrackNumber}` : summary ? `${summary.objectClass}` : 'Track';
   const canPrevious = position > 0;
@@ -122,7 +130,13 @@ export default function TrackInspector({
         ) : null}
         {detail ? (
           <>
-            <TrackEvidence detail={detail} trajectory={trajectory.data} trajectoryError={trajectory.isError} compact />
+            <TrackEvidence
+              detail={detail}
+              analytics={analyticsEvidence}
+              trajectory={trajectory.data}
+              trajectoryError={trajectory.isError}
+              compact
+            />
             <div className="row row--between">
               <StatusBadge status={detail.reviewStatus} />
               <span className="small faint">Local track {detail.localTrackNumber} · <code>{detail.id.slice(0, 8)}…</code></span>
@@ -131,7 +145,20 @@ export default function TrackInspector({
             {/* Guarded rather than assumed: a detail from a server without the
                 analytics block must degrade to the Slice-3 inspector, not blank it. */}
             {detail.analytics ? (
-              <TrackAnalyticsSummary analytics={detail.analytics} geometry={geometry} displayTimeZoneId={displayTimeZoneId} />
+              <TrackAnalyticsExplanation
+                analytics={detail.analytics}
+                scene={scene}
+                // The pinned revision's names only. The originating search has
+                // geometry names of its own, but they belong to the revision
+                // the *search* resolved; for a stale or re-read Track that is
+                // not the revision these facts were measured against, and
+                // labelling a dwell with another revision's zone name would be
+                // a quiet substitution. Review names these facts from the
+                // pinned revision or by stable id, and so does this.
+                geometry={pinnedNames(scene)}
+                displayTimeZoneId={displayTimeZoneId}
+                compact
+              />
             ) : null}
             <details className="disclosure">
               <summary>Representative frame</summary>

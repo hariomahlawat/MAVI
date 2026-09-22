@@ -105,6 +105,21 @@ type Props = {
   initialOffsetMs?: number;
   /** Identity of the subject; changing it reopens at `initialOffsetMs`. */
   seekKey: string;
+  /**
+   * Identity of **the evidence**, which is not the same thing as the subject.
+   *
+   * The same subject can be shown with different evidence — the same Track read
+   * under a different analytical identity, say — and those answers can carry
+   * different facts while reusing the same local record ids. Anything the
+   * player or its timeline holds *about the evidence* has to be scoped to this
+   * rather than to the subject, or a selection made against one answer would
+   * still be shown against another.
+   *
+   * Separate from `seekKey` on purpose: a different reading of the same subject
+   * is not a reason to move the playhead, and the same reading shown again is
+   * not a reason to keep a selection made in a different one.
+   */
+  evidenceKey: string;
   /** Which operator preference bucket the layer toggles persist under. */
   preferenceScope: string;
   /** Denser presentation for the Investigation inspector. Presentation only. */
@@ -139,6 +154,7 @@ export default function EvidencePlayer({
   markers,
   initialOffsetMs,
   seekKey,
+  evidenceKey,
   preferenceScope,
   compact = false,
   notices,
@@ -279,6 +295,10 @@ export default function EvidencePlayer({
         intervals={intervals}
         markers={markers}
         subjectLabel={subject.label}
+        // The evidence's identity, not the subject's: the timeline's one piece
+        // of transient state is about a record in this answer, and record ids
+        // are only unique within one answer.
+        subjectKey={evidenceKey}
         onSeek={transport.seekTo}
       />
 

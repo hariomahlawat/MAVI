@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TrackDetail } from '../../api/tracks';
 import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import TrackEvidence from './TrackEvidence';
+import { buildAnalyticsEvidence } from './analyticsEvidence';
+import { analysedAnalytics } from '../../test/analyticsFixtures';
 
 const detail: TrackDetail = {
   id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21451',
@@ -74,6 +76,75 @@ function seek(video: HTMLVideoElement, seconds: number) {
   video.currentTime = seconds;
   fireEvent(video, new Event('seeked'));
 }
+
+describe('transient evidence state is scoped to the analytical answer', () => {
+  /**
+   * The same Track, read under two analytical identities.
+   *
+   * MAVI deliberately allows this: a Track analysed under one scene revision or
+   * engine can also be read under another, and those answers carry different
+   * facts under record ids that are only unique within one of them — a zone
+   * visit is `zone-visit-{zoneId}-{visitIndex}` in both.
+   */
+  function underIdentity(sceneRevisionId: string, sceneRevisionNumber: number) {
+    const analytics = analysedAnalytics({
+      sceneRevisionId,
+      sceneRevisionNumber,
+      // Four concurrent visits, so the fourth goes to the dense navigator. The
+      // same local ids in both answers, which is exactly the trap.
+      zoneVisits: [0, 1, 2, 3].map((n) => ({
+        zoneId: `7777777${n}-7777-7777-8777-777777777777`,
+        visitIndex: 0,
+        entryOffsetMs: 11_000 + n,
+        exitOffsetMs: 17_000,
+        entryTimestampUtc: '2026-09-14T02:30:11Z',
+        exitTimestampUtc: '2026-09-14T02:30:17Z',
+        dwellMs: 6_000,
+        beganInside: false,
+        endedInside: false,
+        closedByGap: false,
+        entryHeading: 'E',
+        exitHeading: 'W',
+      })),
+      zoneSummaries: [0, 1, 2, 3].map((n) => ({
+        zoneId: `7777777${n}-7777-7777-8777-777777777777`,
+        visitCount: 1,
+        totalDwellMs: 6_000,
+        firstEntryTimestampUtc: '2026-09-14T02:30:11Z',
+        lastExitTimestampUtc: '2026-09-14T02:30:17Z',
+        loitering: false,
+        loiteringThresholdSeconds: 60,
+        loiteringDwellMs: 0,
+      })),
+    });
+    return {
+      detail: { ...detail, analytics },
+      analytics: buildAnalyticsEvidence(analytics, undefined),
+    };
+  }
+
+  it('does not carry a selection from one analytics identity to another', async () => {
+    const user = userEvent.setup();
+    const first = underIdentity('018f3f5a-2f70-7a2b-8a12-2d02f4c21460', 4);
+    const second = underIdentity('018f3f5a-2f70-7a2b-8a12-2d02f4c21461', 5);
+
+    const view = render(<TrackEvidence detail={first.detail} analytics={first.analytics} trajectory={trajectory} />);
+
+    // The fourth concurrent visit must actually overflow, or this test would
+    // pass without ever reaching the trap it exists to catch.
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    expect(disclosure).toBeTruthy();
+    fireEvent.click(disclosure.querySelector('summary')!);
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(1);
+
+    // The same Track, a different analytical answer, the same local visit id.
+    // Nothing the operator did in the first answer says anything about the
+    // second, so it must come up with nothing selected.
+    view.rerender(<TrackEvidence detail={second.detail} analytics={second.analytics} trajectory={trajectory} />);
+    expect(document.querySelectorAll('[data-shown="true"]')).toHaveLength(0);
+  });
+});
 
 describe('Track evidence overlay', () => {
   it('shows the representative box only within its visibility window, projected into the letterboxed frame', () => {
@@ -326,6 +397,83 @@ describe('Track evidence overlay', () => {
       expect(describedText('Trajectory')).toContain('The persisted trajectory contains no samples.');
       expect(describedText('Trajectory')).not.toContain('No trajectory was persisted');
     });
+  });
+
+  it('keeps raw one-sample evidence while analytics honestly reports it too short', () => {
+    // Both are true at once and neither is fixed to match the other. The worker
+    // finalises a Track on one observation, so the position is real evidence;
+    // Scene Analytics v1 needs two samples for any path-derived fact, so
+    // `trajectory_too_short` is an honest answer about a different question.
+    render(
+      <TrackEvidence
+        detail={{
+          ...detail,
+          analytics: {
+            ...detail.analytics,
+            status: 'Unavailable',
+            unavailableReason: 'trajectory_too_short',
+            sampleCount: 1,
+          },
+        }}
+        trajectory={oneSample}
+      />,
+    );
+
+    // The raw evidence is not hidden because analytics are unavailable.
+    expect(screen.getAllByTestId('trajectory-sample')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Trajectory' })).toBeEnabled();
+    expect(describedText('Trajectory')).toContain('x 0.250, y 0.750');
+    // And no analytical evidence is manufactured because raw evidence exists.
+    expect(screen.queryByTestId('evidence-zone')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('evidence-crossing')).not.toBeInTheDocument();
+    const lanes = screen.getAllByRole('listitem').map((item) => item.dataset.lane).filter(Boolean);
+    expect(lanes).not.toContain('zone');
+    expect(lanes).not.toContain('stationary');
+  });
+
+  it('warns the operator when persisted stationary intervals overlap', () => {
+    // The stationary family is one fixed lane, so overlapping facts would hide
+    // one another on the timeline. They are still drawn as given and the
+    // condition is stated, because a fact the engine should not have produced
+    // is something to report rather than something to lay out more neatly.
+    const analytics = buildAnalyticsEvidence(
+      analysedAnalytics({
+        motion: {
+          heading: 'E', pathLengthNormalised: 0, meanDisplacementRate: 0,
+          longestStationaryMs: 0, totalStationaryMs: 0,
+          stationaryIntervals: [
+            { startOffsetMs: 11_000, endOffsetMs: 15_000 },
+            { startOffsetMs: 13_000, endOffsetMs: 18_000 },
+          ],
+          stationaryZoneIds: [],
+        },
+      }),
+      undefined,
+    );
+    render(<TrackEvidence detail={detail} analytics={analytics} />);
+    expect(screen.getByText(/stationary intervals for this Track overlap/)).toBeInTheDocument();
+    // Both are still present as evidence.
+    const lanes = screen.getAllByRole('listitem').filter((i) => i.dataset.lane === 'stationary');
+    expect(lanes).toHaveLength(2);
+  });
+
+  it('stays quiet when the stationary intervals are disjoint, as they should be', () => {
+    const analytics = buildAnalyticsEvidence(
+      analysedAnalytics({
+        motion: {
+          heading: 'E', pathLengthNormalised: 0, meanDisplacementRate: 0,
+          longestStationaryMs: 0, totalStationaryMs: 0,
+          stationaryIntervals: [
+            { startOffsetMs: 11_000, endOffsetMs: 13_000 },
+            { startOffsetMs: 13_000, endOffsetMs: 18_000 },
+          ],
+          stationaryZoneIds: [],
+        },
+      }),
+      undefined,
+    );
+    render(<TrackEvidence detail={detail} analytics={analytics} />);
+    expect(screen.queryByText(/stationary intervals for this Track overlap/)).not.toBeInTheDocument();
   });
 
   it('reprojects onto the replacement element when the source changes at the same size', () => {

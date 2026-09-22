@@ -74,6 +74,7 @@ function renderPlayer(overrides: Partial<React.ComponentProps<typeof EvidencePla
       intervals={[{ id: 's', startOffsetMs: 10_000, endOffsetMs: 18_000, label: 'Track 7 interval', lane: SUBJECT_LANE }]}
       markers={[{ id: 'r', offsetMs: 12_000, label: 'Representative frame', kind: 'representative' }]}
       seekKey="track-1"
+      evidenceKey="track-1|rev-4|scene-analytics-v1"
       preferenceScope="test"
       {...overrides}
     />,

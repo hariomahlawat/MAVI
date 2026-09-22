@@ -10,6 +10,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
+import { encodeTrajectory } from './msgpack.mjs';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -127,6 +128,27 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
         res.writeHead(200, { 'content-type': TYPES['.json'] });
         res.end(JSON.stringify(value));
         return;
+      }
+
+      // A trajectory artefact, encoded from its JSON fixture on the way out.
+      //
+      // UI-5's visual QA had no served trajectory at all, so the rendered
+      // matrix could never show raw path evidence underneath the analytical
+      // overlays. The bytes are generated rather than committed: the repository
+      // stays text-only, the fixture is readable in review, and the encoder
+      // emits only what the browser's decoder accepts, so a fixture it refuses
+      // is a real disagreement rather than the harness writing something the
+      // worker never would.
+      const trajectory = /^\/api\/artifacts\/([a-z0-9-]+)\/trajectory$/.exec(path);
+      if (trajectory) {
+        const source = join(fixtureDir, `trajectory_${trajectory[1]}.json`);
+        if (existsSync(source)) {
+          const { points } = JSON.parse(readFileSync(source, 'utf8'));
+          const bytes = encodeTrajectory(points);
+          res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': bytes.length });
+          res.end(bytes);
+          return;
+        }
       }
 
       // Media served through the API route the client actually requests.

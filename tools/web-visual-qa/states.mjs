@@ -370,6 +370,1665 @@ export const WIDTHS = [
   { width: 2560, height: 1080, label: '2560x1080' },
 ];
 
+/*
+ * Scene Analytics Slice 5 conditions.
+ *
+ * Each is the whole Track detail with its analytics block replaced, so the
+ * rendered page reaches the state through the real contract rather than
+ * through a prop a test set. The single-sample trajectory is served through
+ * the same artefact route as the full one, which is what lets raw evidence
+ * and analytics-unavailable be shown together rather than argued about.
+ */
+const REVIEW_OVERLAP_2 = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Analysed",
+    "unavailableReason": null,
+    "referencePoint": "bbox-centre",
+    "sampleCount": 42,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitCount": 2,
+        "totalDwellMs": 2600,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitCount": 2,
+        "totalDwellMs": 2600,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      }
+    ],
+    "zoneVisits": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 0,
+        "entryOffsetMs": 600,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2600,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 1,
+        "entryOffsetMs": 720,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2480,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      }
+    ],
+    "lineCrossings": [
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 0,
+        "offsetMs": 2000,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.487,
+        "pointY": 0.523
+      }
+    ],
+    "motion": {
+      "heading": "E",
+      "pathLengthNormalised": 0.31,
+      "meanDisplacementRate": 0.11,
+      "longestStationaryMs": 0,
+      "totalStationaryMs": 0,
+      "stationaryIntervals": [],
+      "stationaryZoneIds": []
+    },
+    "otherIdentities": []
+  }
+};
+
+const REVIEW_OVERLAP_3 = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Analysed",
+    "unavailableReason": null,
+    "referencePoint": "bbox-centre",
+    "sampleCount": 42,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitCount": 3,
+        "totalDwellMs": 2600,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitCount": 3,
+        "totalDwellMs": 2600,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      }
+    ],
+    "zoneVisits": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 0,
+        "entryOffsetMs": 600,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2600,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 1,
+        "entryOffsetMs": 720,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2480,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 2,
+        "entryOffsetMs": 840,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2360,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      }
+    ],
+    "lineCrossings": [
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 0,
+        "offsetMs": 2000,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.487,
+        "pointY": 0.523
+      }
+    ],
+    "motion": {
+      "heading": "E",
+      "pathLengthNormalised": 0.31,
+      "meanDisplacementRate": 0.11,
+      "longestStationaryMs": 0,
+      "totalStationaryMs": 0,
+      "stationaryIntervals": [],
+      "stationaryZoneIds": []
+    },
+    "otherIdentities": []
+  }
+};
+
+const REVIEW_OVERLAP_5 = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Analysed",
+    "unavailableReason": null,
+    "referencePoint": "bbox-centre",
+    "sampleCount": 42,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitCount": 5,
+        "totalDwellMs": 2600,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitCount": 5,
+        "totalDwellMs": 2600,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      }
+    ],
+    "zoneVisits": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 0,
+        "entryOffsetMs": 600,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2600,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 1,
+        "entryOffsetMs": 720,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2480,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 2,
+        "entryOffsetMs": 840,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2360,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 3,
+        "entryOffsetMs": 960,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2240,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 4,
+        "entryOffsetMs": 1080,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2120,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      }
+    ],
+    "lineCrossings": [
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 0,
+        "offsetMs": 2000,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.487,
+        "pointY": 0.523
+      }
+    ],
+    "motion": {
+      "heading": "E",
+      "pathLengthNormalised": 0.31,
+      "meanDisplacementRate": 0.11,
+      "longestStationaryMs": 0,
+      "totalStationaryMs": 0,
+      "stationaryIntervals": [],
+      "stationaryZoneIds": []
+    },
+    "otherIdentities": []
+  }
+};
+
+const REVIEW_MULTI_VISIT = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Analysed",
+    "unavailableReason": null,
+    "referencePoint": "bbox-centre",
+    "sampleCount": 42,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitCount": 2,
+        "totalDwellMs": 1600,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": true,
+        "loiteringThresholdSeconds": 1,
+        "loiteringDwellMs": 1600
+      }
+    ],
+    "zoneVisits": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 0,
+        "entryOffsetMs": 600,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 800,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 1,
+        "entryOffsetMs": 1900,
+        "exitOffsetMs": 2700,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 800,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": true,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      }
+    ],
+    "lineCrossings": [
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 0,
+        "offsetMs": 2000,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.487,
+        "pointY": 0.523
+      }
+    ],
+    "motion": {
+      "heading": "E",
+      "pathLengthNormalised": 0.31,
+      "meanDisplacementRate": 0.11,
+      "longestStationaryMs": 0,
+      "totalStationaryMs": 0,
+      "stationaryIntervals": [],
+      "stationaryZoneIds": []
+    },
+    "otherIdentities": []
+  }
+};
+
+const REVIEW_CROSSING_BTOA = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Analysed",
+    "unavailableReason": null,
+    "referencePoint": "bbox-centre",
+    "sampleCount": 42,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitCount": 1,
+        "totalDwellMs": 2100,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00.6Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:02.7Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      }
+    ],
+    "zoneVisits": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 0,
+        "entryOffsetMs": 600,
+        "exitOffsetMs": 2700,
+        "entryTimestampUtc": "2026-09-14T02:30:00.6Z",
+        "exitTimestampUtc": "2026-09-14T02:30:02.7Z",
+        "dwellMs": 2100,
+        "beganInside": true,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "None",
+        "exitHeading": "E"
+      }
+    ],
+    "lineCrossings": [
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 0,
+        "offsetMs": 2000,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "bToA",
+        "pointX": 0.487,
+        "pointY": 0.523
+      }
+    ],
+    "motion": {
+      "heading": "E",
+      "pathLengthNormalised": 0.31,
+      "meanDisplacementRate": 0.11,
+      "longestStationaryMs": 0,
+      "totalStationaryMs": 0,
+      "stationaryIntervals": [],
+      "stationaryZoneIds": []
+    },
+    "otherIdentities": []
+  }
+};
+
+const REVIEW_DWELL_STATIONARY = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Analysed",
+    "unavailableReason": null,
+    "referencePoint": "bbox-centre",
+    "sampleCount": 42,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitCount": 1,
+        "totalDwellMs": 2100,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      }
+    ],
+    "zoneVisits": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 0,
+        "entryOffsetMs": 600,
+        "exitOffsetMs": 2700,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 2100,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      }
+    ],
+    "lineCrossings": [
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 0,
+        "offsetMs": 2000,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.487,
+        "pointY": 0.523
+      }
+    ],
+    "motion": {
+      "heading": "E",
+      "pathLengthNormalised": 0.31,
+      "meanDisplacementRate": 0.11,
+      "longestStationaryMs": 900,
+      "totalStationaryMs": 1400,
+      "stationaryIntervals": [
+        {
+          "startOffsetMs": 900,
+          "endOffsetMs": 1800
+        },
+        {
+          "startOffsetMs": 2200,
+          "endOffsetMs": 2700
+        }
+      ],
+      "stationaryZoneIds": [
+        "77777777-7777-7777-8777-777777777777"
+      ]
+    },
+    "otherIdentities": []
+  }
+};
+
+const REVIEW_DENSE_MARKERS = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Analysed",
+    "unavailableReason": null,
+    "referencePoint": "bbox-centre",
+    "sampleCount": 42,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitCount": 1,
+        "totalDwellMs": 2100,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00.6Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:02.7Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      }
+    ],
+    "zoneVisits": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 0,
+        "entryOffsetMs": 600,
+        "exitOffsetMs": 2700,
+        "entryTimestampUtc": "2026-09-14T02:30:00.6Z",
+        "exitTimestampUtc": "2026-09-14T02:30:02.7Z",
+        "dwellMs": 2100,
+        "beganInside": true,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "None",
+        "exitHeading": "E"
+      }
+    ],
+    "lineCrossings": [
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 0,
+        "offsetMs": 1900,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.42,
+        "pointY": 0.5
+      },
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 1,
+        "offsetMs": 1960,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "bToA",
+        "pointX": 0.44,
+        "pointY": 0.5
+      },
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 2,
+        "offsetMs": 2020,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.46,
+        "pointY": 0.5
+      },
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 3,
+        "offsetMs": 2080,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "bToA",
+        "pointX": 0.48,
+        "pointY": 0.5
+      },
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 4,
+        "offsetMs": 2140,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.5,
+        "pointY": 0.5
+      }
+    ],
+    "motion": {
+      "heading": "E",
+      "pathLengthNormalised": 0.31,
+      "meanDisplacementRate": 0.11,
+      "longestStationaryMs": 0,
+      "totalStationaryMs": 0,
+      "stationaryIntervals": [],
+      "stationaryZoneIds": []
+    },
+    "otherIdentities": []
+  }
+};
+
+const REVIEW_ANALYTICS_UNAVAILABLE = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Unavailable",
+    "unavailableReason": "trajectory_too_short",
+    "referencePoint": "bbox-centre",
+    "sampleCount": 1,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [],
+    "zoneVisits": [],
+    "lineCrossings": [],
+    "motion": null,
+    "otherIdentities": []
+  }
+};
+
+const REVIEW_ANALYTICS_PENDING = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": null,
+    "sceneRevisionNumber": null,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Pending",
+    "unavailableReason": null,
+    "referencePoint": null,
+    "sampleCount": null,
+    "gapCount": null,
+    "gapTotalMs": null,
+    "zoneSummaries": [],
+    "zoneVisits": [],
+    "lineCrossings": [],
+    "motion": null,
+    "otherIdentities": []
+  }
+};
+
+const REVIEW_ANALYTICS_STALE = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Stale",
+    "unavailableReason": null,
+    "referencePoint": "bbox-centre",
+    "sampleCount": 42,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitCount": 1,
+        "totalDwellMs": 2100,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00.6Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:02.7Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      }
+    ],
+    "zoneVisits": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 0,
+        "entryOffsetMs": 600,
+        "exitOffsetMs": 2700,
+        "entryTimestampUtc": "2026-09-14T02:30:00.6Z",
+        "exitTimestampUtc": "2026-09-14T02:30:02.7Z",
+        "dwellMs": 2100,
+        "beganInside": true,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "None",
+        "exitHeading": "E"
+      }
+    ],
+    "lineCrossings": [
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 0,
+        "offsetMs": 2000,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.487,
+        "pointY": 0.523
+      }
+    ],
+    "motion": {
+      "heading": "E",
+      "pathLengthNormalised": 0.31,
+      "meanDisplacementRate": 0.11,
+      "longestStationaryMs": 0,
+      "totalStationaryMs": 0,
+      "stationaryIntervals": [],
+      "stationaryZoneIds": []
+    },
+    "otherIdentities": []
+  }
+};
+const SINGLE_SAMPLE_TRACK = (() => {
+  const detail = JSON.parse(JSON.stringify(REVIEW_ANALYTICS_UNAVAILABLE));
+  detail.trajectoryContentUrl = '/api/artifacts/single/trajectory';
+  return detail;
+})();
+
+const REVIEW_OVERFLOW_SPANS = {
+  "id": "55555550-5555-7555-8555-555555555550",
+  "processingRunId": "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+  "videoAssetId": "22222222-2222-7222-8222-222222222222",
+  "camera": {
+    "id": "11111111-1111-7111-8111-111111111111",
+    "code": "CAM-01",
+    "name": "North Gate"
+  },
+  "objectClass": "Person",
+  "localTrackNumber": 1,
+  "startOffsetMs": 600,
+  "endOffsetMs": 3400,
+  "startTimestampUtc": "2026-09-14T02:30:00Z",
+  "endTimestampUtc": "2026-09-14T02:30:03Z",
+  "durationMs": 2800,
+  "detectionCount": 42,
+  "meanConfidence": 0.913,
+  "maxConfidence": 0.981,
+  "reviewStatus": "Unreviewed",
+  "processing": {
+    "pipelineVersion": "1.4.0",
+    "detectorName": "RTMDet",
+    "detectorVersion": "1.2.0",
+    "trackerName": "ByteTrack",
+    "trackerVersion": "0.9.1",
+    "completedAtUtc": "2026-09-14T03:09:40Z"
+  },
+  "video": {
+    "recordingStartUtc": "2026-09-14T02:30:00Z",
+    "recordingEndUtc": "2026-09-14T02:40:00Z",
+    "durationMs": 4000,
+    "width": 1920,
+    "height": 1080,
+    "frameRateNumerator": 25,
+    "frameRateDenominator": 1,
+    "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
+  },
+  "representative": {
+    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+    "sourceFrameNumber": 40,
+    "videoOffsetMs": 1600,
+    "timestampUtc": "2026-09-14T02:30:01Z",
+    "confidence": 0.962,
+    "qualityScore": 0.88,
+    "boundingBox": {
+      "x": 0.34,
+      "y": 0.3,
+      "width": 0.16,
+      "height": 0.34
+    },
+    "thumbnailArtifactId": null,
+    "thumbnailContentUrl": null
+  },
+  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
+  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
+  "analytics": {
+    "sceneRevisionId": "66666666-6666-7666-8666-666666666666",
+    "sceneRevisionNumber": 4,
+    "algorithmVersion": "scene-analytics-v1",
+    "status": "Analysed",
+    "unavailableReason": null,
+    "referencePoint": "bbox-centre",
+    "sampleCount": 42,
+    "gapCount": 0,
+    "gapTotalMs": 0,
+    "zoneSummaries": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitCount": 5,
+        "totalDwellMs": 4000,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitCount": 5,
+        "totalDwellMs": 4000,
+        "firstEntryTimestampUtc": "2026-09-14T02:30:00Z",
+        "lastExitTimestampUtc": "2026-09-14T02:30:03Z",
+        "loitering": false,
+        "loiteringThresholdSeconds": 120,
+        "loiteringDwellMs": 0
+      }
+    ],
+    "zoneVisits": [
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 0,
+        "entryOffsetMs": 400,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 1000,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 1,
+        "entryOffsetMs": 460,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 940,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 2,
+        "entryOffsetMs": 520,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 880,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 3,
+        "entryOffsetMs": 580,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 820,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 4,
+        "entryOffsetMs": 640,
+        "exitOffsetMs": 1400,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 760,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 5,
+        "entryOffsetMs": 2200,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 1000,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 6,
+        "entryOffsetMs": 2260,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 940,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 7,
+        "entryOffsetMs": 2320,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 880,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "88888888-8888-7888-8888-888888888888",
+        "visitIndex": 8,
+        "entryOffsetMs": 2380,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 820,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      },
+      {
+        "zoneId": "77777777-7777-7777-8777-777777777777",
+        "visitIndex": 9,
+        "entryOffsetMs": 2440,
+        "exitOffsetMs": 3200,
+        "entryTimestampUtc": "2026-09-14T02:30:00Z",
+        "exitTimestampUtc": "2026-09-14T02:30:03Z",
+        "dwellMs": 760,
+        "beganInside": false,
+        "endedInside": false,
+        "closedByGap": false,
+        "entryHeading": "E",
+        "exitHeading": "W"
+      }
+    ],
+    "lineCrossings": [
+      {
+        "lineId": "99999999-9999-7999-8999-999999999999",
+        "crossingIndex": 0,
+        "offsetMs": 2000,
+        "timestampUtc": "2026-09-14T02:30:02Z",
+        "direction": "aToB",
+        "pointX": 0.487,
+        "pointY": 0.523
+      }
+    ],
+    "motion": {
+      "heading": "E",
+      "pathLengthNormalised": 0.31,
+      "meanDisplacementRate": 0.11,
+      "longestStationaryMs": 0,
+      "totalStationaryMs": 0,
+      "stationaryIntervals": [],
+      "stationaryZoneIds": []
+    },
+    "otherIdentities": []
+  }
+};
+
+/**
+ * Same-instant density, derived rather than re-pasted.
+ *
+ * Five concurrent visits that all begin together, and five crossings that share
+ * one exact millisecond. Both are the cases where a rail that positions by
+ * offset alone puts controls on top of each other: the first fills the overflow
+ * span with no stagger available, the second must collapse into one control
+ * because there is one destination, while still naming all five facts.
+ */
+const REVIEW_OVERFLOW_SAME_START = {
+  ...REVIEW_OVERLAP_5,
+  analytics: {
+    ...REVIEW_OVERLAP_5.analytics,
+    zoneVisits: REVIEW_OVERLAP_5.analytics.zoneVisits.map((visit) => ({
+      ...visit, entryOffsetMs: 700,
+    })),
+  },
+};
+
+const REVIEW_MARKERS_SAME_OFFSET = {
+  ...REVIEW_DENSE_MARKERS,
+  analytics: {
+    ...REVIEW_DENSE_MARKERS.analytics,
+    lineCrossings: REVIEW_DENSE_MARKERS.analytics.lineCrossings.map((crossing) => ({
+      ...crossing, offsetMs: 1900,
+    })),
+  },
+};
+
+/**
+ * Seek to the evidence, then single out one overflowed visit.
+ *
+ * The overflow disclosure is the only route to a visit the capped sub-rows
+ * could not hold, so the captured state is the one an operator actually
+ * reaches: disclosure open, one exact interval highlighted on the rail.
+ */
+/**
+ * Seek to the evidence, then step the dense-evidence navigator.
+ *
+ * The navigator is the only route to a visit the capped sub-rows could not
+ * hold, and it exposes one member at a time, so the captured state is reached
+ * the way an operator reaches it: open the disclosure, then step.
+ */
+function stepDenseEvidence(steps) {
+  return `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const v = document.querySelector('.evidence-player__video');
+  if (v) {
+    if (v.readyState < 2) { try { v.load(); v.play().then(() => v.pause()).catch(() => {}); } catch { /* ignore */ } }
+    const jump = Array.from(document.querySelectorAll('button')).find((b) => /Evidence/.test(b.textContent || ''));
+    if (jump) jump.click();
+    v.pause();
+  }
+  const disclosure = document.querySelector('.evidence-timeline__dense');
+  if (!disclosure) return false;
+  disclosure.open = true;
+  await wait(120);
+  const next = Array.from(disclosure.querySelectorAll('button'))
+    .find((b) => (b.textContent || '').trim() === 'Next');
+  if (!next) return false;
+  for (let step = 0; step < ${steps}; step += 1) {
+    if (next.disabled) break;
+    next.click();
+    await wait(60);
+  }
+  return Boolean(document.querySelector('[data-shown="true"]'));
+})()`;
+}
+
+const SHOW_OVERFLOWED = stepDenseEvidence(1);
+const SHOW_OVERFLOWED_LATER = stepDenseEvidence(3);
+
+/**
+ * A bridging chain of overflowed visits, where grouping by transitive overlap
+ * would claim a concurrency that never happened.
+ *
+ * Three long visits fill the capped sub-rows; A, B and C then overflow with
+ * A overlapping B, B overlapping C and A never meeting C. The rail must show
+ * the density rising and falling across the run rather than one flat "+3".
+ */
+const REVIEW_OVERFLOW_BRIDGING = {
+  ...REVIEW_OVERLAP_5,
+  analytics: {
+    ...REVIEW_OVERLAP_5.analytics,
+    zoneVisits: [
+      ...[0, 1, 2].map((n) => ({
+        ...REVIEW_OVERLAP_5.analytics.zoneVisits[n],
+        visitIndex: n, entryOffsetMs: 600, exitOffsetMs: 3_400,
+      })),
+      { ...REVIEW_OVERLAP_5.analytics.zoneVisits[0], visitIndex: 3, entryOffsetMs: 700, exitOffsetMs: 1_700 },
+      { ...REVIEW_OVERLAP_5.analytics.zoneVisits[1], visitIndex: 4, entryOffsetMs: 1_200, exitOffsetMs: 2_200 },
+      { ...REVIEW_OVERLAP_5.analytics.zoneVisits[0], visitIndex: 5, entryOffsetMs: 2_100, exitOffsetMs: 3_000 },
+    ],
+  },
+};
+
+/** A hundred concurrent visits: the control count must not notice. */
+const REVIEW_OVERFLOW_CROWD = {
+  ...REVIEW_OVERLAP_5,
+  analytics: {
+    ...REVIEW_OVERLAP_5.analytics,
+    zoneVisits: Array.from({ length: 100 }, (_, n) => ({
+      ...REVIEW_OVERLAP_5.analytics.zoneVisits[n % 2],
+      visitIndex: n,
+      entryOffsetMs: 600 + n * 10,
+      exitOffsetMs: 3_400,
+    })),
+  },
+};
+
 export const STATES = [
   // --- Ledger-summary: Overview, the one Ledger permitted to stay capped. ---
   { name: 'overview', path: '/', fullWidth: false, archetype: 'ledger-summary' },
@@ -748,6 +2407,15 @@ export const STATES = [
     archetype: 'investigation', prepare: PICK_GRID, expectText: INSPECTOR_LOADED,
   },
   {
+    // The narrow host. Marker separation is measured from the rendered track,
+    // not assumed from Review's wider column, so dense markers have to stay
+    // individually clickable in the drawer too.
+    name: 'search-inspecting-dense', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2200,
+    archetype: 'investigation',
+    api: { [`/api/tracks/${TRACK}`]: REVIEW_DENSE_MARKERS },
+    expectText: INSPECTOR_LOADED,
+  },
+  {
     name: 'search-inspector-unavailable', path: `/search?track=${TRACK}`, fullWidth: true,
     settleMs: 4000, archetype: 'investigation',
     api: { [`/api/tracks/${TRACK}`]: 'unavailable' },
@@ -835,7 +2503,10 @@ export const STATES = [
     // The page override is a prefix match, so the Track detail beneath it is
     // re-exposed as its fixture; otherwise the inspector would be handed a page.
     api: { '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE), [`/api/tracks/${TRACK}`]: 'fixture' },
-    expectText: [...INSPECTOR_LOADED, 'Revision 4 · Engine v1', 'Loading bay', 'No line crossed'],
+    // Slice 5 gives the shared Track detail a crossing, so the inspector's
+    // explanation states it rather than "no line crossed", and it names the
+    // revision in the fuller wording section 16 settles on.
+    expectText: [...INSPECTOR_LOADED, 'Scene revision 4 · Engine v1', 'Loading bay', 'Gate A · 1 crossing'],
   },
 
   // --- Processing: Slice 4 readiness on the Ledger and the Record. ----------
@@ -919,4 +2590,46 @@ export const STATES = [
   // a headless browser refuses programmatic play without a user gesture, and
   // the play/pause transition is covered by the component tests.
   { name: 'review-transport', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, expectText: ['Play', 'Start', 'Evidence', 'End', 'Speed', 'Bounding box', 'Trajectory'] },
+  { name: 'review-zone-visit', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, expectText: ['Loading bay', 'Scene revision 4'] },
+  { name: 'review-multi-visit', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_MULTI_VISIT }, expectText: ['2 visits', '2s dwell against a 1s threshold'] },
+  { name: 'review-overlap-2', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_2 } },
+  { name: 'review-overlap-3', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_3 } },
+  // More concurrent visits than the capped sub-rows, so the overflow rail
+  // and its count are exercised rather than only reasoned about.
+  { name: 'review-overlap-overflow', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_5 } },
+  { name: 'review-crossing-atob', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, expectText: ['Gate A', 'Inbound'] },
+  { name: 'review-crossing-btoa', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_CROSSING_BTOA }, expectText: ['Outbound'] },
+  { name: 'review-dwell-stationary', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_DWELL_STATIONARY }, expectText: ['2 intervals'] },
+  { name: 'review-dense-markers', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_DENSE_MARKERS }, expectText: ['5 crossings'] },
+  // Geometry that cannot be loaded must not fall back to the active revision.
+  { name: 'review-geometry-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2500, footage: 'saturated', prepare: SEEK, api: { '/api/cameras/11111111-1111-7111-8111-111111111111/scene/revisions': 'unavailable' }, expectText: ['could not be loaded'] },
+  { name: 'review-analytics-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': SINGLE_SAMPLE_TRACK }, expectText: ['trajectory_too_short'] },
+  { name: 'review-analytics-pending', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_PENDING }, expectText: ['has not been analysed yet'] },
+  { name: 'review-analytics-stale', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_STALE }, expectText: ['earlier revision or engine'] },
+  // Two separate runs of concurrency: the rail must aggregate each span on
+  // its own terms rather than stating one total for the whole timeline.
+  { name: 'review-overflow-spans', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SPANS } },
+  // Nothing separates visits that begin at the same instant, so the span is
+  // the only honest unit: one band, its own count, and a route to each visit.
+  { name: 'review-overflow-same-start', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
+  // One overflowed visit singled out through the disclosure: the recovery path
+  // is captured in the state it leaves the rail in, not only asserted.
+  { name: 'review-overflow-selected', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SHOW_OVERFLOWED, prepareSettleMs: 900, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
+  // Five crossings at one millisecond: one destination, so one control — which
+  // has to carry all five names or four of them become unreachable.
+  { name: 'review-markers-same-offset', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_MARKERS_SAME_OFFSET }, expectText: ['5 crossings'] },
+  // The directed diagonal line over letterboxed and pillarboxed footage: the
+  // perpendicular is measured in projected space, where the operator sees it.
+  { name: 'review-direction-letterbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'letterbox', prepare: SEEK, requireOverlay: true, expectText: ['Inbound', 'Outbound'] },
+  { name: 'review-direction-pillarbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'pillarbox', prepare: SEEK, requireOverlay: true, expectText: ['Inbound', 'Outbound'] },
+  // Density that rises and falls inside one contiguous run: the rail has to
+  // show that profile rather than one flat count for the whole run.
+  { name: 'review-overflow-bridging', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_BRIDGING } },
+  // A hundred overlapping visits: bounded height, bounded controls, and the
+  // navigator still names one of them exactly.
+  { name: 'review-overflow-crowd', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_CROWD } },
+  { name: 'review-overflow-crowd-stepped', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SHOW_OVERFLOWED_LATER, prepareSettleMs: 1200, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_CROWD } },
+  // A member other than the first, so the captured state is not only ever
+  // "1 of N" and the exact interval drawn is one from the middle of the run.
+  { name: 'review-overflow-stepped', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SHOW_OVERFLOWED_LATER, prepareSettleMs: 1000, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
 ];

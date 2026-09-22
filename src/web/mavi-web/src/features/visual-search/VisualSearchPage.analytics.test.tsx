@@ -271,11 +271,17 @@ describe('Slice 4 Investigation analytics', () => {
       sceneRevisionId: revisionId, analyticsAlgorithmVersion: 'scene-analytics-v1',
     }));
     const summary = await screen.findByRole('region', { name: 'Scene analytics' });
-    expect(summary).toHaveTextContent('Revision 4 · Engine v1');
+    expect(summary).toHaveTextContent('Scene revision 4 · Engine v1');
+    // The pinned identity qualifies every fact above it, so it closes the panel.
+    expect(summary).toHaveTextContent('Scene revision 4 · Engine v1 · reference point: Box centre');
     expect(summary).toHaveTextContent('Forecourt · 2 visits · dwell');
     expect(summary).toHaveTextContent('Loitering');
-    expect(summary).toHaveTextContent('Gate A · 1 crossing · first inbound at');
-    expect(summary).toHaveTextContent('Up-right');
+    // Every crossing, with its own media time: the Slice-4 summary named only
+    // the first, which is not enough to verify a crossing against the video.
+    expect(summary).toHaveTextContent('Gate A · 1 crossing');
+    expect(summary).toHaveTextContent('inbound at 00:02.0');
+    // An image direction, never a compass bearing.
+    expect(summary).toHaveTextContent('Up-right (image direction)');
     // And the review link carries the identity beside the return context.
     const open = screen.getByRole('link', { name: 'Open' });
     expect(open.getAttribute('href')).toContain(`sceneRevisionId=${revisionId}`);

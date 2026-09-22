@@ -4,14 +4,22 @@ import Alert from '../../shared/components/Alert';
 import { formatOffset } from '../../shared/format/format';
 import EvidencePlayer from '../../shared/evidence/EvidencePlayer';
 import type { EvidenceDescription, EvidenceLayer } from '../../shared/evidence/layers';
+import { hasOverlappingStationary, type TrackAnalyticsEvidenceModel } from './analyticsEvidence';
+import { analyticsLayers } from './analyticsLayers';
 import { isBoxVisibleAt, projectBox, projectPoint } from '../../shared/evidence/projection';
 import type { EvidenceTimelineInterval, EvidenceTimelineMarker } from '../../shared/evidence/timeline';
-import { SUBJECT_LANE } from '../../shared/evidence/timeline';
+import { STATIONARY_LANE, SUBJECT_LANE } from '../../shared/evidence/timeline';
 import { calculateReviewSeekSeconds } from './seek';
 import { hasSampleAt, trajectoryPositionAt, type TrajectoryPoint } from './trajectory';
 
 type Props = {
   detail: TrackDetail;
+  /**
+   * Persisted analytical evidence for the pinned revision, when the host has
+   * resolved one. Absent means no analytical overlay and no analytical lane —
+   * never geometry borrowed from whatever revision is active now.
+   */
+  analytics?: TrackAnalyticsEvidenceModel;
   trajectory?: TrajectoryPoint[];
   /** The trajectory artefact exists but could not be fetched or parsed. */
   trajectoryError?: boolean;
@@ -34,7 +42,25 @@ type Props = {
  * sampled centre path; between samples the position is interpolated and says
  * so, and outside the sampled range nothing is drawn at all.
  */
-export default function TrackEvidence({ detail, trajectory, trajectoryError = false, compact = false }: Props) {
+/**
+ * A stable key for the exact analytical answer these facts came from.
+ *
+ * The Track alone is not enough: MAVI deliberately lets the same Track be read
+ * under other identities, and a zone visit is `zone-visit-{zoneId}-{index}` in
+ * every one of them. The revision and the engine are what make two answers
+ * different, so they belong in the key.
+ */
+function evidenceIdentity(detail: TrackDetail): string {
+  const analytics = detail.analytics;
+  return [
+    detail.id,
+    analytics?.sceneRevisionId ?? 'no-revision',
+    analytics?.sceneRevisionNumber ?? 'no-revision-number',
+    analytics?.algorithmVersion ?? 'no-engine',
+  ].join('|');
+}
+
+export default function TrackEvidence({ detail, analytics, trajectory, trajectoryError = false, compact = false }: Props) {
   const representative = detail.representative;
   // Two different facts, and conflating them discarded valid evidence. The
   // worker finalises a Track on one observation — `finalization.py` requires
@@ -214,6 +240,24 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
     },
   ], [detail.objectClass, detail.trajectoryArtifactId, representative, trajectory, trajectoryError, hasTrajectoryEvidence, canDrawTrajectoryPath]);
 
+  /*
+    Analytical context is drawn beneath the raw evidence: the zones and lines
+    say what the scene was, and the Track's own box and path are what the
+    operator is actually reviewing. Putting the context on top would let a zone
+    fill sit over the evidence it is supposed to explain.
+  */
+  const allLayers: EvidenceLayer[] = useMemo(
+    () => (analytics ? [...analyticsLayers(analytics), ...layers] : layers),
+    [analytics, layers],
+  );
+
+  // Checked here rather than inside the pure model, which reports facts and
+  // does not judge them; the host is what can tell the operator.
+  const stationaryOverlaps = useMemo(
+    () => hasOverlappingStationary((analytics?.intervals ?? []).filter((i) => i.lane === STATIONARY_LANE)),
+    [analytics],
+  );
+
   const intervals: EvidenceTimelineInterval[] = useMemo(() => [
     {
       id: 'track-' + detail.id,
@@ -222,18 +266,20 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
       label: `Track ${detail.localTrackNumber} interval`,
       lane: SUBJECT_LANE,
     },
-  ], [detail.id, detail.startOffsetMs, detail.endOffsetMs, detail.localTrackNumber]);
+    ...(analytics?.intervals ?? []),
+  ], [detail.id, detail.startOffsetMs, detail.endOffsetMs, detail.localTrackNumber, analytics]);
 
-  const markers: EvidenceTimelineMarker[] = useMemo(() => (
-    representative
+  const markers: EvidenceTimelineMarker[] = useMemo(() => [
+    ...(representative
       ? [{
         id: 'representative-' + representative.observationId,
         offsetMs: representative.videoOffsetMs,
         label: 'Representative frame',
         kind: 'representative',
       }]
-      : []
-  ), [representative]);
+      : []),
+    ...(analytics?.markers ?? []),
+  ], [representative, analytics]);
 
   return (
     <EvidencePlayer
@@ -257,7 +303,7 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
       // honest; false evidence is not. The divergence is declared rather than
       // papered over, and closes when a full-frame artifact exists.
       representative={representative ? { offsetMs: representative.videoOffsetMs } : undefined}
-      layers={layers}
+      layers={allLayers}
       intervals={intervals}
       markers={markers}
       preferenceScope="track"
@@ -265,11 +311,36 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
       // Review opens one second before the Track so the operator sees it enter.
       initialOffsetMs={calculateReviewSeekSeconds(detail.startOffsetMs) * 1000}
       seekKey={detail.id}
-      notices={trajectoryError ? (
-        <Alert tone="warning">
-          The persisted trajectory could not be loaded. The Track and its representative frame are unaffected.
-        </Alert>
-      ) : null}
+      // The evidence's identity, not the Track's. The same Track can be read
+      // under a different analytical identity — another scene revision, another
+      // engine — and those answers carry different facts under record ids that
+      // are only unique within one of them. Anything the player holds about a
+      // record has to be scoped to the answer it came from.
+      evidenceKey={evidenceIdentity(detail)}
+      notices={(
+        <>
+          {trajectoryError ? (
+            <Alert tone="warning">
+              The persisted trajectory could not be loaded. The Track and its representative frame are unaffected.
+            </Alert>
+          ) : null}
+          {/*
+            Stationary intervals for one Track are not expected to overlap, and
+            the stationary family is one fixed row — so overlapping facts would
+            paint over each other and hide evidence without saying so. The
+            drawing is left as it is rather than repacked, because a fact the
+            engine should not have produced is a thing to report, not to tidy
+            away into a layout that makes it look intentional.
+          */}
+          {stationaryOverlaps ? (
+            <Alert tone="warning">
+              The persisted stationary intervals for this Track overlap one another, which
+              the analytics engine should not produce. They are drawn in one lane, so some
+              may be obscured; the explanation lists every interval.
+            </Alert>
+          ) : null}
+        </>
+      )}
     />
   );
 }

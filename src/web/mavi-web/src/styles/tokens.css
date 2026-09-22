@@ -66,6 +66,7 @@
   --p-fuchsia-400: #e879f9;
   --p-violet-400: #a78bfa;
   --p-teal-400: #2dd4bf;
+  --p-yellow-300: #fde047;
   --p-black: #000;
 }
 
@@ -165,6 +166,15 @@
   --geo-line: var(--p-cyan-400);
   --geo-dir-ab: var(--p-fuchsia-300);
   --geo-dir-ba: var(--p-fuchsia-400);
+  /* Specification decision 2a, closed in Scene Analytics Slice 5 against the
+     first surface that draws an analytical instant. Chosen by measurement, not
+     by taste: CIEDE2000 in CIE Lab after Vienot dichromat simulation puts it at
+     least 7.1 from every other evidence role under normal, protan, deutan and
+     tritan vision, where the roles frozen in UI-1 come as close as 0.4 to each
+     other. It is an evidence role in its own namespace, not a borrowed
+     status-warning colour, and the crossing glyph is a diamond, so the hue is
+     never the only thing distinguishing a crossing from a direction arrow. */
+  --evidence-crossing: var(--p-yellow-300);
 
   /* The matte a frame is laid on, and the halo every overlay layer carries.
      Both are theme-invariant: letterbox bars must not tint the image, and a
