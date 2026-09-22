@@ -328,6 +328,38 @@ describe('Track evidence overlay', () => {
     });
   });
 
+  it('keeps raw one-sample evidence while analytics honestly reports it too short', () => {
+    // Both are true at once and neither is fixed to match the other. The worker
+    // finalises a Track on one observation, so the position is real evidence;
+    // Scene Analytics v1 needs two samples for any path-derived fact, so
+    // `trajectory_too_short` is an honest answer about a different question.
+    render(
+      <TrackEvidence
+        detail={{
+          ...detail,
+          analytics: {
+            ...detail.analytics,
+            status: 'Unavailable',
+            unavailableReason: 'trajectory_too_short',
+            sampleCount: 1,
+          },
+        }}
+        trajectory={oneSample}
+      />,
+    );
+
+    // The raw evidence is not hidden because analytics are unavailable.
+    expect(screen.getAllByTestId('trajectory-sample')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Trajectory' })).toBeEnabled();
+    expect(describedText('Trajectory')).toContain('x 0.250, y 0.750');
+    // And no analytical evidence is manufactured because raw evidence exists.
+    expect(screen.queryByTestId('evidence-zone')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('evidence-crossing')).not.toBeInTheDocument();
+    const lanes = screen.getAllByRole('listitem').map((item) => item.dataset.lane).filter(Boolean);
+    expect(lanes).not.toContain('zone');
+    expect(lanes).not.toContain('stationary');
+  });
+
   it('reprojects onto the replacement element when the source changes at the same size', () => {
     // The element is keyed by source, so a new video mounts. When the new media
     // declares the same dimensions the measuring callback keeps its identity,
