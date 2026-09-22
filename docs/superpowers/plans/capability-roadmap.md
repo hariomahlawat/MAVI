@@ -56,7 +56,7 @@ States: **Merged and verified** (on `main`, exact-head CI and cited evidence) ·
 | Sealed Track/observation/trajectory persistence | Merged and verified | Task 13; ADR-006 | Foundation for stage 1 |
 | Structured Track search with stable cursor snapshot; Search → inspector → Review → back | Merged and verified | Task 14, Task 16, PR #50 | Extended by stages 1, 2, 4, 8 |
 | Evidence playback with bounding-box and trajectory overlay; provenance panel | Merged and verified | Task 14, PR #50 | Reused by stage 1 to explain analytic matches |
-| Spatial & temporal Track analytics | **Slice 7 next — hardening, performance, acceptance and closure** | Slices 0–6 are merged. Slice 6 / PR #68 delivered camera-centric counts, sample-based occupancy, peak occupancy and on-demand trajectory heatmap. Slice 7 now qualifies and closes Stage 1 without adding capability. | Stage 1 — parent plan + `2026-09-22-scene-analytics-s7-hardening-acceptance.md` |
+| Spatial & temporal Track analytics | **Slice 7 in progress — Stage 1 NOT closed** | Slices 0–6 are merged. Slice 7 has closed the browser trajectory-parser range defect and built the deterministic qualification corpus and measurement harnesses, but mandatory exit-gate evidence remains outstanding: the PostgreSQL 18 every-§S/every-§T qualification at 10^5 facts, the analytics-unit throughput and heatmap envelope measurements, the C1 cross-layer semantic trace, and the real-worker Development acceptance. Status and evidence: `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md`. | Stage 1 — parent plan + `2026-09-22-scene-analytics-s7-hardening-acceptance.md` |
 | Visual attributes | Groundwork → Planned | `VisualAttribute` table, unpopulated | Stage 2 |
 | Expanded object / vehicle subclasses | Planned | Product semantics are person/vehicle | Stage 3 |
 | ANPR / OCR | Planned | No plate or OCR pipeline | Stage 4 |
@@ -139,7 +139,7 @@ Historical plans and evidence documents are never rewritten to match this roadma
 
 1. ~~Finish and merge PR #49~~ — merged as `ed1acf4`.
 2. ~~Establish the post-merge baseline~~ — §1.
-3. Spatial & Temporal Track Analytics: **Slices 0–6 are merged. Slice 7 — hardening, performance, acceptance and Stage-1 closure is next**, governed by `2026-09-22-scene-analytics-s7-hardening-acceptance.md`. No new Stage-1 capability is added in Slice 7.
+3. Spatial & Temporal Track Analytics: **Slices 0–6 are merged; Slice 7 is in progress and Stage 1 is NOT closed**, governed by `2026-09-22-scene-analytics-s7-hardening-acceptance.md`. No new Stage-1 capability is added in Slice 7. Stage 2 — Visual Attributes must not start until the Stage-1 exit gate is satisfied; the outstanding items are recorded in `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md`.
 
    **UI Foundation programme is complete:** UI-1 → UI-5 are merged. Slice 5 extended the one Evidence Player/timeline/layer contract and is merged; Slice 6 heatmap UI uses the UI-2 Workbench grammar. This UI sequencing does not renumber Scene Analytics slices (0–7) or capability stages.
 
