@@ -10,7 +10,7 @@ import {
   shortId,
   zoneLabel,
   type GeometryNames,
-} from './analyticsLabels';
+} from '../../shared/evidence/analyticsLabels';
 import {
   confidenceFractionToPercentText,
   millisecondsToSecondsText,

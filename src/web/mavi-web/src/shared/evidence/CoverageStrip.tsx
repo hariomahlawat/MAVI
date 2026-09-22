@@ -1,19 +1,24 @@
 import type { AnalyticsCoverage } from '../../api/tracks';
-import { ButtonLink } from '../../shared/components/Button';
-import Icon from '../../shared/components/Icon';
-import { formatCount } from '../../shared/format/format';
+import { ButtonLink } from '../components/Button';
+import Icon from '../components/Icon';
+import { formatCount } from '../format/format';
 import { engineLabel, shortId, type GeometryNames } from './analyticsLabels';
 
 /**
- * How much of the search scope analytics actually evaluated (plan §H, UI/UX
+ * How much of an analytical scope analytics actually evaluated (UI/UX
  * specification §14 "partially available" and §17).
  *
- * It sits immediately beneath the results header and persists for the
- * snapshot, because a result list that is silent about the runs it did not
- * evaluate is a result list that lies by omission. Every non-zero bucket is
- * named in operator words; unavailable Tracks are disclosed separately from
- * run readiness, because a unit that completed still could not read them and
- * a complete run-level claim must never be read as complete Track evidence.
+ * Shared rather than owned by one surface: Investigation reads it against a
+ * search scope and Analytics against a time window, and a second readiness
+ * vocabulary saying the same thing in different words would be a second thing
+ * for an operator to learn and for the two surfaces to disagree about.
+ *
+ * It persists for the snapshot it describes, because an answer that is silent
+ * about the runs it did not evaluate is an answer that lies by omission. Every
+ * non-zero bucket is named in operator words; unavailable Tracks are disclosed
+ * separately from run readiness, because a unit that completed still could not
+ * read them and a complete run-level claim must never be read as complete Track
+ * evidence.
  */
 
 function plural(count: number, singular: string, pluralForm = singular + 's'): string {
@@ -30,15 +35,24 @@ export function coverageSentences(coverage: AnalyticsCoverage): string[] {
   return sentences;
 }
 
-export function coverageHeadline(coverage: AnalyticsCoverage): string {
+export function coverageHeadline(coverage: AnalyticsCoverage, scopeNoun = 'search scope'): string {
   const total = coverage.evaluatedRuns + coverage.pendingRuns + coverage.failedRuns
     + coverage.notConfiguredRuns + coverage.disabledRuns + coverage.staleRuns;
-  if (total === 0) return 'No processing runs in this search scope';
+  if (total === 0) return `No processing runs in this ${scopeNoun}`;
   if (coverage.complete) return `All ${plural(total, 'run')} analysed`;
   return `${formatCount(coverage.evaluatedRuns)} of ${plural(total, 'run')} analysed`;
 }
 
-export default function CoverageStrip({ coverage, geometry }: { coverage: AnalyticsCoverage; geometry?: GeometryNames }) {
+export default function CoverageStrip({
+  coverage,
+  geometry,
+  scopeNoun,
+}: {
+  coverage: AnalyticsCoverage;
+  geometry?: GeometryNames;
+  /** What the scope is, for the case where it holds no runs at all. */
+  scopeNoun?: string;
+}) {
   const tone = coverage.staleRuns > 0 ? 'stale' : coverage.complete ? 'success' : 'info';
   const revision = coverage.sceneRevisionId === null
     ? 'no scene configured'
@@ -52,7 +66,7 @@ export default function CoverageStrip({ coverage, geometry }: { coverage: Analyt
       <Icon name={tone === 'success' ? 'check' : 'info'} size="sm" />
       <div className="coverage__body">
         <span className="coverage__headline">
-          <strong>{coverageHeadline(coverage)}</strong>
+          <strong>{coverageHeadline(coverage, scopeNoun)}</strong>
           <span className="faint"> · {revision} · {engineLabel(coverage.algorithmVersion)}</span>
         </span>
         {sentences.length > 0 ? <span className="coverage__buckets">{sentences.join(' · ')}</span> : null}

@@ -16,7 +16,7 @@ import {
   shortId,
   zoneLabel,
   type GeometryNames,
-} from '../visual-search/analyticsLabels';
+} from '../../shared/evidence/analyticsLabels';
 
 /**
  * Persisted Scene Analytics facts, turned into the Evidence Player's existing
