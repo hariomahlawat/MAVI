@@ -104,6 +104,8 @@ The request scope is:
 - optional object class (`Person` or `Vehicle`);
 - current resolved analytical identity unless a server-controlled pinned identity is supplied by an internal caller.
 
+The heatmap query additionally accepts an optional `processingRunId`. When present it narrows the scope to exactly one completed, published run that belongs to the path camera; unknown, hidden, unpublished or cross-camera ids are rejected with the same non-enumerating boundary used elsewhere. Aggregate queries remain camera/window based.
+
 Public Slice-6 UI requests use the camera's resolved identity. The API does not accept arbitrary analysis ids.
 
 The repository/service MUST reuse the same base-scope and coverage semantics as Slice 4. Prefer extracting a narrowly shared analytics-scope resolver from the existing Track-search implementation over copying its SQL/decision tree.
@@ -147,6 +149,7 @@ The contract should be compact and identity-explicit rather than repeating geome
   - unique-Track counts;
   - occupancy-at-start series;
   - peak occupancy + instant;
+  - **window-level** entry count, exit count and distinct unique-Track count;
   - repeated-visit Track count;
 - per-line series keyed by stable line id:
   - display name;
@@ -154,9 +157,12 @@ The contract should be compact and identity-explicit rather than repeating geome
   - B→A label;
   - A→B counts;
   - B→A counts;
-- class-count series.
+  - window-level A→B and B→A totals;
+- class-count series plus window-level distinct Track count per class.
 
 Array lengths MUST equal the bucket count. Contract tests pin this invariant.
+
+**Non-additive metrics are never reconstructed by summing buckets.** `zoneUniqueTrackCount`, `classCount`, occupancy and peak occupancy can repeat the same Track across buckets; the inspector uses the explicit window-level distinct totals/peak fields above. Only event counts such as entries, exits and crossings are safely additive across disjoint buckets.
 
 Do not return internal `SceneAnalysis.Id`, claim/fencing data, filesystem paths, trajectory artifact paths, or cursor-signing material.
 
@@ -177,6 +183,8 @@ This is presentation policy; the API continues accepting every integer 60–8640
 ### 5.1 Source and identity
 
 Heatmaps are computed on demand from the sealed trajectories belonging to **Analysed** Track outcomes in the covered run set for the resolved identity.
+
+A Track/run may overlap the requested window while its trajectory extends outside it. **Only samples whose absolute UTC instant is inside `[fromUtc, toUtc)` contribute.** The absolute instant is derived from the immutable source recording start plus the persisted media-relative sample offset; samples outside the window are ignored, not counted merely because their Track overlaps the scope.
 
 - `Unavailable` Track outcomes contribute no trajectory samples and remain disclosed through coverage.
 - A missing/corrupt trajectory for a Track that the analytical unit says was `Analysed` is an operational evidence-integrity failure. The heatmap request fails; it MUST NOT silently produce a lower-density map.
@@ -255,6 +263,7 @@ Query parameters are strictly whitelisted. Unknown or duplicate singleton parame
 Common validation:
 
 - camera exists and is visible;
+- optional heatmap `processingRunId`, when present, resolves to a completed/published run of that same camera;
 - `fromUtc < toUtc`;
 - timestamps include an offset and are converted to UTC;
 - object class is closed vocabulary;
@@ -269,7 +278,7 @@ Do not create mutation endpoints in this slice. Existing retry/re-analysis opera
 
 Aggregate and heatmap queries each obtain one server-side visibility snapshot and use it for **all** work in that response:
 
-1. resolve latest-visible completed runs for camera/window/class;
+1. resolve latest-visible completed runs for camera/window/class (or the validated explicit heatmap run);
 2. resolve the analytical identity under ADR-011;
 3. classify coverage;
 4. select fact-bearing units visible in the snapshot;
@@ -471,6 +480,8 @@ Must cover:
 - snapshot visibility sequence excludes later commits;
 - no internal analysis id exposed;
 - heatmap reads sealed accepted evidence;
+- trajectory samples before `fromUtc` and at/after `toUtc` are excluded even when their Track overlaps the request;
+- explicit heatmap `processingRunId` is camera-bound and visibility-checked;
 - corrupt/missing accepted evidence for an `Analysed` outcome fails rather than under-counting;
 - >50 covered heatmap runs rejected before trajectory fan-out;
 - aggregate >2048 buckets rejected.
@@ -498,6 +509,7 @@ Must cover:
 - complete-zero is rendered honestly;
 - not-configured/disabled/pending/failed/stale wording;
 - metric and geometry selection;
+- inspector uses server-provided window-level distinct totals and never sums bucket distinct counts;
 - heatmap opacity and legend;
 - exact revision reference-frame retrieval; fail closed on mismatch;
 - non-16:9 reference frame projection;
@@ -599,7 +611,7 @@ No offline packaging document change unless dependency drift is introduced (not 
 
 ### Task 1 — Freeze contracts and shared scope
 1. Add request/response contracts and strict contract tests.
-2. Extract/reuse the smallest Slice-4 scope/coverage seam needed by aggregates.
+2. Extract/reuse the smallest Slice-4 scope/coverage seam needed by aggregates. This refactor is behavior-preserving: the complete existing Slice-4 search/coverage test suite MUST pass unchanged.
 3. Pin coverage and fact-bearing semantics before metric SQL.
 
 **Gate:** contract + scope tests green; no aggregate arithmetic yet.
