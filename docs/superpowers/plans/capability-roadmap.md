@@ -2,7 +2,7 @@
 
 **Status:** Authoritative current capability-development roadmap. This file controls *what MAVI builds next*. It does not control Production qualification (Task 18) and it does not restate or reinterpret historical evidence.  
 **Adopted:** 2026-09-20  
-**Baseline:** `main@179786e2f4e09930a2c70119080ae565a92474f6` (Scene Analytics Slice 5 / PR #66 merged; post-merge rebaseline for Slice 6)  
+**Baseline:** `main@2717918761fb35e4845b6887772ebdd5c7c6edf8` (Scene Analytics Slice 6 / PR #68 merged; post-merge rebaseline for Slice 7)  
 **Product direction:** recorded-video intelligence capability first; heavier investigation/reporting workflow only once the data is rich enough to justify it; live cameras and VMS integration last. Offline operation and the Development-evidence / Production-qualification distinction (ADR-003, ADR-008, ADR-009) are mandatory throughout.  
 **Supersedes:** the sequencing in `2026-09-20-audited-review-and-cases-plan.md` (now deferred) and the "Recommended next feature" originally written in `2026-09-19-visual-intelligence-workspace.md`. Both files are retained as records and carry a status note.
 
@@ -56,7 +56,7 @@ States: **Merged and verified** (on `main`, exact-head CI and cited evidence) ·
 | Sealed Track/observation/trajectory persistence | Merged and verified | Task 13; ADR-006 | Foundation for stage 1 |
 | Structured Track search with stable cursor snapshot; Search → inspector → Review → back | Merged and verified | Task 14, Task 16, PR #50 | Extended by stages 1, 2, 4, 8 |
 | Evidence playback with bounding-box and trajectory overlay; provenance panel | Merged and verified | Task 14, PR #50 | Reused by stage 1 to explain analytic matches |
-| Spatial & temporal Track analytics | **Slice 6 next — aggregates, occupancy and heatmap** | Slices 0–5 are merged. Slice 5 / PR #66 made persisted facts visually verifiable against the exact pinned revision in Review and Investigation. Slice 6 now adds camera-centric counts, sample-based occupancy, peak occupancy and on-demand trajectory heatmap using the UI-2 Workbench grammar. | Stage 1 — parent plan + `2026-09-22-scene-analytics-s6-aggregates-heatmap.md` |
+| Spatial & temporal Track analytics | **Slice 7 next — hardening, performance, acceptance and closure** | Slices 0–6 are merged. Slice 6 / PR #68 delivered camera-centric counts, sample-based occupancy, peak occupancy and on-demand trajectory heatmap. Slice 7 now qualifies and closes Stage 1 without adding capability. | Stage 1 — parent plan + `2026-09-22-scene-analytics-s7-hardening-acceptance.md` |
 | Visual attributes | Groundwork → Planned | `VisualAttribute` table, unpopulated | Stage 2 |
 | Expanded object / vehicle subclasses | Planned | Product semantics are person/vehicle | Stage 3 |
 | ANPR / OCR | Planned | No plate or OCR pipeline | Stage 4 |
@@ -139,7 +139,7 @@ Historical plans and evidence documents are never rewritten to match this roadma
 
 1. ~~Finish and merge PR #49~~ — merged as `ed1acf4`.
 2. ~~Establish the post-merge baseline~~ — §1.
-3. Spatial & Temporal Track Analytics: **Slices 0–5 are merged. Slice 6 — Aggregates, occupancy and heatmap is next**, governed by `2026-09-22-scene-analytics-s6-aggregates-heatmap.md`; Slice 7 hardening/performance/acceptance follows after it merges.
+3. Spatial & Temporal Track Analytics: **Slices 0–6 are merged. Slice 7 — hardening, performance, acceptance and Stage-1 closure is next**, governed by `2026-09-22-scene-analytics-s7-hardening-acceptance.md`. No new Stage-1 capability is added in Slice 7.
 
    **UI Foundation programme is complete:** UI-1 → UI-5 are merged. Slice 5 extended the one Evidence Player/timeline/layer contract and is merged; Slice 6 heatmap UI uses the UI-2 Workbench grammar. This UI sequencing does not renumber Scene Analytics slices (0–7) or capability stages.
 
