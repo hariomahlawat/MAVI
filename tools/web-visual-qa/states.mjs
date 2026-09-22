@@ -34,6 +34,8 @@
  * stretched across the display instead of being left-aligned.
  */
 
+import { readFileSync } from 'node:fs';
+
 const CAM = '11111111-1111-7111-8111-111111111111';
 const VIDEO = '22222222-2222-7222-8222-222222222222';
 const LONG_VIDEO = '44444444-4444-7444-8444-444444444444';
@@ -2029,6 +2031,83 @@ const REVIEW_OVERFLOW_CROWD = {
   },
 };
 
+/*
+ * The three aggregate answers that are not "here are the figures". They are
+ * derived from the served fixture so they cannot drift from it, and each
+ * changes exactly one thing about it.
+ */
+const BASE_AGGREGATES = JSON.parse(
+  readFileSync(new URL(`./fixtures/cameras_${CAM}_analytics_aggregates.json`, import.meta.url), 'utf8'),
+);
+
+/** Runs still queued: the surface must withhold the figures, not show zeros. */
+const INCOMPLETE_AGGREGATES = {
+  ...BASE_AGGREGATES,
+  coverage: { ...BASE_AGGREGATES.coverage, evaluatedRuns: 4, pendingRuns: 2, complete: false },
+};
+
+/** Everything analysed, and nothing happened. A real observation. */
+const ZERO_AGGREGATES = {
+  ...BASE_AGGREGATES,
+  coverage: { ...BASE_AGGREGATES.coverage, analysedTracks: 0 },
+  zones: [],
+  lines: [],
+  classes: [{
+    objectClass: 'Person',
+    counts: BASE_AGGREGATES.buckets.map(() => 0),
+    windowDistinctTrackCount: 0,
+  }],
+};
+
+/** No geometry to count against at all. */
+const NO_SCENE_AGGREGATES = {
+  ...BASE_AGGREGATES,
+  sceneRevisionId: null,
+  sceneRevisionNumber: null,
+  coverage: {
+    ...BASE_AGGREGATES.coverage,
+    sceneRevisionId: null,
+    evaluatedRuns: 0,
+    notConfiguredRuns: 6,
+    analysedTracks: 0,
+    complete: false,
+  },
+  zones: [],
+  lines: [],
+  classes: [],
+};
+
+/** Arms the Heatmap mode, which is a click rather than a route. */
+const HEATMAP_MODE = `(() => {
+  const strip = document.querySelector('.analytics-modes');
+  const button = strip && Array.from(strip.querySelectorAll('button'))
+    .find((candidate) => candidate.textContent.trim() === 'Heatmap');
+  if (!button) return false;
+  button.click();
+  return true;
+})()`;
+
+/** Picks the zone occupancy metric, the one with a peak instant beside it. */
+const LINE_METRIC = `(() => {
+  const select = Array.from(document.querySelectorAll('select'))
+    .find((candidate) => Array.from(candidate.options).some((option) => option.value === 'lineCrossings'));
+  if (!select) return false;
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+  setter.call(select, 'lineCrossings');
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+})()`;
+
+const OCCUPANCY_METRIC = `(() => {
+  const select = Array.from(document.querySelectorAll('select'))
+    .find((candidate) => Array.from(candidate.options).some((option) => option.value === 'zoneOccupancy'));
+  if (!select) return false;
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+  setter.call(select, 'zoneOccupancy');
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+})()`;
+
 export const STATES = [
   // --- Ledger-summary: Overview, the one Ledger permitted to stay capped. ---
   { name: 'overview', path: '/', fullWidth: false, archetype: 'ledger-summary' },
@@ -2632,4 +2711,109 @@ export const STATES = [
   // A member other than the first, so the captured state is not only ever
   // "1 of N" and the exact interval drawn is one from the middle of the run.
   { name: 'review-overflow-stepped', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SHOW_OVERFLOWED_LATER, prepareSettleMs: 1000, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
+
+  // --- Workbench: Analytics, added in Scene Analytics Slice 6. -----------
+  //
+  // The states that matter here are the ones where the surface must refuse to
+  // draw. Every other MAVI surface can show an empty result; this one cannot,
+  // because an empty chart or an empty map is itself a claim about the world.
+  {
+    name: 'analytics-activity', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    expectText: ['Coverage complete', 'Active Tracks'],
+  },
+  {
+    // Occupancy: a reading taken at an instant, with its peak and the moment it
+    // happened, and the "Not additive" tag that stops a reader summing it.
+    name: 'analytics-occupancy', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    prepare: OCCUPANCY_METRIC, prepareSettleMs: 400,
+    expectText: ['Peak occupancy', 'Not additive'],
+  },
+  {
+    // Two series in one chart: a trip line's directions, told apart by the
+    // operator's own labels as well as by hue.
+    name: 'analytics-line-crossings', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    prepare: LINE_METRIC,
+    prepareSettleMs: 400,
+    expectText: ['Inbound', 'Outbound'],
+  },
+  {
+    // The frozen rule, rendered: an incomplete scope draws nothing at all.
+    name: 'analytics-incomplete', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    api: { [`/api/cameras/${CAM}/analytics/aggregates`]: INCOMPLETE_AGGREGATES },
+    expectText: ['Not every run in this window has been analysed', 'Coverage incomplete'],
+  },
+  {
+    // Its counterpart: complete, and genuinely zero. This one is an
+    // observation and is drawn as one.
+    name: 'analytics-complete-zero', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    api: { [`/api/cameras/${CAM}/analytics/aggregates`]: ZERO_AGGREGATES },
+    expectText: ['Coverage complete'],
+  },
+  {
+    name: 'analytics-no-scene', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    api: { [`/api/cameras/${CAM}/analytics/aggregates`]: NO_SCENE_AGGREGATES },
+    expectText: ['No scene configured'],
+  },
+  {
+    name: 'analytics-unavailable', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 4000,
+    api: { [`/api/cameras/${CAM}/analytics/aggregates`]: 'unavailable' },
+    // The server's own words, and the way out beside them.
+    expectText: ['did not respond', 'Retry'],
+  },
+  // The map itself. Slice 6 composites over the neutral matte that plan 9.2
+  // allows rather than a reference frame, so there are deliberately no
+  // footage-condition variants here: without a frame underneath they would
+  // capture identical pixels and assert nothing. Decision 2c's footage
+  // measurements are made analytically instead, and re-derived in
+  // `contrast.test.ts`.
+  {
+    name: 'analytics-heatmap', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1400,
+    prepare: HEATMAP_MODE, prepareSettleMs: 900,
+    expectText: ['trajectory sample density', '64 × 36'],
+  },
+  {
+    // The refusal that names its bound. A map is never drawn for a scope the
+    // server would not open.
+    name: 'analytics-heatmap-too-large', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1400,
+    prepare: HEATMAP_MODE, prepareSettleMs: 900,
+    api: {
+      [`/api/cameras/${CAM}/analytics/heatmap`]: {
+        status: 422,
+        body: {
+          title: 'Heatmap scope is too large',
+          detail: 'The requested scope exceeds a bounded dimension.',
+          code: 'analytics_heatmap_scope_too_large',
+          dimension: 'candidateTracks',
+          limit: 2000,
+        },
+      },
+    },
+    expectText: ['This window covers too much to map', '2,000 analysed Tracks'],
+  },
+  {
+    // Evidence that could not be read: no partial map, and no storage key.
+    name: 'analytics-heatmap-evidence-unreadable', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1400,
+    prepare: HEATMAP_MODE, prepareSettleMs: 900,
+    api: {
+      [`/api/cameras/${CAM}/analytics/heatmap`]: {
+        status: 503,
+        body: {
+          title: 'Evidence unreadable',
+          detail: 'Trajectory evidence for an analysed Track could not be read.',
+          code: 'analytics_evidence_unreadable',
+        },
+      },
+    },
+    expectText: ['not where anything went'],
+  },
 ];

@@ -3,7 +3,7 @@ import { isGuid } from '../../api/client';
 import { getCameraSceneRevision, type SceneRevision } from '../../api/scene';
 import type { TrackDetailAnalytics } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
-import { geometryNames, type GeometryNames } from '../visual-search/analyticsLabels';
+import { geometryNames, type GeometryNames } from '../../shared/evidence/analyticsLabels';
 
 /**
  * The scene revision a Track's analytical facts were measured against.

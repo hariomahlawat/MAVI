@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getCameraScene, getCameraSceneRevision } from '../../api/scene';
 import { isGuid } from '../../api/client';
 import { queryKeys } from '../../app/queryClient';
-import { geometryNames, type GeometryNames } from './analyticsLabels';
+import { geometryNames, type GeometryNames } from '../../shared/evidence/analyticsLabels';
 
 /**
  * What a surface knows about the scene it names geometry from.

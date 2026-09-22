@@ -12,7 +12,7 @@ import {
   zoneSummary,
   zoneVisit,
 } from '../../test/analyticsFixtures';
-import { geometryNames } from '../visual-search/analyticsLabels';
+import { geometryNames } from '../../shared/evidence/analyticsLabels';
 import TrackAnalyticsExplanation, { identityFooter, referencePointLabel } from './TrackAnalyticsExplanation';
 import type { AnalyticsSceneState } from './useAnalyticsScene';
 

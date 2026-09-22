@@ -22,7 +22,7 @@ import { isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resul
 import { findSelectControl, isSelectedResultControl } from './resultSelection';
 import type { AnalyticsCoverage, TrackAnalyticsIdentity } from '../../api/tracks';
 import CommittedFilterChips from './CommittedFilterChips';
-import CoverageStrip from './CoverageStrip';
+import CoverageStrip from '../../shared/evidence/CoverageStrip';
 import SearchFilterRail, { ANALYTICS_DRAFT_FIELDS, emptyDraft, type DisplayZoneState, type SearchDraft } from './SearchFilterRail';
 import TrackInspector from './TrackInspector';
 import TrackResultCard from './TrackResultCard';

@@ -13,7 +13,7 @@ import type { VideoAsset } from '../../api/videos';
 import Button from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
 import { WALL_TIME_FORMAT } from '../../shared/time/wallTime';
-import { MOTION_DIRECTION_LABELS, ZONE_RELATION_LABELS, crossingDirectionLabel, shortId } from './analyticsLabels';
+import { MOTION_DIRECTION_LABELS, ZONE_RELATION_LABELS, crossingDirectionLabel, shortId } from '../../shared/evidence/analyticsLabels';
 import type { SearchFieldErrors } from './searchValidation';
 import type { SceneGeometryState } from './useSceneGeometry';
 

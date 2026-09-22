@@ -189,54 +189,16 @@ public sealed partial class TrackSearchRepository
         return resolved[0];
     }
 
-    /// <summary>What the search evaluates against: the revision, if any, and what is active.</summary>
-    /// <param name="Revision">The resolved revision with its geometry; null only for a never-configured camera.</param>
-    /// <param name="ActiveRevisionId">The camera's active revision now, for classifying missing units.</param>
-    private sealed record ResolvedScope(SceneConfigurationRevision? Revision, Guid? ActiveRevisionId)
-    {
-        /// <summary>Whether the resolved revision itself enables analytics (plan §H, disabledRuns).</summary>
-        public bool AnalyticsEnabled => Revision?.AnalyticsEnabled ?? false;
-    }
-
     /// <summary>
-    /// Resolves the explicit revision, else the camera's active one. Null when an explicit
-    /// revision does not belong to this camera.
+    /// Resolves the explicit revision, else the camera's active one, from the one shared
+    /// implementation in <see cref="AnalyticsScopeQuery"/>.
     /// </summary>
-    /// <param name="pinned">
-    /// True on continuation: the revision id is the cursor's, and a null id means the
-    /// first page found a never-configured camera, which is then honoured rather than
-    /// re-resolved.
-    /// </param>
-    private async Task<ResolvedScope?> ResolveRevisionAsync(
+    private Task<ResolvedScope?> ResolveRevisionAsync(
         Guid cameraId,
         Guid? revisionId,
         CancellationToken cancellationToken,
-        bool pinned = false)
-    {
-        var activeRevisionId = await db.SceneConfigurations.AsNoTracking()
-            .Where(configuration => configuration.CameraId == cameraId)
-            .Select(configuration => configuration.ActiveRevisionId)
-            .SingleOrDefaultAsync(cancellationToken);
-
-        var targetId = revisionId ?? (pinned ? null : activeRevisionId);
-        if (targetId is null)
-        {
-            // Never configured, or an activation that happened after a never-configured
-            // first page: either way this chain evaluates nothing and says so in coverage.
-            return new ResolvedScope(null, activeRevisionId);
-        }
-
-        var revision = await (from candidate in db.SceneConfigurationRevisions.AsNoTracking()
-                              join configuration in db.SceneConfigurations.AsNoTracking()
-                                  on candidate.SceneConfigurationId equals configuration.Id
-                              where candidate.Id == targetId && configuration.CameraId == cameraId
-                              select candidate)
-            .Include(candidate => candidate.Zones)
-            .Include(candidate => candidate.TripLines)
-            .SingleOrDefaultAsync(cancellationToken);
-
-        return revision is null ? null : new ResolvedScope(revision, activeRevisionId);
-    }
+        bool pinned = false) =>
+        AnalyticsScopeQuery.ResolveRevisionAsync(db, cameraId, revisionId, cancellationToken, pinned);
 
     /// <summary>
     /// A zone or line predicate must name geometry of the resolved revision. Against no
@@ -259,135 +221,22 @@ public sealed partial class TrackSearchRepository
     // --- Coverage -----------------------------------------------------------
 
     /// <summary>
-    /// Coverage over the distinct runs of the base candidate set, after every ordinary
-    /// filter and the latest-run scope, before analytic predicates and pagination.
+    /// Coverage over the distinct runs of the base candidate set, from the one shared
+    /// implementation. Slice 6 classifies the same denominator the same way.
     /// </summary>
-    private async Task<TrackAnalyticsCoverage> ComputeCoverageAsync(
+    private Task<TrackAnalyticsCoverage> ComputeCoverageAsync(
         TrackSearchQuery query,
         TrackAnalyticsPinnedIdentity identity,
         ResolvedScope scope,
         long snapshotVisibilitySequence,
-        CancellationToken cancellationToken)
-    {
-        var candidates = BaseCandidates(query, snapshotVisibilitySequence);
-        var runIds = await candidates.Select(x => x.run.Id).Distinct().ToListAsync(cancellationToken);
-
-        if (scope.Revision is null)
-        {
-            return new TrackAnalyticsCoverage(null, identity.AlgorithmVersion, 0, 0, 0, runIds.Count, 0, 0, 0, 0);
-        }
-
-        if (!scope.AnalyticsEnabled)
-        {
-            // The resolved revision itself is empty. A disabled revision never receives a
-            // unit, so there is nothing to evaluate and every run is a switch-off, not a gap.
-            return new TrackAnalyticsCoverage(scope.Revision.Id, identity.AlgorithmVersion, 0, 0, 0, 0, runIds.Count, 0, 0, 0);
-        }
-
-        if (runIds.Count == 0)
-        {
-            return new TrackAnalyticsCoverage(scope.Revision.Id, identity.AlgorithmVersion, 0, 0, 0, 0, 0, 0, 0, 0);
-        }
-
-        var revisionId = scope.Revision.Id;
-        var algorithmVersion = identity.AlgorithmVersion;
-        var units = await db.SceneAnalyses.AsNoTracking()
-            .Where(unit => runIds.Contains(unit.ProcessingRunId))
-            .Select(unit => new
-            {
-                unit.Id,
-                unit.ProcessingRunId,
-                unit.RevisionId,
-                unit.AlgorithmVersion,
-                unit.Status,
-                unit.VisibilitySequence,
-            })
-            .ToListAsync(cancellationToken);
-
-        // A missing unit is "pending" only where automatic reconciliation can legitimately
-        // create it: the active revision and the current engine. Any other identity is
-        // history, and history that was never computed is stale, not on its way.
-        var identityIsCurrent = scope.ActiveRevisionId == revisionId
-            && string.Equals(algorithmVersion, SceneAnalyticsAlgorithm.Version, StringComparison.Ordinal);
-
-        var evaluated = 0;
-        var pending = 0;
-        var failed = 0;
-        var stale = 0;
-        var evaluatedUnitIds = new List<Guid>(runIds.Count);
-
-        foreach (var runId in runIds)
-        {
-            var exact = units.FirstOrDefault(unit =>
-                unit.ProcessingRunId == runId
-                && unit.RevisionId == revisionId
-                && string.Equals(unit.AlgorithmVersion, algorithmVersion, StringComparison.Ordinal));
-
-            switch (exact?.Status)
-            {
-                case SceneAnalysisStatus.Completed:
-                case SceneAnalysisStatus.Superseded:
-                    // Fact-bearing, but only if it was published inside this snapshot: a
-                    // unit completed after the first page is not part of the answer.
-                    if (exact.VisibilitySequence is { } sequence && sequence <= snapshotVisibilitySequence)
-                    {
-                        evaluated++;
-                        evaluatedUnitIds.Add(exact.Id);
-                    }
-                    else
-                    {
-                        pending++;
-                    }
-                    break;
-                case SceneAnalysisStatus.Queued:
-                case SceneAnalysisStatus.Running:
-                    pending++;
-                    break;
-                case SceneAnalysisStatus.Failed:
-                    failed++;
-                    break;
-                default:
-                    if (!identityIsCurrent)
-                    {
-                        stale++;
-                    }
-                    else if (units.Any(unit => unit.ProcessingRunId == runId
-                                 && unit.Status is SceneAnalysisStatus.Completed or SceneAnalysisStatus.Superseded))
-                    {
-                        // Older facts exist for this run; the current geometry has not been
-                        // applied. The same word the readiness rule uses.
-                        stale++;
-                    }
-                    else
-                    {
-                        pending++;
-                    }
-                    break;
-            }
-        }
-
-        var analysedTracks = 0;
-        var unavailableTracks = 0;
-        if (evaluatedUnitIds.Count > 0)
-        {
-            // Evidence accounting inside the same candidate set, not whole-unit totals: a
-            // Track the ordinary filters excluded is not counted either way.
-            var accounting = await candidates
-                .Join(
-                    db.TrackAnalysisOutcomes.AsNoTracking().Where(outcome => evaluatedUnitIds.Contains(outcome.AnalysisId)),
-                    x => x.track.Id,
-                    outcome => outcome.TrackId,
-                    (x, outcome) => outcome.Outcome)
-                .GroupBy(outcome => outcome)
-                .Select(group => new { Outcome = group.Key, Count = group.Count() })
-                .ToListAsync(cancellationToken);
-            analysedTracks = accounting.FirstOrDefault(x => x.Outcome == TrackAnalysisOutcomeKind.Analysed)?.Count ?? 0;
-            unavailableTracks = accounting.FirstOrDefault(x => x.Outcome == TrackAnalysisOutcomeKind.Unavailable)?.Count ?? 0;
-        }
-
-        return new TrackAnalyticsCoverage(
-            revisionId, algorithmVersion, evaluated, pending, failed, 0, 0, stale, analysedTracks, unavailableTracks);
-    }
+        CancellationToken cancellationToken) =>
+        AnalyticsScopeQuery.ComputeCoverageAsync(
+            db,
+            BaseCandidates(query, snapshotVisibilitySequence),
+            identity,
+            scope,
+            snapshotVisibilitySequence,
+            cancellationToken);
 
     // --- Page ---------------------------------------------------------------
 

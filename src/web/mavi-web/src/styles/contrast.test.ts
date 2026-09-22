@@ -159,3 +159,62 @@ describe('evidence and spatial legibility', () => {
     expect(new Set(values).size).toBe(EVIDENCE.length);
   });
 });
+
+/**
+ * Specification decision 2c, recomputed rather than transcribed.
+ *
+ * The scale is defended by three properties, and each is asserted from the
+ * tokens themselves so that editing a stop fails here rather than quietly
+ * changing what a density map means.
+ */
+describe('heatmap scale (decision 2c)', () => {
+  const HEAT = ['--heat-0', '--heat-1', '--heat-2', '--heat-3', '--heat-4'];
+
+  it('rises monotonically in luminance, so density reads without colour at all', () => {
+    // This is the property that survives greyscale printing and every form of
+    // colour blindness: the map still says "more here than there".
+    const luminances = HEAT.map((token) => relativeLuminance(resolve(token)));
+    for (let index = 1; index < luminances.length; index++) {
+      expect(luminances[index]).toBeGreaterThan(luminances[index - 1]);
+    }
+  });
+
+  it('spans enough range for the ends to mean opposite things', () => {
+    expect(contrast('--heat-4', '--heat-0')).toBeGreaterThan(10);
+  });
+
+  it('clears 3:1 at the top against every reference frame once the scrim is applied', () => {
+    // Without the scrim the top of any light-ended scale vanishes on bright
+    // footage, at about 1:1. The scrim is therefore part of the decision.
+    const scrimmed = (frame: string) => {
+      const darkened = frame.replace('#', '').match(/.{2}/g)!
+        .map((pair) => Math.round(parseInt(pair, 16) * 0.5).toString(16).padStart(2, '0'))
+        .join('');
+      const [hi, lo] = [relativeLuminance(resolve('--heat-4')), relativeLuminance('#' + darkened)]
+        .sort((a, b) => b - a);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+
+    for (const frame of ['#e8e6e0', '#14161a', '#1d4ed8', '#6b7280']) {
+      expect(scrimmed(frame)).toBeGreaterThanOrEqual(3);
+    }
+
+    expect(resolve('--heat-scrim')).toBe('rgb(0 0 0 / 50%)');
+  });
+
+  it('is not a red-to-green scale and borrows no frozen evidence role', () => {
+    const roles = ['--evidence-box', '--evidence-track', '--geo-zone', '--geo-line',
+      '--geo-dir-ab', '--geo-dir-ba', '--evidence-crossing'];
+    const evidence = new Set(roles.map((token) => resolve(token).toLowerCase()));
+    for (const token of HEAT) {
+      expect(evidence.has(resolve(token).toLowerCase())).toBe(false);
+    }
+
+    // Low chroma is the whole mechanism: every stop stays near its own grey, so
+    // it competes with no hue and cannot read as a red/green judgement.
+    for (const token of HEAT) {
+      const [r, g, b] = rgb(resolve(token));
+      expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThan(60);
+    }
+  });
+});

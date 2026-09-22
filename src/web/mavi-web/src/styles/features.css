@@ -753,3 +753,208 @@
 @media (max-width: 1100px) {
   .scene-stage__surface { min-height: 360px; }
 }
+
+/* --- Analytics Workbench (Scene Analytics Slice 6) ----------------------- */
+
+.analytics-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s-3);
+}
+
+.analytics-controls__presets {
+  display: flex;
+  gap: var(--s-1);
+}
+
+.analytics-modes {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+/*
+ * The stage is the Workbench canvas: it grows and never scrolls, so the one
+ * thing inside it that can be arbitrarily long — the chart's semantic twin —
+ * owns its own scroll rather than pushing the surface past its bounds.
+ */
+.analytics-stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  padding: var(--s-4);
+}
+
+.activity-chart {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--s-2);
+  margin: 0;
+}
+
+.activity-chart__caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: baseline;
+}
+
+/*
+ * The plot is the stage. It grew to a fixed band while the numbers sat beneath
+ * it; once those moved to the inspector there was nothing else competing for
+ * the height, and a chart that uses half its canvas is harder to read for no
+ * reason.
+ */
+.activity-chart__plot {
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.activity-chart__axis {
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.activity-chart__series--1 rect { fill: var(--evidence-series-1); }
+.activity-chart__series--2 rect { fill: var(--evidence-series-2); }
+
+.activity-chart__legend {
+  display: flex;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-2);
+}
+
+.activity-chart__legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.activity-chart__swatch {
+  width: var(--s-3);
+  height: var(--s-3);
+  border-radius: var(--r-1);
+}
+
+.activity-chart__swatch--1 { background: var(--evidence-series-1); }
+.activity-chart__swatch--2 { background: var(--evidence-series-2); }
+
+/*
+ * The inspector is 300-360px and a two-series table does not fit at its natural
+ * widths, so the columns are apportioned and the cells wrap. Letting it scroll
+ * sideways instead would put a second scroll owner inside the one region of a
+ * Workbench that is allowed one.
+ */
+.analytics-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.analytics-table th,
+.analytics-table td {
+  overflow-wrap: anywhere;
+}
+
+.analytics-table th:first-child {
+  width: 44%;
+}
+
+/* The shared table keeps headers on one line; here there is not the width for
+   it, and a clipped column heading is a column the reader cannot name. */
+.analytics-table thead th {
+  white-space: normal;
+}
+
+.analytics-inspector__definition {
+  color: var(--text-secondary);
+  font-size: var(--fs-2);
+}
+
+.analytics-inspector__caution {
+  color: var(--text-secondary);
+  font-size: var(--fs-2);
+  border-left: 2px solid var(--status-warn-border);
+  padding-left: var(--s-2);
+}
+
+/*
+ * The heatmap sits on a darkened frame. The scrim is part of specification
+ * decision 2c, not styling: the top of the scale measures about 1:1 against
+ * bright footage without it and simply disappears.
+ */
+.heatmap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--s-3);
+}
+
+.heatmap__frame {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
+  background-color: var(--evidence-matte);
+  background-image: linear-gradient(var(--heat-scrim), var(--heat-scrim));
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+
+.heatmap__matrix {
+  width: 100%;
+  height: 100%;
+  /* No smoothing: an interpolated map would show density between two cells
+     that nothing was measured in. */
+  shape-rendering: crispEdges;
+}
+
+.heatmap__cell--0 { fill: var(--heat-0); }
+.heatmap__cell--1 { fill: var(--heat-1); }
+.heatmap__cell--2 { fill: var(--heat-2); }
+.heatmap__cell--3 { fill: var(--heat-3); }
+.heatmap__cell--4 { fill: var(--heat-4); }
+
+.heatmap__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.heatmap__legend {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin: 0;
+  margin-left: auto;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-1);
+}
+
+.heatmap__swatch {
+  width: var(--s-4);
+  height: var(--s-3);
+}
+
+.heatmap__swatch--0 { background: var(--heat-0); }
+.heatmap__swatch--1 { background: var(--heat-1); }
+.heatmap__swatch--2 { background: var(--heat-2); }
+.heatmap__swatch--3 { background: var(--heat-3); }
+.heatmap__swatch--4 { background: var(--heat-4); }
+
+.heatmap__summary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-2);
+}

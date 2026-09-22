@@ -10,7 +10,7 @@ import {
   motionDirectionLabel,
   zoneLabel,
   type GeometryNames,
-} from '../visual-search/analyticsLabels';
+} from '../../shared/evidence/analyticsLabels';
 import { visitBoundaryNote } from './analyticsEvidence';
 import type { AnalyticsSceneState } from './useAnalyticsScene';
 
