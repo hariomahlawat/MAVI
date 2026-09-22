@@ -1,9 +1,9 @@
 # MAVI Capability Implementation Roadmap
 
 **Status:** Authoritative implementation-level roadmap. `capability-roadmap.md` answers *what we build next*; this document answers *how the stages depend on one another, what each changes technically, and what must be true before advancing*.  
-**Baseline:** `main@179786e2f4e09930a2c70119080ae565a92474f6` (Scene Analytics Slice 5 / PR #66 merged; Slice-6 planning rebaseline).  
+**Baseline:** `main@2717918761fb35e4845b6887772ebdd5c7c6edf8` (Scene Analytics Slice 6 / PR #68 merged; Slice-7 planning rebaseline).  
 **Written:** 2026-09-20. Planning only; no feature code, migration, dependency or runtime change accompanies this document.  
-**Companion:** `2026-09-20-spatial-temporal-track-analytics.md` remains the parent implementation-grade plan for stage 1; `2026-09-22-scene-analytics-s6-aggregates-heatmap.md` is the rebaselined Slice-6 execution plan written against merged Slice 5 / PR #66. `docs/architecture/ui-ux-design-specification.md` is the adopted UI/UX specification. **UI-1 through UI-5 and Scene Analytics Slices 0–5 are merged. Slice 6 aggregates/occupancy/heatmap is the next bounded implementation unit; Slice 7 hardening/performance/acceptance follows.** Task 18 (`2026-09-18-task-18-phase1-production-qualification-rebaseline.md`) remains a separate, parallel qualification stream and is not a stage here.
+**Companion:** `2026-09-20-spatial-temporal-track-analytics.md` remains the parent implementation-grade plan for stage 1; `2026-09-22-scene-analytics-s7-hardening-acceptance.md` is the Slice-7 closure plan written against merged Slice 6 / PR #68. `docs/architecture/ui-ux-design-specification.md` is the adopted UI/UX specification. **UI-1 through UI-5 and Scene Analytics Slices 0–6 are merged. Slice 7 hardening/performance/acceptance is the final Stage-1 unit and adds no new capability.** Task 18 (`2026-09-18-task-18-phase1-production-qualification-rebaseline.md`) remains a separate, parallel qualification stream and is not a stage here.
 
 ## 0. The baseline this roadmap builds on
 
@@ -97,7 +97,7 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 - **Qualification.** RTMDet, ByteTrack, CPU and CUDA runtime evidence untouched; new analytics evidence is deterministic golden fixtures plus a small staged-video corpus.
 - **Performance risks.** Fact-table growth linear in Tracks × zones; aggregate queries over long windows; heatmap computation over many trajectories.
 - **Security/privacy.** None new; scene edits should become attributable when identity exists (stage 10).
-- **Acceptance / non-goals / slices / exit gate.** See the stage-1 parent plan and the current Slice-6 execution plan. Slices 0–5 and UI-1–UI-5 are merged; Slice 6 is aggregates/occupancy/heatmap; Slice 7 is hardening/performance/acceptance. Stage exit: acceptance criteria met on the development laptop with the real worker path; analytics-specific evidence recorded; no P1/P2 open; exact-head CI green; ADR-011 remains authoritative.
+- **Acceptance / non-goals / slices / exit gate.** See the stage-1 parent plan and the current Slice-6 execution plan. Slices 0–6 and UI-1–UI-5 are merged; Slice 7 hardening/performance/acceptance is next and closes Stage 1. Stage exit: acceptance criteria met on the development laptop with the real worker path; analytics-specific evidence recorded; no P1/P2 open; exact-head CI green; ADR-011 remains authoritative.
 
 ### Stage 2 — Visual Attributes
 
