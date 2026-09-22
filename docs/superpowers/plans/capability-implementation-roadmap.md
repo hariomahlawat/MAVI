@@ -90,14 +90,14 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 - **Pipeline placement.** Application-side post-processing stage in .NET, triggered after completion and on demand, executed by a new hosted background service in the API process; the detector/tracker worker and its contract are untouched.
 - **API.** Scene configuration CRUD and activation; analysis status and retry; analytic predicates on `GET /api/tracks`; aggregate endpoints; Track detail gains analytic facts.
 - **UI.** Camera scene editor; disclosed analytics filter group; evidence explanation overlays; aggregate views.
-- **UI foundation.** The UI Foundation programme is complete: UI-1 through UI-5 are merged. Slice 4 already uses the Ledger/Investigation grammar; Slice 5 MUST extend the one Evidence Player, typed spatial-layer contract and one-timeline seam established by UI-5; Slice 6 aggregates/heatmap use the UI-2 Workbench grammar.
+- **UI foundation.** The UI Foundation programme is complete: UI-1 through UI-5 are merged. Slice 4 uses the Ledger/Investigation grammar; Slice 5 merged on the one Evidence Player/timeline/layer contract; Slice 6 aggregates/heatmap use the UI-2 Workbench grammar.
 - **Persistence.** New tables only; existing data untouched; historical Tracks receive analytics only when a run is analysed (initial policy: future runs automatically, past runs on demand). Scene edits create revisions; facts stay bound to the revision that produced them.
 - **Control plane.** Analysis units are fenced like `VisionJob` leases (attempt count, claim-token hash, lease expiry, ownership re-validated inside the final transaction); search cursors pin the resolved scene revision and algorithm version; an empty active revision means analytics disabled for that camera; Development mutations are recorded as `development-unattributed` until stage 10 supplies a real principal.
 - **Offline/dependency.** None. In-house geometry in .NET.
 - **Qualification.** RTMDet, ByteTrack, CPU and CUDA runtime evidence untouched; new analytics evidence is deterministic golden fixtures plus a small staged-video corpus.
 - **Performance risks.** Fact-table growth linear in Tracks × zones; aggregate queries over long windows; heatmap computation over many trajectories.
 - **Security/privacy.** None new; scene edits should become attributable when identity exists (stage 10).
-- **Acceptance / non-goals / slices / exit gate.** See the stage-1 parent plan and the current Slice-5 execution plan. Slices 0–4 and UI-1–UI-5 are merged; Slice 5 (evidence overlays/explanation) is implemented and awaiting review, Slice 6 is aggregates/heatmap, Slice 7 hardening/acceptance. Stage exit: acceptance criteria met on the development laptop with the real worker path; analytics-specific evidence recorded; no P1/P2 open; exact-head CI green; ADR-011 remains authoritative.
+- **Acceptance / non-goals / slices / exit gate.** See the stage-1 parent plan and the current Slice-6 execution plan. Slices 0–5 and UI-1–UI-5 are merged; Slice 6 is aggregates/occupancy/heatmap; Slice 7 is hardening/performance/acceptance. Stage exit: acceptance criteria met on the development laptop with the real worker path; analytics-specific evidence recorded; no P1/P2 open; exact-head CI green; ADR-011 remains authoritative.
 
 ### Stage 2 — Visual Attributes
 
