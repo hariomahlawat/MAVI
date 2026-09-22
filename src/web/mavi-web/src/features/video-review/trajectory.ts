@@ -1,3 +1,4 @@
+import { isInSceneRange } from '../../shared/evidence/normalizedPoint';
 import { decodeMsgpack, MsgpackError, type MsgpackValue } from '../../shared/msgpack/decode';
 
 /** One trajectory sample: the Track's centre at a media offset, normalised 0..1. */
@@ -20,8 +21,14 @@ function isFiniteNumber(value: MsgpackValue): value is number {
 
 /**
  * The worker's `serialize_trajectory` writes `{v: 1, points: [[offsetMs, cx, cy], …]}`
- * with strictly increasing offsets. This mirrors its `deserialize_trajectory`
- * validation so the browser refuses exactly what the worker would.
+ * with strictly increasing offsets.
+ *
+ * The structural rules mirror the worker's `deserialize_trajectory`. The centre
+ * range mirrors the *application* decoder instead, deliberately: that is the
+ * gate which decides whether a trajectory may produce facts at all, so a sample
+ * this parser accepts but the server refused would be drawn on the frame as a
+ * position nothing was derived from. The browser now refuses what the server
+ * refuses (Slice 7, deferred obligation 1).
  */
 export function parseTrajectory(payload: ArrayBuffer | Uint8Array): TrajectoryPoint[] {
   let value: MsgpackValue;
@@ -50,6 +57,9 @@ export function parseTrajectory(payload: ArrayBuffer | Uint8Array): TrajectoryPo
       throw new TrajectoryError('Trajectory offset must be a non-negative integer.');
     }
     if (!isFiniteNumber(x) || !isFiniteNumber(y)) throw new TrajectoryError('Trajectory centre must be numeric.');
+    if (!isInSceneRange(x) || !isInSceneRange(y)) {
+      throw new TrajectoryError('A trajectory centre must be finite and within [0, 1].');
+    }
     if (offset <= previous) throw new TrajectoryError('Trajectory offsets must increase.');
     previous = offset;
     points.push({ offsetMs: offset, centerX: x, centerY: y });
