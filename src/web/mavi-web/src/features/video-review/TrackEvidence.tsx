@@ -1,13 +1,14 @@
 import { useMemo } from 'react';
 import type { TrackDetail } from '../../api/tracks';
 import Alert from '../../shared/components/Alert';
+import { formatOffset } from '../../shared/format/format';
 import EvidencePlayer from '../../shared/evidence/EvidencePlayer';
 import type { EvidenceLayer } from '../../shared/evidence/layers';
 import { isBoxVisibleAt, projectBox, projectPoint } from '../../shared/evidence/projection';
 import type { EvidenceTimelineInterval, EvidenceTimelineMarker } from '../../shared/evidence/timeline';
 import { SUBJECT_LANE } from '../../shared/evidence/timeline';
 import { calculateReviewSeekSeconds } from './seek';
-import { trajectoryPositionAt, type TrajectoryPoint } from './trajectory';
+import { hasSampleAt, trajectoryPositionAt, type TrajectoryPoint } from './trajectory';
 
 type Props = {
   detail: TrackDetail;
@@ -63,6 +64,24 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
           </>
         );
       },
+      describe: (currentOffsetMs) => {
+        if (!representative) return [];
+        const box = representative.boundingBox;
+        const coordinate = (value: number) => value.toFixed(3);
+        return [{
+          id: 'representative-box',
+          label: `${detail.objectClass} representative bounding box`,
+          // Normalised source-frame coordinates, which are the evidence; the
+          // projected pixels describe this viewport and nothing else.
+          detail: `persisted for the frame at ${formatOffset(representative.videoOffsetMs, 'tenths')}, `
+            + `${(representative.confidence * 100).toFixed(0)}% confidence. `
+            + `Normalised source frame: x ${coordinate(box.x)}, y ${coordinate(box.y)}, `
+            + `width ${coordinate(box.width)}, height ${coordinate(box.height)}. `
+            + (isBoxVisibleAt(currentOffsetMs, representative.videoOffsetMs)
+              ? 'Drawn at the current position.'
+              : 'Not drawn here: the playhead is away from the frame it describes.'),
+        }];
+      },
     },
     {
       id: 'trajectory',
@@ -78,8 +97,14 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
       render: (frame, currentOffsetMs) => {
         if (!trajectory || trajectory.length < 2) return null;
         const projected = trajectory.map((point) => projectPoint(point.centerX, point.centerY, frame));
+        // Only a position strictly between two samples is interpolated. On a
+        // sample the filled disc already says what the evidence is, and drawing
+        // the hollow ring there would present a recorded position in the visual
+        // language reserved for a derived one.
         const current = trajectoryPositionAt(trajectory, currentOffsetMs);
-        const here = current ? projectPoint(current.x, current.y, frame) : null;
+        const interpolated = current && !hasSampleAt(trajectory, currentOffsetMs)
+          ? projectPoint(current.x, current.y, frame)
+          : null;
         return (
           <>
             <polyline
@@ -102,17 +127,48 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
                 data-testid="trajectory-sample"
               />
             ))}
-            {here ? (
+            {interpolated ? (
               <circle
                 className="evidence-track__interpolated"
                 r={5}
-                cx={here.x}
-                cy={here.y}
+                cx={interpolated.x}
+                cy={interpolated.y}
                 data-testid="trajectory-interpolated"
               />
             ) : null}
           </>
         );
+      },
+      describe: (currentOffsetMs) => {
+        if (!trajectory || trajectory.length < 2) return [];
+        const first = trajectory[0];
+        const last = trajectory[trajectory.length - 1];
+        const coordinate = (point: TrajectoryPoint) => `x ${point.centerX.toFixed(3)}, y ${point.centerY.toFixed(3)}`;
+        const current = trajectoryPositionAt(trajectory, currentOffsetMs);
+        // A real trajectory can carry thousands of samples, and an
+        // accessibility tree with thousands of entries in it is not accessible.
+        // The path is described by its extent and its ends, plus the one
+        // position that is actually being asserted right now.
+        const items = [{
+          id: 'trajectory-path',
+          label: 'Persisted trajectory',
+          detail: `${trajectory.length} samples of the Track centre from `
+            + `${formatOffset(first.offsetMs, 'tenths')} to ${formatOffset(last.offsetMs, 'tenths')}. `
+            + `Starts at ${coordinate(first)} and ends at ${coordinate(last)}, normalised to the source frame. `
+            + 'Nothing is drawn outside that range.',
+        }];
+        if (current) {
+          const exact = hasSampleAt(trajectory, currentOffsetMs);
+          items.push({
+            id: 'trajectory-position',
+            label: 'Position at the playhead',
+            detail: `x ${current.x.toFixed(3)}, y ${current.y.toFixed(3)}, normalised to the source frame. `
+              + (exact
+                ? 'A persisted sample the worker recorded.'
+                : 'Interpolated between the two surrounding samples, not a recorded position.'),
+          });
+        }
+        return items;
       },
     },
   ], [detail.objectClass, detail.trajectoryArtifactId, representative, trajectory, trajectoryError, hasTrajectory]);

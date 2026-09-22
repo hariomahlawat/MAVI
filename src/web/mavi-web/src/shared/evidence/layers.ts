@@ -2,6 +2,23 @@ import type { ReactNode } from 'react';
 import type { PixelRect } from './projection';
 
 /**
+ * One piece of spatial evidence, described for someone who cannot see the stage.
+ *
+ * The overlay is drawn as SVG and is hidden from assistive technology, because
+ * narrating raw geometry helps nobody. The specification still requires spatial
+ * content to have an accessible twin naming each object, its state and its
+ * coordinates, so a layer that draws something describes it here — from the
+ * same evidence it draws from, never a second invented dataset.
+ */
+export type EvidenceDescription = {
+  id: string;
+  /** What the object is. */
+  label: string;
+  /** Its state and its coordinates, in operator wording. */
+  detail: string;
+};
+
+/**
  * One evidence overlay layer.
  *
  * A small typed record rather than a plugin framework. The player owns whether
@@ -29,6 +46,19 @@ export type EvidenceLayer = {
   defaultVisible?: boolean;
   /** Draw into the stage. `frame` is the true video content rectangle. */
   render: (frame: PixelRect, currentOffsetMs: number) => ReactNode;
+  /**
+   * The accessible twin of what this layer draws.
+   *
+   * Coordinates given here are **normalised source-frame** values, not
+   * projected pixels: a pixel position describes the viewport the operator
+   * happens to have, while the normalised position is the evidence itself and
+   * is the same on every screen.
+   *
+   * A layer that draws an unbounded number of objects summarises rather than
+   * listing every one, because an accessibility tree with ten thousand entries
+   * in it is not accessible.
+   */
+  describe?: (currentOffsetMs: number) => readonly EvidenceDescription[];
 };
 
 const STORAGE_PREFIX = 'mavi.evidence.layers.';

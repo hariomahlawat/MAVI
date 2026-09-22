@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TrackDetail } from '../../api/tracks';
 import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
@@ -95,8 +96,9 @@ describe('Track evidence overlay', () => {
     expect(screen.getAllByTestId('trajectory-sample')).toHaveLength(2);
 
     seek(video, 12);
-    // The interpolated position is a distinct element, not a differently
-    // coloured sample: shape carries the distinction, never opacity.
+    // Strictly between the two samples, so the position is derived. The
+    // interpolated marker is a distinct element, not a differently coloured
+    // sample: shape carries the distinction, never opacity.
     const current = screen.getByTestId('trajectory-interpolated');
     expect(Number(current.getAttribute('cx'))).toBeCloseTo(500, 1);
     expect(Number(current.getAttribute('cy'))).toBeCloseTo(150, 1);
@@ -106,6 +108,26 @@ describe('Track evidence overlay', () => {
     expect(overlay.querySelector('polyline')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Bounding box' }));
     expect(screen.queryByTestId('bounding-box')).not.toBeInTheDocument();
+  });
+
+  it('never calls an exact persisted sample interpolated', () => {
+    // The samples are at 10,000 and 14,000. Landing on one is not a rarity:
+    // jumping to representative evidence lands on a sample every time, because
+    // the pipeline appends every observation to the trajectory and then picks
+    // one of them as representative. Calling that a derived position states
+    // something untrue about the evidence.
+    render(<TrackEvidence detail={detail} trajectory={trajectory} />);
+    const video = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
+
+    for (const seconds of [10, 14]) {
+      seek(video, seconds);
+      expect(screen.getAllByTestId('trajectory-sample')).toHaveLength(2);
+      expect(screen.queryByTestId('trajectory-interpolated')).not.toBeInTheDocument();
+    }
+
+    // And strictly between them it is derived, and says so.
+    seek(video, 12);
+    expect(screen.getByTestId('trajectory-interpolated')).toBeInTheDocument();
   });
 
   it('offers an unavailable trajectory layer with its reason, rather than an empty one', () => {
@@ -121,6 +143,61 @@ describe('Track evidence overlay', () => {
     render(<TrackEvidence detail={detail} trajectoryError />);
     expect(screen.getByText('The persisted trajectory could not be loaded.')).toBeInTheDocument();
     expect(screen.getByText(/could not be loaded. The Track and its representative frame are unaffected/)).toBeInTheDocument();
+  });
+
+  it('describes its spatial evidence for anyone who cannot see the stage', () => {
+    render(<TrackEvidence detail={detail} trajectory={trajectory} />);
+
+    // The stage itself stays hidden: narrating raw SVG geometry helps nobody.
+    expect(screen.getByTestId('evidence-overlay')).toHaveAttribute('aria-hidden', 'true');
+
+    const twin = screen.getByRole('group', { name: /spatial evidence$/ });
+    const box = within(twin).getByRole('region', { name: 'Bounding box' });
+    // Normalised source-frame coordinates, which are the evidence. Projected
+    // pixels would describe this viewport and change with the window.
+    expect(box).toHaveTextContent('x 0.500, y 0.500, width 0.250, height 0.500');
+    expect(box).toHaveTextContent('96% confidence');
+    expect(box).toHaveTextContent('00:12.0');
+
+    const path = within(twin).getByRole('region', { name: 'Trajectory' });
+    expect(path).toHaveTextContent('2 samples');
+    expect(path).toHaveTextContent('00:10.0 to 00:14.0');
+    expect(path).toHaveTextContent('Starts at x 0.000, y 0.000 and ends at x 1.000, y 1.000');
+    // Bounded on purpose: a real trajectory carries thousands of samples.
+    expect(within(path).getAllByRole('listitem').length).toBeLessThanOrEqual(2);
+  });
+
+  it('tells a persisted position from a derived one in the accessible twin', () => {
+    render(<TrackEvidence detail={detail} trajectory={trajectory} />);
+    const video = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
+    const path = () => within(screen.getByRole('group', { name: /spatial evidence$/ }))
+      .getByRole('region', { name: 'Trajectory' });
+
+    seek(video, 10);
+    expect(path()).toHaveTextContent('A persisted sample the worker recorded.');
+    seek(video, 12);
+    expect(path()).toHaveTextContent('Interpolated between the two surrounding samples');
+  });
+
+  it('states unavailable evidence honestly in the twin, and keeps semantics when a layer is switched off', async () => {
+    const user = userEvent.setup();
+    render(<TrackEvidence detail={{ ...detail, trajectoryArtifactId: null, trajectoryContentUrl: null }} />);
+    const twin = screen.getByRole('group', { name: /spatial evidence$/ });
+
+    // The twin says there is nothing to describe; the reason itself lives with
+    // the control and is bound to it, so it is stated once.
+    expect(within(twin).getByRole('region', { name: 'Trajectory' }))
+      .toHaveTextContent('No spatial evidence to describe.');
+    const control = screen.getByRole('button', { name: 'Trajectory' });
+    expect(control).toBeDisabled();
+    expect(document.getElementById(control.getAttribute('aria-describedby') ?? ''))
+      .toHaveTextContent('No trajectory was persisted for this Track.');
+
+    // Switching a layer off changes what is drawn, not what the evidence is.
+    await user.click(screen.getByRole('button', { name: 'Bounding box' }));
+    const box = within(twin).getByRole('region', { name: 'Bounding box' });
+    expect(box).toHaveTextContent('Hidden by the layer control.');
+    expect(box).toHaveTextContent('x 0.500, y 0.500');
   });
 
   it('reprojects onto the replacement element when the source changes at the same size', () => {

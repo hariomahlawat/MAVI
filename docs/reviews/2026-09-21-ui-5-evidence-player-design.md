@@ -40,6 +40,14 @@ type EvidenceLayer = {
 };
 ```
 
+A layer may also describe itself:
+
+```ts
+describe?: (currentOffsetMs: number) => readonly EvidenceDescription[];
+```
+
+That is the §23 accessible twin for spatial content. The stage is SVG and is hidden from assistive technology on purpose, because narrating raw geometry helps nobody; the layers name their objects, their state and their coordinates instead, from the same evidence they draw from. Coordinates are **normalised source-frame** values rather than projected pixels: a pixel position describes whatever window the operator happens to have, while the normalised position is the evidence. A layer that draws an unbounded number of objects summarises — a real trajectory carries thousands of samples, and an accessibility tree with thousands of entries in it is not accessible. Slice 5 supplies zones, lines and crossings through the same seam without the media controller changing.
+
 The shell owns visibility (persisted per operator in local storage, §18.4) and renders the visible layers into one SVG stage aligned to the content rectangle. A layer that is unavailable states why next to its disabled control rather than only in a `title`, per §12. This replaces two hard-coded checkboxes and two `show*` booleans, so adding scene geometry in Slice 5 does not touch the media controller.
 
 ## Timeline and the extension seam

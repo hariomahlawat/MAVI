@@ -58,6 +58,34 @@ export function parseTrajectory(payload: ArrayBuffer | Uint8Array): TrajectoryPo
 }
 
 /**
+ * Whether `offsetMs` is exactly one of the persisted sample offsets.
+ *
+ * The distinction matters because the two are different evidence: a sample is a
+ * position the worker recorded, and anything between two of them is derived.
+ * Landing on a sample is not a rarity either — jumping to the representative
+ * frame lands on one every time, because the pipeline appends every observation
+ * to the trajectory and then picks one of them as representative.
+ *
+ * Compared on source offsets rather than on projected coordinates, and exactly
+ * rather than within a tolerance: sample offsets are whole milliseconds, and a
+ * seek to one of them sets the media clock to that value precisely. A playhead
+ * that is merely near a sample is genuinely between samples.
+ */
+export function hasSampleAt(points: readonly TrajectoryPoint[], offsetMs: number): boolean {
+  if (points.length === 0 || !Number.isFinite(offsetMs)) return false;
+  let low = 0;
+  let high = points.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const at = points[mid].offsetMs;
+    if (at === offsetMs) return true;
+    if (at < offsetMs) low = mid + 1;
+    else high = mid - 1;
+  }
+  return false;
+}
+
+/**
  * The centre the Track occupied at `offsetMs`, linearly interpolated between
  * the two surrounding samples. Outside the sampled range there is no evidence
  * of position, so the result is null rather than a clamp.

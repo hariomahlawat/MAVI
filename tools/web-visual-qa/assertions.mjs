@@ -522,10 +522,13 @@ export const WORKSPACE_ASSERTIONS = `(() => {
     measured.playerShare = working > 0 ? round((playerBox.width / working) * 100) : null;
 
     // The evidence dominates: the player column takes at least 65% of the
-    // working width wherever the two columns stand side by side.
-    if (doc.clientWidth > 1100 && measured.playerShare !== null && measured.playerShare < 60) {
+    // working width wherever the two columns stand side by side. The gate is
+    // the frozen figure, not a softer one — a threshold of 60 that reports
+    // itself as 65 is how a 65fr track quietly delivering 63.7% went unnoticed.
+    // The only slack is a tenth of a point for sub-pixel rounding.
+    if (doc.clientWidth > 1100 && measured.playerShare !== null && measured.playerShare < 64.9) {
       problems.push('Review gives the player only ' + measured.playerShare
-        + '% of the working width; the evidence is meant to dominate at 65%');
+        + '% of the working width; section 4.5 requires at least 65%');
     }
 
     // The primary evidence summary is the first panel in the rail.

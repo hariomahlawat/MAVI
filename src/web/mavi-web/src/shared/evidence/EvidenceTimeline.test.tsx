@@ -1,7 +1,22 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import featuresCss from '../../styles/features.css?raw';
 import EvidenceTimeline from './EvidenceTimeline';
 import { SUBJECT_LANE, clampOffset, offsetFromPointer, percentOf, ratioOf } from './timeline';
+
+/**
+ * One declaration block from the feature stylesheet, comments stripped.
+ *
+ * Prose in a comment can contain the very property a rule must not use, so the
+ * comments come out before anything is matched.
+ */
+function ruleFor(selector: string): string | undefined {
+  return featuresCss
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('}')
+    .map((block) => block + '}')
+    .find((block) => block.includes(selector));
+}
 
 const intervals = [
   { id: 'subject', startOffsetMs: 10_000, endOffsetMs: 18_000, label: 'Track 7 interval', lane: SUBJECT_LANE },
@@ -131,8 +146,29 @@ describe('Evidence timeline', () => {
     expect(dwell).toHaveAttribute('data-lane', 'dwell');
     expect(dwell).toHaveAttribute('data-drawn', 'false');
     expect(dwell).not.toHaveAttribute('aria-hidden');
+    expect(dwell).not.toHaveAttribute('hidden');
     // Still named for everyone, still not given a shape nobody has chosen.
     expect(document.querySelectorAll('[data-drawn="true"]')).toHaveLength(1);
+  });
+
+  it('suppresses the undrawn band without deleting it from the accessibility tree', () => {
+    // A DOM-text assertion alone is exactly what let this through: the markup
+    // named the interval while the stylesheet removed it, which takes the
+    // visually hidden name out of the accessibility tree along with the band.
+    // jsdom applies no stylesheet, so the rule is read directly.
+    const rule = ruleFor(".evidence-timeline__interval[data-drawn='false']");
+    expect(rule, 'the undrawn-interval rule should exist').toBeDefined();
+    expect(rule).not.toMatch(/display\s*:\s*none/);
+    expect(rule).not.toMatch(/visibility\s*:\s*hidden/);
+    expect(rule).not.toMatch(/content-visibility\s*:\s*hidden/);
+    // It suppresses the band itself, which is what "named but not drawn" means.
+    expect(rule).toMatch(/background\s*:\s*none/);
+  });
+
+  it('gives the scrub bar a pointer target of at least 24px', () => {
+    const rule = ruleFor('.evidence-timeline__track {');
+    const height = Number(/height:\s*(\d+)px/.exec(rule ?? '')?.[1]);
+    expect(height).toBeGreaterThanOrEqual(24);
   });
 
   it('holds together when the duration is not yet known', () => {
