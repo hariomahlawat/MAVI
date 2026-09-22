@@ -7,7 +7,16 @@
 
 - `ReviewLayout` (`shared/workspace/layouts.tsx`) was built by UI-2 for exactly this migration: a two-column grid with the player at 65% of the working width or more, a sticky player column above 1100px, `useScrollPolicy('page')`. UI-5 corrects the track sizing so the floor is met exactly and the **surplus goes to the player**: the rail is the smaller of 35% minus the gap and its readable maximum of 440px, and the player is what is left. The percentage branch holds the floor at every width; past roughly 1500px of working width the rail stops growing and every further pixel is the player's, which is what §25 asks for on an ultra-wide display and what a fixed 65% cannot do. UI-5 migrates the Review page onto it and deletes the legacy `.review-layout` grid that §34.1 forbids extending.
 - `overlay.ts` — `contentRect`, `projectBox`, `projectPoint`, `isBoxVisibleAt`. The letterbox/pillarbox-correct projection path is already right and is not touched.
-- `trajectory.ts` — `trajectoryPositionAt` returns null outside the sampled range. Kept exactly.
+- `trajectory.ts` — `trajectoryPositionAt` returns null outside the sampled range, and returns the one sample of a single-observation Track at exactly its offset. Kept exactly.
+
+**A one-sample trajectory is evidence.** The worker finalises a Track on a
+single observation — `finalization.py` requires only `observation_count > 0`
+with one point per observation — so *trajectory exists* and *a path can be
+drawn* are two different facts and are kept apart. One sample gives the layer
+its persisted disc and its accessible semantics; it gives no polyline, because
+a line needs two points, and no interpolated ring, because interpolation needs
+two samples to sit between. Calling that "too few samples to draw" suppressed
+evidence the producer had persisted.
 - `seek.ts` — the one-second-before-start review seek. Kept exactly.
 - The animation-frame lifecycle in `TrackEvidencePlayer` and its `FrameScheduler` tests. §33.6 names this as tested logic to reuse; it moves into the controller unchanged in behaviour and keeps its tests.
 
@@ -56,6 +65,15 @@ there is no hidden spatial tree rendered beside the stage. Each layer has one
 visible row — its toggle — and that row's control carries the layer's evidence
 as its own accessible description. One layer object, one visible control, one
 semantic object.
+
+**The described objects are a list, not one string.** §23 asks for a list
+naming each object, its state and its coordinates, and a layer routinely
+describes more than one: a trajectory has its path and its position at the
+playhead, and Slice 5 adds zones, lines and crossings through the same seam.
+Concatenating them loses where one object ends and the next begins.
+`aria-describedby` flattens whatever it references to text, so the list is not
+only referenced by the control but also stands in the accessibility tree inside
+that control's own row, where it can be traversed item by item.
 
 The raw SVG stage stays `aria-hidden`. That is not the parallel-surface problem
 and does not become one: narrating path data helps nobody, and what is narrated

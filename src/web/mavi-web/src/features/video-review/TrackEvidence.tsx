@@ -36,7 +36,14 @@ type Props = {
  */
 export default function TrackEvidence({ detail, trajectory, trajectoryError = false, compact = false }: Props) {
   const representative = detail.representative;
-  const hasTrajectory = Boolean(trajectory && trajectory.length > 1);
+  // Two different facts, and conflating them discarded valid evidence. The
+  // worker finalises a Track on one observation — `finalization.py` requires
+  // only `observation_count > 0` with a point per observation — so a
+  // single-sample trajectory is a persisted position the operator is entitled
+  // to see. What one sample cannot support is a *line*: a polyline needs two
+  // points, and interpolation needs two to sit between.
+  const hasTrajectoryEvidence = Boolean(trajectory && trajectory.length > 0);
+  const canDrawTrajectoryPath = Boolean(trajectory && trajectory.length > 1);
 
   const layers: EvidenceLayer[] = useMemo(() => [
     {
@@ -90,16 +97,16 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
       kind: 'spatial',
       id: 'trajectory',
       label: 'Trajectory',
-      available: hasTrajectory,
+      available: hasTrajectoryEvidence,
       unavailableReason: !detail.trajectoryArtifactId
         ? 'No trajectory was persisted for this Track.'
         : trajectoryError
           ? 'The persisted trajectory could not be loaded.'
-          : !hasTrajectory
-            ? 'The persisted trajectory has too few samples to draw.'
+          : !hasTrajectoryEvidence
+            ? 'The persisted trajectory contains no samples.'
             : undefined,
       render: (frame, currentOffsetMs) => {
-        if (!trajectory || trajectory.length < 2) return null;
+        if (!trajectory || trajectory.length === 0) return null;
         const projected = trajectory.map((point) => projectPoint(point.centerX, point.centerY, frame));
         // Only a position strictly between two samples is interpolated. On a
         // sample the filled disc already says what the evidence is, and drawing
@@ -111,10 +118,15 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
           : null;
         return (
           <>
-            <polyline
-              className="evidence-track"
-              points={projected.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')}
-            />
+            {/* No segment exists between one sample and itself, so none is
+                drawn. A polyline of a single point would be a line the
+                evidence does not contain. */}
+            {canDrawTrajectoryPath ? (
+              <polyline
+                className="evidence-track"
+                points={projected.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')}
+              />
+            ) : null}
             {/*
               Persisted samples are filled discs; the interpolated position between
               them is a hollow ring. The distinction is shape, not opacity: faded
@@ -144,7 +156,7 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
         );
       },
       describe: (currentOffsetMs) => {
-        if (!trajectory || trajectory.length < 2) return [];
+        if (!trajectory || trajectory.length === 0) return [];
         const first = trajectory[0];
         const last = trajectory[trajectory.length - 1];
         const coordinate = (point: TrajectoryPoint) => `x ${point.centerX.toFixed(3)}, y ${point.centerY.toFixed(3)}`;
@@ -153,14 +165,28 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
         // accessibility tree with thousands of entries in it is not accessible.
         // The path is described by its extent and its ends, plus the one
         // position that is actually being asserted right now.
-        const items: EvidenceDescription[] = [{
-          id: 'trajectory-path',
-          label: 'Persisted trajectory',
-          detail: `${trajectory.length} samples of the Track centre from `
-            + `${formatOffset(first.offsetMs, 'tenths')} to ${formatOffset(last.offsetMs, 'tenths')}. `
-            + `Starts at ${coordinate(first)} and ends at ${coordinate(last)}, normalised to the source frame.`,
-          appliesNow: true,
-        }];
+        const items: EvidenceDescription[] = [
+          trajectory.length === 1
+            ? {
+              id: 'trajectory-path',
+              label: 'Persisted trajectory',
+              // One observation is a complete Track as far as the worker is
+              // concerned, so this is evidence, not a degenerate case. It is
+              // stated as the single position it is rather than as a path.
+              detail: `One persisted sample of the Track centre, at `
+                + `${formatOffset(first.offsetMs, 'tenths')}, at ${coordinate(first)}, `
+                + 'normalised to the source frame. No line is drawn, because a line needs two samples.',
+              appliesNow: true,
+            }
+            : {
+              id: 'trajectory-path',
+              label: 'Persisted trajectory',
+              detail: `${trajectory.length} samples of the Track centre from `
+                + `${formatOffset(first.offsetMs, 'tenths')} to ${formatOffset(last.offsetMs, 'tenths')}. `
+                + `Starts at ${coordinate(first)} and ends at ${coordinate(last)}, normalised to the source frame.`,
+              appliesNow: true,
+            },
+        ];
         // Stated in both directions. Outside the sampled range there is no
         // position, and saying so is evidence; dropping the item would leave
         // the operator unable to tell "nothing here" from "nothing described".
@@ -179,12 +205,14 @@ export default function TrackEvidence({ detail, trajectory, trajectoryError = fa
             label: 'Position at the playhead',
             detail: 'No position is asserted at this playhead.',
             appliesNow: false,
-            inapplicableReason: 'the playhead is outside the sampled range',
+            inapplicableReason: trajectory.length === 1
+              ? 'the playhead is not on the one persisted sample'
+              : 'the playhead is outside the sampled range',
           });
         return items;
       },
     },
-  ], [detail.objectClass, detail.trajectoryArtifactId, representative, trajectory, trajectoryError, hasTrajectory]);
+  ], [detail.objectClass, detail.trajectoryArtifactId, representative, trajectory, trajectoryError, hasTrajectoryEvidence, canDrawTrajectoryPath]);
 
   const intervals: EvidenceTimelineInterval[] = useMemo(() => [
     {

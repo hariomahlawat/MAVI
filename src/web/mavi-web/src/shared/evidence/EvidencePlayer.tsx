@@ -377,7 +377,10 @@ export default function EvidencePlayer({
           const describedBy = [showReason ? reasonId : null, layer.available ? evidenceId : null]
             .filter(Boolean).join(' ');
           return (
-            <span key={layer.id} className="evidence-layers__item">
+            // A div rather than a span, because the evidence below is a list and
+            // a list is not phrasing content. `display: inline-flex` is on the
+            // class, so the row itself is unchanged.
+            <div key={layer.id} className="evidence-layers__item">
               <Button
                 size="sm"
                 variant="ghost"
@@ -399,16 +402,30 @@ export default function EvidencePlayer({
                 // Visually hidden because the geometry is already on the frame
                 // and the coordinates would be noise beside a toggle; it is not
                 // a parallel surface, because it describes this control's own
-                // layer and is reachable only through this control. Nothing in
-                // it is focusable, so it adds no tab stop.
-                <span className="visually-hidden" id={evidenceId}>
-                  {layerPreferenceSentence(state)}
-                  {described.map((item) => (
-                    ` ${item.label}: ${item.detail} ${evidenceDrawSentence(state, item)}`
-                  )).join('')}
-                </span>
+                // layer and sits in this control's own row. Nothing in it is
+                // focusable, so it adds no tab stop.
+                <div className="visually-hidden" id={evidenceId}>
+                  <p>{layerPreferenceSentence(state)}</p>
+                  {described.length > 0 ? (
+                    // A real list, not one flattened string. Section 23 asks for
+                    // a list naming each object, its state and its coordinates,
+                    // and a layer may describe several: a trajectory has its
+                    // path and its position at the playhead, and Slice 5 will
+                    // add zones, lines and crossings through the same seam.
+                    // `aria-describedby` alone would flatten them to text, so
+                    // the list also stands in the accessibility tree where it
+                    // can be traversed item by item.
+                    <ul aria-label={`${layer.label} evidence`}>
+                      {described.map((item) => (
+                        <li key={item.id}>
+                          {item.label}: {item.detail} {evidenceDrawSentence(state, item)}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               ) : null}
-            </span>
+            </div>
           );
         })}
       </div>

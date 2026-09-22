@@ -401,6 +401,34 @@ describe('Evidence Player layers', () => {
     expect(document.querySelectorAll('.evidence-layers__item [tabindex]')).toHaveLength(0);
   });
 
+  it('gives each described object a list item rather than one flattened string', () => {
+    // Section 23 asks for a *list* naming each object, its state and its
+    // coordinates. Concatenating the objects into one hidden sentence loses
+    // where one ends and the next begins, which matters as soon as a layer
+    // describes more than one thing — a trajectory already does, and Slice 5
+    // will add zones, lines and crossings through the same seam.
+    renderPlayer({ layers: [{ ...(layers[0] as SpatialEvidenceLayer),
+      describe: () => [
+        { id: 'one', label: 'First object', detail: 'at x 0.100.', appliesNow: true },
+        { id: 'two', label: 'Second object', detail: 'at x 0.900.', appliesNow: true },
+      ],
+    }, layers[1]] });
+
+    const [description] = descriptionOf('Bounding box');
+    const list = within(description).getByRole('list');
+    const items = within(list).getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('First object: at x 0.100. Drawn at the current position.');
+    expect(items[1]).toHaveTextContent('Second object: at x 0.900. Drawn at the current position.');
+
+    // Still inside the layer's own row, and still the only representation.
+    expect(list.closest('.evidence-layers__item'))
+      .toBe(screen.getByRole('button', { name: 'Bounding box' }).closest('.evidence-layers__item'));
+    expect(screen.queryByRole('group', { name: /spatial evidence/i })).not.toBeInTheDocument();
+    expect(within(list).queryAllByRole('button')).toHaveLength(0);
+    expect(list.querySelectorAll('[tabindex]')).toHaveLength(0);
+  });
+
   it('never states a layer preference and a draw state that contradict each other', async () => {
     const user = userEvent.setup();
     renderPlayer({ layers });

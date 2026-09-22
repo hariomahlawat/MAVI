@@ -37,6 +37,15 @@ const trajectory = [
   { offsetMs: 14_000, centerX: 1, centerY: 1 },
 ];
 
+/**
+ * A Track the worker finalised on one observation.
+ *
+ * `mavi_vision/pipeline/finalization.py` requires `observation_count > 0` and
+ * one trajectory point per observation, so exactly one sample is a complete,
+ * valid Track rather than a broken one.
+ */
+const oneSample = [{ offsetMs: 12_000, centerX: 0.25, centerY: 0.75 }];
+
 // jsdom lays nothing out, so give the <video> the size of a 1000×300 element
 // that letterboxes a 16:9 frame (frame 533.3×300 centred at x≈233.3).
 const sizes = { clientWidth: 1000, clientHeight: 300 };
@@ -237,6 +246,86 @@ describe('Track evidence overlay', () => {
     // once, in the one place the operator is already looking.
     expect(describedText('Trajectory')).toContain('No trajectory was persisted for this Track.');
     expect(describedText('Trajectory')).not.toContain('Layer');
+  });
+
+  describe('a Track finalised on one observation', () => {
+    it('treats one persisted sample as evidence, not as a trajectory too short to draw', () => {
+      render(<TrackEvidence detail={detail} trajectory={oneSample} />);
+
+      // The producer allows it, so the UI may not discard it. Before this was
+      // fixed the layer was disabled and the operator was told the trajectory
+      // had "too few samples to draw" — about evidence that exists.
+      const control = screen.getByRole('button', { name: 'Trajectory' });
+      expect(control).toBeEnabled();
+      expect(control).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.queryByText(/too few samples/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/No trajectory was persisted/)).not.toBeInTheDocument();
+    });
+
+    it('draws the sample and nothing the evidence does not contain', () => {
+      render(<TrackEvidence detail={detail} trajectory={oneSample} />);
+
+      expect(screen.getAllByTestId('trajectory-sample')).toHaveLength(1);
+      // A line needs two points, and a hollow ring means "derived from two
+      // surrounding samples". Neither exists here, so neither is drawn.
+      expect(document.querySelector('.evidence-track')).toBeNull();
+      expect(screen.queryByTestId('trajectory-interpolated')).not.toBeInTheDocument();
+    });
+
+    it('names the sample and asserts a position only where one was recorded', () => {
+      render(<TrackEvidence detail={detail} trajectory={oneSample} />);
+      const video = screen.getByLabelText(/source video evidence$/) as HTMLVideoElement;
+      const items = () => within(
+        document.getElementById(
+          screen.getByRole('button', { name: 'Trajectory' }).getAttribute('aria-describedby') ?? '',
+        ) as HTMLElement,
+      ).getAllByRole('listitem').map((item) => item.textContent ?? '');
+
+      seek(video, 12);
+      expect(items()[0]).toContain('One persisted sample of the Track centre, at 00:12.0');
+      expect(items()[0]).toContain('x 0.250, y 0.750');
+      expect(items()[0]).toContain('No line is drawn, because a line needs two samples.');
+      expect(items()[1]).toContain('x 0.250, y 0.750');
+      expect(items()[1]).toContain('A persisted sample the worker recorded.');
+      expect(items()[1]).not.toContain('Interpolated');
+
+      // Off the sample there is no evidence of position, and no motion is
+      // invented in either direction.
+      for (const seconds of [11, 13]) {
+        seek(video, seconds);
+        expect(items()[1]).toContain('No position is asserted at this playhead.');
+        expect(items()[1]).toContain('Not drawn here: the playhead is not on the one persisted sample.');
+      }
+    });
+
+    it('keeps the evidence when the operator switches the layer off', async () => {
+      const user = userEvent.setup();
+      render(<TrackEvidence detail={detail} trajectory={oneSample} />);
+
+      await user.click(screen.getByRole('button', { name: 'Trajectory' }));
+      expect(screen.queryByTestId('trajectory-sample')).not.toBeInTheDocument();
+      const described = describedText('Trajectory');
+      expect(described).toContain('Layer hidden by operator.');
+      expect(described).toContain('x 0.250, y 0.750');
+      expect(described).not.toContain('Drawn at the current position.');
+    });
+
+    it('stays distinct from a Track with no trajectory at all', () => {
+      render(<TrackEvidence detail={{ ...detail, trajectoryArtifactId: null, trajectoryContentUrl: null }} />);
+      const control = screen.getByRole('button', { name: 'Trajectory' });
+      expect(control).toBeDisabled();
+      expect(describedText('Trajectory')).toContain('No trajectory was persisted for this Track.');
+      expect(screen.queryByTestId('trajectory-sample')).not.toBeInTheDocument();
+    });
+
+    it('stays distinct from a persisted artefact that yielded no samples', () => {
+      render(<TrackEvidence detail={detail} trajectory={[]} />);
+      const control = screen.getByRole('button', { name: 'Trajectory' });
+      expect(control).toBeDisabled();
+      expect(describedText('Trajectory')).toContain('The persisted trajectory contains no samples.');
+      expect(describedText('Trajectory')).not.toContain('No trajectory was persisted');
+    });
   });
 
   it('reprojects onto the replacement element when the source changes at the same size', () => {
