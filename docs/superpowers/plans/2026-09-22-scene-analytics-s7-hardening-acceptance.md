@@ -44,7 +44,8 @@ Implementation begins by re-auditing exact `main` and reconciling this register 
 
 1. **Browser trajectory parser parity (Slice 5 P3):** reject finite x/y outside `[0,1]` with discriminating malformed-artifact tests.
 2. **Measured index review (Slice 4):** re-measure analytical queries at corpus volume on PostgreSQL 18 with `EXPLAIN (ANALYZE, BUFFERS)`; PG16 observations are not qualification evidence.
-3. **Analytics-unit throughput (§Z parent plan):** measure unit duration and rows written for the Development corpus and for a synthetic 1,000-Track run. This qualifies the post-processing stage itself, not only its read paths.\n4. **Aggregate scale (Slice 6):** at least `10^5` relevant persisted facts.
+3. **Analytics-unit throughput (§Z parent plan):** measure unit duration and rows written for the Development corpus and for a synthetic 1,000-Track run. This qualifies the post-processing stage itself, not only its read paths.
+4. **Aggregate scale (Slice 6):** at least `10^5` relevant persisted facts.
 5. **Heatmap timing (Slice 6):** repeatable 50-run timing; record resolved runs and candidate Analysed Tracks.
 6. **Heatmap limits:** re-evaluate 50 covered runs and 2,000 candidate Analysed Tracks; retain/lower/raise/remove only from evidence while remaining bounded.
 7. **Evidence bytes:** if cheap metadata exists at the accepted seam, record aggregate accepted bytes; do not open artifacts merely to discover size.
@@ -95,7 +96,13 @@ Record planning/execution time, actual/estimated rows, buffers, scan types, sort
 
 **Index rule:** no speculative index. Require problematic measured plan → hypothesis → before/after same-corpus evidence → write/storage regression consideration → retain only for material benefit. Preserve pre-optimization evidence.
 
-## 9. Analytics-stage and aggregate performance envelope\n\n### 9.1 Analytics-unit throughput\n\nQualify the write-side post-processing stage required by parent-plan §Z. Measure complete SceneAnalysis unit duration and rows written for (a) the Development scripted corpus and (b) a synthetic 1,000-Track run. Record Track outcomes and each derived-fact family row count, total rows, attempt/identity, geometry count and trajectory sample volume. Where existing instrumentation permits, separate trajectory decode/engine/persistence/final-commit time without adding permanent production telemetry solely for benchmarking. Also inspect the reconciliation/claim query at representative corpus volume if it is material in the measured unit lifecycle.\n\n### 9.2 Aggregate read envelope
+## 9. Analytics-stage and aggregate performance envelope
+
+### 9.1 Analytics-unit throughput
+
+Qualify the write-side post-processing stage required by parent-plan §Z. Measure complete SceneAnalysis unit duration and rows written for (a) the Development scripted corpus and (b) a synthetic 1,000-Track run. Record Track outcomes and each derived-fact family row count, total rows, attempt/identity, geometry count and trajectory sample volume. Where existing instrumentation permits, separate trajectory decode/engine/persistence/final-commit time without adding permanent production telemetry solely for benchmarking. Also inspect the reconciliation/claim query at representative corpus volume if it is material in the measured unit lifecycle.
+
+### 9.2 Aggregate read envelope
 
 Vary fact/Track volume, bucket count, geometry count, window width, class and coverage. C3 MUST include `10^5` facts. Record endpoint/query time where reliably observable, DB query count, response size, cardinality and repeatable memory/GC observations. Identify dominant scaling dimension; do not tune to one synthetic number.
 
@@ -212,23 +219,24 @@ Stage 1 closes only when all are true:
 
 1. Stage-1 functional acceptance met.
 2. C1 agrees across trajectory/facts/search/explanation/aggregate/heatmap/UI.
-3. PG18 plans and corpus timings recorded.
-4. `10^5`-fact aggregate evidence recorded.
-5. Heatmap 50-run/candidate envelope recorded and both fan-out limits explicitly decided.
-7. No demonstrated N+1/unbounded DB/evidence-I/O path.
-8. Cancellation/failure proven at realistic volume.
-9. Snapshot/revision consistency proven under concurrency.
+3. PostgreSQL 18 plans and corpus timings are recorded, including latency/plan evidence for every §S predicate and every §T aggregate at `10^5` facts.
+4. Analytics-unit duration and rows-written evidence is recorded for both the Development corpus and synthetic 1,000-Track run.
+5. Aggregate scale qualification is recorded, including the required `10^5`-fact cases.
+6. Heatmap 50-run/candidate envelope is recorded and both fan-out limits explicitly decided.
+7. No demonstrated N+1/unbounded DB/evidence-I/O path remains.
+8. Cancellation/failure is proven at realistic volume.
+9. Snapshot/revision consistency is proven under concurrency.
 10. Incomplete/unknown never appears as observed zero.
-11. Browser parser matches normalized-coordinate contract.
+11. Browser parser matches the normalized-coordinate contract.
 12. Security/resource review has no open P1/P2.
 13. Operator workflow/accessibility/visual QA pass.
-14. Development offline/real-worker acceptance recorded with no undeclared dependency.
-15. No policy-violating dependency/runtime drift.
-16. Relevant suites and exact-head CI green except explicitly proven irrelevant environment exclusions.
-17. Docs reflect measured reality/limits/known limitations.
-18. Independent cold review clean of P1/P2.
-19. No unresolved material review thread.
-20. Post-merge critical verification on `main` green.
+14. Development offline/real-worker acceptance is recorded with no undeclared dependency.
+15. No policy-violating dependency/runtime drift is introduced.
+16. Relevant suites and exact-head CI are green except explicitly proven irrelevant environment exclusions.
+17. Documentation reflects measured reality, limits and known limitations.
+18. Independent cold review is clean of P1/P2.
+19. No unresolved material review thread remains.
+20. Post-merge critical verification on `main` is green.
 
 Then mark Stage 1 complete and advance to **Stage 2 — Visual Attributes**. Do not hold Stage 1 for optional polish.
 
