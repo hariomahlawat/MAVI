@@ -30,6 +30,10 @@ export const CONDITIONS = {
   // The aspect ratio is what is under test, not the resolution — a 2560-wide
   // source only costs decode budget at the widest viewport.
   letterbox: { size: '1680x720', filter: 'smptebars=s=1680x720:d=4' },
+  // Portrait in a 16:9 element: pillarbox bars down each side. The mirror image
+  // of the letterbox case, and the one a projection that only corrects height
+  // gets wrong. Section 26 requires both.
+  pillarbox: { size: '720x1280', filter: 'smptebars=s=720x1280:d=4' },
 };
 
 export function ensureFootage(mediaDir, condition = 'saturated') {

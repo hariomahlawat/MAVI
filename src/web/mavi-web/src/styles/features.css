@@ -227,42 +227,89 @@
 .track-inspector__nav { display: flex; align-items: center; gap: var(--s-2); }
 .track-inspector__pos { color: var(--text-muted); font-size: var(--fs-1); font-variant-numeric: tabular-nums; min-width: 64px; text-align: center; }
 
-.player { position: relative; width: 100%; background: var(--evidence-matte); border-radius: var(--r-2); overflow: hidden; }
-.player video { display: block; width: 100%; max-height: 62vh; background: var(--evidence-matte); }
-.player--fill video { max-height: 48vh; }
-/* Every overlay layer carries the halo (section 8.3). The Scene Editor solved
-   this for its own canvas in slice 2 and the player never got it, so a violet
-   box over bright footage reached 2.7:1 against the frame and simply was not
-   there. The halo is what makes an overlay legible over footage the product
-   does not control. */
-.player__overlay {
+/* ------------------------------------------------------------------ *
+ * Evidence Player (section 18). One implementation, shared by Review and the
+ * Investigation inspector. The frame carries evidence only: the transport and
+ * the timeline sit below it, because native controls and overlaid controls both
+ * occupy the band where evidence is drawn.
+ * ------------------------------------------------------------------ */
+.evidence-player { display: grid; gap: var(--s-2); min-width: 0; }
+.evidence-player__frame { position: relative; width: 100%; background: var(--evidence-matte); border-radius: var(--r-2); overflow: hidden; }
+/* The frame is where the keyboard grammar acts, so its focus has to be as
+   visible as any control's. */
+.evidence-player__frame:focus-visible { outline: var(--stroke-2) solid var(--focus-ring); outline-offset: var(--stroke-2); }
+.evidence-player__video { display: block; width: 100%; max-height: 62vh; background: var(--evidence-matte); }
+.evidence-player--compact .evidence-player__video { max-height: 40vh; }
+
+/* Every overlay layer carries the halo (section 8.3). A violet box over bright
+   footage reaches 2.7:1 against the frame without it and simply is not there.
+   The halo is applied once to the stage, not per shape. */
+.evidence-player__stage {
   position: absolute; inset: 0; pointer-events: none;
   filter: drop-shadow(0 0 var(--evidence-halo-blur) var(--evidence-halo));
 }
-.player__overlay rect { fill: none; stroke: var(--evidence-box); stroke-width: var(--stroke-2); vector-effect: non-scaling-stroke; }
-.player__overlay .bbox-label { fill: var(--evidence-box); font: 600 var(--fs-0) var(--font-ui); paint-order: stroke; stroke: var(--evidence-matte); stroke-width: var(--evidence-halo-w); stroke-linejoin: round; }
-.player__overlay polyline { fill: none; stroke: var(--evidence-track); stroke-width: var(--stroke-2); stroke-opacity: 0.9; vector-effect: non-scaling-stroke; }
-.player__overlay .trajectory-point { fill: var(--evidence-track); }
-.player__overlay .trajectory-current { fill: var(--evidence-track); stroke: var(--evidence-matte); stroke-width: var(--stroke-1); }
+.evidence-box { fill: none; stroke: var(--evidence-box); stroke-width: var(--stroke-2); vector-effect: non-scaling-stroke; }
+.evidence-box__label {
+  fill: var(--evidence-box); font: 600 var(--fs-0) var(--font-ui);
+  paint-order: stroke; stroke: var(--evidence-matte); stroke-width: var(--evidence-halo-w); stroke-linejoin: round;
+}
+.evidence-track { fill: none; stroke: var(--evidence-track); stroke-width: var(--stroke-2); vector-effect: non-scaling-stroke; }
+/* Persisted versus interpolated is shape, never opacity: a filled disc is a
+   sample the worker recorded, a hollow ring is a position derived between two
+   of them. Confidence is text elsewhere and is never encoded as fading. */
+.evidence-track__sample { fill: var(--evidence-track); stroke: none; }
+.evidence-track__interpolated {
+  fill: none; stroke: var(--evidence-track); stroke-width: var(--stroke-2); vector-effect: non-scaling-stroke;
+}
 
-.player-controls { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; padding-top: var(--s-2); }
-.player-controls .grow { flex: 1; }
+.evidence-timeline { position: relative; }
+/* The bar is a list of evidence, and each mark is one list item that carries
+   its own name. There is no second hidden copy of it. */
+/* 24px tall so the scrub target meets the minimum pointer size (section 23).
+   The bar drawn inside it stays thin: only the hit area has to be 24. */
+.evidence-timeline__track {
+  position: relative; height: 24px; width: 100%; cursor: pointer; touch-action: none;
+  list-style: none; display: block;
+}
+.evidence-timeline__track::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 10px; height: 4px;
+  border-radius: var(--r-pill); background: var(--surface-raised-2);
+}
+.evidence-timeline__item { position: absolute; }
+.evidence-timeline__interval { top: 10px; height: 4px; background: var(--evidence-track); border-radius: var(--r-pill); }
+/* A lane whose presentation is not yet decided is named but not drawn; see the
+   timeline module and open decision 7.
 
-.timeline { position: relative; height: 22px; margin: var(--s-2) 0 0; }
-.timeline__track { position: absolute; left: 0; right: 0; top: 9px; height: 4px; border-radius: var(--r-pill); background: var(--surface-raised-2); }
-.timeline__interval { position: absolute; top: 9px; height: 4px; background: var(--evidence-track); opacity: 0.8; border-radius: var(--r-pill); }
-.timeline__marker { position: absolute; top: 4px; width: 2px; height: 14px; background: var(--evidence-box); transform: translateX(-1px); }
-.timeline__playhead { position: absolute; top: 2px; width: 2px; height: 18px; background: var(--text-primary); transform: translateX(-1px); }
-.timeline__labels { display: flex; justify-content: space-between; color: var(--text-muted); font-size: var(--fs-0); font-variant-numeric: tabular-nums; margin-top: var(--s-hair); }
+   Only the band is suppressed. `display: none` or `visibility: hidden` here
+   would take the item out of the accessibility tree with it, which would delete
+   the very name the component promises to keep — "named as evidence, not drawn"
+   has to mean both halves. The item stays in flow as a zero-height box whose
+   only content is its visually hidden name. */
+.evidence-timeline__interval[data-drawn='false'] {
+  position: static; height: 0; background: none;
+}
+.evidence-timeline__marker { top: 5px; width: 2px; height: 14px; background: var(--evidence-box); transform: translateX(-1px); }
+.evidence-timeline__playhead {
+  position: absolute; top: 3px; width: 2px; height: 18px; background: var(--text-primary); transform: translateX(-1px);
+  list-style: none;
+}
+
+.evidence-transport { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.evidence-transport__time { margin-left: auto; color: var(--text-secondary); font-size: var(--fs-1); font-variant-numeric: tabular-nums; }
+.evidence-transport__rate { display: inline-flex; align-items: center; gap: var(--s-2); color: var(--text-secondary); font-size: var(--fs-1); }
+.evidence-transport__rate select { height: var(--control-h-sm); }
+
+.evidence-layers { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; color: var(--text-muted); }
+.evidence-layers__item { display: inline-flex; align-items: center; gap: var(--s-2); }
+.evidence-layers__reason { color: var(--text-muted); font-size: var(--fs-0); }
+/* Section 12: a control with aria-pressed and no pressed style is a defect. */
+.evidence-layers .btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--text-primary); border-color: var(--accent); }
 
 .evidence-thumb { width: 100%; max-height: 240px; object-fit: contain; background: var(--surface-app); border-radius: var(--r-2); border: 1px solid var(--border-subtle); }
 .evidence-thumb-placeholder { display: grid; place-items: center; min-height: 120px; border: 1px dashed var(--border-subtle); border-radius: var(--r-2); color: var(--text-muted); font-size: var(--fs-1); }
-.review-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(340px, 0.8fr); gap: var(--s-4); align-items: start; }
-.review-layout > * { min-width: 0; }
-.review-video { display: block; width: 100%; }
 
 @media (max-width: 1100px) {
-  .overview-grid, .review-layout { grid-template-columns: 1fr; }
+  .overview-grid { grid-template-columns: 1fr; }
 }
 
 .results__foot { flex-wrap: wrap; }

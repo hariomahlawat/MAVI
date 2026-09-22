@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseTrajectory, TrajectoryError, trajectoryPositionAt } from './trajectory';
+import { hasSampleAt, parseTrajectory, TrajectoryError, trajectoryPositionAt } from './trajectory';
 
 function str(value: string): number[] {
   const bytes = Array.from(new TextEncoder().encode(value));
@@ -44,6 +44,20 @@ describe('trajectoryPositionAt', () => {
     expect(trajectoryPositionAt(points, 50)).toEqual({ x: 0.5, y: 0.25 });
     expect(trajectoryPositionAt(points, 200)).toEqual({ x: 0.5, y: 0.75 });
     expect(trajectoryPositionAt(points, 100)).toEqual({ x: 1, y: 0.5 });
+  });
+
+  it('returns the one persisted sample of a single-observation Track, and nothing beside it', () => {
+    // The worker finalises a Track on one observation, so a one-point
+    // trajectory is valid evidence. At that offset the sample is the position;
+    // anywhere else there is nothing to interpolate between and no position is
+    // claimed, in either direction.
+    const single = [{ offsetMs: 120, centerX: 0.25, centerY: 0.75 }];
+    expect(trajectoryPositionAt(single, 120)).toEqual({ x: 0.25, y: 0.75 });
+    expect(trajectoryPositionAt(single, 119)).toBeNull();
+    expect(trajectoryPositionAt(single, 121)).toBeNull();
+    expect(hasSampleAt(single, 120)).toBe(true);
+    expect(hasSampleAt(single, 119)).toBe(false);
+    expect(hasSampleAt([], 120)).toBe(false);
   });
 
   it('claims no position outside the sampled range', () => {

@@ -8,7 +8,7 @@ import LoadingState from '../../shared/components/LoadingState';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { Inspector } from '../../shared/workspace';
 import { RepresentativeEvidence, TrackSummary } from '../video-review/TrackDetailsPanels';
-import TrackEvidencePlayer from '../video-review/TrackEvidencePlayer';
+import TrackEvidence from '../video-review/TrackEvidence';
 import { useTrajectory } from '../video-review/useTrajectory';
 import type { GeometryNames } from './analyticsLabels';
 import TrackAnalyticsSummary from './TrackAnalyticsSummary';
@@ -122,7 +122,7 @@ export default function TrackInspector({
         ) : null}
         {detail ? (
           <>
-            <TrackEvidencePlayer detail={detail} trajectory={trajectory.data} trajectoryError={trajectory.isError} compact />
+            <TrackEvidence detail={detail} trajectory={trajectory.data} trajectoryError={trajectory.isError} compact />
             <div className="row row--between">
               <StatusBadge status={detail.reviewStatus} />
               <span className="small faint">Local track {detail.localTrackNumber} · <code>{detail.id.slice(0, 8)}…</code></span>

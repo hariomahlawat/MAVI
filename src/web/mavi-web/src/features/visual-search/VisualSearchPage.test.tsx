@@ -1018,7 +1018,7 @@ describe('VisualSearchPage', () => {
       expect(await screen.findByRole('heading', { name: 'Person · Track 7' })).toBeInTheDocument();
       expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search?track=' + first.id);
       expect(rows[0]).toHaveAttribute('aria-current', 'true');
-      expect(screen.getByLabelText('Source video evidence')).toHaveAttribute('src', first.videoContentUrl);
+      expect(screen.getByLabelText(/source video evidence$/)).toHaveAttribute('src', first.videoContentUrl);
       expect(vi.mocked(getTrack).mock.calls[0][0]).toBe(first.id);
 
       await user.keyboard('{Escape}');

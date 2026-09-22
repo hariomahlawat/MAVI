@@ -1,3 +1,4 @@
+import { isInsideEvidencePlayer } from '../../shared/evidence/EvidencePlayer';
 import type { TrackSearchItem } from '../../api/tracks';
 
 /** Position of the selected Track in the loaded results, or -1. */
@@ -32,8 +33,16 @@ export function nearEnd(items: readonly TrackSearchItem[], selectedId: string | 
 /**
  * Whether a keyboard event should drive result navigation. Typing in a form
  * control must never be hijacked.
+ *
+ * Neither must the Evidence Player. Result navigation binds `j` and `k` on the
+ * window and the player's frozen grammar binds `J` and `L` for one second
+ * either way, so a key press inside the player would otherwise both nudge the
+ * media and move the selection. The player's subtree is refused here, which
+ * leaves each key with exactly one meaning depending on where focus is.
  */
 export function isNavigationTarget(target: EventTarget | null): boolean {
+  // Before the HTML check, because the player's overlay stage is SVG.
+  if (isInsideEvidencePlayer(target)) return false;
   if (!(target instanceof HTMLElement)) return true;
   const tag = target.tagName;
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'VIDEO') return false;

@@ -503,6 +503,94 @@ export const WORKSPACE_ASSERTIONS = `(() => {
     }
   }
 
+  // --- Review (UI-5) ----------------------------------------------------
+  //
+  // Section 4.5.1's rule is a rendered-page fact: Review may page-scroll, but at
+  // 1366x768 the Evidence Player and the primary evidence summary must both be
+  // in the initial viewport, and the player stays pinned in its column while
+  // provenance scrolls past it. None of that can be settled without layout.
+  if (archetype === 'workspace--review') {
+    const player = workspace.querySelector('.workspace__player');
+    const rail = workspace.querySelector('.workspace__review-rail');
+    if (!player) {
+      problems.push('Review is missing its player region');
+      return { problems, measured };
+    }
+
+    const playerBox = player.getBoundingClientRect();
+    measured.playerWidth = round(playerBox.width);
+    measured.playerShare = working > 0 ? round((playerBox.width / working) * 100) : null;
+
+    // The evidence dominates: the player column takes at least 65% of the
+    // working width wherever the two columns stand side by side. The gate is
+    // the frozen figure, not a softer one — a threshold of 60 that reports
+    // itself as 65 is how a 65fr track quietly delivering 63.7% went unnoticed.
+    // The only slack is a tenth of a point for sub-pixel rounding.
+    if (doc.clientWidth > 1100 && measured.playerShare !== null && measured.playerShare < 64.9) {
+      problems.push('Review gives the player only ' + measured.playerShare
+        + '% of the working width; section 4.5 requires at least 65%');
+    }
+
+    measured.reviewRailWidth = rail ? round(rail.getBoundingClientRect().width) : null;
+
+    // Section 25: on a wide display the surplus goes to the player, as it does
+    // to the stage on the Workbench and the inspector on Investigation. A
+    // player pinned at exactly the 65% floor hands better than a third of every
+    // extra pixel to a rail that has a readable maximum and no use for more, so
+    // the floor alone is not the whole rule and cannot be tested as if it were.
+    if (doc.clientWidth >= 1900 && measured.playerShare !== null && measured.playerShare < 70) {
+      problems.push('Review gives the player only ' + measured.playerShare
+        + '% of the working width at ' + doc.clientWidth
+        + 'px; section 25 sends ultra-wide surplus to the player, not to the rail');
+    }
+
+    // The primary evidence summary is the first panel in the rail.
+    const summary = rail ? rail.querySelector('.panel') : null;
+    if (!summary) {
+      problems.push('Review is missing the primary evidence summary in its rail');
+    } else if (doc.clientHeight <= 800) {
+      const summaryBox = summary.getBoundingClientRect();
+      measured.summaryTop = round(summaryBox.top);
+      // Its top edge, not the whole panel: long provenance legitimately runs
+      // below the fold, but the operator must be able to start reading the
+      // summary without scrolling first.
+      if (summaryBox.top >= doc.clientHeight) {
+        problems.push('the primary evidence summary starts at ' + measured.summaryTop
+          + 'px, below the ' + doc.clientHeight + 'px initial viewport (section 4.5.1)');
+      }
+      if (playerBox.top >= doc.clientHeight) {
+        problems.push('the Evidence Player starts below the initial viewport (section 4.5.1)');
+      }
+    }
+
+    measured.playerSticky = getComputedStyle(player).position;
+    if (doc.clientWidth > 1100 && measured.playerSticky !== 'sticky') {
+      problems.push('the Evidence Player column is ' + measured.playerSticky
+        + ', so a fact about evidence can be read while the evidence is off screen (section 4.5.1)');
+    }
+    if (doc.clientWidth <= 1100 && measured.playerSticky === 'sticky') {
+      problems.push('the stacked Review still pins its player; section 4.5.1 releases that at 1100');
+    }
+
+    // One timeline. Two scrub bars on one surface is a defect (section 18.3).
+    measured.timelines = workspace.querySelectorAll('.evidence-timeline__track').length;
+    if (measured.timelines !== 1) {
+      problems.push('Review renders ' + measured.timelines + ' timelines; section 18 allows exactly one');
+    }
+    // The timeline's evidence must not be hidden from assistive technology, and
+    // must not be shadowed by a second description of itself.
+    const hiddenEvidence = workspace.querySelectorAll('.evidence-timeline__item[aria-hidden]').length;
+    if (hiddenEvidence > 0) {
+      problems.push(hiddenEvidence + ' timeline evidence items are hidden from assistive technology');
+    }
+    measured.timelineItems = workspace.querySelectorAll('.evidence-timeline__item').length;
+
+    // Native controls occupy the band where evidence is drawn (section 18.1).
+    if (workspace.querySelector('video[controls]')) {
+      problems.push('the Evidence Player is using native browser controls');
+    }
+  }
+
   return { problems, measured };
 })()`;
 
@@ -598,17 +686,17 @@ export const TARGET_SIZE_REPORT = `(() => {
  * exactly like a pass.
  */
 export const OVERLAY_READY = `(() => {
-  const video = document.querySelector('.player video');
+  const video = document.querySelector('.evidence-player__video');
   if (!video) return { ok: false, why: 'no player video element' };
   if (video.readyState < 2) return { ok: false, why: 'media not decoded (readyState ' + video.readyState + ')' };
   if (!(video.videoWidth > 0)) return { ok: false, why: 'media reports no frame size' };
   if (!(video.currentTime > 0)) return { ok: false, why: 'player never left the first frame' };
 
-  const marks = Array.from(document.querySelectorAll('.player__overlay rect, .player__overlay polyline'));
+  const marks = Array.from(document.querySelectorAll('.evidence-player__stage rect, .evidence-player__stage polyline'));
   const drawn = marks.filter((m) => { const r = m.getBoundingClientRect(); return r.width > 1 && r.height > 1; });
   if (drawn.length === 0) return { ok: false, why: 'no overlay geometry drawn at this frame' };
 
-  const overlay = document.querySelector('.player__overlay');
+  const overlay = document.querySelector('.evidence-player__stage');
   const filter = overlay ? getComputedStyle(overlay).filter : 'none';
   if (!filter || filter === 'none') return { ok: false, why: 'overlay layer carries no halo' };
 
