@@ -207,20 +207,21 @@ Scope resolution proved exactly **50 covered runs and 2,000 candidate Tracks**. 
 
 **Provisional recommendation, since confirmed by the authoritative run (§8.3): retain both 50-run and 2,000-Track bounds.** The envelope is safe on this constrained Development reference process and protects evidence I/O fan-out; one machine's speed is not a reason to raise or remove a resource guard. Cancellation phase timing, evidence-byte totals and per-phase read/SHA/decode/grid timings are not exposed by the current seam and remain observations not claimed by this pass.
 
-## 7. Validation of the integrated PR #70 head
+## 7. Validation of the current PR #70 head
 
-Executed in the repair container on **PostgreSQL 16.15** against the integrated head, whose executable code is byte-identical to the measured SHA `5f516662…`. Ordinary-suite results only; not qualification evidence.
+Executed in the repair container on **PostgreSQL 16.15**. Ordinary-suite results only; not qualification evidence. This head adds tests, fixtures and Development tooling after the measured SHA; it changes no production source file and none of the qualification harnesses or their shared corpus (see the Stage-1 register, *The measured SHA and the current head*).
 
 | Suite | Result |
 |---|---|
 | Domain | 195 passed |
-| Application | 369 passed |
-| Integration | **649 passed, 2 failed of 651.** Both failures are `DatabaseStartupMigrationTests` asserting the PostgreSQL 18 prerequisite against 16.15 — the product correctly refusing an unsupported server. They pass in CI's PostgreSQL 18 job |
-| Frontend | Not re-run: no file under `src/web` differs from PR #70's previously CI-validated head `aa17a19` |
+| Application | 373 passed (369 + the four `ScriptedCorpusTests` cases) |
+| Integration | **657 passed, 2 failed of 659** — the eight new resilience, race-probe and C1-contract tests pass; both failures are `DatabaseStartupMigrationTests` asserting the PostgreSQL 18 prerequisite against 16.15, which pass in CI's PostgreSQL 18 job |
+| Frontend | 826 tests pass (821 + the five C1 operator-contract tests); typecheck clean; production build succeeds |
 | `python tools/verify_repo.py` | PASSED |
+| Evidence-assembler guard coverage | 52/52 guards pinned |
 | Dependency surface | Zero files differ from `main` across `*.csproj`, `package.json`, lockfiles and `config/dependencies/` |
 
-Exact-head CI for the integrated head is reported on PR #70 and nowhere else.
+Exact-head CI is reported on PR #70 and nowhere else.
 
 ## 8. Development-machine PostgreSQL 18 qualification — authoritative
 
@@ -247,5 +248,10 @@ The throughput figures are internally consistent with the harness's own integrit
 ### 8.3 Decisions this evidence supports, and the one it does not yet
 
 - **Heatmap fan-out limits — RETAIN both 50 runs and 2,000 Tracks.** The product completed its full envelope with every integrity expectation met: every candidate contributed and every sealed sample was read. That is evidence the limits are workable. It is not evidence for widening them; one machine's headroom is not a reason to loosen a resource guard. Not measured by this harness, and so not claimed: plan §10's 1/5/10/25-run sweep, per-phase read/SHA/decode/grid timings, and cancellation latency.
-- **Aggregate materialisation P2 — still OPEN.** The authoritative `plan-qualification.json` contains, per §T case, the rows materialised, database and application time, allocated bytes and GC deltas the security review asks for. Those figures have not been transcribed into this repository, and the retain/bound decision has not been taken. No performance objective was frozen before measurement (plan §5), so the decision is a reasoned disposition rather than a pass/fail against a target. Until it is recorded, the P2 stays open.
+- **Aggregate materialisation P2 — still OPEN, BLOCKED on transcription.** The authoritative `plan-qualification.json` contains, per §T case, the rows materialised, database and application time, allocated bytes and GC deltas the security review asks for. It is held outside the repository and was not available to the environment that prepared this revision, so its figures are not transcribed here and no number from another run is put in their place. `tools/qualification/summarize_aggregate_qualification.py` prints exactly those rows, with the file's SHA-256 and provenance, and refuses (exit 1) a file that is not qualification evidence. The decision rule to apply to them — written before they are seen, and awaiting the owner's approval — is in the security review §1.
 
+  **Paste the summariser's output here:**
+
+  *(pending — Development-machine action A in `docs/runbooks/scene-analytics-stage1-development-acceptance.md`)*
+
+- **Development-corpus unit (exit-gate item 4a) — pending an operator read.** `tools/qualification/development-unit-record.sql` reads each unit's final-attempt duration, analysed/unavailable counts and rows written per fact table straight from `mavi_dev`. It was checked against a fresh 1,000-Track unit here, where it agreed row for row with the harness (1,000 / 185 / 4,000 / 1,391 / 1,000). Runbook action B.

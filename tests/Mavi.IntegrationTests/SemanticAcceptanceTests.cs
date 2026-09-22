@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Application.Modules.SceneAnalytics.Aggregates;
 using Mavi.Application.Modules.SceneAnalytics.Lifecycle;
@@ -85,7 +86,9 @@ public sealed class SemanticAcceptanceTests(PostgresFixture fixture)
     private const long ZoneExitUpperMs = 6_600;
 
     /// <summary>The authored path, piecewise linear at 200 ms per sample.</summary>
-    private static byte[] AuthoredPath()
+    private static byte[] AuthoredPath() => TrajectoryPayload.Encode(AuthoredPoints());
+
+    private static List<(long OffsetMs, double X, double Y)> AuthoredPoints()
     {
         var points = new List<(long, double, double)>(41);
         for (long t = 0; t <= 8_000; t += 200)
@@ -99,7 +102,7 @@ public sealed class SemanticAcceptanceTests(PostgresFixture fixture)
             points.Add((t, Math.Round(x, 6), Math.Round(y, 6)));
         }
 
-        return TrajectoryPayload.Encode(points);
+        return points;
     }
 
     private static double Lerp(double from, double to, long at, long start, long end) =>
@@ -284,6 +287,210 @@ public sealed class SemanticAcceptanceTests(PostgresFixture fixture)
             new[] { (ObjectClass.Person, 1), (ObjectClass.Vehicle, 0) },
             series.Classes.Select(entry => (entry.ObjectClass, entry.WindowDistinctTrackCount)).ToArray());
     }
+
+    /// <summary>
+    /// The explanation, the heatmap and the operator-facing contract carry the same
+    /// answer — read through the real HTTP API, which is what the UI consumes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This closes the three layers the C1 trace stopped short of (plan §7). The
+    /// track detail is what Evidence Review's explanation is built from; the scene
+    /// revision is what names the geometry in it; the heatmap is the Analytics
+    /// Workbench's second mode. Each is asserted against the hand-derived answer
+    /// above, not against itself.
+    /// </para>
+    /// <para>
+    /// The three responses are then normalised — server-issued ids become ordinal
+    /// tokens, the snapshot sequence becomes zero — and compared byte for byte with
+    /// the committed <c>c1-operator-contract.json</c>. The frontend suite reads that
+    /// same file and drives the real explanation and heatmap components with it, so
+    /// the UI leg is asserted over bytes this test has proved the server produces.
+    /// A change on either side fails one of the two suites. Regenerate deliberately
+    /// with <c>MAVI_UPDATE_GOLDEN=1</c>.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task TheExplanationHeatmapAndOperatorContractCarryTheSameAnswer()
+    {
+        var world = await AnalysedWorldAsync();
+        await using var factory = new ApiTestFactory
+        {
+            Clock = world.Clock,
+            EnableSceneAnalyticsHost = false,
+            MediaRootOverride = world.MediaRoot,
+            EvidenceRootOverride = world.EvidenceRoot,
+        };
+        using var client = factory.CreateClient();
+
+        var windowFrom = world.RecordingStartUtc;
+        var windowTo = world.RecordingStartUtc.AddHours(1);
+        var detailJson = await client.GetStringAsync($"/api/tracks/{world.TrackId}");
+        var revisionJson = await client.GetStringAsync($"/api/cameras/{world.CameraId}/scene/revisions/1");
+        var heatmapJson = await client.GetStringAsync(
+            $"/api/cameras/{world.CameraId}/analytics/heatmap?fromUtc={Iso(windowFrom)}&toUtc={Iso(windowTo)}&gridWidth={C1GridWidth}");
+
+        // --- Explanation: the detail the Evidence Review explanation is built from.
+        using (var detail = JsonDocument.Parse(detailJson))
+        {
+            var analytics = detail.RootElement.GetProperty("analytics");
+            Assert.Equal("Analysed", analytics.GetProperty("status").GetString());
+            Assert.Equal(world.RevisionId, analytics.GetProperty("sceneRevisionId").GetGuid());
+            Assert.Equal(1, analytics.GetProperty("sceneRevisionNumber").GetInt32());
+            Assert.Equal(SceneAnalyticsWorld.AlgorithmVersion, analytics.GetProperty("algorithmVersion").GetString());
+            Assert.Equal(41, analytics.GetProperty("sampleCount").GetInt32());
+
+            var visit = Assert.Single(analytics.GetProperty("zoneVisits").EnumerateArray().ToList());
+            Assert.Equal(world.ZoneId, visit.GetProperty("zoneId").GetGuid());
+            Assert.InRange(visit.GetProperty("entryOffsetMs").GetInt64(), ZoneEntryLowerMs, ZoneEntryUpperMs);
+            Assert.InRange(visit.GetProperty("exitOffsetMs").GetInt64(), ZoneExitLowerMs, ZoneExitUpperMs);
+
+            var summary = Assert.Single(analytics.GetProperty("zoneSummaries").EnumerateArray().ToList());
+            Assert.Equal(1, summary.GetProperty("visitCount").GetInt32());
+            Assert.False(summary.GetProperty("loitering").GetBoolean());
+
+            var crossings = analytics.GetProperty("lineCrossings").EnumerateArray().ToList();
+            // The wire vocabulary is camel-cased (`aToB`), the persisted one is not
+            // (`AToB`); the browser's `CROSSING_DIRECTIONS` is the wire spelling.
+            Assert.Equal(["aToB", "bToA"], crossings.Select(crossing => crossing.GetProperty("direction").GetString()));
+            Assert.InRange(crossings[0].GetProperty("offsetMs").GetInt64(), 1_200, 1_400);
+            Assert.InRange(crossings[1].GetProperty("offsetMs").GetInt64(), 6_800, 7_000);
+
+            var motion = analytics.GetProperty("motion");
+            Assert.Equal("E", motion.GetProperty("heading").GetString());
+            Assert.Equal(0, motion.GetProperty("totalStationaryMs").GetInt64());
+            Assert.Empty(motion.GetProperty("stationaryIntervals").EnumerateArray());
+        }
+
+        // --- The geometry names the explanation uses come from the pinned revision.
+        using (var revision = JsonDocument.Parse(revisionJson))
+        {
+            Assert.Equal(world.RevisionId, revision.RootElement.GetProperty("revisionId").GetGuid());
+            Assert.Equal("Gate", Assert.Single(revision.RootElement.GetProperty("zones").EnumerateArray().ToList()).GetProperty("name").GetString());
+            Assert.Equal("Kerb", Assert.Single(revision.RootElement.GetProperty("tripLines").EnumerateArray().ToList()).GetProperty("name").GetString());
+        }
+
+        // --- Heatmap: every authored sample lies inside the window, so all 41 count,
+        // each in the cell the frozen binning rule assigns it.
+        using (var heatmap = JsonDocument.Parse(heatmapJson))
+        {
+            var root = heatmap.RootElement;
+            Assert.Equal(world.RevisionId, root.GetProperty("sceneRevisionId").GetGuid());
+            Assert.Equal(C1GridWidth, root.GetProperty("gridWidth").GetInt32());
+            Assert.Equal(C1GridHeight, root.GetProperty("gridHeight").GetInt32());
+            Assert.Equal(41, root.GetProperty("sampleCount").GetInt64());
+            Assert.Equal(1, root.GetProperty("trackCount").GetInt32());
+            Assert.True(root.GetProperty("coverage").GetProperty("evaluatedRuns").GetInt32() == 1);
+
+            var expected = ExpectedC1Heatmap();
+            Assert.Equal(expected, root.GetProperty("values").EnumerateArray().Select(value => value.GetInt32()).ToArray());
+            Assert.Equal(expected.Max(), root.GetProperty("maxCellValue").GetInt32());
+        }
+
+        var golden = OperatorContract(detailJson, revisionJson, heatmapJson);
+        var path = C1GoldenPath();
+        if (Environment.GetEnvironmentVariable("MAVI_UPDATE_GOLDEN") == "1")
+        {
+            await File.WriteAllTextAsync(path, golden);
+        }
+
+        Assert.Equal(await File.ReadAllTextAsync(path), golden);
+    }
+
+    private const int C1GridWidth = 16;
+    private const int C1GridHeight = 9;
+
+    /// <summary>
+    /// The authored samples binned by the frozen rule, restated here independently of
+    /// <c>HeatmapGrid</c>: column <c>floor(x · width)</c>, row <c>floor(y · height)</c>,
+    /// the closed right and bottom edges clamped into the last cell, row-major.
+    /// </summary>
+    private static int[] ExpectedC1Heatmap()
+    {
+        var cells = new int[C1GridWidth * C1GridHeight];
+        foreach (var (_, x, y) in AuthoredPoints())
+        {
+            var column = Math.Min((int)(x * C1GridWidth), C1GridWidth - 1);
+            var row = Math.Min((int)(y * C1GridHeight), C1GridHeight - 1);
+            cells[(row * C1GridWidth) + column]++;
+        }
+
+        return cells;
+    }
+
+    /// <summary>
+    /// The three responses with server-issued ids replaced by ordinal tokens, in order
+    /// of first appearance, and the database-allocated snapshot sequence zeroed.
+    /// </summary>
+    private static string OperatorContract(string detailJson, string revisionJson, string heatmapJson)
+    {
+        var tokens = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var document = new System.Text.Json.Nodes.JsonObject
+        {
+            ["trackDetail"] = Normalise(System.Text.Json.Nodes.JsonNode.Parse(detailJson), tokens),
+            ["sceneRevision"] = Normalise(System.Text.Json.Nodes.JsonNode.Parse(revisionJson), tokens),
+            ["heatmap"] = Normalise(System.Text.Json.Nodes.JsonNode.Parse(heatmapJson), tokens),
+        };
+        return document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+    }
+
+    private static System.Text.Json.Nodes.JsonNode? Normalise(
+        System.Text.Json.Nodes.JsonNode? node,
+        Dictionary<string, string> tokens)
+    {
+        switch (node)
+        {
+            case System.Text.Json.Nodes.JsonObject value:
+                foreach (var property in value.ToList())
+                {
+                    value[property.Key] = property.Key == "snapshotVisibilitySequence"
+                        ? 0
+                        : Normalise(property.Value?.DeepClone(), tokens);
+                }
+
+                return value;
+            case System.Text.Json.Nodes.JsonArray array:
+                for (var index = 0; index < array.Count; index++)
+                {
+                    array[index] = Normalise(array[index]?.DeepClone(), tokens);
+                }
+
+                return array;
+            case System.Text.Json.Nodes.JsonValue scalar when scalar.TryGetValue<string>(out var text):
+                // Every id, including ids embedded in a route such as a content URL.
+                return System.Text.RegularExpressions.Regex.Replace(
+                    text,
+                    "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                    match =>
+                    {
+                        if (!tokens.TryGetValue(match.Value, out var token))
+                        {
+                            token = $"00000000-0000-4000-8000-{tokens.Count + 1:D12}";
+                            tokens[match.Value] = token;
+                        }
+
+                        return token;
+                    });
+            default:
+                return node;
+        }
+    }
+
+    private static string C1GoldenPath()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var fixtures = Path.Combine(directory.FullName, "tests", "fixtures", "scene-analytics");
+            if (Directory.Exists(fixtures)) return Path.Combine(fixtures, "c1-operator-contract.json");
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException("tests/fixtures/scene-analytics was not found above the test assembly.");
+    }
+
+    private static string Iso(DateTimeOffset value) =>
+        Uri.EscapeDataString(value.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture));
 
     private async Task<TrackZoneVisit> FirstVisitAsync()
     {

@@ -2032,6 +2032,72 @@ const REVIEW_OVERFLOW_CROWD = {
 };
 
 /*
+ * Slice 7 acceptance: the two states the Stage-1 matrix still lacked. Both are
+ * derived from served fixtures, so each changes exactly one thing.
+ */
+const BASE_HEATMAP = JSON.parse(
+  readFileSync(new URL(`./fixtures/cameras_${CAM}_analytics_heatmap.json`, import.meta.url), 'utf8'),
+);
+
+/**
+ * One Track's worth of samples in a 64 × 36 grid: three lit cells in a dark
+ * matrix. The sparse end of the scale is where a relative colour ramp is most
+ * likely to over-state a handful of samples, so its legend and summary must
+ * still read as counts.
+ */
+const SPARSE_HEATMAP = (() => {
+  const values = BASE_HEATMAP.values.map(() => 0);
+  values[10 * 64 + 12] = 3;
+  values[10 * 64 + 13] = 7;
+  values[11 * 64 + 13] = 1;
+  return {
+    ...BASE_HEATMAP,
+    coverage: { ...BASE_HEATMAP.coverage, evaluatedRuns: 1, analysedTracks: 1 },
+    sampleCount: 11,
+    trackCount: 1,
+    maxCellValue: 7,
+    values,
+  };
+})();
+
+const BASE_TRACK_DETAIL = JSON.parse(
+  readFileSync(new URL(`./fixtures/tracks_${TRACK}.json`, import.meta.url), 'utf8'),
+);
+const BASE_REVISION = JSON.parse(
+  readFileSync(new URL(`./fixtures/cameras_${CAM}_scene_revisions_4.json`, import.meta.url), 'utf8'),
+);
+const HISTORICAL_REVISION_ID = '66666666-6666-7666-8666-666666666663';
+
+/** Revision 3, the one the historical facts were measured against. */
+const HISTORICAL_REVISION = {
+  ...BASE_REVISION,
+  revisionId: HISTORICAL_REVISION_ID,
+  revisionNumber: 3,
+};
+
+/**
+ * The same Track read against revision 3 while revision 4 is active — the
+ * detail an operator reaches from a historical search. It must be named as
+ * revision 3's facts and must name revision 4 as the other identity, never
+ * present revision 3's facts under revision 4's name.
+ */
+const HISTORICAL_TRACK_DETAIL = {
+  ...BASE_TRACK_DETAIL,
+  analytics: {
+    ...BASE_TRACK_DETAIL.analytics,
+    sceneRevisionId: HISTORICAL_REVISION_ID,
+    sceneRevisionNumber: 3,
+    otherIdentities: [{
+      sceneRevisionId: BASE_TRACK_DETAIL.analytics.sceneRevisionId,
+      sceneRevisionNumber: 4,
+      algorithmVersion: BASE_TRACK_DETAIL.analytics.algorithmVersion,
+      unitStatus: 'Completed',
+      outcome: 'Analysed',
+    }],
+  },
+};
+
+/*
  * The three aggregate answers that are not "here are the figures". They are
  * derived from the served fixture so they cannot drift from it, and each
  * changes exactly one thing about it.
@@ -2684,6 +2750,8 @@ export const STATES = [
   { name: 'review-geometry-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2500, footage: 'saturated', prepare: SEEK, api: { '/api/cameras/11111111-1111-7111-8111-111111111111/scene/revisions': 'unavailable' }, expectText: ['could not be loaded'] },
   { name: 'review-analytics-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': SINGLE_SAMPLE_TRACK }, expectText: ['trajectory_too_short'] },
   { name: 'review-analytics-pending', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_PENDING }, expectText: ['has not been analysed yet'] },
+  // Slice 7: a historical identity, pinned by the link a historical search makes.
+  { name: 'review-historical-revision', path: `/review/video/${VIDEO}?trackId=${TRACK}&sceneRevisionId=${HISTORICAL_REVISION_ID}&analyticsAlgorithmVersion=scene-analytics-v1`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, api: { [`/api/tracks/${TRACK}`]: HISTORICAL_TRACK_DETAIL, [`/api/cameras/${CAM}/scene/revisions/3`]: HISTORICAL_REVISION }, expectText: ['Scene revision 3'], forbidText: ['Scene revision 4 ·'] },
   { name: 'review-analytics-stale', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_STALE }, expectText: ['earlier revision or engine'] },
   // Two separate runs of concurrency: the rail must aggregate each span on
   // its own terms rather than stating one total for the whole timeline.
@@ -2815,5 +2883,13 @@ export const STATES = [
       },
     },
     expectText: ['not where anything went'],
+  },
+  {
+    // Slice 7: the sparse end of the density scale.
+    name: 'analytics-heatmap-sparse', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1400,
+    prepare: HEATMAP_MODE, prepareSettleMs: 900,
+    api: { [`/api/cameras/${CAM}/analytics/heatmap`]: SPARSE_HEATMAP },
+    expectText: ['11 samples from 1 Track', 'The busiest cell holds 7 samples'],
   },
 ];

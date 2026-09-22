@@ -3,33 +3,64 @@
 **Date:** 2026-09-22
 **Branch:** `feature/scene-analytics-s7-hardening-acceptance` (PR #70), with PR #71 integrated by fast-forward
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668`
+**Tooling:** `tools/web-visual-qa/` (the §26 harness; no dependency added), run against the production bundle in Chromium
 
 ---
 
-## Status: PARTIAL — operator workflow executed on real data; accessibility and visual QA NOT EXECUTED
+## Status: PARTIAL — accessibility and visual QA PASS at all four widths; one operator-workflow leg still owed on real data
 
-Plan §25 item **13** is **not met**. The operator workflow has now been driven end to end on the Development machine with the real worker; accessibility and visual QA have not been executed at all. Nothing below is presented as more than it is.
-
-## 1. What this pass did change in the frontend
-
-One defect, fixed test-first: the browser trajectory parser accepted any finite coordinate while the application decoder requires a centre inside `[0, 1]` once rounded to the persisted six decimals (`NormalizedPoint.IsInRange`). A corrupt or hostile artefact could therefore be **drawn** as a position outside the frame while the server refused to derive anything from it — two different answers about the same sealed evidence.
-
-The rule now has one frontend definition, `src/web/mavi-web/src/shared/evidence/normalizedPoint.ts`, mirroring the Domain's rounding (six decimals, banker's rounding) rather than approximating it. The tests fail against the pre-fix parser for the intended reason and include the complements — exactly 0 and exactly 1 remain valid, and a value that only *rounds* into range is accepted, so the check cannot pass by rejecting the frame's legitimate edges.
-
-**Frontend suite: 821 tests pass; typecheck clean; production build succeeds.**
-
-## 2. What item 13 requires, and what it got
-
-| Required | Status |
+| Plan §25 item 13 part | Status |
 |---|---|
-| Operator workflow acceptance — the full investigative path driven end to end against a real API | **PARTIAL — executed on real data, one leg not reported.** On the Development machine, against a real video (`2min.mp4`, CAM-04 / G4) through the real RTMDet + ByteTrack path: Scene Configuration (Revision 2, one zone, one trip line) → explicit analysis queue (`created: 1`, then idempotent `alreadyReady: 1`) → Processing readiness *Analysed* → Evidence Review (identity *Scene revision 2 · Engine v1*, *Zone 1 · 1 visit · dwell 2s*, heading *Up (image direction)*, *Never stationary*, overlays rendered on the real video) → Analytics Activity (12 Person Tracks, 0 Vehicle, peak 7 in the 1-minute view) → Heatmap (3,002 samples, 12 contributing Tracks, 64 × 36, provenance Revision 2 / Engine v1, *All 1 run analysed*). The **Search → Investigation** leg of plan §15 was not reported, so it is not claimed |
-| Accessibility acceptance across the analytics surfaces | **NOT EXECUTED in this pass.** The shared accessibility infrastructure and per-surface assertions from UI-2 to UI-5 are in place and green, but no Slice-7 audit was performed |
-| Visual QA at 1366 / 1440 / 1920 / 2560 | **NOT EXECUTED in this pass.** The visual QA matrix from the UI slices covers the archetypes and the Slice-6 Analytics Workbench states; it was not re-driven at the four widths for this slice |
+| Accessibility acceptance across the analytics surfaces | **PASS** — automated §26 assertions plus a human capture pass; no P1/P2 (§3) |
+| Visual QA at 1366×768 / 1440 / 1920 / 2560 | **PASS** — 53 analytics-related states at all four widths, 212 combinations, zero automated findings (§3) |
+| Operator workflow acceptance on real data | **PARTIAL** — executed end to end on the Development machine except the **Search → Investigation** leg, which was not reported and is an operator action (runbook `docs/runbooks/scene-analytics-stage1-development-acceptance.md` §E) |
 
-## 3. What must be run
+Item 13 therefore stays **PARTIAL**, by exactly one leg.
 
-1. Re-drive the visual QA matrix at 1366, 1440, 1920 and 2560, including the Analytics Workbench in both modes, the incomplete-coverage state and the refused-scope state.
-2. Audit keyboard reachability and screen-reader semantics on the Analytics Workbench, the Investigation analytics rail and the Evidence Player's analytics lanes.
-3. Drive the operator journey — import, process, configure scene, analyse, search, aggregate, inspect evidence — against a real API on the Development machine, and record where it breaks or misleads.
+## 1. What this slice changed in the frontend
 
-Step 3 is done except for its search leg. Steps 1 and 2 are not. Until they are, plan §25 item 13 stays **not met**, and no claim of accessibility or visual acceptance is made anywhere in this repository.
+One defect, fixed test-first: the browser trajectory parser accepted any finite coordinate while the application decoder requires a centre inside `[0, 1]` once rounded to the persisted six decimals (`NormalizedPoint.IsInRange`). The rule now has one frontend definition, `src/web/mavi-web/src/shared/evidence/normalizedPoint.ts`, mirroring the Domain's rounding. No production frontend code changed in this pass; it added the C1 operator-contract test (`c1OperatorContract.test.tsx`) and two visual-QA states.
+
+## 2. The matrix
+
+Every state below ran at **1366×768, 1440×900, 1920×1080 and 2560×1080**.
+
+| Representative state the plan names | Harness states |
+|---|---|
+| Analysed / complete | `analytics-activity`, `analytics-occupancy`, `analytics-line-crossings`, `review`, `review-zone-visit`, `review-crossing-atob`, `review-crossing-btoa`, `review-dwell-stationary`, `search-analytics-complete`, `processing-detail-analytics-ready` |
+| Complete-zero (an observation, drawn as one) | `analytics-complete-zero` |
+| Incomplete / pending | `analytics-incomplete`, `review-analytics-pending`, `search-analytics` |
+| Stale | `review-analytics-stale`, `processing-detail-analytics-stale` |
+| Failed | `processing-detail-analytics-failed` |
+| Disabled / not configured | `analytics-no-scene`, `search-analytics-not-analysed` |
+| Corrupt / unavailable evidence | `analytics-heatmap-evidence-unreadable`, `review-analytics-unavailable`, `review-geometry-unavailable`, `search-analytics-scene-unavailable`, `analytics-unavailable` |
+| Refused scope | `analytics-heatmap-too-large` |
+| Dense heatmap | `analytics-heatmap` (665 lit cells, 11,032 samples, 184 Tracks) |
+| Sparse heatmap | **`analytics-heatmap-sparse`** — added: three lit cells, 11 samples, one Track |
+| Historical revision | **`review-historical-revision`** — added: the detail pinned to revision 3 by a historical search's link while revision 4 is active |
+| Dense evidence / overflow | `review-dense-markers`, `review-overflow-*`, `review-markers-same-offset`, `review-overlap-*` |
+| Footage conditions | `review-bright`, `-dark`, `-saturated`, `-lowcontrast`, `-letterbox`, `-pillarbox`, `review-direction-letterbox`, `-pillarbox` |
+
+## 3. What was checked, and what it found
+
+**Automated, per state and width** (see `tools/web-visual-qa/README.md`): no horizontal page overflow; no uncaught page error; no overlapping interactive controls, clipped by every scrolling ancestor first; every `var()` resolves; each state reached the condition it claims (`expectText` / `forbidText`); exactly one Context Bar; archetype conformance — for the Workbench, stage ≥ 65% of working width, inspector 300–360 px, no page scroll at or above 1150 px, and only the inspector body owns scroll; for Review and Investigation, their own scroll-ownership rules; and **focus visibility on every focusable control**, by focusing each one.
+
+**Result:** 212 state/viewport combinations, **zero automated findings**. Focus: 5,760 controls discovered, 5,540 checked, 220 skipped for a named reason (92 disabled, 40 that refuse focus, 88 zero-sized), with the accounting required to add up. All figures are from one single run of the whole analytics matrix at this head.
+
+**The two new states.** `review-historical-revision` must show *Scene revision 3* and must **not** show revision 4's identity in the explanation; it does, and it names revision 4 under *Also analysed* — the historical facts are never presented under the current revision's name. `analytics-heatmap-sparse` must state *11 samples from 1 Track* and *The busiest cell holds 7 samples*; it does, with numeric legend ends, so a relative ramp over a handful of samples still reads as counts.
+
+**Human pass over the captures** (§26 requires it), including the historical, sparse, dense and stale states at 1366 and 2560: stale is stated in words (*measured against an earlier revision or engine … not recomputed*), not by colour; the refusal and unreadable-evidence states draw no partial map; coverage is always textual; the summary beside the heatmap is the accessible equivalent of the matrix, which is correctly hidden from assistive technology rather than enumerated cell by cell.
+
+**Screen-reader semantics** were checked as structure and accessible names — landmarks, the named `Scene analytics` and `Heatmap summary` regions, labelled controls — by the harness and the component suites. No assistive-technology product was run, and none is claimed.
+
+### Findings
+
+**P1: none. P2: none.** Three P3s, recorded for the backlog and not fixed in a hardening slice:
+
+- **P3** — in the heatmap inspector's *Density map* panel, the definition paragraph sits directly under the key-value list with no separating space.
+- **P3** — the lowest density step is close to the neutral matte, so a single-sample cell in a sparse map is hard to see. The numeric legend and the accessible summary carry the count; the step values themselves are held by `contrast.test.ts` under UI-spec decision 2c.
+- **P3 (harness, not product)** — the heatmap fixture's served window differs from the window the controls show, because the fixture is fixed while the controls default to "now". It does not affect any assertion; noted so a reviewer reading a capture is not misled.
+
+## 4. What remains
+
+Run the Search → Investigation leg on real data on the Development machine (runbook §E). With that recorded, item 13 is met.

@@ -9,7 +9,7 @@
 
 ## 1. Findings
 
-### P2 — the aggregate read has no work bound (OPEN — PostgreSQL 18 measurement taken, decision not yet recorded)
+### P2 — the aggregate read has no work bound (OPEN — BLOCKED on transcribing the authoritative PostgreSQL 18 figures)
 
 **What.** `AnalyticsAggregateRepository.ReadFactsAsync` materialises four fact families with `ToListAsync` and no `Take`. The row count scales with facts-in-window, bounded only by the camera and the requested window.
 
@@ -21,7 +21,24 @@
 
 **Required action on the Development machine:** run the plan qualification at 10^5 facts, record rows materialised, peak memory and latency, then take an explicit retain/bound decision in the performance document.
 
-**Where that action stands.** The first half is done: `PlanQualificationTests` passed on PostgreSQL 18.6 at 110,000 facts on the Development machine, at reachable SHA `5f5166628b0c4af04cc8f7efcd40f7022f5095c4`, and its evidence file records the rows materialised, database and application time, allocated bytes and GC deltas for all nine §T cases. The second half is not: those figures have not been transcribed into this repository and no retain/bound decision has been taken. The finding therefore remains **OPEN**, and it is the P2 that holds formal exit-gate items 7, 12 and 18. No performance objective was frozen before measurement, so the disposition must be reasoned rather than a comparison against a target.
+**Where that action stands.** The first half is done: `PlanQualificationTests` passed on PostgreSQL 18.6 at 110,000 facts on the Development machine, at reachable SHA `5f5166628b0c4af04cc8f7efcd40f7022f5095c4`, and its evidence file records the rows materialised, database and application time, allocated bytes and GC deltas for all nine §T cases. The second half is not: those figures are held outside the repository and are **not available in this repository or in the environment that prepared this revision**, so no retain/bound decision has been taken. The finding remains **OPEN — BLOCKED on transcription**, and it is the P2 that holds formal exit-gate items 7, 12 and 18.
+
+**What is already known without the authoritative file, and why it is not enough.** Three of the quantities the decision needs do not depend on the database server at all, and are reproducible anywhere from the seeded corpus:
+
+| Quantity | Evidence | Server-independent? |
+|---|---|---|
+| Rows materialised per §T case | 30,000 visits, 20,000 crossings, 26,565 summaries, 10,000 intervals (unfiltered); 19,920 / 13,280 / 17,653 / 6,640 (Person); 10,080 / 6,720 / 8,912 / 3,360 (Vehicle) — identical in the superseded Ubuntu PostgreSQL 18 pass and in a current-schema PostgreSQL 16 run at the integrated head | Yes — a function of the seeded corpus and the query, both deterministic |
+| Managed allocation | 41.8 MiB for the 60-second unfiltered case in both of those runs; 36.8–37.4 MiB for the coarser unfiltered buckets | Yes — it is .NET materialisation and aggregation, not the planner |
+| Database query count | 10 per §T case in every run, constant across bucket size and class | Yes, and held always-on by `AnalyticsQueryShapeTests` |
+
+What is **not** known is the one thing that is the server's: database materialisation and total latency on PostgreSQL 18 on the Development machine. That is exactly the figure the plan assigns to the authoritative run, and neither PostgreSQL 16 observations nor the superseded pass may stand in for it. Two further facts bear on the decision: the harness's 60-second case produces 2,400 buckets — beyond the 512-bucket response cap the API enforces — so its application-side cost is an upper bound on any request the API will accept; and the only hard bound on a request's work is the camera plus the window (at most 512 × 86,400 s), so the qualified envelope, not a guard, is what limits the facts one request reads.
+
+**Decision rule — proposed, and written before the authoritative figures have been seen.** Plan §5 requires objectives to be frozen before measurement; that did not happen, so the next best discipline is to fix the rule before the figures are read. **This rule is a proposal and needs the owner's approval before it is applied**:
+
+- **RETAIN** the current design, close the P2 as dispositioned and document the envelope (per-request work linear in the facts inside the window; 10⁵ relevant facts per request is the qualified envelope; no request is truncated) **if, on the authoritative figures, every one of the nine §T cases** completes in **≤ 10,000 ms total**, allocates **≤ 64 MiB**, and issues the constant **10** database queries.
+- **BOUND** otherwise: add a pre-work guard on the covered-Track count, taken from the same cheap scope metadata the heatmap guard uses, that **refuses** with a named problem code rather than truncating — never a row cutoff that could return an incomplete aggregate. That is a contract change and is preceded by an ADR-011 note.
+
+**Action:** run `tools/qualification/summarize_aggregate_qualification.py` on the authoritative file (runbook `docs/runbooks/scene-analytics-stage1-development-acceptance.md` §A), paste its table into the performance report §8.3, and apply the approved rule.
 
 ### P3 — the Python worker decoder does not enforce the `[0,1]` centre range (RECORDED, not changed)
 
@@ -48,11 +65,11 @@ Not changed deliberately: tightening read validation in the worker changes what 
 | Cursor integrity | v3 is HMAC-authenticated and verified before embedded coverage or identity is trusted |
 | Execution boundary vs UI | The manual Refresh bypass found in Slice 6 was closed at the query gate, not by disabling a button; the regression test asserts the **query function is not called**, not the button state |
 
-## 3. Not executed in this environment
+## 3. Resilience and resource cases, and where each stands
 
-- Cancellation under realistic C3 volume — **NOT EXECUTED**; no harness exercises it at volume.
-- PostgreSQL restart/reconnect — **NOT EXECUTED**.
+- Cancellation and failure at realistic volume — **PASS**. `RealisticVolumeResilienceTests` cancels the heatmap part-way through its full 50-run / 2,000-Track envelope and a 1,000-Track analytical unit part-way through its Tracks, and fails each part-way with corrupt evidence or an evidence-store fault. No partial answer is returned or published, no read happens after the interruption point, and every retry reproduces the uninterrupted answer exactly. Details in `2026-09-22-scene-analytics-s7-resilience-concurrency.md`.
+- PostgreSQL restart/reconnect — **NOT EXECUTED**. An operator action on the Development machine (runbook §F).
 - API restart — **PASS**, on the Development machine: after restarting `Mavi.Api`, the real-worker analytics, the Revision 2 identity, the zone facts, the Activity values and the Heatmap were all still present.
-- Resource-exhaustion measurement behind the P2 above — **measured** on PostgreSQL 18, **decision not yet recorded**.
+- Resource measurement behind the P2 above — **measured** on PostgreSQL 18; **decision BLOCKED** on transcribing the authoritative figures (§1).
 
-Nothing in this list is converted into a pass except the API restart, which was actually executed.
+Nothing in this list is converted into a pass unless it was executed.

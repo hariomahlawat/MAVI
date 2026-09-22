@@ -334,7 +334,7 @@ npm run build
 cd ../../..
 ```
 
-The target is parity with the hosted MAVI Quality Gate: repository verification, Task-17 deterministic acceptance-tool tests, .NET tests, Python tests, frontend tests/typecheck/build, PostgreSQL/pgvector availability, and FFmpeg availability must all succeed. Disconnected/hardware qualification is intentionally outside normal developer CI; follow `docs/runbooks/phase1-acceptance.md` for those proofs.
+The target is parity with the hosted MAVI Quality Gate: repository verification, Task-17 deterministic acceptance-tool tests, .NET tests, Python tests, frontend tests/typecheck/build, PostgreSQL/pgvector availability, and FFmpeg availability must all succeed. Disconnected/hardware qualification is intentionally outside normal developer CI; follow `docs/runbooks/phase1-acceptance.md` for those proofs. The Scene Analytics Stage-1 Development-machine acceptance actions — the scripted-video real-worker run, the Development-corpus unit record, runtime identities and the disconnected no-fetch run — are in `docs/runbooks/scene-analytics-stage1-development-acceptance.md`.
 
 ## Troubleshooting
 
