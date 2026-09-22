@@ -107,8 +107,17 @@ public static class AnalyticsQueryRules
 
     // --- Object class -------------------------------------------------------
 
+    /// <summary>The canonical spellings, which are what responses always carry.</summary>
     public static readonly IReadOnlyList<string> ObjectClassValues = ["Person", "Vehicle"];
 
+    /// <summary>
+    /// Whether a supplied value names a member of the closed vocabulary.
+    /// </summary>
+    /// <remarks>
+    /// Case-insensitive, matching the Slice-4 Track-search rule for the identically
+    /// named parameter. The vocabulary is still closed; what differs between the two
+    /// routes must not be how the same parameter is spelled.
+    /// </remarks>
     public static bool IsObjectClass(string? value) =>
-        value is not null && ObjectClassValues.Contains(value, StringComparer.Ordinal);
+        value is not null && ObjectClassValues.Contains(value, StringComparer.OrdinalIgnoreCase);
 }

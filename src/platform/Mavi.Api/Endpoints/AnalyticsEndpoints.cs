@@ -215,7 +215,7 @@ public static class AnalyticsEndpoints
         if (raw is null)
             return true;
         if (!AnalyticsQueryRules.IsObjectClass(raw) ||
-            !Enum.TryParse<ObjectClass>(raw, ignoreCase: false, out var value))
+            !Enum.TryParse<ObjectClass>(raw, ignoreCase: true, out var value))
             return false;
         result = value;
         return true;
