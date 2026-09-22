@@ -50,7 +50,7 @@ The parent plan was written before the final Slice-5 architecture landed. The me
 
 - Every aggregate response and every heatmap response carries `AnalyticsCoverageResponse`.
 - The run denominator follows Slice 4/ADR-011: distinct runs represented by the ordinary base Track candidate set after camera/window/class/latest-run scope and before analytical aggregation.
-- `complete` retains exactly the ADR-011 rule: pending, failed, stale, not-configured and disabled run buckets must all be zero.
+- `complete` retains exactly the ADR-011 rule: pending, failed, stale, not-configured and disabled run buckets must all be zero. A zero-denominator scope therefore has `complete = true` vacuously; this is the explicit complete-zero case below.
 - `UnavailableTracks` limits evidence but does not make a completed run-level answer incomplete.
 - A scope with **zero covered runs and a non-empty base-scope denominator** returns HTTP 200 with empty analytical data and truthful non-zero coverage buckets. The UI MUST render a not-analysed/disabled/not-configured state, never a zero-valued chart that implies observation.
 - A **genuinely empty base scope** (the ordinary Track candidate set yields zero denominator runs) is a complete-zero observation: coverage is complete with all coverage buckets zero, analytical arrays/totals are empty or zero as appropriate, and the UI may render the explicit complete-zero state. No synthetic run or non-zero coverage bucket is fabricated merely to distinguish emptiness from incompleteness.
@@ -275,7 +275,7 @@ Common validation:
 - timestamps include an offset and are converted to UTC;
 - object class is closed vocabulary;
 - aggregate bucket bounds as §4.4;
-- heatmap grid vocabulary and run cap as §5.
+- heatmap grid vocabulary and both pre-fan-out work caps as §5.
 
 Problem responses use existing RFC 7807 + `extensions.code` style.
 
@@ -283,13 +283,14 @@ Do not create mutation endpoints in this slice. Existing retry/re-analysis opera
 
 ## 7. Snapshot and scope consistency
 
-Aggregate and heatmap queries each obtain one server-side visibility snapshot and use it for **all** work in that response:
+Aggregate and heatmap queries each obtain one server-side visibility snapshot and use it for **all** work in that response. Per ADR-011 Decision 8, the request MUST acquire the existing processing-visibility **shared barrier before reading camera scope, active scene revision, latest-visible run scope, or allocating/reading the visibility snapshot**, and hold the barrier until those snapshot-defining reads are complete. Scene activation and processing-run publication use the exclusive counterpart; Slice 6 MUST reuse that ordering rather than merely filtering later SQL by a sequence.
 
-1. resolve latest-visible completed runs for camera/window/class (or the validated explicit heatmap run);
-2. resolve the analytical identity under ADR-011;
-3. classify coverage;
-4. select fact-bearing units visible in the snapshot;
-5. aggregate facts or read trajectories only for that covered set.
+1. under that shared barrier, resolve camera scope/active revision and allocate/read the `snapshotVisibilitySequence`;
+2. resolve latest-visible completed runs for camera/window/class (or the validated explicit heatmap run) at `VisibilitySequence <= snapshotVisibilitySequence`;
+3. resolve the analytical identity under ADR-011;
+4. classify coverage;
+5. select fact-bearing units visible in the same snapshot;
+6. aggregate facts or read trajectories only for that covered set.
 
 No step may re-resolve “current” state midway through a request.
 
@@ -491,6 +492,7 @@ Must cover:
 - explicit heatmap `processingRunId` is camera-bound and visibility-checked;
 - corrupt/missing accepted evidence for an `Analysed` outcome fails rather than under-counting;
 - >50 covered heatmap runs rejected before trajectory fan-out;
+- >2,000 candidate Analysed Track trajectories rejected before the first evidence read;
 - aggregate >512 buckets rejected.
 - disabled zones/trip lines are absent from analytical series rather than rendered as observed-zero data.
 
@@ -504,7 +506,7 @@ Must cover:
 - RFC 7807 codes;
 - arrays exactly match bucket count;
 - matrix exactly `width×height`;
-- coverage present on every success response.
+- coverage and `snapshotVisibilitySequence` present on every success response.
 
 ### 13.4 Frontend tests
 
