@@ -8,7 +8,7 @@
 
 ## 1. Qualification status, stated first
 
-**No measurement in this document is qualification evidence.** The parent plan requires PostgreSQL 18; this container has 16.15 and cannot obtain 18 (`apt.postgresql.org` returns HTTP 403 through the agent proxy, and there is no Docker daemon to pull `pgvector/pgvector:pg18`). Every figure below is an **engineering observation** taken to prove the harness measures what it claims to measure.
+**PostgreSQL 18 qualification is PASS for the §S/§T, synthetic analytical-unit, and heatmap-envelope streams recorded in §6.** Earlier PostgreSQL 16 observations remain labelled as observations and are not reused as qualification evidence.
 
 The harness does not rely on a reader remembering this. `QualificationGate.CaptureEnvironmentAsync` reads the live `server_version`, records it beside every result, and computes `isQualificationGradeDatabase`, which is `false` for every run in this document.
 
@@ -140,3 +140,45 @@ Cost is dominated by evidence I/O rather than grid size, which is what the desig
 ## 5. Open finding carried forward
 
 **P2 — the aggregate read materialises an unbounded number of fact rows.** Query *count* is constant in geometry (proven by an always-on test at 4 zones/2 lines versus 12 zones/6 lines), so there is no N+1. Row *volume* is bounded only by the requested window. A limit decision requires PostgreSQL 18 measurement, and the parent brief forbids introducing speculative indexes, caches or limits from PostgreSQL 16 observations alone. It therefore stays open, recorded, and assigned to the qualification run.
+
+
+## 6. Independent PostgreSQL 18 qualification
+
+**Status: PASS.** Qualification was executed on code commit `4d110490b3413eda5cd36c171581c6560314ffc0`; the subsequent documentation-only commit does not alter the measured binary. Raw JSON and console logs are retained outside Git at `/tmp/mavi-qual-4d11049/` and `/tmp/mavi-qual-4d11049.log`; they are intentionally not committed.
+
+### Reference environment and method
+
+- Ubuntu 24.04.4 LTS, Linux 6.18.44, x86-64; Intel Xeon Platinum 8272CL; 3 host-visible CPUs / 2 .NET process-available cores; 17 GiB RAM; overlay filesystem with 32 GiB total and 29 GiB free. No host or PostgreSQL tuning was performed.
+- PostgreSQL `18.6 (Ubuntu 18.6-1.pgdg24.04+2)`, pgvector `0.8.6`; `shared_buffers=128MB`, `work_mem=4MB`, `effective_cache_size=4GB`, `maintenance_work_mem=64MB`, `max_parallel_workers_per_gather=2`, `random_page_cost=4`, `jit=on`; native Ubuntu cluster, no container/resource limit added.
+- .NET 10.0.12; deterministic seed `20260922`. Corpus setup was excluded from per-query timing. §S/§T ran sequentially after corpus construction. Heatmap retained the first call per width as `cold-ish` and made two further warm calls; no fastest-run selection.
+- Command: `MAVI_QUALIFICATION=1 MAVI_QUALIFICATION_OUT=/tmp/mavi-qual-4d11049 MAVI_TEST_DB_CONNECTION=... dotnet test tests/Mavi.IntegrationTests/Mavi.IntegrationTests.csproj --no-restore --filter '<the three qualification facts>'`. All three facts passed in 2.52 minutes.
+
+### §S and plans
+
+The generated corpus held 40 runs, 10,000 Tracks, 4 zones, 2 lines and **110,000 relevant facts** (30,000 visits, 20,000 crossings, 40,000 zone summaries, 10,000 motion summaries, 10,000 outcomes). All 23 cases passed, including all eight motion headings, combinations, explicit revision/algorithm identity, zone relations, dwell, line/direction, stationary and loitering. Every analytic case returned 51 rows (the requested page plus continuation probe), issued a bounded 7–9 statements, referenced its expected analytics table, and had captured `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)`. Representative complete-path timings were 451 ms (`lineId`), 497 ms (`sceneRevisionId`), 517 ms (zone+motion+stationary+loitering), and 1,712 ms (`zoneId` cold-ish).
+
+Across the captured statements PostgreSQL used index/index-only scans extensively (879/132 occurrences), with 32 sequential scans at small or broad intermediate relations, 57 hash joins and 712 nested loops. No external sort or disk spill was reported; maximum individual plan execution time was 986 ms. The broad sequential scans were not demonstrated pathological at this corpus and no speculative index was added. Query count remained bounded; no N+1 growth was observed.
+
+### §T and the open materialisation question
+
+Every combination of 60/900/3,600-second buckets and unfiltered/Person/Vehicle class was measured through database materialisation **and** application aggregation. Unfiltered cases materialised 30,000 visits, 20,000 crossings, 26,565 summaries and 10,000 intervals; Person materialised 19,920/13,280/17,653/6,640 and Vehicle 10,080/6,720/8,912/3,360. Every case used 10 database statements.
+
+| Bucket / class | DB ms | App ms | Total ms | Allocated | GC 0/1/2 |
+|---|---:|---:|---:|---:|---:|
+| 60 / any | 2,673 | 4,849 | 7,522 | 41.8 MiB | 3/3/2 |
+| 60 / Person | 2,149 | 2,996 | 5,145 | 32.1 MiB | 1/0/0 |
+| 60 / Vehicle | 941 | 1,452 | 2,393 | 15.9 MiB | 1/0/0 |
+| 900 / any | 2,241 | 302 | 2,542 | 37.4 MiB | 2/1/1 |
+| 3,600 / any | 2,590 | 117 | 2,707 | 36.8 MiB | 2/1/1 |
+
+The evidence confirms linear row-volume and allocation exposure even though query count is bounded. At 110,000 relevant facts it completed without spill or failure, but the 60-second unfiltered case consumed 7.5 seconds and 41.8 MiB of managed allocation. **Conclusion on the carried P2:** do not disguise the response cap as a work bound and do not add a speculative row cutoff that would make aggregates wrong. Retain the implementation for this slice, explicitly carry a P2 to design a semantics-preserving server-side aggregation or documented scope bound before a wider production envelope. This means the PostgreSQL measurement streams pass, but Stage 1's “no open P1/P2” exit item remains FAIL.
+
+### Analytical unit
+
+The requested and claimed population was 1,000 Tracks. All 1,000 were analysed, 0 unavailable, the unit finished `Completed` and published visibility sequence 2. In 4,089 ms (244.6 Tracks/s), it wrote 1,000 outcomes, 185 visits, 4,000 zone summaries, 1,391 crossings and 1,000 motion summaries.
+
+### Heatmap envelope and recommendation
+
+Scope resolution proved exactly **50 covered runs and 2,000 candidate Tracks**. Every one contributed; every call opened the deterministic population and read 48,000 samples. Timings in execution order were: width 48, 738/675/570 ms (median 675); width 96, 540/591/537 ms (median 540); width 128, 611/451/571 ms (median 571). Grids contained 1,296/5,184/9,216 cells. The result remained well below one second here with no integrity failure.
+
+**Recommendation: retain both 50-run and 2,000-Track bounds.** The envelope is safe on this constrained Development reference process and protects evidence I/O fan-out; one machine's speed is not a reason to raise or remove a resource guard. Cancellation phase timing, evidence-byte totals and per-phase read/SHA/decode/grid timings are not exposed by the current seam and remain observations not claimed by this pass.

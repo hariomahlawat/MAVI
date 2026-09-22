@@ -8,18 +8,13 @@
 
 ## Verdict
 
-**Stage 1 is NOT closed.** Mandatory exit-gate evidence remains unexecuted because this environment cannot produce it. Nothing in this document, and nothing in the roadmaps, claims otherwise.
+**Stage 1 is NOT closed.** The PostgreSQL 18 qualification streams are complete, but mandatory non-PG18 exit-gate evidence and one measured aggregate-materialisation P2 remain open. Nothing in this document, and nothing in the roadmaps, claims otherwise.
 
-This slice is **partially complete**. What was executed is recorded truthfully below; what was not is marked `NOT EXECUTED — environment blocked` and is not waived, re-scoped or softened.
+This slice is **partially complete**. What was executed is recorded truthfully below; what was not is explicitly marked and is not waived, re-scoped or softened.
 
-## Environment limitation, established by test rather than assumption
+## Independent PostgreSQL 18 reference environment
 
-| Blocker | Evidence |
-|---|---|
-| PostgreSQL 18 unavailable | Installed server is 16.15. `apt.postgresql.org` returns HTTP 403 through the agent proxy; Docker CLI present but no daemon, so `pgvector/pgvector:pg18` cannot be pulled |
-| Real worker unavailable | No `onnxruntime`, no `cv2`, no GPU, no model weights |
-
-The plan states that PostgreSQL 16 observations are not qualification evidence. That rule is applied throughout; the harness computes `isQualificationGradeDatabase` from the live server and labels its own output.
+PostgreSQL 18.6 with pgvector 0.8.6 was executed natively on Ubuntu 24.04.4 LTS (x86-64, Xeon Platinum 8272CL, 17 GiB RAM, 2 .NET-available logical cores). PostgreSQL settings and complete methodology are recorded in the performance report. The real RTMDet/ByteTrack worker remains unavailable: no runtime pack/model weights/GPU were supplied.
 
 ## Exit gate
 
@@ -27,11 +22,11 @@ The plan states that PostgreSQL 16 observations are not qualification evidence. 
 |---|---|---|
 | 1 | Stage-1 functional acceptance met | **NOT EXECUTED** — depends on 2–6, 15 |
 | 2 | C1 agrees across trajectory/facts/search/explanation/aggregate/heatmap/UI | **PARTIAL.** C1 is built and passing across trajectory → facts → §S search → §T aggregate (`SemanticAcceptanceTests`, expected answers hand-derived from the frozen rules before running). The trace does **not** extend to the bounded explanation, the heatmap or the UI projection |
-| 3 | PG18 plan/timing for every §S predicate and §T aggregate at 10^5 facts | **NOT EXECUTED — environment blocked.** Harness built and repaired: until this pass it called the non-analytic search and so planned **no** §S predicate at all. It now uses the analytic entry point and fails closed unless each measurement reaches the fact table its predicate names |
-| 4 | Analytics-unit duration/rows for Development corpus and synthetic 1,000-Track run | **NOT EXECUTED — environment blocked.** Harness built, and now fails unless the unit completed, every Track was analysed, none was unavailable and every required fact family was written |
-| 5 | Aggregate 10^5-fact qualification | **NOT EXECUTED — environment blocked.** Harness covers it |
-| 6 | Heatmap 50-run/candidate envelope | **NOT EXECUTED — environment blocked.** Harness built and run at the true envelope (50 covered runs, 2,000 candidates, 48,000 samples) against PostgreSQL 16, which is not qualification evidence. It now asserts that envelope against the product's own constants rather than merely recording it |
-| 7 | Both fan-out limits have evidence-backed decisions | **NOT EXECUTED** — requires 6 |
+| 3 | PG18 plan/timing for every §S predicate and §T aggregate at 10^5 facts | **PASS.** PostgreSQL 18.6, 110,000 facts, all 23 §S cases and all nine §T bucket/class cases with generated SQL and `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)` |
+| 4 | Analytics-unit duration/rows for Development corpus and synthetic 1,000-Track run | **PARTIAL.** Synthetic 1,000-Track PostgreSQL 18 run PASS: 1,000 analysed, 0 unavailable, 7,576 facts in 4.089 s. Real Development scripted corpus remains NOT EXECUTED |
+| 5 | Aggregate 10^5-fact qualification | **PASS with carried P2.** All nine cases completed; full-path timing, DB/app split, allocation and GC observations recorded. The unbounded materialisation design remains an open P2 |
+| 6 | Heatmap 50-run/candidate envelope | **PASS.** Exactly 50 covered runs, 2,000 candidates/contributors and 48,000 samples; three repetitions at each of 48/96/128 widths |
+| 7 | Both fan-out limits have evidence-backed decisions | **PASS.** Retain 50 runs / 2,000 Tracks; measured safely below one second without treating one machine as grounds to raise/remove protection |
 | 8 | No demonstrated N+1/unbounded DB or evidence-I/O path | **PARTIAL.** N+1 disproven for the aggregate by an always-on test holding query count constant across geometry. **An unbounded materialisation path is OPEN (P2)** — see the security document |
 | 9 | Cancellation/failure proven at realistic volume | **NOT EXECUTED.** Failure and cancellation are tested, but only on a one-Track world; the harness to run them against the C3 corpus is not written, so this is engineering work as well as a blocked execution |
 | 10 | Snapshot/revision consistency under concurrency | **NOT EXECUTED** in this pass. Slice-4/6 barrier ordering tests exist; the deterministic race probes do not |
@@ -43,9 +38,9 @@ The plan states that PostgreSQL 16 observations are not qualification evidence. 
 | 16 | No policy-violating dependency/runtime drift | **PASS** — no dependency added; `verify_repo.py` green |
 | 17 | Relevant suites green | **PASS** — see §Validation below. The only integration failures are the PostgreSQL 18 prerequisite assertion, reproduced and explained |
 | 18 | Documentation reflects measured reality | **PASS** for this pass's documents |
-| 19 | Independent cold review has no P1/P2 | **PARTIAL** — two independent cold reviews performed on this diff. The second found three P1s in the qualification harness, and auditing around them found four more defects, including one that meant no §S predicate was ever exercised. All are fixed. The pre-existing aggregate-materialisation P2 remains open by design, pending PostgreSQL 18 measurement |
-| 20 | Zero unresolved material review threads | **PASS** — none open |
-| 21 | Exact-head CI green | Reported on the PR |
+| 19 | Independent cold review has no P1/P2 | **FAIL.** Harness false-green defects are repaired and requalified, but PostgreSQL 18 measurement confirms the pre-existing aggregate-materialisation P2 remains open pending a semantics-preserving bound/server-side design |
+| 20 | Zero unresolved material review threads | **PASS based on public REST state** — five author replies address the five automated findings; anonymous API access cannot independently read GitHub thread-resolution flags |
+| 21 | Exact-head CI green | **PASS at reviewed head `aa17a19a`** (quality, deterministic-validation, windows-script-validation). Local commits require new CI |
 
 ## Validation
 
@@ -53,7 +48,7 @@ The plan states that PostgreSQL 16 observations are not qualification evidence. 
 |---|---|
 | Domain | 195 passed |
 | Application | 369 passed |
-| Integration | 2 failed of 632 — both `DatabaseStartupMigrationTests`, asserting the PostgreSQL 18 prerequisite against this container's 16.15 |
+| Integration | 644 passed on PostgreSQL 18.6 |
 | Frontend | 821 passed, typecheck clean, production build succeeds |
 | `python tools/verify_repo.py` | PASSED |
 | Dependency surface | unchanged — no diff in any `*.csproj`, `package.json` or `config/dependencies/` between the baseline and this head |
@@ -71,3 +66,8 @@ The plan states that PostgreSQL 16 observations are not qualification evidence. 
 ## Remaining work
 
 Environment-bound items are listed with executable commands in the handoff report and in `2026-09-22-scene-analytics-s7-corpus.md` §4. Items 2, 9, 10 and 14 need further engineering as well as execution, and that engineering is not environment-blocked: the explanation/heatmap/UI legs of the C1 trace, the concurrency race probes, the failure-at-volume harness, and the UI acceptance pass.
+
+
+## PostgreSQL 18 qualification addendum
+
+Qualification code commit: `4d110490b3413eda5cd36c171581c6560314ffc0`. All three mandatory harness facts passed, and each JSON verdict says `qualification evidence`. This closes only the PostgreSQL measurement portion. It does not close the C1 explanation/heatmap/UI trace, realistic-volume cancellation and deterministic races, real-worker/runtime-pack/GPU/CPU Development acceptance, operator workflow, accessibility or visual QA.

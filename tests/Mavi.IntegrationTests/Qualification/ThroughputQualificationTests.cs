@@ -293,44 +293,52 @@ public sealed class ThroughputQualificationTests(PostgresFixture fixture)
         var measurements = new List<object>();
         foreach (var gridWidth in HeatmapGridWidths)
         {
-            var stopwatch = Stopwatch.StartNew();
-            var result = await service.HeatmapAsync(
-                new AnalyticsHeatmapQuery(
-                    manifest.CameraId, manifest.WindowFromUtc, manifest.WindowToUtc, null, gridWidth, null),
-                default);
-            stopwatch.Stop();
-
-            // Every candidate Track has a sealed trajectory of a known length, so the
-            // work done is exactly determined: all of them must contribute, and the
-            // sample total must be the whole corpus rather than whatever survived.
-            // This is the assertion that would have caught a heatmap reading one run
-            // of fifty and still emitting a timing file.
-            verdict.RequireIntegrity($"heatmap succeeded at grid width {gridWidth}",
-                result.Failure == AnalyticsFailure.None, $"failure is {result.Failure}");
-            verdict.RequireIntegrityEqual(
-                $"every candidate Track contributed at grid width {gridWidth}",
-                scope.CandidateTrackCount, result.TrackCount);
-            verdict.RequireIntegrityEqual(
-                $"every sealed sample was read at grid width {gridWidth}",
-                (long)scope.CandidateTrackCount * QualificationCorpus.SealedTrajectorySampleCount,
-                result.Grid?.SampleCount ?? 0);
-            verdict.RequireIntegrity($"the grid honours the requested width {gridWidth}",
-                result.Grid is not null && result.Grid.Width == gridWidth,
-                $"grid is {result.Grid?.Width.ToString(CultureInfo.InvariantCulture) ?? "null"} wide");
-            verdict.RequireIntegrity($"the grid is populated at grid width {gridWidth}",
-                result.Grid is { MaxCellValue: > 0 } and { Height: > 0 },
-                $"max cell value {result.Grid?.MaxCellValue ?? 0}, height {result.Grid?.Height ?? 0}");
-
-            measurements.Add(new
+            for (var repetition = 1; repetition <= HeatmapRepetitions; repetition++)
             {
-                gridWidth,
-                failure = result.Failure.ToString(),
-                elapsedMs = stopwatch.Elapsed.TotalMilliseconds,
-                cells = result.Grid is null ? 0 : result.Grid.Width * result.Grid.Height,
-                contributingTracks = result.TrackCount,
-                sampleCount = result.Grid?.SampleCount ?? 0,
-                maxCellValue = result.Grid?.MaxCellValue ?? 0,
-            });
+                var stopwatch = Stopwatch.StartNew();
+                var result = await service.HeatmapAsync(
+                    new AnalyticsHeatmapQuery(
+                        manifest.CameraId, manifest.WindowFromUtc, manifest.WindowToUtc, null, gridWidth, null),
+                    default);
+                stopwatch.Stop();
+
+                // Every candidate Track has a sealed trajectory of a known length, so the
+                // work done is exactly determined: all of them must contribute, and the
+                // sample total must be the whole corpus rather than whatever survived.
+                // This is the assertion that would have caught a heatmap reading one run
+                // of fifty and still emitting a timing file. Repeating each width keeps a
+                // cold-ish first observation and warm observations instead of presenting
+                // one favourable sample as a stable performance conclusion.
+                var label = $"grid width {gridWidth}, repetition {repetition}";
+                verdict.RequireIntegrity($"heatmap succeeded at {label}",
+                    result.Failure == AnalyticsFailure.None, $"failure is {result.Failure}");
+                verdict.RequireIntegrityEqual(
+                    $"every candidate Track contributed at {label}",
+                    scope.CandidateTrackCount, result.TrackCount);
+                verdict.RequireIntegrityEqual(
+                    $"every sealed sample was read at {label}",
+                    (long)scope.CandidateTrackCount * QualificationCorpus.SealedTrajectorySampleCount,
+                    result.Grid?.SampleCount ?? 0);
+                verdict.RequireIntegrity($"the grid honours the requested width at {label}",
+                    result.Grid is not null && result.Grid.Width == gridWidth,
+                    $"grid is {result.Grid?.Width.ToString(CultureInfo.InvariantCulture) ?? "null"} wide");
+                verdict.RequireIntegrity($"the grid is populated at {label}",
+                    result.Grid is { MaxCellValue: > 0 } and { Height: > 0 },
+                    $"max cell value {result.Grid?.MaxCellValue ?? 0}, height {result.Grid?.Height ?? 0}");
+
+                measurements.Add(new
+                {
+                    gridWidth,
+                    repetition,
+                    cacheState = repetition == 1 ? "cold-ish" : "warm",
+                    failure = result.Failure.ToString(),
+                    elapsedMs = stopwatch.Elapsed.TotalMilliseconds,
+                    cells = result.Grid is null ? 0 : result.Grid.Width * result.Grid.Height,
+                    contributingTracks = result.TrackCount,
+                    sampleCount = result.Grid?.SampleCount ?? 0,
+                    maxCellValue = result.Grid?.MaxCellValue ?? 0,
+                });
+            }
         }
 
         var path = QualificationGate.Write(HeatmapEvidenceFile, new
@@ -354,6 +362,8 @@ public sealed class ThroughputQualificationTests(PostgresFixture fixture)
     }
 
     private const string HeatmapEvidenceFile = "heatmap-envelope.json";
+
+    private const int HeatmapRepetitions = 3;
 
     private static readonly int[] HeatmapGridWidths = [48, 96, 128];
 }

@@ -296,13 +296,21 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
             // visits, the per-bucket series — are the aggregator, and their cost
             // grows with facts and buckets. Stopping the clock at the repository
             // would report a latency the operator never experiences.
-            var stopwatch = Stopwatch.StartNew();
+            var allocatedBytesBefore = GC.GetTotalAllocatedBytes(precise: true);
+            var collectionsBefore = CaptureCollections();
+            var totalStopwatch = Stopwatch.StartNew();
+            var databaseStopwatch = Stopwatch.StartNew();
             var aggregate = await repository.AggregateAsync(aggregateQuery, default);
+            databaseStopwatch.Stop();
+            var applicationStopwatch = Stopwatch.StartNew();
             var series = aggregate.Facts is null
                 ? null
                 : AnalyticsAggregator.Compute(
                     aggregate.Facts, aggregateQuery.FromUtc, aggregateQuery.ToUtc, bucketSeconds);
-            stopwatch.Stop();
+            applicationStopwatch.Stop();
+            totalStopwatch.Stop();
+            var allocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocatedBytesBefore;
+            var collectionsAfter = CaptureCollections();
 
             var label = $"bucketSeconds={bucketSeconds}, objectClass={objectClass?.ToString() ?? "any"}";
 
@@ -342,7 +350,16 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
                 family = "T",
                 predicate = $"aggregate all metrics, bucketSeconds={bucketSeconds}, "
                     + $"objectClass={objectClass?.ToString() ?? "any"}",
-                elapsedMs = stopwatch.Elapsed.TotalMilliseconds,
+                elapsedMs = totalStopwatch.Elapsed.TotalMilliseconds,
+                databaseMaterialisationMs = databaseStopwatch.Elapsed.TotalMilliseconds,
+                applicationAggregationMs = applicationStopwatch.Elapsed.TotalMilliseconds,
+                allocatedBytes,
+                gcCollections = new
+                {
+                    generation0 = collectionsAfter[0] - collectionsBefore[0],
+                    generation1 = collectionsAfter[1] - collectionsBefore[1],
+                    generation2 = collectionsAfter[2] - collectionsBefore[2],
+                },
                 // Every §T metric is produced by this one call: zoneEntryCount,
                 // zoneExitCount, zoneUniqueTrackCount, lineCrossingCount[direction],
                 // occupancy/peakOccupancy, repeatedVisitTrackCount and classCount.
@@ -381,4 +398,7 @@ public sealed class PlanQualificationTests(PostgresFixture fixture)
         // the evidence may be called evidence at all.
         verdict.Enforce(path);
     }
+
+    private static int[] CaptureCollections() =>
+        [GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2)];
 }
