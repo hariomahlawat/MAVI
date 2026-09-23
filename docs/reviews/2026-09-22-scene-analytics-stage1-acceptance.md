@@ -11,14 +11,15 @@
 
 ## Verdict
 
-**Stage 1 is NOT closed.**
+**Stage 1 functional acceptance is closed.**
 
-Every exit-gate item except **14** is PASS (item 20 is not applicable until merge). Item 14 is **PARTIAL**, and it is the only blocker:
+Exit-gate items **1–19 are PASS**. Item 20 remains **NOT APPLICABLE** until PR #70 is merged and the post-merge critical verification runs on `main`.
 
-- **Action C** — the three scripted videos through import → fixture worker → analytics host → `scripted_corpus.py check` — has **not been executed**. The videos were generated and pixel-verified and their scene revisions saved, but no `check` result exists.
-- **Action D.2** — the disconnected run — has **not been executed as specified**. Offline observations exist (below) and support the claim, but they did not include the worker or analytics path.
+The final operator evidence was completed on the Development machine while disconnected from the network:
+- **Action C — PASS.** All three scripted scenarios completed through import → fixture worker → analytics host → `scripted_corpus.py check`, with `ok` for `line-crossing`, `zone-dwell-exit`, and `stationary-then-depart`.
+- **Action D.2 — PASS.** The disconnected session exercised Processing, Evidence Review, Analytics Activity and Heatmap with the browser Network panel open; only `localhost` / `127.0.0.1` requests were observed.
 
-Both close in **one operator session**: run action C while disconnected (runbook §D.2). Everything else was either executed on the Development machine (A, B, D.1, E and the machine half of F) or is proved by deterministic tests that run on every head.
+The session also exposed and closed two real Development defects before acceptance was completed: floating-point confidence finalisation on long fixture Tracks, and TanStack Query pausing local loopback queries/mutations when `navigator.onLine` was false. Both were repaired with discriminating tests before the final offline run.
 
 Nothing unexecuted is marked PASS.
 
@@ -56,7 +57,7 @@ The new tests only read `QualificationCorpus`. The PostgreSQL 18 evidence theref
 
 | # | Requirement | Status |
 |---|---|---|
-| 1 | Stage-1 functional acceptance met | **NOT MET** — depends on item 14 (actions C and D.2) |
+| 1 | Stage-1 functional acceptance met | **PASS** — Action C and the disconnected D.2 operator path both completed successfully on the Development machine |
 | 2 | C1 agrees across trajectory/facts/search/explanation/aggregate/heatmap/UI | **PASS.** Trajectory → facts → §S → §T as before; now also the explanation (track detail), the pinned geometry names and the heatmap (an exact matrix), read through the real HTTP API, compared byte for byte with a committed golden, and the same golden driven through the real explanation, overlay and heatmap components with the heatmap recomputed from the authored path. Details: semantic acceptance §5 |
 | 3 | PostgreSQL 18 plans and timings for every §S predicate and §T aggregate at 10^5 facts | **PASS** — `PlanQualificationTests` on PostgreSQL 18.6, 110,000 relevant facts, `qualification evidence`, SHA `5f516662…` |
 | 4 | Analytics-unit duration and rows for (a) the Development corpus and (b) a synthetic 1,000-Track run | **PASS.** (a) Development corpus: `Completed`, attempt 1, 414 ms, 12 analysed / 0 unavailable, 12 outcomes, 8 zone visits, 12 zone summaries, 1 crossing, 12 motion summaries, 3,002 samples. (b) synthetic 1,000-Track run: 1,000 analysed, 0 unavailable, `Completed`, ≈3.11 s; 1,000 outcomes, 4,000 zone summaries, 185 visits, 1,391 crossings, 1,000 motion summaries. |
@@ -69,9 +70,9 @@ The new tests only read `QualificationCorpus`. The PostgreSQL 18 evidence theref
 | 11 | Browser parser matches the normalised-coordinate contract | **PASS** |
 | 12 | Security/resource review has no open P1/P2 | **PASS.** No P1. The aggregate-materialisation P2 is closed as dispositioned RETAIN within the qualified envelope. |
 | 13 | Operator workflow / accessibility / visual QA pass | **PASS.** Accessibility and visual QA **PASS**: 53 analytics-related states × 4 widths, zero automated findings, human capture pass, no P1/P2 (three P3s). The remaining real-data **Search → Investigation → Evidence Review** leg was executed on the H.264 MOT17-CROWD run: the same Person Track opened from Search into the inspector and Evidence Review, source video played, Revision 1 / Engine v1 identity agreed, and the saved zone overlay rendered against the track evidence. |
-| 14 | Development offline/real-worker acceptance recorded with no undeclared dependency | **PARTIAL — the only open item.** **PASS:** real-worker acceptance, restart persistence and runtime identity (D.1). **NOT EXECUTED:** the three scripted videos through the worker and analytics host (C) — they are generated, pixel-verified and engine-proved. **NOT EXECUTED as specified:** the disconnected run (D.2) — partial offline observations are recorded under *Offline observations* |
+| 14 | Development offline/real-worker acceptance recorded with no undeclared dependency | **PASS.** Real-worker acceptance, restart persistence and runtime identity passed. The three scripted scenarios were then completed through the fixture-worker control plane and real analytics host with `check = ok` for all three. The final session was disconnected: Processing, Evidence Review, Activity and Heatmap all worked, and DevTools showed only `localhost` / `127.0.0.1` requests. |
 | 15 | No policy-violating dependency/runtime drift | **PASS** — zero files differ from `main` across `*.csproj`, `package.json`, lockfiles and `config/dependencies/`; the new tools are standard-library Python and plain SQL; `verify_repo.py` green |
-| 16 | Relevant suites and exact-head CI green | **PASS** — local suites below. Exact-head CI was green on every pushed head through `3a86b05`; the checks on PR #70's final head are the merge gate |
+| 16 | Relevant suites and exact-head CI green | **PASS on executable head `f620485`** — Task 17 Acceptance Validation, Task 10 Runtime Qualification and MAVI Quality Gate were all green before this evidence-only documentation update. Exact-head CI on the final documentation head remains the merge gate. |
 | 17 | Documentation reflects measured reality, limits and known limitations | **PASS** after the reconciliation in *Independent closure review* below |
 | 18 | Independent cold review clean of P1/P2 | **PASS.** The closure review below found no P1. Its P2s were in the operator procedure and the test and documentation claims, not in product code, and each is fixed in this pass |
 | 19 | No unresolved material review thread | **PASS** — PR #70 has zero unresolved threads; PR #71 is closed as superseded |
@@ -93,7 +94,7 @@ The new tests only read `QualificationCorpus`. The PostgreSQL 18 evidence theref
 
 **Real-worker Development acceptance: PASS. Restart persistence: PASS.**
 
-## Development-machine actions that close the remaining items
+## Development-machine acceptance actions
 
 Each is an exact procedure in `docs/runbooks/scene-analytics-stage1-development-acceptance.md`. Record the result here; do not record a PASS for an action not run.
 
@@ -101,9 +102,9 @@ Each is an exact procedure in `docs/runbooks/scene-analytics-stage1-development-
 |---|---|---|
 | A — transcribe the authoritative §T figures, apply the approved decision rule | 7, 12, 18 | **PASS — RETAIN.** Evidence SHA-256 `3e418ab9fca8dccf8b939cf356e6cde979db682b8d96bade0a799163c667275a`; worst total 4,405 ms; worst allocation 42.6 MiB; 10 DB queries in all 9 cases. |
 | B — Development-corpus unit record from `mavi_dev` | 4a | **PASS.** Completed, 414 ms, 12 analysed / 0 unavailable, 12 outcomes; integrity equation holds. |
-| C — the three scripted videos through the real worker and analytics host, `check` = `ok` for each | 14 | **PARTIAL — NOT EXECUTED past step 2.** The videos were generated and pixel-verified `ok`, and cameras `SCR-LINE` (`01a0cba3-4f9d-7e9f-82f1-f89dd9d956a0`), `SCR-ZONE` (`01a0cba3-85ef-71c6-8f3b-ed2276958f95`) and `SCR-STILL` (`01a0cba3-b80d-7757-8bc5-d2e912760549`) have their scene saved as revision 1. **Regenerate the videos before importing:** the earlier encoding (CRF 0) is H.264 High 4:4:4 Predictive, which browser decoders commonly refuse, and the generator now emits High profile with no B-frames. No import, worker, analytics or `check` result exists. |
+| C — the three scripted videos through the real worker and analytics host, `check` = `ok` for each | 14 | **PASS.** The regenerated H.264 High-profile videos were verified `ok`. `SCR-LINE` completed through the fixture worker and real analytics host with `line-crossing -> ok`. A wrong-scenario first `SCR-ZONE` run was deliberately rejected as acceptance evidence; a byte-distinct re-encode was imported and processed with `MAVI_FIXTURE_SCENARIO=zone-dwell-exit`, producing the expected eastward heading, ~7 s Pad dwell/loitering, no line crossing, and `zone-dwell-exit -> ok`. `SCR-STILL` was likewise re-encoded/imported and processed with `stationary-then-depart`, producing the expected rightward heading, one ~7 s stationary interval, no zone visit or line crossing, and `stationary-then-depart -> ok`. |
 | D.1 — runtime identity of the real-worker runs | 14 | **PASS.** Recorded on the H.264 MOT17 real-worker runs rather than the runbook's `2min.mp4`; any real-worker run satisfies the action. Development SQL output shows pipeline `phase1-v1`, detector `rtmdet-m-coco-phase1 1.0.0`, tracker `ByteTrack 2.6.0`, worker `dev-worker-01`, runtime variant `windows-x86_64-cuda`, actual device `cuda:0`, resolution reason `cuda_selected`, qualification id `rtmdet-m-coco-phase1-v1`, runtime profile `mmdetection-phase1-v1`, pipeline profile `phase1-detection-tracking-v1`, checkpoint SHA-256 persisted, dependency versions persisted, GPU `NVIDIA GeForce GTX 1650 Ti` with CUDA runtime 12.4 / driver 576.83, and MAVI commit `401af70d0207095e13b4d5ef935e4ccc24237b6b`. |
-| D.2 — disconnected run, same-origin network only | 14 | **PARTIAL — NOT EXECUTED as specified.** Observed while physically disconnected:<br>• `/api/health`, `/api/cameras` and the Vite origin answered 200;<br>• the Network panel showed only `localhost`/`127.0.0.1`;<br>• an offline cold start of Camera Scene loaded after the bounded-read fix.<br>Not observed offline: import, worker processing, the analytics host, Evidence Review playback, Activity and Heatmap. Those are the path the criterion names, and the ones most likely to hide a fetch. As written, the action could not have been run: it said to *repeat* action C, and a byte-identical video is refused as `video_duplicate` on a second import. The runbook now says to perform action C itself while disconnected. |
+| D.2 — disconnected run, same-origin network only | 14 | **PASS.** The final operator session was completed with the machine disconnected. After the TanStack Query `networkMode: 'always'` repair, the Processing page loaded normally offline and local queries/mutations continued over loopback. The scripted acceptance path completed offline, and Evidence Review, Analytics Activity and Heatmap were opened with DevTools Network inspection enabled. The operator confirmed that all requests stayed on `localhost` / `127.0.0.1`; no remote host or undeclared Internet dependency appeared. |
 | E — Search → Investigation on real data | 13 | **PASS.** Run on MOT17-CROWD H.264 rather than the runbook's `2min.mp4` camera. On MOT17-CROWD-H264, Search opened a real Person Track into the inspector and Evidence Review; source video playback worked, Track identity and camera agreed, scene status was **Analysed**, Revision 1 / Engine v1 matched, and the zone overlay rendered. Activity reported **coverage complete** with 29 distinct Person Tracks; Heatmap reported 6,210 trajectory samples from 29 Tracks on a 64 × 36 grid, busiest cell 146, with **All 1 run analysed**. |
 | F — PostgreSQL restart/reconnect | plan §11 | **PASS, on two pieces of evidence that together cover the criterion.**<br>• **Machine half** (Development machine): `MAVI-Dev-PostgreSQL-18` was stopped and restarted under the same `Mavi.Api` process, which then answered the database-backed `/api/cameras` with 200 without a restart.<br>• **Outage half** (`DatabaseOutageRecoveryTests`, on every head): the API runs on Kestrel through a relay that drops every connection and refuses new ones. While the database is unreachable, Activity (`/aggregates`) and Heatmap answer 5xx with no host, port, database, user, `Npgsql`, exception or stack text. When it comes back, the same process returns byte-identical answers to those given before the outage (only the per-request snapshot sequence is excluded). The test fails if the outage is a no-op or if the body carries the exception.<br>The manual outage-half observation was not made; see *PostgreSQL restart/reconnect evidence* for what that leaves. |
 
@@ -161,7 +162,7 @@ Every new test was mutation-checked, and each fails against the defect it guards
 - **Development evidence.** A (P2 → RETAIN), B, D.1 and E recorded by the owner; the machine half of F; the offline cold-start defect and the bounded-read fix.
 - **Independent closure review.** Findings and fixes below; F closed by a deterministic outage test; the runbook's C/D.2 procedure repaired.
 
-## Offline observations and the bounded-read fix
+## Offline acceptance findings and repairs
 
 During disconnected Development acceptance, the Scene Editor could stay on **Loading scene…** indefinitely when a local API read got no response during cold start. The browser API client now bounds every local GET/HEAD read at 10 s:
 - the caller's cancellation still wins, with its own reason;
@@ -210,3 +211,15 @@ A cold review of the whole PR against `main`. It covered the .NET test harnesses
 - The fixture harness is not bound to the leased job's scenario; the runbook now says to import and process one video at a time.
 - The Development-only exception page and the untyped 500 during an outage (action F).
 - The unexplained cold-start stall.
+
+
+## Final scripted/offline operator evidence — 23 Sep 2026
+
+The owner completed the remaining Stage-1 operator gate on the Windows Development machine while disconnected from the network.
+
+- `line-crossing`: fixture worker completed; analytics reached **Analysed**; `scripted_corpus.py check` returned **`ok`**.
+- `zone-dwell-exit`: the first completed asset had been leased under the wrong fixture scenario and was not counted. A fresh byte-distinct re-encode was imported to `SCR-ZONE`, processed with `MAVI_FIXTURE_SCENARIO=zone-dwell-exit`, and showed the expected facts in Evidence Review: Pad visit, about 7 s dwell with loitering against the 5 s threshold, heading Right/E, no line crossing, never stationary. `check` returned **`ok`**.
+- `stationary-then-depart`: a fresh byte-distinct re-encode was imported to `SCR-STILL`, processed with `MAVI_FIXTURE_SCENARIO=stationary-then-depart`, and showed the expected facts: no zone visit, no line crossing, heading Right/E, one stationary interval of about 7 s. `check` returned **`ok`**.
+- With the machine still disconnected, Processing, Evidence Review, Analytics Activity and Heatmap worked as intended. DevTools Network showed requests only to `127.0.0.1` / `localhost`.
+
+This closes actions **C** and **D.2** and therefore Stage-1 exit-gate items **1** and **14**.
