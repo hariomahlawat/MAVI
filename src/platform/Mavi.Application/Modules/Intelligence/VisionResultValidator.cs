@@ -14,16 +14,32 @@ public sealed record ValidatedArtifactDescriptor(
     long SizeBytes,
     string Sha256);
 
-public sealed record ValidatedRepresentativeObservation(
+/// <summary>The completion schema a validated body was written in.</summary>
+public enum CompletionSchema
+{
+    /// <summary>Completion 2.0: one Representative thumbnail per Track.</summary>
+    V2,
+    /// <summary>Completion 3.0: the bounded Track Evidence Set.</summary>
+    V3,
+}
+
+/// <summary>
+/// One accepted observation of a Track. Completion 2.0 normalises to a single
+/// Representative whose selection score equals its quality score.
+/// </summary>
+public sealed record ValidatedObservation(
+    ObservationType Role,
+    int Rank,
     long OffsetMs,
     long SourceFrameNumber,
     double Confidence,
     double QualityScore,
+    double SelectionScore,
     double X,
     double Y,
     double Width,
     double Height,
-    ValidatedArtifactDescriptor Thumbnail);
+    ValidatedArtifactDescriptor Crop);
 
 public sealed record ValidatedTrackResult(
     string TrackId,
@@ -33,10 +49,28 @@ public sealed record ValidatedTrackResult(
     int DetectionCount,
     double MeanConfidence,
     double MaxConfidence,
-    ValidatedRepresentativeObservation Representative,
-    ValidatedArtifactDescriptor TrajectoryArtifact);
+    IReadOnlyList<ValidatedObservation> Observations,
+    ValidatedArtifactDescriptor TrajectoryArtifact)
+{
+    /// <summary>The mandatory rank-0 observation; always first.</summary>
+    public ValidatedObservation Representative => Observations[0];
+}
+
+public sealed record ValidatedRoleAccounting(
+    int Candidates,
+    int Admitted,
+    int Omitted,
+    long CandidateBytes,
+    long AdmittedBytes);
+
+public sealed record ValidatedEvidenceAccounting(
+    ValidatedRoleAccounting Representative,
+    ValidatedRoleAccounting NearView,
+    ValidatedRoleAccounting EarlyDiverse,
+    ValidatedRoleAccounting LateDiverse);
 
 public sealed record ValidatedVisionResult(
+    CompletionSchema Schema,
     int AttemptCount,
     long FramesProcessed,
     long ProcessingDurationMs,
@@ -46,6 +80,7 @@ public sealed record ValidatedVisionResult(
     string TrackerName,
     string TrackerVersion,
     IReadOnlyList<ValidatedTrackResult> Tracks,
+    ValidatedEvidenceAccounting? EvidenceAccounting,
     string CompletionDigest);
 
 public sealed class VisionResultValidationException(string reasonCode)
@@ -79,11 +114,30 @@ public sealed class VisionResultValidator
         if (videoDurationMs <= 0)
             throw Invalid("video_duration_invalid");
 
+        var schema = request.SchemaVersion switch
+        {
+            WorkerContractRules.CompletionSchemaVersionV2 => CompletionSchema.V2,
+            WorkerContractRules.CompletionSchemaVersionV3 => CompletionSchema.V3,
+            _ => throw Invalid("schema_version_invalid"),
+        };
+        // Each version carries its own evidence members and forbids the other's,
+        // so a body can never be read as the other version.
+        if (schema == CompletionSchema.V2 && request.EvidenceAccounting is not null)
+            throw Invalid("evidence_accounting_unexpected");
+        if (schema == CompletionSchema.V3 && request.EvidenceAccounting is null)
+            throw Invalid("evidence_accounting_missing");
+
         var provenance = VisionRuntimeProvenanceParser.Parse(request.Provenance);
         var trackIds = new HashSet<string>(StringComparer.Ordinal);
         var artifactKeys = new HashSet<string>(StringComparer.Ordinal);
         var tracks = new List<ValidatedTrackResult>(request.Tracks.Count);
+        var expectedPrefix = $"staging/{routeJobId:D}/attempt-{request.AttemptCount.Value:0000}";
+        // v2: thumbnails + trajectories share one 512 MiB bound. v3: trajectories
+        // keep that bound; crops have their own 1 GiB quota (ADR-013 §6).
         long aggregateEvidenceBytes = 0;
+        long aggregateCropBytes = 0;
+        var admittedCountByRole = new int[RoleOrder.Length];
+        var admittedBytesByRole = new long[RoleOrder.Length];
 
         foreach (var contract in request.Tracks)
         {
@@ -111,28 +165,15 @@ public sealed class VisionResultValidator
             if (!Unit(contract.MeanConfidence) || !Unit(contract.MaxConfidence) ||
                 contract.MeanConfidence > contract.MaxConfidence)
                 throw Invalid("track_confidence_invalid");
-            if (contract.Representative is null || contract.TrajectoryArtifact is null)
+            if (contract.TrajectoryArtifact is null)
                 throw Invalid("track_evidence_missing");
 
-            var representative = contract.Representative;
-            if (representative.OffsetMs is not { } repOffset || repOffset < startOffsetMs || repOffset > endOffsetMs ||
-                representative.SourceFrameNumber is not >= 0 ||
-                representative.SourceFrameNumber >= request.FramesProcessed.Value ||
-                !Unit(representative.Confidence) || !Unit(representative.QualityScore) ||
-                representative.Confidence > contract.MaxConfidence ||
-                representative.BoundingBox is null || representative.Thumbnail is null)
-                throw Invalid("representative_invalid");
+            var observations = schema == CompletionSchema.V2
+                ? ValidateV2Evidence(contract, trackId, startOffsetMs, endOffsetMs,
+                    request.FramesProcessed.Value, expectedPrefix, artifactKeys)
+                : ValidateV3Evidence(contract, trackId, startOffsetMs, endOffsetMs,
+                    request.FramesProcessed.Value, expectedPrefix, artifactKeys);
 
-            var box = representative.BoundingBox;
-            if (!PersistableNormalizedBox(box.X, box.Y, box.Width, box.Height))
-                throw Invalid("bounding_box_invalid");
-
-            var expectedPrefix = $"staging/{routeJobId:D}/attempt-{request.AttemptCount.Value:0000}";
-            var thumbnail = ValidateArtifact(
-                representative.Thumbnail,
-                $"{expectedPrefix}/thumbnails/{trackId}.jpg",
-                "image/jpeg",
-                artifactKeys);
             var trajectory = ValidateArtifact(
                 contract.TrajectoryArtifact,
                 $"{expectedPrefix}/trajectories/{trackId}.msgpack",
@@ -141,14 +182,29 @@ public sealed class VisionResultValidator
 
             try
             {
-                aggregateEvidenceBytes = checked(
-                    aggregateEvidenceBytes + thumbnail.SizeBytes + trajectory.SizeBytes);
+                if (schema == CompletionSchema.V2)
+                {
+                    aggregateEvidenceBytes = checked(
+                        aggregateEvidenceBytes + observations[0].Crop.SizeBytes + trajectory.SizeBytes);
+                }
+                else
+                {
+                    aggregateEvidenceBytes = checked(aggregateEvidenceBytes + trajectory.SizeBytes);
+                    foreach (var observation in observations)
+                    {
+                        aggregateCropBytes = checked(aggregateCropBytes + observation.Crop.SizeBytes);
+                        var role = (int)observation.Role;
+                        admittedCountByRole[role]++;
+                        admittedBytesByRole[role] = checked(admittedBytesByRole[role] + observation.Crop.SizeBytes);
+                    }
+                }
             }
             catch (OverflowException)
             {
                 throw Invalid("artifact_evidence_size_invalid");
             }
-            if (aggregateEvidenceBytes > WorkerContractRules.MaximumCompletionEvidenceBytes)
+            if (aggregateEvidenceBytes > WorkerContractRules.MaximumCompletionEvidenceBytes ||
+                aggregateCropBytes > WorkerContractRules.MaximumCompletionEvidenceCropBytes)
                 throw Invalid("artifact_evidence_size_invalid");
 
             tracks.Add(new ValidatedTrackResult(
@@ -159,31 +215,30 @@ public sealed class VisionResultValidator
                 contract.DetectionCount.Value,
                 contract.MeanConfidence!.Value,
                 contract.MaxConfidence!.Value,
-                new ValidatedRepresentativeObservation(
-                    repOffset,
-                    representative.SourceFrameNumber!.Value,
-                    representative.Confidence!.Value,
-                    representative.QualityScore!.Value,
-                    box.X!.Value,
-                    box.Y!.Value,
-                    box.Width!.Value,
-                    box.Height!.Value,
-                    thumbnail),
+                observations,
                 trajectory));
         }
+
+        ValidatedEvidenceAccounting? accounting = null;
+        if (schema == CompletionSchema.V3)
+            accounting = ValidateAccounting(
+                request.EvidenceAccounting!, tracks.Count, admittedCountByRole, admittedBytesByRole);
 
         tracks.Sort((left, right) => StringComparer.Ordinal.Compare(left.TrackId, right.TrackId));
 
         var runtimeJson = JsonSerializer.Serialize(request.Provenance, _jsonOptions);
         var digest = ComputeDigest(
+            schema,
             routeJobId,
             request.AttemptCount.Value,
             request.FramesProcessed.Value,
             request.ProcessingDurationMs.Value,
             request.Provenance,
+            accounting,
             tracks);
 
         return new ValidatedVisionResult(
+            schema,
             request.AttemptCount.Value,
             request.FramesProcessed.Value,
             request.ProcessingDurationMs.Value,
@@ -193,7 +248,213 @@ public sealed class VisionResultValidator
             "ByteTrack",
             provenance.TrackerVersion,
             tracks,
+            accounting,
             digest);
+    }
+
+    /// <summary>Canonical role order (ADR-013 §4); also the rank order.</summary>
+    private static readonly ObservationType[] RoleOrder =
+    [
+        ObservationType.Representative,
+        ObservationType.NearView,
+        ObservationType.EarlyDiverse,
+        ObservationType.LateDiverse,
+    ];
+
+    /// <summary>Wire and storage-key token for each role.</summary>
+    public static string RoleToken(ObservationType role) => role switch
+    {
+        ObservationType.Representative => "representative",
+        ObservationType.NearView => "near-view",
+        ObservationType.EarlyDiverse => "early-diverse",
+        ObservationType.LateDiverse => "late-diverse",
+        _ => throw new ArgumentOutOfRangeException(nameof(role)),
+    };
+
+    private static ObservationType ParseRole(string? token) => token switch
+    {
+        "representative" => ObservationType.Representative,
+        "near-view" => ObservationType.NearView,
+        "early-diverse" => ObservationType.EarlyDiverse,
+        "late-diverse" => ObservationType.LateDiverse,
+        _ => throw Invalid("observation_role_invalid"),
+    };
+
+    private static List<ValidatedObservation> ValidateV2Evidence(
+        VisionTrackResultContract contract,
+        string trackId,
+        long startOffsetMs,
+        long endOffsetMs,
+        long framesProcessed,
+        string expectedPrefix,
+        HashSet<string> artifactKeys)
+    {
+        if (contract.Observations is not null)
+            throw Invalid("observations_unexpected");
+        if (contract.Representative is null)
+            throw Invalid("track_evidence_missing");
+
+        var representative = contract.Representative;
+        if (representative.OffsetMs is not { } repOffset || repOffset < startOffsetMs || repOffset > endOffsetMs ||
+            representative.SourceFrameNumber is not >= 0 ||
+            representative.SourceFrameNumber >= framesProcessed ||
+            !Unit(representative.Confidence) || !Unit(representative.QualityScore) ||
+            representative.Confidence > contract.MaxConfidence ||
+            representative.BoundingBox is null || representative.Thumbnail is null)
+            throw Invalid("representative_invalid");
+
+        var box = representative.BoundingBox;
+        if (!PersistableNormalizedBox(box.X, box.Y, box.Width, box.Height))
+            throw Invalid("bounding_box_invalid");
+
+        var thumbnail = ValidateArtifact(
+            representative.Thumbnail,
+            $"{expectedPrefix}/thumbnails/{trackId}.jpg",
+            "image/jpeg",
+            artifactKeys);
+
+        // A v2 Track is one Representative, rank 0; its selection score is its
+        // quality score (the same rule the migration applies to historical rows).
+        return
+        [
+            new ValidatedObservation(
+                ObservationType.Representative,
+                0,
+                repOffset,
+                representative.SourceFrameNumber!.Value,
+                representative.Confidence!.Value,
+                representative.QualityScore!.Value,
+                representative.QualityScore!.Value,
+                box.X!.Value,
+                box.Y!.Value,
+                box.Width!.Value,
+                box.Height!.Value,
+                thumbnail),
+        ];
+    }
+
+    private static List<ValidatedObservation> ValidateV3Evidence(
+        VisionTrackResultContract contract,
+        string trackId,
+        long startOffsetMs,
+        long endOffsetMs,
+        long framesProcessed,
+        string expectedPrefix,
+        HashSet<string> artifactKeys)
+    {
+        if (contract.Representative is not null)
+            throw Invalid("representative_unexpected");
+        if (contract.Observations is not { Count: >= 1 } items)
+            throw Invalid("observations_missing");
+        if (items.Count > WorkerContractRules.MaximumTrackObservations)
+            throw Invalid("observation_count_invalid");
+
+        var seenRoles = new HashSet<ObservationType>();
+        var seenFrames = new HashSet<long>();
+        var observations = new List<ValidatedObservation>(items.Count);
+        foreach (var item in items)
+        {
+            if (item is null)
+                throw Invalid("observation_missing");
+            var role = ParseRole(item.Role);
+            if (!seenRoles.Add(role))
+                throw Invalid("observation_role_duplicate");
+            if (item.Rank is not { } rank)
+                throw Invalid("observation_rank_invalid");
+            if (item.OffsetMs is not { } offset || offset < startOffsetMs || offset > endOffsetMs ||
+                item.SourceFrameNumber is not { } frame || frame < 0 || frame >= framesProcessed ||
+                !Unit(item.Confidence) || item.Confidence > contract.MaxConfidence ||
+                !Unit(item.QualityScore) || !Unit(item.SelectionScore) ||
+                item.BoundingBox is null || item.Crop is null)
+                throw Invalid("observation_invalid");
+            // One image never satisfies two roles (plan §4.3).
+            if (!seenFrames.Add(frame))
+                throw Invalid("observation_frame_duplicate");
+
+            var box = item.BoundingBox;
+            if (!PersistableNormalizedBox(box.X, box.Y, box.Width, box.Height))
+                throw Invalid("bounding_box_invalid");
+
+            var crop = ValidateArtifact(
+                item.Crop,
+                $"{expectedPrefix}/evidence/{trackId}-{RoleToken(role)}.jpg",
+                "image/jpeg",
+                artifactKeys);
+            var cap = role == ObservationType.Representative
+                ? WorkerContractRules.MaximumRepresentativeCropBytes
+                : WorkerContractRules.MaximumSupplementalCropBytes;
+            if (crop.SizeBytes is <= 0 || crop.SizeBytes > cap)
+                throw Invalid("observation_crop_size_invalid");
+
+            observations.Add(new ValidatedObservation(
+                role,
+                rank,
+                offset,
+                frame,
+                item.Confidence!.Value,
+                item.QualityScore!.Value,
+                item.SelectionScore!.Value,
+                box.X!.Value,
+                box.Y!.Value,
+                box.Width!.Value,
+                box.Height!.Value,
+                crop));
+        }
+
+        if (!seenRoles.Contains(ObservationType.Representative))
+            throw Invalid("observation_representative_missing");
+
+        // Ranks are contiguous 0..n-1 in canonical role order over the roles kept;
+        // Representative is therefore rank 0 and supplementals are never rank 0.
+        observations.Sort((left, right) => left.Role.CompareTo(right.Role));
+        for (var index = 0; index < observations.Count; index++)
+        {
+            if (observations[index].Rank != index)
+                throw Invalid("observation_rank_invalid");
+        }
+
+        return observations;
+    }
+
+    private static ValidatedEvidenceAccounting ValidateAccounting(
+        VisionEvidenceAccountingContract contract,
+        int trackCount,
+        int[] admittedCountByRole,
+        long[] admittedBytesByRole)
+    {
+        ValidatedRoleAccounting Role(VisionEvidenceRoleAccountingContract? value, ObservationType role)
+        {
+            if (value is null ||
+                value.Candidates is not >= 0 || value.Admitted is not >= 0 || value.Omitted is not >= 0 ||
+                value.CandidateBytes is not >= 0 || value.AdmittedBytes is not >= 0)
+                throw Invalid("evidence_accounting_invalid");
+            var index = (int)role;
+            // The accounting must describe the descriptors actually sent: admitted
+            // equals what is present, omitted is the remainder of the candidates.
+            if (value.Admitted != admittedCountByRole[index] ||
+                value.AdmittedBytes != admittedBytesByRole[index] ||
+                value.Admitted > value.Candidates ||
+                value.Omitted != value.Candidates - value.Admitted ||
+                value.AdmittedBytes > value.CandidateBytes)
+                throw Invalid("evidence_accounting_invalid");
+            return new ValidatedRoleAccounting(
+                value.Candidates.Value,
+                value.Admitted.Value,
+                value.Omitted.Value,
+                value.CandidateBytes.Value,
+                value.AdmittedBytes.Value);
+        }
+
+        var representative = Role(contract.Representative, ObservationType.Representative);
+        // A Representative is mandatory for every accepted Track and never omitted.
+        if (representative.Candidates != trackCount || representative.Omitted != 0)
+            throw Invalid("evidence_accounting_invalid");
+
+        return new ValidatedEvidenceAccounting(
+            representative,
+            Role(contract.NearView, ObservationType.NearView),
+            Role(contract.EarlyDiverse, ObservationType.EarlyDiverse),
+            Role(contract.LateDiverse, ObservationType.LateDiverse));
     }
 
     private static ValidatedArtifactDescriptor ValidateArtifact(
@@ -216,11 +477,13 @@ public sealed class VisionResultValidator
     }
 
     private static string ComputeDigest(
+        CompletionSchema schema,
         Guid jobId,
         int attemptCount,
         long framesProcessed,
         long processingDurationMs,
         VisionRuntimeProvenanceContract provenance,
+        ValidatedEvidenceAccounting? accounting,
         List<ValidatedTrackResult> tracks)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -246,7 +509,11 @@ public sealed class VisionResultValidator
         void AddNumber<T>(T value) where T : IFormattable =>
             Add(value.ToString(null, CultureInfo.InvariantCulture));
 
-        Add("mavi:vision-completion-digest:v2");
+        // Domain-separated per version: a stored v2 digest can only ever match a
+        // v2 replay and a v3 digest only a v3 replay (plan §7.3).
+        Add(schema == CompletionSchema.V2
+            ? "mavi:vision-completion-digest:v2"
+            : "mavi:vision-completion-digest:v3");
         Add(jobId.ToString("D"));
         AddNumber(attemptCount);
         AddNumber(framesProcessed);
@@ -322,6 +589,18 @@ public sealed class VisionResultValidator
         AddNumber(tracker.LostTrackBufferSeconds!.Value);
         Add(provenance.InputColourSpace!);
 
+        if (schema == CompletionSchema.V3)
+        {
+            foreach (var role in new[] { accounting!.Representative, accounting.NearView, accounting.EarlyDiverse, accounting.LateDiverse })
+            {
+                AddNumber(role.Candidates);
+                AddNumber(role.Admitted);
+                AddNumber(role.Omitted);
+                AddNumber(role.CandidateBytes);
+                AddNumber(role.AdmittedBytes);
+            }
+        }
+
         AddNumber(tracks.Count);
         foreach (var track in tracks)
         {
@@ -332,22 +611,53 @@ public sealed class VisionResultValidator
             AddNumber(track.DetectionCount);
             AddNumber(track.MeanConfidence);
             AddNumber(track.MaxConfidence);
-            AddNumber(track.Representative.OffsetMs);
-            AddNumber(track.Representative.SourceFrameNumber);
-            AddNumber(track.Representative.Confidence);
-            AddNumber(track.Representative.QualityScore);
-            AddNumber(track.Representative.X);
-            AddNumber(track.Representative.Y);
-            AddNumber(track.Representative.Width);
-            AddNumber(track.Representative.Height);
-            Add(track.Representative.Thumbnail.StorageKey);
-            Add(track.Representative.Thumbnail.MediaType);
-            AddNumber(track.Representative.Thumbnail.SizeBytes);
-            Add(track.Representative.Thumbnail.Sha256);
+            if (schema == CompletionSchema.V2)
+            {
+                // Byte-for-byte the historical v2 sequence: stored v2 digests must
+                // keep matching their replays.
+                var representative = track.Representative;
+                AddNumber(representative.OffsetMs);
+                AddNumber(representative.SourceFrameNumber);
+                AddNumber(representative.Confidence);
+                AddNumber(representative.QualityScore);
+                AddNumber(representative.X);
+                AddNumber(representative.Y);
+                AddNumber(representative.Width);
+                AddNumber(representative.Height);
+                Add(representative.Crop.StorageKey);
+                Add(representative.Crop.MediaType);
+                AddNumber(representative.Crop.SizeBytes);
+                Add(representative.Crop.Sha256);
+                Add(track.TrajectoryArtifact.StorageKey);
+                Add(track.TrajectoryArtifact.MediaType);
+                AddNumber(track.TrajectoryArtifact.SizeBytes);
+                Add(track.TrajectoryArtifact.Sha256);
+                continue;
+            }
+
             Add(track.TrajectoryArtifact.StorageKey);
             Add(track.TrajectoryArtifact.MediaType);
             AddNumber(track.TrajectoryArtifact.SizeBytes);
             Add(track.TrajectoryArtifact.Sha256);
+            AddNumber(track.Observations.Count);
+            foreach (var observation in track.Observations)
+            {
+                Add(RoleToken(observation.Role));
+                AddNumber(observation.Rank);
+                AddNumber(observation.OffsetMs);
+                AddNumber(observation.SourceFrameNumber);
+                AddNumber(observation.Confidence);
+                AddNumber(observation.QualityScore);
+                AddNumber(observation.SelectionScore);
+                AddNumber(observation.X);
+                AddNumber(observation.Y);
+                AddNumber(observation.Width);
+                AddNumber(observation.Height);
+                Add(observation.Crop.StorageKey);
+                Add(observation.Crop.MediaType);
+                AddNumber(observation.Crop.SizeBytes);
+                Add(observation.Crop.Sha256);
+            }
         }
 
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
