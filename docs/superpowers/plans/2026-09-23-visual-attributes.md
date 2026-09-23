@@ -80,490 +80,482 @@ Stage 2 adopts these rules:
 
 ## 4. Repository reality at Stage-2 entry
 
-The current platform already contains `VisualAttribute` with:
-- `TrackId`;
-- optional `ObservationId`;
-- `AttributeType`;
-- `Value`;
-- `Confidence`;
-- optional `ModelName`;
-- optional `ModelVersion`;
-- `CreatedAtUtc`.
+Stage 2 is constrained by the implementation already merged at Stage-1 closure:
 
-The table currently has a Track index and a confidence check. It is not populated by the processing path.
+- VisionJob performs a single decode pass. Per-frame images and boxes are not retained after processing; trajectory v1 cannot reconstruct bounding boxes.
+- VisionJob completion currently has detector-era bounded-result rules and one Representative thumbnail/trajectory shape.
+- accepted evidence is .NET/platform owned; Python workers do not have a supported direct read path into the accepted-evidence root.
+- SceneAnalytics is an in-process .NET lifecycle; VisionJob is a Python-facing HTTP lease/heartbeat/complete plane. Their fencing implementations are similar but not identical.
+- component/runtime selection, model manifests and qualification are presently detector-centric and assume one model/checkpoint identity.
+- VisualAttribute exists as groundwork but its current free-form/per-row model shape is not sufficient for immutable analysis identity, explicit Unknown semantics or evidence-preserving supersession.
+- Track-search cursor v3 is camera-bound because of Scene Analytics semantics; Stage-2 attribute search is not inherently single-camera.
+- UI specification currently protects row density and one-status-badge semantics and therefore must be amended rather than bypassed.
 
-The current worker completion contract carries, per Track:
-- broad object class;
-- offsets and confidence summary;
-- exactly one representative observation;
-- one representative JPEG thumbnail;
-- one trajectory artefact.
+These are architecture inputs, not implementation inconveniences to work around.
 
-Although `ObservationType` contains `TrackStart`, `Representative`, `BestQuality` and `TrackEnd`, the current result store persists only the Representative observation from worker completion.
+## 5. Governing architecture decisions
 
-Therefore MAVI does **not** currently possess a reusable multi-view Track evidence set. That is an architectural constraint, not a documentation detail.
+Stage 2 is governed by:
 
-## 5. Target logical architecture
+1. **ADR-013** — raw Track Evidence Set, derived-attribute lifecycle, process/failure isolation, evidence-read boundary, persistence semantics, search identity, qualification-as-architecture.
+2. **ADR-014** — capability binding v2, capability-neutral Model Packs, Runtime Pack/model separation, capability-scoped qualification and pack provenance.
+3. **ADR-006** — accepted-evidence ownership/integrity boundary.
+4. **ADR-009** — Development and Production qualification separation.
+5. **ADR-012 + UI specification** — operator-interface architecture and amendment discipline.
 
-Stage 2 shall move toward:
+If this plan conflicts with an Accepted governing ADR, the ADR governs and this plan must be reconciled.
 
-```text
-Recorded Video
-    ↓
-Detector
-    ↓
-Tracker
-    ↓
-Track Finalisation
-    ↓
-Capability-neutral Evidence Selection
-    ↓
-Platform-owned sealed Track evidence
-    ↓
-Post-Track Intelligence Plane
-    ├─ Visual Attributes       ← Stage 2
-    ├─ ANPR/OCR                ← Stage 4
-    ├─ Embeddings/Similarity   ← Stage 5
-    └─ future specialist models
-    ↓
-.NET validation and durable intelligence
-    ↓
-Search / Investigation / Evidence Review / Events
-```
-
-The key separation is:
-
-**Track evidence is a durable input. Attribute inference is a derived, repeatable analysis over that evidence.**
-
-## 6. Track Evidence Set
-
-### 6.1 Why one representative image is insufficient
-
-A representative frame is selected to summarize the Track. It is not necessarily the strongest frame for:
-- upper/lower clothing;
-- bag visibility;
-- headwear;
-- vehicle colour;
-- plate visibility;
-- future embedding quality.
-
-Stage 2 therefore introduces a bounded, capability-neutral **Track Evidence Set**.
-
-### 6.2 Evidence-selection policy
-
-The selector is deterministic/versioned and evaluates candidate observations using factors such as:
-- bounding-box pixel area;
-- detector confidence;
-- image sharpness/blur;
-- clipping at frame edges;
-- occlusion proxy where measurable;
-- temporal separation;
-- redundancy;
-- view diversity where deterministically measurable.
-
-The exact score and candidate bound are frozen in Slice 0/1 after measurement. A reasonable design target is a small bounded set, not every frame.
-
-The selector must not depend on the selected attribute model. Otherwise changing the attribute model would also redefine raw Track evidence.
-
-### 6.3 Persistence semantics
-
-Selected evidence becomes platform-owned accepted evidence and remains linked to:
-- Track;
-- Observation;
-- source frame number;
-- video offset;
-- bounding box;
-- selection policy name/version;
-- selection rank/score where retained;
-- sealed crop artefact.
-
-The exact schema is not frozen here. Two implementation options remain for Slice 0 review:
-- extend Observation with generic evidence-selection metadata; or
-- introduce a separate TrackEvidenceSelection record referencing Observations.
-
-The design must support one Observation satisfying multiple future analytical capabilities without duplicating image bytes.
-
-### 6.4 Upgrade semantics
-
-Changing evidence-selection policy creates a new evidence-generation identity. Existing evidence is not silently reinterpreted. Re-generating evidence may require re-running the Track-finalisation path because current trajectory v1 does not retain per-sample bounding-box dimensions.
-
-A future richer trajectory format may reduce that cost; Stage 2 must not require trajectory-v2 to begin.
-
-## 7. Post-Track Intelligence Plane
-
-### 7.1 Architectural decision
-
-Visual Attributes shall be designed as an independent post-Track intelligence capability.
-
-It must **not** be semantically part of detector/tracker completion.
-
-The initial deployment may co-host the attribute executor inside the existing `mavi_vision` process/runtime for operational simplicity, but the contracts and lifecycle must permit later extraction to a separate worker/node without changing durable semantics.
-
-ADR-013 records this decision in detail.
-
-### 7.2 Why this boundary matters
-
-It allows:
-- attribute-model upgrades without re-running detection/tracking;
-- historical Track re-analysis;
-- attribute failure without failing raw Track ingestion;
-- independent model packs and qualification;
-- future reuse by OCR and embeddings;
-- capacity scaling per analytical capability;
-- separate retry/failure/readiness semantics.
-
-### 7.3 Control-plane direction
-
-Stage 2 should not overload `VisionJobCompleteRequest` with derived attribute output if doing so would make attribute completion part of raw processing completion.
-
-The preferred design is a dedicated strict attribute-analysis contract and lifecycle, while reusing proven patterns:
-- lease ownership;
-- attempt count;
-- claim token hashing;
-- heartbeat/expiry;
-- stale-attempt fencing;
-- bounded completion;
-- idempotent completion digest;
-- accepted-evidence access;
-- visibility sequencing where search publication requires it.
-
-Whether this is a capability-specific `VisualAttributeJob` or the first typed instance of a generic post-Track `IntelligenceJob` is a Slice-0 decision. Avoid a prematurely generic “god job”; any generic abstraction must have at least the concrete Stage-2 semantics and a credible Stage-4/5 fit.
-
-## 8. Attribute analysis identity
-
-A Stage-2 analysis result needs an immutable analysis identity separate from ProcessingRun.
-
-Conceptually:
+## 6. Target logical architecture
 
 ```text
-VisualAttributeAnalysis
-- Id
-- ProcessingRunId / Track scope
-- AttributeSchemaVersion
-- EvidenceSelectionPolicyVersion
-- AttributePipelineVersion
-- ModelPack identity/identities
-- Runtime/component provenance
-- State
-- Attempt/lease identity
-- Created/started/completed timestamps
-- Publication/visibility identity
+Source video
+   │
+   ▼
+Vision worker: decode → detector → tracker
+   │
+   ├─ deterministic in-loop candidate selection
+   │      Representative / NearView / EarlyDiverse / LateDiverse
+   │      JPEG encode on selection/replacement; no K raw RGB arrays
+   │
+   ▼
+VisionJob completion v3 / digest v3
+   │
+   ▼
+.NET validates + seals EvidenceCrop artefacts
+   │
+   ├─ Tracks / trajectory / Observations
+   └─ bounded Track Evidence Set
+   │
+   ▼
+ProcessingRun visible
+   │
+   ▼
+Reconciler queues VisualAttributeAnalysis(run × immutable identity)
+   │
+   ▼
+Attribute worker process (same qualified Runtime Pack initially; role=attributes)
+   │
+   ├─ leases analysis
+   ├─ fetches only lease-authorised accepted evidence through API
+   ├─ verifies size + SHA before decode
+   ├─ executes capability-bound person/vehicle model packs
+   ├─ deterministic Track aggregation
+   └─ returns final Track outcomes + sealed prediction artefact descriptor
+   │
+   ▼
+.NET fenced completion
+   │
+   ├─ VisualAttributeAnalysis
+   ├─ VisualAttributeTrackOutcome
+   ├─ VisualAttribute final rows
+   └─ AttributePredictions sealed artefact
+   │
+   ▼
+Search v4 / Investigation / Review
 ```
 
-Every `VisualAttribute` row must be bound to the analysis that produced it.
+Detector/tracker validity does not depend on the attribute plane.
 
-A newer analysis may supersede an earlier one for default search while the earlier result remains historically readable.
+## 7. Capability Replacement Boundary
 
-## 9. Attribute schema and semantics
+MAVI domain semantics remain stable while inference engines remain replaceable.
 
-The attribute vocabulary is versioned configuration under `config/vision/`.
+For a model replacement conforming to the same qualified capability contract, Stage 2 must require changes only to the relevant:
+- Model Pack;
+- capability binding;
+- qualification/provenance identity;
+- optional versioned schema/policy when semantics actually change.
 
-The schema defines:
-- attribute type;
-- object-class applicability;
-- allowed values;
-- whether the attribute is categorical, boolean-like or other;
-- operational exposure status;
-- minimum qualified confidence threshold;
-- model/output mapping;
-- display label;
-- schema version.
+It must not require redesign of Track, Observation, Search, Investigation, Review or evidence integrity.
 
-Colour vocabulary must be intentionally small and qualification-driven. The exact v1 colour set is frozen only after model/corpus evaluation.
+This principle is deliberately future-facing for OCR, ANPR, embeddings and specialist classifiers.
 
-### 9.1 Presence attributes
+## 8. Track Evidence Set
 
-For presence-like attributes such as backpack:
+### 8.1 Ownership and lifecycle
 
-- `present` is an observed positive result above the qualified threshold;
-- an explicit `absent` result is allowed only if the model and corpus support reliable negative classification and the schema defines that semantic;
-- otherwise low-confidence/non-detection becomes `unknown`, not `absent`.
+Evidence selection is a **VisionJob raw-processing output**, not a later post-Track stage.
 
-### 9.2 Coverage states
+It is versioned in the processing pipeline profile. A selector/bounds change therefore creates a new ProcessingRun and new Track identities under trajectory v1.
 
-At minimum Track-level Stage-2 readiness distinguishes:
+Stage 2 does not promise “re-run evidence selection only.”
 
-- **Ready / analysed** — the applicable attribute analysis completed;
-- **Unknown** — analysis completed but no qualified value could be asserted for the requested attribute;
-- **Unavailable** — the Track lacks required evidence/model applicability or predates analysable evidence;
-- **Pending** — eligible analysis not complete;
-- **Failed** — analysis attempted and failed;
-- **Stale** — a newer default analysis identity exists or required model/schema changed.
+### 8.2 Roles
 
-Search must never turn Pending/Unavailable/Failed into an observed negative.
+Maximum candidate roles per Track:
 
-## 10. Attribute evidence and aggregation
+| Rank/role | Purpose |
+|---|---|
+| 0 Representative | primary display/overall-quality evidence; mandatory |
+| NearView | largest qualified box / strongest useful pixel support |
+| EarlyDiverse | earlier temporally separated qualified view |
+| LateDiverse | later temporally separated qualified view |
 
-The inferencer may evaluate several evidence observations per Track.
+Selection is deterministic and model-neutral.
 
-Raw model observations may disagree. MAVI must use a deterministic, versioned aggregation policy.
+Quality terms may include area, sharpness, detector confidence, clipping penalty, temporal separation and concurrent-box overlap as an occlusion proxy.
 
-The default Track-level searchable attribute is therefore not “whatever one crop said”; it is the output of a frozen aggregation rule over bounded evidence observations.
+No face/plate/demographic/downstream-model-specific scoring is allowed.
 
-The plan must record:
-- crop-level model output;
-- supporting ObservationId(s);
-- confidence;
-- aggregation policy/version;
-- final Track-level attribute observation.
+Tie rule: selector score descending → source-frame number ascending → role priority.
 
-For UI explainability, at least one supporting evidence observation must be retained for every exposed value. Conflicting observations may be shown when operationally useful.
+### 8.3 Encoding and bounds
 
-## 11. Provenance
+Initial v1 Evidence Set contract:
 
-The existing detector-oriented runtime provenance is insufficient to represent an independent attribute model cleanly.
+- maximum roles per Track: 4;
+- maximum long edge: 1024 px;
+- JPEG quality target: 85;
+- Representative encoded cap: 64 KiB;
+- supplemental encoded cap: 160 KiB each;
+- deterministic quality/downscale reduction is allowed only to meet a declared cap;
+- total sealed `EvidenceCrop` bytes per ProcessingRun: 1 GiB.
 
-Stage 2 shall record attribute-producer provenance including at least:
-- component/capability id;
+At 10,000 Tracks the mandatory Representative worst case is 625 MiB.
+
+Supplemental evidence is admitted in deterministic rounds by role, Tracks ordered by LocalTrackNumber, until the 1 GiB run budget is exhausted. The mandatory Representative is never displaced by supplemental evidence.
+
+Completion reports candidate/admitted/omitted counts and bytes by role.
+
+The HTTP completion body carries metadata/descriptors, not image bytes.
+
+### 8.4 Observation evolution
+
+Observation gains:
+- EvidenceRank;
+- EvidenceRole;
+- SelectionScore;
+- EvidenceCrop artifact linkage.
+
+Representative remains directly addressable for existing UI/search convenience.
+
+Legacy observation enum values that are not backed by real semantics must be deliberately mapped or retired.
+
+## 9. Component Binding v2
+
+Before any real attribute model can ship, Stage 2 must remove the current single-model assumption.
+
+The component-selection contract becomes:
+- one Runtime Pack identity;
+- ordered `capabilityBindings[]`;
+- each binding identifies a stable capability id + Model Pack + qualification identity.
+
+Capability ids describe semantic function, not model brand/framework.
+
+Initial Stage-2 ids:
+- `detector`;
+- `person-attributes`;
+- `vehicle-attributes`.
+
+The schema must also naturally support later:
+- `plate-detector`;
+- `ocr`;
+- `embedding`.
+
+Model-manifest v2 has a capability-neutral common schema. Detector/MMDetection resolved config becomes capability-specific optional metadata rather than a mandatory field for all models.
+
+Runtime-profile v2 describes executable/dependency capability and startable roles; it no longer treats one detector checkpoint as the Runtime Pack identity.
+
+This is a deliberate identity migration. Any affected existing RTMDet qualification hashes/records are re-derived/reconciled in the same implementation slice.
+
+## 10. Attribute worker topology and control plane
+
+### 10.1 Default topology
+
+The attribute executor is a **separate process/failure domain** from detector/tracker, initially supplied by the same qualified Runtime Pack.
+
+It has:
+- independent READY state;
+- independent device policy;
+- independent lease/heartbeat;
+- independent provenance;
+- independent crash/OOM containment.
+
+A future separate executable or GPU node must fit the same contract.
+
+### 10.2 Lifecycle aggregate
+
+Use capability-specific `VisualAttributeAnalysis`, not a generic IntelligenceJob database aggregate.
+
+Unit: `(ProcessingRun, immutable analysis identity)`.
+
+Lifecycle:
+- Queued;
+- Running;
+- Completed;
+- Failed;
+- Superseded.
+
+Fields include attempt/fencing state, lease expiry, heartbeat, completion digest, visibility sequence, provenance and output counts.
+
+Supersession occurs only after successful completion.
+
+### 10.3 Shared primitives
+
+Before adding the third asynchronous plane, extract shared infrastructure only where semantics truly match:
+- lease capability/token handling;
+- canonical SHA representation;
+- SKIP LOCKED claim helper/pattern;
+- idempotent completion digest validation.
+
+Do not force VisionJob, SceneAnalysis and VisualAttributeAnalysis into one generic domain table.
+
+The reusable completion envelope is generic; payloads are typed per capability.
+
+## 11. Accepted-evidence read contract
+
+Python never mounts/browses the accepted-evidence root.
+
+The attribute lease carries permitted Observation artefact descriptors including expected size/SHA.
+
+The worker fetches bytes through a lease-scoped platform API, verifies size/SHA before decoding, then runs inference.
+
+Any mismatch/inaccessible evidence produces a Track-level `Unavailable` outcome with reason.
+
+This boundary is mandatory because it preserves both forensic ownership and future remote-GPU topology.
+
+## 12. Analysis identity and provenance
+
+VisualAttributeAnalysis identity includes at minimum:
+- ProcessingRunId;
+- attribute schema version/SHA;
 - attribute pipeline version;
-- model id/version;
+- aggregation policy version/SHA;
+- ordered capability/Model Pack identities;
+- parameters SHA;
+- Runtime Pack identity/variant;
+- platform build/commit.
+
+Persist provenance including:
+- capabilityId;
 - modelPackId;
-- manifest SHA-256;
-- checkpoint/model-artifact SHA-256 as applicable;
-- resolved config SHA-256;
-- qualification id/hash;
-- runtimePackId or compatible runtime identity;
-- application build/commit;
-- actual execution device;
-- dependency/runtime identity required to reproduce the result.
+- model/checkpoint/config hashes as applicable;
+- runtimePackId;
+- runtime profile/manifest hash;
+- actual device;
+- schema/pipeline/aggregation versions;
+- build/commit.
 
-Do not repurpose detector provenance fields to mean attribute provenance.
+Identity/provenance fields participate in the completion digest.
 
-## 12. Model interface
+## 13. Attribute schema and outcome semantics
 
-The MAVI-owned logical interface is model-neutral.
+Candidate operational v1 attributes remain deliberately narrow:
 
-Conceptually:
+**Person**
+- upper-clothing colour;
+- lower-clothing colour;
+- bag/backpack presence;
+- headwear/helmet presence only if qualification passes.
 
-```text
-VisualAttributeInferencer
-Input:
-  Track evidence observations
-  Attribute schema version
-  execution/model context
+**Vehicle**
+- dominant vehicle colour.
 
-Output:
-  bounded evidence-level attribute observations
-  producer provenance
-```
+Vehicle subclass remains Stage 3 unless roadmap ownership is deliberately changed.
 
-Model-specific tensors/classes must not cross into platform contracts.
+No demographic/biometric/face attributes are introduced.
 
-A future model replacement must require no database/API/UI redesign if it implements the same qualified MAVI semantics.
+For every applicable `(Track, attribute type)` in a completed analysis exactly one final row exists:
 
-## 13. Persistence direction
+- `Observed` → qualified value present; SupportingObservation required;
+- `Unknown` → null value; analysis attempted but no qualified value.
 
-The existing `VisualAttribute` table should be evolved, not discarded.
+Track-level `Unavailable` is represented separately with reason.
 
-Expected additions/changes to evaluate:
-- analysis id / producer identity FK;
-- schema version or analysis-derived schema binding;
-- deterministic normalized type/value codes;
-- supporting ObservationId required for evidence-backed values where applicable;
-- uniqueness/idempotency constraint per analysis/type/value/observation or per frozen semantic;
-- search indexes driven by measured query plans.
+`Absent` is a schema value only for an attribute whose qualification explicitly supports reliable negative semantics.
 
-Do not add a per-Track summary table until measured PostgreSQL evidence demonstrates a need. Begin with typed attribute rows plus bounded `EXISTS`/join predicates and measure.
+Missing row is not Unknown.
 
-## 14. Search contract
+## 14. Evidence-level predictions and aggregation
 
-Stage-2 predicates extend the same strict Track search architecture:
-- whitelist;
-- canonical URL state;
-- stable filter fingerprint;
-- snapshot semantics;
-- bounded pagination;
-- explicit coverage/readiness disclosure.
+Evidence-level model outputs are preserved for forensic replay without exploding relational row count.
 
-Multiple attribute predicates must have a canonical order and an unambiguous AND/OR contract.
+Each completed analysis seals one bounded `AttributePredictions` artefact containing:
+- observation-level raw outputs/scores;
+- aggregation inputs;
+- aggregation result;
+- internally retained non-exposed outputs where policy permits;
+- schema/version identity.
 
-Required examples:
-- Person AND upper-colour red;
-- Person AND upper-colour red AND backpack present;
-- Vehicle AND colour white.
+Relational `VisualAttribute` rows store final Track semantics only.
 
-The exact HTTP representation is frozen in Slice 3 after contract review; do not invent ad-hoc query-string repetition without canonicalization tests.
+Aggregation is deterministic, versioned and qualification-relevant.
 
-Attribute-analysis identity/version used by the search must be pinned into the snapshot/fingerprint semantics where required so pagination cannot change meaning mid-search.
+Every Observed value references supporting Observation evidence.
 
-## 15. Operator experience
+## 15. Persistence target
 
-Stage 2 follows ADR-012.
+Conceptual entities:
 
-Search:
-- disclosed Visual Attributes filter group;
-- no overwhelming model-centric controls;
-- only operationally qualified attributes appear;
-- confidence defaults should be schema/qualification driven rather than arbitrary operator tuning unless a mission requirement justifies manual thresholding.
+### VisualAttributeAnalysis
+Immutable identity + lifecycle/fencing + provenance + PredictionArtifactId + coverage/counts + visibility/supersession state.
 
-Results:
-- compact attribute chips;
-- uncertainty/unknown not hidden;
-- coverage state visible.
+### VisualAttributeTrackOutcome
+`(AnalysisId, TrackId) → Analysed | Unavailable(reason)`.
 
-Investigation / Evidence Review:
-- show attribute value;
-- confidence;
-- supporting crop;
-- exact source frame/video jump;
-- model/pipeline provenance in the provenance surface;
-- where multiple supporting views matter, allow inspection without cluttering the primary workspace.
+### VisualAttribute
+- AnalysisId FK Restrict;
+- TrackId;
+- schema-coded AttributeType;
+- Outcome Observed|Unknown;
+- nullable schema-coded Value;
+- nullable confidence;
+- SupportingObservationId required for Observed, FK Restrict;
+- unique `(AnalysisId, TrackId, AttributeType)`.
 
-The UI must never imply identity from appearance attributes.
+Model name/version is not duplicated as row authority; the analysis header owns producer identity.
 
-## 16. Offline/dependency architecture
+Initial measured-search index candidate:
+`(attribute_type, value, analysis_id, track_id)`.
 
-Every Stage-2 model ships as a Model Pack under ADR-005/ADR-007:
-- immutable model identity;
-- manifest;
-- cryptographic hashes;
-- licence/notices;
-- runtime compatibility;
-- qualification record;
-- offline-kit location.
+## 16. Search contract
 
-Prefer models that run on the existing qualified runtime graph.
+Stage 2 extends structured Track search with explicit attribute predicates.
 
-If a model requires new Python/native dependencies:
-- update dependency policy;
-- regenerate exact platform locks/projections;
-- rebuild/requalify affected Runtime Pack(s);
-- update Offline Binary Kit;
-- verify disconnected install/run;
-- record CPU/CUDA applicability separately.
+Requirements:
+- strict whitelist and schema validation;
+- canonical repeated-predicate ordering in URL, fingerprint and cache key;
+- multi-attribute AND semantics;
+- explicit Unknown/Unavailable coverage behaviour;
+- no implicit negative from missing analysis;
+- snapshot-stable pagination.
 
-No first-run network access, model hub lookup or telemetry.
+Attribute search introduces **cursor v4**.
 
-## 17. Qualification strategy
+v4 pins:
+- Track-search snapshot identity/keyset position;
+- resolved VisualAttributeAnalysis identity;
+- schema/pipeline/model/aggregation identity;
+- relevant attribute coverage state/counts.
 
-Qualification is capability-specific and predeclared before selecting thresholds.
+Attribute-only search may span cameras.
 
-The Stage-2 corpus must cover at least:
-- persons and vehicles separately;
-- camera/view diversity;
-- daylight / low light where Development corpus permits;
-- indoor/outdoor where applicable;
-- object scale bands;
-- blur;
-- partial occlusion;
-- clipping;
-- colour illumination variation;
-- difficult negatives for bag/headwear.
+When Scene Analytics predicates are combined with attributes:
+- Scene Analytics single-camera requirement still applies;
+- both analytics identity and attribute identity are pinned.
 
-Metrics:
-- per-attribute precision/recall/F1;
-- confusion matrix for categorical attributes;
-- calibration/reliability where confidence is exposed;
-- unknown/abstention rate;
-- coverage rate by quality/scale band;
-- latency and memory per Track/evidence set.
+Cursor is HMAC-signed; encoded length is re-derived and contract-tested.
 
-Operational exposure thresholds are frozen before final acceptance. An attribute failing its gate remains disabled even if the model emits it.
+## 17. Operator experience
 
-CPU qualification is mandatory for the supported CPU Development path. CUDA Development execution is separately evidenced where available. Neither equals Production qualification under ADR-009.
+The adopted UI specification governs.
 
-## 18. Performance and resource bounds
+Stage-2 amendments now require:
+- explicit non-colour-only Unknown state;
+- bounded Evidence Set viewer in Investigation/Review;
+- `TrackDetail.observations[]` while retaining direct Representative access;
+- attribute filtering through the established filter rail/chip grammar;
+- inspector key/value presentation;
+- provenance/coverage presentation;
+- no arbitrary badge swarm on result rows.
 
-Freeze and test bounds for:
-- evidence candidates per Track;
-- bytes per crop;
-- attribute observations per Track;
-- completion body size;
-- concurrent attribute units;
-- model batch size;
-- inference timeout/watchdog;
-- DB rows per Track;
-- search fan-out.
+Result rows remain compact. Evidence and explanation live in inspectors/review surfaces.
 
-Performance acceptance must measure:
-- attribute inference throughput;
-- end-to-end post-Track latency;
-- memory/VRAM;
-- evidence storage growth;
-- search query count/latency at realistic fact volume;
-- cancellation/failure behaviour.
+## 18. Qualification architecture
 
-No N+1 path is acceptable.
+The qualification plan is predeclared and is part of Stage-2 architecture.
 
-## 19. Failure and re-analysis
+It requires:
+- annotation guide;
+- double-labelled subset + inter-annotator agreement/adjudication;
+- train/tune-validation/frozen-test separation;
+- predeclared minimum support per value;
+- held-camera/unseen-camera generalisation;
+- crop vs Representative vs aggregated Track metrics;
+- abstention/Unknown metrics;
+- non-subject/error crop tests;
+- retrieval precision-at-N/coverage;
+- licence gate;
+- CPU/CUDA Development evidence where applicable;
+- offline execution;
+- version-skew/failure isolation;
+- explicit requalification triggers.
 
-Attribute analysis failure:
-- does not alter ProcessingRun completion;
-- does not delete Track evidence;
-- is retryable under fenced ownership;
-- does not publish partial default-search results unless a future contract explicitly supports partial results.
+Final numeric operational gates and support thresholds are frozen using validation/tuning evidence before the frozen test set is scored.
 
-Re-analysis:
-- creates a new immutable analysis identity;
-- may use a new model/schema/aggregation policy;
-- can supersede the previous default;
-- preserves old results/provenance;
-- supports bounded historical backfill.
+## 19. Performance/resource boundaries
 
-## 20. Security and privacy
+Stage 2 measures and gates:
+- evidence bytes/run and omission rates by role;
+- worker READY/model-load time;
+- CPU/GPU RAM/VRAM;
+- crop and Track inference p50/p95;
+- sustained backlog drain;
+- lease heartbeat margin;
+- DB query plan/query count/p50/p95;
+- v4 cursor size;
+- end-to-end Search → Investigation → Review latency.
 
-Appearance attributes are operational observations, not identity.
+No hidden unbounded list, artifact payload or evidence fetch is permitted.
 
-Stage 2 must:
-- retain evidence linkage;
-- avoid demographic/biometric attributes outside scope;
-- prevent model metadata from exposing file-system secrets or external URLs;
-- keep all runtime/model access offline;
-- treat attribute search/read access under the same operator security boundary as Tracks until later audited access-control stages add finer policy.
+## 20. Failure, re-analysis and retention
 
-## 21. Implementation slices
+Failure rules:
+- attribute failure never invalidates completed raw processing;
+- startup model-unavailable does not consume analysis attempts;
+- stale lease completions are rejected;
+- failed replacement analysis does not supersede prior completed analysis;
+- hash mismatch becomes Unavailable, never pass-through;
+- re-analysis with a new immutable identity is supported when required evidence exists.
 
-| Slice | Scope | Gate |
+Evidence-policy changes under trajectory v1 require new video ProcessingRuns/new Tracks.
+
+Superseded analyses and orphaned supplemental crops remain under current evidence retention until a dedicated policy exists. A dedicated retention policy must be completed before Production Stage-2 release or when operational storage threshold triggers it, whichever occurs first.
+
+## 21. Security and privacy
+
+- accepted evidence remains platform-owned;
+- attribute workers get lease-scoped read only;
+- no direct Python evidence-root access;
+- evidence hashes are verified before inference;
+- native-resolution person crops are treated as evidence, not convenience thumbnails;
+- access follows existing Track/evidence authorization;
+- no face-oriented selection criterion is allowed;
+- no demographic/biometric capability is introduced;
+- all model/runtime/offline bytes are integrity-verified and licence-reviewed.
+
+## 22. Architecture-first implementation slices
+
+Coding is intentionally blocked until S0 architecture closure.
+
+| Slice | Scope | Exit gate |
 |---|---|---|
-| **S0 — Architecture freeze** | ADR-013; exact attribute semantics; evidence-set design; analysis lifecycle; schema/provenance contracts; corpus protocol; threat/resource review | independent cold review clean of P1/P2; no feature implementation |
-| **S1 — Track Evidence Set** | capability-neutral bounded multi-view observation/crop selection; strict worker raw-evidence contract; .NET validation/sealing/persistence; selector versioning | deterministic selector tests; evidence-byte bounds; existing Track semantics unchanged |
-| **S2 — Attribute lifecycle + model component** | attribute-analysis unit/job; model-neutral inferencer; Model Pack; real CPU model inference; strict completion validation; immutable analysis provenance | real model on labelled Development corpus; failure isolation from ProcessingRun |
-| **S3 — Persistence + Search** | VisualAttribute evolution; readiness/coverage; search predicates; cursor/fingerprint/version pinning; query qualification | semantic golden tests; PostgreSQL plan/query-count/latency evidence |
-| **S4 — Operator UI + Evidence explanation** | filters, chips, Investigation/Evidence Review crop/provenance, source-frame jump, unknown/unavailable/failed states | accessibility + visual QA + real-data workflow |
-| **S5 — Hardening / qualification / acceptance** | thresholds freeze; CPU/CUDA Development evidence; offline run; scale/resilience; re-analysis; docs; cold review | Stage-2 exit gate all PASS |
+| **S0 Architecture freeze** | ADR-013/014, Evidence Set arithmetic/roles, evidence-read contract, cursor v4, UI amendments, qualification protocol, acceptance register and roadmaps reconciled | Acceptance A1–A12 PASS; no P1/P2 cold-review finding |
+| **S1 Track Evidence Set** | in-loop selector/encoding, completion schema v3 + digest v3, validator/store/sealing, Observation evolution, observations[] and evidence viewer; Task-10/E2E rebinding | Acceptance B1–B6 PASS |
+| **S2a Component binding v2** | capabilityBindings[], manifest v2, runtime profile v2, qualification record shape, pack provenance, verifier/offline/CI migration, detector qualification reconciliation | Acceptance C1–C7 PASS |
+| **S2b Attribute lifecycle with fixture inferencer** | shared fencing primitives, VisualAttributeAnalysis, Python HTTP plane, lease-scoped evidence read, sealed prediction artefact, independent attributes process | Acceptance D1–D8 PASS using deterministic fixture; no real model |
+| **S2c Real Model Packs** | person/vehicle packs, Development model execution, provenance and labelled-corpus engineering evaluation | model packs install/run truthfully as Development/unverified until gates pass |
+| **S3 Persistence + search** | final outcome rows, supersession, v4 cursor, canonical predicates, measured PostgreSQL plans | Acceptance E1–E8 PASS |
+| **S4 Operator UI** | filters, Unknown/Unavailable/coverage/provenance, evidence workflow, spec-conformant visual QA | applicable G1/G2 PASS |
+| **S5 Hardening / qualification / acceptance** | freeze thresholds, frozen-test evaluation, CPU/CUDA Development evidence, offline, resilience, scale, docs | all remaining F/G requirements PASS |
 
-Slices may be subdivided if review shows a risk boundary, but implementation must not collapse architecture, model, search and acceptance into one PR.
+No slice may claim later qualification early.
 
-## 22. Stage-2 exit gate
+## 23. Stage-2 exit gate
 
-Stage 2 closes only when all are true:
+The **only authoritative Stage-2 acceptance list** is:
 
-1. ADR-013 accepted.
-2. Track Evidence Set is bounded, sealed and provenance/versioned.
-3. Raw detection/tracking completion is independent of attribute success/failure.
-4. Attribute analysis can be re-run without re-running detector/tracker when the required sealed evidence already exists.
-5. Every exposed attribute links to accepted evidence.
-6. Attribute schema and operational vocabularies are versioned.
-7. Unknown/unavailable/pending/failed semantics are proven end to end.
-8. Attribute producer/model provenance is complete and immutable.
-9. Search predicates are canonical, fingerprinted and snapshot-stable.
-10. No N+1 or unbounded evidence/model I/O path remains.
-11. Model accuracy/calibration gates are frozen and met for every exposed attribute.
-12. Attributes failing qualification are not exposed.
-13. CPU Development model/runtime evidence passes.
-14. CUDA Development evidence is recorded where applicable, without Production claims.
-15. Offline Binary Kit contains all declared Stage-2 dependencies/model bytes and disconnected execution passes.
-16. Historical/re-analysis/supersession semantics are tested.
-17. Operator Search → Investigation → Evidence Review path passes on real video.
-18. Accessibility and visual QA have no open P1/P2.
-19. Exact-head CI and relevant qualification workflows are green.
-20. Independent cold review has no open P1/P2.
-21. Documentation reflects measured reality.
-22. Post-merge critical verification on `main` is green.
+`docs/reviews/2026-09-23-visual-attributes-acceptance.md`
 
-## 23. Decisions intentionally deferred to S0 review
+This parent plan intentionally does not duplicate its numbering.
 
-The following are not silently frozen by this draft:
-- capability-specific AttributeJob vs reusable typed IntelligenceJob control plane;
-- exact Track Evidence Set schema;
-- exact number of evidence crops;
-- exact evidence-quality scoring formula;
-- exact v1 colour vocabulary;
-- exact model architecture/checkpoint;
-- one person model plus one vehicle model vs a shared model;
-- exact HTTP encoding of multiple attribute predicates;
-- whether explicit negative presence values are reliable enough to expose;
-- whether any new runtime dependency is justified;
-- whether a future richer trajectory format should become a Stage-2 follow-up.
+Stage 2 is complete only when every applicable acceptance-register requirement is PASS on retained evidence and post-merge verification is green.
 
-No implementation should guess these decisions.
+## 24. Decisions deliberately deferred after architecture freeze
+
+The following are legitimate later implementation/qualification choices and do not block S0 once their decision method is fixed:
+- exact third-party person/vehicle model checkpoint;
+- final operational vocabulary values that depend on corpus labelability;
+- numeric exposure thresholds and minimum-support counts, which must be frozen from validation/tuning evidence before frozen-test evaluation;
+- whether later OCR/embedding roles remain in the same Runtime Pack or move to separate packs/executables;
+- long-term purge/retention durations, subject to the mandatory Production/threshold trigger in ADR-013.
+
+The following are **not deferred**:
+- capability binding architecture;
+- evidence ownership/generation boundary;
+- worker process isolation;
+- evidence-read security topology;
+- immutable analysis/supersession semantics;
+- Unknown/Unavailable semantics;
+- search identity/pagination semantics;
+- qualification methodology.
