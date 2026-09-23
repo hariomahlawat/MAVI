@@ -37,9 +37,14 @@ const genericDetail = 'The request could not be completed.';
  *
  * Mutating requests are deliberately not given this default: uploads and other
  * writes can legitimately take longer and have their own operation semantics.
+ * Video is not read through here either: the player streams it, and a stream is
+ * not a bounded read.
+ *
+ * A timed-out read is an ordinary failure to the query layer, so the default
+ * single query retry applies to it (`app/queryClient.ts`). That retry is what
+ * recovers a read that stalled during an offline cold start.
  */
 export const DEFAULT_API_READ_TIMEOUT_MS = 10_000;
-
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -94,7 +99,12 @@ function isReadRequest(init: RequestInit): boolean {
   return method === 'GET' || method === 'HEAD';
 }
 
-function boundedReadSignal(
+/**
+ * A signal that aborts when the caller's does, with the caller's reason, or
+ * after `timeoutMs` with a `TimeoutError`. `dispose` must run once the whole
+ * response has been read, so a stalled body is bounded too.
+ */
+export function boundedReadSignal(
   callerSignal: AbortSignal | null | undefined,
   timeoutMs: number,
 ): { signal: AbortSignal; dispose: () => void } {

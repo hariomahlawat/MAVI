@@ -1,4 +1,4 @@
-import { ApiError } from './client';
+import { ApiError, DEFAULT_API_READ_TIMEOUT_MS, boundedReadSignal } from './client';
 
 const MAX_TRAJECTORY_BYTES = 8 * 1024 * 1024;
 
@@ -8,6 +8,15 @@ const MAX_TRAJECTORY_BYTES = 8 * 1024 * 1024;
  * trajectories (a few KiB) and wrong for video, which the player streams.
  */
 export async function fetchArtifactBytes(contentUrl: string, signal?: AbortSignal): Promise<Uint8Array> {
+  const bounded = boundedReadSignal(signal, DEFAULT_API_READ_TIMEOUT_MS);
+  try {
+    return await readArtifactBytes(contentUrl, bounded.signal);
+  } finally {
+    bounded.dispose();
+  }
+}
+
+async function readArtifactBytes(contentUrl: string, signal: AbortSignal): Promise<Uint8Array> {
   const response = await fetch(contentUrl, { signal });
   if (!response.ok) {
     throw new ApiError({
