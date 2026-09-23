@@ -91,10 +91,14 @@ Each is an exact procedure in `docs/runbooks/scene-analytics-stage1-development-
 | A — transcribe the authoritative §T figures, apply the approved decision rule | 7, 12, 18 | **PASS — RETAIN.** Evidence SHA-256 `3e418ab9fca8dccf8b939cf356e6cde979db682b8d96bade0a799163c667275a`; worst total 4,405 ms; worst allocation 42.6 MiB; 10 DB queries in all 9 cases. |
 | B — Development-corpus unit record from `mavi_dev` | 4a | **PASS.** Completed, 414 ms, 12 analysed / 0 unavailable, 12 outcomes; integrity equation holds. |
 | C — the three scripted videos through the real worker and analytics host, `check` = `ok` for each | 14 | **PARTIAL.** All three videos generated and pixel-verified `ok`; three cameras/scenes created and saved as revision 1. Import/worker/analytics-host/`check` evidence still pending. |
-| D.1 — runtime identity of the real-worker runs | 14 | *pending* |
+| D.1 — runtime identity of the real-worker runs | 14 | **PASS.** Development SQL output on the H.264 MOT17 real-worker runs shows pipeline `phase1-v1`, detector `rtmdet-m-coco-phase1 1.0.0`, tracker `ByteTrack 2.6.0`, worker `dev-worker-01`, runtime variant `windows-x86_64-cuda`, actual device `cuda:0`, resolution reason `cuda_selected`, qualification id `rtmdet-m-coco-phase1-v1`, runtime profile `mmdetection-phase1-v1`, pipeline profile `phase1-detection-tracking-v1`, checkpoint SHA-256 persisted, dependency versions persisted, GPU `NVIDIA GeForce GTX 1650 Ti` with CUDA runtime 12.4 / driver 576.83, and MAVI commit `401af70d0207095e13b4d5ef935e4ccc24237b6b`. |
 | D.2 — disconnected re-run, same-origin network only | 14 | *pending* |
 | E — Search → Investigation on real data | 13 | **PASS.** On MOT17-CROWD-H264, Search opened a real Person Track into the inspector and Evidence Review; source video playback worked, Track identity and camera agreed, scene status was **Analysed**, Revision 1 / Engine v1 matched, and the zone overlay rendered. Activity reported **coverage complete** with 29 distinct Person Tracks; Heatmap reported 6,210 trajectory samples from 29 Tracks on a 64 × 36 grid, busiest cell 146, with **All 1 run analysed**. |
 | F — PostgreSQL restart/reconnect | plan §11 | *pending* |
+
+## Runtime identity evidence
+
+The Development-machine real-worker identity query was executed against `mavi_dev`. The H.264 MOT17 runs persisted the expected production provenance: RTMDet-M COCO Phase 1 detector, ByteTrack 2.6.0, `phase1-v1` pipeline, `windows-x86_64-cuda` runtime, actual device `cuda:0`, `cuda_selected` resolution, qualification/runtime/pipeline profile identities, checkpoint digest, dependency versions, and GPU identity. The observed GPU was **NVIDIA GeForce GTX 1650 Ti**, CUDA runtime **12.4**, driver **576.83**. The persisted MAVI commit was `401af70d0207095e13b4d5ef935e4ccc24237b6b`.
 
 ## Supplemental real-world MOT17 Development evidence
 
