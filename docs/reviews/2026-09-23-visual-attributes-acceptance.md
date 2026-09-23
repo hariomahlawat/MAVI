@@ -10,9 +10,9 @@ Nothing unexecuted is marked PASS.
 
 ## Current verdict
 
-**ARCHITECTURE FREEZE IN PROGRESS — IMPLEMENTATION NOT AUTHORISED.**
+**ARCHITECTURE FROZEN — IMPLEMENTATION NOT STARTED.**
 
-The first gate is documentation/architecture closure. Feature coding starts only after items A1–A12 are PASS and the governing ADRs are accepted.
+The documentation/architecture gate is closed on the reviewed PR head. Feature implementation remains a separate follow-on activity and has not started.
 
 ## Governing documents
 
@@ -30,20 +30,20 @@ The first gate is documentation/architecture closure. Feature coding starts only
 
 | ID | Requirement | Status |
 |---|---|---|
-| A1 | ADR-013 resolves evidence generation, attribute lifecycle, worker topology, evidence-read boundary, persistence semantics, search identity and retention/privacy costs | OPEN |
-| A2 | ADR-014 resolves capability-binding v2, capability-neutral Model Pack shape, runtime/model separation and capability-scoped qualification | OPEN |
-| A3 | Track Evidence Set roles, deterministic tie rule, in-loop encoding and run/Track bounds are explicit | OPEN |
-| A4 | VisionJob completion schema v3 / digest v3 and Task-10/E2E requalification consequences are explicit | OPEN |
-| A5 | Evidence-policy upgrade semantics explicitly require a new ProcessingRun/new Track identities with trajectory v1 | OPEN |
-| A6 | Accepted-evidence reads are platform-served, lease-scoped and hash-verified; Python direct evidence-root access remains prohibited | OPEN |
-| A7 | VisualAttributeAnalysis lifecycle/control-plane semantics are frozen, including heartbeat/fencing/retry/supersession | OPEN |
-| A8 | Observed / Unknown / Unavailable / Pending / Failed / Absent semantics are non-overlapping and reflected in persistence/API/UI plans | OPEN |
-| A9 | v4 attribute-search cursor identity and combined analytics+attribute semantics are frozen | OPEN |
-| A10 | UI/UX specification is amended for Unknown, Evidence Set review and row-density rules | OPEN |
-| A11 | Qualification protocol covers annotation agreement, data splits, support, generalisation, aggregation, abstention, licensing, retrieval and requalification triggers | OPEN |
-| A12 | Final independent cold architecture review reports no open P1/P2; ADR-013/014 can move to Accepted | OPEN |
+| A1 | ADR-013 resolves evidence generation, attribute lifecycle, worker topology, evidence-read boundary, persistence semantics, search identity and retention/privacy costs | PASS |
+| A2 | ADR-014 resolves capability-binding v2, capability-neutral Model Pack shape, runtime/model separation and capability-scoped qualification | PASS |
+| A3 | Track Evidence Set roles, deterministic tie rule, in-loop encoding and run/Track bounds are explicit | PASS |
+| A4 | VisionJob completion schema v3 / digest v3 and Task-10/E2E requalification consequences are explicit | PASS |
+| A5 | Evidence-policy upgrade semantics explicitly require a new ProcessingRun/new Track identities with trajectory v1 | PASS |
+| A6 | Accepted-evidence reads are platform-served, lease-scoped and hash-verified; Python direct evidence-root access remains prohibited | PASS |
+| A7 | VisualAttributeAnalysis lifecycle/control-plane semantics are frozen, including heartbeat/fencing/retry/supersession | PASS |
+| A8 | Observed / Unknown / Unavailable / Pending / Failed / Absent semantics are non-overlapping and reflected in persistence/API/UI plans | PASS |
+| A9 | v4 attribute-search cursor identity and combined analytics+attribute semantics are frozen | PASS |
+| A10 | UI/UX specification is amended for Unknown, Evidence Set review and row-density rules | PASS |
+| A11 | Qualification protocol covers annotation agreement, data splits, support, generalisation, aggregation, abstention, licensing, retrieval and requalification triggers | PASS |
+| A12 | Final independent cold architecture review reports no open P1/P2; ADR-013/014 can move to Accepted | PASS |
 
-**Implementation gate:** S1/S2 implementation MUST NOT begin until A1–A12 are PASS.
+**Implementation gate:** satisfied for architecture. S1/S2 implementation may begin only in a follow-on implementation change; this documentation PR contains no Stage-2 feature code.
 
 ## B. Evidence-set / raw-processing acceptance
 
