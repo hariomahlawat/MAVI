@@ -148,6 +148,7 @@ class WorkerRunner:
         attempt_completed_sink: (
             Callable[[AttemptCompletion], Awaitable[None]] | None
         ) = None,
+        staging_cleaner: Callable[[UUID, int], None] | None = None,
     ) -> None:
         if heartbeat_interval_seconds <= 0:
             raise ValueError("heartbeat_interval_seconds must be positive")
@@ -183,6 +184,7 @@ class WorkerRunner:
         self._duration_clock = duration_clock
         self._host_power_request = host_power_request
         self._attempt_completed_sink = attempt_completed_sink
+        self._staging_cleaner = staging_cleaner
         self._fatal_termination_active = False
 
     @property
@@ -351,6 +353,8 @@ class WorkerRunner:
         except LeaseLostError as exc:
             raise WorkerApiError("lease ownership lost") from exc
 
+        await self._release_accepted_staging(lease)
+
         # The attempt is authoritative from here. Telemetry describes it and
         # cannot change it, so a failing sink is logged and nothing more.
         if self._attempt_completed_sink is not None:
@@ -371,6 +375,31 @@ class WorkerRunner:
                     lease.attempt_count,
                 )
         return True
+
+    async def _release_accepted_staging(self, lease: VisionJobLease) -> None:
+        """Remove this attempt's staging once the platform has accepted it.
+
+        The platform seals every accepted artefact into its own evidence root
+        before it acknowledges completion, so nothing references this staging
+        any more. This is only the fast path: the platform's staging janitor
+        (ADR-006 section 6) reclaims it anyway if the worker dies first, so a
+        failure here is logged and never changes the accepted attempt.
+        """
+        if self._staging_cleaner is None:
+            return
+        try:
+            await asyncio.to_thread(
+                self._staging_cleaner,
+                lease.job_id,
+                lease.attempt_count,
+            )
+        except Exception:
+            _LOGGER.warning(
+                "Staging cleanup after accepted completion failed for job %s "
+                "attempt %s; the platform staging janitor will reclaim it",
+                lease.job_id,
+                lease.attempt_count,
+            )
 
     async def _process_with_lease_heartbeats(
         self,
