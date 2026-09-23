@@ -517,6 +517,8 @@ A single physical frame may satisfy more than one semantic role; the worker shou
 
 ## 7.8 VisualAttribute
 
+> **Stage-2 evolution (2026-09-23):** this Phase-1 shape is retained as historical context. The authoritative Stage-2 persistence is defined by ADR-013 §12–14: an immutable `VisualAttributeAnalysis` header owns producer identity, `VisualAttributeTrackOutcome` records Analysed/Unavailable per Track, and `VisualAttribute` becomes one `Observed`/`Unknown` row per applicable Track × attribute with a required supporting Observation for Observed values. The per-row `ModelName`/`ModelVersion` fields below are not authoritative producer identity.
+
 Extensible analytical attribute record.
 
 ```text
@@ -879,6 +881,8 @@ Processing working resolution/frame sampling is configuration-driven. The worker
 No Phase-1 acceptance criterion requires real-time processing.
 
 ## 15. Keyframe and Quality Policy
+
+> **Stage-2 evolution (2026-09-23):** This Phase-1 four-keyframe policy is retained as historical design context. For Stage 2 and later, the authoritative analytical Track Evidence Set is defined by ADR-013 and the Stage-2 parent plan: Representative, NearView, EarlyDiverse and LateDiverse under explicit per-crop/run byte bounds. There MUST NOT be a second independent keyframe/evidence selector. Any implementation of the legacy TrackStart/BestQuality/TrackEnd observation roles must be mapped deliberately to the ADR-013 evidence contract or retired.
 
 For each Track, attempt to retain:
 

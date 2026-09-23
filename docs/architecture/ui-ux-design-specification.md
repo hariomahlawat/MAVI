@@ -184,7 +184,7 @@ The inspector's 440px floor in place is the other half of the same finding. §4.
 | **Structure** | Context Bar → Evidence Player (≥65% width) + evidence rail. |
 | **Scroll owner** | **The page. Review MAY page-scroll.** |
 | **Width** | Full width. The player takes surplus width. |
-| **Inspector** | The evidence rail: summary, representative frame, provenance. |
+| **Inspector** | The evidence rail: summary, representative frame, provenance. For Stage 2 it also contains the bounded Track Evidence Set; Representative remains primary and supplemental observations are secondary review evidence. |
 | **Now** | Video Review |
 | **Future** | Event evidence, dwell/crossing playback, analytical review |
 
@@ -424,6 +424,7 @@ The token at the design baseline named "Inter" and shipped no `@font-face`, so t
 | **not configured** | Hatched placeholder, title, action | "No scene configured" | — |
 | **disabled** | Neutral badge and reason line | "Analytics disabled by this revision" | — |
 | **unavailable** | **Warning/error alert — never the empty block** | "The video list is unavailable" | Yes |
+| **unknown** | Neutral outlined state + explicit text/icon; never colour-only | "Analysed · value unknown" | No |
 | **partially available** | Info strip with explicit counts | "4 of 7 runs analysed · 1 pending · 1 disabled" | — |
 | **processing** | Info badge and determinate progress | "Processing · 63%" | — |
 | **failed** | Error alert, operator sentence first, code in mono last | "Processing failed · `worker_lease_lost`" | Yes |
@@ -551,6 +552,8 @@ Extension points MUST exist for analytical lanes, but **lanes for data that does
 - Selection synchronisation is mandatory: list, canvas and inspector always agree.
 - `Esc` closes a drawer inspector; it does not close a permanent one.
 - **A third permanent column on Ledger or Record is prohibited.**
+- **Stage-2 evidence-set rule:** Review/Investigation inspectors MAY expose multiple accepted Track observations, but Representative is always visually primary. Supplemental evidence is presented as a bounded evidence strip/list with role, timestamp and selection context; it MUST NOT compete with the Evidence Player as a second primary canvas.
+- Track detail contracts used by these inspectors evolve from one representative observation to `observations[]`, while retaining a direct Representative reference for display convenience.
 
 ---
 
@@ -729,7 +732,7 @@ Scene Analytics slices are numbered 0–7; capability roadmap stages are numbere
 | Evidence overlays and explanation | **Slice 5 — merged in PR #66** | Review and Investigation inspector | One shared Evidence Player; exact-revision analytical overlays/explanation; bounded analytical lanes; decision 7 closed |
 | Aggregates, occupancy, heatmap | **Slice 6** | Workbench | Workbench grammar from UI-2; sequential scale and legend; zone colour already separated from accent (§8.3) |
 | Hardening, acceptance, qualification | **Slice 7** | — | Visual QA standard (§26) as part of acceptance evidence |
-| Visual attributes | Capability stage 2 | Investigation filter chips and inspector key/value | committed-filter chips (§17) |
+| Visual attributes | Capability stage 2 | Investigation filter section + committed-filter chips; inspector key/value + Evidence Set viewer; Review evidence rail | committed-filter chips (§17), explicit `unknown` state (§14), one-badge-per-row rule (§16) — a matched attribute value may appear on a result row only as plain secondary text, never as an additional badge or chip — bounded observations[] evidence presentation (§4.5/§20) |
 | ANPR / OCR | Capability stage 4 | Investigation | none beyond §17 |
 | Visual similarity | Capability stage 5 | Investigation | candidate styling and rank numeral (§19) |
 | ReID / entity candidates | Capability stage 6 | Ledger to Record, plus canvas link glyph | candidate is not confirmed styling (§19) |

@@ -44,6 +44,8 @@ What MAVI builds next is decided by `docs/superpowers/plans/capability-roadmap.m
 - `docs/decisions/ADR-009-development-cuda-qualification-separation.md` — Development CUDA hardware evidence is explicitly non-Production and cannot satisfy P1/P2.
 - `docs/decisions/ADR-011-scene-analytics-lifecycle-and-revisions.md` — scene-configuration revisions and the deterministic scene-analytics post-processing stage, including attempt fencing and analytics search readiness.
 - `docs/decisions/ADR-012-operator-interface-design-architecture.md` — adopted operator-interface design architecture: workspace archetypes, colour-role and token architecture, accessibility and visual-QA obligations, the UI-1 → UI-5 programme and the Scene Analytics Slice 3 gate.
+- `docs/decisions/ADR-013-modular-post-track-intelligence-and-evidence.md` — **accepted** Stage-2 architecture: VisionJob-owned bounded Track Evidence Set, independent attribute lifecycle/process, lease-scoped hash-verified evidence reads, immutable outcomes and v4 search identity.
+- `docs/decisions/ADR-014-capability-binding-v2.md` — **accepted** architecture generalising Runtime/Model Pack binding from the detector-era single-model shape to capability bindings, capability-neutral model manifests and capability-scoped qualification.
 - `docs/qualification/2026-09-18-windows-cuda-c1-compatibility-decision.md` — current sanitized Windows-CUDA Development engineering candidate and change-control boundary.
 - `docs/runbooks/local-development.md` — supported Development workflow.
 - `docs/runbooks/mavi-offline-setup.md` — offline media preparation and installation.
@@ -59,3 +61,14 @@ What MAVI builds next is decided by `docs/superpowers/plans/capability-roadmap.m
 Dated files under `docs/superpowers/plans/` and task-specific design specs are retained as implementation/history records and may describe the state or workflow that existed when that task was planned. They are not operator runbooks.
 
 For current Development, Production, dependency packaging and qualification procedures, use the current architecture policy, accepted ADRs and `docs/runbooks/`. When a historical task plan conflicts with a current runbook, the current runbook governs operational procedure.
+
+When two current documents conflict, this order decides, highest first:
+
+1. **Accepted ADRs** (`docs/decisions/`) — architectural decisions and invariants. A later ADR that amends an earlier one says so in its header; otherwise both stand.
+2. **Architecture policies and specifications** (`docs/architecture/`) — the dependency/offline policy, the UI/UX specification, topology.
+3. **Roadmaps** (`docs/superpowers/plans/capability-roadmap.md` for sequence, `capability-implementation-roadmap.md` for per-stage technical impact).
+4. **The current stage's parent plan and acceptance register** — the plan states how the ADRs are implemented for that stage; the acceptance register (`docs/reviews/<date>-<stage>-acceptance.md`) is the only authoritative exit gate for that stage and no other document may keep a second numbered acceptance list.
+5. **Runbooks** for operational procedure.
+6. **Dated task plans, design specs and review records** — history. They are never rewritten to match later decisions; where they could mislead, they carry a supersession note pointing at the governing document.
+
+For Stage 2 (Visual Attributes) the governing set is ADR-013, ADR-014, `docs/superpowers/plans/2026-09-23-visual-attributes.md`, `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md` and the register `docs/reviews/2026-09-23-visual-attributes-acceptance.md`. A document that is not in that set and describes Stage-2 behaviour differently is historical.

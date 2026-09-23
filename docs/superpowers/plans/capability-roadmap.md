@@ -57,7 +57,7 @@ States: **Merged and verified** (on `main`, exact-head CI and cited evidence) ·
 | Structured Track search with stable cursor snapshot; Search → inspector → Review → back | Merged and verified | Task 14, Task 16, PR #50 | Extended by stages 1, 2, 4, 8 |
 | Evidence playback with bounding-box and trajectory overlay; provenance panel | Merged and verified | Task 14, PR #50 | Reused by stage 1 to explain analytic matches |
 | Spatial & temporal Track analytics | **Merged and verified — Stage 1 complete** | Slices 0–7 are merged. PostgreSQL 18 qualification, real-worker Development acceptance/restart persistence, realistic-volume resilience, deterministic concurrency probes, C1 semantic acceptance, accessibility/visual QA, runtime identity, Search → Investigation, PostgreSQL restart/reconnect, and disconnected scripted-worker acceptance all **PASSED**. PR #70 merged as `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d`; MAVI Quality Gate #1943, Task 10 Runtime Qualification #725, and Task 17 Acceptance Validation #1087 all passed on that exact commit, satisfying exit-gate item 20. Status and evidence: `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md`. | Stage 1 — complete and frozen |
-| Visual attributes | **Next** | `VisualAttribute` table exists but is unpopulated; Stage-2 planning/rebaseline is the next capability-development action | Stage 2 |
+| Visual attributes | **Next — architecture frozen; implementation not started** | Stage-2 architecture is defined by the parent plan plus accepted ADR-013 (Track Evidence / analysis lifecycle) and ADR-014 (capability binding v2). Architecture gate A1–A12 is closed; implementation has not started. | Stage 2 |
 | Expanded object / vehicle subclasses | Planned | Product semantics are person/vehicle | Stage 3 |
 | ANPR / OCR | Planned | No plate or OCR pipeline | Stage 4 |
 | Visual similarity | Planned | pgvector present; no embeddings produced or stored | Stage 5 |
@@ -77,7 +77,7 @@ Every stage below that adds a model, Python library, native runtime, OCR engine,
 | Stage | New technical prerequisites | Where offline / dependency qualification applies |
 |---|---|---|
 | 1 Spatial & Temporal Analytics | Scene-configuration schema and API; derived-fact tables and indexes; one geometry implementation in the .NET Application layer; scene editor UI | No new model or Python dependency. Any geometry or spatial library considered is a dependency and goes through the policy; the plan prefers in-house geometry |
-| 2 Visual Attributes | Person/vehicle attribute model(s) as a Model Pack; worker pipeline step producing attribute observations with confidence; `VisualAttribute` population; attribute search predicates | New model manifest, hash, runtime compatibility with the qualified Torch/MMCV graph, offline pack, qualification corpus; CPU and CUDA runtime variants both stated |
+| 2 Visual Attributes | VisionJob Evidence Set contract v3; component-binding v2; separate attribute worker role/process; lease-scoped evidence read; immutable VisualAttributeAnalysis; sealed raw prediction artefact; final Observed/Unknown rows; v4 attribute-search cursor | Model-manifest v2 + capability binding; runtime-profile v2 migration and detector qualification reconciliation; person/vehicle Model Packs; licences/offline inventory; predeclared labelled-corpus protocol; CPU and CUDA Development variants stated without Production inheritance |
 | 3 Expanded classes | Class-vocabulary change in the qualified runtime profile and manifest; possibly a different detector checkpoint | A vocabulary change re-issues the qualification record; a new checkpoint is a new Model Pack qualification |
 | 4 ANPR / OCR | Plate-detection model; OCR engine (native runtime, language/plate-format packs); plate-observation schema; normalisation rules; partial-plate search | OCR engine is a native runtime dependency with its own lock, licence and offline pack; regional plate grammar is configuration, not code |
 | 5 Visual Similarity | Embedding model; embedding storage per Track (dimension, version); pgvector index (choose HNSW or IVFFlat after measuring); "Find Similar" API/UI | Embedding model as Model Pack; embedding version bound to results; index type is a schema decision recorded in a migration |
@@ -92,7 +92,7 @@ Every stage below that adds a model, Python library, native runtime, OCR engine,
 
 These notes fix direction so later plans start from shared assumptions. They are not designs.
 
-**Visual Attributes (stage 2).** Persons: upper-clothing colour, lower-clothing colour, bag/backpack presence, headwear or helmet where the model is reliable. Vehicles: colour and subclass (car, SUV, van, truck, bus, motorcycle). Attributes are observations with confidence and model version, stored in `VisualAttribute`, never asserted as facts about identity. Colour vocabularies are small and fixed; no attribute is exposed whose measured precision on the qualification corpus does not support it.
+**Visual Attributes (stage 2).** Architecture-frozen plan: `2026-09-23-visual-attributes.md`, accepted ADR-013 and ADR-014. Raw multi-view Track evidence is selected inside VisionJob under explicit byte bounds; learned attributes run later in an independently leased/fenced process over lease-scoped hash-verified accepted evidence. Model/runtime binding is capability-oriented rather than detector-special-cased. Initial scope is person upper/lower clothing colour, bag/backpack, qualified headwear/helmet, and vehicle dominant colour. Vehicle subclass remains Stage 3 unless deliberately rebaselined. No attribute is exposed unless its frozen qualification gate is met.
 
 **ANPR / OCR (stage 4).** Flow: `Vehicle Track → plate detection → plate crop as sealed evidence → OCR observations → searchable plate text`. A Track may carry several OCR observations (different frames, different readings) each with confidence; a normalised reading (character-class folding, separator removal) is derived per observation for search; partial-plate search matches normalised text; every hit links back to the crop and the source frame.
 
@@ -143,7 +143,7 @@ Historical plans and evidence documents are never rewritten to match this roadma
 
    **UI Foundation programme is complete:** UI-1 → UI-5 are merged. Slice 5 extended the one Evidence Player/timeline/layer contract and is merged; Slice 6 heatmap UI uses the UI-2 Workbench grammar. This UI sequencing does not renumber Scene Analytics slices (0–7) or capability stages.
 
-4. **Visual Attributes — Stage 2, NEXT.** Begin with a planning/rebaseline increment before feature implementation.
+4. **Visual Attributes — Stage 2, NEXT.** Architecture freeze is complete. The next work is implementation slice S1, but feature coding has not started in this documentation PR.
 5. Expanded operational object / vehicle classes where useful.
 6. ANPR / OCR.
 7. Visual Similarity / Find Similar.
