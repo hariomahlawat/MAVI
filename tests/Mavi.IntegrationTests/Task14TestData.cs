@@ -166,8 +166,10 @@ internal static class Task14TestData
             height: 0.4f,
             confidence: Math.Min(1.0, meanConfidence + 0.05),
             qualityScore: 0.90,
+            evidenceRank: 0,
+            selectionScore: 0.90,
             createdAtUtc: completedAtUtc);
-        observation.AttachThumbnailArtifact(thumbnail.Id);
+        observation.AttachEvidenceArtifact(thumbnail.Id);
         db.Observations.Add(observation);
         await db.SaveChangesAsync();
 

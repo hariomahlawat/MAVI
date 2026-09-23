@@ -2,6 +2,8 @@ using System.Reflection;
 using Mavi.Api.Endpoints;
 using Mavi.Api.Middleware;
 using Mavi.Api.SceneAnalytics;
+using Mavi.Api.Storage;
+using Mavi.Application.Abstractions.Storage;
 using Mavi.Api.Startup;
 using Mavi.Application.Health;
 using Mavi.Application;
@@ -20,6 +22,9 @@ builder.Services.AddHealthChecks();
 // puts the API host on the operational plane) and is bounded so it cannot compete with
 // serving requests; SceneAnalytics:Enabled turns it off entirely.
 builder.Services.AddHostedService<SceneAnalyticsHostedService>();
+// Platform-owned reclamation of worker attempt staging (ADR-006 §6, S1.2 §6.5).
+// The VisionJob row is its sole authority; StagingJanitor:Enabled turns it off.
+builder.Services.AddHostedService<StagingJanitorHostedService>();
 // Canonical API JSON policy: property names are case-sensitive and numeric properties must be JSON numbers.
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -48,7 +53,7 @@ app.UseVisionCompletionRequestLimits();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/api/health", () =>
+app.MapGet("/api/health", (IStagingJanitorMonitor stagingJanitor) =>
 {
     var assembly = typeof(Program).Assembly;
     var version = assembly.GetName().Version?.ToString() ?? "0.1.0";
@@ -58,7 +63,8 @@ app.MapGet("/api/health", () =>
 
     metadata.TryGetValue("MaviBuild", out var build);
     metadata.TryGetValue("MaviCommit", out var commit);
-    return Results.Ok(GetPlatformHealth.Execute(version, build, commit));
+    return Results.Ok(GetPlatformHealth.Execute(
+        version, build, commit, new PlatformHealthDetails(stagingJanitor.Current)));
 });
 
 app.MapHealthChecks("/health/live");

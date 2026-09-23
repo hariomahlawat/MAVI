@@ -9,6 +9,12 @@ public static class VisionJobEndpoints
     // Route registration
     public static IEndpointRouteBuilder MapVisionJobEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        // Additive capability probe (S1.2a): a worker that emits completion 3.0
+        // checks it before becoming ready. Workers that predate it never call it.
+        endpoints.MapGet("/api/vision/contract", () => Results.Ok(new VisionContractCapabilitiesResponse(
+            WorkerContractRules.SchemaVersion,
+            WorkerContractRules.CompletionSchemaVersions)));
+
         var jobs = endpoints.MapGroup("/api/vision/jobs");
         jobs.MapPost("/lease", LeaseAsync);
         jobs.MapPost("/{id:guid}/heartbeat", HeartbeatAsync);
@@ -66,7 +72,7 @@ public static class VisionJobEndpoints
         IProcessingResultStore resultStore,
         CancellationToken cancellationToken)
     {
-        if (request.SchemaVersion != WorkerContractRules.SchemaVersion) return VersionProblem();
+        if (!WorkerContractRules.IsAcceptedCompletionSchemaVersion(request.SchemaVersion)) return CompletionVersionProblem();
         if (!WorkerContractRules.TryNormalizeWorkerId(request.WorkerId, out var workerId)) return WorkerProblem();
         if (!WorkerContractRules.IsCanonicalLeaseToken(request.LeaseToken))
             return Problem(400, "vision_job_completion_invalid", "Completion input is invalid.");
@@ -80,8 +86,10 @@ public static class VisionJobEndpoints
 
         if (result.IsSuccess)
         {
+            // Echo the completion version the worker spoke, so a 2.0 worker keeps
+            // receiving exactly the 2.0 response it validates.
             return Results.Ok(new VisionJobCompleteResponse(
-                WorkerContractRules.SchemaVersion,
+                request.SchemaVersion!,
                 id,
                 result.ProcessingRunId!.Value,
                 result.TracksAccepted,
@@ -104,6 +112,8 @@ public static class VisionJobEndpoints
         lease.SourceSizeBytes, lease.RecordingStartUtc, lease.RecordingEndUtc, lease.DurationMs, lease.Width, lease.Height,
         lease.FrameRateNumerator, lease.FrameRateDenominator, lease.RecordingTimeZoneId, lease.RecordingUtcOffsetMinutes);
     private static IResult VersionProblem() => Problem(400, "worker_contract_version_unsupported", "Worker contract version 2.0 is required.");
+    private static IResult CompletionVersionProblem() => Problem(400, "worker_contract_version_unsupported",
+        "Worker completion contract version 2.0 or 3.0 is required.");
     private static IResult WorkerProblem() => Problem(400, "worker_id_invalid", "A valid worker ID is required.");
     private static IResult Result(OrchestrationResult result) => result.IsSuccess ? Results.Ok() : Problem(
         result.ErrorCode == "vision_job_not_found" ? 404 : 409, result.ErrorCode!, "The vision job operation was rejected.");

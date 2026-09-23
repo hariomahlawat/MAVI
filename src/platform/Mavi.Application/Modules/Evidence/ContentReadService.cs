@@ -126,6 +126,11 @@ public sealed class ContentReadService(
                 MimeType: "image/jpeg"
             } => true,
             {
+                ArtifactType: Mavi.Domain.Media.ArtifactType.EvidenceCrop,
+                StorageKind: ContentStorageKind.AcceptedEvidence,
+                MimeType: "image/jpeg"
+            } => true,
+            {
                 ArtifactType: Mavi.Domain.Media.ArtifactType.TrackTrajectory,
                 StorageKind: ContentStorageKind.AcceptedEvidence,
                 MimeType: "application/msgpack"

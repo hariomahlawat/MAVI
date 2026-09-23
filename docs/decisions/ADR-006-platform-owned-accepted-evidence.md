@@ -1,7 +1,8 @@
 # ADR-006: Platform-Owned Sealing for Accepted Vision Evidence
 
 **Status:** Accepted  
-**Date:** 2026-09-13
+**Date:** 2026-09-13  
+**Amended:** 2026-09-23 — §6 platform-owned staging reclamation (S1.2a)
 
 ## Context
 
@@ -61,6 +62,20 @@ MAVI intentionally chooses the safe failure direction:
 - PostgreSQL must never commit an authoritative evidence row that points at mutable staging or a missing accepted object.
 
 Garbage collection of unreferenced sealed evidence is deferred to a later lifecycle task.
+
+### 6. Platform-owned reclamation of worker staging (amendment, S1.2a)
+
+**Status of this section:** Accepted 2026-09-23 — ratified by the owner with the S1.2a implementation (plan `docs/superpowers/plans/2026-09-23-stage2-s1-2-evidence-set-implementation.md` §6.5, §17 C3).
+
+The Track Evidence Set makes one attempt's staging large (up to ≈ 5.2 GiB transient at 10,000 Tracks) and the worker's own cleanup is not crash-safe: a worker that dies after a successful completion, or never leases again, leaves its staging forever. Therefore:
+
+- the **platform reclaims** `{MediaStorage:RootPath}/staging/{jobId}/attempt-NNNN` directories, using the `vision_jobs` row as the **sole authority** on which attempts can no longer be accepted;
+- destructive authority is limited to states the `VisionJob` aggregate can reach: `Completed`/`Failed` after a grace period, `Leased` only for attempts below `AttemptCount` (fenced by the lease), a job with no row only after a long inactivity grace; `Cancelled` is treated as terminal because the enum defines it so; a `Queued` job that has been leased is an invariant violation and nothing is deleted;
+- the worker's cleanup after completion and at the next lease remains, as a **fast path only**;
+- deletion is handle-relative and never follows a link or reparse point, never leaves `staging/`, and never touches the accepted-evidence root (orphaned sealed evidence remains deferred per §5);
+- the normal reclamation **target** is `Grace + Interval`; under a backlog of `B` eligible directories and a per-cycle cap `M` the bound is `Grace + ⌈(B+1)/M⌉ × Interval`. Neither is a universal guarantee: a directory that cannot be deleted stays, is retried and escalates.
+
+**Trade-off accepted:** the platform gains a background lifecycle that deletes files it did not write, and with it a destructive failure mode, in exchange for crash-safe bounded staging. The alternatives — deleting staging inside or after the completion transaction, or leaving reclamation to the worker — are rejected in the plan §6.5 (not crash-safe; entangles large filesystem work with the request path).
 
 ## Consequences
 

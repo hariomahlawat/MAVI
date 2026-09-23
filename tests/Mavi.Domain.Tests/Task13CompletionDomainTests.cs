@@ -78,14 +78,14 @@ public sealed class Task13CompletionDomainTests
             0, 10, Now, 2, .8, .9, Now);
         var observation = Observation.Create(
             track.Id, ObservationType.Representative, 1, 10, Now,
-            .1f, .1f, .2f, .3f, .9, .8, Now);
+            .1f, .1f, .2f, .3f, .9, .8, 0, .8, Now);
         var trajectory = Guid.CreateVersion7();
         var thumbnail = Guid.CreateVersion7();
 
         track.AttachTrajectoryArtifact(trajectory);
         track.AttachTrajectoryArtifact(trajectory);
-        observation.AttachThumbnailArtifact(thumbnail);
-        observation.AttachThumbnailArtifact(thumbnail);
+        observation.AttachEvidenceArtifact(thumbnail);
+        observation.AttachEvidenceArtifact(thumbnail);
         track.AttachRepresentativeObservation(observation.Id);
         track.AttachRepresentativeObservation(observation.Id);
 
@@ -93,7 +93,7 @@ public sealed class Task13CompletionDomainTests
         Assert.Equal(thumbnail, observation.ThumbnailArtifactId);
         Assert.Equal(observation.Id, track.RepresentativeObservationId);
         Assert.Throws<DomainValidationException>(() => track.AttachTrajectoryArtifact(Guid.CreateVersion7()));
-        Assert.Throws<DomainValidationException>(() => observation.AttachThumbnailArtifact(Guid.CreateVersion7()));
+        Assert.Throws<DomainValidationException>(() => observation.AttachEvidenceArtifact(Guid.CreateVersion7()));
     }
 
     [Fact]

@@ -12,7 +12,11 @@ public sealed record VisionJobCompleteRequest(
     [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? FramesProcessed,
     [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? ProcessingDurationMs,
     VisionRuntimeProvenanceContract? Provenance,
-    [property: JsonConverter(typeof(BoundedVisionTrackListJsonConverter))] IReadOnlyList<VisionTrackResultContract>? Tracks);
+    [property: JsonConverter(typeof(BoundedVisionTrackListJsonConverter))] IReadOnlyList<VisionTrackResultContract>? Tracks,
+    // Completion 3.0 only. A 2.0 body omits it; a 3.0 body requires it.
+    [property: JsonConverter(typeof(PresentObjectJsonConverter<VisionEvidenceAccountingContract>))]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    VisionEvidenceAccountingContract? EvidenceAccounting = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VisionRuntimeProvenanceContract(
@@ -89,8 +93,51 @@ public sealed record VisionTrackResultContract(
     [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? DetectionCount,
     double? MeanConfidence,
     double? MaxConfidence,
+    // Completion 2.0 carries exactly one Representative; completion 3.0 carries
+    // the bounded Evidence Set in Observations instead. Each version requires its
+    // own member and forbids the other, so one binding path serves both.
+    // Version-exclusive members are omitted when null so each version round-trips exactly.
+    [property: JsonConverter(typeof(PresentObjectJsonConverter<VisionRepresentativeObservationContract>))]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     VisionRepresentativeObservationContract? Representative,
-    VisionArtifactDescriptorContract? TrajectoryArtifact);
+    VisionArtifactDescriptorContract? TrajectoryArtifact,
+    [property: JsonConverter(typeof(BoundedVisionObservationListJsonConverter))]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<VisionTrackObservationContract>? Observations = null);
+
+/// <summary>One accepted Evidence Set observation of a completion 3.0 Track.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record VisionTrackObservationContract(
+    string? Role,
+    [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? Rank,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? OffsetMs,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? SourceFrameNumber,
+    double? Confidence,
+    double? QualityScore,
+    double? SelectionScore,
+    VisionBoundingBoxContract? BoundingBox,
+    VisionArtifactDescriptorContract? Crop);
+
+/// <summary>Per-role candidate/admission accounting of a completion 3.0 body.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record VisionEvidenceAccountingContract(
+    [property: JsonPropertyName("representative")] VisionEvidenceRoleAccountingContract? Representative,
+    [property: JsonPropertyName("near-view")] VisionEvidenceRoleAccountingContract? NearView,
+    [property: JsonPropertyName("early-diverse")] VisionEvidenceRoleAccountingContract? EarlyDiverse,
+    [property: JsonPropertyName("late-diverse")] VisionEvidenceRoleAccountingContract? LateDiverse);
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record VisionEvidenceRoleAccountingContract(
+    [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? Candidates,
+    [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? Admitted,
+    [property: JsonConverter(typeof(IntegralNullableInt32JsonConverter))] int? Omitted,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? CandidateBytes,
+    [property: JsonConverter(typeof(IntegralNullableInt64JsonConverter))] long? AdmittedBytes);
+
+/// <summary>What completion versions this platform accepts (GET /api/vision/contract).</summary>
+public sealed record VisionContractCapabilitiesResponse(
+    string SchemaVersion,
+    IReadOnlyList<string> CompletionSchemaVersions);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VisionRepresentativeObservationContract(

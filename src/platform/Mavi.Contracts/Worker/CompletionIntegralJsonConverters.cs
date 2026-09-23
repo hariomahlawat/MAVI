@@ -306,3 +306,80 @@ public sealed class BoundedPythonBuildJsonConverter
         writer.WriteEndArray();
     }
 }
+
+public sealed class BoundedVisionObservationListJsonConverter
+    : JsonConverter<IReadOnlyList<VisionTrackObservationContract>?>
+{
+    public override bool HandleNull => true;
+
+    public override IReadOnlyList<VisionTrackObservationContract>? Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        // Absent means "not this version"; an explicit null is not a valid spelling of absent.
+        if (reader.TokenType != JsonTokenType.StartArray)
+            throw new JsonException("Expected an observation array.");
+
+        var items = new List<VisionTrackObservationContract>(WorkerContractRules.MaximumTrackObservations);
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndArray)
+                return items;
+            if (items.Count >= WorkerContractRules.MaximumTrackObservations)
+                throw new JsonException("Track observation limit exceeded.");
+
+            var item = JsonSerializer.Deserialize<VisionTrackObservationContract>(ref reader, options)
+                ?? throw new JsonException("Track observations cannot contain null.");
+            items.Add(item);
+        }
+
+        throw new JsonException("Incomplete observation array.");
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        IReadOnlyList<VisionTrackObservationContract>? value,
+        JsonSerializerOptions options)
+    {
+        if (value is null)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+        if (value.Count > WorkerContractRules.MaximumTrackObservations)
+            throw new JsonException("Track observation limit exceeded.");
+
+        writer.WriteStartArray();
+        foreach (var item in value)
+            JsonSerializer.Serialize(writer, item, options);
+        writer.WriteEndArray();
+    }
+}
+
+/// <summary>
+/// For version-exclusive members (completion 2.0 <c>representative</c>, 3.0
+/// <c>evidenceAccounting</c>): the member is either absent or an object. An explicit JSON
+/// <c>null</c> is rejected during binding, as the schemas require.
+/// </summary>
+public sealed class PresentObjectJsonConverter<T> : JsonConverter<T?>
+    where T : class
+{
+    public override bool HandleNull => true;
+
+    public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartObject)
+            throw new JsonException($"Expected an object for {typeof(T).Name}.");
+        return JsonSerializer.Deserialize<T>(ref reader, options);
+    }
+
+    public override void Write(Utf8JsonWriter writer, T? value, JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        if (value is null)
+            writer.WriteNullValue();
+        else
+            JsonSerializer.Serialize(writer, value, options);
+    }
+}

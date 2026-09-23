@@ -1,0 +1,872 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "vision-job-complete-v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "jobId",
+    "workerId",
+    "leaseToken",
+    "attemptCount",
+    "framesProcessed",
+    "processingDurationMs",
+    "provenance",
+    "tracks",
+    "evidenceAccounting"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "3.0"
+    },
+    "jobId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "workerId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])"
+    },
+    "leaseToken": {
+      "type": "string",
+      "minLength": 43,
+      "maxLength": 43,
+      "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+    },
+    "attemptCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "framesProcessed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "processingDurationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/track"
+      },
+      "maxItems": 10000
+    },
+    "evidenceAccounting": {
+      "$ref": "#/$defs/evidenceAccounting"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "storageKey",
+        "mediaType",
+        "sizeBytes",
+        "sha256"
+      ],
+      "properties": {
+        "storageKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\\\)(?!.*:).+(?<!/)$"
+        },
+        "mediaType": {
+          "type": "string",
+          "enum": [
+            "image/jpeg",
+            "application/msgpack"
+          ]
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "boundingBox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "width": {
+          "type": "number",
+          "maximum": 1,
+          "minimum": 1.401298464324817e-45
+        },
+        "height": {
+          "type": "number",
+          "maximum": 1,
+          "minimum": 1.401298464324817e-45
+        }
+      }
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trackId",
+        "objectClass",
+        "startOffsetMs",
+        "endOffsetMs",
+        "detectionCount",
+        "meanConfidence",
+        "maxConfidence",
+        "observations",
+        "trajectoryArtifact"
+      ],
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+        },
+        "objectClass": {
+          "type": "string",
+          "enum": [
+            "person",
+            "vehicle"
+          ]
+        },
+        "startOffsetMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "endOffsetMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "detectionCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "meanConfidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "maxConfidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "observations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/observation"
+          }
+        },
+        "trajectoryArtifact": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "system",
+        "release",
+        "version",
+        "machine",
+        "processor",
+        "pythonVersion",
+        "pythonImplementation",
+        "pythonBuild",
+        "pythonCompiler"
+      ],
+      "properties": {
+        "system": {
+          "$ref": "#/$defs/detailText"
+        },
+        "release": {
+          "$ref": "#/$defs/detailText"
+        },
+        "version": {
+          "$ref": "#/$defs/detailText"
+        },
+        "machine": {
+          "$ref": "#/$defs/detailText"
+        },
+        "processor": {
+          "$ref": "#/$defs/detailText"
+        },
+        "pythonVersion": {
+          "$ref": "#/$defs/detailText"
+        },
+        "pythonImplementation": {
+          "$ref": "#/$defs/detailText"
+        },
+        "pythonBuild": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/detailText"
+            },
+            {
+              "$ref": "#/$defs/detailText"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "pythonCompiler": {
+          "$ref": "#/$defs/detailText"
+        }
+      }
+    },
+    "gpu": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "index",
+        "vramBytes",
+        "driverVersion",
+        "cudaRuntimeVersion",
+        "uuid",
+        "pciBusId",
+        "computeCapability"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/detailText"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "vramBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "driverVersion": {
+          "$ref": "#/$defs/detailText"
+        },
+        "cudaRuntimeVersion": {
+          "$ref": "#/$defs/detailText"
+        },
+        "uuid": {
+          "$ref": "#/$defs/detailText"
+        },
+        "pciBusId": {
+          "$ref": "#/$defs/identityText"
+        },
+        "computeCapability": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 16,
+          "pattern": "^[0-9]+\\.[0-9]+$"
+        }
+      }
+    },
+    "trackerParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "referenceFrameRate",
+        "trackActivationThreshold",
+        "highConfidenceThreshold",
+        "minimumIouThreshold",
+        "minimumConsecutiveFrames",
+        "lostTrackBufferSeconds"
+      ],
+      "properties": {
+        "referenceFrameRate": {
+          "type": "number",
+          "minimum": 1e-09,
+          "maximum": 1000000000
+        },
+        "trackActivationThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "highConfidenceThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "minimumIouThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "minimumConsecutiveFrames": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "lostTrackBufferSeconds": {
+          "type": "number",
+          "minimum": 1e-09,
+          "maximum": 1000000000
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelId",
+        "modelVersion",
+        "modelManifestSha256",
+        "checkpointSha256",
+        "resolvedConfigSha256",
+        "pipelineProfileId",
+        "pipelineProfileVersion",
+        "pipelineProfileSha256",
+        "verificationStatus",
+        "runtimeProfileId",
+        "runtimeProfileSha256",
+        "runtimeVariant",
+        "detectorBackend",
+        "dependencyVersions",
+        "platform",
+        "configuredDevicePolicy",
+        "configuredDeviceIndex",
+        "actualDevice",
+        "maviBuild",
+        "maviCommit",
+        "framePolicy",
+        "trackerParameters",
+        "inputColourSpace"
+      ],
+      "properties": {
+        "modelId": {
+          "$ref": "#/$defs/identityText"
+        },
+        "modelVersion": {
+          "$ref": "#/$defs/identityText"
+        },
+        "modelManifestSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "checkpointSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resolvedConfigSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "pipelineProfileId": {
+          "$ref": "#/$defs/identityText"
+        },
+        "pipelineProfileVersion": {
+          "$ref": "#/$defs/identityText"
+        },
+        "pipelineProfileSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "qualificationId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identityText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "qualificationSha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verificationStatus": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "unverified"
+          ]
+        },
+        "runtimeProfileId": {
+          "$ref": "#/$defs/identityText"
+        },
+        "runtimeProfileSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtimeVariant": {
+          "$ref": "#/$defs/identityText"
+        },
+        "platformLockSha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detectorBackend": {
+          "$ref": "#/$defs/identityText"
+        },
+        "dependencyVersions": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/identityText"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/identityText"
+          },
+          "maxProperties": 128
+        },
+        "ffmpegVersion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/detailText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "platform": {
+          "$ref": "#/$defs/platform"
+        },
+        "configuredDevicePolicy": {
+          "type": "string",
+          "enum": [
+            "cpu",
+            "cuda",
+            "auto"
+          ]
+        },
+        "configuredDeviceIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "actualDevice": {
+          "$ref": "#/$defs/identityText"
+        },
+        "gpu": {
+          "$ref": "#/$defs/gpu"
+        },
+        "maviBuild": {
+          "$ref": "#/$defs/identityText"
+        },
+        "maviCommit": {
+          "$ref": "#/$defs/identityText"
+        },
+        "framePolicy": {
+          "const": "every-frame"
+        },
+        "trackerParameters": {
+          "$ref": "#/$defs/trackerParameters"
+        },
+        "inputColourSpace": {
+          "const": "RGB"
+        },
+        "deviceResolutionReason": {
+          "$comment": "Closed vocabulary; mirrored by mavi_vision.common.control_plane and VisionRuntimeProvenanceParser.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "cuda_device_unavailable",
+                "cuda_driver_probe_failed",
+                "cuda_driver_probe_unavailable",
+                "cuda_pack_absent",
+                "cuda_pack_id_mismatch",
+                "cuda_pack_integrity_failed",
+                "cuda_pack_not_declared",
+                "cuda_pack_variant_mismatch",
+                "cuda_selected",
+                "explicit_cpu",
+                "explicit_cuda"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "verificationStatus": {
+                "const": "verified"
+              }
+            },
+            "required": [
+              "verificationStatus"
+            ]
+          },
+          "then": {
+            "required": [
+              "qualificationId",
+              "qualificationSha256",
+              "platformLockSha256"
+            ],
+            "properties": {
+              "qualificationId": {
+                "$ref": "#/$defs/identityText"
+              },
+              "qualificationSha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "platformLockSha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "deviceResolutionReason": {
+                "const": "explicit_cpu"
+              }
+            },
+            "required": [
+              "deviceResolutionReason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "configuredDevicePolicy": {
+                "const": "cpu"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "deviceResolutionReason": {
+                "const": "explicit_cuda"
+              }
+            },
+            "required": [
+              "deviceResolutionReason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "configuredDevicePolicy": {
+                "const": "cuda"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "deviceResolutionReason": {
+                "const": "cuda_selected"
+              }
+            },
+            "required": [
+              "deviceResolutionReason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "actualDevice": {
+                "pattern": "^cuda:[0-9]+$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "deviceResolutionReason": {
+                "enum": [
+                  "cuda_device_unavailable",
+                  "cuda_driver_probe_failed",
+                  "cuda_driver_probe_unavailable",
+                  "cuda_pack_absent",
+                  "cuda_pack_id_mismatch",
+                  "cuda_pack_integrity_failed",
+                  "cuda_pack_not_declared",
+                  "cuda_pack_variant_mismatch"
+                ]
+              }
+            },
+            "required": [
+              "deviceResolutionReason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "actualDevice": {
+                "const": "cpu"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "configuredDevicePolicy": {
+                "const": "auto"
+              }
+            },
+            "required": [
+              "configuredDevicePolicy"
+            ]
+          },
+          "then": {
+            "required": [
+              "deviceResolutionReason"
+            ],
+            "properties": {
+              "deviceResolutionReason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "identityText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?![\\s\\S]*\\u0000)[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF](?:[\\s\\S]*[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF])?$"
+    },
+    "detailText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?![\\s\\S]*\\u0000)[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF](?:[\\s\\S]*[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF])?$"
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "rank",
+        "offsetMs",
+        "sourceFrameNumber",
+        "confidence",
+        "qualityScore",
+        "selectionScore",
+        "boundingBox",
+        "crop"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ]
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "offsetMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "sourceFrameNumber": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "qualityScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "selectionScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "boundingBox": {
+          "$ref": "#/$defs/boundingBox"
+        },
+        "crop": {
+          "$ref": "#/$defs/crop"
+        }
+      },
+      "if": {
+        "properties": {
+          "role": {
+            "const": "representative"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rank": {
+            "const": 0
+          },
+          "crop": {
+            "properties": {
+              "sizeBytes": {
+                "maximum": 65536
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "rank": {
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "crop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "storageKey",
+        "mediaType",
+        "sizeBytes",
+        "sha256"
+      ],
+      "properties": {
+        "storageKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*\\\\)(?!.*:).+(?<!/)$"
+        },
+        "mediaType": {
+          "const": "image/jpeg"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 163840
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "roleAccounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidates",
+        "admitted",
+        "omitted",
+        "candidateBytes",
+        "admittedBytes"
+      ],
+      "properties": {
+        "candidates": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "admitted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "omitted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "candidateBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "admittedBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "evidenceAccounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representative",
+        "near-view",
+        "early-diverse",
+        "late-diverse"
+      ],
+      "properties": {
+        "representative": {
+          "$ref": "#/$defs/roleAccounting"
+        },
+        "near-view": {
+          "$ref": "#/$defs/roleAccounting"
+        },
+        "early-diverse": {
+          "$ref": "#/$defs/roleAccounting"
+        },
+        "late-diverse": {
+          "$ref": "#/$defs/roleAccounting"
+        }
+      }
+    }
+  }
+}

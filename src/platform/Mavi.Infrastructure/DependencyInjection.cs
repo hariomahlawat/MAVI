@@ -73,6 +73,13 @@ public static class DependencyInjection
             .Validate(options => StorageRootSafety.AreDisjointAndLinkFree(options.RootPath, options.EvidenceRootPath),
                 "MediaStorage roots must be physically disjoint and may not traverse symbolic-link/reparse components.")
             .ValidateOnStart();
+        services.AddOptions<StagingJanitorOptions>()
+            .Bind(configuration.GetSection(StagingJanitorOptions.SectionName))
+            .Validate(options => options.IsValid, "StagingJanitor settings are out of range.")
+            .ValidateOnStart();
+        services.AddSingleton<StagingJanitorState>();
+        services.AddSingleton<IStagingJanitorMonitor>(provider => provider.GetRequiredService<StagingJanitorState>());
+        services.AddScoped<IStagingJanitor, StagingJanitor>();
         services.AddOptions<MediaProcessingOptions>()
             .Bind(configuration.GetSection(MediaProcessingOptions.SectionName))
             .Validate(options => !string.IsNullOrWhiteSpace(options.FfprobePath), "MediaProcessing:FfprobePath is required.")

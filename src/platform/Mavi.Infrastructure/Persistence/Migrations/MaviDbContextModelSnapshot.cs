@@ -167,6 +167,12 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
 
+                    b.Property<int>("EvidenceRank")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("evidence_rank");
+
                     b.Property<string>("ObservationType")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -176,6 +182,10 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     b.Property<double>("QualityScore")
                         .HasColumnType("double precision")
                         .HasColumnName("quality_score");
+
+                    b.Property<double>("SelectionScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("selection_score");
 
                     b.Property<long>("SourceFrameNumber")
                         .HasColumnType("bigint")
@@ -203,11 +213,31 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TrackId");
 
+                    b.HasIndex("TrackId", "EvidenceRank")
+                        .IsUnique()
+                        .HasDatabaseName("ux_observations_track_rank");
+
+                    b.HasIndex("TrackId", "ObservationType")
+                        .IsUnique()
+                        .HasDatabaseName("ux_observations_track_role");
+
+                    b.HasIndex("TrackId", "SourceFrameNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ux_observations_track_frame");
+
                     b.ToTable("observations", null, t =>
                         {
                             t.HasCheckConstraint("ck_observations_box", "bounding_box_x >= 0 AND bounding_box_y >= 0 AND bounding_box_width >= 0 AND bounding_box_height >= 0 AND bounding_box_x + bounding_box_width <= 1 AND bounding_box_y + bounding_box_height <= 1");
 
                             t.HasCheckConstraint("ck_observations_scores", "confidence >= 0 AND confidence <= 1 AND quality_score >= 0 AND quality_score <= 1");
+
+                            t.HasCheckConstraint("ck_observations_rank", "evidence_rank >= 0 AND evidence_rank <= 3");
+
+                            t.HasCheckConstraint("ck_observations_role_rank", "(observation_type = 'Representative') = (evidence_rank = 0)");
+
+                            t.HasCheckConstraint("ck_observations_selection_score", "selection_score >= 0 AND selection_score <= 1");
+
+                            t.HasCheckConstraint("ck_observations_type", "observation_type IN ('Representative', 'NearView', 'EarlyDiverse', 'LateDiverse')");
                         });
                 });
 
@@ -1466,7 +1496,7 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     b.HasOne("Mavi.Domain.Media.Artifact", null)
                         .WithMany()
                         .HasForeignKey("ThumbnailArtifactId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Mavi.Domain.Intelligence.Track", null)
                         .WithMany()
