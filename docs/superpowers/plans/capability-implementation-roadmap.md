@@ -101,7 +101,7 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 
 ### Stage 2 — Visual Attributes
 
-**Architecture authority:** `docs/superpowers/plans/2026-09-23-visual-attributes.md`, ADR-013 and ADR-014. Implementation is blocked until acceptance-register items A1–A12 pass.
+**Architecture authority:** `docs/superpowers/plans/2026-09-23-visual-attributes.md`, accepted ADR-013 and ADR-014. Architecture acceptance items A1–A12 are PASS; feature implementation has not started.
 
 - **Objective.** Search evidence-backed appearance attributes such as “person, red upper clothing, carrying a backpack” or “white vehicle” and open the exact supporting evidence/source video.
 - **Preconditions.** Stage 1 search/evidence mechanics; platform-owned accepted evidence (ADR-006); Development/Production qualification separation (ADR-009); Stage-2 architecture freeze.
