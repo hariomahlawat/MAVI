@@ -29,7 +29,7 @@ from mavi_vision.runtime.errors import (
 from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
 from mavi_vision.storage.artifact_store import StagingArtifactError, StagingArtifactStore
 from mavi_vision.storage.integrity import SourceIntegrityError
-from mavi_vision.tracking.interfaces import TrackCandidate
+from mavi_vision.tracking.interfaces import TrackCandidate, TrackerUpdate
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd771")
@@ -583,13 +583,15 @@ def test_real_video_processor_keeps_attempt_artifacts_and_tracker_state_isolated
 
         def update(self, frame, detections):
             detection = tuple(detections)[0]
-            return (
-                TrackCandidate(
-                    track_id="person-000001",
-                    object_class=detection.object_class,
-                    confidence=detection.confidence,
-                    bounding_box=detection.bounding_box,
-                ),
+            return TrackerUpdate(
+                candidates=(
+                    TrackCandidate(
+                        track_id="person-000001",
+                        object_class=detection.object_class,
+                        confidence=detection.confidence,
+                        bounding_box=detection.bounding_box,
+                    ),
+                )
             )
 
     monkeypatch.setattr(production_module, "RTMDetDetector", FakeDetector, raising=False)

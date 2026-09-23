@@ -14,6 +14,7 @@ from mavi_vision.runtime.errors import RuntimeDisposition, TrackerError
 from mavi_vision.runtime.profile import ByteTrackProfile
 import mavi_vision.tracking.bytetrack as bytetrack_module
 from mavi_vision.tracking.bytetrack import ByteTrackTracker
+from mavi_vision.tracking.interfaces import TrackerUpdate
 from mavi_vision.video.reader import DecodedFrame
 
 
@@ -180,7 +181,7 @@ def test_pixel_conversion_timestamp_and_metadata_are_exact(
     tracker = ByteTrackTracker(profile())
     source = detection(ObjectClass.PERSON, ordinal=7, confidence=0.83)
 
-    output = tracker.update(frame(), (source,))
+    output = tracker.update(frame(), (source,)).candidates
 
     person_call, vehicle_call = factory.trackers[0].calls[0], factory.trackers[1].calls[0]
     native, timestamp = person_call
@@ -298,7 +299,7 @@ def test_backend_reordering_is_recovered_by_ordinal_and_final_output_is_global_o
         bbox=(0.4, 0.4, 0.2, 0.2),
     )
 
-    output = tracker.update(frame(), (left, right, vehicle))
+    output = tracker.update(frame(), (left, right, vehicle)).candidates
 
     assert [item.object_class for item in output] == [
         ObjectClass.PERSON,
@@ -403,9 +404,9 @@ def test_tentative_minus_one_is_suppressed_and_never_backfilled(
     source = detection(ObjectClass.PERSON, ordinal=0)
 
     first = tracker.update(frame(number=1, offset_ms=10), (source,))
-    second = tracker.update(frame(number=2, offset_ms=20), (source,))
+    second = tracker.update(frame(number=2, offset_ms=20), (source,)).candidates
 
-    assert first == ()
+    assert first == TrackerUpdate(candidates=())
     assert [item.track_id for item in second] == ["person-000001"]
     assert len(second) == 1
 
@@ -426,7 +427,7 @@ def test_person_and_vehicle_native_id_spaces_are_independent(
             detection(ObjectClass.PERSON, ordinal=0),
             detection(ObjectClass.VEHICLE, ordinal=1),
         ),
-    )
+    ).candidates
 
     assert [item.track_id for item in output] == [
         "person-000001",
@@ -450,8 +451,8 @@ def test_existing_native_mapping_is_stable_across_frames(
         bbox=(0.2, 0.1, 0.2, 0.2),
     )
 
-    first = tracker.update(frame(number=1, offset_ms=10), (first_detection,))
-    second = tracker.update(frame(number=2, offset_ms=20), (second_detection,))
+    first = tracker.update(frame(number=1, offset_ms=10), (first_detection,)).candidates
+    second = tracker.update(frame(number=2, offset_ms=20), (second_detection,)).candidates
 
     assert first[0].track_id == "person-000001"
     assert second[0].track_id == "person-000001"
@@ -470,7 +471,7 @@ def test_new_adapter_resets_native_trackers_maps_and_counters(
     assert first.update(
         frame(number=1, offset_ms=10),
         (detection(ObjectClass.PERSON, ordinal=0),),
-    )[0].track_id == "person-000001"
+    ).candidates[0].track_id == "person-000001"
 
     factory = install_bindings(
         monkeypatch,
@@ -481,7 +482,7 @@ def test_new_adapter_resets_native_trackers_maps_and_counters(
     assert second.update(
         frame(number=1, offset_ms=10),
         (detection(ObjectClass.PERSON, ordinal=0),),
-    )[0].track_id == "person-000001"
+    ).candidates[0].track_id == "person-000001"
     assert len(factory.trackers) == 2
 
 
@@ -563,3 +564,252 @@ def test_module_has_no_top_level_trackers_or_supervision_import() -> None:
 
     assert "trackers" not in imported
     assert "supervision" not in imported
+
+
+# --- Track lifecycle and exact retirement (ADR-013 §5, S1.1) ------------------
+#
+# profile(): lost budget 1.0 s at a 30 Hz nominal rate, so an identity last
+# emitted at offset t retires at the first accepted frame whose offset exceeds
+# t + 1000 + 33.33 ms, i.e. offset >= t + 1034 for integer millisecond offsets.
+
+
+def scripted_ids(*per_call: tuple[int, ...]) -> Script:
+    """Return the native ids scripted for each successive non-empty call."""
+
+    calls = iter(per_call)
+
+    def script(detections: FakeDetections, timestamp: float) -> object:
+        if len(detections) == 0:
+            return result(detections, np.empty((0,), dtype=np.int64))
+        return result(detections, np.asarray(next(calls), dtype=np.int64))
+
+    return script
+
+
+def person(ordinal: int = 0) -> DetectionCandidate:
+    return detection(ObjectClass.PERSON, ordinal=ordinal)
+
+
+def vehicle(ordinal: int = 0) -> DetectionCandidate:
+    return detection(ObjectClass.VEHICLE, ordinal=ordinal)
+
+
+def candidate_ids(update: TrackerUpdate) -> list[str]:
+    return [candidate.track_id for candidate in update.candidates]
+
+
+def test_unmatched_identity_within_budget_stays_live_and_keeps_its_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_bindings(monkeypatch, person_script=scripted_ids((5,), (5,)))
+    tracker = ByteTrackTracker(profile())
+
+    first = tracker.update(frame(number=1, offset_ms=0), (person(),))
+    # Several consecutive frames without a match: unmatched is not retired.
+    gaps = [
+        tracker.update(frame(number=number, offset_ms=offset), ())
+        for number, offset in ((2, 100), (3, 500), (4, 1000))
+    ]
+    # Reacquired at the last offset still inside the budget.
+    reacquired = tracker.update(frame(number=5, offset_ms=1033), (person(),))
+
+    assert candidate_ids(first) == ["person-000001"]
+    assert all(update == TrackerUpdate(candidates=()) for update in gaps)
+    assert candidate_ids(reacquired) == ["person-000001"]
+    assert reacquired.retired_track_ids == ()
+
+
+def test_retirement_fires_at_first_frame_past_budget_and_never_earlier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_bindings(monkeypatch, person_script=scripted_ids((5,)))
+    tracker = ByteTrackTracker(profile())
+
+    tracker.update(frame(number=1, offset_ms=0), (person(),))
+    at_threshold = tracker.update(frame(number=2, offset_ms=1033), ())
+    past_threshold = tracker.update(frame(number=3, offset_ms=1034), ())
+    afterwards = tracker.update(frame(number=4, offset_ms=5000), ())
+
+    assert at_threshold.retired_track_ids == ()
+    assert past_threshold.retired_track_ids == ("person-000001",)
+    assert past_threshold.candidates == ()
+    # Retired exactly once.
+    assert afterwards.retired_track_ids == ()
+
+
+def test_retirement_uses_media_time_not_frame_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_bindings(monkeypatch, person_script=scripted_ids((5,)))
+    tracker = ByteTrackTracker(profile())
+
+    tracker.update(frame(number=1, offset_ms=0), (person(),))
+    # A single sparse frame far in the future retires immediately; many dense
+    # frames within the budget never do.
+    dense = [
+        tracker.update(frame(number=number, offset_ms=number * 10), ())
+        for number in range(2, 100)
+    ]
+    sparse = tracker.update(frame(number=500, offset_ms=60_000), ())
+
+    assert all(update.retired_track_ids == () for update in dense)
+    assert sparse.retired_track_ids == ("person-000001",)
+
+
+def test_retirement_refreshes_on_every_emission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_bindings(monkeypatch, person_script=scripted_ids((5,), (5,)))
+    tracker = ByteTrackTracker(profile())
+
+    tracker.update(frame(number=1, offset_ms=0), (person(),))
+    tracker.update(frame(number=2, offset_ms=900), (person(),))
+    # 1500 would retire an identity last seen at 0, but not one seen at 900.
+    not_yet = tracker.update(frame(number=3, offset_ms=1500), ())
+    retired = tracker.update(frame(number=4, offset_ms=900 + 1034), ())
+
+    assert not_yet.retired_track_ids == ()
+    assert retired.retired_track_ids == ("person-000001",)
+
+
+def test_native_id_seen_again_after_retirement_starts_a_new_track(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_bindings(monkeypatch, person_script=scripted_ids((5,), (5,)))
+    tracker = ByteTrackTracker(profile())
+
+    tracker.update(frame(number=1, offset_ms=0), (person(),))
+    retired = tracker.update(frame(number=2, offset_ms=2000), ())
+    reused = tracker.update(frame(number=3, offset_ms=2100), (person(),))
+
+    assert retired.retired_track_ids == ("person-000001",)
+    assert candidate_ids(reused) == ["person-000002"]
+    assert reused.retired_track_ids == ()
+
+
+def test_native_id_reused_in_the_retiring_frame_never_extends_the_retired_track(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The backend pruned native id 5 before this frame's association, so a row
+    # carrying 5 again is a new tracklet. It must neither extend person-000001
+    # nor be emitted under the id being retired.
+    install_bindings(monkeypatch, person_script=scripted_ids((5,), (5,)))
+    tracker = ByteTrackTracker(profile())
+
+    tracker.update(frame(number=1, offset_ms=0), (person(),))
+    update = tracker.update(frame(number=2, offset_ms=2000), (person(),))
+
+    assert update.retired_track_ids == ("person-000001",)
+    assert candidate_ids(update) == ["person-000002"]
+
+
+def test_tracks_retire_independently_in_canonical_order_across_classes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_bindings(
+        monkeypatch,
+        person_script=scripted_ids((1, 2), (2,)),
+        vehicle_script=scripted_ids((1,)),
+    )
+    tracker = ByteTrackTracker(profile())
+
+    tracker.update(
+        frame(number=1, offset_ms=0),
+        (person(ordinal=0), person(ordinal=1), vehicle(ordinal=2)),
+    )
+    tracker.update(frame(number=2, offset_ms=500), (person(ordinal=0),))
+    first_wave = tracker.update(frame(number=3, offset_ms=1100), ())
+    second_wave = tracker.update(frame(number=4, offset_ms=1600), ())
+
+    assert first_wave.retired_track_ids == ("person-000001", "vehicle-000001")
+    assert second_wave.retired_track_ids == ("person-000002",)
+
+
+def test_live_map_holds_only_live_identities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_bindings(
+        monkeypatch,
+        person_script=scripted_ids(*((native_id,) for native_id in range(1, 51))),
+    )
+    tracker = ByteTrackTracker(profile())
+
+    # Fifty short-lived Tracks, each retired by the next one's arrival 2 s later.
+    for index in range(50):
+        tracker.update(frame(number=index + 1, offset_ms=index * 2000), (person(),))
+
+    assert list(tracker._person_live) == [50]
+    assert tracker._vehicle_live == {}
+
+
+def test_tentative_rows_never_become_live_or_retire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_bindings(monkeypatch, person_script=scripted_ids((-1,)))
+    tracker = ByteTrackTracker(profile())
+
+    tentative = tracker.update(frame(number=1, offset_ms=0), (person(),))
+    later = tracker.update(frame(number=2, offset_ms=5000), ())
+
+    assert tentative == TrackerUpdate(candidates=())
+    assert later == TrackerUpdate(candidates=())
+
+
+def test_poisoned_adapter_does_not_report_retirements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing_after_first(detections: FakeDetections, timestamp: float) -> object:
+        if timestamp == 0.0:
+            return result(detections, np.asarray([5], dtype=np.int64))
+        raise RuntimeError("native-failure")
+
+    install_bindings(monkeypatch, person_script=failing_after_first)
+    tracker = ByteTrackTracker(profile())
+    tracker.update(frame(number=1, offset_ms=0), (person(),))
+
+    with pytest.raises(TrackerError, match="bytetrack_backend_update_failed"):
+        tracker.update(frame(number=2, offset_ms=2000), ())
+    with pytest.raises(TrackerError, match="bytetrack_attempt_invalidated"):
+        tracker.update(frame(number=3, offset_ms=3000), ())
+
+
+def test_retirement_state_does_not_leak_into_a_new_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_bindings(monkeypatch, person_script=scripted_ids((5,)))
+    first = ByteTrackTracker(profile())
+    first.update(frame(number=1, offset_ms=0), (person(),))
+    assert first.update(frame(number=2, offset_ms=2000), ()).retired_track_ids == (
+        "person-000001",
+    )
+
+    install_bindings(monkeypatch, person_script=scripted_ids((5,)))
+    second = ByteTrackTracker(profile())
+    fresh = second.update(frame(number=1, offset_ms=0), (person(),))
+    quiet = second.update(frame(number=2, offset_ms=500), ())
+
+    assert candidate_ids(fresh) == ["person-000001"]
+    assert quiet.retired_track_ids == ()
+
+
+def test_retirement_threshold_follows_the_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_bindings(monkeypatch, person_script=scripted_ids((5,)))
+    tracker = ByteTrackTracker(
+        ByteTrackProfile(
+            reference_frame_rate=10.0,
+            track_activation_threshold=0.7,
+            high_confidence_threshold=0.6,
+            minimum_iou_threshold=0.1,
+            minimum_consecutive_frames=2,
+            lost_track_buffer_seconds=2.0,
+        )
+    )
+
+    tracker.update(frame(number=1, offset_ms=0), (person(),))
+    boundary = tracker.update(frame(number=2, offset_ms=2100), ())
+    past = tracker.update(frame(number=3, offset_ms=2101), ())
+
+    assert boundary.retired_track_ids == ()
+    assert past.retired_track_ids == ("person-000001",)
