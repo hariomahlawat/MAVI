@@ -532,6 +532,8 @@ Superseded analyses and orphaned supplemental crops remain under current evidenc
 
 S0 architecture closure is complete. Feature coding remains a separate follow-on activity and begins only through the defined implementation slices.
 
+**S1 implementation plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` is the implementation-grade plan for the Track Evidence Set slice and remains subordinate to ADR-013 and the Stage-2 acceptance register.
+
 | Slice | Scope | Exit gate |
 |---|---|---|
 | **S0 Architecture freeze** | ADR-013/014, Evidence Set arithmetic/roles, evidence-read contract, cursor v4, UI amendments, qualification protocol, acceptance register and roadmaps reconciled | Acceptance A1–A12 PASS; no P1/P2 cold-review finding |
