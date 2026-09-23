@@ -104,15 +104,17 @@ public sealed class ContentApiTests
         Assert.Equal(HttpStatusCode.NotFound, sourceViaArtifact.StatusCode);
     }
 
-    [Fact]
-    public async Task UnreferencedEvidenceArtifactIsNotPubliclyReadable()
+    [Theory]
+    [InlineData(ArtifactType.Thumbnail)]
+    [InlineData(ArtifactType.EvidenceCrop)]
+    public async Task UnreferencedEvidenceArtifactIsNotPubliclyReadable(ArtifactType artifactType)
     {
         using var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
         var bytes = new byte[] { 1, 2, 3, 4 };
         var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         var artifact = Artifact.Create(
-            ArtifactType.Thumbnail,
+            artifactType,
             $"evidence/unreferenced/{sha}.jpg",
             "image/jpeg",
             bytes.Length,

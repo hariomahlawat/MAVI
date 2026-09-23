@@ -513,7 +513,7 @@ public sealed class VisionResultCompletionApiTests
         }
     }
 
-    private static async Task<VisionJobLeaseContract> LeaseAsync(
+    internal static async Task<VisionJobLeaseContract> LeaseAsync(
         HttpClient client,
         string workerId)
     {
@@ -600,7 +600,7 @@ public sealed class VisionResultCompletionApiTests
         string sha256) =>
         new(key, mediaType, sizeBytes, sha256);
 
-    private static VisionRuntimeProvenanceContract Provenance() =>
+    internal static VisionRuntimeProvenanceContract Provenance() =>
         new(
             "rtmdet-m",
             "1",
@@ -644,7 +644,7 @@ public sealed class VisionResultCompletionApiTests
             new VisionTrackerParametersContract(30, .25, .1, .2, 2, 1),
             "RGB");
 
-    private static async Task<Guid> SeedVideoAsync(ApiTestFactory factory)
+    internal static async Task<Guid> SeedVideoAsync(ApiTestFactory factory)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
