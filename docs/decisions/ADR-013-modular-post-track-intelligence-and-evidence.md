@@ -78,9 +78,9 @@ Ties within a role resolve deterministically: score descending, then source-fram
 
 Representative remains the primary display summary. Supplemental roles exist to improve later analytical coverage, not to redefine the Track.
 
-### 5. Evidence crops are encoded in-loop and staged, not retained as RGB arrays
+### 5. Evidence crops are encoded in-loop and staged only when a Track retires
 
-Candidate crops are JPEG-encoded when selected/replaced in the processing loop and staged as bounded artefacts. The worker must not retain K raw RGB arrays per live Track.
+Candidate crops are JPEG-encoded when selected/replaced in the processing loop and held as bounded encoded bytes while the Track remains live. They are written to attempt-scoped staging once, when that Track retires (or at end-of-stream for Tracks still live). The worker must not retain K raw RGB arrays per live Track and must not rewrite staging on every candidate replacement.
 
 Initial Stage-2 evidence encoding contract:
 - maximum candidate roles per Track: **4**;
@@ -97,7 +97,17 @@ Two consequences are stated so they are not discovered in implementation:
 - At quality 85 a 1024-px-long-edge crop of natural imagery typically encodes to 100–160 KiB, so the 64 KiB Representative cap implies an effective Representative ceiling of roughly 600–700 px long edge for large subjects. **Representative is the display/summary crop; NearView (160 KiB) is the analytic-resolution carrier** on which later plate/embedding work depends. Qualification §8 measures the quality impact of both caps.
 - Deterministic reduction has a floor: the long edge is never reduced below **128 px** and quality never below **50**. A candidate that still exceeds its cap at the floor is not admitted for that role (Representative then falls back to the next-best qualified candidate; the run fails only if no Representative can be produced for an accepted Track).
 
-**Memory and staging behaviour.** The current pipeline retains one raw RGB crop per Track for the whole run and finalises only after decoding ends. Contract v3 changes this in two steps. While a Track is live, its current best candidate per role is held **encoded** (a replacement re-encodes and discards the predecessor), so memory per live Track is at most 4 × 160 KiB ≈ 544 KiB and worker memory is bounded by *live* Tracks, not by all Tracks. When the tracker ends a Track (lost-track buffer expiry) — or at end of decode for Tracks still live — its candidates are written once to attempt-scoped staging and the accumulator keeps descriptors only; this avoids re-writing staging on every replacement. Staging disk is bounded by all candidates before run-level admission: at 10,000 Tracks that is at most 10,000 × 544 KiB ≈ 5.2 GiB of transient attempt-scoped staging, cleaned by the existing attempt cleanup. Run-level admission (§6) happens at finalisation, when every candidate is known; omitted candidates are simply never referenced.
+**Memory, Track retirement and staging behaviour.** The current pipeline retains one raw RGB crop per Track for the whole run and the current model-neutral `Tracker` protocol returns only per-frame `TrackCandidate` values; it exposes no Track-retirement event. Contract v3 therefore requires an explicit model-neutral lifecycle extension rather than having `VideoProcessor` duplicate ByteTrack's lost-track timing.
+
+The tracker boundary evolves conceptually to return a per-frame update containing:
+- current evidence-bearing Track candidates; and
+- zero or more **retired MAVI Track ids**.
+
+A Track id is emitted as retired **exactly once**, only when the tracker adapter guarantees that the identity can no longer reappear under that attempt's association semantics (for ByteTrack, after its lost-track buffer has expired). A retired id may never appear in a later update. At end-of-stream the pipeline finalises every still-live Track. The adapter owns backend-specific retirement semantics; `VideoProcessor` consumes the generic retirement signal and does not maintain an independent shadow timeout.
+
+While a Track is live, its current best candidate per role is held **encoded** (a replacement re-encodes and discards the predecessor), so memory per live Track is at most 4 × 160 KiB ≈ 544 KiB and worker memory is bounded by *live* Tracks rather than all Tracks. On retirement, its candidates are written once to attempt-scoped staging and the accumulator retains descriptors/metadata only. Staging disk is bounded by all candidates before run-level admission: at 10,000 Tracks that is at most 10,000 × 544 KiB ≈ 5.2 GiB of transient attempt-scoped staging, cleaned by the existing attempt cleanup. Run-level admission (§6) happens at finalisation, when every candidate is known; omitted candidates are simply never referenced.
+
+The live-Track memory-bound claim is not considered implemented until retirement exact-once/no-reappearance semantics are contract-tested against the tracker adapter, including disappearance within the lost buffer, reappearance before expiry, retirement after expiry, and end-of-stream drain.
 
 ### 6. Evidence storage is bounded at both Track and ProcessingRun level
 
