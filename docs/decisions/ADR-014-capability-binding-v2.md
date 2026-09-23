@@ -1,6 +1,6 @@
 # ADR-014: Capability Binding v2, Model-Pack Neutrality and Capability-Scoped Qualification
 
-**Status:** Proposed architecture-freeze candidate  
+**Status:** Accepted — Stage-2 architecture freeze  
 **Date:** 2026-09-23  
 **Related:** ADR-005 Model Pack architecture; ADR-007 Runtime Pack architecture; ADR-009 Development vs Production qualification; ADR-013 modular post-Track intelligence
 
@@ -256,7 +256,7 @@ Rejected. Runtime compatibility and model capability quality are different claim
 
 ## Acceptance gate
 
-ADR-014 may move to Accepted only when a cold architecture review confirms:
+ADR-014 was accepted after the 2026-09-23 architecture review resolution and cold consistency pass confirmed:
 - compatibility with ADR-005/007/009;
 - no detector-specific mandatory field remains in the common model-manifest contract;
 - migration/requalification consequences are explicitly represented in the Stage-2 implementation roadmap;
