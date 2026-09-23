@@ -3,6 +3,10 @@
 **Status:** Accepted  
 **Date:** 2026-09-17
 
+## Stage-2 extension note (2026-09-23)
+
+ADR-007's separation of Runtime Binary Pack, Model Pack and application/release overlay remains authoritative. ADR-014 extends the overlay binding from one detector-oriented model selection to versioned `capabilityBindings[]` and defines a capability-neutral Model Pack manifest v2. Runtime Pack identity continues to describe reusable executable/dependency material; individual model/checkpoint identity belongs to Model Packs. Existing detector component identities affected by the v2 runtime-profile representation are reconciled explicitly rather than silently inherited.
+
 ## Context
 
 The original Task-12 offline bundle coupled the approximately 600 MB Python/OpenMMLab runtime to the first-party `mavi-vision` wheel and repository commit. A normal source edit therefore changed the first-party wheel hash, runtime lock/profile fingerprints and bundle source identity even when no third-party binary, Python ABI or model byte had changed. Development startup then rejected the installed bundle and forced an unnecessary rebuild/download.
