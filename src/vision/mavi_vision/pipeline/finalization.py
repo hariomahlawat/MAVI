@@ -10,14 +10,17 @@ from PIL import Image
 from mavi_vision.common.analytical import (
     ObjectClass,
     RepresentativeObservation,
-    TrajectoryPoint,
 )
-from mavi_vision.video.trajectory import serialize_trajectory
+from mavi_vision.video.trajectory_spool import TrajectorySummary
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedTrack:
-    """Filesystem-independent, deterministic representation of a finalized track."""
+    """Filesystem-independent, deterministic representation of a finalized track.
+
+    It carries the trajectory's summary, not its points: the canonical v1 payload
+    is streamed from the Track's spool straight into staging at publication.
+    """
 
     track_id: str
     object_class: ObjectClass
@@ -27,9 +30,8 @@ class PreparedTrack:
     mean_confidence: float
     max_confidence: float
     representative: RepresentativeObservation
-    trajectory: tuple[TrajectoryPoint, ...]
+    trajectory: TrajectorySummary
     thumbnail_payload: bytes
-    trajectory_payload: bytes
 
     @property
     def confidence(self) -> float:
@@ -48,25 +50,34 @@ def prepare_track(
     observation_count: int,
     representative: RepresentativeObservation | None,
     representative_crop: np.ndarray | None,
-    trajectory: tuple[TrajectoryPoint, ...],
+    trajectory: TrajectorySummary,
 ) -> PreparedTrack:
     """Prepare deterministic track payloads without performing external side effects.
 
-    This is the last point at which the Track's trajectory points exist in memory,
-    so every trajectory invariant is enforced here; the resulting ``ProcessedTrack``
-    keeps only the staged descriptor.
+    The trajectory's points never reach this function. Strict monotonicity is
+    enforced as each point enters the spool and again while its v1 payload is
+    streamed; here the summary must agree with the Track's scalars: one point
+    per observation, all inside the Track's offsets. The resulting
+    ``ProcessedTrack`` keeps only the staged descriptor.
     """
 
     if representative is None or representative_crop is None or observation_count <= 0:
         raise ValueError("track_observation_missing")
 
-    points = tuple(trajectory)
-    if not points or len(points) != observation_count:
+    if trajectory.point_count <= 0 or trajectory.point_count != observation_count:
         raise ValueError("track_observation_missing")
-    offsets = [point.offset_ms for point in points]
-    if any(current <= previous for previous, current in zip(offsets, offsets[1:])):
+    # Strictly increasing offsets span a positive interval exactly when there is
+    # more than one point.
+    single_point = trajectory.point_count == 1
+    if (
+        trajectory.first_offset_ms > trajectory.last_offset_ms
+        or (trajectory.first_offset_ms == trajectory.last_offset_ms) != single_point
+    ):
         raise ValueError("trajectory_offsets_not_monotonic")
-    if offsets[0] < start_offset_ms or offsets[-1] > end_offset_ms:
+    if (
+        trajectory.first_offset_ms < start_offset_ms
+        or trajectory.last_offset_ms > end_offset_ms
+    ):
         raise ValueError("trajectory_offsets_outside_track")
 
     mean_confidence = confidence_sum / observation_count
@@ -85,7 +96,6 @@ def prepare_track(
     if not 0.0 <= mean_confidence <= max_confidence <= 1.0:
         raise ValueError("track_confidence_invalid")
 
-    trajectory_payload = serialize_trajectory(points)
     thumbnail_payload = _encode_jpeg(representative_crop)
 
     return PreparedTrack(
@@ -97,9 +107,8 @@ def prepare_track(
         mean_confidence=mean_confidence,
         max_confidence=max_confidence,
         representative=representative,
-        trajectory=points,
+        trajectory=trajectory,
         thumbnail_payload=thumbnail_payload,
-        trajectory_payload=trajectory_payload,
     )
 
 

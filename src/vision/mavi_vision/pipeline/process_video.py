@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
@@ -11,7 +11,6 @@ from mavi_vision.common.analytical import (
     ObjectClass,
     ProcessedTrack,
     RepresentativeObservation,
-    TrajectoryPoint,
     VisionProcessingResult,
 )
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
@@ -29,6 +28,7 @@ from mavi_vision.storage.integrity import (
 )
 from mavi_vision.tracking.interfaces import TrackCandidate, Tracker, TrackerUpdate
 from mavi_vision.video.reader import DecodedFrame, VideoReadError, iter_frames
+from mavi_vision.video.trajectory_spool import DEFAULT_CHUNK_POINTS, TrajectorySpool
 
 
 class VideoProcessingError(RuntimeError):
@@ -45,15 +45,20 @@ class _RepresentativeCandidate:
 
 @dataclass(slots=True)
 class _TrackAccumulator:
-    """Live state of one Track; discarded when the Track is finalised."""
+    """Live state of one Track; discarded when the Track is finalised.
+
+    Everything here is bounded independently of the Track's duration: scalars,
+    one Representative crop, and a trajectory spool that holds at most one chunk
+    of points in memory (the rest is spilled to attempt-scoped staging).
+    """
 
     object_class: ObjectClass
     start_offset_ms: int
     end_offset_ms: int
+    trajectory: TrajectorySpool
     confidence_sum: float = 0.0
     max_confidence: float = 0.0
     observation_count: int = 0
-    trajectory: list[TrajectoryPoint] = field(default_factory=list)
     representative: _RepresentativeCandidate | None = None
 
 
@@ -65,7 +70,9 @@ class VideoProcessor:
     or at end-of-stream if it is still live then. Finalisation prepares and stages
     the whole Track -- trajectory, summary and Representative -- and replaces the
     live accumulator with a descriptor-only ``ProcessedTrack``, so live memory is
-    bounded by the Tracks currently live rather than by every Track seen.
+    bounded by the Tracks currently live rather than by every Track seen. Within
+    a live Track, the trajectory is held in a ``TrajectorySpool``, so a Track's
+    memory does not grow with its duration either.
 
     The processor never infers retirement itself; a temporarily unmatched Track
     stays live until the tracker, which alone knows its backend's association
@@ -83,10 +90,15 @@ class VideoProcessor:
         detector: Detector,
         tracker: Tracker,
         artifact_store: StagingArtifactStore,
+        *,
+        trajectory_chunk_points: int = DEFAULT_CHUNK_POINTS,
     ) -> None:
         self._detector = detector
         self._tracker = tracker
         self._artifact_store = artifact_store
+        # A test seam, deliberately not operator configuration: the chunk size
+        # changes memory and I/O cadence, never the bytes produced.
+        self._trajectory_chunk_points = trajectory_chunk_points
 
     def process(
         self,
@@ -255,6 +267,11 @@ class VideoProcessor:
                 object_class=candidate.object_class,
                 start_offset_ms=frame.offset_ms,
                 end_offset_ms=frame.offset_ms,
+                trajectory=TrajectorySpool(
+                    self._artifact_store,
+                    candidate.track_id,
+                    chunk_points=self._trajectory_chunk_points,
+                ),
             )
             live[candidate.track_id] = accumulator
         elif accumulator.object_class is not candidate.object_class:
@@ -269,11 +286,9 @@ class VideoProcessor:
         accumulator.observation_count += 1
         bbox = candidate.bounding_box
         accumulator.trajectory.append(
-            TrajectoryPoint(
-                frame.offset_ms,
-                bbox.x + bbox.width / 2.0,
-                bbox.y + bbox.height / 2.0,
-            )
+            frame.offset_ms,
+            bbox.x + bbox.width / 2.0,
+            bbox.y + bbox.height / 2.0,
         )
         observation = RepresentativeObservation(
             offset_ms=frame.offset_ms,
@@ -315,10 +330,16 @@ class VideoProcessor:
             representative_crop=(
                 None if representative is None else representative.crop
             ),
-            trajectory=tuple(accumulator.trajectory),
+            trajectory=accumulator.trajectory.summary(),
         )
         lease_guard.check_owned()
-        processed = publisher.publish_track(prepared)
+        # The spool streams its canonical v1 payload into the publication and is
+        # removed only after that publication succeeded. Finalisations run one at
+        # a time, so at most one Track's spool, temp file and published artefact
+        # coexist on disk (about 3 x 24 bytes per point, transiently).
+        processed = accumulator.trajectory.finalise(
+            lambda chunks: publisher.publish_track(prepared, chunks)
+        )
         lease_guard.check_owned()
         return processed
 
