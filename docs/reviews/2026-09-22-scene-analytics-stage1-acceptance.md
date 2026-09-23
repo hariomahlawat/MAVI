@@ -19,7 +19,8 @@ What remains needs the Development machine or the owner:
 
 - the aggregate-materialisation **P2 is closed as RETAIN**: the authoritative PostgreSQL 18 figures were transcribed and all nine §T cases satisfy the predeclared rule (worst total 4,405 ms; worst allocation 42.6 MiB; exactly 10 DB queries in every case);
 - the Development-corpus unit timing (item 4a) is **PASS**: Completed, 414 ms, 12 analysed / 0 unavailable, 12 outcomes, 8 visits, 12 zone summaries, 1 crossing, 12 motion summaries and 3,002 trajectory samples;
-- the remaining operator-only closure evidence is the scripted videos through the worker/analytics host, runtime identity, disconnected no-fetch, Search → Investigation, and PostgreSQL restart/reconnect. The scripted corpus itself has been generated and pixel-verified, and its three scene revisions were saved on the canonical Development database. These remaining actions are not marked PASS without execution evidence.
+- runtime identity (D.1) and Search → Investigation on real data (E) are **PASS**;
+- the remaining operator-only closure evidence is the scripted videos through the worker/analytics host, disconnected no-fetch, and PostgreSQL restart/reconnect. The scripted corpus itself has been generated and pixel-verified, and its three scene revisions were saved on the canonical Development database. These remaining actions are not marked PASS without execution evidence.
 
 Nothing unexecuted is marked PASS.
 
@@ -45,7 +46,7 @@ This pass **does** change executable code after that SHA, and says so plainly: i
 
 | # | Requirement | Status |
 |---|---|---|
-| 1 | Stage-1 functional acceptance met | **NOT MET** — depends on items 13 and 14 (and on 16 and 19 at the final head) |
+| 1 | Stage-1 functional acceptance met | **NOT MET** — depends on item 14 (and on 16 and 19 at the final head) |
 | 2 | C1 agrees across trajectory/facts/search/explanation/aggregate/heatmap/UI | **PASS.** Trajectory → facts → §S → §T as before; now also the explanation (track detail), the pinned geometry names and the heatmap (an exact matrix), read through the real HTTP API, compared byte for byte with a committed golden, and the same golden driven through the real explanation, overlay and heatmap components with the heatmap recomputed from the authored path. Details: semantic acceptance §5 |
 | 3 | PostgreSQL 18 plans and timings for every §S predicate and §T aggregate at 10^5 facts | **PASS** — `PlanQualificationTests` on PostgreSQL 18.6, 110,000 relevant facts, `qualification evidence`, SHA `5f516662…` |
 | 4 | Analytics-unit duration and rows for (a) the Development corpus and (b) a synthetic 1,000-Track run | **PASS.** (a) Development corpus: `Completed`, attempt 1, 414 ms, 12 analysed / 0 unavailable, 12 outcomes, 8 zone visits, 12 zone summaries, 1 crossing, 12 motion summaries, 3,002 samples. (b) synthetic 1,000-Track run: 1,000 analysed, 0 unavailable, `Completed`, ≈3.11 s; 1,000 outcomes, 4,000 zone summaries, 185 visits, 1,391 crossings, 1,000 motion summaries. |
@@ -58,7 +59,7 @@ This pass **does** change executable code after that SHA, and says so plainly: i
 | 11 | Browser parser matches the normalised-coordinate contract | **PASS** |
 | 12 | Security/resource review has no open P1/P2 | **PASS.** No P1. The aggregate-materialisation P2 is closed as dispositioned RETAIN within the qualified envelope. |
 | 13 | Operator workflow / accessibility / visual QA pass | **PASS.** Accessibility and visual QA **PASS**: 53 analytics-related states × 4 widths, zero automated findings, human capture pass, no P1/P2 (three P3s). The remaining real-data **Search → Investigation → Evidence Review** leg was executed on the H.264 MOT17-CROWD run: the same Person Track opened from Search into the inspector and Evidence Review, source video played, Revision 1 / Engine v1 identity agreed, and the saved zone overlay rendered against the track evidence. |
-| 14 | Development offline/real-worker acceptance recorded with no undeclared dependency | **PARTIAL.** Real-worker acceptance **PASS**; restart persistence **PASS**. The three scripted videos: generated and pixel-verified, their expected facts proved against the real engine — the **run through the real worker is NOT EXECUTED** (runbook §C). Runtime identities: **NOT EXECUTED**, SQL prepared (runbook §D.1). No-undeclared-fetch: **NOT EXECUTED**, disconnected procedure prepared (runbook §D.2) |
+| 14 | Development offline/real-worker acceptance recorded with no undeclared dependency | **PARTIAL.** Real-worker acceptance **PASS**; restart persistence **PASS**. The three scripted videos: generated and pixel-verified, their expected facts proved against the real engine — the **run through the real worker is NOT EXECUTED** (runbook §C). Runtime identity **PASS** (runbook §D.1; *Runtime identity evidence* below). No-undeclared-fetch: **NOT EXECUTED**, disconnected procedure prepared (runbook §D.2) |
 | 15 | No policy-violating dependency/runtime drift | **PASS** — zero files differ from `main` across `*.csproj`, `package.json`, lockfiles and `config/dependencies/`; the new tools are standard-library Python and plain SQL; `verify_repo.py` green |
 | 16 | Relevant suites and exact-head CI green | **PENDING** — local suites below; exact-head CI is reported on PR #70 for the final pushed head only |
 | 17 | Documentation reflects measured reality, limits and known limitations | **PASS** for these documents at this head |

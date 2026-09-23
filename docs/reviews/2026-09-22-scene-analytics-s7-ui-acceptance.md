@@ -7,15 +7,15 @@
 
 ---
 
-## Status: PARTIAL — accessibility and visual QA PASS at all four widths; one operator-workflow leg still owed on real data
+## Status: PASS — accessibility and visual QA PASS at all four widths; the operator workflow, including Search → Investigation, executed on real data
 
 | Plan §25 item 13 part | Status |
 |---|---|
 | Accessibility acceptance across the analytics surfaces | **PASS** — automated §26 assertions plus a human capture pass; no P1/P2 (§3) |
 | Visual QA at 1366×768 / 1440 / 1920 / 2560 | **PASS** — 53 analytics-related states at all four widths, 212 combinations, zero automated findings (§3) |
-| Operator workflow acceptance on real data | **PARTIAL** — executed end to end on the Development machine except the **Search → Investigation** leg, which was not reported and is an operator action (runbook `docs/runbooks/scene-analytics-stage1-development-acceptance.md` §E) |
+| Operator workflow acceptance on real data | **PASS** — executed end to end on the Development machine. The **Search → Investigation → Evidence Review** leg (runbook `docs/runbooks/scene-analytics-stage1-development-acceptance.md` §E) was run on the H.264 MOT17-CROWD run; the result is recorded in the Stage-1 acceptance register, action E |
 
-Item 13 therefore stays **PARTIAL**, by exactly one leg.
+Item 13 is therefore **PASS**.
 
 ## 1. What this slice changed in the frontend
 
@@ -63,4 +63,4 @@ Every state below ran at **1366×768, 1440×900, 1920×1080 and 2560×1080**.
 
 ## 4. What remains
 
-Run the Search → Investigation leg on real data on the Development machine (runbook §E). With that recorded, item 13 is met.
+Nothing for item 13. The three P3s above stay on the backlog.
