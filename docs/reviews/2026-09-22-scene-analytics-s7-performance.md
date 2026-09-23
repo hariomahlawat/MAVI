@@ -183,7 +183,7 @@ The generated corpus held 40 runs, 10,000 Tracks, 4 zones, 2 lines and **110,000
 
 Across the captured statements PostgreSQL used index/index-only scans extensively (879/132 occurrences), with 32 sequential scans at small or broad intermediate relations, 57 hash joins and 712 nested loops. No external sort or disk spill was reported; maximum individual plan execution time was 986 ms. The broad sequential scans were not demonstrated pathological at this corpus and no speculative index was added. Query count remained bounded; no N+1 growth was observed.
 
-### §T and the open materialisation question
+### §T and the materialisation question (since dispositioned — §8.3)
 
 Every combination of 60/900/3,600-second buckets and unfiltered/Person/Vehicle class was measured through database materialisation **and** application aggregation. Unfiltered cases materialised 30,000 visits, 20,000 crossings, 26,565 summaries and 10,000 intervals; Person materialised 19,920/13,280/17,653/6,640 and Vehicle 10,080/6,720/8,912/3,360. Every case used 10 database statements.
 
@@ -195,7 +195,7 @@ Every combination of 60/900/3,600-second buckets and unfiltered/Person/Vehicle c
 | 900 / any | 2,241 | 302 | 2,542 | 37.4 MiB | 2/1/1 |
 | 3,600 / any | 2,590 | 117 | 2,707 | 36.8 MiB | 2/1/1 |
 
-The evidence confirms linear row-volume and allocation exposure even though query count is bounded. At 110,000 relevant facts it completed without spill or failure, but the 60-second unfiltered case consumed 7.5 seconds and 41.8 MiB of managed allocation. **Conclusion on the carried P2:** do not disguise the response cap as a work bound and do not add a speculative row cutoff that would make aggregates wrong. Retain the implementation for this slice, explicitly carry a P2 to design a semantics-preserving server-side aggregation or documented scope bound before a wider production envelope. The measurement streams completed without integrity failure, but nothing here is a pass: the pass/fail decision on the carried P2 belonged to the reachable-head rerun, which has now happened (§8) but whose §T figures have not yet been transcribed or dispositioned — see §8.3. Stage 1's “no open P1/P2” exit item remains unmet.
+The evidence confirms linear row-volume and allocation exposure even though query count is bounded. At 110,000 relevant facts it completed without spill or failure, but the 60-second unfiltered case consumed 7.5 seconds and 41.8 MiB of managed allocation. **Conclusion on the carried P2:** do not disguise the response cap as a work bound and do not add a speculative row cutoff that would make aggregates wrong. Retain the implementation for this slice, explicitly carry a P2 to design a semantics-preserving server-side aggregation or documented scope bound before a wider production envelope. The measurement streams completed without integrity failure, but nothing here is a pass: the pass/fail decision on the carried P2 belonged to the reachable-head rerun, which has now happened (§8) and whose §T figures have since been transcribed and dispositioned **RETAIN** under the predeclared rule — see §8.3. The figures in this section remain observations only.
 
 ### Analytical unit
 

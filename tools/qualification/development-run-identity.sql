@@ -3,7 +3,7 @@
 --
 -- Read-only. Run against the live Development database (mavi_dev):
 --
---   psql -h localhost -p 5433 -U <user> -d mavi_dev -f tools/qualification/development-run-identity.sql
+--   psql -h 127.0.0.1 -p 55433 -U <user> -d mavi_dev -f tools/qualification/development-run-identity.sql
 --
 -- Every completed run already carries the provenance the worker reported and the API
 -- validated on completion (runtime_provenance_json). This reads it back rather than

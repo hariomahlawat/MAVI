@@ -45,7 +45,7 @@ This pass **does** change executable code after that SHA, and says so plainly: i
 
 | # | Requirement | Status |
 |---|---|---|
-| 1 | Stage-1 functional acceptance met | **NOT MET** — depends on items 7, 12, 13, 14 and 18 |
+| 1 | Stage-1 functional acceptance met | **NOT MET** — depends on items 13 and 14 (and on 16 and 19 at the final head) |
 | 2 | C1 agrees across trajectory/facts/search/explanation/aggregate/heatmap/UI | **PASS.** Trajectory → facts → §S → §T as before; now also the explanation (track detail), the pinned geometry names and the heatmap (an exact matrix), read through the real HTTP API, compared byte for byte with a committed golden, and the same golden driven through the real explanation, overlay and heatmap components with the heatmap recomputed from the authored path. Details: semantic acceptance §5 |
 | 3 | PostgreSQL 18 plans and timings for every §S predicate and §T aggregate at 10^5 facts | **PASS** — `PlanQualificationTests` on PostgreSQL 18.6, 110,000 relevant facts, `qualification evidence`, SHA `5f516662…` |
 | 4 | Analytics-unit duration and rows for (a) the Development corpus and (b) a synthetic 1,000-Track run | **PASS.** (a) Development corpus: `Completed`, attempt 1, 414 ms, 12 analysed / 0 unavailable, 12 outcomes, 8 zone visits, 12 zone summaries, 1 crossing, 12 motion summaries, 3,002 samples. (b) synthetic 1,000-Track run: 1,000 analysed, 0 unavailable, `Completed`, ≈3.11 s; 1,000 outcomes, 4,000 zone summaries, 185 visits, 1,391 crossings, 1,000 motion summaries. |

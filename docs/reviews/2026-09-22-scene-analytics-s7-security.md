@@ -23,7 +23,7 @@
 
 **Where that action stands.** Complete. The owner ran `summarize_aggregate_qualification.py` against the authoritative Development-machine `plan-qualification.json` from reachable SHA `5f5166628b0c4af04cc8f7efcd40f7022f5095c4`. The file reported status **qualification evidence**, clean/resolvable provenance, PostgreSQL 18.6 / pgvector 0.8.6, 110,000 relevant facts, and SHA-256 `3e418ab9fca8dccf8b939cf356e6cde979db682b8d96bade0a799163c667275a`.
 
-**What is already known without the authoritative file, and why it is not enough.** Three of the quantities the decision needs do not depend on the database server at all, and are reproducible anywhere from the seeded corpus:
+**What was known before the authoritative file was read, and why it was not enough.** Three of the quantities the decision needs do not depend on the database server at all, and are reproducible anywhere from the seeded corpus:
 
 | Quantity | Evidence | Server-independent? |
 |---|---|---|
@@ -31,7 +31,7 @@
 | Managed allocation | 41.8 MiB for the 60-second unfiltered case in both of those runs; 36.8–37.4 MiB for the coarser unfiltered buckets | Yes — it is .NET materialisation and aggregation, not the planner |
 | Database query count | 10 per §T case in every run, constant across bucket size and class | Yes, and held always-on by `AnalyticsQueryShapeTests` |
 
-What is **not** known is the one thing that is the server's: database materialisation and total latency on PostgreSQL 18 on the Development machine. That is exactly the figure the plan assigns to the authoritative run, and neither PostgreSQL 16 observations nor the superseded pass may stand in for it. Two further facts bear on the decision: the harness's 60-second case produces 2,400 buckets — beyond the 512-bucket response cap the API enforces — so its application-side cost is an upper bound on any request the API will accept; and the only hard bound on a request's work is the camera plus the window (at most 512 × 86,400 s), so the qualified envelope, not a guard, is what limits the facts one request reads.
+What was **not** known then is the one thing that is the server's: database materialisation and total latency on PostgreSQL 18 on the Development machine. That is exactly the figure the plan assigns to the authoritative run, and neither PostgreSQL 16 observations nor the superseded pass may stand in for it. Two further facts bear on the decision: the harness's 60-second case produces 2,400 buckets — beyond the 512-bucket response cap the API enforces — so its application-side cost is an upper bound on any request the API will accept; and the only hard bound on a request's work is the camera plus the window (at most 512 × 86,400 s), so the qualified envelope, not a guard, is what limits the facts one request reads.
 
 **Decision rule — applied.** The predeclared rule was: RETAIN only if **all nine §T cases** complete in **≤ 10,000 ms total**, allocate **≤ 64 MiB**, and issue exactly **10** database queries; otherwise BOUND with a semantics-preserving pre-work refusal guard, never truncation.
 

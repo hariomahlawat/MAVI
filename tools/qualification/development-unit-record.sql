@@ -4,7 +4,7 @@
 -- Read-only. Run against the live Development database the real-worker acceptance
 -- used (mavi_dev), after the units under test have completed:
 --
---   psql -h localhost -p 5433 -U <user> -d mavi_dev -f tools/qualification/development-unit-record.sql
+--   psql -h 127.0.0.1 -p 55433 -U <user> -d mavi_dev -f tools/qualification/development-unit-record.sql
 --
 -- One row per analytical unit: its identity, attempt, the duration of its final
 -- attempt (claim to fenced commit), analysed/unavailable Track counts, and the rows
