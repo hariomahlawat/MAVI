@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from hashlib import sha256
 from pathlib import Path
 from typing import Protocol
@@ -42,13 +42,23 @@ class StagingArtifactError(RuntimeError):
 
 
 class _StagingBackend(Protocol):
-    def write_bytes(
+    def write_chunks(
         self,
         parts: tuple[str, ...],
-        content: bytes,
+        chunks: Iterable[bytes],
         *,
         authorize_publish: Callable[[], None] | None,
     ) -> None: ...
+
+    def append_bytes(self, parts: tuple[str, ...], content: bytes) -> int: ...
+
+    def read_chunks(
+        self,
+        parts: tuple[str, ...],
+        chunk_bytes: int,
+    ) -> Iterator[bytes]: ...
+
+    def remove_file(self, parts: tuple[str, ...]) -> bool: ...
 
     def cleanup(self) -> None: ...
 
@@ -94,6 +104,15 @@ class StagingArtifactStore:
             f"trajectories/{track_id}.msgpack"
         )
 
+    def spool_relative_name(self, track_id: str) -> str:
+        """Name of a Track's internal trajectory spool inside this attempt.
+
+        Spool objects are worker-internal scratch: never published, never
+        referenced by a descriptor, and removed with the attempt directory.
+        """
+        self._validate_track_id(track_id)
+        return f"spool/{track_id}.traj"
+
     def write_bytes(
         self,
         relative_name: str,
@@ -102,10 +121,44 @@ class StagingArtifactStore:
         *,
         authorize_publish: Callable[[], None] | None = None,
     ) -> ArtifactDescriptor:
+        return self.write_stream(
+            relative_name,
+            (content,),
+            media_type,
+            authorize_publish=authorize_publish,
+        )
+
+    def write_stream(
+        self,
+        relative_name: str,
+        chunks: Iterable[bytes],
+        media_type: str,
+        *,
+        authorize_publish: Callable[[], None] | None = None,
+    ) -> ArtifactDescriptor:
+        """Publish the concatenation of ``chunks`` atomically, never holding it whole.
+
+        The same hardened temp-file, fsync and atomic-replace path as
+        ``write_bytes``; the descriptor's size and SHA-256 are computed from the
+        exact bytes handed to the file while they stream. An exception raised by
+        the chunk source aborts the write and leaves no destination or temp file.
+        """
         parts = self._validate_relative_name(relative_name)
-        self._backend.write_bytes(
+        digest = sha256()
+        size = 0
+
+        def counted() -> Iterator[bytes]:
+            nonlocal size
+            for chunk in chunks:
+                if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                    raise StagingArtifactError("staging_write_failed")
+                digest.update(chunk)
+                size += len(chunk)
+                yield chunk
+
+        self._backend.write_chunks(
             parts,
-            content,
+            counted(),
             authorize_publish=authorize_publish,
         )
 
@@ -115,9 +168,57 @@ class StagingArtifactStore:
         return ArtifactDescriptor(
             storage_key=storage_key,
             media_type=media_type,
-            size_bytes=len(content),
-            sha256=sha256(content).hexdigest(),
+            size_bytes=size,
+            sha256=digest.hexdigest(),
         )
+
+    def append_bytes(self, relative_name: str, content: bytes) -> int:
+        """Append to an attempt-scoped internal file; return its size afterwards.
+
+        Open, append, close: no handle outlives the call and nothing is synced,
+        because the file is scratch that the attempt re-derives or discards. A
+        link, directory or multiply-linked file at the name is refused. This is
+        not a publication and is not lease-fenced; only ``write_stream`` and
+        ``write_bytes`` publish.
+        """
+        parts = self._validate_relative_name(relative_name)
+        return self._backend.append_bytes(parts, bytes(content))
+
+    def read_chunks(
+        self,
+        relative_name: str,
+        *,
+        chunk_bytes: int,
+        expected_size: int,
+    ) -> Iterator[bytes]:
+        """Yield an internal file sequentially in reads of at most ``chunk_bytes``.
+
+        Fails closed (``staging_read_size_mismatch``) unless the file holds
+        exactly ``expected_size`` bytes, so a truncated, extended or swapped file
+        is never consumed silently. One handle is open only while iterating.
+        """
+        parts = self._validate_relative_name(relative_name)
+        if chunk_bytes < 1 or expected_size < 0:
+            raise ValueError("staging_read_bounds_invalid")
+        total = 0
+        for chunk in self._backend.read_chunks(parts, chunk_bytes):
+            total += len(chunk)
+            if total > expected_size:
+                raise StagingArtifactError("staging_read_size_mismatch")
+            yield chunk
+        if total != expected_size:
+            raise StagingArtifactError("staging_read_size_mismatch")
+
+    def remove(self, relative_name: str) -> bool:
+        """Remove exactly one regular file of this attempt; ``False`` if absent.
+
+        Only the named leaf entry is removed. A directory, link or reparse point
+        at the name is refused (``staging_path_escape``) and left in place; there
+        is deliberately no recursive form -- whole attempts go through
+        ``cleanup``.
+        """
+        parts = self._validate_relative_name(relative_name)
+        return self._backend.remove_file(parts)
 
     def cleanup(self) -> None:
         """Delete only this lease attempt's staging subtree."""

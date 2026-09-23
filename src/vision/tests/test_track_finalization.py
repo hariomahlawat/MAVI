@@ -10,7 +10,13 @@ from mavi_vision.common.analytical import (
     TrajectoryPoint,
 )
 from mavi_vision.pipeline.finalization import PreparedTrack, prepare_track
-from mavi_vision.video.trajectory import deserialize_trajectory
+from mavi_vision.video.trajectory_spool import TrajectorySummary
+
+
+def _summary(points: tuple[TrajectoryPoint, ...]) -> TrajectorySummary:
+    if not points:
+        return TrajectorySummary(0, 0, 0)
+    return TrajectorySummary(len(points), points[0].offset_ms, points[-1].offset_ms)
 
 
 def _representative() -> RepresentativeObservation:
@@ -40,7 +46,7 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
         observation_count=2,
         representative=_representative(),
         representative_crop=crop,
-        trajectory=trajectory,
+        trajectory=_summary(trajectory),
     )
     second = prepare_track(
         track_id="person-0001",
@@ -52,7 +58,7 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
         observation_count=2,
         representative=_representative(),
         representative_crop=crop,
-        trajectory=trajectory,
+        trajectory=_summary(trajectory),
     )
 
     assert isinstance(first, PreparedTrack)
@@ -63,7 +69,9 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
     assert first.confidence == first.mean_confidence
     assert first.thumbnail_payload.startswith(b"\xff\xd8")
     assert first.thumbnail_payload.endswith(b"\xff\xd9")
-    assert deserialize_trajectory(first.trajectory_payload) == trajectory
+    # Only the summary travels; the points are streamed from the spool.
+    assert first.trajectory == TrajectorySummary(2, 0, 40)
+    assert not hasattr(first, "trajectory_payload")
 
 
 
@@ -91,7 +99,7 @@ def _prepare_constant_track(confidence: float, count: int, confidence_sum: float
         observation_count=count,
         representative=_representative(),
         representative_crop=np.full((12, 10, 3), 120, dtype=np.uint8),
-        trajectory=tuple(TrajectoryPoint(index * 40, 0.3, 0.4) for index in range(count)),
+        trajectory=_summary(tuple(TrajectoryPoint(index * 40, 0.3, 0.4) for index in range(count))),
     )
 
 
@@ -163,7 +171,7 @@ def test_prepare_track_rejects_materially_inconsistent_confidence_aggregate() ->
             observation_count=2,
             representative=_representative(),
             representative_crop=crop,
-            trajectory=trajectory,
+            trajectory=_summary(trajectory),
         )
 
 
@@ -179,7 +187,7 @@ def test_prepare_track_rejects_missing_observations() -> None:
             observation_count=0,
             representative=_representative(),
             representative_crop=np.ones((2, 2, 3), dtype=np.uint8),
-            trajectory=(),
+            trajectory=_summary(()),
         )
 
 
@@ -199,13 +207,13 @@ def _prepare_with_trajectory(
         observation_count=len(trajectory),
         representative=_representative(),
         representative_crop=np.ones((4, 4, 3), dtype=np.uint8),
-        trajectory=trajectory,
+        trajectory=_summary(trajectory),
     )
 
 
 def test_prepare_track_owns_trajectory_monotonicity() -> None:
-    # The finalised ProcessedTrack no longer carries points, so this is the last
-    # place a non-monotonic trajectory can be caught before it is staged.
+    # The spool enforces strict monotonicity point by point; the summary check
+    # here is the independent backstop that the endpoints agree with it.
     with pytest.raises(ValueError, match="trajectory_offsets_not_monotonic"):
         _prepare_with_trajectory(
             (TrajectoryPoint(500, 0.4, 0.3), TrajectoryPoint(500, 0.2, 0.3))
@@ -243,5 +251,5 @@ def test_prepare_track_rejects_point_count_differing_from_detections() -> None:
             observation_count=3,
             representative=_representative(),
             representative_crop=np.ones((4, 4, 3), dtype=np.uint8),
-            trajectory=(TrajectoryPoint(0, 0.2, 0.3), TrajectoryPoint(1000, 0.4, 0.3)),
+            trajectory=_summary((TrajectoryPoint(0, 0.2, 0.3), TrajectoryPoint(1000, 0.4, 0.3))),
         )

@@ -302,3 +302,103 @@ def test_windows_superseded_cleanup_does_not_follow_nested_junction(
 
     assert not _attempt_root(tmp_path, 1).exists()
     assert keep.read_bytes() == b"keep"
+
+
+# --- S1.2b internal primitives: append, bounded read, leaf remove, streamed publish
+
+
+def test_windows_append_accumulates_through_append_only_handle(tmp_path: Path) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+
+    assert store.append_bytes("spool/t.traj", b"a" * 24) == 24
+    assert store.append_bytes("spool/t.traj", b"b" * 24) == 48
+
+    assert (_attempt_root(tmp_path) / "spool" / "t.traj").read_bytes() == b"a" * 24 + b"b" * 24
+    assert b"".join(
+        store.read_chunks("spool/t.traj", chunk_bytes=10, expected_size=48)
+    ) == b"a" * 24 + b"b" * 24
+
+
+def test_windows_append_read_and_remove_refuse_junction_ancestor(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-spool-junction"
+    outside.mkdir()
+    keep = outside / "t.traj"
+    keep.write_bytes(b"keep")
+    attempt = _attempt_root(tmp_path)
+    attempt.mkdir(parents=True)
+    _junction(attempt / "spool", outside)
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.append_bytes("spool/t.traj", b"x")
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        list(store.read_chunks("spool/t.traj", chunk_bytes=4, expected_size=4))
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.remove("spool/t.traj")
+
+    assert keep.read_bytes() == b"keep"
+
+
+def test_windows_remove_refuses_a_junction_leaf_and_preserves_its_target(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-leaf-junction"
+    outside.mkdir()
+    keep = outside / "keep.bin"
+    keep.write_bytes(b"keep")
+    spool = _attempt_root(tmp_path) / "spool"
+    spool.mkdir(parents=True)
+    _junction(spool / "t.traj", outside)
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.remove("spool/t.traj")
+    with pytest.raises(StagingArtifactError):
+        store.append_bytes("spool/t.traj", b"x")
+
+    assert keep.read_bytes() == b"keep"
+    assert sorted(p.name for p in outside.iterdir()) == ["keep.bin"]
+
+
+def test_windows_append_and_read_refuse_a_hard_linked_file(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-hardlink"
+    outside.mkdir()
+    target = outside / "target.bin"
+    target.write_bytes(b"keep")
+    spool = _attempt_root(tmp_path) / "spool"
+    spool.mkdir(parents=True)
+    os.link(target, spool / "t.traj")
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.append_bytes("spool/t.traj", b"x")
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        list(store.read_chunks("spool/t.traj", chunk_bytes=4, expected_size=4))
+
+    assert target.read_bytes() == b"keep"
+
+
+def test_windows_remove_deletes_only_the_leaf_and_refuses_directories(tmp_path: Path) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+    store.append_bytes("spool/a.traj", b"a")
+    store.append_bytes("spool/nested/b.traj", b"b")
+
+    assert store.remove("spool/a.traj") is True
+    assert store.remove("spool/a.traj") is False
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.remove("spool/nested")
+
+    spool = _attempt_root(tmp_path) / "spool"
+    assert sorted(p.name for p in spool.iterdir()) == ["nested"]
+    assert (spool / "nested" / "b.traj").read_bytes() == b"b"
+
+
+def test_windows_write_stream_source_failure_leaves_no_destination_or_temp(tmp_path: Path) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+
+    def failing():
+        yield b"partial"
+        raise ValueError("trajectory_spool_corrupt")
+
+    with pytest.raises(ValueError, match="trajectory_spool_corrupt"):
+        store.write_stream("trajectories/t.msgpack", failing(), "application/msgpack")
+
+    assert list((_attempt_root(tmp_path) / "trajectories").iterdir()) == []

@@ -5,6 +5,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from typing import Any
+from uuid import UUID
 
 from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.pipeline.production_processor import ProductionVisionProcessor
@@ -58,6 +59,11 @@ def build_runner(
     ) = None,
 ) -> WorkerRunner:
     """Compose the control-plane runner without granting it runtime ownership."""
+    media_root = settings.media_root
+
+    def release_attempt_staging(job_id: UUID, attempt_count: int) -> None:
+        StagingArtifactStore(media_root, job_id, attempt_count).cleanup()
+
     return WorkerRunner(
         client,
         LocalMediaStore(settings.media_root),
@@ -77,6 +83,7 @@ def build_runner(
         ),
         runtime_provenance_provider=runtime_provenance_provider,
         attempt_completed_sink=attempt_completed_sink,
+        staging_cleaner=release_attempt_staging,
     )
 
 

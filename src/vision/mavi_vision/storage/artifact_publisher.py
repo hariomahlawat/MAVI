@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from mavi_vision.common.analytical import ProcessedTrack
 from mavi_vision.common.lease import LeaseGuard
 from mavi_vision.pipeline.finalization import PreparedTrack
@@ -22,7 +24,17 @@ class ArtifactPublisher:
         self._store = store
         self._lease_guard = lease_guard
 
-    def publish_track(self, prepared: PreparedTrack) -> ProcessedTrack:
+    def publish_track(
+        self,
+        prepared: PreparedTrack,
+        trajectory_chunks: Iterable[bytes],
+    ) -> ProcessedTrack:
+        """Stage the thumbnail, then stream the trajectory, both lease-fenced.
+
+        ``trajectory_chunks`` is the canonical v1 payload as bounded buffers; it
+        is consumed exactly once, while the temp file is written, and never
+        joined in memory.
+        """
         # Validate the logical track identifier before creating any directories or
         # temporary files. This preserves the canonical staging-key contract.
         self._store.thumbnail_key(prepared.track_id)
@@ -37,9 +49,9 @@ class ArtifactPublisher:
         )
 
         self._lease_guard.check_owned()
-        trajectory_artifact = self._store.write_bytes(
+        trajectory_artifact = self._store.write_stream(
             f"trajectories/{prepared.track_id}.msgpack",
-            prepared.trajectory_payload,
+            trajectory_chunks,
             "application/msgpack",
             authorize_publish=self._lease_guard.check_owned,
         )

@@ -10,12 +10,12 @@ from mavi_vision.common.analytical import (
     NormalizedBoundingBox,
     ObjectClass,
     RepresentativeObservation,
-    TrajectoryPoint,
 )
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.finalization import PreparedTrack
 from mavi_vision.storage.artifact_publisher import ArtifactPublisher
 from mavi_vision.storage.artifact_store import StagingArtifactStore
+from mavi_vision.video.trajectory_spool import TrajectorySummary
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd761")
@@ -33,7 +33,6 @@ def _prepared_track() -> PreparedTrack:
         bounding_box=NormalizedBoundingBox(0.1, 0.1, 0.4, 0.5),
         quality_score=0.8,
     )
-    trajectory = (TrajectoryPoint(0, 0.3, 0.4),)
     return PreparedTrack(
         track_id="person-0001",
         object_class=ObjectClass.PERSON,
@@ -43,10 +42,12 @@ def _prepared_track() -> PreparedTrack:
         mean_confidence=0.9,
         max_confidence=0.9,
         representative=representative,
-        trajectory=trajectory,
+        trajectory=TrajectorySummary(1, 0, 0),
         thumbnail_payload=b"jpeg-payload",
-        trajectory_payload=b"trajectory-payload",
     )
+
+
+TRAJECTORY_CHUNKS = (b"trajectory-", b"payload")
 
 
 def _attempt_root(root: Path, attempt: int = 1) -> Path:
@@ -62,7 +63,7 @@ def test_loss_before_first_publish_creates_no_artifacts(tmp_path: Path) -> None:
     )
 
     with pytest.raises(LeaseLostError, match="lease_lost"):
-        publisher.publish_track(_prepared_track())
+        publisher.publish_track(_prepared_track(), TRAJECTORY_CHUNKS)
 
     assert not _attempt_root(tmp_path).exists()
 
@@ -93,7 +94,7 @@ def test_loss_between_artifact_publications_stops_second_write(
     monkeypatch.setattr(store, "write_bytes", write_then_lose_lease)
 
     with pytest.raises(LeaseLostError, match="lease_lost"):
-        publisher.publish_track(_prepared_track())
+        publisher.publish_track(_prepared_track(), TRAJECTORY_CHUNKS)
 
     thumbnail = _attempt_root(tmp_path) / "thumbnails" / "person-0001.jpg"
     trajectory = _attempt_root(tmp_path) / "trajectories" / "person-0001.msgpack"
@@ -130,7 +131,7 @@ def test_successful_publication_returns_processed_track_with_attempt_keys(tmp_pa
         _future_guard(),
     )
 
-    track = publisher.publish_track(_prepared_track())
+    track = publisher.publish_track(_prepared_track(), TRAJECTORY_CHUNKS)
 
     assert track.track_id == "person-0001"
     assert track.detection_count == 1
@@ -138,3 +139,22 @@ def test_successful_publication_returns_processed_track_with_attempt_keys(tmp_pa
     assert track.max_confidence == pytest.approx(0.9)
     assert "/attempt-0002/thumbnails/" in track.thumbnail.storage_key
     assert "/attempt-0002/trajectories/" in track.trajectory_artifact.storage_key
+    trajectory_path = tmp_path.joinpath(*track.trajectory_artifact.storage_key.split("/"))
+    assert trajectory_path.read_bytes() == b"trajectory-payload"
+    assert track.trajectory_artifact.size_bytes == len(b"trajectory-payload")
+
+
+def test_lease_lost_while_trajectory_streams_publishes_no_trajectory(tmp_path: Path) -> None:
+    guard = _future_guard()
+    publisher = ArtifactPublisher(StagingArtifactStore(tmp_path, JOB_ID, 1), guard)
+
+    def chunks_then_lose_lease():
+        yield b"trajectory-"
+        guard.mark_lost()
+        yield b"payload"
+
+    with pytest.raises(LeaseLostError, match="lease_lost"):
+        publisher.publish_track(_prepared_track(), chunks_then_lose_lease())
+
+    trajectories = _attempt_root(tmp_path) / "trajectories"
+    assert list(trajectories.iterdir()) == []

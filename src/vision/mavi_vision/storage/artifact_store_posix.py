@@ -4,7 +4,7 @@ import errno
 import os
 import shutil
 import stat
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -27,11 +27,34 @@ _FILE_FLAGS = (
     | getattr(os, "O_NOFOLLOW", 0)
     | getattr(os, "O_CLOEXEC", 0)
 )
+# Internal append and read opens never follow a leaf link (O_NOFOLLOW) and never
+# block on a planted FIFO or device (O_NONBLOCK; no effect on a regular file).
+_APPEND_FLAGS = (
+    os.O_WRONLY
+    | os.O_APPEND
+    | os.O_CREAT
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_NONBLOCK", 0)
+    | getattr(os, "O_CLOEXEC", 0)
+)
+_READ_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_NONBLOCK", 0)
+    | getattr(os, "O_CLOEXEC", 0)
+)
 _SECURE_DIRFD_AVAILABLE = (
     os.name == "posix"
     and hasattr(os, "O_DIRECTORY")
     and hasattr(os, "O_NOFOLLOW")
 )
+
+
+class _DirectoryMissing(StagingArtifactError):
+    """A directory of the logical chain does not exist (opened without create)."""
+
+    def __init__(self) -> None:
+        super().__init__("staging_path_race")
 
 
 class PosixStagingBackend:
@@ -42,10 +65,10 @@ class PosixStagingBackend:
         self._job_id = job_id
         self._attempt_name = attempt_name
 
-    def write_bytes(
+    def write_chunks(
         self,
         parts: tuple[str, ...],
-        content: bytes,
+        chunks: Iterable[bytes],
         *,
         authorize_publish: Callable[[], None] | None,
     ) -> None:
@@ -73,7 +96,8 @@ class PosixStagingBackend:
 
             try:
                 with os.fdopen(temp_fd, "wb") as stream:
-                    stream.write(content)
+                    for chunk in chunks:
+                        stream.write(chunk)
                     stream.flush()
                     os.fsync(stream.fileno())
             except OSError as exc:
@@ -111,6 +135,113 @@ class PosixStagingBackend:
             raise
         finally:
             self._close_fds(opened_fds)
+
+    def append_bytes(self, parts: tuple[str, ...], content: bytes) -> int:
+        self._require_secure_dirfd()
+        parent_fd, opened_fds = self._open_parent_chain(parts[:-1], create=True)
+        try:
+            try:
+                fd = os.open(parts[-1], _APPEND_FLAGS, 0o600, dir_fd=parent_fd)
+            except OSError as exc:
+                if exc.errno in {errno.ELOOP, errno.EISDIR, errno.ENXIO}:
+                    raise StagingArtifactError("staging_path_escape") from exc
+                raise StagingArtifactError("staging_write_failed") from exc
+            try:
+                self._require_single_regular_file(fd)
+                view = memoryview(content)
+                try:
+                    while view:
+                        written = os.write(fd, view)
+                        view = view[written:]
+                    return os.fstat(fd).st_size
+                except OSError as exc:
+                    raise StagingArtifactError("staging_write_failed") from exc
+            finally:
+                os.close(fd)
+        finally:
+            self._close_fds(opened_fds)
+
+    def read_chunks(
+        self,
+        parts: tuple[str, ...],
+        chunk_bytes: int,
+    ) -> Iterator[bytes]:
+        self._require_secure_dirfd()
+        try:
+            parent_fd, opened_fds = self._open_parent_chain(parts[:-1], create=False)
+        except _DirectoryMissing as exc:
+            raise StagingArtifactError("staging_read_failed") from exc
+        try:
+            try:
+                fd = os.open(parts[-1], _READ_FLAGS, dir_fd=parent_fd)
+            except OSError as exc:
+                if exc.errno in {errno.ELOOP, errno.EISDIR}:
+                    raise StagingArtifactError("staging_path_escape") from exc
+                raise StagingArtifactError("staging_read_failed") from exc
+        finally:
+            # Only the leaf handle stays open while the caller iterates.
+            self._close_fds(opened_fds)
+        try:
+            self._require_single_regular_file(fd)
+            while True:
+                chunk = self._read_full(fd, chunk_bytes)
+                if not chunk:
+                    return
+                yield chunk
+        finally:
+            os.close(fd)
+
+    def remove_file(self, parts: tuple[str, ...]) -> bool:
+        self._require_secure_dirfd()
+        try:
+            parent_fd, opened_fds = self._open_parent_chain(parts[:-1], create=False)
+        except _DirectoryMissing:
+            return False
+        try:
+            try:
+                leaf = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return False
+            except OSError as exc:
+                raise StagingArtifactError("staging_cleanup_failed") from exc
+            if not stat.S_ISREG(leaf.st_mode):
+                raise StagingArtifactError("staging_path_escape")
+            # unlink never follows a link and cannot remove a directory, so even
+            # if the entry is swapped after the check only that entry can go.
+            try:
+                os.unlink(parts[-1], dir_fd=parent_fd)
+            except FileNotFoundError:
+                return False
+            except OSError as exc:
+                raise StagingArtifactError("staging_cleanup_failed") from exc
+            return True
+        finally:
+            self._close_fds(opened_fds)
+
+    @staticmethod
+    def _require_single_regular_file(fd: int) -> None:
+        try:
+            opened = os.fstat(fd)
+        except OSError as exc:
+            raise StagingArtifactError("staging_write_failed") from exc
+        # A hard link would let a planted name alias a file elsewhere.
+        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+            raise StagingArtifactError("staging_path_escape")
+
+    @staticmethod
+    def _read_full(fd: int, size: int) -> bytes:
+        parts: list[bytes] = []
+        remaining = size
+        try:
+            while remaining:
+                data = os.read(fd, remaining)
+                if not data:
+                    break
+                parts.append(data)
+                remaining -= len(data)
+        except OSError as exc:
+            raise StagingArtifactError("staging_read_failed") from exc
+        return b"".join(parts)
 
     def cleanup(self) -> None:
         self._with_job_directory(
@@ -228,7 +359,7 @@ class PosixStagingBackend:
             return os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
         except FileNotFoundError:
             if not create:
-                raise StagingArtifactError("staging_path_race") from None
+                raise _DirectoryMissing() from None
             try:
                 os.mkdir(name, 0o700, dir_fd=parent_fd)
             except FileExistsError:
