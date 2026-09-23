@@ -165,7 +165,10 @@ public sealed class TrackEvidenceSetMigrationTests(PostgresFixture fixture)
         Assert.Equal("ux_observations_track_role", role.ConstraintName);
 
         var delete = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, "DELETE FROM artifacts WHERE id = $1", seed.CropArtifactId));
-        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, delete.SqlState);
+        // The crop FK refuses the delete. PostgreSQL 18 (the required version) reports RESTRICT as
+        // restrict_violation (23001); earlier servers report foreign_key_violation (23503).
+        Assert.Contains(delete.SqlState, new[] { PostgresErrorCodes.RestrictViolation, PostgresErrorCodes.ForeignKeyViolation });
+        Assert.Equal("FK_observations_artifacts_thumbnail_artifact_id", delete.ConstraintName);
     }
 
     [Fact]
