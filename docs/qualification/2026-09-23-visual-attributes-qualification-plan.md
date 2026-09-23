@@ -1,6 +1,6 @@
 # Stage 2 Visual Attributes — Qualification Plan
 
-**Status:** Architecture-freeze candidate; pre-implementation protocol  
+**Status:** Accepted pre-implementation qualification protocol — numeric gates/support remain deliberately deferred to validation evidence as specified below  
 **Date:** 2026-09-23  
 **Purpose:** Predeclare the evidence, data-splitting, quality, performance, offline and requalification rules before model selection or threshold tuning can bias acceptance.
 
