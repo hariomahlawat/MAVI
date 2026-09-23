@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.2 Track Evidence Set: implementation plan
 
-**Status:** Implementation-ready plan, revision 3 (after the second independent cold review; janitor precision only). No S1.2 code exists yet.  
+**Status:** Implementation-ready plan, revision 3 (after the second independent cold review; janitor precision only). **S1.2a implemented** (platform v3 and staging janitor; deviations D1–D3 recorded in its PR); S1.2b and S1.2c not started.  
 **Date:** 2026-09-23  
 **Baseline:** `main@4b6141f52d6d6a0a72de664e60b8cd4441487799` (PR #75, S1.1 merged)  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §7–§8, §10.2, §12–§16  

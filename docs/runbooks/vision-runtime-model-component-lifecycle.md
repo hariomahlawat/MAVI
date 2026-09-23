@@ -82,3 +82,39 @@ The PyTorch/MMDetection deprecation warnings and the non-fatal `data_preprocesso
 ## Functional testing gate
 
 The 2-minute functional test may be performed only after the target application head has completed exact-head qualification and independent cold review. Preserve the exact Runtime Pack ID, Model Pack ID, application head and final processing result in the qualification record. Do not repeat the expensive CPU video run merely for documentation-only changes unless a subsequent change affects the runtime/model/application execution path or invalidates the evidence.
+
+## Completion contract v3 deployment order
+
+Completion 3.0 carries the Track Evidence Set (up to four role-tagged observations per Track and a per-role evidence accounting block). The platform accepts completion **2.0 and 3.0** from S1.2a; lease, heartbeat and fail stay on control-plane 2.0. Contract artefacts: `contracts/schemas/vision-job-complete-v3.schema.json`, the golden example and its pinned digest (`contracts/test-vectors/vision-job-complete-v3-digest.json`).
+
+1. **Platform (S1.2a).** Apply the `AddTrackEvidenceSet` migration (additive; it refuses to run if any observation carries a retired `TrackStart`/`BestQuality`/`TrackEnd` type), then deploy the platform binary. Verify `GET /api/vision/contract` returns `{"schemaVersion":"2.0","completionSchemaVersions":["2.0","3.0"]}` and that existing 2.0 workers keep completing and replaying idempotently. The staging janitor's first cycle reclaims historical completed-attempt staging once.
+2. **Worker with the trajectory spool (S1.2b).** No wire change; 2.0 is still emitted.
+3. **Worker emitting 3.0 (S1.2c).** It checks the contract endpoint before becoming ready and refuses to start against a platform that does not list `"3.0"`.
+
+**Rollback.**
+
+- Worker S1.2c → S1.2b: 2.0 is emitted again and accepted.
+- Platform binary after the migration and **before any 3.0 completion exists**: safe. The preceding binary starts against the migrated database; `evidence_rank` defaults to 0 and a `BEFORE INSERT` trigger fills an omitted `selection_score` from `quality_score`, so its 2.0 inserts remain valid.
+- Platform binary **after 3.0 completions exist**: unsupported — roll the worker back to 2.0 first; the preceding binary cannot map the new role values.
+- Migration down: refused while any non-Representative observation exists; it never deletes evidence bytes.
+
+## Staging reclamation
+
+The platform reclaims worker attempt staging (`{MediaStorage:RootPath}/staging/{jobId}/attempt-NNNN`) with the `vision_jobs` row as its **sole authority**. The worker's own cleanup after completion and at the next lease remains a fast path; the janitor bounds retention when the worker dies or never runs again. It never enumerates outside `staging/`, never opens the evidence root, and deletes handle-relatively without following any symbolic link, junction or reparse point (a linked job or attempt directory is refused and logged).
+
+| Job state | Action |
+|---|---|
+| `Completed` / `Failed` | every canonical attempt once `CompletedAtUtc + GraceMinutes` has passed, then the empty job directory |
+| `Cancelled` (nothing produces it today) | as terminal; logged once (1405) |
+| `Leased` | attempts `k < AttemptCount` immediately; never the current or a later attempt |
+| `Queued`, `AttemptCount = 0` | preserved; any staging logged once (1401) |
+| `Queued`, `AttemptCount > 0` (unreachable) | invariant violation (1406, Error); nothing deleted |
+| no row | only after `UnknownJobGraceHours` of directory inactivity (1409, Warning) |
+
+**Configuration** (`StagingJanitor`): `Enabled` (true), `IntervalMinutes` (15), `GraceMinutes` (5), `UnknownJobGraceHours` (24), `MaxDirectoriesPerCycle` (1000), `WarnOldestEligibleMinutes` (60), `ErrorOldestEligibleMinutes` (360). `Enabled=false` stops reclamation without affecting completion, leasing or serving; staging then accumulates until re-enabled.
+
+**Reclamation window.** Normally a completed or failed attempt is gone within `Grace + Interval` (20 minutes with the defaults). This is a target, not a universal guarantee: with a backlog of `B` eligible directories and a per-cycle cap `M`, the bound is `Grace + ⌈(B+1)/M⌉ × Interval`, and a directory that cannot be deleted stays until the obstruction is removed.
+
+**Observability.** EventId 1400 summarises every cycle (`scanned`, `eligible`, `processed`, `removed`, `freedBytes`, `failed`, `deferredByCap`, `oldestEligibleAgeMinutes`, `backlogDepth`, `estimatedCyclesToDrain`). 1401 unrecognised entry; 1402 path escape (Error); 1403 deletion failed (Warning); 1404 the same directory failed three consecutive cycles (Error); 1405 unexpected status; 1406 invariant violation (Error); 1407/1408 backlog age above the warning/critical threshold; 1409 orphan job directory reclaimed; 1410–1413 scheduler lifecycle (disabled, unsupported platform, started, cycle failed). `GET /api/health` exposes `details.stagingJanitor.{enabled,lastRunUtc,lastCycleRemoved,failed,deferredByCap,backlogDepth,oldestEligibleAgeMinutes,consecutiveFailures,backlogState}`.
+
+**Responding.** `backlogState = "critical"` or a repeated 1404: look for a directory the service account cannot delete (read-only file, open handle held by another process, a tree nested deeper than 32 levels); remove the obstruction and the next cycle retries. 1402 means a link or junction was placed under `staging/`: investigate how, remove the link itself (never its target), and the janitor proceeds. Supported platforms are Windows and Linux x64/arm64; elsewhere the janitor logs 1411 and deletes nothing.
