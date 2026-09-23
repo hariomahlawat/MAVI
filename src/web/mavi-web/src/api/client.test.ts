@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiRequest } from './client';
+import { ApiError, DEFAULT_API_READ_TIMEOUT_MS, apiRequest } from './client';
 import { importVideo } from './videos';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -60,17 +61,48 @@ describe('API client', () => {
     });
   });
 
-  it('passes cancellation through to fetch', async () => {
+  it('composes caller cancellation into the bounded read signal', async () => {
     const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_path: string, init?: RequestInit) => {
+      receivedSignal = init?.signal ?? undefined;
+      return Promise.reject(new DOMException('caller cancelled', 'AbortError'));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const request = apiRequest('/api/test', { signal: controller.signal });
+    controller.abort(new DOMException('caller cancelled', 'AbortError'));
+
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    expect(receivedSignal).toBeDefined();
+    expect(receivedSignal).not.toBe(controller.signal);
+    expect(receivedSignal?.aborted).toBe(true);
+  });
+
+  it('times out a local read that never resolves', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_path: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const request = apiRequest('/api/test');
+    const rejected = expect(request).rejects.toMatchObject({ name: 'TimeoutError' });
+    await vi.advanceTimersByTimeAsync(DEFAULT_API_READ_TIMEOUT_MS);
+
+    await rejected;
+  });
+
+  it('does not impose the read timeout on mutating requests', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await apiRequest('/api/test', { signal: controller.signal });
+    await apiRequest('/api/test', { method: 'POST' });
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/test', { signal: controller.signal });
+    expect(fetchMock).toHaveBeenCalledWith('/api/test', { method: 'POST' });
   });
 
   it('lets the browser own the multipart boundary', async () => {
