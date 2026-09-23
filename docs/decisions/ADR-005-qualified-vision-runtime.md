@@ -2,7 +2,11 @@
 
 **Status:** Accepted  
 **Date:** 2026-09-11  
-**Revision:** 3
+**Revision:** 4
+
+## Stage-2 extension note (2026-09-23)
+
+ADR-005 remains authoritative for the qualified detector/tracker runtime behaviour it established. ADR-014 generalises the later **component-binding and model/runtime identity representation** for multi-capability operation. In particular, Stage 2 removes the architectural assumption that one detector checkpoint is the Runtime Pack's privileged model identity; Model Packs remain independently identified and are bound to stable capability ids. Any runtime-profile identity migration is deliberate and requires the qualification reconciliation defined by ADR-014/ADR-009.
 
 ## Context
 
