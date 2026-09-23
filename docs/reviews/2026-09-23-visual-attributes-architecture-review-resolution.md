@@ -112,8 +112,18 @@ One additional P2 documentation/architecture gap was found and amended:
 
 A P3 status inconsistency was also corrected: the governing qualification plan was still labelled “architecture-freeze candidate” after ADR-013/014 and S0 had been accepted; it now states that the protocol is accepted while numeric gates/support remain deliberately deferred to validation evidence.
 
+### Verification of R-23 (Fable, third pass)
+
+R-23 was verified against `tracking/interfaces.py`, `tracking/bytetrack.py`, `tracking/fixture.py`, `pipeline/process_video.py` and the tracker tests. The retirement contract is the correct model-neutral boundary: only the adapter knows the backend's association budget, and a `VideoProcessor` timeout would have been a shadow of `ByteTrackProfile.lost_track_buffer`. Three gaps in the R-23 text were closed:
+
+| ID | Priority | Finding | Evidence | Amendment |
+|---|---:|---|---|---|
+| R-24 | P2 | Retirement staged only the crops; the trajectory point list — one `TrajectoryPoint` per detection, thousands for a long Track — stayed resident in the accumulator until end-of-video, so the "bounded by live Tracks" claim was still untrue. | `process_video.py` `_TrackAccumulator.trajectory`; finalisation loop at end of decode | ADR-013 §5: retirement finalises the whole Track (trajectory, Representative, supplemental candidates); accumulator becomes descriptors + scalar summary. Nothing in the completion contract needs per-Track data resident (`VisionResultValidator` sorts; digest is order-independent). |
+| R-25 | P2 | "Never reappears" rested on backend behaviour. The adapter's native→MAVI map is never pruned (`_person_native_to_mavi`), so backend native-id reuse after removal would resurrect a retired MAVI id; and an adapter deriving retirement from the configured budget could retire one frame before the backend stops matching. | `bytetrack.py` `_materialize_class_outputs`; `runtime/profile.py` `lost_track_buffer` | ADR-013 §5: release the mapping on retirement and allocate a fresh MAVI id on any re-emitted native id; retire only after the budget plus one accepted frame interval; deterministic retired-id order; no retirement and candidate for one id in the same update. |
+| R-26 | P3 | Attempt staging can now reach several GiB, but each attempt cleans only its own prefix (`artifact_store.cleanup()`); a lost attempt's staging is left to later policy cleanup. Fixture tracker had no retirement, so the required tests could not run without the native backend. | `process_video.py` `_cleanup_best_effort`; `tracking/fixture.py` | ADR-013 §5: a new attempt removes earlier fenced-out attempts' staging for the same job; the fixture tracker implements the retirement contract. Register B2. |
+
 ### Final verdict
 
-After the R-23 amendment and a fresh contradiction scan, no open P1/P2 architecture finding remains in the governing Stage-2 documentation.
+After the R-23 amendment, the R-24–R-26 corrections above and a fresh contradiction scan, no open P1/P2 architecture finding remains in the governing Stage-2 documentation.
 
 This verdict is still **documentation architecture only**. It does not mark B–G implementation/qualification acceptance items PASS and does not imply that S1 has been implemented.
