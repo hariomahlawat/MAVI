@@ -101,22 +101,25 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 
 ### Stage 2 — Visual Attributes
 
-**Active planning authority:** `docs/superpowers/plans/2026-09-23-visual-attributes.md` and proposed ADR-013. The earlier in-worker-only placement below has been superseded by the Stage-2 architecture review.
+**Architecture authority:** `docs/superpowers/plans/2026-09-23-visual-attributes.md`, ADR-013 and ADR-014. Implementation is blocked until acceptance-register items A1–A12 pass.
 
-- **Objective.** Search evidence-backed appearance attributes such as "person, red upper clothing, carrying a backpack" or "white vehicle" and open the exact supporting crop/source video.
-- **Preconditions.** Stage 1 search mechanics; platform-owned accepted evidence (ADR-006); Model Pack / Runtime Pack machinery (ADR-005/007).
-- **Domain/data.** Evolve the existing `VisualAttribute` groundwork and introduce an immutable attribute-analysis identity. Attributes remain observations bound to Track, evidence, schema and producer provenance; never identity claims.
-- **Track evidence.** The current completion path persists one Representative thumbnail only. Stage 2 introduces a bounded, capability-neutral multi-view Track Evidence Set selected by a deterministic/versioned evidence policy. This evidence is designed for reuse by later attributes, OCR and embedding capabilities.
-- **Vision/AI.** A replaceable model-neutral Visual Attribute Inferencer consumes Track evidence. Candidate v1 scope: person upper/lower clothing colour, bag/backpack presence, qualified headwear/helmet presence, and vehicle dominant colour. Vehicle subclass remains Stage 3 unless deliberately rebaselined.
-- **Pipeline placement.** Visual Attributes are logically a **post-Track intelligence capability**, not part of raw detector/tracker success. The executor may initially be co-hosted in the existing `mavi_vision` process/runtime, but its lifecycle/contracts must permit later extraction to a separate worker/node without changing durable semantics.
-- **Lifecycle.** Attribute analysis is independently retryable/re-runnable. New model/schema/policy identities produce new immutable analyses; previous results remain historically traceable. Attribute failure cannot invalidate a completed ProcessingRun.
-- **API/UI.** Strict canonical attribute predicates; explicit coverage/readiness; attribute chips and evidence explanation in Investigation/Review; unknown/unavailable/pending/failed are distinct.
-- **Persistence.** Begin with typed `visual_attributes` linked to an analysis identity and supporting Observation; do not add a summary table until PostgreSQL measurements justify it.
-- **Offline/dependency.** Independent Model Pack(s), manifest/hash/licence/runtime compatibility, offline component-store publication; any new runtime dependency reopens the applicable Runtime Pack.
-- **Qualification.** Predeclared labelled-corpus protocol, per-attribute metrics/calibration/abstention, evidence-set quality, CPU Development qualification, CUDA Development evidence where applicable, disconnected execution and search-scale evidence. Failing attributes remain disabled.
-- **Security/privacy.** Appearance attributes are not identity. Age, gender, ethnicity, face attributes/recognition, fine garment taxonomy and brand/make/model recognition are non-goals.
-- **Slices.** S0 architecture freeze → S1 Track Evidence Set → S2 attribute lifecycle + real model component → S3 persistence/search → S4 operator evidence UX → S5 hardening/qualification/acceptance.
-- **Exit gate.** See the Stage-2 parent plan and acceptance register; exact-head and post-merge verification are required.
+- **Objective.** Search evidence-backed appearance attributes such as “person, red upper clothing, carrying a backpack” or “white vehicle” and open the exact supporting evidence/source video.
+- **Preconditions.** Stage 1 search/evidence mechanics; platform-owned accepted evidence (ADR-006); Development/Production qualification separation (ADR-009); Stage-2 architecture freeze.
+- **Domain/data.** Evolve `VisualAttribute` around immutable `VisualAttributeAnalysis` + per-Track outcome + final Observed/Unknown rows. Attributes remain evidence-backed observations, never identity claims.
+- **Raw evidence.** Track Evidence Set is produced **inside VisionJob** while decoded frames/boxes exist. Four deterministic candidate roles: Representative, NearView, EarlyDiverse, LateDiverse. JPEG encode in-loop/staging; explicit per-crop and 1 GiB run-level EvidenceCrop bound. Selector changes require a new ProcessingRun/new Track identities under trajectory v1.
+- **VisionJob qualification consequence.** Evidence selection changes the qualified raw-processing pipeline: completion schema v3/digest v3, validator/store/sealing evolution, relevant Task-10 CPU re-run and CUDA/E2E rebinding when produced.
+- **Component architecture.** ADR-014 component-binding v2 introduces `capabilityBindings[]`, capability-neutral Model Pack manifest v2, Runtime Pack profile v2 decoupled from detector checkpoint identity, capability-scoped qualification and modelPackId/runtimePackId provenance.
+- **Worker topology.** Attributes run by default in a **separate process/failure domain** from detector/tracker, initially from the same Runtime Pack. Independent READY/device/provenance/lease/heartbeat. Future separate executable/GPU node must preserve the contract.
+- **Evidence read.** Accepted evidence is .NET-owned. Python receives lease-authorised Observation descriptors, fetches through a platform-served lease-scoped API and verifies size/SHA before inference. No direct Python evidence-root mount.
+- **Lifecycle.** Capability-specific `VisualAttributeAnalysis`; generic transport envelope only. Shared fencing/hash/claim primitives are extracted where semantics match. Startup model-unavailable leaves work Queued without consuming attempts. Supersession occurs only after successful completion.
+- **Predictions.** Raw observation-level outputs + aggregation inputs are a sealed bounded `AttributePredictions` artefact. Relational rows contain final Track semantics only.
+- **Semantics.** Per applicable Track/attribute: exactly one `Observed` or `Unknown` final row after completed analysis; Track-level `Unavailable` is separate; `Absent` exists only when explicitly qualified.
+- **API/UI.** Attribute-only search may span cameras. v4 HMAC cursor pins the resolved attribute identity/coverage; combined analytics+attribute search pins both and retains analytics camera scope. UI spec governs Unknown, Evidence Set viewer, row density and provenance.
+- **Offline/dependency.** Every bound capability has Model Pack, Runtime Pack compatibility, hashes, licence, offline inventory and verification; no first-run network resolution.
+- **Qualification.** Annotation agreement, separate validation/frozen-test sets, minimum support, held-camera generalisation, crop-vs-Track aggregation metrics, abstention/non-subject handling, retrieval precision, licence, performance/failure isolation and requalification triggers.
+- **Security/privacy.** No demographics/biometrics/face capability; no face-oriented selector; accepted-evidence access remains platform controlled.
+- **Slices.** S0 architecture freeze → S1 Evidence Set → S2a component binding v2 → S2b lifecycle with fixture inferencer → S2c real Model Packs → S3 persistence/search → S4 UI → S5 hardening/qualification.
+- **Exit gate.** The Stage-2 acceptance register is the only authoritative acceptance list. Exact-head and post-merge verification are required.
 
 ### Stage 3 — Expanded operational object / vehicle classes
 
