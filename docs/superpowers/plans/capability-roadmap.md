@@ -2,7 +2,7 @@
 
 **Status:** Authoritative current capability-development roadmap. This file controls *what MAVI builds next*. It does not control Production qualification (Task 18) and it does not restate or reinterpret historical evidence.  
 **Adopted:** 2026-09-20  
-**Baseline:** `main@2717918761fb35e4845b6887772ebdd5c7c6edf8` (Scene Analytics Slice 6 / PR #68 merged; post-merge rebaseline for Slice 7)  
+**Baseline:** `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d` (Scene Analytics Stage 1 / PR #70 merged and post-merge verified)  
 **Product direction:** recorded-video intelligence capability first; heavier investigation/reporting workflow only once the data is rich enough to justify it; live cameras and VMS integration last. Offline operation and the Development-evidence / Production-qualification distinction (ADR-003, ADR-008, ADR-009) are mandatory throughout.  
 **Supersedes:** the sequencing in `2026-09-20-audited-review-and-cases-plan.md` (now deferred) and the "Recommended next feature" originally written in `2026-09-19-visual-intelligence-workspace.md`. Both files are retained as records and carry a status note.
 
@@ -56,8 +56,8 @@ States: **Merged and verified** (on `main`, exact-head CI and cited evidence) ·
 | Sealed Track/observation/trajectory persistence | Merged and verified | Task 13; ADR-006 | Foundation for stage 1 |
 | Structured Track search with stable cursor snapshot; Search → inspector → Review → back | Merged and verified | Task 14, Task 16, PR #50 | Extended by stages 1, 2, 4, 8 |
 | Evidence playback with bounding-box and trajectory overlay; provenance panel | Merged and verified | Task 14, PR #50 | Reused by stage 1 to explain analytic matches |
-| Spatial & temporal Track analytics | **Slice 7 functional acceptance closed — items 1–19 PASS; item 20 after merge** | Slices 0–6 are merged. On the Development machine, PostgreSQL 18 qualification **PASSED** at reachable SHA `5f516662…`, real-worker acceptance/restart persistence **PASSED**, cancellation/failure at realistic volume, deterministic concurrency race probes, C1 explanation/heatmap/UI and accessibility/visual QA **PASSED**. The aggregate-materialisation P2 is now **CLOSED — RETAIN**: all nine authoritative §T cases satisfy the predeclared ≤10 s / ≤64 MiB / exactly-10-query rule, with a qualified 10⁵-fact envelope. The Development-corpus unit record also **PASSED** (Completed, 414 ms, 12 analysed / 0 unavailable, 3,002 samples). Runtime identity and Search → Investigation on real data **PASSED**. The scripted corpus is generated/pixel-verified and its three scene revisions are saved; PostgreSQL restart/reconnect **PASSED** (machine reconnect plus a deterministic outage test). Exit-gate item **14** **PASSED**: the scripted videos went through import → fixture worker → analytics host → `check` = `ok`, run while disconnected (runbook actions C and D.2). What remains is exact-head CI on the final head, the merge, and item 20 on `main`. Status and evidence: `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md`. | Stage 1 — parent plan + `2026-09-22-scene-analytics-s7-hardening-acceptance.md` |
-| Visual attributes | Groundwork → Planned | `VisualAttribute` table, unpopulated | Stage 2 |
+| Spatial & temporal Track analytics | **Merged and verified — Stage 1 complete** | Slices 0–7 are merged. PostgreSQL 18 qualification, real-worker Development acceptance/restart persistence, realistic-volume resilience, deterministic concurrency probes, C1 semantic acceptance, accessibility/visual QA, runtime identity, Search → Investigation, PostgreSQL restart/reconnect, and disconnected scripted-worker acceptance all **PASSED**. PR #70 merged as `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d`; MAVI Quality Gate #1943, Task 10 Runtime Qualification #725, and Task 17 Acceptance Validation #1087 all passed on that exact commit, satisfying exit-gate item 20. Status and evidence: `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md`. | Stage 1 — complete and frozen |
+| Visual attributes | **Next** | `VisualAttribute` table exists but is unpopulated; Stage-2 planning/rebaseline is the next capability-development action | Stage 2 |
 | Expanded object / vehicle subclasses | Planned | Product semantics are person/vehicle | Stage 3 |
 | ANPR / OCR | Planned | No plate or OCR pipeline | Stage 4 |
 | Visual similarity | Planned | pgvector present; no embeddings produced or stored | Stage 5 |
@@ -139,11 +139,11 @@ Historical plans and evidence documents are never rewritten to match this roadma
 
 1. ~~Finish and merge PR #49~~ — merged as `ed1acf4`.
 2. ~~Establish the post-merge baseline~~ — §1.
-3. Spatial & Temporal Track Analytics: **Slices 0–6 are merged; Slice 7 has closed Stage-1 functional acceptance (items 1–19 PASS), with item 20 due after merge**, governed by `2026-09-22-scene-analytics-s7-hardening-acceptance.md`. PostgreSQL 18 qualification, real-worker Development acceptance, resilience/concurrency/C1/accessibility/visual-QA, the aggregate-materialisation disposition (**RETAIN**), and the Development-corpus unit record have passed, and so has item 14 — the scripted videos through the real worker, run while disconnected (runbook C + D.2). What remains is exact-head CI on the final head and the post-merge item 20, recorded in `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md`. No new Stage-1 capability is added in Slice 7. Stage 2 — Visual Attributes must not start until the Stage-1 exit gate is satisfied.
+3. ~~Spatial & Temporal Track Analytics~~ — **Stage 1 complete and frozen.** Slices 0–7 are merged. PR #70 merged as `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d`, and all three critical post-merge workflows passed on that exact commit, satisfying exit-gate item 20. Closure evidence is recorded in `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md`.
 
    **UI Foundation programme is complete:** UI-1 → UI-5 are merged. Slice 5 extended the one Evidence Player/timeline/layer contract and is merged; Slice 6 heatmap UI uses the UI-2 Workbench grammar. This UI sequencing does not renumber Scene Analytics slices (0–7) or capability stages.
 
-4. Visual Attributes.
+4. **Visual Attributes — Stage 2, NEXT.** Begin with a planning/rebaseline increment before feature implementation.
 5. Expanded operational object / vehicle classes where useful.
 6. ANPR / OCR.
 7. Visual Similarity / Find Similar.
