@@ -44,6 +44,7 @@ What MAVI builds next is decided by `docs/superpowers/plans/capability-roadmap.m
 - `docs/decisions/ADR-009-development-cuda-qualification-separation.md` — Development CUDA hardware evidence is explicitly non-Production and cannot satisfy P1/P2.
 - `docs/decisions/ADR-011-scene-analytics-lifecycle-and-revisions.md` — scene-configuration revisions and the deterministic scene-analytics post-processing stage, including attempt fencing and analytics search readiness.
 - `docs/decisions/ADR-012-operator-interface-design-architecture.md` — adopted operator-interface design architecture: workspace archetypes, colour-role and token architecture, accessibility and visual-QA obligations, the UI-1 → UI-5 programme and the Scene Analytics Slice 3 gate.
+- `docs/decisions/ADR-013-modular-post-track-intelligence-and-evidence.md` — **proposed** Stage-2 boundary separating raw Track evidence from replaceable post-Track model intelligence, with a bounded capability-neutral Track Evidence Set and independently re-runnable analysis lifecycle.
 - `docs/qualification/2026-09-18-windows-cuda-c1-compatibility-decision.md` — current sanitized Windows-CUDA Development engineering candidate and change-control boundary.
 - `docs/runbooks/local-development.md` — supported Development workflow.
 - `docs/runbooks/mavi-offline-setup.md` — offline media preparation and installation.
