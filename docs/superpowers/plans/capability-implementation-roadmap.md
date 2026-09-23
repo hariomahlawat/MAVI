@@ -101,22 +101,22 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 
 ### Stage 2 — Visual Attributes
 
-- **Objective.** Search "person, red upper clothing, carrying a backpack" or "white SUV" and see the attribute evidence crop with its confidence. Persons: upper-clothing colour, lower-clothing colour, bag/backpack, headwear or helmet where measured reliable. Vehicles: colour, subclass (car, SUV, van, truck, bus, motorcycle).
-- **Preconditions.** Stage 1 search-predicate mechanics (whitelist, fingerprint, disclosed filter groups); Model Pack and Runtime Pack qualification machinery (Tasks 10/12, ADR-005, ADR-007).
-- **Domain/data.** Populate `VisualAttribute` (already `TrackId`, `ObservationId?`, `AttributeType`, `Value`, `Confidence`, `ModelName`, `ModelVersion`). Fixed vocabularies per attribute type live in a versioned attribute schema in `config/vision/`. Possibly a per-Track attribute summary (best value per type) for search; decide after measuring query shape.
-- **Vision/AI.** New model (person attribute classifier; vehicle colour/subclass classifier) running on representative and best-quality crops inside the worker after tracking.
-- **Pipeline placement.** Detector/tracker worker, as an additional pipeline step whose output extends the completion contract with an `attributes` collection per Track (bounded, validated by `VisionResultValidator`). Alternative considered: a separate attribute worker reading sealed thumbnails; rejected initially because it duplicates the control plane for little isolation gain, but kept open if attribute models prove heavy.
-- **API.** `attribute[type]=value` predicates with minimum confidence; attribute facts in Track detail.
-- **UI.** Filter chips per attribute type; attribute badges with confidence and the crop that produced them in the inspector and Review.
-- **Persistence.** Rows in `visual_attributes`; index on `(attribute_type, value)` plus Track; historical Tracks lack attributes until reprocessed (policy: not backfilled automatically; "attributes unavailable" is visible).
-- **Offline/dependency.** New Model Pack(s) with manifest, hash, licence; possibly new Python packages for the classifier architecture (prefer models runnable on the existing Torch/MMCV graph); no .NET or npm dependency expected.
-- **Qualification.** New model qualification (accuracy on a labelled corpus per attribute, thresholds frozen), runtime compatibility on CPU and CUDA packs. Adding a pipeline step changes the worker's qualified behaviour: Task 10 CPU matrices re-run automatically; the CUDA Development evidence (C4) stays valid for the runtime but the **E2E evidence (C6, when produced) is bound to the pipeline that ran** and would need re-execution for the new step.
-- **Performance/scaling.** Attribute rows are bounded (types × Tracks); classifier inference adds per-Track latency proportional to crops evaluated.
-- **Security/privacy.** Appearance attributes are not identity; the UI must not present them as such.
-- **Acceptance.** Import → process → filter by an attribute → open evidence → see the crop and confidence that produced the attribute; attribute absent or below threshold is displayed as unknown, never inferred.
-- **Non-goals.** Fine-grained clothing types, age, gender, face attributes, brand/model recognition.
-- **Slices.** Attribute schema and contract extension → worker step behind a flag with model pack → persistence and search predicates → UI → qualification corpus and evidence.
-- **Exit gate.** Model Pack qualified on CPU (and CUDA Development where available); attribute accuracy report frozen; contract change covered by `WorkerContractV2Tests`-style tests; exact-head CI green.
+**Active planning authority:** `docs/superpowers/plans/2026-09-23-visual-attributes.md` and proposed ADR-013. The earlier in-worker-only placement below has been superseded by the Stage-2 architecture review.
+
+- **Objective.** Search evidence-backed appearance attributes such as "person, red upper clothing, carrying a backpack" or "white vehicle" and open the exact supporting crop/source video.
+- **Preconditions.** Stage 1 search mechanics; platform-owned accepted evidence (ADR-006); Model Pack / Runtime Pack machinery (ADR-005/007).
+- **Domain/data.** Evolve the existing `VisualAttribute` groundwork and introduce an immutable attribute-analysis identity. Attributes remain observations bound to Track, evidence, schema and producer provenance; never identity claims.
+- **Track evidence.** The current completion path persists one Representative thumbnail only. Stage 2 introduces a bounded, capability-neutral multi-view Track Evidence Set selected by a deterministic/versioned evidence policy. This evidence is designed for reuse by later attributes, OCR and embedding capabilities.
+- **Vision/AI.** A replaceable model-neutral Visual Attribute Inferencer consumes Track evidence. Candidate v1 scope: person upper/lower clothing colour, bag/backpack presence, qualified headwear/helmet presence, and vehicle dominant colour. Vehicle subclass remains Stage 3 unless deliberately rebaselined.
+- **Pipeline placement.** Visual Attributes are logically a **post-Track intelligence capability**, not part of raw detector/tracker success. The executor may initially be co-hosted in the existing `mavi_vision` process/runtime, but its lifecycle/contracts must permit later extraction to a separate worker/node without changing durable semantics.
+- **Lifecycle.** Attribute analysis is independently retryable/re-runnable. New model/schema/policy identities produce new immutable analyses; previous results remain historically traceable. Attribute failure cannot invalidate a completed ProcessingRun.
+- **API/UI.** Strict canonical attribute predicates; explicit coverage/readiness; attribute chips and evidence explanation in Investigation/Review; unknown/unavailable/pending/failed are distinct.
+- **Persistence.** Begin with typed `visual_attributes` linked to an analysis identity and supporting Observation; do not add a summary table until PostgreSQL measurements justify it.
+- **Offline/dependency.** Independent Model Pack(s), manifest/hash/licence/runtime compatibility, offline component-store publication; any new runtime dependency reopens the applicable Runtime Pack.
+- **Qualification.** Predeclared labelled-corpus protocol, per-attribute metrics/calibration/abstention, evidence-set quality, CPU Development qualification, CUDA Development evidence where applicable, disconnected execution and search-scale evidence. Failing attributes remain disabled.
+- **Security/privacy.** Appearance attributes are not identity. Age, gender, ethnicity, face attributes/recognition, fine garment taxonomy and brand/make/model recognition are non-goals.
+- **Slices.** S0 architecture freeze → S1 Track Evidence Set → S2 attribute lifecycle + real model component → S3 persistence/search → S4 operator evidence UX → S5 hardening/qualification/acceptance.
+- **Exit gate.** See the Stage-2 parent plan and acceptance register; exact-head and post-merge verification are required.
 
 ### Stage 3 — Expanded operational object / vehicle classes
 
