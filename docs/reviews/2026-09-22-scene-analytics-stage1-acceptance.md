@@ -5,7 +5,7 @@
 **Baseline:** `main@11d3450fbc9ca01ca7e7ad75d090ae951f420668`
 **Qualification candidate (measured):** `5f5166628b0c4af04cc8f7efcd40f7022f5095c4`
 **Governing gate:** `docs/superpowers/plans/2026-09-22-scene-analytics-s7-hardening-acceptance.md` §25 — the numbering below is that section's, item for item
-**Operator actions still owed:** `docs/runbooks/scene-analytics-stage1-development-acceptance.md`
+**Operator procedure (all actions completed):** `docs/runbooks/scene-analytics-stage1-development-acceptance.md`
 
 ---
 
@@ -42,14 +42,17 @@ The three qualification evidence files — `plan-qualification.json`, `analytics
 PR #71 was integrated by **fast-forward**, so PR #70's history contains `5f5166628b0c4af04cc8f7efcd40f7022f5095c4` itself.
 
 Executable code has changed after that SHA:
-- **Test files:** `RealisticVolumeResilienceTests`, `ConcurrencyRaceProbeTests`, `DatabaseOutageRecoveryTests`, `ScriptedCorpusTests`, a C1 contract test in `SemanticAcceptanceTests`, and the frontend client, artifact and query-default tests.
-- **Test fixtures and two visual-QA states.**
+- **Test files:** `RealisticVolumeResilienceTests`, `ConcurrencyRaceProbeTests`, `DatabaseOutageRecoveryTests`, `ScriptedCorpusTests`, a C1 contract test in `SemanticAcceptanceTests`, the frontend client, artifact, query-default and dev-proxy tests, and the vision confidence-finalisation tests.
+- **Test fixtures and visual-QA states.**
 - **Development tooling:** `tools/vision/dev/scripted_corpus.py`, a scenario switch in `fixture_worker_harness.py`, and `tools/qualification/`.
-- **One production change, in the browser only:** a 10 s bound on local GET/HEAD reads (`src/web/mavi-web/src/api/client.ts`, shared by `api/artifacts.ts`).
+- **Browser production code:** a 10 s bound on local GET/HEAD reads (`src/web/mavi-web/src/api/client.ts`, shared by `api/artifacts.ts`); TanStack Query `networkMode: 'always'` (`src/app/queryClient.ts`); a scroll-container `position: relative` rule (`src/styles/workspace.css`).
+- **Development-only configuration:** the Vite `/api` proxy target (`vite.config.ts`, `devApiProxy.ts`) and the matching `MAVI_API_PROXY_TARGET` in `src/platform/Mavi.Api/Properties/launchSettings.json`. `launchSettings.json` is read only by `dotnet run` and Visual Studio launch profiles; it is not compiled into or published with the API, and `applicationUrl` is unchanged.
+- **Vision worker production code:** the scale-aware rounding tolerance in `src/vision/mavi_vision/pipeline/finalization.py`, which only admits a Track mean confidence that exceeded its maximum by floating-point rounding.
 
 None of this touches what was qualified:
-- **Server code is unchanged:** `git diff --stat 5f516662 HEAD -- src/platform` is empty.
+- **Server code is unchanged:** `git diff --stat 5f516662 HEAD -- src/platform` lists only `Mavi.Api/Properties/launchSettings.json`, the Development launch profile above. No compiled server source, query, migration or configuration read at run time differs.
 - **The qualification harnesses and their corpus are unchanged:** `PlanQualificationTests`, `ThroughputQualificationTests`, `QualificationCorpus`, `QualificationGate`, `QualificationVerdict` and `SqlCapture` are byte-identical to the measured SHA.
+- The qualified measurements are of the .NET analytics queries, aggregation and unit execution over persisted facts. The browser, Vite and vision-worker changes run outside those paths.
 
 The new tests only read `QualificationCorpus`. The PostgreSQL 18 evidence therefore still describes the server code it measured, and this change requires no qualification rerun. (The browser parser `[0,1]` fix is also production code, but it predates the measured SHA.)
 
@@ -72,7 +75,7 @@ The new tests only read `QualificationCorpus`. The PostgreSQL 18 evidence theref
 | 13 | Operator workflow / accessibility / visual QA pass | **PASS.** Accessibility and visual QA **PASS**: 53 analytics-related states × 4 widths, zero automated findings, human capture pass, no P1/P2 (three P3s). The remaining real-data **Search → Investigation → Evidence Review** leg was executed on the H.264 MOT17-CROWD run: the same Person Track opened from Search into the inspector and Evidence Review, source video played, Revision 1 / Engine v1 identity agreed, and the saved zone overlay rendered against the track evidence. |
 | 14 | Development offline/real-worker acceptance recorded with no undeclared dependency | **PASS.** Real-worker acceptance, restart persistence and runtime identity passed. The three scripted scenarios were then completed through the fixture-worker control plane and real analytics host with `check = ok` for all three. The final session was disconnected: Processing, Evidence Review, Activity and Heatmap all worked, and DevTools showed only `localhost` / `127.0.0.1` requests. |
 | 15 | No policy-violating dependency/runtime drift | **PASS** — zero files differ from `main` across `*.csproj`, `package.json`, lockfiles and `config/dependencies/`; the new tools are standard-library Python and plain SQL; `verify_repo.py` green |
-| 16 | Relevant suites and exact-head CI green | **PASS on executable head `f620485`** — Task 17 Acceptance Validation, Task 10 Runtime Qualification and MAVI Quality Gate were all green before this evidence-only documentation update. Exact-head CI on the final documentation head remains the merge gate. |
+| 16 | Relevant suites and exact-head CI green | **PASS on the last executable head `59aa853`** — Task 17 Acceptance Validation, Task 10 Runtime Qualification and MAVI Quality Gate were all green before the evidence-only documentation updates. Exact-head CI on the final documentation head remains the merge gate. |
 | 17 | Documentation reflects measured reality, limits and known limitations | **PASS** after the reconciliation in *Independent closure review* below |
 | 18 | Independent cold review clean of P1/P2 | **PASS.** The closure review below found no P1. Its P2s were in the operator procedure and the test and documentation claims, not in product code, and each is fixed in this pass |
 | 19 | No unresolved material review thread | **PASS** — PR #70 has zero unresolved threads; PR #71 is closed as superseded |

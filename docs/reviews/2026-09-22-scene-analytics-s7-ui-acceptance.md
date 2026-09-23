@@ -22,7 +22,7 @@ Item 13 is therefore **PASS**.
 One defect, fixed test-first: the browser trajectory parser accepted any finite coordinate while the application decoder requires a centre inside `[0, 1]` once rounded to the persisted six decimals (`NormalizedPoint.IsInRange`). The rule now has one frontend definition, `src/web/mavi-web/src/shared/evidence/normalizedPoint.ts`, mirroring the Domain's rounding. Later passes added:
 - the C1 operator-contract test (`c1OperatorContract.test.tsx`);
 - two visual-QA states;
-- one production change: a 10 s bound on local GET/HEAD reads, including trajectory artefacts, in `api/client.ts`.
+- three browser production changes: a 10 s bound on local GET/HEAD reads, including trajectory artefacts, in `api/client.ts`; TanStack Query `networkMode: 'always'` in `app/queryClient.ts`, so a browser that reports itself offline does not pause loopback requests; and `position: relative` on the Ledger/Investigation scroll owners in `styles/workspace.css`, so visually hidden text no longer extends the page scroll.
 
 The read bound came from a disconnected cold start in which Camera Scene stayed on *Loading scene…* indefinitely. A read that gets no response now becomes a recoverable failure with Retry, after one automatic retry. See the Stage-1 register, *Offline observations and the bounded-read fix*.
 
