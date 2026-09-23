@@ -3,7 +3,7 @@
 **Status:** Authoritative implementation-level roadmap. `capability-roadmap.md` answers *what we build next*; this document answers *how the stages depend on one another, what each changes technically, and what must be true before advancing*.  
 **Baseline:** `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d` (Scene Analytics Stage 1 / PR #70 merged and post-merge verified).  
 **Written:** 2026-09-20. Planning only; no feature code, migration, dependency or runtime change accompanies this document.  
-**Companion:** `2026-09-20-spatial-temporal-track-analytics.md` is the completed parent implementation-grade plan for stage 1; `2026-09-22-scene-analytics-s7-hardening-acceptance.md` is the closure plan; `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md` is the final acceptance register. `docs/architecture/ui-ux-design-specification.md` is the adopted UI/UX specification. **UI-1 through UI-5 and Scene Analytics Slices 0–7 are merged. Stage 1 is fully closed: exit-gate items 1–20 PASS, including post-merge verification on `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d`.** The next capability is **Stage 2 — Visual Attributes**. Task 18 (`2026-09-18-task-18-phase1-production-qualification-rebaseline.md`) remains a separate, parallel qualification stream and is not a stage here.
+**Companion:** `2026-09-20-spatial-temporal-track-analytics.md` is the completed parent implementation-grade plan for stage 1; `2026-09-22-scene-analytics-s7-hardening-acceptance.md` is the closure plan; `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md` is the final acceptance register. `docs/architecture/ui-ux-design-specification.md` is the adopted UI/UX specification. **UI-1 through UI-5 and Scene Analytics Slices 0–7 are merged. Stage 1 is fully closed: exit-gate items 1–20 PASS, including post-merge verification on `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d`.** The current capability is **Stage 2 — Visual Attributes** (slice S1 in progress). Task 18 (`2026-09-18-task-18-phase1-production-qualification-rebaseline.md`) remains a separate, parallel qualification stream and is not a stage here.
 
 ## 0. The baseline this roadmap builds on
 
@@ -101,7 +101,7 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 
 ### Stage 2 — Visual Attributes
 
-**Architecture authority:** `docs/superpowers/plans/2026-09-23-visual-attributes.md`, accepted ADR-013 and ADR-014. Architecture acceptance items A1–A12 are PASS; feature implementation has not started.
+**Architecture authority:** `docs/superpowers/plans/2026-09-23-visual-attributes.md`, accepted ADR-013 and ADR-014. Architecture acceptance items A1–A12 are PASS. Implementation of slice S1 is under way (`2026-09-23-stage2-s1-2-evidence-set-implementation.md`): S1.1 (PR #75) and S1.2a (PR #77) are merged; S1.2b (worker trajectory spool, PR #78, no wire change) is in review; S1.2c, S1.3 and S1.4 follow. No acceptance-register row changes until S1.4 evidence.
 
 - **Objective.** Search evidence-backed appearance attributes such as “person, red upper clothing, carrying a backpack” or “white vehicle” and open the exact supporting evidence/source video.
 - **Preconditions.** Stage 1 search/evidence mechanics; platform-owned accepted evidence (ADR-006); Development/Production qualification separation (ADR-009); Stage-2 architecture freeze.
