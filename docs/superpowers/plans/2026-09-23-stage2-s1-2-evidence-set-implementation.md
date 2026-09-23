@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.2 Track Evidence Set: implementation plan
 
-**Status:** Implementation-ready plan, revision 2 (after the first independent cold review); awaiting a second independent review. No S1.2 code exists yet.  
+**Status:** Implementation-ready plan, revision 3 (after the second independent cold review; janitor precision only). No S1.2 code exists yet.  
 **Date:** 2026-09-23  
 **Baseline:** `main@4b6141f52d6d6a0a72de664e60b8cd4441487799` (PR #75, S1.1 merged)  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §7–§8, §10.2, §12–§16  
@@ -64,7 +64,7 @@ S1.2 delivers:
 | Validator requires exact staging keys, sorts Tracks ordinally, computes the digest with tag `mavi:vision-completion-digest:v2` — **digest is .NET-only** | `VisionResultValidator.cs` L130–140, L175, L218–354 |
 | Store seals thumbnail then trajectory per Track into the evidence root, writes rows, compensates newly sealed keys on failure; replay re-validates and compares digests, never re-seals; **the store never touches staging after sealing** | `ProcessingResultStore.cs` L143–361 |
 | The platform reads staging through `IMediaStore.OpenReadAsync` on the shared media root (`MediaStorage:RootPath`); `LocalMediaStore` also has `WriteAsync`, `ExistsAsync`, `DeleteAsync(storageKey)` (single file, root-escape checked) and refuses symlinked directories; `StorageRootSafety` resolves link targets | `Storage/LocalMediaStore.cs` L107–168, `StorageRootSafety.cs` |
-| `VisionJob.Status ∈ {Queued, Leased, Completed, Failed, Cancelled}`; `AttemptCount` increments on lease; a Completed job is never re-leased; a Failed job that is requeued gets `AttemptCount+1` on its next lease | `Mavi.Domain/Processing/VisionJob.cs`, `ProcessingOrchestrator.LeaseAsync` |
+| `VisionJob` is created `Queued` with `AttemptCount = 0`; `Lease` sets `Leased` and increments `AttemptCount`; `Complete`/`Fail`/`Exhaust` are terminal (`Completed`/`Failed`). **No method returns a job to `Queued`**, and **no method produces `Cancelled`** (the enum value exists; only `ProcessingRun` has a cancellation path). Retrying a failed video (`QueueAsync`) creates a **new** `ProcessingRun` and a **new** `VisionJob`; `ProcessingFailureRecoveryTests` asserts two jobs after a retry | `Mavi.Domain/Processing/VisionJob.cs`, `VisionJobStatus.cs`, `ProcessingOrchestrator.QueueAsync`/`LeaseAsync`, `tests/Mavi.IntegrationTests/ProcessingFailureRecoveryTests.cs` L100 |
 | Platform background-service precedent: `SceneAnalyticsHostedService : BackgroundService` in the API host (ADR-011 decision 1 placement) | `Mavi.Api/SceneAnalytics/SceneAnalyticsHostedService.cs` |
 | Task-13 retention model: "a later garbage collector may reclaim … abandoned staging attempts" — deferred, never specified | `docs/superpowers/plans/2026-09-13-task-13-vision-result-persistence.md` §9.3 |
 | `Observation` has `ObservationType` (string column, **no CHECK**), frame/offset/bbox(float)/confidence/quality, `ThumbnailArtifactId` FK **SetNull**; enum `{TrackStart, Representative, BestQuality, TrackEnd}`, only Representative ever written | `Observation.cs`, `ObservationConfiguration.cs` |
@@ -280,7 +280,7 @@ Pure function over the finalised descriptor-only Tracks:
 | SHA/size incremental? | Yes: `write_stream` hashes while writing the temp file; the descriptor is produced from the running hash/count. |
 | Lease lost mid-Track? | Spool files live under `staging/{job}/attempt-NNNN/spool/`; they are never published or referenced. Lease loss stops the loop at the next `check_owned()`; the attempt's staging (including spool) is removed by the next attempt (S1.1) or the janitor (§6.5). Spool appends are not lease-fenced (they are not publications); `write_stream` at retirement is fenced exactly like `write_bytes`. |
 | Failed attempt? | `cleanup()` removes the whole attempt directory including `spool/`. |
-| Temporary disk bound? | Σ over live Tracks of 24 B × points spilled ≈ 24 × 30 × 86,400 = 62 MB per 24 h live Track; deleted at that Track's retirement (`remove`). It never coexists with the canonical artefact for the same Track beyond the finalisation window. |
+| Temporary disk bound? | Σ over live Tracks of 24 B × points spilled ≈ 24 × 30 × 86,400 = 62 MB per 24 h live Track; deleted at that Track's retirement (`remove`). During one finalisation the spool, the `write_stream` temp file and (for an instant) the published artefact coexist for that Track — peak ≈ 3 × 24·D — see §9.4; finalisations are sequential so this is one Track's worth at a time. |
 | Per-frame write overhead? | None per frame: one append per `chunk_points` (default 4096 ≈ 2.3 min at 30 fps). No fsync on the spool. No persistent file descriptors (open-append-close), so live-Track count does not consume fds/handles. |
 | Deterministic and portable? | Output bytes are identical to today's serializer and independent of chunk size (T2). Append/stream/remove use the existing handle-relative, no-follow backends on POSIX and Windows. |
 | Validation at retirement? | `prepare_track` receives `TrajectorySummary(point_count, first_offset_ms, last_offset_ms)`; monotonicity is enforced on append (`offset ≤ last` → `trajectory_offsets_not_monotonic`, attempt fails); count and bounds checks are unchanged in meaning. |
@@ -311,16 +311,17 @@ Pure function over the finalised descriptor-only Tracks:
 | Aspect | Rule |
 |---|---|
 | Namespace | Only `{MediaStorage:RootPath}/staging/{jobId}/attempt-NNNN` directories where `jobId` parses as a `Guid` and the attempt name matches `attempt-[0-9]{4,10}` canonically (same rule as the worker's `superseded_attempt_number`). Anything else under `staging/` is logged once (EventId 1401 `staging_janitor_unrecognised_entry`) and never touched. Nothing outside `staging/` is ever enumerated. The evidence root is never touched. |
-| Authority predicate (per job directory, one DB read `SELECT status, attempt_count, completed_at_utc, updated… FROM vision_jobs WHERE id = @jobId`) | **Completed / Failed / Cancelled:** every attempt directory is deletable once `now ≥ terminalAtUtc + Grace`. **Leased:** `attempt-k` with `k < AttemptCount` is deletable immediately (fenced by the lease); `k ≥ AttemptCount` is never touched. **Queued with AttemptCount ≥ 1** (requeued after failure): `attempt-k` with `k ≤ AttemptCount` is deletable (the next lease is `AttemptCount+1`); `k > AttemptCount` is never touched. **Queued with AttemptCount = 0:** nothing (no attempt has run; any directory is unexpected → 1401). **No row:** deletable only when the directory's last-write time is older than `UnknownJobGrace` (default 24 h) — covers a job row purged by another lifecycle; logged at Warning. |
+| Authority predicate (per job directory, one DB read `SELECT status, attempt_count, completed_at_utc FROM vision_jobs WHERE id = @jobId`). Every destructive rule below corresponds to a state the `VisionJob` aggregate can actually reach (§2); states it cannot reach are fail-closed. | **Completed / Failed** (legitimate terminal states; `Failed` via `Fail` or `Exhaust`): every `attempt-k` directory is deletable once `now ≥ CompletedAtUtc + Grace`. **Cancelled** (defined in `VisionJobStatus`, but no current code path produces it): handled conservatively as a terminal state with the same grace rule *because the enum defines it as terminal*, not because the janitor infers a transition; a `Cancelled` row is also logged once (EventId 1405 `staging_janitor_unexpected_status`) so its first appearance is visible. **Leased** (legitimate, `AttemptCount ≥ 1`): `attempt-k` with `k < AttemptCount` is deletable immediately (fenced by the lease authority); `k ≥ AttemptCount` is never touched by this rule. **Queued with AttemptCount = 0** (legitimate: never leased): no attempt has run, so any `attempt-*` directory is unexpected → logged 1401, **preserved**. **Queued with AttemptCount > 0** (impossible in the current aggregate — nothing sets `Status` back to `Queued`): treated as an **invariant violation** → logged 1406 `staging_janitor_invariant_violation` at Error, **nothing deleted**, no inference about dead attempts. **No row:** deletable only when the directory's last-write time is older than `UnknownJobGrace` (default 24 h) — covers a job row removed by another lifecycle; logged at Warning. A retried video is a *new* job id with its own directory, so the old `Failed` job and the new `Queued` job are judged independently by their own rows. |
 | Grace | `Grace` default 5 minutes after the terminal transition: long enough for the worker's own fast-path `cleanup()` to run first (avoids deleting under a process that is itself deleting; both are idempotent and tolerate ENOENT), short enough to bound retention. |
-| Schedule | On host start (after DB readiness) and every `IntervalMinutes` (default 15). One instance per host; `SemaphoreSlim(1)` prevents overlap. Per cycle it enumerates at most `MaxDirectoriesPerCycle` (default 1,000) job directories, oldest first, so a backlog is drained across cycles without a long stall. |
+| Schedule and per-cycle cap | On host start (after DB readiness) and every `IntervalMinutes` (default 15). One instance per host; `SemaphoreSlim(1)` prevents overlap. Each cycle enumerates every job directory under `staging/` (cheap: one `stat` per directory), computes eligibility for all of them, and **processes at most `MaxDirectoriesPerCycle` = M (default 1,000) eligible job directories, oldest eligible first**; the rest are counted as *deferred* and processed in later cycles. Eligibility is never cached across cycles. Directories deferred by the cap are not reported as reclaimed. |
 | Deletion | Handle-relative and link-safe: open the job directory and attempt directory with `FileOptions`-based handles that fail on reparse points (`FileAttributes.ReparsePoint` check after open; on Windows `FILE_FLAG_OPEN_REPARSE_POINT` semantics via `FileSystemEnumerable` with `AttributesToSkip = 0` and explicit refusal); recurse only into real directories; delete leaf files then directories bottom-up; a symlink/junction *entry* is deleted as an entry, never followed. Mirrors the worker's POSIX `rmtree(dir_fd=)` / Windows `_remove_attempt_tree_no_reparse` discipline. A directory whose root is itself a link is refused (EventId 1402 `staging_janitor_path_escape`, Error) and left in place. |
 | Idempotency | Every run recomputes from filesystem + DB; a directory removed by the worker meanwhile is a no-op. |
-| Observability | EventIds 1400 (cycle summary: scanned, deleted dirs, freed bytes, skipped, failures), 1401, 1402, 1403 (deletion failed, with path and exception; Warning), 1404 (same directory failed ≥ 3 consecutive cycles; Error). Counters exposed through the existing health endpoint's details (`stagingJanitor.lastRunUtc`, `lastFailureCount`, `consecutiveFailures`). |
-| Repeated failure | Never crashes the host; the directory stays; retried every cycle; 1404 escalates. A failing janitor never blocks completion, leasing or serving. |
+| Observability | Uses the existing logging and health-details model only (no new metrics subsystem). EventId 1400 cycle summary carries: `scanned` (job directories seen), `eligible` (reclaimable now), `processed` (this cycle), `removed` (directories successfully deleted), `freedBytes`, `failed`, `deferredByCap` (eligible − processed), `oldestEligibleAgeMinutes` (now − the oldest eligible directory's terminal/fence time), `backlogDepth` (= deferredByCap) and `estimatedCyclesToDrain` (= ⌈backlogDepth / M⌉). 1401 unrecognised entry; 1402 path escape (Error); 1403 deletion failed (Warning, path + exception); 1404 same directory failed ≥ 3 consecutive cycles (Error); 1405 unexpected status; 1406 invariant violation (Error). Health details expose `stagingJanitor.{enabled,lastRunUtc,lastCycleRemoved,failed,deferredByCap,backlogDepth,oldestEligibleAgeMinutes,consecutiveFailures}`. |
+| Repeated failure and escalation thresholds | Never crashes the host; the directory stays; retried every cycle; 1404 escalates. Two configurable age thresholds turn the backlog into an operational signal: `WarnOldestEligibleMinutes` (default 60) → Warning 1407 `staging_janitor_backlog_warning` each cycle the oldest eligible age exceeds it; `ErrorOldestEligibleMinutes` (default 360) → Error 1408 `staging_janitor_backlog_critical` and health details flag `stagingJanitor.backlogState = "critical"`. A failing or lagging janitor never blocks completion, leasing or serving. |
 | Interaction with S1.1 worker cleanup | Both remain: the worker's `cleanup()` (own attempt, after success — fast path, §6.3 of S1.1 unchanged for failure) and `cleanup_superseded_attempts()` (at lease) reduce retention to seconds in the normal case; the janitor guarantees the bound when the worker dies or never runs again. |
-| Worst-case retention window (platform up) | `Grace + IntervalMinutes` ≈ **20 minutes** after the terminal transition for a completed/failed job with a dead worker; **≤ 1 cycle** for superseded attempts of a leased job. If the platform is down, no completions happen either, so no new staging becomes reclaimable; the backlog drains at `MaxDirectoriesPerCycle` per cycle on restart. |
-| Bounded retained staging (platform up) | ≤ (jobs reaching a terminal state within 20 min) × (per-attempt staging, §9.4) + live attempts' staging. With one worker completing at most a few jobs per 20 min, this is a handful of attempts, each ≤ 1 GiB crops + trajectories after the worker's own admission removals (or ≤ 5.19 GiB + trajectories if the worker died before removals). |
+| Normal reclamation target (no backlog, platform up) | For a newly eligible directory when the next cycle has capacity: **≤ `Grace + IntervalMinutes`** after the terminal transition (**≤ 20 minutes** with defaults) for a completed/failed job with a dead worker; ≤ 1 cycle for superseded attempts of a leased job. This is the normal operational target, not a universal guarantee. |
+| Backlog bound | With B eligible job directories older than a given directory and M processed per cycle, reclamation of that directory takes approximately **`Grace + ⌈(B + 1) / M⌉ × IntervalMinutes`**, subject to repeated deletion failures (a failing directory is retried but does not block others) and platform downtime (no cycles run). Example: B = 2,500, M = 1,000 → ≈ 5 + 3 × 15 = 50 minutes. The 1407/1408 thresholds make a growing backlog visible before it matters. If the platform is down, no completions happen either, so no new staging becomes reclaimable; on restart the backlog drains at M per cycle. |
+| Bounded retained staging (platform up, no backlog) | ≤ (jobs reaching a terminal state within the normal target window) × (per-attempt staging, §9.4) + live attempts' staging. With one worker completing at most a few jobs per 20 min, this is a handful of attempts, each ≤ 1 GiB crops + trajectories after the worker's own admission removals (or ≤ 5.19 GiB + trajectories if the worker died before removals). Under backlog the retained total grows with B until drained; the observability row makes B and its age visible. |
 
 **Ownership consequence.** Reclaiming worker staging becomes a **platform responsibility with database authority**, not a worker courtesy. This is a genuine new architectural responsibility (Task-13 §9.3 left it as "a later garbage collector"); it does not alter ADR-006's evidence-root ownership or sealing semantics. §17 C3 flags the ADR-006 amendment for ratification.
 
@@ -448,11 +449,12 @@ Scalars + ≤ 4 `ObservationDescriptor` + trajectory descriptor ≈ **2.3 KB** �
 
 | Component | Bound | Lifetime |
 |---|---|---|
-| Spool (live Tracks) | Σ_live 24·D_spilled ≈ 62 MB per 24 h live Track; ≤ 24 × total detections of live Tracks | removed at each Track's retirement (`remove`) |
+| Spool (live Tracks) | Σ_live 24·D_spilled ≈ 62 MB per 24 h live Track; ≤ 24 × total detections of live Tracks | removed at each Track's retirement (`remove`), **after** the canonical artefact is published |
+| Retirement transient (one Track at a time) | spool file (24·D) **+** the canonical temp file being written by `write_stream` (≈ 24·D) **+**, for the instant between publish and `remove`, the published canonical artefact — peak ≈ 3 × 24·D for that Track (≈ 186 MB for a 24 h Track), then back to the canonical size alone | bounded by one finalisation; finalisations are sequential |
 | Evidence crops before admission | ≤ T × 557,056 = **5.19 GiB** at T = 10,000 (all four roles admissible) | removed to ≤ 1 GiB by `remove_omitted` before completion |
 | Trajectories | Σ_T canonical size (≈ 24 B/point → ≤ 512 MiB quota) | until reclamation |
-| **After completion** | 0 within seconds (worker fast path) or **≤ 20 min** (janitor) | §6.5 |
-| **On failure** | 0 (`cleanup()`), or janitor ≤ 20 min after `Failed` if the worker died | |
+| **After completion** | 0 within seconds (worker fast path); otherwise janitor: normally ≤ `Grace + Interval` (20 min with defaults), or `Grace + ⌈(B+1)/M⌉ × Interval` under a backlog of B | §6.5 |
+| **On failure** | 0 (`cleanup()`); otherwise janitor under the same normal/backlog bounds after `Failed` if the worker died | |
 | **On lease loss** | removed at the next lease (S1.1) or by the janitor within one cycle of the job's next transition | |
 
 ### 9.5 Completion request
@@ -487,7 +489,7 @@ Per Track (ordinal): seal trajectory; seal each observation crop in rank order (
 
 ### 10.5 Staging janitor
 
-As specified in §6.5. Registration: `services.AddHostedService<StagingJanitorHostedService>()` behind `StagingJanitorOptions { Enabled = true, IntervalMinutes = 15, GraceMinutes = 5, UnknownJobGraceHours = 24, MaxDirectoriesPerCycle = 1000 }`; `IStagingJanitor` (Infrastructure) does one cycle given a `TimeProvider`, so scheduling and deletion are tested separately, following the `SceneAnalyticsHostedService` / `ISceneAnalysisLifecycle` split.
+As specified in §6.5. Registration: `services.AddHostedService<StagingJanitorHostedService>()` behind `StagingJanitorOptions { Enabled = true, IntervalMinutes = 15, GraceMinutes = 5, UnknownJobGraceHours = 24, MaxDirectoriesPerCycle = 1000, WarnOldestEligibleMinutes = 60, ErrorOldestEligibleMinutes = 360 }`; `IStagingJanitor` (Infrastructure) does one cycle given a `TimeProvider`, so scheduling and deletion are tested separately, following the `SceneAnalyticsHostedService` / `ISceneAnalysisLifecycle` split.
 
 ---
 
@@ -535,8 +537,8 @@ As specified in §6.5. Registration: `services.AddHostedService<StagingJanitorHo
 | platform: crop missing/hash mismatch | existing artifact codes; compensation | |
 | stale replay (v2 or v3) | same digest → success; else conflict | |
 | mixed v2/v3 workers | both accepted; no fabricated supplementals for v2 | |
-| worker dies right after successful `complete()` | job Completed; staging reclaimed by the janitor within `Grace + Interval` | EventId 1400 |
-| worker dies mid-attempt (lease expires) | next attempt removes lower attempts (S1.1); if the job exhausts attempts → `Failed` → janitor | |
+| worker dies right after successful `complete()` | job Completed; staging reclaimed by the janitor — normally within `Grace + Interval`, or per the backlog bound (§6.5) | EventId 1400 |
+| worker dies mid-attempt (lease expires) | the job is re-leased (`Leased`, `AttemptCount+1`) and the next attempt removes lower attempts (S1.1); if the job exhausts attempts → `Failed` (`Exhaust`) → janitor | |
 | janitor deletion fails / path escape | logged (1403/1402), retried each cycle, 1404 after 3; never affects completion | |
 | janitor disabled | staging accumulates; health details show `stagingJanitor.enabled=false` | |
 
@@ -555,7 +557,7 @@ As specified in §6.5. Registration: `services.AddHostedService<StagingJanitorHo
 | **Task 14 read security** (POSIX + Windows `dotnet test` on storage safety) | required — **add** `StagingJanitor*.cs` and `StagingJanitorTests.cs` to its path filter and test filter, so janitor link-safety runs on Windows | — | — | |
 | New v3 golden contract tests | .NET canonicalisation/digest, schema round-trip, worst-shape body; Python schema validation | — | emitter ↔ pinned digest | |
 | Memory/bound tests | — | T1–T9 (Python suite) | E*, S*, A*, P*, M1–M5 | no multi-GiB fixture in CI |
-| Staging lifecycle tests | J1–J11 (.NET, Postgres fixture + temp roots) | W5 (worker fast path) | P4 | |
+| Staging lifecycle tests | J1–J14 (.NET, Postgres fixture + temp roots) | W5 (worker fast path) | P4 | |
 
 ### 13.2 Qualification truth
 
@@ -608,17 +610,20 @@ S1–S15, E1–E8, A1–A6, P1–P7 as in revision 1 of this plan (`git show f80
 
 | Test | Catches |
 |---|---|
-| J1 `completed_job_attempt_removed_after_grace_not_before` | missing grace / never reclaiming |
+| J1 `terminal_job_attempt_removed_after_grace_not_before` (Completed and Failed; a synthetic `Cancelled` row is treated the same and logs 1405) | missing grace / never reclaiming |
 | J2 `simulated_worker_death_after_completion_is_reclaimed` — complete via the real endpoint with staged files left in place; advance `TimeProvider`; one cycle → directory gone; accepted evidence bytes intact and servable | crash leak; deleting the wrong root |
 | J3 `leased_job_current_and_later_attempts_never_removed_lower_attempts_removed_immediately` | fencing violation |
-| J4 `queued_requeued_job_removes_attempts_up_to_attempt_count_only` | off-by-one on requeue |
+| J4 `queued_zero_attempt_with_staging_is_preserved_and_logged` (1401); `queued_positive_attempt_count_is_invariant_violation_preserved_and_logged` (synthetic row, 1406, nothing deleted) | destructive rule for a state the aggregate cannot reach |
 | J5 `other_job_directories_untouched_when_one_is_reclaimed`; `non_canonical_names_untouched_and_logged` | over-broad deletion |
 | J6 `cycle_is_idempotent_and_tolerates_concurrent_worker_cleanup` (directory removed between enumeration and delete) | ENOENT crash |
 | J7 `symlinked_attempt_directory_is_refused_and_target_preserved` (POSIX) | link following |
 | J8 `junction_attempt_directory_is_refused_and_target_preserved`; `nested_junction_inside_attempt_deleted_as_entry` (Windows; `task14-read-security.yml`) | reparse following |
 | J9 `deletion_failure_is_logged_retried_and_escalates_after_three_cycles`; host keeps serving | silent failure / host crash |
-| J10 `unknown_job_directory_removed_only_after_unknown_grace`; `queued_zero_attempt_directory_logged_not_removed` | premature deletion |
+| J10 `unknown_job_directory_removed_only_after_unknown_grace` | premature deletion |
 | J11 `janitor_never_enumerates_outside_staging_prefix_or_evidence_root` (sentinel files) | scope escape |
+| J12 `backlog_drains_across_cycles_with_per_cycle_cap` — 2·M + 1 eligible terminal directories with distinct ages; cycle 1 removes exactly the M oldest and reports `processed = removed = M`, `deferredByCap = M + 1`, `backlogDepth = M + 1`, `estimatedCyclesToDrain = 2`, `oldestEligibleAgeMinutes` = age of the oldest *remaining*; directories outside the processed batch still exist and are not counted as removed; cycles 2–3 finish; final `backlogDepth = 0` | cap ignored; deferred directories mis-reported as reclaimed; stale observability |
+| J13 `backlog_age_thresholds_escalate` — oldest eligible age past `WarnOldestEligibleMinutes` → 1407 and health `backlogState = "warning"`; past `ErrorOldestEligibleMinutes` → 1408 and `"critical"`; back to `"normal"` when drained | silent backlog |
+| J14 `retried_video_old_failed_job_and_new_queued_job_are_independent` — fail a job via the real `/fail` endpoint, retry the video via `QueueAsync` (new run + new `Queued`/0 job), stage directories for both ids; after grace the old job's directory is removed and the new job's directory is preserved (1401 if it has attempts, silent if empty) | cross-job inference |
 
 ### Wire and platform (S1.2a/S1.2c) — W1–W4, W6, N1–N8 unchanged from revision 1.
 
@@ -667,11 +672,11 @@ As revision 1's S1.2b mapping: `common/analytical.py` (observations, accounting)
 2. Contracts + converters + constants + `GET /api/vision/contract`.
 3. Validator dispatch (v2 normalisation, v3 rules, digest v3) + tests; v2 tests untouched.
 4. Store multi-observation sealing/persistence/compensation; content allow-list; integration tests.
-5. **Staging janitor** (`IStagingJanitor`, safety helpers, hosted service, options, health details) + J1–J11 + Task-14 workflow filter.
+5. **Staging janitor** (`IStagingJanitor`, safety helpers, hosted service, options, health details) + J1–J14 + Task-14 workflow filter.
 6. Contract fixtures + `verify_repo` + canonicalisation tests (pins the golden digest).
 7. Docs (parent §16, runbook, README).
 
-Exit: Quality Gate + Task 17 + Task 14 green on the exact head; a `main` v2 worker completes against the S1.2a platform in the composition test; J2 proves crash-after-completion reclamation.
+Exit: Quality Gate + Task 17 + Task 14 green on the exact head; a `main` v2 worker completes against the S1.2a platform in the composition test; J2 proves crash-after-completion reclamation; J12 proves the backlog drain.
 
 ### S1.2b (one PR, ~4 commits; independent of S1.2a)
 1. `iter_trajectory_v1` + T1/T2 (pure).
@@ -696,7 +701,7 @@ Each boundary leaves `main` buildable, testable, deployable and contract-compati
 |---|---|---|---|
 | **C1** | S1-14 introduced a K-candidate Representative fallback reservoir. | Online "best admissible" holder rule; equivalence proof in §4.2; E6 measurement retained. | **Owner — recommended for ratification** (replaces an owner correction) |
 | **C2** | Parent §12.2/§12.6 require a Python-computed digest. | Digest stays server-side; cross-language agreement pinned on the body (§7.5). | Plan-level |
-| **C3 (revised)** | Neither the parent plan nor ADR-013 §5 accounts for the staging of a *successfully completed* attempt; revision 1 proposed a best-effort worker cleanup, which is not crash-safe. | Platform-owned **staging janitor** with database authority (§6.5, §10.5), worst-case retention ≈ 20 min; worker cleanup demoted to fast path. This **moves ownership** of staging reclamation from "worker courtesy / later GC" to the platform. ADR-006 needs an **amendment** (new decision "6. Platform-owned reclamation of worker staging": the platform reclaims `staging/{job}/attempt-*` using the VisionJob row as sole authority; worker cleanup is an optimisation; retention window stated). ADR-013 §5's sentence "cleaned by the existing attempt cleanup" should read "reclaimed by the platform staging janitor (ADR-006 §6), with worker attempt cleanup as a fast path". Neither ADR is edited in this PR. | **Owner — ADR-006 amendment + ADR-013 §5 wording** |
+| **C3 (revised)** | Neither the parent plan nor ADR-013 §5 accounts for the staging of a *successfully completed* attempt; revision 1 proposed a best-effort worker cleanup, which is not crash-safe. | Platform-owned **staging janitor** with database authority (§6.5, §10.5): normal reclamation target ≤ `Grace + Interval` (20 min with defaults) and an explicit backlog bound `Grace + ⌈(B+1)/M⌉ × Interval`; worker cleanup demoted to fast path. This **moves ownership** of staging reclamation from "worker courtesy / later GC" to the platform. ADR-006 needs an **amendment** (new decision "6. Platform-owned reclamation of worker staging": the platform reclaims `staging/{job}/attempt-*` using the VisionJob row as sole authority; worker cleanup is an optimisation; normal reclamation target and backlog bound stated; destructive authority limited to states the aggregate can reach). ADR-013 §5's sentence "cleaned by the existing attempt cleanup" should read "reclaimed by the platform staging janitor (ADR-006 §6), with worker attempt cleanup as a fast path". Neither ADR is edited in this PR. | **Owner — ADR-006 amendment + ADR-013 §5 wording** |
 | **C4 (revised)** | Parent: "≤ 4 × 160 KiB plus its trajectory-in-progress" left the trajectory term unbounded; revision 1 quantified it as 12·D and wrongly called that "independent of video length". | Trajectory spool (§6.3): live memory per Track is a constant ≈ 642 KiB; the trajectory lives in attempt staging until retirement. Parent §6.4's "trajectory-in-progress" as *live processing memory* becomes "one trajectory chunk". | Plan-level (ADR-013 §5 already says live memory is bounded by live Tracks; this makes it true) |
 | **C5** | v3 worker vs old platform burned an attempt. | Capability endpoint (§11.1). | Plan-level |
 | **C6** | Resolve precedence unspecified for NearView/Late. | Uniform resolve rule (§4.3). | Plan-level |
@@ -708,7 +713,7 @@ Each boundary leaves `main` buildable, testable, deployable and contract-compati
 
 ## 18. Acceptance criteria
 
-**S1.2a done when:** migration applied and tested; platform accepts v2 and v3 with distinct digests; v3 persists ≤ 4 observations with role/rank/score and `EvidenceCrop` artefacts; content serving covers `EvidenceCrop`; `GET /api/vision/contract` advertises both; golden v3 fixture and digest pinned; worst-shape body ≤ 48 MiB − 8 MiB; **staging janitor reclaims completed/failed/superseded attempts under J1–J11, including the crash-after-completion case, on POSIX and Windows**; Quality Gate + Task 17 + Task 14 green on head; a `main` v2 worker completes against it.
+**S1.2a done when:** migration applied and tested; platform accepts v2 and v3 with distinct digests; v3 persists ≤ 4 observations with role/rank/score and `EvidenceCrop` artefacts; content serving covers `EvidenceCrop`; `GET /api/vision/contract` advertises both; golden v3 fixture and digest pinned; worst-shape body ≤ 48 MiB − 8 MiB; **staging janitor reclaims completed/failed/superseded attempts under J1–J14, including the crash-after-completion case, the per-cycle-cap backlog drain with truthful observability, the fail-closed `Queued` states and the retried-video independence, on POSIX and Windows**; Quality Gate + Task 17 + Task 14 green on head; a `main` v2 worker completes against it.
 
 **S1.2b done when:** trajectory artefacts are byte-identical to the previous serializer (T1, T2, T9); per-live-Track memory is constant in Track length (T3, T4); spool is removed at retirement, on failure and by the next attempt (T5, T6); fd usage does not scale with live Tracks (T8); store primitives pass staging-security tests on both OSes; runner fast-path cleanup (W5); Task 10 filter widened; all gates green on head.
 
@@ -742,7 +747,8 @@ Register: B1, B3, B4 → "implemented — evidence pending S1.4"; **B2 → "in-l
 | Spool I/O on slow disks (one 96 KiB append per Track per ≈ 2.3 min at 30 fps) | no fsync; open-append-close; S1.4 measures | negligible expected |
 | Janitor and worker both deleting the same directory | both idempotent; ENOENT tolerated; grace ordering | none |
 | Janitor misconfigured `RootPath` | it only ever enumerates `{RootPath}/staging`; `StorageRootSafety` validates the root at start; J11 | none |
-| Platform down for a long period | no completions occur; backlog drains at 1,000 dirs/cycle on restart | bounded by cycle count |
+| Platform down for a long period, or a reclamation backlog (B > M) | no completions occur while down; on restart the backlog drains at M per cycle under the stated bound; 1407/1408 thresholds and health `backlogDepth`/`oldestEligibleAgeMinutes` make it visible | retention above the normal target until drained |
+| A future `VisionJob` transition (requeue, cancel) is added without updating the janitor | the janitor fails closed on `Queued && AttemptCount > 0` (1406) and logs `Cancelled` (1405); J4/J1 pin this; any such transition must revisit §6.5 | none beyond visibility |
 | Tracks > 1,000,000 samples (C9) | recorded; producible now | Scene Analytics `trajectory_invalid` for such Tracks (pre-existing) |
 | Sealing time under the row lock with ≤ 5 objects/Track | unchanged authority semantics; S1.4 measures | |
 | Cross-OS detector/tracker parity not asserted | out of scope; stated | |
