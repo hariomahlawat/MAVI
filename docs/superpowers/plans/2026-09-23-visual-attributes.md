@@ -1,6 +1,6 @@
 # MAVI Stage 2 — Visual Attributes
 
-**Status:** Draft architecture and implementation plan for independent review. No Stage-2 feature code is authorised by this document until the architecture review is closed and ADR-013 is accepted.  
+**Status:** Architecture frozen and implementation-sequencing plan accepted. This documentation PR contains no Stage-2 feature implementation.  
 **Date:** 2026-09-23  
 **Baseline:** `main@ca23adf55b0b4a14faf58e12d048a3c90221557c` — Stage 1 closed; post-merge Quality Gate #1945 and Task 17 Acceptance Validation #1089 green.  
 **Roadmap position:** Stage 2, immediately after Spatial & Temporal Track Analytics.  
@@ -516,7 +516,7 @@ Superseded analyses and orphaned supplemental crops remain under current evidenc
 
 ## 22. Architecture-first implementation slices
 
-Coding is intentionally blocked until S0 architecture closure.
+S0 architecture closure is complete. Feature coding remains a separate follow-on activity and begins only through the defined implementation slices.
 
 | Slice | Scope | Exit gate |
 |---|---|---|
