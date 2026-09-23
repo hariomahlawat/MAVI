@@ -18,10 +18,15 @@ public sealed class Observation
         float height,
         double confidence,
         double qualityScore,
+        int evidenceRank,
+        double selectionScore,
         DateTimeOffset? createdAtUtc = null)
     {
         if (trackId == Guid.Empty || sourceFrameNumber < 0 || videoOffsetMs < 0 ||
-            !BoxValid(x, y, width, height) || !InRange(confidence) || !InRange(qualityScore))
+            !BoxValid(x, y, width, height) || !InRange(confidence) || !InRange(qualityScore) ||
+            !InRange(selectionScore) || !Enum.IsDefined(observationType) ||
+            evidenceRank is < 0 or > MaximumEvidenceRank ||
+            (observationType == ObservationType.Representative) != (evidenceRank == 0))
             throw new DomainValidationException("observation_invalid", "The observation data is invalid.");
 
         return new Observation
@@ -38,11 +43,20 @@ public sealed class Observation
             BoundingBoxHeight = height,
             Confidence = confidence,
             QualityScore = qualityScore,
+            EvidenceRank = evidenceRank,
+            SelectionScore = selectionScore,
             CreatedAtUtc = (createdAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime(),
         };
     }
 
-    public void AttachThumbnailArtifact(Guid artifactId)
+    /// <summary>Highest rank an Evidence Set observation can carry (four roles, ranks 0..3).</summary>
+    public const int MaximumEvidenceRank = 3;
+
+    /// <summary>
+    /// Attaches the accepted crop (a historical <c>Thumbnail</c> or a v3 <c>EvidenceCrop</c>).
+    /// </summary>
+    /// <remarks>The column keeps its historical name <c>thumbnail_artifact_id</c>.</remarks>
+    public void AttachEvidenceArtifact(Guid artifactId)
     {
         if (artifactId == Guid.Empty || (ThumbnailArtifactId.HasValue && ThumbnailArtifactId.Value != artifactId))
             throw new DomainValidationException("observation_thumbnail_attachment_invalid", "Observation thumbnail attachment is invalid.");
@@ -61,6 +75,10 @@ public sealed class Observation
     public float BoundingBoxHeight { get; private set; }
     public double Confidence { get; private set; }
     public double QualityScore { get; private set; }
+    /// <summary>0 for Representative; 1..3 for the supplemental roles kept, in role order.</summary>
+    public int EvidenceRank { get; private set; }
+    /// <summary>The selector score admission ordered by; equals QualityScore for historical rows.</summary>
+    public double SelectionScore { get; private set; }
     public Guid? ThumbnailArtifactId { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
