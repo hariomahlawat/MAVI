@@ -2,7 +2,7 @@
 
 **Purpose:** the exact operator actions that close the Stage-1 exit-gate items which can only be executed on the Development machine (plan `docs/superpowers/plans/2026-09-22-scene-analytics-s7-hardening-acceptance.md` §25 items 4a, 7/12/18, 13 and 14). Each action states its command, what it must show, and where its result is recorded. Nothing here is Production qualification (Task 18).
 
-Run from a clean checkout of the PR #70 head on the Windows Development machine (PostgreSQL 18.6 on port 5433, live database `mavi_dev`), using the normal `Setup-MAVI-Development.cmd` environment. Every tool used is repository-local and standard-library only; none adds a dependency.
+Run from a clean checkout of the PR #70 head on the Windows Development machine (PostgreSQL 18.6 on the canonical MAVI Development service at port **55433**, live database `mavi_dev`), using the normal `Setup-MAVI-Development.cmd` environment. Every tool used is repository-local and standard-library only; none adds a dependency.
 
 Record each result in `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md` under *Development-machine actions*. Do not record a PASS for an action that was not run.
 
@@ -25,7 +25,7 @@ Paste the output into the performance report §8.3. Then apply the decision rule
 After the real-worker units have completed:
 
 ```powershell
-psql -h localhost -p 5433 -U <user> -d mavi_dev -x -f tools\qualification\development-unit-record.sql
+psql -h 127.0.0.1 -p 55433 -U <user> -d mavi_dev -x -f tools\qualification\development-unit-record.sql
 ```
 
 One record per analytical unit: identity, attempt, final-attempt duration (claim to fenced commit), analysed/unavailable counts, rows written per fact table and trajectory samples. **Pass criterion:** every Development-corpus unit is `Completed`, `unavailable_track_count` is explained (0 for the scripted videos), and `outcomes = analysed + unavailable`. Record the rows as item 4a.
@@ -86,7 +86,7 @@ The single source of truth is `tests/fixtures/scene-analytics/scripted-corpus-v1
 1. **Runtime identity** of the real-worker runs:
 
    ```powershell
-   psql -h localhost -p 5433 -U <user> -d mavi_dev -x -f tools\qualification\development-run-identity.sql
+   psql -h 127.0.0.1 -p 55433 -U <user> -d mavi_dev -x -f tools\qualification\development-run-identity.sql
    ```
 
    Prints, per completed run, the detector/tracker identity and the whole persisted runtime-provenance document: model and checkpoint digests, pipeline and runtime profiles, runtime variant, platform lock, qualification identity, configured and actual device with its resolution reason, dependency versions, GPU and the MAVI build and commit. Record the `2min.mp4` run's document as the real-worker runtime identity.
