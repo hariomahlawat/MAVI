@@ -10,7 +10,7 @@ from mavi_vision.common.analytical import ObjectClass
 from mavi_vision.detection.interfaces import DetectionCandidate
 from mavi_vision.runtime.errors import TrackerError
 from mavi_vision.runtime.profile import ByteTrackProfile
-from mavi_vision.tracking.interfaces import TrackCandidate
+from mavi_vision.tracking.interfaces import TrackCandidate, TrackerUpdate
 from mavi_vision.video.reader import DecodedFrame
 
 
@@ -27,6 +27,14 @@ class _ByteTrackBindings:
 class _TrackedRow:
     native_tracker_id: int
     detection: DetectionCandidate
+
+
+@dataclass(slots=True)
+class _LiveIdentity:
+    """A confirmed native identity that is still able to re-associate."""
+
+    mavi_track_id: str
+    last_seen_offset_ms: int
 
 
 def _load_bytetrack_bindings() -> _ByteTrackBindings:
@@ -48,6 +56,18 @@ class ByteTrackTracker:
     association domains. MAVI evidence is always recovered from the original
     detection by the round-tripped frame ordinal; native boxes/confidences and
     native output row order never become authoritative evidence.
+
+    Retirement (ADR-013 §5). Trackers 2.6 in timestamp mode accumulates, per
+    tracklet, the media seconds since its last matched detection and prunes it,
+    before association, once that exceeds ``lost_track_buffer / 30`` seconds; its
+    native ids are allocated monotonically and it keeps no removed-track list. The
+    backend exposes no removal event, so the adapter derives one: a live native id
+    is retired at the first accepted frame whose offset exceeds its last emission
+    by more than the lost budget plus one nominal frame interval. At that point
+    the backend has already pruned it, so the identity can never be matched
+    again. The live map is pruned on retirement; should a backend ever re-emit a
+    released native id, it receives a fresh MAVI id from the monotonic counter, so
+    a retired MAVI id can never reappear regardless of backend id reuse.
     """
 
     def __init__(self, profile: ByteTrackProfile) -> None:
@@ -61,8 +81,14 @@ class ByteTrackTracker:
             raise TrackerError("bytetrack_backend_initialization_failed") from None
 
         self._bindings = bindings
-        self._person_native_to_mavi: dict[int, str] = {}
-        self._vehicle_native_to_mavi: dict[int, str] = {}
+        self._person_live: dict[int, _LiveIdentity] = {}
+        self._vehicle_live: dict[int, _LiveIdentity] = {}
+        # Nominal interval from the profile, never measured frame spacing, so the
+        # rule is deterministic under variable frame rate.
+        self._retirement_threshold_ms = (
+            float(profile.lost_track_buffer_seconds) * 1000.0
+            + 1000.0 / float(profile.reference_frame_rate)
+        )
         self._person_counter = 0
         self._vehicle_counter = 0
         self._last_source_frame_number: int | None = None
@@ -84,7 +110,7 @@ class ByteTrackTracker:
         self,
         frame: DecodedFrame,
         detections: Sequence[DetectionCandidate],
-    ) -> tuple[TrackCandidate, ...]:
+    ) -> TrackerUpdate:
         if self._invalidated:
             raise TrackerError("bytetrack_attempt_invalidated")
 
@@ -125,20 +151,39 @@ class ByteTrackTracker:
                 timestamp_seconds,
             )
 
+            # Retirement is evaluated on every accepted frame after both domains
+            # advanced, and before this frame's rows are materialised. An identity
+            # past its budget was pruned by the backend before this association,
+            # so any row now carrying its native id is a new backend tracklet: it
+            # must start a new MAVI Track, never extend the retired one. Hence an
+            # id is never both emitted and retired in the same update.
+            retired = sorted(
+                self._retire_expired(self._person_live, frame.offset_ms)
+                + self._retire_expired(self._vehicle_live, frame.offset_ms)
+            )
+
             outputs: list[tuple[int, TrackCandidate]] = []
             outputs.extend(
                 self._materialize_class_outputs(
                     ObjectClass.PERSON,
                     person_rows,
-                    self._person_native_to_mavi,
+                    self._person_live,
+                    frame.offset_ms,
                 )
             )
             outputs.extend(
                 self._materialize_class_outputs(
                     ObjectClass.VEHICLE,
                     vehicle_rows,
-                    self._vehicle_native_to_mavi,
+                    self._vehicle_live,
+                    frame.offset_ms,
                 )
+            )
+
+            outputs.sort(key=lambda item: item[0])
+            update = TrackerUpdate(
+                candidates=tuple(candidate for _, candidate in outputs),
+                retired_track_ids=tuple(retired),
             )
         except TrackerError:
             # A native update may have mutated third-party tracker state before
@@ -151,9 +196,19 @@ class ByteTrackTracker:
         # and their outputs passed the complete backend contract validation.
         self._last_source_frame_number = frame.source_frame_number
         self._last_offset_ms = frame.offset_ms
+        return update
 
-        outputs.sort(key=lambda item: item[0])
-        return tuple(candidate for _, candidate in outputs)
+    def _retire_expired(
+        self,
+        live: dict[int, _LiveIdentity],
+        offset_ms: int,
+    ) -> list[str]:
+        expired = [
+            native_id
+            for native_id, identity in live.items()
+            if offset_ms - identity.last_seen_offset_ms > self._retirement_threshold_ms
+        ]
+        return [live.pop(native_id).mavi_track_id for native_id in expired]
 
     def _validate_frame_and_inputs(
         self,
@@ -296,11 +351,10 @@ class ByteTrackTracker:
         self,
         object_class: ObjectClass,
         rows: tuple[_TrackedRow, ...],
-        native_to_mavi: dict[int, str],
+        live: dict[int, _LiveIdentity],
+        offset_ms: int,
     ) -> list[tuple[int, TrackCandidate]]:
-        new_rows = [
-            row for row in rows if row.native_tracker_id not in native_to_mavi
-        ]
+        new_rows = [row for row in rows if row.native_tracker_id not in live]
         new_rows.sort(key=self._new_identity_sort_key)
 
         for row in new_rows:
@@ -310,15 +364,19 @@ class ByteTrackTracker:
             else:
                 self._vehicle_counter += 1
                 counter = self._vehicle_counter
-            native_to_mavi[row.native_tracker_id] = (
-                f"{object_class.value}-{counter:06d}"
+            live[row.native_tracker_id] = _LiveIdentity(
+                mavi_track_id=f"{object_class.value}-{counter:06d}",
+                last_seen_offset_ms=offset_ms,
             )
+
+        for row in rows:
+            live[row.native_tracker_id].last_seen_offset_ms = offset_ms
 
         return [
             (
                 row.detection.frame_ordinal,
                 TrackCandidate(
-                    track_id=native_to_mavi[row.native_tracker_id],
+                    track_id=live[row.native_tracker_id].mavi_track_id,
                     object_class=object_class,
                     confidence=row.detection.confidence,
                     bounding_box=row.detection.bounding_box,

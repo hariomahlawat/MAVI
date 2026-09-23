@@ -153,6 +153,13 @@ def test_exact_packages_compose_two_isolated_attempts_around_one_runtime(
         expected_source_sha256=sha256(payload).hexdigest(),
         lease_guard=_guard(),
     )
+    # Attempt 1 really staged its whole Track before attempt 2 existed.
+    first_paths = {
+        _artifact_path(tmp_path, first.tracks[0].thumbnail.storage_key),
+        _artifact_path(tmp_path, first.tracks[0].trajectory_artifact.storage_key),
+    }
+    assert all(path.is_file() for path in first_paths)
+
     second = processor.process(
         job_id=JOB_ID,
         attempt_count=2,
@@ -183,13 +190,14 @@ def test_exact_packages_compose_two_isolated_attempts_around_one_runtime(
     assert "/attempt-0002/" in second_thumbnail.storage_key
     assert "/attempt-0002/" in second_trajectory.storage_key
 
-    first_paths = {
-        _artifact_path(tmp_path, first_thumbnail.storage_key),
-        _artifact_path(tmp_path, first_trajectory.storage_key),
-    }
     second_paths = {
         _artifact_path(tmp_path, second_thumbnail.storage_key),
         _artifact_path(tmp_path, second_trajectory.storage_key),
     }
     assert first_paths.isdisjoint(second_paths)
-    assert all(path.is_file() for path in first_paths | second_paths)
+    assert all(path.is_file() for path in second_paths)
+    # A second attempt of the same job exists only once the platform has fenced
+    # the first (its completion is refused from then on), so the second attempt
+    # removes the superseded attempt's staging before processing (S1 plan §6.5).
+    assert not any(path.exists() for path in first_paths)
+    assert not (tmp_path / "staging" / str(JOB_ID) / "attempt-0001").exists()

@@ -37,6 +37,7 @@ from mavi_vision.detection.interfaces import DetectionCandidate  # noqa: E402
 from mavi_vision.runtime.profile import ByteTrackProfile  # noqa: E402
 import mavi_vision.tracking.bytetrack as bytetrack_module  # noqa: E402
 from mavi_vision.tracking.bytetrack import ByteTrackTracker  # noqa: E402
+from mavi_vision.tracking.interfaces import TrackerUpdate  # noqa: E402
 from mavi_vision.video.reader import DecodedFrame  # noqa: E402
 
 
@@ -210,7 +211,7 @@ def test_mavi_adapter_handles_regular_and_vfr_timestamp_gaps() -> None:
             tracker.update(
                 _frame(number, offset_ms),
                 (_candidate(ObjectClass.PERSON, 0, x=x),),
-            )
+            ).candidates
         )
     assert outputs[0] == ()
     confirmed = outputs[1][0].track_id
@@ -223,8 +224,8 @@ def test_mavi_person_vehicle_overlap_never_shares_association_state() -> None:
         _candidate(ObjectClass.PERSON, 0, x=0.2),
         _candidate(ObjectClass.VEHICLE, 1, x=0.2),
     )
-    assert tracker.update(_frame(1, 0), detections) == ()
-    confirmed = tracker.update(_frame(2, 33), detections)
+    assert tracker.update(_frame(1, 0), detections).candidates == ()
+    confirmed = tracker.update(_frame(2, 33), detections).candidates
     assert [(item.object_class, item.track_id) for item in confirmed] == [
         (ObjectClass.PERSON, "person-000001"),
         (ObjectClass.VEHICLE, "vehicle-000001"),
@@ -243,10 +244,10 @@ def test_crossing_association_is_independent_of_detection_input_order() -> None:
         second = _candidate(ObjectClass.PERSON, 1, x=x_b, y=0.55)
         timestamp = round(index * 1000 / 30)
         outputs_a.append(
-            tracker_a.update(_frame(index + 1, timestamp), (first, second))
+            tracker_a.update(_frame(index + 1, timestamp), (first, second)).candidates
         )
         outputs_b.append(
-            tracker_b.update(_frame(index + 1, timestamp), (second, first))
+            tracker_b.update(_frame(index + 1, timestamp), (second, first)).candidates
         )
     assert outputs_a[0] == outputs_b[0] == ()
     assert [_serialize(batch) for batch in outputs_a[1:]] == [
@@ -290,10 +291,46 @@ def test_exact_native_row_reordering_still_emits_original_mavi_evidence(
         _candidate(ObjectClass.PERSON, 0, x=0.105, confidence=0.73),
         _candidate(ObjectClass.PERSON, 1, x=0.605, confidence=0.77),
     )
-    assert tracker.update(_frame(1, 0), first) == ()
-    output = tracker.update(_frame(2, 33), second)
+    assert tracker.update(_frame(1, 0), first).candidates == ()
+    output = tracker.update(_frame(2, 33), second).candidates
     assert [item.bounding_box for item in output] == [
         second[0].bounding_box,
         second[1].bounding_box,
     ]
     assert [item.confidence for item in output] == [0.73, 0.77]
+
+
+def test_mavi_adapter_retires_only_after_the_native_backend_pruned_the_identity() -> None:
+    """The derived retirement event must trail the native prune, never lead it."""
+
+    tracker = ByteTrackTracker(_profile())
+    person = lambda: (_candidate(ObjectClass.PERSON, 0, x=0.2),)  # noqa: E731
+
+    assert tracker.update(_frame(1, 0), person()).candidates == ()
+    confirmed = tracker.update(_frame(2, 33), person())
+    assert [item.track_id for item in confirmed.candidates] == ["person-000001"]
+
+    # Unmatched for 987 ms of media time: inside the 1 s native budget, so the
+    # native tracklet is re-associated and the MAVI Track continues.
+    assert tracker.update(_frame(3, 500), ()) == TrackerUpdate(candidates=())
+    reacquired = tracker.update(_frame(4, 1020), person())
+    assert [item.track_id for item in reacquired.candidates] == ["person-000001"]
+    assert reacquired.retired_track_ids == ()
+
+    # Lost again. The adapter does not retire at the threshold itself...
+    at_threshold = tracker.update(_frame(5, 1020 + 1033), ())
+    assert at_threshold.retired_track_ids == ()
+    # ...but at the first frame past it, by which time the native backend has
+    # already pruned the tracklet.
+    retired = tracker.update(_frame(6, 1020 + 1034), ())
+    assert retired.retired_track_ids == ("person-000001",)
+
+    # The same object reappearing at the same place is a new Track: the native
+    # backend can no longer associate the pruned identity.
+    later = [
+        tracker.update(_frame(7, 2100), person()),
+        tracker.update(_frame(8, 2133), person()),
+    ]
+    emitted = [item.track_id for update in later for item in update.candidates]
+    assert emitted and set(emitted) == {"person-000002"}
+    assert all(update.retired_track_ids == () for update in later)

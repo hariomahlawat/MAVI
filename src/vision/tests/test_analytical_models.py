@@ -44,10 +44,6 @@ def _track(*, mean: float = 0.85, maximum: float = 0.9) -> ProcessedTrack:
         mean_confidence=mean,
         max_confidence=maximum,
         representative=_representative(),
-        trajectory=(
-            TrajectoryPoint(0, 0.2, 0.3),
-            TrajectoryPoint(1000, 0.4, 0.3),
-        ),
         thumbnail=_artifact("staging/job/thumbnails/fixture-0001.jpg"),
         trajectory_artifact=_artifact(
             "staging/job/trajectories/fixture-0001.msgpack", "b"
@@ -77,51 +73,23 @@ def test_processing_result_is_track_oriented_and_has_complete_confidence_facts()
     assert track.confidence == track.mean_confidence
 
 
-def test_track_rejects_invalid_confidence_or_detection_cardinality() -> None:
+def test_track_rejects_invalid_confidence_order() -> None:
     with pytest.raises(ValueError, match="track_confidence_order_invalid"):
         _track(mean=0.95, maximum=0.9)
 
-    with pytest.raises(ValueError, match="trajectory_detection_count_mismatch"):
-        ProcessedTrack(
-            track_id="fixture-0001",
-            object_class=ObjectClass.PERSON,
-            start_offset_ms=0,
-            end_offset_ms=1000,
-            detection_count=3,
-            mean_confidence=0.85,
-            max_confidence=0.9,
-            representative=_representative(),
-            trajectory=(
-                TrajectoryPoint(0, 0.2, 0.3),
-                TrajectoryPoint(1000, 0.4, 0.3),
-            ),
-            thumbnail=_artifact("staging/job/thumbnails/fixture-0001.jpg"),
-            trajectory_artifact=_artifact(
-                "staging/job/trajectories/fixture-0001.msgpack", "b"
-            ),
-        )
 
+def test_processed_track_is_descriptor_only() -> None:
+    """A finalised Track keeps no trajectory points or payloads.
 
-def test_trajectory_offsets_must_be_monotonic() -> None:
-    with pytest.raises(ValueError, match="trajectory_offsets_not_monotonic"):
-        ProcessedTrack(
-            track_id="fixture-0001",
-            object_class=ObjectClass.PERSON,
-            start_offset_ms=0,
-            end_offset_ms=1000,
-            detection_count=2,
-            mean_confidence=0.9,
-            max_confidence=0.9,
-            representative=_representative(),
-            trajectory=(
-                TrajectoryPoint(1000, 0.4, 0.3),
-                TrajectoryPoint(500, 0.2, 0.3),
-            ),
-            thumbnail=_artifact("staging/job/thumbnails/fixture-0001.jpg"),
-            trajectory_artifact=_artifact(
-                "staging/job/trajectories/fixture-0001.msgpack", "b"
-            ),
-        )
+    Tracks are finalised when they retire and are held until completion; a point
+    list here would make completion memory grow with every detection. Trajectory
+    invariants are enforced by ``prepare_track`` instead.
+    """
+    fields = set(ProcessedTrack.__dataclass_fields__)
+
+    assert "trajectory" not in fields
+    assert not any("payload" in name for name in fields)
+    assert {"thumbnail", "trajectory_artifact"} <= fields
 
 
 def test_artifact_descriptor_rejects_noncanonical_storage_key_and_sha() -> None:

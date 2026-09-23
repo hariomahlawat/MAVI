@@ -17,7 +17,7 @@ from mavi_vision.detection.interfaces import DetectionCandidate
 from mavi_vision.pipeline.process_video import VideoProcessor
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.tracking.fixture import FixtureTracker
-from mavi_vision.tracking.interfaces import TrackCandidate
+from mavi_vision.tracking.interfaces import TrackCandidate, TrackerUpdate
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd761")
@@ -116,7 +116,7 @@ def test_deadline_expiry_during_detector_stops_before_tracker(tmp_path: Path) ->
         def update(self, frame, detections):
             nonlocal tracker_called
             tracker_called = True
-            return ()
+            return TrackerUpdate(candidates=())
 
     processor = VideoProcessor(
         ExpiringDetector(),
@@ -140,13 +140,15 @@ def test_deadline_expiry_during_tracker_stops_before_finalization(tmp_path: Path
         def update(self, frame, detections):
             nonlocal now
             now = BASE + timedelta(seconds=2)
-            return (
-                TrackCandidate(
-                    track_id="person-0001",
-                    object_class=ObjectClass.PERSON,
-                    confidence=0.9,
-                    bounding_box=detections[0].bounding_box,
-                ),
+            return TrackerUpdate(
+                candidates=(
+                    TrackCandidate(
+                        track_id="person-0001",
+                        object_class=ObjectClass.PERSON,
+                        confidence=0.9,
+                        bounding_box=detections[0].bounding_box,
+                    ),
+                )
             )
 
     processor = VideoProcessor(

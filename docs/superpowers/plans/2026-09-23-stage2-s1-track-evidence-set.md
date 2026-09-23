@@ -68,7 +68,7 @@ A retired MAVI Track id:
 - is replaced by a fresh MAVI id if a backend native id is ever reused;
 - is emitted in deterministic order.
 
-For ByteTrack, retirement of a native id is derived at an accepted update **U** when both hold: (a) the id is absent from U's confirmed outputs, and (b) `U.offset_ms − last_seen_offset_ms(id) > lostTrackBufferSeconds × 1000 + 1000 / referenceFrameRate`. The margin is one **nominal** frame interval from the profile, not the spacing of the actual frames, so it is deterministic under variable frame rate. The native tracker (`test_bytetrack_runtime.py::test_native_time_budget_retains_inside_and_expires_beyond_one_second`) drops a lost track at the first update whose media time exceeds the budget and assigns a *new* native id when the object returns; the adapter therefore never retires an id the backend could still match. Should the backend ever re-emit a retired native id anyway, the mapping-release rule below maps it to a fresh MAVI id, so no-reappearance holds regardless.
+For ByteTrack, retirement of a live native id is derived at an accepted update **U** when `U.offset_ms − last_seen_offset_ms(id) > lostTrackBufferSeconds × 1000 + 1000 / referenceFrameRate`, evaluated after both native domains advanced for U and before U's rows are materialised (so a row that carries that native id in U is, by then, a new backend tracklet and receives a fresh MAVI id; see §6.2). The margin is one **nominal** frame interval from the profile, not the spacing of the actual frames, so it is deterministic under variable frame rate. The native tracker (`test_bytetrack_runtime.py::test_native_time_budget_retains_inside_and_expires_beyond_one_second`) drops a lost track at the first update whose media time exceeds the budget and assigns a *new* native id when the object returns; the adapter therefore never retires an id the backend could still match. Should the backend ever re-emit a retired native id anyway, the mapping-release rule below maps it to a fresh MAVI id, so no-reappearance holds regardless.
 
 At end-of-stream, every still-live Track is finalised without requiring a synthetic retirement event.
 
@@ -232,11 +232,11 @@ There is no "retired" flag and no retired map: retirement deletes the entry. No-
 Retirement rule (per class domain, evaluated after both native domains have been updated and validated for the frame):
 
 - record `last_seen_offset_ms` for every native id that appears in the confirmed outputs of an accepted update;
-- a native id is retired at update U iff it has a mapping, is absent from U's confirmed outputs, and `U.offset_ms − last_seen_offset_ms > lostTrackBufferSeconds × 1000 + 1000 / referenceFrameRate`;
+- a native id is retired at update U iff it has a mapping and `U.offset_ms − last_seen_offset_ms > lostTrackBufferSeconds × 1000 + 1000 / referenceFrameRate`; this is evaluated before U's confirmed rows are materialised, because the backend pruned that identity before U's association, so a U row carrying the same native id is a new tracklet and must not extend the retired Track *(clarified in S1.1: conditioning on "absent from U's outputs" would let a reused native id silently merge two objects into one MAVI Track)*;
 - retirement evaluation runs on every accepted frame, including frames with no detections of that class (the adapter already advances both native domains on such frames, so ageing is consistent);
 - on retirement the native→MAVI entry is deleted; the MAVI id is appended to the update's `retired_track_ids`;
 - if a deleted native id is emitted again later, it is a new object to MAVI and receives a fresh id from the monotonic per-class counter;
-- a MAVI id can never be both a candidate and retired in one update, because retirement requires absence from that update's outputs;
+- a MAVI id can never be both a candidate and retired in one update, because retirement deletes the entry before the update's rows are mapped, so any row for that native id is allocated a fresh MAVI id;
 - the map therefore holds exactly the live confirmed ids, and the retired set is emitted sorted by MAVI id.
 
 The implementation MUST derive time progression from the accepted frame's `offset_ms` already validated monotonic by the adapter. `VideoProcessor` MUST NOT import/use `ByteTrackProfile.lost_track_buffer`. The frame interval is `1000 / ByteTrackProfile.reference_frame_rate` from the profile; the adapter never measures actual frame spacing.
@@ -351,6 +351,16 @@ Mandatory discriminating cases:
 15. a retired id at update U is absent from U's candidates, and an id retired at U is never emitted at any later update (fails on same-update overlap or resurrection);
 16. retirement fires at the first accepted update past `budget + 1000/referenceFrameRate` and not one update earlier (fails on early retirement);
 17. the worker's completion Track order is canonical regardless of retirement order.
+
+### S1.1 implementation record
+
+Recorded when S1.1 was implemented, so the plan, ADR-013 §5 and the code agree:
+
+- **Native semantics verified against the pinned backend source** (`trackers==2.6.0`, timestamp mode): each tracklet accumulates the media seconds since its last matched detection during prediction and is pruned *before* association once that exceeds `lost_track_buffer / 30` s; native ids are allocated from a monotonic counter and never reused; the backend keeps no removed-track list and emits no removal event; tentative tracklets are output with id `-1`. The adapter's derived rule therefore fires strictly after the backend prune, which `test_bytetrack_runtime.py::test_mavi_adapter_retires_only_after_the_native_backend_pruned_the_identity` proves against the real backend.
+- **Consumer enforcement.** `TrackerUpdate` enforces the per-update invariants on construction (`tracker_update_invalid`, `tracker_update_candidate_duplicate`, `tracker_update_retirement_duplicate`, `tracker_update_retirement_unordered`, `tracker_update_retired_candidate`). `VideoProcessor` re-checks the cross-update half: a candidate for a finalised Track (`tracker_track_reappeared_after_retirement`), the retirement of a Track that is not live (`tracker_retired_unknown_track`) and a non-`TrackerUpdate` return (`tracker_update_invalid`). All are `TrackerError` (`vision_tracker_failed`, disposition CONTINUE) and fail the attempt through the existing cleanup path.
+- **One finalisation path.** Mid-stream retirement and the end-of-stream drain both call the same `_finalise_track` (lease check → `prepare_track` → lease check → stage → lease check); the drain runs only over Tracks still live, so a Track retired in the final frame is not finalised again.
+- **Deferred to S1.2, by design.** S1.1 still holds the single Representative as one raw RGB crop per *live* Track (released at retirement); in-loop JPEG encoding and the bounded encoded-candidate reservoir arrive with the Evidence Set in S1.2. The completion wire contract stays v2.
+- **Failure and lease loss.** A failed attempt removes its whole staging prefix, including Tracks it already finalised mid-stream; nothing finalised by a failed or lease-lost attempt is ever part of a result. A lease-lost attempt deletes nothing; its prefix is removed by the next attempt's `cleanup_superseded_attempts`, which selects only canonical `attempt-NNNN` siblings numbered below its own lease's attempt count and refuses (`staging_path_escape`) rather than follows a linked attempt directory.
 
 ### S1.1 exit condition
 
@@ -788,7 +798,7 @@ Therefore:
 Do not silently reuse a pre-S1 pipeline-profile hash.
 
 Two mechanics make this concrete:
-- Task 10's path triggers (`.github/workflows/task10-runtime-qualification.yml`) cover `mavi_vision/runtime/**`, `models/**` and `src/vision/runtime/**/*.json`, **not** `mavi_vision/pipeline/**` or `mavi_vision/tracking/**`. S1.1 therefore runs Task 10 by `workflow_dispatch` on its exact head and records the run ids; S1.2 adds `src/vision/mavi_vision/**` and `src/vision/config/pipelines/**` to the triggers so later pipeline changes cannot merge unqualified by omission.
+- Task 10's path triggers (`.github/workflows/task10-runtime-qualification.yml`) already cover `mavi_vision/runtime/**`, `mavi_vision/pipeline/**`, `mavi_vision/tracking/**`, `common/analytical.py`, `src/vision/config/pipelines/**`, `models/**` and `src/vision/runtime/**/*.json` on both `pull_request` and `push` *(corrected in S1.1: an earlier draft of this plan stated that pipeline/tracking were not covered; the workflow on `main` at `2112d3a` covers them)*. S1.1 is therefore qualified by the Task 10 run its own PR triggers, whose run ids and exact head are recorded in the PR; `workflow_dispatch` remains available for re-runs. S1.2 widens the triggers to all of `src/vision/mavi_vision/**` so evidence/storage modules cannot merge unqualified by omission.
 - `models/qualifications/rtmdet-m-coco-phase1-v1.json` records `pipelineProfileSha256`; the S1.2 profile schema bump changes that SHA, and `verify_qualification_relationships` compares it, so the record is re-derived in the same PR (it stays `pending`; nothing is claimed).
 
 Non-claims during S1: the Development CUDA runtime evidence (C4) binds the runtime variant, not the pipeline, and stays valid; no E2E (C6) evidence exists to rebind; the RTMDet manifest remains `unverified` and `runtime.json` `partial` throughout; no S1 sub-PR states a qualification claim beyond "Task 10 CPU matrices green on head X".

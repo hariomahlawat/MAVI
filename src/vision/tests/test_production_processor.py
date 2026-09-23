@@ -29,7 +29,7 @@ from mavi_vision.runtime.errors import (
 from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
 from mavi_vision.storage.artifact_store import StagingArtifactError, StagingArtifactStore
 from mavi_vision.storage.integrity import SourceIntegrityError
-from mavi_vision.tracking.interfaces import TrackCandidate
+from mavi_vision.tracking.interfaces import TrackCandidate, TrackerUpdate
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd771")
@@ -583,13 +583,15 @@ def test_real_video_processor_keeps_attempt_artifacts_and_tracker_state_isolated
 
         def update(self, frame, detections):
             detection = tuple(detections)[0]
-            return (
-                TrackCandidate(
-                    track_id="person-000001",
-                    object_class=detection.object_class,
-                    confidence=detection.confidence,
-                    bounding_box=detection.bounding_box,
-                ),
+            return TrackerUpdate(
+                candidates=(
+                    TrackCandidate(
+                        track_id="person-000001",
+                        object_class=detection.object_class,
+                        confidence=detection.confidence,
+                        bounding_box=detection.bounding_box,
+                    ),
+                )
             )
 
     monkeypatch.setattr(production_module, "RTMDetDetector", FakeDetector, raising=False)
@@ -610,6 +612,9 @@ def test_real_video_processor_keeps_attempt_artifacts_and_tracker_state_isolated
         expected_source_sha256=digest,
         lease_guard=_guard(),
     )
+    first_thumbnail = tmp_path.joinpath(*first.tracks[0].thumbnail.storage_key.split("/"))
+    assert first_thumbnail.is_file()
+
     second = processor.process(
         job_id=JOB_ID,
         attempt_count=2,
@@ -624,6 +629,13 @@ def test_real_video_processor_keeps_attempt_artifacts_and_tracker_state_isolated
     assert first.tracks[0].track_id == second.tracks[0].track_id == "person-000001"
     assert "/attempt-0001/" in first.tracks[0].thumbnail.storage_key
     assert "/attempt-0002/" in second.tracks[0].thumbnail.storage_key
+    # The composed processor removes the superseded attempt's staging (S1 plan
+    # §6.5) and keeps the current attempt's. This mirrors the exact-package
+    # qualification in test_production_processor_runtime.py so the default suite
+    # observes the same cross-attempt staging contract.
+    assert not first_thumbnail.exists()
+    assert not (tmp_path / "staging" / str(JOB_ID) / "attempt-0001").exists()
+    assert tmp_path.joinpath(*second.tracks[0].thumbnail.storage_key.split("/")).is_file()
 
 
 def test_import_does_not_eagerly_load_optional_ml_packages() -> None:

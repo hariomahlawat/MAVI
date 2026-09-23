@@ -25,7 +25,6 @@ from mavi_vision.common.analytical import (
     ObjectClass,
     ProcessedTrack,
     RepresentativeObservation,
-    TrajectoryPoint,
     VisionProcessingResult,
 )
 from mavi_vision.common import gpu_digest
@@ -72,9 +71,6 @@ def _track(track_id: str, detections: int) -> ProcessedTrack:
             confidence=0.9,
             bounding_box=NormalizedBoundingBox(0.1, 0.1, 0.2, 0.4),
             quality_score=0.8,
-        ),
-        trajectory=tuple(
-            TrajectoryPoint(1000 * index, 0.2, 0.3) for index in range(detections)
         ),
         thumbnail=_artifact(f"staging/job/thumbnails/{track_id}.jpg"),
         trajectory_artifact=_artifact(f"staging/job/trajectories/{track_id}.msgpack"),
