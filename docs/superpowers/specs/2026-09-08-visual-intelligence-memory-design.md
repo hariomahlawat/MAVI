@@ -880,6 +880,8 @@ No Phase-1 acceptance criterion requires real-time processing.
 
 ## 15. Keyframe and Quality Policy
 
+> **Stage-2 evolution (2026-09-23):** This Phase-1 four-keyframe policy is retained as historical design context. For Stage 2 and later, the authoritative analytical Track Evidence Set is defined by ADR-013 and the Stage-2 parent plan: Representative, NearView, EarlyDiverse and LateDiverse under explicit per-crop/run byte bounds. There MUST NOT be a second independent keyframe/evidence selector. Any implementation of the legacy TrackStart/BestQuality/TrackEnd observation roles must be mapped deliberately to the ADR-013 evidence contract or retired.
+
 For each Track, attempt to retain:
 
 1. Track-start observation.
