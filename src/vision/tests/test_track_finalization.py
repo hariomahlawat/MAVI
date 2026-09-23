@@ -66,6 +66,51 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
     assert deserialize_trajectory(first.trajectory_payload) == trajectory
 
 
+
+def test_prepare_track_tolerates_floating_point_accumulation_noise() -> None:
+    crop = np.full((12, 10, 3), 120, dtype=np.uint8)
+    count = 250
+    confidence = 0.9
+    trajectory = tuple(TrajectoryPoint(index * 40, 0.3, 0.4) for index in range(count))
+
+    prepared = prepare_track(
+        track_id="person-0001",
+        object_class=ObjectClass.PERSON,
+        start_offset_ms=0,
+        end_offset_ms=(count - 1) * 40,
+        confidence_sum=sum([confidence] * count),
+        max_confidence=confidence,
+        observation_count=count,
+        representative=_representative(),
+        representative_crop=crop,
+        trajectory=trajectory,
+    )
+
+    assert prepared.mean_confidence == confidence
+    assert prepared.max_confidence == confidence
+
+
+def test_prepare_track_rejects_materially_inconsistent_confidence_aggregate() -> None:
+    crop = np.full((12, 10, 3), 120, dtype=np.uint8)
+    trajectory = (
+        TrajectoryPoint(0, 0.3, 0.4),
+        TrajectoryPoint(40, 0.4, 0.4),
+    )
+
+    with pytest.raises(ValueError, match="track_confidence_invalid"):
+        prepare_track(
+            track_id="person-0001",
+            object_class=ObjectClass.PERSON,
+            start_offset_ms=0,
+            end_offset_ms=40,
+            confidence_sum=1.81,
+            max_confidence=0.9,
+            observation_count=2,
+            representative=_representative(),
+            representative_crop=crop,
+            trajectory=trajectory,
+        )
+
 def test_prepare_track_rejects_missing_observations() -> None:
     with pytest.raises(ValueError, match="track_observation_missing"):
         prepare_track(
