@@ -123,7 +123,7 @@ Consequences: a new Development capability does not become Production-qualified 
 |---|---|
 | `docs/superpowers/plans/capability-roadmap.md` (this file) | Authoritative current capability roadmap: what we build next and why |
 | `docs/superpowers/plans/capability-implementation-roadmap.md` | Authoritative implementation roadmap: stage dependencies, per-stage technical impact, qualification-preservation matrix, risks, ADR needs |
-| `docs/superpowers/plans/2026-09-20-spatial-temporal-track-analytics.md` | Implementation-grade plan for the next feature (stage 1) |
+| `docs/superpowers/plans/2026-09-20-spatial-temporal-track-analytics.md` | Completed implementation-grade plan for Stage 1; closed by PR #70 and post-merge verification on `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d` |
 | `docs/superpowers/plans/2026-09-20-audited-review-and-cases-plan.md` | Deferred design for stage 10; not active |
 | `docs/superpowers/plans/2026-09-19-visual-intelligence-workspace.md` | Record of the delivered operator workspace (PR #50); its original "next feature" is superseded here |
 | `docs/superpowers/plans/2026-09-13-phase1-roadmap-rebaseline.md` | Phase-1 task status (Tasks 13–17 complete, Task 18 active) |
