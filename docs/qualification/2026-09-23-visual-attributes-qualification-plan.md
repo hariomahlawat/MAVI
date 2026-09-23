@@ -234,7 +234,8 @@ Measure separately for supported CPU and CUDA Development variants where applica
 - heartbeat margin versus lease duration;
 - timeout/watchdog behaviour;
 - bounded recovery after model failure;
-- behaviour when detector and attribute roles share one host but separate processes.
+- behaviour when detector and attribute roles share one host but separate processes;
+- **variant equivalence**: where a release profile binds the same Model Pack on more than one runtime variant (CPU and CUDA), Track-level outcomes on the frozen test set must agree within a predeclared tolerance, because runtime variant is provenance rather than analysis identity (ADR-013 §11); a variant that fails equivalence is not bound for that profile.
 
 A classifier OOM/crash must not invalidate the detector/tracker process or completed ProcessingRun.
 

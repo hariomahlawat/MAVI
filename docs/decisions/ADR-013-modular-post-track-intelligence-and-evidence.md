@@ -97,7 +97,7 @@ Two consequences are stated so they are not discovered in implementation:
 - At quality 85 a 1024-px-long-edge crop of natural imagery typically encodes to 100–160 KiB, so the 64 KiB Representative cap implies an effective Representative ceiling of roughly 600–700 px long edge for large subjects. **Representative is the display/summary crop; NearView (160 KiB) is the analytic-resolution carrier** on which later plate/embedding work depends. Qualification §8 measures the quality impact of both caps.
 - Deterministic reduction has a floor: the long edge is never reduced below **128 px** and quality never below **50**. A candidate that still exceeds its cap at the floor is not admitted for that role (Representative then falls back to the next-best qualified candidate; the run fails only if no Representative can be produced for an accepted Track).
 
-**Memory and staging behaviour.** The current pipeline retains one raw RGB crop per Track for the whole run and finalises only after decoding ends. Contract v3 changes this: an encoded candidate is written to attempt-scoped staging when it is selected and its predecessor for the same role is deleted; the accumulator retains only descriptors. Worker memory is therefore bounded by *live* Tracks × 4 encoded crops (≤ 544 KiB per live Track), not by all Tracks. Staging disk is bounded by all candidates before run-level admission: at 10,000 Tracks that is at most 10,000 × 544 KiB ≈ 5.2 GiB of transient attempt-scoped staging, cleaned by the existing attempt cleanup. Run-level admission (§6) happens at finalisation, when every candidate is known.
+**Memory and staging behaviour.** The current pipeline retains one raw RGB crop per Track for the whole run and finalises only after decoding ends. Contract v3 changes this in two steps. While a Track is live, its current best candidate per role is held **encoded** (a replacement re-encodes and discards the predecessor), so memory per live Track is at most 4 × 160 KiB ≈ 544 KiB and worker memory is bounded by *live* Tracks, not by all Tracks. When the tracker ends a Track (lost-track buffer expiry) — or at end of decode for Tracks still live — its candidates are written once to attempt-scoped staging and the accumulator keeps descriptors only; this avoids re-writing staging on every replacement. Staging disk is bounded by all candidates before run-level admission: at 10,000 Tracks that is at most 10,000 × 544 KiB ≈ 5.2 GiB of transient attempt-scoped staging, cleaned by the existing attempt cleanup. Run-level admission (§6) happens at finalisation, when every candidate is known; omitted candidates are simply never referenced.
 
 ### 6. Evidence storage is bounded at both Track and ProcessingRun level
 
@@ -194,7 +194,7 @@ The read endpoint is bound to the unit's lease, not to the operator session:
 - every read is logged with unit id, attempt, Observation id, bytes and outcome, so evidence access by executors is auditable;
 - cancellation of the unit ends in-flight reads.
 
-The **prediction artefact travels the same way in reverse**. The attribute executor does not write to worker staging or to any platform filesystem: it uploads the sealed-to-be `AttributePredictions` bytes through a lease-scoped, size-capped upload endpoint in the same trust family; the platform verifies the declared size and SHA-256 while streaming, stages under an attempt-scoped key and seals it under ADR-006 at completion exactly as VisionJob artefacts are sealed. A completion whose declared artefact SHA does not match the uploaded bytes is `vision_result_artifact_integrity_failed` and nothing publishes.
+The **prediction artefact travels the same way in reverse**. The attribute executor does not write to worker staging or to any platform filesystem: it uploads the `AttributePredictions` bytes through a lease-scoped, size-capped upload endpoint in the same trust family; the platform verifies the declared size and SHA-256 while streaming, stages under an attempt-scoped key and seals it under ADR-006 at completion exactly as VisionJob artefacts are sealed. A completion whose declared artefact SHA does not match the uploaded bytes is `vision_result_artifact_integrity_failed` and nothing publishes.
 
 Direct filesystem access from the attribute worker to the accepted-evidence root, and to worker staging, is prohibited.
 
@@ -202,15 +202,15 @@ With reads and the single upload both network contracts, the attribute role has 
 
 ### 11. Analysis identity is immutable and qualification-relevant
 
-A VisualAttributeAnalysis identity includes at minimum:
+A VisualAttributeAnalysis identity is exactly:
 - ProcessingRunId;
 - attribute schema version/SHA;
 - attribute pipeline version;
 - aggregation-policy version/SHA;
 - ordered capability/model-pack identities;
-- parameters SHA-256;
-- runtime-pack identity/variant;
-- platform build/commit identity.
+- parameters SHA-256.
+
+Runtime-pack identity and variant, actual device, platform build and commit are **provenance, not identity**: they are recorded on the analysis header and enter the completion digest, but they do not create a new analysis. This follows ADR-011 Decision 3 (the commit never participates in identity or staleness). Were the variant part of identity, running the same model on a CPU host and later on a CUDA host would manufacture a "newer" analysis that supersedes a semantically identical one, and every deployment would mark history Stale. The corollary is a qualification obligation: a release profile may bind a model pack on more than one runtime variant only when qualification has shown those variants produce equivalent outcomes within the declared tolerance (qualification plan §10/§16); otherwise the profile binds the qualified variant alone.
 
 A materially different identity creates a new immutable analysis. A completed newer analysis may supersede the previous default. Historical analyses remain readable.
 
@@ -313,7 +313,7 @@ Attribute search may span cameras. It therefore must not reuse the camera-bound 
 
 Stage 2 defines a **v4 HMAC-signed cursor** that pins:
 - Track-search snapshot position/sequence;
-- the resolved **attribute capability identity fingerprint** — the SHA-256 of the canonical tuple (attribute schema SHA, attribute pipeline version, aggregation-policy SHA, ordered capability/model-pack ids, runtime-pack identity); the first page resolves the tuple from the enabled bindings and returns it in full in the coverage block, and the cursor carries only the 64-hex fingerprint;
+- the resolved **attribute capability identity fingerprint** — the SHA-256 of the canonical tuple (attribute schema SHA, attribute pipeline version, aggregation-policy SHA, ordered capability/model-pack ids, parameters SHA), i.e. the §11 identity without the run; the first page resolves the tuple from the enabled bindings and returns it in full in the coverage block, and the cursor carries only the 64-hex fingerprint;
 - attribute coverage counts/state required to preserve result meaning;
 - analytics identity as well when analytics and attribute predicates are combined.
 

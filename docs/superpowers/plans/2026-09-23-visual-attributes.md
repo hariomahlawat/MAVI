@@ -219,7 +219,7 @@ Supplemental evidence is admitted in deterministic rounds by role (NearView, Ear
 
 The 64 KiB Representative cap implies an effective Representative ceiling of roughly 600–700 px long edge for large subjects; Representative is the display/summary crop and NearView is the analytic-resolution carrier. Deterministic reduction never goes below 128 px long edge or quality 50.
 
-Encoded candidates are staged to attempt-scoped storage when selected (the predecessor for that role is deleted); the accumulator retains descriptors only, so worker memory is bounded by live Tracks × ≤544 KiB. Transient staging before admission is bounded by 10,000 × 544 KiB ≈ 5.2 GiB and is cleaned with the attempt.
+While a Track is live its current best candidate per role is held encoded (≤544 KiB per live Track); when the tracker ends the Track its candidates are written once to attempt-scoped staging and only descriptors are retained. Worker memory is bounded by live Tracks; transient staging before admission is bounded by 10,000 × 544 KiB ≈ 5.2 GiB and is cleaned with the attempt.
 
 Completion reports candidate/admitted/omitted counts and bytes by role. The v2 512 MiB aggregate bound becomes the trajectory/other-artefact quota; EvidenceCrop bytes count against the separate 1 GiB quota.
 
@@ -329,15 +329,15 @@ This boundary is mandatory because it preserves both forensic ownership and futu
 
 ## 12. Analysis identity and provenance
 
-VisualAttributeAnalysis identity includes at minimum:
+VisualAttributeAnalysis identity is exactly:
 - ProcessingRunId;
 - attribute schema version/SHA;
 - attribute pipeline version;
 - aggregation policy version/SHA;
 - ordered capability/Model Pack identities;
-- parameters SHA;
-- Runtime Pack identity/variant;
-- platform build/commit.
+- parameters SHA.
+
+Runtime Pack identity/variant, actual device and platform build/commit are provenance on the header and enter the digest, but are not identity (ADR-013 §11): a variant or build change must not manufacture a superseding analysis. Binding one model pack on more than one runtime variant requires qualified variant equivalence.
 
 Persist provenance including:
 - capabilityId;
@@ -439,7 +439,7 @@ Attribute search introduces **cursor v4**.
 
 v4 pins:
 - Track-search snapshot identity/keyset position;
-- the resolved attribute capability identity **fingerprint** (SHA-256 of the canonical schema/pipeline/aggregation/model-pack/runtime-pack tuple); the full tuple is returned in the first page's coverage block, and per-run analyses are resolved on continuation by that fingerprint;
+- the resolved attribute capability identity **fingerprint** (SHA-256 of the canonical schema/pipeline/aggregation/model-pack/parameters tuple — the analysis identity without the run); the full tuple is returned in the first page's coverage block, and per-run analyses are resolved on continuation by that fingerprint;
 - relevant attribute coverage state/counts.
 
 Attribute-only search may span cameras.
