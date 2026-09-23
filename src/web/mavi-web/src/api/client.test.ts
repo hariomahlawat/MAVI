@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiRequest } from './client';
+import { ApiError, DEFAULT_API_READ_TIMEOUT_MS, apiRequest } from './client';
 import { importVideo } from './videos';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -60,17 +61,99 @@ describe('API client', () => {
     });
   });
 
-  it('passes cancellation through to fetch', async () => {
+  it('composes caller cancellation into the bounded read signal', async () => {
     const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_path: string, init?: RequestInit) => {
+      receivedSignal = init?.signal ?? undefined;
+      return Promise.reject(new DOMException('caller cancelled', 'AbortError'));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const request = apiRequest('/api/test', { signal: controller.signal });
+    controller.abort(new DOMException('caller cancelled', 'AbortError'));
+
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    expect(receivedSignal).toBeDefined();
+    expect(receivedSignal).not.toBe(controller.signal);
+    expect(receivedSignal?.aborted).toBe(true);
+  });
+
+  it('times out a local read that never resolves', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_path: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    let settled = false;
+    const request = apiRequest('/api/test').finally(() => { settled = true; });
+    const rejected = expect(request).rejects.toMatchObject({ name: 'TimeoutError' });
+    await vi.advanceTimersByTimeAsync(DEFAULT_API_READ_TIMEOUT_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await rejected;
+  });
+
+  it('keeps an already-aborted caller authoritative, with its own reason', async () => {
+    const controller = new AbortController();
+    const reason = new DOMException('left the page', 'AbortError');
+    controller.abort(reason);
+    let received: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn((_path: string, init?: RequestInit) => {
+      received = init?.signal ?? undefined;
+      return Promise.reject(init?.signal?.reason);
+    }));
+
+    await expect(apiRequest('/api/test', { signal: controller.signal })).rejects.toBe(reason);
+    expect(received?.aborted).toBe(true);
+    expect(received?.reason).toBe(reason);
+  });
+
+  it('clears the read timeout once the response has been read', async () => {
+    vi.useFakeTimers();
+    let received: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn((_path: string, init?: RequestInit) => {
+      received = init?.signal ?? undefined;
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    }));
+
+    await expect(apiRequest('/api/test')).resolves.toEqual({ ok: true });
+    await vi.advanceTimersByTimeAsync(DEFAULT_API_READ_TIMEOUT_MS * 2);
+
+    expect(received?.aborted).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('bounds HEAD like GET, and leaves a server error a server error', async () => {
+    let received: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn((_path: string, init?: RequestInit) => {
+      received = init?.signal ?? undefined;
+      return Promise.resolve(new Response(
+        JSON.stringify({ status: 503, code: 'database_unavailable', detail: 'Database unavailable.' }),
+        { status: 503, headers: { 'Content-Type': 'application/problem+json' } },
+      ));
+    }));
+
+    await expect(apiRequest('/api/test', { method: 'HEAD' }))
+      .rejects.toMatchObject({ name: 'ApiError', status: 503, code: 'database_unavailable' });
+    expect(received).toBeInstanceOf(AbortSignal);
+  });
+
+  it('does not impose the read timeout on mutating requests', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await apiRequest('/api/test', { signal: controller.signal });
+    await apiRequest('/api/test', { method: 'POST' });
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/test', { signal: controller.signal });
+    expect(fetchMock).toHaveBeenCalledWith('/api/test', { method: 'POST' });
   });
 
   it('lets the browser own the multipart boundary', async () => {

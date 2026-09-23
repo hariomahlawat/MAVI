@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import sys
 
 import numpy as np
 from PIL import Image
@@ -59,6 +60,18 @@ def prepare_track(
         raise ValueError("track_observation_missing")
 
     mean_confidence = confidence_sum / observation_count
+    # Every observation is bounded by the observed maximum, so the true mean
+    # cannot exceed it. The running `+=` sum can still round a mean above it: 250
+    # additions of 0.9 give 0.9000000000000038. Recursive summation of n terms errs
+    # by at most about (n - 1) * u * sum (u = 2**-53), so the mean errs by at most
+    # about n * u * max. The tolerance below is twice that bound: it scales with
+    # the track's length, so long constant-confidence tracks still finalize, and it
+    # is far narrower than any real inconsistency. Only an excess inside it is
+    # rounding and is normalized to the maximum. Anything larger, and any NaN,
+    # infinity or out-of-range value, still fails the check that follows.
+    excess = mean_confidence - max_confidence
+    if 0.0 < excess <= observation_count * max_confidence * sys.float_info.epsilon:
+        mean_confidence = max_confidence
     if not 0.0 <= mean_confidence <= max_confidence <= 1.0:
         raise ValueError("track_confidence_invalid")
 

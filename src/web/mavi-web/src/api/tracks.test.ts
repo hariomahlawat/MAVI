@@ -93,7 +93,7 @@ describe('Track API client', () => {
     })).toBe('');
 
     await searchTracks({});
-    expect(fetch).toHaveBeenCalledWith('/api/tracks', expect.objectContaining({ signal: undefined }));
+    expect(fetch).toHaveBeenCalledWith('/api/tracks', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
   it('serializes every supported Track filter using the backend contract names', () => {
@@ -134,6 +134,11 @@ describe('Track API client', () => {
 
   it('propagates AbortSignal and preserves stable API errors', async () => {
     const controller = new AbortController();
+    // Aborted before the call: the client composes the caller's signal into its
+    // bounded read signal, so propagation is observable as the received signal
+    // being aborted. Comparing signal objects would pass vacuously, because two
+    // AbortSignals compare equal structurally.
+    controller.abort();
     vi.mocked(fetch).mockResolvedValueOnce(new Response(
       JSON.stringify({ status: 400, code: 'track_search_invalid', detail: 'Invalid search.' }),
       { status: 400, headers: { 'content-type': 'application/problem+json' } },
@@ -142,10 +147,10 @@ describe('Track API client', () => {
     await expect(searchTracks({ objectClass: 'Person' }, controller.signal))
       .rejects.toMatchObject({ status: 400, code: 'track_search_invalid' });
 
-    expect(fetch).toHaveBeenCalledWith(
-      '/api/tracks?objectClass=Person',
-      expect.objectContaining({ signal: controller.signal }),
-    );
+    expect(fetch).toHaveBeenCalledWith('/api/tracks?objectClass=Person', expect.any(Object));
+    const received = vi.mocked(fetch).mock.calls.at(-1)?.[1]?.signal;
+    expect(received).toBeInstanceOf(AbortSignal);
+    expect(received?.aborted).toBe(true);
   });
 
   it('preserves track_not_found from Track detail', async () => {
@@ -171,6 +176,6 @@ describe('Track API client', () => {
 
     await getTrack(id);
 
-    expect(fetch).toHaveBeenCalledWith('/api/tracks/' + id, expect.objectContaining({ signal: undefined }));
+    expect(fetch).toHaveBeenCalledWith('/api/tracks/' + id, expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 });

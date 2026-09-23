@@ -15,6 +15,9 @@ Usage (repository virtualenv, API already running):
     MAVI_API_BASE_URL=http://localhost:62153 MAVI_WORKER_ID=fixture-worker-01 \
     MAVI_MEDIA_ROOT=<MediaStorage:RootPath> python tools/vision/dev/fixture_worker_harness.py
 
+Set MAVI_FIXTURE_SCENARIO=line-crossing | zone-dwell-exit | stationary-then-depart to
+report the detections of that scripted-corpus video instead (see scripted_corpus.py).
+
 Exit code 0 when one job was leased and completed, 3 when no job was queued.
 """
 from __future__ import annotations
@@ -66,6 +69,21 @@ def build_fixture():
     return detections, associations
 
 
+def build_scripted_fixture(scenario_id: str):
+    """Detections for one scripted-corpus video: exactly the box ffmpeg drew on each frame."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import scripted_corpus
+
+    spec = scripted_corpus.load_spec()
+    scene = scripted_corpus.scenario(spec, scenario_id)
+    detections: dict[int, tuple[DetectionCandidate, ...]] = {}
+    associations: dict[tuple[int, int], str] = {}
+    for frame, (left, top, width, height) in scripted_corpus.detection_boxes(spec, scene).items():
+        detections[frame] = (DetectionCandidate(ObjectClass.PERSON, 0.9, NormalizedBoundingBox(left, top, width, height)),)
+        associations[(frame, 0)] = "person-000001"
+    return detections, associations
+
+
 class FixtureVisionProcessor:
     def __init__(self, media_root: Path) -> None:
         self._media_root = media_root
@@ -73,7 +91,10 @@ class FixtureVisionProcessor:
     def process(self, *, job_id: UUID, attempt_count: int, source_path: Path, expected_source_size_bytes: int,
                 expected_source_sha256: str, lease_guard: LeaseGuard,
                 progress_sink: ProcessingProgressSink | None = None) -> VisionProcessingResult:
-        detections, associations = build_fixture()
+        # MAVI_FIXTURE_SCENARIO names a scripted-corpus video (tools/vision/dev/scripted_corpus.py);
+        # unset keeps the original PR-50 walk.
+        scenario_id = os.environ.get("MAVI_FIXTURE_SCENARIO")
+        detections, associations = build_scripted_fixture(scenario_id) if scenario_id else build_fixture()
         processor = VideoProcessor(FixtureDetector(detections), FixtureTracker(associations),
                                    StagingArtifactStore(self._media_root, job_id, attempt_count))
         return processor.process(job_id=job_id, attempt_count=attempt_count, source_path=source_path,

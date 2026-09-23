@@ -66,6 +66,107 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
     assert deserialize_trajectory(first.trajectory_payload) == trajectory
 
 
+
+def _accumulated(confidence: float, count: int) -> float:
+    """The confidence sum exactly as ``VideoProcessor`` builds it: a running ``+=``.
+
+    ``sum()`` is not a substitute. Since Python 3.12 it uses compensated summation,
+    so ``sum([0.9] * 250)`` is exactly 225.0 and never shows the rounding the
+    worker's accumulator produces.
+    """
+    total = 0.0
+    for _ in range(count):
+        total += confidence
+    return total
+
+
+def _prepare_constant_track(confidence: float, count: int, confidence_sum: float):
+    return prepare_track(
+        track_id="person-0001",
+        object_class=ObjectClass.PERSON,
+        start_offset_ms=0,
+        end_offset_ms=(count - 1) * 40,
+        confidence_sum=confidence_sum,
+        max_confidence=confidence,
+        observation_count=count,
+        representative=_representative(),
+        representative_crop=np.full((12, 10, 3), 120, dtype=np.uint8),
+        trajectory=tuple(TrajectoryPoint(index * 40, 0.3, 0.4) for index in range(count)),
+    )
+
+
+def test_prepare_track_tolerates_floating_point_accumulation_noise() -> None:
+    # The scripted-corpus case that failed in the worker: 250 observations at 0.9.
+    confidence_sum = _accumulated(0.9, 250)
+    assert confidence_sum / 250 > 0.9  # the rounding under test really occurs
+
+    prepared = _prepare_constant_track(0.9, 250, confidence_sum)
+
+    assert prepared.mean_confidence == 0.9
+    assert prepared.max_confidence == 0.9
+
+
+def test_prepare_track_tolerance_scales_with_track_length() -> None:
+    # A long constant-confidence track rounds further above the maximum than any
+    # fixed tolerance near 1e-12 allows; the bound grows with the count.
+    count = 72_801  # roughly 48 minutes of one Track at 25 fps
+    confidence_sum = _accumulated(0.9, count)
+    assert confidence_sum / count - 0.9 > 1e-12
+
+    prepared = _prepare_constant_track(0.9, count, confidence_sum)
+
+    assert prepared.mean_confidence == 0.9
+
+
+def test_prepare_track_rejects_an_excess_just_beyond_rounding() -> None:
+    count = 250
+    bound = count * 0.9 * 2.220446049250313e-16
+    with pytest.raises(ValueError, match="track_confidence_invalid"):
+        _prepare_constant_track(0.9, count, (0.9 + 4 * bound) * count)
+
+
+@pytest.mark.parametrize(
+    ("confidence_sum", "max_confidence"),
+    [
+        (float("nan"), 0.9),
+        (0.9, float("nan")),
+        (float("inf"), 0.9),
+        (0.9, float("inf")),
+        (-0.1, 0.9),
+        (0.9, -0.1),
+        (1.2, 1.2),
+        (1.0000001, 1.0000001),
+    ],
+)
+def test_prepare_track_rejects_non_finite_and_out_of_range_confidence(
+    confidence_sum: float, max_confidence: float
+) -> None:
+    with pytest.raises(ValueError, match="track_confidence_invalid"):
+        _prepare_constant_track(max_confidence, 1, confidence_sum)
+
+
+def test_prepare_track_rejects_materially_inconsistent_confidence_aggregate() -> None:
+    crop = np.full((12, 10, 3), 120, dtype=np.uint8)
+    trajectory = (
+        TrajectoryPoint(0, 0.3, 0.4),
+        TrajectoryPoint(40, 0.4, 0.4),
+    )
+
+    with pytest.raises(ValueError, match="track_confidence_invalid"):
+        prepare_track(
+            track_id="person-0001",
+            object_class=ObjectClass.PERSON,
+            start_offset_ms=0,
+            end_offset_ms=40,
+            confidence_sum=1.81,
+            max_confidence=0.9,
+            observation_count=2,
+            representative=_representative(),
+            representative_crop=crop,
+            trajectory=trajectory,
+        )
+
+
 def test_prepare_track_rejects_missing_observations() -> None:
     with pytest.raises(ValueError, match="track_observation_missing"):
         prepare_track(

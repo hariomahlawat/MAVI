@@ -1,0 +1,113 @@
+{
+  "schema": "mavi-scripted-corpus-v1",
+  "description": "Parent-plan real-stack corpus: three deterministic FFmpeg-scripted videos whose expected facts are derived from the scripted motion, not by eye. The box centre is drawn at integer pixels on every detection frame; the fixture detector reports exactly that box, so the worker's trajectory is the scripted path and the expected facts below follow from it and the frozen engine rules. Offsets are media-relative milliseconds; brackets are the sample instants the scripted path implies.",
+  "video": {
+    "width": 640,
+    "height": 360,
+    "fps": 25,
+    "durationSeconds": 12,
+    "boxWidth": 40,
+    "boxHeight": 80,
+    "firstDetectionFrame": 25,
+    "lastDetectionFrame": 274
+  },
+  "scenarios": [
+    {
+      "id": "line-crossing",
+      "file": "scripted-line-crossing.mp4",
+      "objectClass": "Person",
+      "centreKeyframes": [[25, 320, 300], [155, 320, 40], [274, 400, 40]],
+      "scene": {
+        "zones": [],
+        "tripLines": [
+          {
+            "name": "Kerb",
+            "a": [0.1, 0.5],
+            "b": [0.9, 0.5],
+            "aToBLabel": "inbound",
+            "bToALabel": "outbound"
+          }
+        ]
+      },
+      "derivation": "Centre y = 300 - 2(F-25) px, straight up the frame at 2 px per frame, then a slow drift right along y = 40. The on-line band is |y/360 - 0.5| < 0.005, i.e. y in {179, 180, 181}. Frame 84 (y 182) is below the line, frame 85 lies exactly on it and frame 86 (y 178) is above it, so the path meets the line at frame 85 with the departing side one sample before and the arriving side one sample after — inside the k = 3 confirmation window. Moving UP through a left-to-right line is AToB by the frozen convention: exactly one crossing, at 3400 ms, bracketed [3360, 3440]. The frozen rule (plan section K) credits no crossing to a Track that lingers in the band for more than k samples, so the traverse is deliberately fast; a crossing slower than about 1.2 px per frame at this resolution would, correctly by that rule, not be counted. Heading: first (320, 300) to last (400, 40) is dx = +0.125, dy = -0.722, 9.8 degrees from straight up, which is the North sector. The drift along y = 40 moves 0.078 of the frame per 3 s window, above the 0.015 stationary threshold.",
+      "expected": {
+        "sampleCount": 250,
+        "zoneVisits": [],
+        "lineCrossings": [
+          {
+            "line": "Kerb",
+            "direction": "AToB",
+            "offsetMs": [3360, 3440]
+          }
+        ],
+        "heading": "N",
+        "stationaryIntervals": []
+      }
+    },
+    {
+      "id": "zone-dwell-exit",
+      "file": "scripted-zone-dwell-exit.mp4",
+      "objectClass": "Person",
+      "centreKeyframes": [[25, 64, 180], [74, 288, 180], [224, 352, 180], [274, 576, 180]],
+      "scene": {
+        "zones": [
+          {
+            "name": "Pad",
+            "vertices": [[0.4, 0.4], [0.6, 0.4], [0.6, 0.6], [0.4, 0.6]],
+            "loiteringThresholdSeconds": 5
+          }
+        ],
+        "tripLines": []
+      },
+      "derivation": "Centre y is fixed at 180 (0.5). Entry: x reaches 256 px (0.4) exactly at frame 67 after 251 px at frame 66, so entry lies in [2640, 2680] ms. Inside, the centre drifts 64 px over 6 s — 0.05 of the frame in any 3 s window, above the 0.015 person threshold, so it is never stationary. Exit needs the epsilon margin, x > 0.605 (387.2 px): frame 231 is at 383 px and frame 232 at 388 px, so exit lies in [9240, 9280] ms. Dwell is therefore in [6560, 6640] ms, at or above the zone's 5 s loitering threshold.",
+      "expected": {
+        "sampleCount": 250,
+        "zoneVisits": [
+          {
+            "zone": "Pad",
+            "entryOffsetMs": [2640, 2680],
+            "exitOffsetMs": [9240, 9280],
+            "dwellMs": [6560, 6640],
+            "beganInside": false,
+            "endedInside": false
+          }
+        ],
+        "loitering": {
+          "Pad": true
+        },
+        "lineCrossings": [],
+        "heading": "E",
+        "stationaryIntervals": []
+      }
+    },
+    {
+      "id": "stationary-then-depart",
+      "file": "scripted-stationary-then-depart.mp4",
+      "objectClass": "Person",
+      "centreKeyframes": [[25, 192, 180], [199, 192, 180], [274, 576, 180]],
+      "scene": {
+        "zones": [
+          {
+            "name": "Far",
+            "vertices": [[0.05, 0.05], [0.15, 0.05], [0.15, 0.15], [0.05, 0.15]],
+            "loiteringThresholdSeconds": 30
+          }
+        ],
+        "tripLines": []
+      },
+      "derivation": "The centre holds (192, 180) from frame 25 (1000 ms) to frame 199 (7960 ms), then departs right at 5.12 px per frame. The stationary rule looks back over a trailing 3 s window of median-smoothed samples, so the hold qualifies from its first sample; departure exceeds the 0.015 person threshold within two samples, which the five-sample median delays by at most two more. One stationary interval, starting at 1000 ms and ending in [7960, 8160] ms, about 7 s, above the 5 s minimum. The 'Far' zone is never entered.",
+      "expected": {
+        "sampleCount": 250,
+        "zoneVisits": [],
+        "lineCrossings": [],
+        "heading": "E",
+        "stationaryIntervals": [
+          {
+            "startOffsetMs": [1000, 1000],
+            "endOffsetMs": [7960, 8160]
+          }
+        ]
+      }
+    }
+  ]
+}

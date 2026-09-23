@@ -81,6 +81,24 @@ const LONG_NAME_TRACKS = {
 /** A first page that has a continuation, so there is something to load more of. */
 const PAGE_ONE = { ...LONG_NAME_TRACKS, nextCursor: 'opaque-cursor', totalCount: 48 };
 
+/**
+ * A full first page, as real data returns it: 24 rows and a continuation. Seven
+ * rows fit on screen, and the list scrolls past the rest. Every row carries a
+ * `.visually-hidden` label (`position: absolute`), so the list must be their
+ * containing block. Otherwise each label resolves against the page, escapes the
+ * list's clip and makes the *page* scroll: on the Development machine the
+ * document grew to about twice the viewport, with the shell scrolling away
+ * beneath empty space. One Track never showed it.
+ */
+const FULL_PAGE = {
+  items: Array.from({ length: 24 }, (_, index) => ({
+    ...LONG_NAME_TRACKS.items[0],
+    id: `70000000-0000-7000-8000-${String(index).padStart(12, '0')}`,
+  })),
+  nextCursor: 'opaque-cursor',
+  totalCount: 48,
+};
+
 /** Page one, then a transient failure: the results survive, continuation stops. */
 const PAGE_ONE_THEN_503 = { sequence: [PAGE_ONE, 'unavailable'] };
 
@@ -2032,6 +2050,72 @@ const REVIEW_OVERFLOW_CROWD = {
 };
 
 /*
+ * Slice 7 acceptance: the two states the Stage-1 matrix still lacked. Both are
+ * derived from served fixtures, so each changes exactly one thing.
+ */
+const BASE_HEATMAP = JSON.parse(
+  readFileSync(new URL(`./fixtures/cameras_${CAM}_analytics_heatmap.json`, import.meta.url), 'utf8'),
+);
+
+/**
+ * One Track's worth of samples in a 64 × 36 grid: three lit cells in a dark
+ * matrix. The sparse end of the scale is where a relative colour ramp is most
+ * likely to over-state a handful of samples, so its legend and summary must
+ * still read as counts.
+ */
+const SPARSE_HEATMAP = (() => {
+  const values = BASE_HEATMAP.values.map(() => 0);
+  values[10 * 64 + 12] = 3;
+  values[10 * 64 + 13] = 7;
+  values[11 * 64 + 13] = 1;
+  return {
+    ...BASE_HEATMAP,
+    coverage: { ...BASE_HEATMAP.coverage, evaluatedRuns: 1, analysedTracks: 1 },
+    sampleCount: 11,
+    trackCount: 1,
+    maxCellValue: 7,
+    values,
+  };
+})();
+
+const BASE_TRACK_DETAIL = JSON.parse(
+  readFileSync(new URL(`./fixtures/tracks_${TRACK}.json`, import.meta.url), 'utf8'),
+);
+const BASE_REVISION = JSON.parse(
+  readFileSync(new URL(`./fixtures/cameras_${CAM}_scene_revisions_4.json`, import.meta.url), 'utf8'),
+);
+const HISTORICAL_REVISION_ID = '66666666-6666-7666-8666-666666666663';
+
+/** Revision 3, the one the historical facts were measured against. */
+const HISTORICAL_REVISION = {
+  ...BASE_REVISION,
+  revisionId: HISTORICAL_REVISION_ID,
+  revisionNumber: 3,
+};
+
+/**
+ * The same Track read against revision 3 while revision 4 is active — the
+ * detail an operator reaches from a historical search. It must be named as
+ * revision 3's facts and must name revision 4 as the other identity, never
+ * present revision 3's facts under revision 4's name.
+ */
+const HISTORICAL_TRACK_DETAIL = {
+  ...BASE_TRACK_DETAIL,
+  analytics: {
+    ...BASE_TRACK_DETAIL.analytics,
+    sceneRevisionId: HISTORICAL_REVISION_ID,
+    sceneRevisionNumber: 3,
+    otherIdentities: [{
+      sceneRevisionId: BASE_TRACK_DETAIL.analytics.sceneRevisionId,
+      sceneRevisionNumber: 4,
+      algorithmVersion: BASE_TRACK_DETAIL.analytics.algorithmVersion,
+      unitStatus: 'Completed',
+      outcome: 'Analysed',
+    }],
+  },
+};
+
+/*
  * The three aggregate answers that are not "here are the figures". They are
  * derived from the served fixture so they cannot drift from it, and each
  * changes exactly one thing about it.
@@ -2460,6 +2544,11 @@ export const STATES = [
     expectText: ['Load more', 'more to load'],
   },
   {
+    name: 'search-full-page', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
+    api: { '/api/tracks': FULL_PAGE },
+    expectText: ['24 Tracks', 'more to load'],
+  },
+  {
     name: 'search-continuation-failed', path: '/search', fullWidth: true, settleMs: 5000,
     archetype: 'investigation', api: { '/api/tracks': PAGE_ONE_THEN_503 },
     // The query client retries a 5xx once before the failure is terminal.
@@ -2684,6 +2773,8 @@ export const STATES = [
   { name: 'review-geometry-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2500, footage: 'saturated', prepare: SEEK, api: { '/api/cameras/11111111-1111-7111-8111-111111111111/scene/revisions': 'unavailable' }, expectText: ['could not be loaded'] },
   { name: 'review-analytics-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': SINGLE_SAMPLE_TRACK }, expectText: ['trajectory_too_short'] },
   { name: 'review-analytics-pending', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_PENDING }, expectText: ['has not been analysed yet'] },
+  // Slice 7: a historical identity, pinned by the link a historical search makes.
+  { name: 'review-historical-revision', path: `/review/video/${VIDEO}?trackId=${TRACK}&sceneRevisionId=${HISTORICAL_REVISION_ID}&analyticsAlgorithmVersion=scene-analytics-v1`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, api: { [`/api/tracks/${TRACK}`]: HISTORICAL_TRACK_DETAIL, [`/api/cameras/${CAM}/scene/revisions/3`]: HISTORICAL_REVISION }, expectText: ['Scene revision 3'], forbidText: ['Scene revision 4 ·'] },
   { name: 'review-analytics-stale', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_STALE }, expectText: ['earlier revision or engine'] },
   // Two separate runs of concurrency: the rail must aggregate each span on
   // its own terms rather than stating one total for the whole timeline.
@@ -2815,5 +2906,13 @@ export const STATES = [
       },
     },
     expectText: ['not where anything went'],
+  },
+  {
+    // Slice 7: the sparse end of the density scale.
+    name: 'analytics-heatmap-sparse', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', settleMs: 1400,
+    prepare: HEATMAP_MODE, prepareSettleMs: 900,
+    api: { [`/api/cameras/${CAM}/analytics/heatmap`]: SPARSE_HEATMAP },
+    expectText: ['11 samples from 1 Track', 'The busiest cell holds 7 samples'],
   },
 ];
