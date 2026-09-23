@@ -238,7 +238,9 @@ Stage 1 closes only when all are true:
 19. No unresolved material review thread remains.
 20. Post-merge critical verification on `main` is green.
 
-Then mark Stage 1 complete and advance to **Stage 2 — Visual Attributes**. Do not hold Stage 1 for optional polish.
+**Closure recorded 23 Sep 2026:** all 20 conditions are satisfied. PR #70 merged as `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d`; MAVI Quality Gate #1943, Task 10 Runtime Qualification #725, and Task 17 Acceptance Validation #1087 all passed on that exact commit.
+
+Stage 1 is complete and frozen. Advance to **Stage 2 — Visual Attributes**. Do not reopen Stage 1 for optional polish; only a demonstrated regression should do so.
 
 ## 26. Planning-review gate
 

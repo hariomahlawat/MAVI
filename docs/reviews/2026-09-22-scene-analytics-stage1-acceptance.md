@@ -11,9 +11,9 @@
 
 ## Verdict
 
-**Stage 1 functional acceptance is closed.**
+**Stage 1 is fully closed and frozen.**
 
-Exit-gate items **1–19 are PASS**. Item 20 remains **NOT APPLICABLE** until PR #70 is merged and the post-merge critical verification runs on `main`.
+Exit-gate items **1–20 are PASS**. PR #70 merged to `main` as `e38af446d4e287cb12a8cf3d881e0293f90f7d6d`, and the post-merge critical verification on that exact commit completed successfully.
 
 The final operator evidence was completed on the Development machine while disconnected from the network:
 - **Action C — PASS.** All three scripted scenarios completed through import → fixture worker → analytics host → `scripted_corpus.py check`, with `ok` for `line-crossing`, `zone-dwell-exit`, and `stationary-then-depart`.
@@ -75,11 +75,21 @@ The new tests only read `QualificationCorpus`. The PostgreSQL 18 evidence theref
 | 13 | Operator workflow / accessibility / visual QA pass | **PASS.** Accessibility and visual QA **PASS**: 53 analytics-related states × 4 widths, zero automated findings, human capture pass, no P1/P2 (three P3s). The remaining real-data **Search → Investigation → Evidence Review** leg was executed on the H.264 MOT17-CROWD run: the same Person Track opened from Search into the inspector and Evidence Review, source video played, Revision 1 / Engine v1 identity agreed, and the saved zone overlay rendered against the track evidence. |
 | 14 | Development offline/real-worker acceptance recorded with no undeclared dependency | **PASS.** Real-worker acceptance, restart persistence and runtime identity passed. The three scripted scenarios were then completed through the fixture-worker control plane and real analytics host with `check = ok` for all three. The final session was disconnected: Processing, Evidence Review, Activity and Heatmap all worked, and DevTools showed only `localhost` / `127.0.0.1` requests. |
 | 15 | No policy-violating dependency/runtime drift | **PASS** — zero files differ from `main` across `*.csproj`, `package.json`, lockfiles and `config/dependencies/`; the new tools are standard-library Python and plain SQL; `verify_repo.py` green |
-| 16 | Relevant suites and exact-head CI green | **PASS on the last executable head `59aa853`** — Task 17 Acceptance Validation, Task 10 Runtime Qualification and MAVI Quality Gate were all green before the evidence-only documentation updates. Exact-head CI on the final documentation head remains the merge gate. |
+| 16 | Relevant suites and exact-head CI green | **PASS.** PR #70's final documentation head passed the required merge gate, and the merged `main` commit `e38af446d4e287cb12a8cf3d881e0293f90f7d6d` subsequently passed the post-merge workflows recorded in item 20. |
 | 17 | Documentation reflects measured reality, limits and known limitations | **PASS** after the reconciliation in *Independent closure review* below |
 | 18 | Independent cold review clean of P1/P2 | **PASS.** The closure review below found no P1. Its P2s were in the operator procedure and the test and documentation claims, not in product code, and each is fixed in this pass |
 | 19 | No unresolved material review thread | **PASS** — PR #70 has zero unresolved threads; PR #71 is closed as superseded |
-| 20 | Post-merge critical verification on `main` green | **NOT APPLICABLE YET** — PR #70 is not merged |
+| 20 | Post-merge critical verification on `main` green | **PASS.** On exact `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d`: MAVI Quality Gate run #1943, Task 10 Runtime Qualification run #725, and Task 17 Acceptance Validation run #1087 all completed successfully. |
+
+## Post-merge closure — 23 Sep 2026
+
+PR #70 merged to `main` as `e38af446d4e287cb12a8cf3d881e0293f90f7d6d`. The three push-triggered critical workflows then completed successfully on that exact commit:
+
+- MAVI Quality Gate — run **#1943** — **PASS**
+- Task 10 Runtime Qualification — run **#725** — **PASS**
+- Task 17 Acceptance Validation — run **#1087** — **PASS**
+
+This satisfies exit-gate item 20. Stage 1 — Spatial & Temporal Track Analytics — is complete and frozen. The next capability stream is **Stage 2 — Visual Attributes**. Task 18 Production Qualification remains a separate, parallel release/qualification stream.
 
 ## Development-machine real-worker acceptance
 
