@@ -57,7 +57,7 @@ This pass **does** change executable code after that SHA, and says so plainly: i
 | 10 | Incomplete/unknown never appears as observed zero | **PASS** — existing tests, and now at volume: a cancelled or failed unit reads as *pending* |
 | 11 | Browser parser matches the normalised-coordinate contract | **PASS** |
 | 12 | Security/resource review has no open P1/P2 | **PASS.** No P1. The aggregate-materialisation P2 is closed as dispositioned RETAIN within the qualified envelope. |
-| 13 | Operator workflow / accessibility / visual QA pass | **PARTIAL.** Accessibility and visual QA **PASS**: 53 analytics-related states × 4 widths, zero automated findings, human capture pass, no P1/P2 (three P3s). The operator workflow ran end to end on real data except the **Search → Investigation** leg, **NOT EXECUTED** (runbook §E) |
+| 13 | Operator workflow / accessibility / visual QA pass | **PASS.** Accessibility and visual QA **PASS**: 53 analytics-related states × 4 widths, zero automated findings, human capture pass, no P1/P2 (three P3s). The remaining real-data **Search → Investigation → Evidence Review** leg was executed on the H.264 MOT17-CROWD run: the same Person Track opened from Search into the inspector and Evidence Review, source video played, Revision 1 / Engine v1 identity agreed, and the saved zone overlay rendered against the track evidence. |
 | 14 | Development offline/real-worker acceptance recorded with no undeclared dependency | **PARTIAL.** Real-worker acceptance **PASS**; restart persistence **PASS**. The three scripted videos: generated and pixel-verified, their expected facts proved against the real engine — the **run through the real worker is NOT EXECUTED** (runbook §C). Runtime identities: **NOT EXECUTED**, SQL prepared (runbook §D.1). No-undeclared-fetch: **NOT EXECUTED**, disconnected procedure prepared (runbook §D.2) |
 | 15 | No policy-violating dependency/runtime drift | **PASS** — zero files differ from `main` across `*.csproj`, `package.json`, lockfiles and `config/dependencies/`; the new tools are standard-library Python and plain SQL; `verify_repo.py` green |
 | 16 | Relevant suites and exact-head CI green | **PENDING** — local suites below; exact-head CI is reported on PR #70 for the final pushed head only |
@@ -93,8 +93,12 @@ Each is an exact procedure in `docs/runbooks/scene-analytics-stage1-development-
 | C — the three scripted videos through the real worker and analytics host, `check` = `ok` for each | 14 | **PARTIAL.** All three videos generated and pixel-verified `ok`; three cameras/scenes created and saved as revision 1. Import/worker/analytics-host/`check` evidence still pending. |
 | D.1 — runtime identity of the real-worker runs | 14 | *pending* |
 | D.2 — disconnected re-run, same-origin network only | 14 | *pending* |
-| E — Search → Investigation on real data | 13 | *pending* |
+| E — Search → Investigation on real data | 13 | **PASS.** On MOT17-CROWD-H264, Search opened a real Person Track into the inspector and Evidence Review; source video playback worked, Track identity and camera agreed, scene status was **Analysed**, Revision 1 / Engine v1 matched, and the zone overlay rendered. Activity reported **coverage complete** with 29 distinct Person Tracks; Heatmap reported 6,210 trajectory samples from 29 Tracks on a 64 × 36 grid, busiest cell 146, with **All 1 run analysed**. |
 | F — PostgreSQL restart/reconnect | plan §11 | *pending* |
+
+## Supplemental real-world MOT17 Development evidence
+
+A browser-compatible H.264 regression corpus was created from MOT17 clips and processed through the normal qualified CUDA worker. On camera `MOT17-CROWD`, the H.264 crowd clip was re-analysed against active Scene Revision 1. Evidence Review showed **Analysed**, `Scene revision 1 · Engine v1`, the configured zone overlay, persisted trajectory/bounding-box evidence and playable source video. Analytics Activity reported **coverage complete** with 29 distinct Person Tracks. Heatmap reported **6,210 trajectory samples**, **29 contributing Tracks**, a **64 × 36** grid and busiest cell **146**, with provenance `Revision 1 / Engine v1` and **All 1 run analysed**. This supplements, but does not replace, the deterministic scripted-corpus acceptance required by action C.
 
 ## Known limitations recorded by this pass
 
