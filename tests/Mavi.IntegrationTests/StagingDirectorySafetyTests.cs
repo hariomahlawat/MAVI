@@ -47,6 +47,14 @@ public sealed class StagingDirectorySafetyTests : IDisposable
     }
 
     [Fact]
+    public void RuntimeSelfCheckAcceptsTheCiPlatforms()
+    {
+        // On Linux this runs the kernel probe (a link and a file must be refused as
+        // directory anchors); a wrong open flag would make the janitor unsupported here.
+        Assert.True(StagingDirectory.IsSupported);
+    }
+
+    [Fact]
     public void RealAttemptTreeIsRemovedBottomUpAndFreedBytesCounted()
     {
         var attempt = Path.Combine(_root, "staging", "job", "attempt-0001");

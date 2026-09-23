@@ -127,7 +127,16 @@ internal sealed class LinuxStagingDirectory : StagingDirectory
     /// <c>getdents64</c> (glibc 2.30). Without them the janitor reports itself unsupported
     /// (1411) instead of failing every cycle.
     /// </summary>
-    public static bool ArchitectureSupported => ArchitectureFlags is not null && LibraryExportsAvailable.Value;
+    public static bool ArchitectureSupported =>
+        ArchitectureFlags is not null && LibraryExportsAvailable.Value && FlagsVerified.Value;
+
+    /// <summary>
+    /// Proves the open flags on the running kernel rather than trusting header knowledge:
+    /// a symbolic link and a regular file must both be refused as directory anchors, and a
+    /// real directory must open. Any other outcome, or no writable temporary directory,
+    /// reports the platform unsupported (1411) and nothing is ever deleted.
+    /// </summary>
+    private static readonly Lazy<bool> FlagsVerified = new(VerifyFlags);
 
     private static readonly Lazy<bool> LibraryExportsAvailable = new(() =>
         NativeLibrary.TryLoad("libc", typeof(LinuxStagingDirectory).Assembly, null, out var library) &&
@@ -135,6 +144,53 @@ internal sealed class LinuxStagingDirectory : StagingDirectory
         NativeLibrary.TryGetExport(library, "getdents64", out _) &&
         NativeLibrary.TryGetExport(library, "openat", out _) &&
         NativeLibrary.TryGetExport(library, "unlinkat", out _));
+
+    private static bool VerifyFlags()
+    {
+        if (ArchitectureFlags is null || !LibraryExportsAvailable.Value)
+            return false;
+        var probe = Path.Combine(Path.GetTempPath(), $"mavi-staging-flag-probe-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(probe, "directory"));
+            File.WriteAllBytes(Path.Combine(probe, "file"), []);
+            File.CreateSymbolicLink(Path.Combine(probe, "link"), Path.Combine(probe, "directory"));
+
+            var root = Open(NativeName(probe), DirectoryFlags);
+            if (root < 0)
+                return false;
+            try
+            {
+                return OpenChild(root, NativeName("directory"), out var directory) == StagingChildOpen.Opened &&
+                       Close(directory) == 0 &&
+                       OpenChild(root, NativeName("link"), out _) == StagingChildOpen.NotARealDirectory &&
+                       OpenChild(root, NativeName("file"), out _) == StagingChildOpen.NotARealDirectory;
+            }
+            finally
+            {
+                _ = Close(root);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(probe))
+                {
+                    File.Delete(Path.Combine(probe, "link"));
+                    Directory.Delete(probe, recursive: true);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // A leftover empty probe directory under the temp path is harmless.
+            }
+        }
+    }
 
     private static int DirectoryFlags =>
         OpenReadOnly | OpenNonBlocking | OpenCloseOnExec | ArchitectureFlags!.Value.Directory | ArchitectureFlags.Value.NoFollow;
