@@ -17,6 +17,23 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
     };
 
     [Fact]
+    public void CanonicalV3ExampleRoundTripsThroughPublicContract()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "MAVI.sln"))) directory = directory.Parent;
+        using var expected = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(directory!.FullName, "contracts/examples/vision-job-complete-v3.example.json")));
+
+        var contract = JsonSerializer.Deserialize<VisionJobCompleteRequest>(expected.RootElement.GetRawText(), Json)!;
+        using var actual = JsonDocument.Parse(JsonSerializer.Serialize(contract, Json));
+
+        Assert.Equal("3.0", contract.SchemaVersion);
+        Assert.Equal(4, contract.Tracks![0].Observations!.Count);
+        Assert.Null(contract.Tracks[0].Representative);
+        Assert.True(JsonElement.DeepEquals(expected.RootElement, actual.RootElement));
+    }
+
+    [Fact]
     public async Task ContractProbeAdvertisesControlPlaneAndBothCompletionVersions()
     {
         using var factory = new ApiTestFactory();

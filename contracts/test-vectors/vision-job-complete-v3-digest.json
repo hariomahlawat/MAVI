@@ -1,0 +1,7 @@
+{
+  "description": "Golden completion 3.0 digest. The platform computes the digest server-side (S1.2 plan \u00a77.3); this pins the example file bytes and the digest .NET computes for it, so any change to the v3 digest sequence or to the example is deliberate.",
+  "example": "contracts/examples/vision-job-complete-v3.example.json",
+  "exampleSha256": "54591049903c5fe5237d3f733838637d6060d3a138969ac1637f7b93ae3c4098",
+  "videoDurationMs": 3600000,
+  "completionDigest": "2c92dd385f0bc84a70edf437ccb97ff1462561948685fa7493d20139b773cb47"
+}

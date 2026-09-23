@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -50,6 +51,7 @@ REQUIRED_PATHS = [
     "src/vision/runtime/mmdetection-phase1-v1/runtime.json",
     "contracts/schemas/vision-job-lease-v2.schema.json",
     "contracts/schemas/vision-job-complete-v2.schema.json",
+    "contracts/schemas/vision-job-complete-v3.schema.json",
     "contracts/schemas/worker-health-v2.schema.json",
     "config/acceptance/phase1-acceptance-v1.json",
     "config/acceptance/phase1-supported-updates-v1.json",
@@ -833,6 +835,7 @@ def check_contracts(errors: list[str]) -> None:
     stems = [
         "vision-job-lease-request-v2", "vision-job-lease-v2", "vision-job-heartbeat-v2",
         "vision-job-heartbeat-response-v2", "vision-job-fail-v2", "vision-job-complete-v2", "worker-health-v2",
+        "vision-job-complete-v3",
     ]
     pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:
@@ -851,6 +854,37 @@ def check_contracts(errors: list[str]) -> None:
         except jsonschema.ValidationError:
             continue
         fail(f"Invalid contract vector was accepted: {vector['name']}", errors)
+
+    check_completion_v3_contract(errors)
+
+
+def check_completion_v3_contract(errors: list[str]) -> None:
+    """Completion 3.0 (S1.2): shared definitions, invalid vectors and the pinned golden."""
+    schemas = ROOT / "contracts/schemas"
+    v2 = json.loads((schemas / "vision-job-complete-v2.schema.json").read_text())
+    v3 = json.loads((schemas / "vision-job-complete-v3.schema.json").read_text())
+    # Provenance and artefact grammar are one boundary across both completion versions.
+    for name in ("sha256", "artifact", "boundingBox", "platform", "gpu", "trackerParameters", "provenance", "identityText", "detailText"):
+        if v2["$defs"].get(name) != v3["$defs"].get(name):
+            fail(f"Completion v3 schema definition '{name}' drifted from v2.", errors)
+    if "representative" in v3["$defs"]["track"]["properties"]:
+        fail("Completion v3 tracks must carry observations, not the v2 representative member.", errors)
+
+    validator = jsonschema.Draft202012Validator(v3, format_checker=jsonschema.FormatChecker())
+    vectors = json.loads((ROOT / "contracts/test-vectors/control-plane-v3-invalid.json").read_text())
+    for vector in vectors:
+        schema_valid = not list(validator.iter_errors(vector["payload"]))
+        if vector["rejectedBy"] == "schema" and schema_valid:
+            fail(f"Invalid completion v3 vector was accepted by the schema: {vector['name']}", errors)
+        if vector["rejectedBy"] == "validator" and not schema_valid:
+            fail(f"Completion v3 vector '{vector['name']}' must be schema-valid so it exercises the platform validator.", errors)
+
+    digest = json.loads((ROOT / "contracts/test-vectors/vision-job-complete-v3-digest.json").read_text())
+    example_sha = hashlib.sha256((ROOT / digest["example"]).read_bytes()).hexdigest()
+    if example_sha != digest["exampleSha256"]:
+        fail("Completion v3 golden example changed without re-pinning its digest vector.", errors)
+    if not re.fullmatch(r"[0-9a-f]{64}", digest.get("completionDigest", "")):
+        fail("Completion v3 digest vector must pin a lower-case SHA-256 digest.", errors)
 
 
 def check_phase1_acceptance_assets(errors: list[str]) -> None:
@@ -1496,7 +1530,7 @@ def main() -> int:
     print(" - direct dependency/offline packaging policy: synchronized")
     print(" - offline binary/version catalog: synchronized")
     print(" - ordinary Git executable/archive/large-file gate: clean")
-    print(" - contract examples: 7")
+    print(" - contract examples: 8 (incl. completion v3 golden, digest pin and invalid vectors)")
     print(" - Task-17 acceptance schemas/configuration: validated")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret/wheel scan: clean")

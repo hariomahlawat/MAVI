@@ -1,0 +1,77 @@
+{
+  "description": "Completion 3.0 binding conformance. Each case replaces the number at the JSON pointer \"path\" of vision-job-complete-v3.example.json with the literal \"token\"; \"accepted\" is the required outcome of the JSON Schema and of .NET binding (semantic validation is separate).",
+  "integerCases": [
+    {
+      "name": "rank plain integer",
+      "path": "/tracks/0/observations/1/rank",
+      "token": "1",
+      "accepted": true
+    },
+    {
+      "name": "rank decimal integral",
+      "path": "/tracks/0/observations/1/rank",
+      "token": "1.0",
+      "accepted": true
+    },
+    {
+      "name": "rank exponent integral",
+      "path": "/tracks/0/observations/1/rank",
+      "token": "1e0",
+      "accepted": true
+    },
+    {
+      "name": "rank fraction",
+      "path": "/tracks/0/observations/1/rank",
+      "token": "1.5",
+      "accepted": false
+    },
+    {
+      "name": "rank fractional exponent",
+      "path": "/tracks/0/observations/1/rank",
+      "token": "15e-1",
+      "accepted": false
+    },
+    {
+      "name": "candidates at int32 maximum",
+      "path": "/evidenceAccounting/near-view/candidates",
+      "token": "2147483647",
+      "accepted": true
+    },
+    {
+      "name": "candidates above int32",
+      "path": "/evidenceAccounting/near-view/candidates",
+      "token": "2147483648",
+      "accepted": false
+    },
+    {
+      "name": "candidates fraction",
+      "path": "/evidenceAccounting/near-view/candidates",
+      "token": "2.5",
+      "accepted": false
+    },
+    {
+      "name": "admittedBytes at int64 maximum",
+      "path": "/evidenceAccounting/late-diverse/admittedBytes",
+      "token": "9223372036854775807",
+      "accepted": true
+    },
+    {
+      "name": "admittedBytes above int64",
+      "path": "/evidenceAccounting/late-diverse/admittedBytes",
+      "token": "9223372036854775808",
+      "accepted": false
+    },
+    {
+      "name": "observation offset exponent integral",
+      "path": "/tracks/0/observations/2/offsetMs",
+      "token": "0e0",
+      "accepted": true
+    },
+    {
+      "name": "observation frame fraction",
+      "path": "/tracks/0/observations/3/sourceFrameNumber",
+      "token": "3.25",
+      "accepted": false
+    }
+  ]
+}

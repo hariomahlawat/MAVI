@@ -1,6 +1,8 @@
+import hashlib
 import json
 from pathlib import Path
 
+import jsonschema
 import pytest
 from pydantic import ValidationError
 
@@ -82,3 +84,66 @@ def test_python_wire_models_accept_microsecond_precision() -> None:
     }
     model = WorkerHealth.model_validate_json(json.dumps(payload))
     assert model.timestamp_utc.microsecond == 123456
+
+
+# Completion 3.0 (S1.2a). The platform accepts it; the worker emits it from S1.2c.
+TEST_VECTORS = ROOT / "contracts" / "test-vectors"
+_V3_PLACEHOLDER = "__mavi_conformance_token__"
+
+
+def _v3_schema() -> dict[str, object]:
+    return json.loads((SCHEMAS / "vision-job-complete-v3.schema.json").read_text())
+
+
+def _v3_validator() -> jsonschema.Draft202012Validator:
+    return jsonschema.Draft202012Validator(_v3_schema(), format_checker=jsonschema.FormatChecker())
+
+
+def test_completion_v3_golden_example_is_schema_valid_and_pinned() -> None:
+    example = (EXAMPLES / "vision-job-complete-v3.example.json").read_bytes()
+    pinned = json.loads((TEST_VECTORS / "vision-job-complete-v3-digest.json").read_text())
+
+    assert not list(_v3_validator().iter_errors(json.loads(example)))
+    assert hashlib.sha256(example).hexdigest() == pinned["exampleSha256"]
+
+
+def test_completion_v3_shares_every_non_evidence_definition_with_v2() -> None:
+    v2 = json.loads((SCHEMAS / "vision-job-complete-v2.schema.json").read_text())
+    v3 = _v3_schema()
+
+    for name, definition in v2["$defs"].items():
+        if name in {"representative", "track"}:
+            continue
+        assert v3["$defs"][name] == definition, name
+    assert "representative" not in v3["$defs"]["track"]["properties"]
+    assert v3["properties"]["schemaVersion"] == {"const": "3.0"}
+
+
+def test_completion_v3_invalid_vectors_are_rejected_at_their_declared_boundary() -> None:
+    validator = _v3_validator()
+    for vector in json.loads((TEST_VECTORS / "control-plane-v3-invalid.json").read_text()):
+        schema_valid = not list(validator.iter_errors(vector["payload"]))
+        if vector["rejectedBy"] == "schema":
+            assert not schema_valid, vector["name"]
+        else:
+            # Cross-field rules the schema cannot express; the platform validator rejects them.
+            assert schema_valid, vector["name"]
+
+
+def test_completion_v3_integer_conformance_corpus_matches_schema() -> None:
+    example = json.loads((EXAMPLES / "vision-job-complete-v3.example.json").read_text())
+    validator = _v3_validator()
+    for vector in json.loads((TEST_VECTORS / "vision-job-complete-v3-conformance.json").read_text())["integerCases"]:
+        payload = json.loads(json.dumps(example))
+        parent: object = payload
+        parts = vector["path"].strip("/").split("/")
+        for part in parts[:-1]:
+            parent = parent[int(part)] if isinstance(parent, list) else parent[part]
+        if isinstance(parent, list):
+            parent[int(parts[-1])] = _V3_PLACEHOLDER
+        else:
+            parent[parts[-1]] = _V3_PLACEHOLDER
+        raw = json.dumps(payload).replace(f'"{_V3_PLACEHOLDER}"', vector["token"])
+
+        assert (not list(validator.iter_errors(json.loads(raw)))) is vector["accepted"], vector["name"]
+
