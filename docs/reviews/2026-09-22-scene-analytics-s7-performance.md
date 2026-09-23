@@ -161,9 +161,9 @@ Not run at 1,000 here; the harness takes `MAVI_QUAL_UNIT_TRACKS` and defaults to
 
 Cost is dominated by evidence I/O rather than grid size, which is what the design predicts: the same 48,000 samples are read regardless of how finely they are binned. **This is not a basis for an acceptance decision** — the envelope decision belongs to a PostgreSQL 18 run.
 
-## 5. Open finding carried forward (still OPEN — see §8.3)
+## 5. Aggregate materialisation finding — dispositioned
 
-**P2 — the aggregate read materialises an unbounded number of fact rows.** Query *count* is constant in geometry (proven by an always-on test at 4 zones/2 lines versus 12 zones/6 lines), so there is no N+1. Row *volume* is bounded only by the requested window. A limit decision requires PostgreSQL 18 measurement, and the parent brief forbids introducing speculative indexes, caches or limits from PostgreSQL 16 observations alone. It therefore stays open, recorded, and assigned to the qualification run.
+**P2 — CLOSED as RETAIN within the qualified envelope.** Query count is constant in geometry and there is no N+1. Row volume still scales with facts inside the requested window; the authoritative PostgreSQL 18 Development-machine evidence now satisfies the predeclared Stage-1 rule in all nine §T cases. The implementation is retained without truncation or speculative cutoff, with 10⁵ relevant facts/request recorded as the qualified envelope. See §8.3.
 
 
 ## 6. The superseded independent PostgreSQL 18 pass (observations only)
@@ -245,13 +245,23 @@ The throughput figures are internally consistent with the harness's own integrit
 
 **Cross-OS determinism, observed rather than assumed.** The Windows Development run wrote exactly the rows the superseded Ubuntu pass (§6) had written from the same seed: 185 zone visits, 1,391 line crossings, 4,000 zone summaries, 1,000 outcomes, 1,000 motion summaries. The superseded pass cannot qualify anything, but agreement to the row between two operating systems is independent evidence that the seeded corpus and the engine are deterministic — which the parent plan requires, and which timings alone could never show.
 
-### 8.3 Decisions this evidence supports, and the one it does not yet
+### 8.3 Decisions supported by the authoritative Development-machine evidence
 
 - **Heatmap fan-out limits — RETAIN both 50 runs and 2,000 Tracks.** The product completed its full envelope with every integrity expectation met: every candidate contributed and every sealed sample was read. That is evidence the limits are workable. It is not evidence for widening them; one machine's headroom is not a reason to loosen a resource guard. Not measured by this harness, and so not claimed: plan §10's 1/5/10/25-run sweep, per-phase read/SHA/decode/grid timings, and cancellation latency.
-- **Aggregate materialisation P2 — still OPEN, BLOCKED on transcription.** The authoritative `plan-qualification.json` contains, per §T case, the rows materialised, database and application time, allocated bytes and GC deltas the security review asks for. It is held outside the repository and was not available to the environment that prepared this revision, so its figures are not transcribed here and no number from another run is put in their place. `tools/qualification/summarize_aggregate_qualification.py` prints exactly those rows, with the file's SHA-256 and provenance, and refuses (exit 1) a file that is not qualification evidence. The decision rule to apply to them — written before they are seen, and awaiting the owner's approval — is in the security review §1.
+- **Aggregate materialisation P2 — CLOSED, RETAIN.** The owner ran the summariser on the authoritative `plan-qualification.json` from reachable SHA `5f5166628b0c4af04cc8f7efcd40f7022f5095c4`. Evidence status was **qualification evidence** with clean/resolvable provenance on PostgreSQL 18.6 / pgvector 0.8.6; file SHA-256 `3e418ab9fca8dccf8b939cf356e6cde979db682b8d96bade0a799163c667275a`.
 
-  **Paste the summariser's output here:**
+| Bucket / class | Buckets | Visits | Crossings | Summaries | Intervals | DB ms | App ms | Total ms | Allocated MiB | GC 0/1/2 | DB queries |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 60 / any | 2400 | 30000 | 20000 | 26565 | 10000 | 1861 | 2544 | 4405 | 42.6 | 3/1/1 | 10 |
+| 60 / Person | 2400 | 19920 | 13280 | 17653 | 6640 | 2394 | 1797 | 4191 | 31.9 | 6/6/1 | 10 |
+| 60 / Vehicle | 2400 | 10080 | 6720 | 8912 | 3360 | 584 | 874 | 1458 | 15.4 | 2/0/0 | 10 |
+| 900 / any | 160 | 30000 | 20000 | 26565 | 10000 | 1346 | 171 | 1517 | 37.9 | 3/1/1 | 10 |
+| 900 / Person | 160 | 19920 | 13280 | 17653 | 6640 | 928 | 111 | 1039 | 28.0 | 2/1/1 | 10 |
+| 900 / Vehicle | 160 | 10080 | 6720 | 8912 | 3360 | 543 | 58 | 601 | 14.5 | 1/1/1 | 10 |
+| 3600 / any | 40 | 30000 | 20000 | 26565 | 10000 | 1335 | 54 | 1389 | 37.8 | 4/2/1 | 10 |
+| 3600 / Person | 40 | 19920 | 13280 | 17653 | 6640 | 941 | 31 | 972 | 27.9 | 2/1/1 | 10 |
+| 3600 / Vehicle | 40 | 10080 | 6720 | 8912 | 3360 | 543 | 19 | 562 | 14.4 | 2/0/0 | 10 |
 
-  *(pending — Development-machine action A in `docs/runbooks/scene-analytics-stage1-development-acceptance.md`)*
+  The predeclared rule required every case to be ≤10,000 ms total, ≤64 MiB allocated, and exactly 10 DB queries. All nine pass. Worst total = **4,405 ms**; worst allocation = **42.6 MiB**; DB query count = **10** in every case. **Decision: RETAIN** for Stage 1, with 10⁵ relevant facts/request as the qualified envelope and the explicit caveat that work remains linear in facts inside the requested window.
 
-- **Development-corpus unit (exit-gate item 4a) — pending an operator read.** `tools/qualification/development-unit-record.sql` reads each unit's final-attempt duration, analysed/unavailable counts and rows written per fact table straight from `mavi_dev`. It was checked against a fresh 1,000-Track unit here, where it agreed row for row with the harness (1,000 / 185 / 4,000 / 1,391 / 1,000). Runbook action B.
+- **Development-corpus unit (exit-gate item 4a) — PASS.** The owner ran `development-unit-record.sql` against the canonical Development database. Observed unit: `Completed`, attempt 1, **414 ms** final-attempt duration, **12 analysed / 0 unavailable**, **12 outcomes**, 8 zone visits, 12 zone summaries, 1 line crossing, 12 motion summaries and **3,002 trajectory samples**. Integrity equation holds: outcomes = analysed + unavailable = 12.
