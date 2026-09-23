@@ -4,11 +4,36 @@ namespace Mavi.Contracts.Worker;
 
 public static class WorkerContractRules
 {
+    /// <summary>
+    /// Version of the lease, heartbeat and fail messages and of legacy completion.
+    /// Only the completion message has a newer version (see <see cref="CompletionSchemaVersionV3"/>).
+    /// </summary>
     public const string SchemaVersion = "2.0";
+    public const string CompletionSchemaVersionV2 = "2.0";
+    public const string CompletionSchemaVersionV3 = "3.0";
+
+    /// <summary>Completion versions this platform accepts, in ascending order.</summary>
+    public static IReadOnlyList<string> CompletionSchemaVersions { get; } =
+        [CompletionSchemaVersionV2, CompletionSchemaVersionV3];
+
+    public static bool IsAcceptedCompletionSchemaVersion(string? value) =>
+        value is CompletionSchemaVersionV2 or CompletionSchemaVersionV3;
+
     public const int MaximumCompletionTracks = 10_000;
-    public const long MaximumCompletionRequestBodyBytes = 32L * 1024 * 1024;
+    // Re-derived for completion 3.0 (four observation descriptors per Track). The
+    // worst-shape body is pinned by WorkerContractV3Tests.WorstShapeBodyFitsUnderLimit.
+    public const long MaximumCompletionRequestBodyBytes = 48L * 1024 * 1024;
     public const long MaximumCompletionArtifactBytes = 64L * 1024 * 1024;
+    /// <summary>
+    /// Completion 2.0: thumbnails plus trajectories. Completion 3.0: trajectories
+    /// (and other non-crop artefacts) only; crops count against
+    /// <see cref="MaximumCompletionEvidenceCropBytes"/>.
+    /// </summary>
     public const long MaximumCompletionEvidenceBytes = 512L * 1024 * 1024;
+    public const long MaximumCompletionEvidenceCropBytes = 1024L * 1024 * 1024;
+    public const int MaximumTrackObservations = 4;
+    public const long MaximumRepresentativeCropBytes = 64L * 1024;
+    public const long MaximumSupplementalCropBytes = 160L * 1024;
     public const int MaximumCompletionDependencyVersions = 128;
     public const double MinimumPositiveTrackerParameter = 1e-9;
     public const double MaximumPositiveTrackerParameter = 1e9;

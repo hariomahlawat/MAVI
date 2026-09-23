@@ -306,3 +306,53 @@ public sealed class BoundedPythonBuildJsonConverter
         writer.WriteEndArray();
     }
 }
+
+public sealed class BoundedVisionObservationListJsonConverter
+    : JsonConverter<IReadOnlyList<VisionTrackObservationContract>?>
+{
+    public override bool HandleNull => true;
+
+    public override IReadOnlyList<VisionTrackObservationContract>? Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType != JsonTokenType.StartArray)
+            throw new JsonException("Expected an observation array.");
+
+        var items = new List<VisionTrackObservationContract>(WorkerContractRules.MaximumTrackObservations);
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndArray)
+                return items;
+            if (items.Count >= WorkerContractRules.MaximumTrackObservations)
+                throw new JsonException("Track observation limit exceeded.");
+
+            var item = JsonSerializer.Deserialize<VisionTrackObservationContract>(ref reader, options)
+                ?? throw new JsonException("Track observations cannot contain null.");
+            items.Add(item);
+        }
+
+        throw new JsonException("Incomplete observation array.");
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        IReadOnlyList<VisionTrackObservationContract>? value,
+        JsonSerializerOptions options)
+    {
+        if (value is null)
+        {
+            writer.WriteNullValue();
+            return;
+        }
+        if (value.Count > WorkerContractRules.MaximumTrackObservations)
+            throw new JsonException("Track observation limit exceeded.");
+
+        writer.WriteStartArray();
+        foreach (var item in value)
+            JsonSerializer.Serialize(writer, item, options);
+        writer.WriteEndArray();
+    }
+}
