@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+from math import isclose
 
 import numpy as np
 from PIL import Image
@@ -59,6 +60,18 @@ def prepare_track(
         raise ValueError("track_observation_missing")
 
     mean_confidence = confidence_sum / observation_count
+    # Every observation contributing to the mean is individually bounded by the
+    # observed maximum, but repeated binary floating-point addition can put the
+    # quotient a few ulps above that maximum (for example 250 × 0.9). Accept
+    # only that numerical noise; a materially inconsistent aggregate must still
+    # fail rather than being silently clamped.
+    if mean_confidence > max_confidence and isclose(
+        mean_confidence,
+        max_confidence,
+        rel_tol=1e-12,
+        abs_tol=1e-12,
+    ):
+        mean_confidence = max_confidence
     if not 0.0 <= mean_confidence <= max_confidence <= 1.0:
         raise ValueError("track_confidence_invalid")
 
