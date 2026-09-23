@@ -98,3 +98,22 @@ A second cold review of the accepted documentation head, checked against the cod
 The first cold consistency pass reported no open P1/P2; the second pass above shows that report was premature and records what it missed. After the amendments listed above, no open P1/P2 architecture finding remains in the governing documents. ADR-013 and ADR-014 remain Accepted on the amended text, and acceptance-register items A1–A12 are PASS on the amended documentation head.
 
 Feature implementation is intentionally not part of this PR.
+
+
+## Final independent handover review (2026-09-23)
+
+A final review was performed after the Fable second-pass amendments against PR head `ae28527d0f3f9f202576ee90352e5daad74ee332`, including a direct code cross-check of `Tracker`, `ByteTrackTracker`, `VideoProcessor`, `WorkerContractRules`, runtime provenance and cursor v3.
+
+One additional P2 documentation/architecture gap was found and amended:
+
+| ID | Priority | Finding | Evidence | Amendment |
+|---|---:|---|---|---|
+| R-23 | P2 | ADR-013 claimed evidence memory would be bounded by *live* Tracks and candidates written when a Track ended, but the current model-neutral `Tracker` protocol exposes only per-frame `TrackCandidate` values and no retirement event. The acceptance register also still said candidates were “staged on selection”, contradicting the amended ADR's write-once-at-retirement design. Without a defined retirement signal, S1 would either retain all Track accumulators to end-of-video or duplicate ByteTrack lost-buffer timing inside `VideoProcessor`, weakening backend neutrality and making the live-Track memory claim unproven. | `src/vision/mavi_vision/tracking/interfaces.py` — `Tracker.update(...) -> Sequence[TrackCandidate]`; `process_video.py` retains the `tracks` dictionary through decode; ADR-013 §5 / register B2 on `ae28527` | ADR-013 §5 now freezes a model-neutral exact-once retirement signal: the adapter emits retired MAVI Track ids only when an identity cannot reappear; post-retirement id reuse is forbidden; end-of-stream drains remaining Tracks; `VideoProcessor` does not maintain a backend-specific shadow timeout. The Stage-2 plan/S1 scope and acceptance B2 now require retirement, reactivation-before-expiry, no-reappearance and end-of-stream contract tests. |
+
+A P3 status inconsistency was also corrected: the governing qualification plan was still labelled “architecture-freeze candidate” after ADR-013/014 and S0 had been accepted; it now states that the protocol is accepted while numeric gates/support remain deliberately deferred to validation evidence.
+
+### Final verdict
+
+After the R-23 amendment and a fresh contradiction scan, no open P1/P2 architecture finding remains in the governing Stage-2 documentation.
+
+This verdict is still **documentation architecture only**. It does not mark B–G implementation/qualification acceptance items PASS and does not imply that S1 has been implemented.
