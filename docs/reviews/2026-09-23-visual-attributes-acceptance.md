@@ -50,7 +50,7 @@ The documentation/architecture gate is closed on the reviewed PR head. Feature i
 | ID | Requirement | Status |
 |---|---|---|
 | B1 | Deterministic four-role candidate selector implemented with documented tie-breaking | OPEN |
-| B2 | JPEG encoding occurs in-loop; candidates are staged on selection and the accumulator holds descriptors only, so memory is bounded by live Tracks | OPEN |
+| B2 | JPEG encoding occurs in-loop; the model-neutral tracker emits exact-once retired Track ids with no post-retirement reappearance; encoded candidates remain bounded only while live and are staged once at retirement/end-of-stream; retirement/reactivation/end-of-stream tests prove the live-Track memory bound | OPEN |
 | B3 | Representative and supplemental byte caps, reduction floors, score-ordered admission and the 1 GiB run EvidenceCrop quota are enforced; body bound re-derived; all contract-tested at the 10,000-Track bound | OPEN |
 | B4 | Vision completion schema v3, digest v3, validator/store/sealing and Observation evolution pass contract tests | OPEN |
 | B5 | `TrackDetail.observations[]` and evidence viewer expose accepted roles without breaking Representative behaviour | OPEN |
