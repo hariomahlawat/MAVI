@@ -524,7 +524,7 @@ public sealed class VisionResultCompletionApiTests
         return (await leaseResponse.Content.ReadFromJsonAsync<VisionJobLeaseContract>())!;
     }
 
-    private static async Task<VisionJobCompleteRequest> BuildRequestAsync(
+    internal static async Task<VisionJobCompleteRequest> BuildRequestAsync(
         ApiTestFactory factory,
         VisionJobLeaseContract lease)
     {

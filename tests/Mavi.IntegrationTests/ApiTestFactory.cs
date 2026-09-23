@@ -40,6 +40,12 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     /// </summary>
     public bool EnableSceneAnalyticsHost { get; init; }
 
+    /// <summary>
+    /// Off by default: a background janitor reclaiming staging while a test inspects it would
+    /// make unrelated tests timing-dependent. Janitor tests drive cycles explicitly.
+    /// </summary>
+    public bool EnableStagingJanitorHost { get; init; }
+
     /// <summary>Use an existing media root instead of a fresh temporary one.</summary>
     public string? MediaRootOverride { get; init; }
 
@@ -81,6 +87,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["DatabaseMigrations:Enabled"] = EnableStartupMigrations ? "true" : "false",
                 ["MediaProcessing:VerifyOnStartup"] = "false",
                 ["SceneAnalytics:Enabled"] = EnableSceneAnalyticsHost ? "true" : "false",
+                ["StagingJanitor:Enabled"] = EnableStagingJanitorHost ? "true" : "false",
                 ["TrackSearch:CursorSigningKey"] = CursorSigningKey,
                 ["DatabaseMigrations:LockTimeoutSeconds"] =
                     StartupMigrationLockTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
