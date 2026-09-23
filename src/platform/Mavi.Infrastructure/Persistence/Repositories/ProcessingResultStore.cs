@@ -49,7 +49,7 @@ public sealed class ProcessingResultStore(
         if (job is null)
             return VisionCompletionResult.Failure("vision_job_not_found");
 
-        if (!string.Equals(request.SchemaVersion, WorkerContractRules.SchemaVersion, StringComparison.Ordinal) ||
+        if (!WorkerContractRules.IsAcceptedCompletionSchemaVersion(request.SchemaVersion) ||
             request.JobId != jobId ||
             !string.Equals(request.WorkerId, workerId, StringComparison.Ordinal) ||
             !string.Equals(request.LeaseToken, leaseToken, StringComparison.Ordinal))
@@ -140,67 +140,58 @@ public sealed class ProcessingResultStore(
 
         try
         {
+            // Defence in depth: the validator already bounds admitted crop bytes;
+            // the store refuses to seal past the run quota even if it were bypassed.
+            if (result.Schema == CompletionSchema.V3)
+            {
+                long admittedCropBytes = 0;
+                foreach (var track in result.Tracks)
+                    foreach (var observation in track.Observations)
+                        admittedCropBytes += observation.Crop.SizeBytes;
+                if (admittedCropBytes > WorkerContractRules.MaximumCompletionEvidenceCropBytes)
+                    return VisionCompletionResult.Failure("vision_result_invalid");
+            }
+
             foreach (var track in result.Tracks)
             {
-            var thumbnailAcceptedKey = AcceptedEvidenceKey(
-                jobId,
-                result.AttemptCount,
-                "thumbnails",
-                track.TrackId,
-                track.Representative.Thumbnail.Sha256,
-                "jpg");
-            var thumbnail = await acceptedEvidenceStore.SealAsync(
-                track.Representative.Thumbnail.StorageKey,
-                thumbnailAcceptedKey,
-                track.Representative.Thumbnail.SizeBytes,
-                track.Representative.Thumbnail.Sha256,
-                cancellationToken);
-            if (thumbnail.CreatedNew && thumbnail.StorageKey is { } createdThumbnailKey)
-                newlySealedKeys.Add(createdThumbnailKey);
-            var thumbnailFailure = MapSealFailure(thumbnail.Status);
-            if (thumbnailFailure is not null)
-                return VisionCompletionResult.Failure(thumbnailFailure);
-            acceptedStorageKeys.Add(
-                track.Representative.Thumbnail.StorageKey,
-                thumbnail.StorageKey ?? thumbnailAcceptedKey);
+                // Crops in rank order, then the trajectory (the historical v2 order,
+                // kept for both versions); compensation below removes every newly
+                // sealed object in reverse on failure.
+                foreach (var observation in track.Observations)
+                {
+                    var cropAcceptedKey = result.Schema == CompletionSchema.V2
+                        ? AcceptedEvidenceKey(jobId, result.AttemptCount, "thumbnails", track.TrackId,
+                            observation.Crop.Sha256, "jpg")
+                        : AcceptedEvidenceKey(jobId, result.AttemptCount, "crops",
+                            $"{track.TrackId}-{VisionResultValidator.RoleToken(observation.Role)}",
+                            observation.Crop.Sha256, "jpg");
+                    var cropFailure = await SealAsync(
+                        observation.Crop, cropAcceptedKey, newlySealedKeys, acceptedStorageKeys, cancellationToken);
+                    if (cropFailure is not null)
+                        return VisionCompletionResult.Failure(cropFailure);
+                }
 
-            var trajectoryAcceptedKey = AcceptedEvidenceKey(
-                jobId,
-                result.AttemptCount,
-                "trajectories",
-                track.TrackId,
-                track.TrajectoryArtifact.Sha256,
-                "msgpack");
-            var trajectory = await acceptedEvidenceStore.SealAsync(
-                track.TrajectoryArtifact.StorageKey,
-                trajectoryAcceptedKey,
-                track.TrajectoryArtifact.SizeBytes,
-                track.TrajectoryArtifact.Sha256,
-                cancellationToken);
-            if (trajectory.CreatedNew && trajectory.StorageKey is { } createdTrajectoryKey)
-                newlySealedKeys.Add(createdTrajectoryKey);
-            var trajectoryFailure = MapSealFailure(trajectory.Status);
-            if (trajectoryFailure is not null)
-                return VisionCompletionResult.Failure(trajectoryFailure);
-            acceptedStorageKeys.Add(
-                track.TrajectoryArtifact.StorageKey,
-                trajectory.StorageKey ?? trajectoryAcceptedKey);
+                var trajectoryAcceptedKey = AcceptedEvidenceKey(
+                    jobId,
+                    result.AttemptCount,
+                    "trajectories",
+                    track.TrackId,
+                    track.TrajectoryArtifact.Sha256,
+                    "msgpack");
+                var trajectoryFailure = await SealAsync(
+                    track.TrajectoryArtifact, trajectoryAcceptedKey, newlySealedKeys, acceptedStorageKeys, cancellationToken);
+                if (trajectoryFailure is not null)
+                    return VisionCompletionResult.Failure(trajectoryFailure);
             }
 
         var createdAtUtc = timeProvider.GetUtcNow();
-        var graph = new List<(Track Track, Observation Observation)>(result.Tracks.Count);
+        // v2 crops keep the historical Thumbnail type; v3 crops are EvidenceCrop.
+        var cropArtifactType = result.Schema == CompletionSchema.V2 ? ArtifactType.Thumbnail : ArtifactType.EvidenceCrop;
+        var graph = new List<(Track Track, Observation Representative)>(result.Tracks.Count);
 
         for (var index = 0; index < result.Tracks.Count; index++)
         {
             var accepted = result.Tracks[index];
-
-            var thumbnailArtifact = Artifact.Create(
-                ArtifactType.Thumbnail,
-                acceptedStorageKeys[accepted.Representative.Thumbnail.StorageKey],
-                accepted.Representative.Thumbnail.MediaType,
-                accepted.Representative.Thumbnail.SizeBytes,
-                accepted.Representative.Thumbnail.Sha256,
-                createdAtUtc: createdAtUtc);
 
             var trajectoryArtifact = Artifact.Create(
                 ArtifactType.TrackTrajectory,
@@ -222,29 +213,45 @@ public sealed class ProcessingResultStore(
                 accepted.MeanConfidence,
                 accepted.MaxConfidence,
                 createdAtUtc);
-
-            var representative = accepted.Representative;
-            var observation = Observation.Create(
-                track.Id,
-                ObservationType.Representative,
-                representative.SourceFrameNumber,
-                representative.OffsetMs,
-                video.RecordingStartUtc,
-                checked((float)representative.X),
-                checked((float)representative.Y),
-                checked((float)representative.Width),
-                checked((float)representative.Height),
-                representative.Confidence,
-                representative.QualityScore,
-                createdAtUtc);
-
             track.AttachTrajectoryArtifact(trajectoryArtifact.Id);
-            observation.AttachThumbnailArtifact(thumbnailArtifact.Id);
-
-            db.Artifacts.AddRange(thumbnailArtifact, trajectoryArtifact);
+            db.Artifacts.Add(trajectoryArtifact);
             db.Tracks.Add(track);
-            db.Observations.Add(observation);
-            graph.Add((track, observation));
+
+            Observation? representative = null;
+            foreach (var validated in accepted.Observations)
+            {
+                var cropArtifact = Artifact.Create(
+                    cropArtifactType,
+                    acceptedStorageKeys[validated.Crop.StorageKey],
+                    validated.Crop.MediaType,
+                    validated.Crop.SizeBytes,
+                    validated.Crop.Sha256,
+                    createdAtUtc: createdAtUtc);
+
+                var observation = Observation.Create(
+                    track.Id,
+                    validated.Role,
+                    validated.SourceFrameNumber,
+                    validated.OffsetMs,
+                    video.RecordingStartUtc,
+                    checked((float)validated.X),
+                    checked((float)validated.Y),
+                    checked((float)validated.Width),
+                    checked((float)validated.Height),
+                    validated.Confidence,
+                    validated.QualityScore,
+                    validated.Rank,
+                    validated.SelectionScore,
+                    createdAtUtc);
+                observation.AttachEvidenceArtifact(cropArtifact.Id);
+
+                db.Artifacts.Add(cropArtifact);
+                db.Observations.Add(observation);
+                if (validated.Role == ObservationType.Representative)
+                    representative = observation;
+            }
+
+            graph.Add((track, representative!));
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -358,6 +365,27 @@ public sealed class ProcessingResultStore(
                     exception);
             }
         }
+    }
+
+    private async Task<string?> SealAsync(
+        ValidatedArtifactDescriptor descriptor,
+        string acceptedKey,
+        List<string> newlySealedKeys,
+        Dictionary<string, string> acceptedStorageKeys,
+        CancellationToken cancellationToken)
+    {
+        var sealedResult = await acceptedEvidenceStore.SealAsync(
+            descriptor.StorageKey,
+            acceptedKey,
+            descriptor.SizeBytes,
+            descriptor.Sha256,
+            cancellationToken);
+        if (sealedResult.CreatedNew && sealedResult.StorageKey is { } createdKey)
+            newlySealedKeys.Add(createdKey);
+        var failure = MapSealFailure(sealedResult.Status);
+        if (failure is null)
+            acceptedStorageKeys.Add(descriptor.StorageKey, sealedResult.StorageKey ?? acceptedKey);
+        return failure;
     }
 
     private static string AcceptedEvidenceKey(

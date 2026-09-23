@@ -62,7 +62,10 @@ public sealed class ContentCatalog(MaviDbContext db) : IContentCatalog
                 artifact.Id == artifactId &&
                 (
                     (
-                        artifact.ArtifactType == ArtifactType.Thumbnail &&
+                        // A crop (v2 Thumbnail or v3 EvidenceCrop) is served only while an
+                        // Observation of a Completed run references it.
+                        (artifact.ArtifactType == ArtifactType.Thumbnail ||
+                         artifact.ArtifactType == ArtifactType.EvidenceCrop) &&
                         db.Observations.AsNoTracking().Any(observation =>
                             observation.ThumbnailArtifactId == artifact.Id &&
                             db.Tracks.AsNoTracking().Any(track =>
