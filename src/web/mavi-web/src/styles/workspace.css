@@ -154,7 +154,17 @@
    makes the *page* scroll sideways. Caught at 1366 on Videos, where the table
    overflows: the body clipped correctly and the document still scrolled 52px. */
 .workspace--ledger .workspace__body--scroll,
-.workspace--ledger-summary .workspace__body--scroll { position: relative; }
+.workspace--ledger-summary .workspace__body--scroll,
+/* The same rule for every other scroll owner. On Investigation the results
+   list and the rail were static, so the hidden label in each of a full page of
+   rows escaped the list and made the page about twice the viewport tall.
+   `.main` is deliberately not in this list: it is the page's own scroller, and
+   the drawers resolve against the workspace, not against it. */
+.workspace__rail,
+.results__list,
+.inspector__body,
+.panel__body--scroll,
+.scroll-y { position: relative; }
 
 /* --- Overview only: the section 4.1.1 exception. ----------------------
  * The exception is a *width* one and nothing else. §4's scroll-ownership

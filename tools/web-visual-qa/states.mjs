@@ -81,6 +81,24 @@ const LONG_NAME_TRACKS = {
 /** A first page that has a continuation, so there is something to load more of. */
 const PAGE_ONE = { ...LONG_NAME_TRACKS, nextCursor: 'opaque-cursor', totalCount: 48 };
 
+/**
+ * A full first page, as real data returns it: 24 rows and a continuation. Seven
+ * rows fit on screen, and the list scrolls past the rest. Every row carries a
+ * `.visually-hidden` label (`position: absolute`), so the list must be their
+ * containing block. Otherwise each label resolves against the page, escapes the
+ * list's clip and makes the *page* scroll: on the Development machine the
+ * document grew to about twice the viewport, with the shell scrolling away
+ * beneath empty space. One Track never showed it.
+ */
+const FULL_PAGE = {
+  items: Array.from({ length: 24 }, (_, index) => ({
+    ...LONG_NAME_TRACKS.items[0],
+    id: `70000000-0000-7000-8000-${String(index).padStart(12, '0')}`,
+  })),
+  nextCursor: 'opaque-cursor',
+  totalCount: 48,
+};
+
 /** Page one, then a transient failure: the results survive, continuation stops. */
 const PAGE_ONE_THEN_503 = { sequence: [PAGE_ONE, 'unavailable'] };
 
@@ -2524,6 +2542,11 @@ export const STATES = [
     name: 'search-paged', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
     api: { '/api/tracks': PAGE_ONE },
     expectText: ['Load more', 'more to load'],
+  },
+  {
+    name: 'search-full-page', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
+    api: { '/api/tracks': FULL_PAGE },
+    expectText: ['24 Tracks', 'more to load'],
   },
   {
     name: 'search-continuation-failed', path: '/search', fullWidth: true, settleMs: 5000,
