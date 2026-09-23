@@ -177,6 +177,8 @@ The server honours the abort. The analytics endpoints bind the request-abort tok
 
 After the fix, the operator repeated an **offline cold start** and Camera Scene loaded. Network inspection showed no request to any origin other than `localhost`/`127.0.0.1`.
 
+**The Processing-page symptom was a paused query, not a stalled read.** With the adapters disabled, `/processing` stayed on its skeleton, while the same page loaded once connectivity returned. The cause was TanStack Query's default `networkMode: 'online'`: while `navigator.onLine` is false, it pauses every query and mutation *before sending a request*, so the bounded read never started. It is now `'always'` for queries and mutations (`app/queryClient.ts`), and `app/queryClient.test.ts` sets the browser offline and requires the query and the mutation to run. Both tests fail with the default mode. The Development proxy was also moved to `http://127.0.0.1:62153` (no name lookup, no TLS), as a separate configuration hardening; see `docs/runbooks/local-development.md`.
+
 **Not established:** why a local read got no response during cold start. The bound and the retry recover it, but the cause is not identified. It is recorded as a known limitation and not treated as fixed.
 
 ## Independent closure review

@@ -1,5 +1,17 @@
 import { QueryClient } from '@tanstack/react-query';
 
+/**
+ * MAVI's API is always on loopback, so whether the browser thinks it has an
+ * Internet connection says nothing about whether the API can be reached.
+ * TanStack Query's default `networkMode: 'online'` pauses every query and
+ * mutation while `navigator.onLine` is false. With the network adapters
+ * disabled on an air-gapped machine, that leaves pages on their loading state
+ * indefinitely, without a request ever being sent. `'always'` sends the request
+ * regardless; a local API that does not answer still fails through the bounded
+ * read (`api/client.ts`) and shows its Retry.
+ */
+const LOCAL_API_NETWORK_MODE = 'always' as const;
+
 export function createMaviQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
@@ -7,9 +19,11 @@ export function createMaviQueryClient(): QueryClient {
         retry: 1,
         staleTime: 5_000,
         refetchOnWindowFocus: false,
+        networkMode: LOCAL_API_NETWORK_MODE,
       },
       mutations: {
         retry: false,
+        networkMode: LOCAL_API_NETWORK_MODE,
       },
     },
   });

@@ -371,6 +371,10 @@ The helper verifies the pinned source archive SHA-256 before staging `vendor/ffm
 
 If the staged pack already exists, rerun Setup or `Test-MaviEnvironment.ps1 -Profile Development`. Production never relies on PATH fallback.
 
+### A page stays on its loading state while the network adapters are disabled
+
+MAVI's query layer uses `networkMode: 'always'` (`src/web/mavi-web/src/app/queryClient.ts`). With TanStack Query's default mode, `'online'`, every query pauses without sending a request whenever the browser reports no network (`navigator.onLine` is false). On an air-gapped machine that left pages such as Processing on their skeleton indefinitely, even though the loopback API was answering. If this reappears, check DevTools → Network. A page waiting on a request that was never sent points at the query mode, not at the API or the proxy.
+
 ### A page shows an "unavailable" error with Retry instead of loading
 
 The browser client bounds every local API read (GET/HEAD, including trajectory artefacts) at 10 seconds and retries once. A read that gets no response therefore becomes that page's error state, for example *Scene configuration is unavailable.*, with **Retry** after about 21 seconds, rather than an indefinite *Loading…*. It usually means `Mavi.Api` is not answering. For example:

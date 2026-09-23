@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { QueryObserver } from '@tanstack/react-query';
+import { MutationObserver, QueryObserver, onlineManager } from '@tanstack/react-query';
 import { createMaviQueryClient } from './queryClient';
 
 afterEach(() => {
   vi.useRealTimers();
+  onlineManager.setOnline(true);
 });
 
 /**
@@ -33,5 +34,30 @@ describe('MAVI query defaults', () => {
 
   it('never retries a mutation', () => {
     expect(createMaviQueryClient().getDefaultOptions().mutations?.retry).toBe(false);
+  });
+
+  it('still reads the local API while the browser reports no network', async () => {
+    // Air-gapped: every adapter disabled, navigator.onLine false, API on loopback.
+    onlineManager.setOnline(false);
+    const client = createMaviQueryClient();
+    const queryFn = vi.fn().mockResolvedValue({ ok: true });
+    const observer = new QueryObserver(client, { queryKey: ['offline-probe'], queryFn });
+    const unsubscribe = observer.subscribe(() => {});
+
+    await vi.waitFor(() => expect(observer.getCurrentResult().status).toBe('success'));
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    expect(observer.getCurrentResult().fetchStatus).toBe('idle');
+    unsubscribe();
+    client.clear();
+  });
+
+  it('still sends a mutation while the browser reports no network', async () => {
+    onlineManager.setOnline(false);
+    const client = createMaviQueryClient();
+    const mutationFn = vi.fn().mockResolvedValue({ saved: true });
+
+    await expect(new MutationObserver(client, { mutationFn }).mutate(undefined)).resolves.toEqual({ saved: true });
+    expect(mutationFn).toHaveBeenCalledTimes(1);
+    client.clear();
   });
 });
