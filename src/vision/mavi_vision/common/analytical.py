@@ -104,6 +104,16 @@ class ArtifactDescriptor:
 
 @dataclass(frozen=True, slots=True)
 class ProcessedTrack:
+    """A finalised Track: scalar summary plus staged-artifact descriptors only.
+
+    It deliberately carries no trajectory points or image payloads. A Track is
+    finalised when its lifecycle ends, possibly long before end-of-stream, and the
+    result keeps one of these per Track until completion; holding the full point
+    list here would make completion memory grow with every detection of every
+    Track. The points are validated in ``prepare_track`` and live on only as the
+    staged ``trajectory_artifact``.
+    """
+
     track_id: str
     object_class: ObjectClass
     start_offset_ms: int
@@ -112,7 +122,6 @@ class ProcessedTrack:
     mean_confidence: float
     max_confidence: float
     representative: RepresentativeObservation
-    trajectory: tuple[TrajectoryPoint, ...]
     thumbnail: ArtifactDescriptor
     trajectory_artifact: ArtifactDescriptor
 
@@ -129,15 +138,6 @@ class ProcessedTrack:
             raise ValueError("track_confidence_order_invalid")
         if self.representative.confidence > self.max_confidence:
             raise ValueError("representative_confidence_exceeds_track_max")
-        if not self.trajectory:
-            raise ValueError("trajectory_required")
-        if len(self.trajectory) != self.detection_count:
-            raise ValueError("trajectory_detection_count_mismatch")
-        offsets = [point.offset_ms for point in self.trajectory]
-        if any(current <= previous for previous, current in zip(offsets, offsets[1:])):
-            raise ValueError("trajectory_offsets_not_monotonic")
-        if offsets[0] < self.start_offset_ms or offsets[-1] > self.end_offset_ms:
-            raise ValueError("trajectory_offsets_outside_track")
         if not self.start_offset_ms <= self.representative.offset_ms <= self.end_offset_ms:
             raise ValueError("representative_outside_track")
 

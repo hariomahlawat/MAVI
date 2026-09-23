@@ -181,3 +181,67 @@ def test_prepare_track_rejects_missing_observations() -> None:
             representative_crop=np.ones((2, 2, 3), dtype=np.uint8),
             trajectory=(),
         )
+
+
+def _prepare_with_trajectory(
+    trajectory: tuple[TrajectoryPoint, ...],
+    *,
+    start_offset_ms: int = 0,
+    end_offset_ms: int = 1000,
+) -> PreparedTrack:
+    return prepare_track(
+        track_id="person-0001",
+        object_class=ObjectClass.PERSON,
+        start_offset_ms=start_offset_ms,
+        end_offset_ms=end_offset_ms,
+        confidence_sum=0.9 * len(trajectory),
+        max_confidence=0.9,
+        observation_count=len(trajectory),
+        representative=_representative(),
+        representative_crop=np.ones((4, 4, 3), dtype=np.uint8),
+        trajectory=trajectory,
+    )
+
+
+def test_prepare_track_owns_trajectory_monotonicity() -> None:
+    # The finalised ProcessedTrack no longer carries points, so this is the last
+    # place a non-monotonic trajectory can be caught before it is staged.
+    with pytest.raises(ValueError, match="trajectory_offsets_not_monotonic"):
+        _prepare_with_trajectory(
+            (TrajectoryPoint(500, 0.4, 0.3), TrajectoryPoint(500, 0.2, 0.3))
+        )
+    with pytest.raises(ValueError, match="trajectory_offsets_not_monotonic"):
+        _prepare_with_trajectory(
+            (TrajectoryPoint(1000, 0.4, 0.3), TrajectoryPoint(500, 0.2, 0.3))
+        )
+
+
+def test_prepare_track_rejects_trajectory_outside_track_bounds() -> None:
+    with pytest.raises(ValueError, match="trajectory_offsets_outside_track"):
+        _prepare_with_trajectory(
+            (TrajectoryPoint(0, 0.4, 0.3), TrajectoryPoint(40, 0.2, 0.3)),
+            start_offset_ms=10,
+            end_offset_ms=40,
+        )
+    with pytest.raises(ValueError, match="trajectory_offsets_outside_track"):
+        _prepare_with_trajectory(
+            (TrajectoryPoint(0, 0.4, 0.3), TrajectoryPoint(40, 0.2, 0.3)),
+            start_offset_ms=0,
+            end_offset_ms=39,
+        )
+
+
+def test_prepare_track_rejects_point_count_differing_from_detections() -> None:
+    with pytest.raises(ValueError, match="track_observation_missing"):
+        prepare_track(
+            track_id="person-0001",
+            object_class=ObjectClass.PERSON,
+            start_offset_ms=0,
+            end_offset_ms=1000,
+            confidence_sum=2.7,
+            max_confidence=0.9,
+            observation_count=3,
+            representative=_representative(),
+            representative_crop=np.ones((4, 4, 3), dtype=np.uint8),
+            trajectory=(TrajectoryPoint(0, 0.2, 0.3), TrajectoryPoint(1000, 0.4, 0.3)),
+        )

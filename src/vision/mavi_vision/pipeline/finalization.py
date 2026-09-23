@@ -50,7 +50,12 @@ def prepare_track(
     representative_crop: np.ndarray | None,
     trajectory: tuple[TrajectoryPoint, ...],
 ) -> PreparedTrack:
-    """Prepare deterministic track payloads without performing external side effects."""
+    """Prepare deterministic track payloads without performing external side effects.
+
+    This is the last point at which the Track's trajectory points exist in memory,
+    so every trajectory invariant is enforced here; the resulting ``ProcessedTrack``
+    keeps only the staged descriptor.
+    """
 
     if representative is None or representative_crop is None or observation_count <= 0:
         raise ValueError("track_observation_missing")
@@ -58,6 +63,11 @@ def prepare_track(
     points = tuple(trajectory)
     if not points or len(points) != observation_count:
         raise ValueError("track_observation_missing")
+    offsets = [point.offset_ms for point in points]
+    if any(current <= previous for previous, current in zip(offsets, offsets[1:])):
+        raise ValueError("trajectory_offsets_not_monotonic")
+    if offsets[0] < start_offset_ms or offsets[-1] > end_offset_ms:
+        raise ValueError("trajectory_offsets_outside_track")
 
     mean_confidence = confidence_sum / observation_count
     # Every observation is bounded by the observed maximum, so the true mean

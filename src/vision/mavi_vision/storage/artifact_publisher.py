@@ -54,7 +54,6 @@ class ArtifactPublisher:
             mean_confidence=prepared.mean_confidence,
             max_confidence=prepared.max_confidence,
             representative=prepared.representative,
-            trajectory=prepared.trajectory,
             thumbnail=thumbnail,
             trajectory_artifact=trajectory_artifact,
         )

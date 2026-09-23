@@ -20,6 +20,7 @@ from mavi_vision.runtime.progress import ProcessingProgress
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.tracking.fixture import FixtureTracker
+from mavi_vision.video.trajectory import deserialize_trajectory
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd761")
@@ -126,12 +127,12 @@ def test_process_builds_one_deterministic_track_and_artifacts(tmp_path: Path) ->
     assert track.max_confidence == pytest.approx(0.9)
     assert track.start_offset_ms <= track.representative.offset_ms <= track.end_offset_ms
     assert track.representative.offset_ms == track.start_offset_ms
-    offsets = [point.offset_ms for point in track.trajectory]
-    assert offsets == sorted(offsets)
-    assert all(current > previous for previous, current in zip(offsets, offsets[1:]))
-
     thumbnail_path = _artifact_path(tmp_path, track.thumbnail.storage_key)
     trajectory_path = _artifact_path(tmp_path, track.trajectory_artifact.storage_key)
+    trajectory = deserialize_trajectory(trajectory_path.read_bytes())
+    offsets = [point.offset_ms for point in trajectory]
+    assert len(offsets) == track.detection_count
+    assert all(current > previous for previous, current in zip(offsets, offsets[1:]))
     assert thumbnail_path.exists()
     assert trajectory_path.exists()
     assert "/attempt-0001/thumbnails/" in track.thumbnail.storage_key
