@@ -127,3 +127,8 @@ Domain **195** passed; Application **373** passed; Integration **657 passed, 2 f
 - **Provenance round.** The earlier PostgreSQL 18 pass named an unreachable commit; the harness now refuses dirty or unresolvable provenance. Superseded by the Development-machine run on `5f516662…`.
 - **Integration.** PR #71 fast-forwarded into PR #70; Development-machine qualification and real-worker acceptance recorded.
 - **Remaining-obligations pass.** Items 2, 8 and 9 closed; item 13's accessibility/visual QA executed; the scripted corpus built and engine-proved; exact operator actions prepared for everything that needs the Development machine; the P2 left open and blocked, with a decision rule proposed before its figures are seen.
+
+
+## Offline cold-start recovery
+
+During disconnected Development acceptance, the Scene Editor could remain indefinitely on **Loading scene…** when a local API read stayed pending during cold start. The shared browser API client was hardened so ordinary local GET/HEAD requests are bounded to 10 seconds while caller cancellation is preserved and mutating requests remain unbounded by this read timeout. Regression coverage was added for timeout, composed caller cancellation, and mutation behaviour. The operator then repeated an **offline cold start** and confirmed the Camera Scene now loads successfully. Browser Network inspection had already shown no requests to any origin other than localhost/127.0.0.1.
