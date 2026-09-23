@@ -335,6 +335,8 @@ Mandatory discriminating cases:
 
 The tracker/pipeline lifecycle is correct and tested while external v2 completion semantics remain unchanged.
 
+**Qualification consequence:** unchanged wire output does not make S1.1 qualification-neutral. Retirement-time whole-Track finalisation changes the processing implementation, staging timing and memory/resource behaviour. S1.1 therefore runs the normal Quality gate plus the relevant Task-10 CPU regression/runtime tests before merge and records the exact head. It does not update the Stage-2 B6 qualification claim yet; final pipeline-profile rebinding occurs only after the complete v3 Evidence Set is frozen in S1.4.
+
 ---
 
 # 7. S1.2 — Evidence selector and completion contract v3
@@ -442,6 +444,8 @@ Modify:
 - worker Pydantic/wire models and JSON schema under `src/vision`;
 - `src/vision/mavi_vision/worker/client.py`;
 - `src/platform/Mavi.Application/Modules/Intelligence/VisionResultValidator.cs`;
+- `src/platform/Mavi.Infrastructure/Persistence/Repositories/ProcessingResultStore.cs` schema-version precheck/replay path;
+- `src/platform/Mavi.Api/Endpoints/VisionJobEndpoints.cs` only if its request/body/version routing currently assumes one schema;
 - canonicalization/digest tests.
 
 v3 Track completion carries:
@@ -494,11 +498,13 @@ Do not perform a flag-day platform/worker deployment.
 
 Recommended migration:
 
-- platform validator/parser accepts **v2 and v3** during S1 transition;
+- the platform completion path accepts **v2 and v3** during the transition; this includes the early schema-version check in `ProcessingResultStore`, not only `VisionResultValidator`;
 - all new S1 workers emit v3;
-- a valid v2 Track normalizes internally to one Representative observation;
-- completed v2 jobs remain idempotently replayable;
+- a valid v2 Track normalizes internally to one Representative observation for validation/persistence semantics without rewriting historical rows;
+- completed v2 jobs remain idempotently replayable against their original v2 digest;
+- an in-flight v2 worker may complete only under the existing v2 bounds/semantics; it never fabricates supplemental Evidence Set coverage;
 - v2 cannot produce supplemental evidence and cannot claim S1 B1–B5;
+- the completion digest is version-domain-separated so a semantically similar v2/v3 payload cannot collide as the same replay identity;
 - after all supported release profiles move to v3, removal of v2 write compatibility is a later explicit cleanup decision.
 
 If repository deployment constraints make dual-version support unsafe or materially complex, stop and amend the plan before coding; do not simply change `SchemaVersion` globally and strand an in-flight v2 worker.
@@ -888,10 +894,12 @@ Use v2/v3 transition support as described in §7.6.
 
 A deployment rollback to a v2-only platform after v3 worker processing has begun is not supported unless the v3 DB migration is backward-readable. Deployment order therefore remains:
 
-1. platform that can read v2+v3;
-2. DB migration;
+1. DB migration that is backward-compatible with the current v2 platform/domain reads;
+2. platform that can accept/read v2+v3 and expose the additive Track-detail shape;
 3. v3 worker;
 4. web UI.
+
+If the EF migration cannot be proven backward-compatible with the immediately preceding platform binary, deploy migration + dual-version platform as one coordinated maintenance step and document that exception; do not deploy a v3 worker first.
 
 Document this in the development runbook for the slice.
 
