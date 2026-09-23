@@ -70,7 +70,7 @@ Explicit non-goals:
 Stage 2 adopts these rules:
 
 1. **Logical modules are independently replaceable.** Detector, tracker, evidence selector, attribute inferencer, plate/OCR inferencer, embedding inferencer and future analytical engines communicate through MAVI-owned contracts.
-2. **Logical architecture is independent of deployment topology.** A component may initially run in the existing Python process without becoming architecturally coupled to that process.
+2. **Logical architecture is independent of deployment topology.** A capability's contracts do not depend on which process or host runs it. The Stage-2 default is a separate attributes process from the same Runtime Pack (ADR-013 §8); co-hosting in the detector process is not the default and requires a written isolation argument.
 3. **Raw Track evidence and derived intelligence are different lifecycle classes.** Attribute-model failure must not invalidate an otherwise valid detection/tracking result.
 4. **Historical analytical results are immutable.** Re-analysis creates a new analysis identity/version; it never silently rewrites the meaning of an old result.
 5. **Every exposed analytical observation is evidence-linked.**
@@ -197,7 +197,9 @@ Quality terms may include area, sharpness, detector confidence, clipping penalty
 
 No face/plate/demographic/downstream-model-specific scoring is allowed.
 
-Tie rule: selector score descending → source-frame number ascending → role priority.
+Selection method (frozen in ADR-013 §4; numeric floors set in S1 and recorded in the pipeline profile): a *qualified candidate* meets confidence, sharpness, edge-margin and occlusion-proxy floors; Representative is the best-scoring qualified candidate overall; NearView the largest-area qualified non-duplicate; EarlyDiverse/LateDiverse the best-scoring qualified candidates in the first/last temporal third that are at least the minimum separation from every selected frame. A role with no qualified candidate is omitted, never filled with an unqualified frame.
+
+Tie rule within a role: selector score descending → source-frame number ascending. Roles are evaluated in fixed order.
 
 ### 8.3 Encoding and bounds
 
@@ -211,13 +213,17 @@ Initial v1 Evidence Set contract:
 - deterministic quality/downscale reduction is allowed only to meet a declared cap;
 - total sealed `EvidenceCrop` bytes per ProcessingRun: 1 GiB.
 
-At 10,000 Tracks the mandatory Representative worst case is 625 MiB.
+At 10,000 Tracks the mandatory Representative worst case is 625 MiB, leaving 399 MiB for supplemental crops — at most ≈2,550 of a possible 30,000, i.e. roughly 8.5 % of Tracks receive any supplemental evidence in that worst case. The quota is a degradation bound; a typical run of hundreds of Tracks receives every qualified role.
 
-Supplemental evidence is admitted in deterministic rounds by role, Tracks ordered by LocalTrackNumber, until the 1 GiB run budget is exhausted. The mandatory Representative is never displaced by supplemental evidence.
+Supplemental evidence is admitted in deterministic rounds by role (NearView, EarlyDiverse, LateDiverse); within a round Tracks are ordered by candidate selector score descending, then LocalTrackNumber, until the 1 GiB run budget is exhausted. The mandatory Representative is never displaced by supplemental evidence.
 
-Completion reports candidate/admitted/omitted counts and bytes by role.
+The 64 KiB Representative cap implies an effective Representative ceiling of roughly 600–700 px long edge for large subjects; Representative is the display/summary crop and NearView is the analytic-resolution carrier. Deterministic reduction never goes below 128 px long edge or quality 50.
 
-The HTTP completion body carries metadata/descriptors, not image bytes.
+Encoded candidates are staged to attempt-scoped storage when selected (the predecessor for that role is deleted); the accumulator retains descriptors only, so worker memory is bounded by live Tracks × ≤544 KiB. Transient staging before admission is bounded by 10,000 × 544 KiB ≈ 5.2 GiB and is cleaned with the attempt.
+
+Completion reports candidate/admitted/omitted counts and bytes by role. The v2 512 MiB aggregate bound becomes the trajectory/other-artefact quota; EvidenceCrop bytes count against the separate 1 GiB quota.
+
+The HTTP completion body carries metadata/descriptors, not image bytes; `MaximumCompletionRequestBodyBytes` is re-derived for v3 and contract-tested at the 10,000-Track, four-role bound.
 
 ### 8.4 Observation evolution
 
@@ -237,8 +243,11 @@ Before any real attribute model can ship, Stage 2 must remove the current single
 
 The component-selection contract becomes:
 - one Runtime Pack identity;
-- ordered `capabilityBindings[]`;
-- each binding identifies a stable capability id + Model Pack + qualification identity.
+- a list of Runtime Pack families, each keyed by platform variant (the dimension the current component manifest already has);
+- declared roles (`vision`, `attributes`, …), each naming the family it runs from and the capability ids it serves;
+- ordered `capabilityBindings[]`, each identifying a stable capability id + Model Pack + role + qualification record.
+
+A future capability that needs a different dependency graph (the Stage-4 OCR engine) binds a different family through its own role; no v3 of the binding schema is required for it.
 
 Capability ids describe semantic function, not model brand/framework.
 
@@ -266,12 +275,12 @@ The attribute executor is a **separate process/failure domain** from detector/tr
 
 It has:
 - independent READY state;
-- independent device policy;
-- independent lease/heartbeat;
+- independent device policy, set per role in the deployment profile — on the 4 GiB Development GPU the attributes role may run on CPU while the detector holds CUDA; silent fallback remains prohibited (ADR-008);
+- independent lease/heartbeat, with VisionJob-style expiry semantics (an expired lease or mismatched attempt refuses completion, failure and evidence reads);
 - independent provenance;
 - independent crash/OOM containment.
 
-A future separate executable or GPU node must fit the same contract.
+A future separate executable or GPU node must fit the same contract. The role has no filesystem dependency on the platform host: evidence is read and the prediction artefact is uploaded through lease-scoped API endpoints (§11).
 
 ### 10.2 Lifecycle aggregate
 
@@ -288,7 +297,7 @@ Lifecycle:
 
 Fields include attempt/fencing state, lease expiry, heartbeat, completion digest, visibility sequence, provenance and output counts.
 
-Supersession occurs only after successful completion.
+Supersession occurs only after successful completion. A binding change does not re-analyse history automatically: earlier units read as Stale and remain readable; re-analysis is an explicit bounded request per run or camera/time window, as for scene analytics. One unit covers one ProcessingRun and fails as a whole if it exceeds its configured maximum duration.
 
 ### 10.3 Shared primitives
 
@@ -311,6 +320,10 @@ The attribute lease carries permitted Observation artefact descriptors including
 The worker fetches bytes through a lease-scoped platform API, verifies size/SHA before decoding, then runs inference.
 
 Any mismatch/inaccessible evidence produces a Track-level `Unavailable` outcome with reason.
+
+The read endpoint is lease-bound (capability in a header, never in the URL), authorises only Observations of the leased unit's ProcessingRun while the unit is Running with a matching attempt and unexpired lease, streams at most the recorded `SizeBytes`, offers no listing, and logs every read.
+
+The `AttributePredictions` artefact travels the same way in reverse: a lease-scoped, size-capped upload endpoint receives the bytes, verifies declared size/SHA while streaming, stages under an attempt-scoped key and seals under ADR-006 at completion. The attribute worker writes to no platform filesystem, not even worker staging.
 
 This boundary is mandatory because it preserves both forensic ownership and future remote-GPU topology.
 
@@ -360,7 +373,9 @@ For every applicable `(Track, attribute type)` in a completed analysis exactly o
 - `Observed` → qualified value present; SupportingObservation required;
 - `Unknown` → null value; analysis attempted but no qualified value.
 
-Track-level `Unavailable` is represented separately with reason.
+Track-level `Unavailable` is represented separately with reason. Run-level readiness distinguishes `NotConfigured` (no enabled attribute binding in the release) from `NotApplicable` (bound, but no applicable Track in the run).
+
+Confidence on an Observed row is the aggregation policy's score for the asserted value; one value per Track per attribute, with two-tone cases expressed only through a qualified schema value such as `multicolour`.
 
 `Absent` is a schema value only for an attribute whose qualification explicitly supports reliable negative semantics.
 
@@ -370,7 +385,7 @@ Missing row is not Unknown.
 
 Evidence-level model outputs are preserved for forensic replay without exploding relational row count.
 
-Each completed analysis seals one bounded `AttributePredictions` artefact containing:
+Each completed analysis seals one bounded, versioned, self-describing `AttributePredictions` artefact (≤ the existing 64 MiB per-artefact cap; encoding chosen in S2b from dependencies already on the qualified graph) containing:
 - observation-level raw outputs/scores;
 - aggregation inputs;
 - aggregation result;
@@ -424,8 +439,7 @@ Attribute search introduces **cursor v4**.
 
 v4 pins:
 - Track-search snapshot identity/keyset position;
-- resolved VisualAttributeAnalysis identity;
-- schema/pipeline/model/aggregation identity;
+- the resolved attribute capability identity **fingerprint** (SHA-256 of the canonical schema/pipeline/aggregation/model-pack/runtime-pack tuple); the full tuple is returned in the first page's coverage block, and per-run analyses are resolved on continuation by that fingerprint;
 - relevant attribute coverage state/counts.
 
 Attribute-only search may span cameras.
@@ -521,9 +535,9 @@ S0 architecture closure is complete. Feature coding remains a separate follow-on
 | Slice | Scope | Exit gate |
 |---|---|---|
 | **S0 Architecture freeze** | ADR-013/014, Evidence Set arithmetic/roles, evidence-read contract, cursor v4, UI amendments, qualification protocol, acceptance register and roadmaps reconciled | Acceptance A1–A12 PASS; no P1/P2 cold-review finding |
-| **S1 Track Evidence Set** | in-loop selector/encoding, completion schema v3 + digest v3, validator/store/sealing, Observation evolution, observations[] and evidence viewer; Task-10/E2E rebinding | Acceptance B1–B6 PASS |
+| **S1 Track Evidence Set** | in-loop selector/encoding with staged-on-selection candidates, completion schema v3 + digest v3 (re-derived body bound), validator/store/sealing, Observation evolution, observations[] and evidence viewer; Task-10/E2E rebinding | Acceptance B1–B6 PASS |
 | **S2a Component binding v2** | capabilityBindings[], manifest v2, runtime profile v2, qualification record shape, pack provenance, verifier/offline/CI migration, detector qualification reconciliation | Acceptance C1–C7 PASS |
-| **S2b Attribute lifecycle with fixture inferencer** | shared fencing primitives, VisualAttributeAnalysis, Python HTTP plane, lease-scoped evidence read, sealed prediction artefact, independent attributes process; remove the unused `EmbeddingExtractor` protocol or explicitly retain/document it as Stage-5-only groundwork rather than reusing it as a generic inferencer abstraction | Acceptance D1–D8 PASS using deterministic fixture; no real model |
+| **S2b Attribute lifecycle with fixture inferencer** | shared fencing primitives, VisualAttributeAnalysis, Python HTTP plane, lease-scoped evidence read and prediction upload, sealed prediction artefact, independent attributes process; remove the unused `EmbeddingExtractor` protocol or explicitly retain/document it as Stage-5-only groundwork rather than reusing it as a generic inferencer abstraction | Acceptance D1–D8 PASS using deterministic fixture; no real model |
 | **S2c Real Model Packs** | person/vehicle packs, Development model execution, provenance and labelled-corpus engineering evaluation | model packs install/run truthfully as Development/unverified until gates pass |
 | **S3 Persistence + search** | final outcome rows, supersession, v4 cursor, canonical predicates, measured PostgreSQL plans | Acceptance E1–E8 PASS |
 | **S4 Operator UI** | filters, Unknown/Unavailable/coverage/provenance, evidence workflow, spec-conformant visual QA | applicable G1/G2 PASS |

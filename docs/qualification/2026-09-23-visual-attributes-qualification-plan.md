@@ -56,6 +56,8 @@ The frozen test set is not inspected for threshold, vocabulary, aggregation-poli
 
 If the selected model is entirely pretrained and no MAVI fine-tuning occurs, a validation/tuning split is still required for threshold and aggregation decisions, distinct from the frozen test set.
 
+**Training-data disjointness.** The frozen qualification test set must be demonstrably disjoint from any data the candidate model was trained or tuned on. Public person-attribute or vehicle-colour benchmark corpora that a third-party checkpoint may have seen are therefore ineligible as the frozen test set; the frozen set is MAVI-sourced footage or footage whose disjointness from the model's declared training sources is recorded in the corpus manifest. A candidate whose training sources cannot be established is qualified only on MAVI-sourced footage.
+
 ### 3.2 Scene/camera separation
 
 Corpus metadata records camera/scene identity.
@@ -110,11 +112,13 @@ Record:
 
 An attribute whose ground truth cannot be labelled consistently is not operationally exposed merely because a model predicts it.
 
+At least one annotator of the double-labelled subset must be independent of model selection and threshold tuning, and annotation is completed blind to model output.
+
 ## 5. Minimum support
 
 Before a class/value can pass an operational gate, the frozen test set must contain a predeclared minimum number of evaluable examples for that class/value and sufficient difficult negatives where applicable.
 
-S0 must record the numeric support table before the frozen test set is scored.
+The numeric support table is recorded from validation/tuning evidence during S5, before the frozen test set is scored; it is not a freeze-time constant.
 
 Values below support threshold are reported as **insufficient evidence**, never merged into a passing macro score.
 

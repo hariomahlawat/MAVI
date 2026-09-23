@@ -4,6 +4,8 @@ This runbook defines when the large MAVI Vision offline payloads must be rebuilt
 
 ## Component boundaries
 
+> **Stage-2 note (2026-09-23):** the table below describes the current detector-era binding, in which the component-requirements file names one Model Pack. Accepted ADR-014 replaces it with capability binding v2 — Runtime Pack families keyed by platform variant, declared roles and `capabilityBindings[]` — when Stage-2 slice S2a is implemented. Until that slice merges, this runbook remains the operative procedure; afterwards it is revised in the same change.
+
 | Component | Contains | Stable identity | Rebuild when |
 | --- | --- | --- | --- |
 | Runtime Binary Pack | CPython/native identity, third-party wheels, exact third-party lock, application runtime-requirements projection | `runtimePackId` | dependency declaration/lock/projection, Python/platform/native ABI/toolchain, Runtime Pack schema/builder materially changes |

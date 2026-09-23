@@ -1,6 +1,6 @@
 # ADR-013: Modular Post-Track Intelligence and Evidence Architecture
 
-**Status:** Accepted — Stage-2 architecture freeze  
+**Status:** Accepted — Stage-2 architecture freeze; amended 2026-09-23 by the second independent cold pass (see *Architecture-freeze gate*)  
 **Date:** 2026-09-23  
 **Supersedes:** any Stage-2 planning text that treats attribute inference as part of VisionJob completion or treats Representative as the only analytical image evidence
 
@@ -65,7 +65,16 @@ The maximum candidate set is four roles:
 
 Selection uses only model-neutral Track/frame information available during raw processing: object area, sharpness, detector confidence, frame-edge clipping, temporal separation and an occlusion proxy derived from overlap with concurrent boxes. No face-oriented, plate-oriented, demographic or downstream-model-specific selector is allowed.
 
-Near-duplicate candidates are removed deterministically. Tie-breaking is stable and documented: score descending, then source-frame number ascending, then role priority.
+The selection method is frozen; only its numeric parameters are set in S1 after measurement and recorded in the pipeline profile:
+
+- a **qualified candidate** is an observation whose detector confidence, sharpness and frame-edge margin each meet the profile's floors and whose occlusion proxy (maximum IoU with any concurrent box in the same frame) is below the profile's ceiling;
+- **Representative** is the highest-scoring qualified candidate over the whole Track (the current selector rule, now versioned);
+- **NearView** is the qualified candidate with the largest normalised box area that is not a near-duplicate of Representative;
+- **EarlyDiverse** is the highest-scoring qualified candidate in the first temporal third of the Track; **LateDiverse** is the highest-scoring qualified candidate in the last third; each must lie at least the profile's minimum separation from every already-selected frame and must not be a near-duplicate of one;
+- **near-duplicate** means the same source frame, or a frame within the profile's duplicate window whose box IoU with a selected frame exceeds the profile's threshold;
+- a role that has no qualified candidate is omitted for that Track; roles are never filled with unqualified frames.
+
+Ties within a role resolve deterministically: score descending, then source-frame number ascending. Roles are evaluated in the order Representative, NearView, EarlyDiverse, LateDiverse, so the same Track always yields the same set.
 
 Representative remains the primary display summary. Supplemental roles exist to improve later analytical coverage, not to redefine the Track.
 
@@ -83,6 +92,13 @@ Initial Stage-2 evidence encoding contract:
 
 These are product bounds, not quality claims. Qualification determines whether the resulting evidence remains sufficient for an exposed capability.
 
+Two consequences are stated so they are not discovered in implementation:
+
+- At quality 85 a 1024-px-long-edge crop of natural imagery typically encodes to 100–160 KiB, so the 64 KiB Representative cap implies an effective Representative ceiling of roughly 600–700 px long edge for large subjects. **Representative is the display/summary crop; NearView (160 KiB) is the analytic-resolution carrier** on which later plate/embedding work depends. Qualification §8 measures the quality impact of both caps.
+- Deterministic reduction has a floor: the long edge is never reduced below **128 px** and quality never below **50**. A candidate that still exceeds its cap at the floor is not admitted for that role (Representative then falls back to the next-best qualified candidate; the run fails only if no Representative can be produced for an accepted Track).
+
+**Memory and staging behaviour.** The current pipeline retains one raw RGB crop per Track for the whole run and finalises only after decoding ends. Contract v3 changes this: an encoded candidate is written to attempt-scoped staging when it is selected and its predecessor for the same role is deleted; the accumulator retains only descriptors. Worker memory is therefore bounded by *live* Tracks × 4 encoded crops (≤ 544 KiB per live Track), not by all Tracks. Staging disk is bounded by all candidates before run-level admission: at 10,000 Tracks that is at most 10,000 × 544 KiB ≈ 5.2 GiB of transient attempt-scoped staging, cleaned by the existing attempt cleanup. Run-level admission (§6) happens at finalisation, when every candidate is known.
+
 ### 6. Evidence storage is bounded at both Track and ProcessingRun level
 
 Contract v3 separates evidence-crop quota from other analytical artefact quotas.
@@ -90,13 +106,15 @@ Contract v3 separates evidence-crop quota from other analytical artefact quotas.
 For one ProcessingRun:
 - mandatory Representative evidence is admitted first;
 - total sealed EvidenceCrop bytes are capped at **1 GiB**;
-- supplemental roles are admitted in deterministic rounds (NearView for eligible Tracks, then EarlyDiverse, then LateDiverse), with Tracks ordered by LocalTrackNumber within a round;
+- supplemental roles are admitted in deterministic rounds (NearView for eligible Tracks, then EarlyDiverse, then LateDiverse); within a round Tracks are ordered by the candidate's selector score descending, then LocalTrackNumber ascending, so the strongest supplemental evidence is admitted first rather than the earliest Track;
 - once the run-level evidence budget is exhausted, remaining supplemental candidates are omitted; Representative is never omitted for an accepted Track;
 - completion metadata records candidate/admitted/omitted counts and bytes by role.
 
-At the existing maximum of 10,000 Tracks, the 64 KiB Representative cap yields a worst-case mandatory crop budget of 625 MiB, leaving bounded headroom for supplemental evidence inside the 1 GiB evidence quota.
+At the existing maximum of 10,000 Tracks, the 64 KiB Representative cap yields a worst-case mandatory crop budget of 625 MiB, leaving 399 MiB of headroom for supplemental evidence inside the 1 GiB quota. Since supplemental crops are capped at 160 KiB, that headroom admits **at most ≈2,550 supplemental crops of a possible 30,000**: in the worst-case run only the NearView round is partially filled and roughly 8.5 % of Tracks receive any supplemental evidence. The quota is a degradation bound, not a coverage promise; a typical run of hundreds of Tracks receives every qualified role. Qualification §8 reports admission rates so this trade-off is measured, and the constants may be re-derived from that evidence through the pipeline-profile change rule below.
 
-The completion HTTP body carries descriptors, never crop bytes. Sealed artefact validation remains hash/size checked.
+The existing 512 MiB aggregate evidence bound of contract v2 becomes the trajectory/other-artefact quota in v3; EvidenceCrop bytes are counted against the separate 1 GiB quota; the 64 MiB per-artefact cap is unchanged.
+
+The completion HTTP body carries descriptors, never crop bytes. Each additional descriptor is on the order of 250 bytes (storage key, media type, size, SHA-256, role, score, frame linkage), so 10,000 Tracks × 3 supplemental descriptors add roughly 7.5 MiB to a body that today approaches 20 MiB at the same Track count. `MaximumCompletionRequestBodyBytes` (currently 32 MiB) is re-derived for v3 and contract-tested at the 10,000-Track, four-role bound before S1 closes. Sealed artefact validation remains hash/size checked.
 
 Any change to these constants is a pipeline-profile change and triggers the requalification rules defined by ADR-009 and the Stage-2 qualification plan.
 
@@ -124,6 +142,11 @@ It has:
 
 A classifier OOM/crash must not kill or invalidate a detector/tracker VisionJob.
 
+Two processes on one GPU each hold a CUDA context and model weights. The Development GPU has 4 GiB of VRAM (`docs/qualification/2026-09-18-windows-cuda-c1-compatibility-decision.md`, *4 GB VRAM operating constraint*), so co-residency is not free. Therefore:
+- each role has its **own device policy** in the deployment/release profile (ADR-008 device policies apply per role); on a single-GPU host the profile decides which roles use CUDA, and the attributes role may run on CPU while the detector holds the GPU;
+- silent GPU-to-CPU fallback remains prohibited for every role (ADR-008); the resolved device is in each role's provenance;
+- qualification §10 measures RAM/VRAM with both roles co-resident on one host and records the supported combinations per profile.
+
 The architectural contract does not require the same executable forever. A future `mavi_attributes` or remote GPU worker may replace the initial process without changing platform semantics.
 
 ### 9. Attribute analysis is capability-specific; the transport envelope is reusable
@@ -148,6 +171,10 @@ Capability payloads remain typed and capability-specific.
 
 If the required model/capability is unavailable at worker startup, units remain Queued and attempts are not consumed.
 
+Lease semantics follow the **VisionJob** shape, not the SceneAnalysis shape, because the executor is a separate process that may be remote: the lease has an expiry that heartbeats extend; completion, failure and evidence reads are refused once the lease has expired or the attempt number no longer matches; a reclaim issues a new attempt and a new token. Lease duration must exceed the heartbeat interval by a configured margin, and a unit that exceeds its configured maximum duration fails as a whole rather than publishing partial results. One unit covers one ProcessingRun; at the 10,000-Track bound a CPU unit may run for hours, which the heartbeat design accommodates and qualification §10 measures.
+
+The identity a queued unit will carry is resolved from the enabled capability bindings at queue time, so it changes only when the bindings change. A binding change does **not** automatically re-analyse history: existing units become Stale for readiness and remain readable; re-analysis is an explicit, bounded request per run or camera/time window, exactly as scene-analytics re-analysis is today. Automatic historical backfill is out of Stage 2.
+
 ### 10. Accepted evidence is served by the platform; Python never mounts the evidence root
 
 The accepted-evidence root remains .NET-owned.
@@ -160,9 +187,18 @@ The executor:
 3. verifies received size and SHA-256 before decode/inference;
 4. fails that Track as `Unavailable` on mismatch or inaccessible evidence.
 
-Direct filesystem access from the attribute worker to the accepted-evidence root is prohibited.
+The read endpoint is bound to the unit's lease, not to the operator session:
+- the lease capability travels in a header, never in the URL, and no response, log or error may echo it (the existing VisionJob fail-endpoint rule applies);
+- a read is authorised only while the unit is `Running`, the attempt number matches and the lease is unexpired; the requested Observation must belong to a Track of that unit's ProcessingRun; a stale or foreign request is `409`, never a partial body;
+- the response is bounded to the artefact's recorded `SizeBytes` and streamed from the accepted-evidence root through `IAcceptedEvidenceReader`; there is no listing or search endpoint;
+- every read is logged with unit id, attempt, Observation id, bytes and outcome, so evidence access by executors is auditable;
+- cancellation of the unit ends in-flight reads.
 
-This boundary is topology-independent and therefore supports later separate GPU nodes without changing semantics.
+The **prediction artefact travels the same way in reverse**. The attribute executor does not write to worker staging or to any platform filesystem: it uploads the sealed-to-be `AttributePredictions` bytes through a lease-scoped, size-capped upload endpoint in the same trust family; the platform verifies the declared size and SHA-256 while streaming, stages under an attempt-scoped key and seals it under ADR-006 at completion exactly as VisionJob artefacts are sealed. A completion whose declared artefact SHA does not match the uploaded bytes is `vision_result_artifact_integrity_failed` and nothing publishes.
+
+Direct filesystem access from the attribute worker to the accepted-evidence root, and to worker staging, is prohibited.
+
+With reads and the single upload both network contracts, the attribute role has **no filesystem dependency on the platform host**. This is what makes later separate GPU nodes real rather than aspirational.
 
 ### 11. Analysis identity is immutable and qualification-relevant
 
@@ -183,11 +219,14 @@ Supersession occurs only on successful completion.
 ### 12. Explicit readiness and outcome semantics
 
 Run-level readiness:
-- NotApplicable;
+- NotConfigured — no enabled attribute capability binding exists in the release, so no analysis is expected (the analogue of a camera without scene configuration);
+- NotApplicable — the capability is bound but the run has no Track to which any schema attribute applies;
 - Pending;
 - Ready;
 - Failed;
 - Stale.
+
+NotConfigured and NotApplicable are reported separately so that "attributes are not deployed" is never read as "this run had nothing to analyse".
 
 Track-level analysis outcome:
 - Analysed;
@@ -200,6 +239,8 @@ For every applicable `(Track, attribute type)` in a completed analysis, exactly 
 Missing row is not Unknown. It means the attribute was not part of that completed applicable analysis.
 
 `Absent` is a qualified schema value only where the attribute schema explicitly defines reliable negative semantics.
+
+An Observed row's confidence is the aggregation policy's score for the asserted value, in [0,1]; its meaning is defined by the aggregation-policy version recorded on the analysis header and it is displayed under UI-spec §24. An attribute holds one value per Track per analysis; a garment or vehicle that is genuinely two-tone is represented only through a qualified schema value such as `multicolour`, never through two rows.
 
 Unknown, Unavailable, Pending, Failed and Absent must remain distinguishable in API, search and UI.
 
@@ -215,6 +256,8 @@ Each completed analysis seals one bounded `AttributePredictions` artefact contai
 - schema/version metadata needed for forensic replay.
 
 Relational persistence contains the final Track-level attribute outcomes only.
+
+The artefact is a versioned, self-describing document: it carries its own schema identifier and version, the analysis identity it belongs to, and per-observation raw scores for every class the model emits (bounded by schema × observations, on the order of a few MiB at 10,000 Tracks × 4 crops × 20 classes). It is capped by the existing 64 MiB per-artefact bound, delivered through the lease-scoped upload in §10, sealed under ADR-006 and read only through `IAcceptedEvidenceReader`; it is never indexed or queried relationally. The concrete encoding is an S2b decision constrained to dependencies already on the qualified graph (MessagePack is already such a dependency); no new serialisation library may be introduced for it.
 
 Every Observed row references a supporting Observation. Prediction artefact SHA and identity are recorded on the analysis header.
 
@@ -270,10 +313,11 @@ Attribute search may span cameras. It therefore must not reuse the camera-bound 
 
 Stage 2 defines a **v4 HMAC-signed cursor** that pins:
 - Track-search snapshot position/sequence;
-- resolved VisualAttributeAnalysis identity;
-- attribute schema/pipeline/model/aggregation identity;
+- the resolved **attribute capability identity fingerprint** — the SHA-256 of the canonical tuple (attribute schema SHA, attribute pipeline version, aggregation-policy SHA, ordered capability/model-pack ids, runtime-pack identity); the first page resolves the tuple from the enabled bindings and returns it in full in the coverage block, and the cursor carries only the 64-hex fingerprint;
 - attribute coverage counts/state required to preserve result meaning;
 - analytics identity as well when analytics and attribute predicates are combined.
+
+Per-run analysis units are not pinned individually: a continuation page resolves, for each visible run, the fact-bearing `VisualAttributeAnalysis` whose identity fingerprint equals the pinned one, which is unique per run. A superseding analysis published mid-pagination has a different fingerprint and cannot change what an open result set means; the superseded unit remains fact-bearing and readable for the pinned fingerprint.
 
 Repeated attribute predicates have canonical ordering in URL state, filter fingerprint and cache key.
 
@@ -399,4 +443,4 @@ ADR-013 was accepted after the 2026-09-23 architecture review resolution and col
 - Stage-2 plan/roadmaps use the same slice order and acceptance register;
 - a final cold review reports no open P1/P2 architecture finding.
 
-The architecture gate is closed. Feature implementation remains a separate explicit step and was not part of this documentation PR.
+A second independent cold pass on 2026-09-23 (recorded in `docs/reviews/2026-09-23-visual-attributes-architecture-review-resolution.md`, *Second independent pass*) found further P1/P2 gaps in this ADR — the prediction-artefact delivery path, the attribute lease semantics, the evidence-read endpoint contract, the selector method, memory/staging behaviour, the admission order and worst-case coverage, per-role device policy, the `NotConfigured` readiness state and the v4 cursor identity representation — and amended the text above in place. The architecture gate is closed on the amended text. Feature implementation remains a separate explicit step and was not part of this documentation PR.

@@ -517,6 +517,8 @@ A single physical frame may satisfy more than one semantic role; the worker shou
 
 ## 7.8 VisualAttribute
 
+> **Stage-2 evolution (2026-09-23):** this Phase-1 shape is retained as historical context. The authoritative Stage-2 persistence is defined by ADR-013 §12–14: an immutable `VisualAttributeAnalysis` header owns producer identity, `VisualAttributeTrackOutcome` records Analysed/Unavailable per Track, and `VisualAttribute` becomes one `Observed`/`Unknown` row per applicable Track × attribute with a required supporting Observation for Observed values. The per-row `ModelName`/`ModelVersion` fields below are not authoritative producer identity.
+
 Extensible analytical attribute record.
 
 ```text

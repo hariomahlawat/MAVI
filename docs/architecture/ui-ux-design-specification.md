@@ -732,7 +732,7 @@ Scene Analytics slices are numbered 0–7; capability roadmap stages are numbere
 | Evidence overlays and explanation | **Slice 5 — merged in PR #66** | Review and Investigation inspector | One shared Evidence Player; exact-revision analytical overlays/explanation; bounded analytical lanes; decision 7 closed |
 | Aggregates, occupancy, heatmap | **Slice 6** | Workbench | Workbench grammar from UI-2; sequential scale and legend; zone colour already separated from accent (§8.3) |
 | Hardening, acceptance, qualification | **Slice 7** | — | Visual QA standard (§26) as part of acceptance evidence |
-| Visual attributes | Capability stage 2 | Investigation filter section + committed-filter chips; inspector key/value + Evidence Set viewer; Review evidence rail | committed-filter chips (§17), explicit `unknown` state (§14), one-badge-per-row rule (§16), bounded observations[] evidence presentation (§4.5/§20) |
+| Visual attributes | Capability stage 2 | Investigation filter section + committed-filter chips; inspector key/value + Evidence Set viewer; Review evidence rail | committed-filter chips (§17), explicit `unknown` state (§14), one-badge-per-row rule (§16) — a matched attribute value may appear on a result row only as plain secondary text, never as an additional badge or chip — bounded observations[] evidence presentation (§4.5/§20) |
 | ANPR / OCR | Capability stage 4 | Investigation | none beyond §17 |
 | Visual similarity | Capability stage 5 | Investigation | candidate styling and rank numeral (§19) |
 | ReID / entity candidates | Capability stage 6 | Ledger to Record, plus canvas link glyph | candidate is not confirmed styling (§19) |

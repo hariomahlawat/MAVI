@@ -38,10 +38,10 @@ The documentation/architecture gate is closed on the reviewed PR head. Feature i
 | A6 | Accepted-evidence reads are platform-served, lease-scoped and hash-verified; Python direct evidence-root access remains prohibited | PASS |
 | A7 | VisualAttributeAnalysis lifecycle/control-plane semantics are frozen, including heartbeat/fencing/retry/supersession | PASS |
 | A8 | Observed / Unknown / Unavailable / Pending / Failed / Absent semantics are non-overlapping and reflected in persistence/API/UI plans | PASS |
-| A9 | v4 attribute-search cursor identity and combined analytics+attribute semantics are frozen | PASS |
+| A9 | v4 attribute-search cursor identity (capability identity fingerprint, not the full tuple) and combined analytics+attribute semantics are frozen | PASS |
 | A10 | UI/UX specification is amended for Unknown, Evidence Set review and row-density rules | PASS |
 | A11 | Qualification protocol covers annotation agreement, data splits, support, generalisation, aggregation, abstention, licensing, retrieval and requalification triggers | PASS |
-| A12 | Final independent cold architecture review reports no open P1/P2; ADR-013/014 can move to Accepted | PASS |
+| A12 | Final independent cold architecture review reports no open P1/P2; ADR-013/014 can move to Accepted | PASS — the second independent cold pass (2026-09-23) found and amended further P1/P2 gaps in place (see review resolution, *Second independent pass*); PASS is on the amended head |
 
 **Implementation gate:** satisfied for architecture. S1/S2 implementation may begin only in a follow-on implementation change; this documentation PR contains no Stage-2 feature code.
 
@@ -50,8 +50,8 @@ The documentation/architecture gate is closed on the reviewed PR head. Feature i
 | ID | Requirement | Status |
 |---|---|---|
 | B1 | Deterministic four-role candidate selector implemented with documented tie-breaking | OPEN |
-| B2 | JPEG encoding occurs in-loop/staging without K raw RGB arrays per live Track | OPEN |
-| B3 | Representative and supplemental byte caps + 1 GiB run EvidenceCrop quota are enforced and contract-tested at 10,000-Track bound | OPEN |
+| B2 | JPEG encoding occurs in-loop; candidates are staged on selection and the accumulator holds descriptors only, so memory is bounded by live Tracks | OPEN |
+| B3 | Representative and supplemental byte caps, reduction floors, score-ordered admission and the 1 GiB run EvidenceCrop quota are enforced; body bound re-derived; all contract-tested at the 10,000-Track bound | OPEN |
 | B4 | Vision completion schema v3, digest v3, validator/store/sealing and Observation evolution pass contract tests | OPEN |
 | B5 | `TrackDetail.observations[]` and evidence viewer expose accepted roles without breaking Representative behaviour | OPEN |
 | B6 | Relevant Task-10 CPU matrices are rerun; CUDA/E2E evidence is rebound when produced; no stale qualification claim remains | OPEN |
@@ -75,7 +75,7 @@ The documentation/architecture gate is closed on the reviewed PR head. Feature i
 | D1 | VisualAttributeAnalysis unit/lifecycle is independent of ProcessingRun success | OPEN |
 | D2 | Shared fencing/hash/claim primitives are extracted where semantics match; no third copy-and-diverge implementation | OPEN |
 | D3 | Python-facing lease/heartbeat/complete/fail endpoints and generic transport envelope are contract-tested | OPEN |
-| D4 | Lease-scoped evidence endpoint authorises only leased Observations and worker verifies SHA/size before decode | OPEN |
+| D4 | Lease-scoped evidence read and prediction-upload endpoints authorise only the leased unit's Observations/artefact; worker verifies SHA/size before decode; the attribute role touches no platform filesystem | OPEN |
 | D5 | Attribute worker runs as an independent process/role with independent READY/device/provenance/failure domain | OPEN |
 | D6 | Model unavailable at startup leaves work Queued without consuming attempts | OPEN |
 | D7 | Stale attempts, reclaim, retry, cancellation, malformed output and failure isolation pass | OPEN |
@@ -86,7 +86,7 @@ The documentation/architecture gate is closed on the reviewed PR head. Feature i
 | ID | Requirement | Status |
 |---|---|---|
 | E1 | Analysis/outcome/attribute relational constraints match ADR-013, including Restrict evidence linkage and unique final outcome | OPEN |
-| E2 | Every applicable completed Track/attribute has exactly one `Observed` or `Unknown` row; missing row is not Unknown | OPEN |
+| E2 | Every applicable completed Track/attribute has exactly one `Observed` or `Unknown` row; missing row is not Unknown; run readiness distinguishes NotConfigured from NotApplicable | OPEN |
 | E3 | Track-level `Unavailable` is explicit with reason and never masquerades as Unknown/Absent | OPEN |
 | E4 | Supersession occurs only on successful completion; historical analysis remains readable | OPEN |
 | E5 | v4 HMAC cursor pins resolved attribute identity/coverage and rejects tampering | OPEN |

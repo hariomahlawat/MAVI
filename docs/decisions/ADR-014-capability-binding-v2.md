@@ -1,6 +1,6 @@
 # ADR-014: Capability Binding v2, Model-Pack Neutrality and Capability-Scoped Qualification
 
-**Status:** Accepted — Stage-2 architecture freeze  
+**Status:** Accepted — Stage-2 architecture freeze; amended 2026-09-23 by the second independent cold pass (see *Acceptance gate*)  
 **Date:** 2026-09-23  
 **Related:** ADR-005 Model Pack architecture; ADR-007 Runtime Pack architecture; ADR-009 Development vs Production qualification; ADR-013 modular post-Track intelligence
 
@@ -26,17 +26,36 @@ The platform component-selection contract evolves from a singular model binding 
 ```json
 {
   "schemaVersion": 2,
-  "runtimePackId": "...",
+  "runtimePacks": [
+    {
+      "runtimePackFamilyId": "mmdetection-phase1",
+      "variants": {
+        "windows-x86_64-cpu": { "runtimePackId": "...", "thirdPartyLockSha256": "...", "runtimeRequirementsSha256": "...", "nativeAbi": "..." },
+        "windows-x86_64-cuda": { "runtimePackId": "..." }
+      }
+    }
+  ],
+  "roles": [
+    { "roleId": "vision", "runtimePackFamilyId": "mmdetection-phase1", "capabilityIds": ["detector"] },
+    { "roleId": "attributes", "runtimePackFamilyId": "mmdetection-phase1", "capabilityIds": ["person-attributes", "vehicle-attributes"] }
+  ],
   "capabilityBindings": [
     {
       "capabilityId": "detector",
       "modelPackId": "...",
+      "roleId": "vision",
       "enabled": true,
-      "qualificationIdentity": "..."
+      "qualificationRecordId": "..."
     }
   ]
 }
 ```
+
+Three properties of this shape are deliberate:
+
+- **Runtime Packs are a list, and a binding names its role, which names its Runtime Pack family.** The current component manifest already keys Runtime Packs by platform variant (`runtimePacks["windows-x86_64-cpu"]` …); v2 keeps that variant dimension inside a family. A single top-level `runtimePackId` was rejected because the Stage-4 OCR engine is a native runtime with its own lock (capability roadmap, prerequisite matrix) and would have forced a v3 immediately. A role that needs a different dependency graph binds a different family; roles that share one graph share one family.
+- **Roles are declared in this application/release overlay, not in the Runtime Pack.** A Runtime Pack contains only third-party material (ADR-007); which first-party entry point runs which capability is an application decision.
+- **A binding references a qualification record; status per platform variant lives in that record**, because CPU and CUDA variants of the same binding are qualified separately (ADR-009).
 
 The schema is intentionally open to future declared capability ids. It must not hard-code Stage-2-only structural fields such as `personAttributesModel`.
 
@@ -77,37 +96,34 @@ A resolved MMDetection config is therefore not a mandatory property of every Mod
 
 Unknown fields remain fail-closed under a versioned schema.
 
-### 4. Runtime Pack describes executable/runtime capability, not one checkpoint
+### 4. Runtime Pack describes the executable dependency environment, not one checkpoint
 
-Runtime Pack identity describes the qualified executable environment:
-- Python/package/native dependency graph;
-- platform/runtime variant;
-- supported capability interfaces/roles;
-- device policy;
-- executable entry points;
+Runtime Pack identity describes the qualified third-party executable environment:
+- Python/package/native dependency graph and its exact-hash lock;
+- platform/runtime variant and native ABI;
 - integrity hashes.
 
-The runtime profile must no longer require one detector checkpoint as the identity of the runtime itself.
+It does **not** carry roles, entry points or device policy: under ADR-007 the pack contains no first-party code, and those are properties of the application/release overlay (§1) and the deployment profile (ADR-008). The runtime profile (`runtime.json`) that describes a family must no longer require one detector checkpoint as the identity of the runtime itself.
 
 Model bytes and model identity remain in Model Packs and capability bindings.
 
 This deliberately changes the current runtime-profile hash. Existing detector qualification records affected by that identity change must be re-derived/reconciled in the same implementation slice; they are not silently inherited.
 
-### 5. Runtime Pack may expose multiple independently startable roles
+### 5. The application overlay declares independently startable roles
 
-A Runtime Pack may support one or more roles, for example:
+The overlay may declare one or more roles that run from a Runtime Pack family, for example:
 - `vision` / detector-tracker;
 - `attributes`;
-- later `embeddings` or other specialist roles.
+- later `embeddings`, `ocr` or other specialist roles.
 
 Each role declares:
-- supported capability ids;
-- readiness contract;
-- device requirements/policy;
-- executable/entry point;
-- runtime provenance.
+- the Runtime Pack family it runs from;
+- the capability ids it serves;
+- its readiness contract;
+- its first-party executable/entry point;
+- the provenance it emits.
 
-Supporting multiple roles in one Runtime Pack does not require co-hosting them in one process.
+Its device policy comes from the deployment profile per role (ADR-008; ADR-013 §8). Several roles sharing one Runtime Pack family does not require co-hosting them in one process, and a role may later move to a different family or host without changing the bindings' meaning.
 
 ### 6. Qualification is capability-scoped
 
@@ -255,6 +271,8 @@ Rejected. Runtime compatibility and model capability quality are different claim
 8. Development qualification never becomes a Production claim by inheritance.
 
 ## Acceptance gate
+
+The second independent cold pass on 2026-09-23 found that the first accepted shape carried one top-level `runtimePackId`, omitted the platform-variant dimension the existing component manifest already has, and placed roles/entry points inside the Runtime Pack contrary to ADR-007. Those were corrected in place (§1, §4, §5) and are recorded in the review-resolution document.
 
 ADR-014 was accepted after the 2026-09-23 architecture review resolution and cold consistency pass confirmed:
 - compatibility with ADR-005/007/009;

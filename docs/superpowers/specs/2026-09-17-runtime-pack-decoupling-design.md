@@ -1,7 +1,7 @@
 # MAVI Vision Runtime Pack Decoupling Design
 
 **Date:** 17 September 2026  
-**Status:** Cold-reviewed and approved for implementation  
+**Status:** Cold-reviewed and approved for implementation; implemented (ADR-007). **Historical design record** — the single Model Pack binding it describes is generalised by accepted ADR-014 (capability binding v2) for Stage 2; ADR-007/ADR-014 govern where this text differs.  
 **Branch:** `feature/runtime-pack-decoupling`  
 **Base:** `feature/task-10-rtmdet-bytetrack`
 
