@@ -1,6 +1,6 @@
 # ADR-013: Modular Post-Track Intelligence and Evidence Architecture
 
-**Status:** Proposed architecture-freeze candidate — implementation remains blocked until the Stage-2 cold review closes all P1/P2 findings  
+**Status:** Accepted — Stage-2 architecture freeze  
 **Date:** 2026-09-23  
 **Supersedes:** any Stage-2 planning text that treats attribute inference as part of VisionJob completion or treats Representative as the only analytical image evidence
 
@@ -392,11 +392,11 @@ Rejected. Storage/I/O/privacy cost is unbounded.
 
 ## Architecture-freeze gate
 
-ADR-013 may move from Proposed to Accepted only when:
+ADR-013 was accepted after the 2026-09-23 architecture review resolution and cold consistency pass. The acceptance conditions were:
 - ADR-014 component binding is coherent with ADR-005/007/009;
 - the qualification plan contains no unresolved protocol gap;
 - UI-spec amendments are written;
 - Stage-2 plan/roadmaps use the same slice order and acceptance register;
 - a final cold review reports no open P1/P2 architecture finding.
 
-No Stage-2 feature implementation is authorised before that gate.
+The architecture gate is closed. Feature implementation remains a separate explicit step and was not part of this documentation PR.
