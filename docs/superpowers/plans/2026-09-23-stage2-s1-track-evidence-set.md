@@ -1082,6 +1082,9 @@ Do not proceed to v3 until its native + fixture tests are green.
 
 ## PR S1.2a — Platform: migration, contracts, dual-accept validator/store
 
+> **Implementation plan:** S1.2a and S1.2b are specified to implementation grade in `docs/superpowers/plans/2026-09-23-stage2-s1-2-evidence-set-implementation.md` (baseline `main@4b6141f`, after S1.1). That plan records seven reconciliations with this document in its §17; two need owner ratification before S1.2b starts: **C1** (the S1-14 Representative fallback reservoir is replaced by the equivalent online "best admissible candidate" rule, with the adversarial encoder measurement retained) and **C3** (the worker removes its staging after a successful completion, because nothing removes a completed attempt's staging today and ADR-013 §5's "existing attempt cleanup" wording does not cover that case). It also adds `GET /api/vision/contract` so a v3 worker refuses to start against a platform that does not accept v3, instead of failing at completion.
+
+
 DB migration, `ArtifactType.EvidenceCrop`, Observation evolution, v3 contracts and JSON schema, validator/store accepting v2 and v3, digest v3, golden v3 fixture, worst-shape body test and the new request limit. Deployable alone: the platform keeps accepting the v2 the current worker emits. `verify_repo` and the qualification-record SHA update ride here if the profile schema lands here; otherwise in S1.2b.
 
 ## PR S1.2b — Worker: selector, encoder, admission, v3 emission
