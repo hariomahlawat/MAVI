@@ -1,7 +1,8 @@
 # ADR-006: Platform-Owned Sealing for Accepted Vision Evidence
 
-**Status:** Accepted (§6 proposed 2026-09-23, pending ratification)  
-**Date:** 2026-09-13
+**Status:** Accepted  
+**Date:** 2026-09-13  
+**Amended:** 2026-09-23 — §6 platform-owned staging reclamation (S1.2a)
 
 ## Context
 
@@ -64,7 +65,7 @@ Garbage collection of unreferenced sealed evidence is deferred to a later lifecy
 
 ### 6. Platform-owned reclamation of worker staging (amendment, S1.2a)
 
-**Status of this section:** Proposed 2026-09-23 with the S1.2a implementation (plan `docs/superpowers/plans/2026-09-23-stage2-s1-2-evidence-set-implementation.md` §6.5, §17 C3); becomes Accepted when the owner ratifies it by accepting that change.
+**Status of this section:** Accepted 2026-09-23 — ratified by the owner with the S1.2a implementation (plan `docs/superpowers/plans/2026-09-23-stage2-s1-2-evidence-set-implementation.md` §6.5, §17 C3).
 
 The Track Evidence Set makes one attempt's staging large (up to ≈ 5.2 GiB transient at 10,000 Tracks) and the worker's own cleanup is not crash-safe: a worker that dies after a successful completion, or never leases again, leaves its staging forever. Therefore:
 

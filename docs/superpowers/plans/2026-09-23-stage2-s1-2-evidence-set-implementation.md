@@ -323,7 +323,7 @@ Pure function over the finalised descriptor-only Tracks:
 | Backlog bound | With B eligible job directories older than a given directory and M processed per cycle, reclamation of that directory takes approximately **`Grace + ⌈(B + 1) / M⌉ × IntervalMinutes`**, subject to repeated deletion failures (a failing directory is retried but does not block others) and platform downtime (no cycles run). Example: B = 2,500, M = 1,000 → ≈ 5 + 3 × 15 = 50 minutes. The 1407/1408 thresholds make a growing backlog visible before it matters. If the platform is down, no completions happen either, so no new staging becomes reclaimable; on restart the backlog drains at M per cycle. |
 | Bounded retained staging (platform up, no backlog) | ≤ (jobs reaching a terminal state within the normal target window) × (per-attempt staging, §9.4) + live attempts' staging. With one worker completing at most a few jobs per 20 min, this is a handful of attempts, each ≤ 1 GiB crops + trajectories after the worker's own admission removals (or ≤ 5.19 GiB + trajectories if the worker died before removals). Under backlog the retained total grows with B until drained; the observability row makes B and its age visible. |
 
-**Ownership consequence.** Reclaiming worker staging becomes a **platform responsibility with database authority**, not a worker courtesy. This is a genuine new architectural responsibility (Task-13 §9.3 left it as "a later garbage collector"); it does not alter ADR-006's evidence-root ownership or sealing semantics. §17 C3 flags the ADR-006 amendment for ratification.
+**Ownership consequence.** Reclaiming worker staging becomes a **platform responsibility with database authority**, not a worker courtesy. This is a genuine new architectural responsibility (Task-13 §9.3 left it as "a later garbage collector"); it does not alter ADR-006's evidence-root ownership or sealing semantics. It is recorded as ADR-006 §6 (accepted 2026-09-23; §17 C3).
 
 ---
 
@@ -382,7 +382,7 @@ Same encoding as v2. Sequence: tag `mavi:vision-completion-digest:v3`, jobId "D"
 
 ### 7.4 Body limit
 
-`MaximumCompletionRequestBodyBytes` → **48 MiB**, subject to `WorkerContractV3Tests.WorstShapeBodyFitsUnderLimit` (10,000 × 4 observations through the real DTOs; assert `bytes ≤ limit − 8 MiB`; parent estimate ≈ 22–23 MiB). If measured > 32 MiB, stop (parent stop condition 3). The Kestrel global limit (3 GiB + 1 MiB) already exceeds it; the completion middleware remains the effective bound.
+`MaximumCompletionRequestBodyBytes` → **48 MiB**, subject to `WorkerContractV3Tests.WorstShapeBodyFitsUnderLimit` (10,000 × 4 observations through the real DTOs; assert `bytes ≤ limit − 8 MiB`; parent estimate ≈ 22–23 MiB, superseded by measurement: the adversarial shape — 64-character Track ids, `int.MaxValue` counts, 17-digit doubles, 2⁵³ offsets, every crop at its cap — measures **29.24 MiB**, deliberately harsher than any realistic body). If measured > 32 MiB, stop (parent stop condition 3); the measurement is under that stop condition and under the ≤ 40 MiB (limit − 8 MiB) gate. The Kestrel global limit (3 GiB + 1 MiB) already exceeds it; the completion middleware remains the effective bound.
 
 ### 7.5 Contract artefacts
 
@@ -459,7 +459,7 @@ Scalars + ≤ 4 `ObservationDescriptor` + trajectory descriptor ≈ **2.3 KB** �
 
 ### 9.5 Completion request
 
-≤ 48 MiB by middleware; measured worst shape ≈ 22–23 MiB; realistic ≈ 9.6 MiB.
+≤ 48 MiB by middleware; measured adversarial worst shape 29.24 MiB (gate ≤ 40 MiB, stop condition 32 MiB); realistic ≈ 9.6 MiB.
 
 ### 9.6 Accepted evidence per ProcessingRun
 
@@ -475,9 +475,11 @@ Scalars + ≤ 4 `ObservationDescriptor` + trajectory descriptor ≈ **2.3 KB** �
 
 ### 10.2 Migration `2026MMDDHHMMSS_AddTrackEvidenceSet`
 
-Up: add `evidence_rank integer NOT NULL DEFAULT 0`, `selection_score double precision NOT NULL DEFAULT 0`; `UPDATE observations SET selection_score = quality_score`; guard `RAISE EXCEPTION 'observations_legacy_type_present'` if any `observation_type NOT IN ('Representative')`; drop the defaults; constraints `ck_observations_type`, `ck_observations_rank (0..3)`, `ck_observations_role_rank ((observation_type='Representative') = (evidence_rank=0))`, `ck_observations_selection_score`; unique `(track_id, evidence_rank)`, `(track_id, observation_type)`, `(track_id, source_frame_number)`; FK `thumbnail_artifact_id` `SetNull → Restrict`. Down: reverse; never touches evidence bytes.
+Up: add `evidence_rank integer NOT NULL DEFAULT 0`, `selection_score double precision NOT NULL DEFAULT 0`; `UPDATE observations SET selection_score = quality_score`; guard `RAISE EXCEPTION 'observations_legacy_type_present'` if any `observation_type NOT IN ('Representative')`; keep `evidence_rank DEFAULT 0` and make `selection_score NOT NULL` with a `BEFORE INSERT` trigger that fills an omitted value from `quality_score` (preceding-binary compatibility, below); constraints `ck_observations_type`, `ck_observations_rank (0..3)`, `ck_observations_role_rank ((observation_type='Representative') = (evidence_rank=0))`, `ck_observations_selection_score`; unique `(track_id, evidence_rank)`, `(track_id, observation_type)`, `(track_id, source_frame_number)`; FK `thumbnail_artifact_id` `SetNull → Restrict`. Down: reverse; never touches evidence bytes.
 
 Backward readability: the preceding v2-only binary maps only known columns; new NOT NULL columns are populated for every row; migration-before-binary is safe; binary rollback before any v3 row is safe; rollback after v3 rows exist is unsupported (runbook).
+
+**Preceding-binary compatibility (implemented, S1.2a deviation D1).** Revision 3 said to drop the defaults, which would falsify the rollback claim above: the platform applies migrations at start-up and an older binary starts against a database carrying this extra migration, then inserts observations with the v2 column list (no `evidence_rank`, no `selection_score`). The migration therefore keeps `evidence_rank DEFAULT 0` (every row an older binary can write is a rank-0 Representative) and a `BEFORE INSERT` trigger `tr_observations_default_selection_score` that sets `selection_score := quality_score` only when the inserted value is NULL — the same rule as the backfill. An explicit value is never overwritten; the current binary always writes both columns. `TrackEvidenceSetMigrationTests` insert with the preceding binary's exact column list and prove an explicit score survives. The default and trigger may be retired by a later migration once no supported rollback target predates S1.2a (i.e. when rolling back past S1.2a is no longer a supported operation).
 
 ### 10.3 Store
 
@@ -565,7 +567,7 @@ Profile SHA changes in S1.2c → qualification record re-derived, `pending`; Tas
 
 ### 13.3 Offline / dependency policy
 
-**No** new Python package, .NET package, native library, codec, model, database extension, runtime-pack, model-pack or installer change. Pillow 11.3.0, numpy, msgpack are locked; `array`, `struct`, `tracemalloc` are stdlib; the janitor uses `System.IO` only. Overlay-only per ADR-007. `config/dependencies/offline-dependency-policy-v1.json` untouched.
+**No** new Python package, .NET package, native library, codec, model, database extension, runtime-pack, model-pack or installer change. Pillow 11.3.0, numpy, msgpack are locked; `array`, `struct`, `tracemalloc` are stdlib; the janitor binds only operating-system libraries the platform already uses (libc; ntdll/kernel32), because `System.IO` has no handle-relative operations and path-based recursive deletion would weaken link safety (S1.2a deviation D3); it verifies the Linux open flags on the running kernel and fails closed otherwise. Overlay-only per ADR-007. `config/dependencies/offline-dependency-policy-v1.json` untouched.
 
 ---
 
@@ -644,7 +646,7 @@ S1–S15, E1–E8, A1–A6, P1–P7 as in revision 1 of this plan (`git show f80
 | Contract fixtures | `contracts/schemas/vision-job-complete-v3.schema.json`, `contracts/examples/…-v3.example.json`, `contracts/test-vectors/…-v3-conformance.json`, `…-v3-digest.json`, `control-plane-v3-invalid.json`, `contracts/README.md`; `tools/verify_repo.py` |
 | CI | `.github/workflows/task14-read-security.yml` (janitor files + test filter) |
 | Tests | `tests/Mavi.Application.Tests/VisionResultValidatorV3Tests.cs`, `VisionResultValidatorCanonicalizationTests.cs` (ext); `tests/Mavi.IntegrationTests/WorkerContractV3Tests.cs`, `VisionResultCompletionApiTests.cs` (ext), `MigrationTests.cs` (ext), `ContentApiTests.cs` (ext), **`StagingJanitorTests.cs`**, `StagingJanitorHostedServiceTests.cs` (scheduling with fake `TimeProvider`); `tests/Mavi.Domain.Tests/Task13CompletionDomainTests.cs` (ext); Python `test_contract_schema_canonicalization.py` (ext) |
-| Docs | this plan; parent §16; `docs/runbooks/vision-runtime-model-component-lifecycle.md` (new "Completion contract v3 deployment order" and "Staging reclamation" sections); `contracts/README.md`; ADR-006 amendment **only if ratified** (§17 C3) |
+| Docs | this plan; parent §16; `docs/runbooks/vision-runtime-model-component-lifecycle.md` (new "Completion contract v3 deployment order" and "Staging reclamation" sections); `contracts/README.md`; ADR-006 §6 (accepted 2026-09-23) and the ADR-013 staging sentence (§17 C3) |
 
 ### S1.2b — worker trajectory spool (no wire change)
 
@@ -701,7 +703,7 @@ Each boundary leaves `main` buildable, testable, deployable and contract-compati
 |---|---|---|---|
 | **C1** | S1-14 introduced a K-candidate Representative fallback reservoir. | Online "best admissible" holder rule; equivalence proof in §4.2; E6 measurement retained. | **Owner — recommended for ratification** (replaces an owner correction) |
 | **C2** | Parent §12.2/§12.6 require a Python-computed digest. | Digest stays server-side; cross-language agreement pinned on the body (§7.5). | Plan-level |
-| **C3 (revised)** | Neither the parent plan nor ADR-013 §5 accounts for the staging of a *successfully completed* attempt; revision 1 proposed a best-effort worker cleanup, which is not crash-safe. | Platform-owned **staging janitor** with database authority (§6.5, §10.5): normal reclamation target ≤ `Grace + Interval` (20 min with defaults) and an explicit backlog bound `Grace + ⌈(B+1)/M⌉ × Interval`; worker cleanup demoted to fast path. This **moves ownership** of staging reclamation from "worker courtesy / later GC" to the platform. ADR-006 needs an **amendment** (new decision "6. Platform-owned reclamation of worker staging": the platform reclaims `staging/{job}/attempt-*` using the VisionJob row as sole authority; worker cleanup is an optimisation; normal reclamation target and backlog bound stated; destructive authority limited to states the aggregate can reach). ADR-013 §5's sentence "cleaned by the existing attempt cleanup" should read "reclaimed by the platform staging janitor (ADR-006 §6), with worker attempt cleanup as a fast path". Neither ADR is edited in this PR. | **Owner — ADR-006 amendment + ADR-013 §5 wording** |
+| **C3 (revised)** | Neither the parent plan nor ADR-013 §5 accounts for the staging of a *successfully completed* attempt; revision 1 proposed a best-effort worker cleanup, which is not crash-safe. | Platform-owned **staging janitor** with database authority (§6.5, §10.5): normal reclamation target ≤ `Grace + Interval` (20 min with defaults) and an explicit backlog bound `Grace + ⌈(B+1)/M⌉ × Interval`; worker cleanup demoted to fast path. This **moves ownership** of staging reclamation from "worker courtesy / later GC" to the platform. ADR-006 needs an **amendment** (new decision "6. Platform-owned reclamation of worker staging": the platform reclaims `staging/{job}/attempt-*` using the VisionJob row as sole authority; worker cleanup is an optimisation; normal reclamation target and backlog bound stated; destructive authority limited to states the aggregate can reach). ADR-013 §5's sentence "cleaned by the existing attempt cleanup" should read "reclaimed by the platform staging janitor (ADR-006 §6), with worker attempt cleanup as a fast path". Neither ADR was edited by the plan PR; S1.2a (PR #77) adds ADR-006 §6 and the ADR-013 wording, and the owner ratified §6 on 2026-09-23. | **Resolved — ADR-006 §6 accepted; ADR-013 wording updated** |
 | **C4 (revised)** | Parent: "≤ 4 × 160 KiB plus its trajectory-in-progress" left the trajectory term unbounded; revision 1 quantified it as 12·D and wrongly called that "independent of video length". | Trajectory spool (§6.3): live memory per Track is a constant ≈ 642 KiB; the trajectory lives in attempt staging until retirement. Parent §6.4's "trajectory-in-progress" as *live processing memory* becomes "one trajectory chunk". | Plan-level (ADR-013 §5 already says live memory is bounded by live Tracks; this makes it true) |
 | **C5** | v3 worker vs old platform burned an attempt. | Capability endpoint (§11.1). | Plan-level |
 | **C6** | Resolve precedence unspecified for NearView/Late. | Uniform resolve rule (§4.3). | Plan-level |
