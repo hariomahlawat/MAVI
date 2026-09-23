@@ -133,7 +133,7 @@ Four findings came out of that review, and all four are repaired here.
 | **P1** — evidence referenced an unreachable commit | The gate recorded `gitSha` from `.git/HEAD` and never asked whether that SHA resolved, or whether the tree it was built from was clean | `RequireRepositoryProvenance` adds two qualification prerequisites — clean working tree, and a reported SHA that resolves to a local commit object — wired into all three heavy harnesses. Both are captured from live `git`, and a missing signal is refused rather than assumed |
 | **P2** — heatmap cold/warm labelling was wrong | Repetition 1 of *each* width was called cold-ish, but all widths share one process, so only the very first call is anything like cold | A single global invocation counter: invocation 1 is `cold-ish`, 2+ are `warm`. Grid width, repetition within width, global invocation number and cache state are all recorded. The workload is unchanged, and no process isolation was added to manufacture a cold sample |
 | **P2** — qualification documentation contradicted itself | The same head was described as both PASS on PostgreSQL 18 and not qualification evidence | Each environment now carries one standing: this container's PostgreSQL 16 is observations, the earlier PostgreSQL 18 pass is superseded, and qualification was pending a reachable-head rerun — since satisfied by the Development-machine run in §8. The PASS claims drawn from the superseded run are gone |
-| **P2** — exact-head CI marked PASS from the parent SHA | PR #70's green checks were read as PR #71's | Exit-gate item 21 is PENDING until every required workflow passes on the final pushed PR #71 head. A parent-head result does not qualify a child head whose executable code differs |
+| **P2** — exact-head CI marked PASS from the parent SHA | PR #70's green checks were read as PR #71's | *(Historical; the item numbering here predates the 20-item §25 gate, where exact-head CI is item 16.)* Exit-gate item 21 is PENDING until every required workflow passes on the final pushed PR #71 head. A parent-head result does not qualify a child head whose executable code differs |
 
 **What the guard does not claim.** A clean tree plus a resolvable commit is an inference, not an attestation: it does not cryptographically bind the compiled assembly to that commit. It is deliberately the simplest check that closes the observed hole, and the evidence records `testAssemblyModuleId` and `testAssemblyBuiltUtc` beside it so a reader can tell which binary produced a file. Pushed-to-remote reachability stays an external handoff check, because qualification has to work on a disconnected Development machine.
 
@@ -209,14 +209,14 @@ Scope resolution proved exactly **50 covered runs and 2,000 candidate Tracks**. 
 
 ## 7. Validation of the current PR #70 head
 
-Executed in the repair container on **PostgreSQL 16.15**. Ordinary-suite results only; not qualification evidence. This head adds tests, fixtures and Development tooling after the measured SHA; it changes no production source file and none of the qualification harnesses or their shared corpus (see the Stage-1 register, *The measured SHA and the current head*).
+Executed in the repair container on **PostgreSQL 16.15**. Ordinary-suite results only; not qualification evidence. This head adds tests, fixtures and Development tooling after the measured SHA. It also has one browser-only production change, the bounded local read in `api/client.ts`. It changes no server code (`src/platform` is identical to the measured SHA) and none of the qualification harnesses or their shared corpus; see the Stage-1 register, *The measured SHA and the current head*.
 
 | Suite | Result |
 |---|---|
 | Domain | 195 passed |
 | Application | 373 passed (369 + the four `ScriptedCorpusTests` cases) |
-| Integration | **657 passed, 2 failed of 659** — the eight new resilience, race-probe and C1-contract tests pass; both failures are `DatabaseStartupMigrationTests` asserting the PostgreSQL 18 prerequisite against 16.15, which pass in CI's PostgreSQL 18 job |
-| Frontend | 826 tests pass (821 + the five C1 operator-contract tests); typecheck clean; production build succeeds |
+| Integration | **658 passed, 2 failed of 660** — the new resilience, race-probe, C1-contract and database-outage tests pass; both failures are `DatabaseStartupMigrationTests` asserting the PostgreSQL 18 prerequisite against 16.15, which pass in CI's PostgreSQL 18 job |
+| Frontend | 836 tests pass (56 files, including the C1 operator-contract and bounded-read tests); typecheck clean; production build succeeds |
 | `python tools/verify_repo.py` | PASSED |
 | Evidence-assembler guard coverage | 52/52 guards pinned |
 | Dependency surface | Zero files differ from `main` across `*.csproj`, `package.json`, lockfiles and `config/dependencies/` |
@@ -229,7 +229,7 @@ Exact-head CI is reported on PR #70 and nowhere else.
 
 ### 8.1 Environment and provenance
 
-- Windows Development machine; PostgreSQL **18.6**; pgvector **0.8.6**; port 5433; qualification database `mavi_test` (the live Development database `mavi_dev` was not used for qualification).
+- Windows Development machine; PostgreSQL **18.6**; pgvector **0.8.6**; the canonical Development service `MAVI-Dev-PostgreSQL-18` (`127.0.0.1:55433`); qualification database `mavi_test` (the live Development database `mavi_dev` was not used for qualification). The evidence file does not capture the port; an earlier "5433" here was a transcription error (Stage-1 register, *Evidence*).
 - The candidate tree was **clean** and the SHA was **repository-reachable**, which are exactly the two prerequisites the provenance guard (§3d) enforces before a run may call itself evidence.
 - The three evidence files are held outside the repository by the operator and SHA-256 hashed. They are not committed and no repository path is claimed for them.
 

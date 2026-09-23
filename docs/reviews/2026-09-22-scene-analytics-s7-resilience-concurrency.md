@@ -18,7 +18,14 @@ Both files run in the **ordinary** integration suite, not behind `MAVI_QUALIFICA
 
 **No sleep decides any outcome.** Interruptions are placed by counting evidence reads through decorators over the production readers. The one wait in the race probes is for an observable database fact — a writer's advisory-lock request appearing in `pg_locks` as not granted — and it is bounded, so a regression fails rather than hangs.
 
-Two plan §11 cases stay outside these items and are recorded, not converted: **API restart — PASS** on the Development machine (unchanged from the previous revision), and **PostgreSQL restart/reconnect — NOT EXECUTED**, an operator action (runbook `docs/runbooks/scene-analytics-stage1-development-acceptance.md` §F).
+Two plan §11 cases sit outside these items:
+
+- **API restart — PASS** on the Development machine.
+- **PostgreSQL restart/reconnect — PASS**, on two pieces of evidence:
+  - the real service restart on the Development machine, after which the same API process reconnected;
+  - `tests/Mavi.IntegrationTests/DatabaseOutageRecoveryTests.cs`, which runs in the ordinary suite on every head. Through a relay it drops every database connection and refuses new ones. Activity and Heatmap must then answer 5xx with nothing internal on the wire, and must give the same answers from the same process once the database is back. The test fails if the outage is a no-op or if the body carries the exception.
+
+  Its limits are recorded in the Stage-1 register, action F.
 
 ## 1. What already existed, from Slices 3–6
 

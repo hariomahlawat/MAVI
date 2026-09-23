@@ -1,7 +1,7 @@
 # Scene Analytics Slice 7 — Hardening, Performance, Acceptance and Stage-1 Closure
 
 **Date:** 2026-09-22  
-**Status:** Planning branch; implementation MUST NOT start until this plan has passed independent cold review, the planning PR is merged, and post-merge `main` is green.  
+**Status:** Implementation in progress on PR #70. The planning gate below was met. Current status per exit-gate item is kept in `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md`, not in the §21 checklist.  
 **Planning branch:** `docs/scene-analytics-s7-plan`  
 **Implementation branch:** `feature/scene-analytics-s7-hardening-acceptance` (create only after the planning gate above).  
 **Planning baseline:** `main@2717918761fb35e4845b6887772ebdd5c7c6edf8` — PR #68 / Scene Analytics Slice 6 merged.  

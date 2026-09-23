@@ -41,7 +41,7 @@ Where a value depends on an interpolation policy the plan does not freeze — th
 
 ## 3. Result
 
-All three tests pass. The engine's derived facts match the hand-derived table above; the §S predicates select the Track on each of them and reject their complements (six of the seven wrong headings, a dwell threshold above the derived dwell, `minStationaryMs`, `loitering`); the §T aggregate counts one entry, one exit, one unique Track, zero repeated visits, one crossing each way and one distinct Person.
+All three tests pass. The engine's derived facts match the hand-derived table above; the §S predicates select the Track on each of them and reject the complements C1 can express (all seven wrong headings, a dwell threshold above the derived dwell, `minStationaryMs`, `loitering`). C1 crosses both ways under one identity, so the direction, zone-relation and identity complements are held by `TrackSearchAnalyticsRepositoryTests`; the §T aggregate counts one entry, one exit, one unique Track, zero repeated visits, one crossing each way and one distinct Person.
 
 ## 4. Two predictions that were wrong, and the product was right
 

@@ -358,6 +358,15 @@ The helper verifies the pinned source archive SHA-256 before staging `vendor/ffm
 
 If the staged pack already exists, rerun Setup or `Test-MaviEnvironment.ps1 -Profile Development`. Production never relies on PATH fallback.
 
+### A page shows an "unavailable" error with Retry instead of loading
+
+The browser client bounds every local API read (GET/HEAD, including trajectory artefacts) at 10 seconds and retries once. A read that gets no response therefore becomes that page's error state, for example *Scene configuration is unavailable.*, with **Retry** after about 21 seconds, rather than an indefinite *Loading…*. It usually means `Mavi.Api` is not answering. For example:
+- it is still starting;
+- a debugger has paused it on an exception;
+- PostgreSQL is unavailable.
+
+Check `/api/health`, then press **Retry**. Writes and uploads are not bounded this way.
+
 ### Tests pass in CI but fail on Windows
 
 Treat this as a cross-platform defect until proven otherwise. Logical storage keys and HTTP contracts must remain OS- and culture-independent; physical path conversion belongs only inside storage implementations.

@@ -77,8 +77,24 @@ Not changed deliberately: tightening read validation in the worker changes what 
 ## 3. Resilience and resource cases, and where each stands
 
 - Cancellation and failure at realistic volume — **PASS**. `RealisticVolumeResilienceTests` cancels the heatmap part-way through its full 50-run / 2,000-Track envelope and a 1,000-Track analytical unit part-way through its Tracks, and fails each part-way with corrupt evidence or an evidence-store fault. No partial answer is returned or published, no read happens after the interruption point, and every retry reproduces the uninterrupted answer exactly. Details in `2026-09-22-scene-analytics-s7-resilience-concurrency.md`.
-- PostgreSQL restart/reconnect — **NOT EXECUTED**. An operator action on the Development machine (runbook §F).
+- PostgreSQL restart/reconnect — **PASS**, on two pieces of evidence:
+  - **Reconnect.** On the Development machine, the same `Mavi.Api` process reconnected after a real restart of `MAVI-Dev-PostgreSQL-18`.
+  - **Outage.** `DatabaseOutageRecoveryTests` covers the outage itself. While the database is unreachable, Activity and Heatmap answer 5xx with no host, port, database, user, exception or stack text. After recovery, the same process returns identical answers.
+
+  Recorded as P3:
+  - In `Development`, ASP.NET Core's developer exception page renders a raw API request during an outage. The UI does not show it.
+  - The failure is an untyped 500.
+
+  Details are in the Stage-1 register, action F.
 - API restart — **PASS**, on the Development machine: after restarting `Mavi.Api`, the real-worker analytics, the Revision 2 identity, the zone facts, the Activity values and the Heatmap were all still present.
 - Resource measurement behind the P2 above — **PASS for the predeclared Stage-1 envelope** on PostgreSQL 18; decision **RETAIN**, with the qualified envelope and linear-work caveat recorded (§1).
+
+- **Browser read bound** — local GET/HEAD reads, including trajectory artefacts, are bounded at 10 s in the client (`api/client.ts`) and retried once by the query defaults. So an operator waits at most about 21 s before a failure is shown, with Retry.
+
+  The server receives the abort. The analytics endpoints bind the request-abort token through the barrier transaction and every query, so the work stops too.
+
+  For the aggregate envelope this is a second, client-side limit. The server figures sit well inside it: worst §T total 4,405 ms, heatmap envelope under 1 s.
+
+  Because aggregate work is linear in facts, a request far beyond the qualified 10⁵-fact envelope would end as an explicit, recoverable timeout rather than a slow answer. It is refused rather than truncated, so it does not reopen the P2.
 
 Nothing in this list is converted into a pass unless it was executed.
