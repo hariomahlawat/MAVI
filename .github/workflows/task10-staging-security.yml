@@ -10,6 +10,8 @@ on:
       - 'src/vision/mavi_vision/storage/artifact_store_posix.py'
       - 'src/vision/mavi_vision/storage/artifact_store_windows.py'
       - 'src/vision/mavi_vision/storage/artifact_publisher.py'
+      - 'src/vision/mavi_vision/video/trajectory_spool.py'
+      - 'src/vision/tests/test_trajectory_spool.py'
       - 'src/vision/tests/test_artifact_store.py'
       - 'src/vision/tests/test_artifact_store_windows.py'
       - 'src/vision/tests/test_artifact_publisher.py'
@@ -24,6 +26,8 @@ on:
       - 'src/vision/mavi_vision/storage/artifact_store_posix.py'
       - 'src/vision/mavi_vision/storage/artifact_store_windows.py'
       - 'src/vision/mavi_vision/storage/artifact_publisher.py'
+      - 'src/vision/mavi_vision/video/trajectory_spool.py'
+      - 'src/vision/tests/test_trajectory_spool.py'
       - 'src/vision/tests/test_artifact_store.py'
       - 'src/vision/tests/test_artifact_store_windows.py'
       - 'src/vision/tests/test_artifact_publisher.py'
@@ -67,4 +71,5 @@ jobs:
           tests/test_artifact_store.py
           tests/test_artifact_store_windows.py
           tests/test_artifact_publisher.py
+          tests/test_trajectory_spool.py
           -q

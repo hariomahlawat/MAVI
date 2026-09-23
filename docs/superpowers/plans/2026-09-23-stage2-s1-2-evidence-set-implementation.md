@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.2 Track Evidence Set: implementation plan
 
-**Status:** Implementation-ready plan, revision 3 (after the second independent cold review; janitor precision only). **S1.2a implemented** (platform v3 and staging janitor; deviations D1–D3 recorded in its PR); S1.2b and S1.2c not started.  
+**Status:** Implementation-ready plan, revision 3 (after the second independent cold review; janitor precision only). **S1.2a implemented** (platform v3 and staging janitor; deviations D1–D3 recorded in its PR). **S1.2b implemented** (worker trajectory spool; implementation notes and deviations E1–E7 in §16.1). S1.2c not started.  
 **Date:** 2026-09-23  
 **Baseline:** `main@4b6141f52d6d6a0a72de664e60b8cd4441487799` (PR #75, S1.1 merged)  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §7–§8, §10.2, §12–§16  
@@ -687,6 +687,24 @@ Exit: Quality Gate + Task 17 + Task 14 green on the exact head; a `main` v2 work
 4. Runner fast-path cleanup + W5; Task 10 filter widening; docs.
 
 Exit: Quality Gate, Task 17, Task 10 (both OS), Staging Security green on the exact head; T1/T9 prove byte identity; T3 proves the bound.
+
+### 16.1 S1.2b as implemented (baseline `main@7609a3a`)
+
+The spool follows §6.3 Option B. The code differs from §15 in these places, all confined to the worker, with no wire, digest or Scene Analytics change:
+
+| ID | Plan | As implemented | Why |
+|---|---|---|---|
+| E1 | Store gains `append_bytes`, `write_stream`, `remove` | Also **`read_chunks(name, chunk_bytes, expected_size)`**: a handle-relative, no-follow sequential read that fails closed unless the file holds exactly `expected_size` bytes | Reading the spilled chunks back needs a hardened read; an ad-hoc `open()` would bypass the attempt-scoped, link-refusing backends |
+| E2 | `common/settings.py` `trajectory_spool_chunk_points` | No setting. `VideoProcessor(..., trajectory_chunk_points=4096)` is a test seam only | The chunk size changes memory and I/O cadence, never bytes. It is not operator configuration |
+| E3 | `spool_key(track_id)` | `spool_relative_name(track_id)` → `spool/{trackId}.traj` | A spool is never referenced by a descriptor, so it has no storage key |
+| E4 | `publish_trajectory_stream(track_id, chunks)`; `publish_track` takes a descriptor | `publish_track(prepared, trajectory_chunks)` stages the thumbnail, then streams the trajectory through `write_stream` | This keeps one lease-fenced publication gateway and the existing thumbnail → trajectory order. `prepare_track` still validates everything before any publication |
+| E5 | `_TrackState` | `_TrackAccumulator` keeps its name; its `trajectory` field is now a `TrajectorySpool` | Smaller diff. The lifecycle tests' gc scan already targets this class |
+| E6 | Validation on append plus count checks | Also: every spill checks the file length, and a running SHA-256 of all spilled bytes is kept in constant memory. The read-back must match size, record alignment, monotonicity, value ranges, recorded endpoints and the digest | So a damaged or foreign-written spool fails closed instead of being published |
+| E7 | `finalise(sink)` | `TrajectorySpool.finalise(publish)` passes the v1 byte iterator to `publish` and removes the spool file only after `publish` returned. A failed publish leaves the spool to attempt cleanup | The "remove only after a successful publish" rule is enforced in one place |
+
+W5: `WorkerRunner(staging_cleaner=...)`, composed in `build_runner`, removes the accepted attempt's staging after `complete()` returns. It runs off the event loop, and a failure is logged and never changes the attempt; the janitor (§6.5) remains the crash-safe bound. The runner does not call it on failure (the processor cleans itself up) or on lease loss (the next attempt or the janitor handles that).
+
+Test mapping. The request's T1–T9 map to the plan's §14 names as follows. T1/T2 are the plan's T1/T2. T3 is T3. T4 (ordering) is part of T1/T2 plus `test_points_stream_in_append_order_across_spill_and_buffer`, and bounded reads are the plan's T4. T5 (corruption) is the plan's T7. T6 (lease loss) is the plan's T5. T7 and T8 (failure and retry cleanup) are the plan's T6. T9 (descriptors and handles) is the plan's T8 at two levels: 2,000 spools, and a 300-Track pipeline under a lowered `RLIMIT_NOFILE`, with a handle count on Windows. The golden fixture is the plan's T9, run through the spool at chunk sizes 1, 2, 3 and 4096.
 
 ### S1.2c (one PR, ~7 commits; requires S1.2a **deployed** and S1.2b merged)
 As revision 1's S1.2b sequence (profile → roles/quality/encoder → selector → admission → pipeline integration → wire/client/runner → measurement note/docs/register).

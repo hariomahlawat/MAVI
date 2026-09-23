@@ -15,6 +15,10 @@ on:
       - 'src/vision/tests/test_mmdetection_runtime.py'
       - 'src/vision/tests/test_production_processor*.py'
       - 'src/vision/tests/test_process_video.py'
+      - 'src/vision/tests/test_track_lifecycle.py'
+      - 'src/vision/tests/test_trajectory_spool.py'
+      - 'src/vision/mavi_vision/video/**'
+      - 'src/vision/mavi_vision/storage/**'
       - 'src/vision/mavi_vision/runtime/**'
       - 'src/vision/mavi_vision/pipeline/**'
       - 'src/vision/mavi_vision/tracking/**'
@@ -44,6 +48,10 @@ on:
       - 'src/vision/tests/test_mmdetection_runtime.py'
       - 'src/vision/tests/test_production_processor*.py'
       - 'src/vision/tests/test_process_video.py'
+      - 'src/vision/tests/test_track_lifecycle.py'
+      - 'src/vision/tests/test_trajectory_spool.py'
+      - 'src/vision/mavi_vision/video/**'
+      - 'src/vision/mavi_vision/storage/**'
       - 'src/vision/mavi_vision/runtime/**'
       - 'src/vision/mavi_vision/pipeline/**'
       - 'src/vision/mavi_vision/tracking/**'
@@ -137,6 +145,8 @@ jobs:
           tests/test_bytetrack_adapter.py
           tests/test_production_processor.py
           tests/test_process_video.py
+          tests/test_track_lifecycle.py
+          tests/test_trajectory_spool.py
           -q
 
       - name: Install candidate PyTorch CPU build
