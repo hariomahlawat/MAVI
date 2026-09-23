@@ -159,7 +159,12 @@ public sealed class SemanticAcceptanceTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    /// The §S predicates select on those derived facts, and reject their complements.
+    /// The §S predicates select on those derived facts. Where C1's single Track has a
+    /// complement — dwell above the derived dwell, the seven other headings, stationary,
+    /// loitering — it is rejected. C1 crosses both ways and has one identity, so the
+    /// direction, zone-relation and identity complements are held by
+    /// <c>TrackSearchAnalyticsRepositoryTests.EveryPredicateTranslatesAndMatchesTheFixtureFacts</c>
+    /// and its stale-identity cases, not here.
     /// </summary>
     /// <remarks>
     /// The negative half is the point. A predicate that matched everything would pass
@@ -195,8 +200,9 @@ public sealed class SemanticAcceptanceTests(PostgresFixture fixture)
             MinDwellMs = 6_000,
         }, false);
 
-        // Both directions happened, so both must match; a direction filter that was
-        // ignored would also pass these, which is why the class filter below differs.
+        // Both directions happened, so both must match. An ignored direction filter
+        // would also pass these; the complement (a direction that did not happen) is
+        // held by TrackSearchAnalyticsRepositoryTests, whose fixture crosses one way.
         await AssertMatchesAsync(world, TrackAnalyticsQuery.Empty with
         {
             LineId = world.LineId,
@@ -219,7 +225,8 @@ public sealed class SemanticAcceptanceTests(PostgresFixture fixture)
         await AssertMatchesAsync(world, TrackAnalyticsQuery.Empty with { MinStationaryMs = 1 }, false);
         await AssertMatchesAsync(world, TrackAnalyticsQuery.Empty with { Loitering = true }, false);
 
-        // The identity the facts were derived under selects them; another does not.
+        // The identity the facts were derived under selects them. A foreign identity is
+        // refused or classified stale, not matched — held by TrackSearchAnalyticsRepositoryTests.
         await AssertMatchesAsync(world, TrackAnalyticsQuery.Empty with
         {
             SceneRevisionId = world.RevisionId,
