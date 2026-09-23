@@ -64,6 +64,6 @@ Their **decision method and boundary are frozen** even though the eventual value
 
 ## Architecture decision
 
-The revised documentation is suitable to proceed to the formal architecture-freeze gate.
+The final cold consistency pass found no open P1/P2 architecture issue. ADR-013 and ADR-014 are accepted and acceptance-register architecture items A1–A12 are PASS on the reviewed documentation head.
 
-Feature implementation remains blocked until ADR-013 and ADR-014 status are formally accepted and acceptance-register architecture items A1–A12 are marked PASS against the final reviewed head.
+Feature implementation is intentionally not part of this PR.
