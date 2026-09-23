@@ -12,6 +12,27 @@ from mavi_vision.common.analytical import ArtifactDescriptor
 
 
 _TRACK_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
+_ATTEMPT_NAME_PATTERN = re.compile(r"attempt-([0-9]{4,10})\Z")
+
+
+def attempt_directory_name(attempt_count: int) -> str:
+    return f"attempt-{attempt_count:04d}"
+
+
+def superseded_attempt_number(name: str, current_attempt_count: int) -> int | None:
+    """Return the attempt number of a canonical sibling older than the current one.
+
+    Only names this store itself produces (``attempt-NNNN``, zero-padded to four
+    digits, canonical) qualify. Anything else under the job directory -- a later
+    attempt, an unrecognised name, a non-canonical spelling -- is never selected.
+    """
+    match = _ATTEMPT_NAME_PATTERN.fullmatch(name)
+    if match is None:
+        return None
+    number = int(match.group(1))
+    if number < 1 or attempt_directory_name(number) != name:
+        return None
+    return number if number < current_attempt_count else None
 
 
 class StagingArtifactError(RuntimeError):
@@ -31,6 +52,8 @@ class _StagingBackend(Protocol):
 
     def cleanup(self) -> None: ...
 
+    def cleanup_superseded_attempts(self, current_attempt_count: int) -> None: ...
+
 
 class StagingArtifactStore:
     """Security-hardened filesystem store scoped to one lease attempt.
@@ -46,7 +69,7 @@ class StagingArtifactStore:
         self._media_root = media_root.resolve()
         self._job_id = job_id
         self._attempt_count = attempt_count
-        self._attempt_name = f"attempt-{attempt_count:04d}"
+        self._attempt_name = attempt_directory_name(attempt_count)
         self._backend = self._create_backend()
 
     @property
@@ -99,6 +122,17 @@ class StagingArtifactStore:
     def cleanup(self) -> None:
         """Delete only this lease attempt's staging subtree."""
         self._backend.cleanup()
+
+    def cleanup_superseded_attempts(self) -> None:
+        """Delete staging left by earlier attempts of this job, and nothing else.
+
+        Authority is the platform lease: this store is scoped to the attempt number
+        the platform issued, and the platform refuses completion from every lower
+        attempt of the job, so their staging can never be accepted. Later attempts
+        (this worker's lease may already have lapsed) and other jobs are never
+        touched; a stale lower attempt can only ever delete below its own number.
+        """
+        self._backend.cleanup_superseded_attempts(self._attempt_count)
 
     def _create_backend(self) -> _StagingBackend:
         if os.name == "posix":

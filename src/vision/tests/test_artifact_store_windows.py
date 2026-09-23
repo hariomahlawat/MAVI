@@ -247,3 +247,58 @@ def test_windows_rejects_component_before_unicode_string_length_wrap(
     assert attempt_root.is_dir()
     assert list(attempt_root.iterdir()) == []
 
+
+
+def test_windows_superseded_cleanup_removes_only_older_attempts(tmp_path: Path) -> None:
+    paths = {}
+    for attempt in (1, 2, 3, 4):
+        descriptor = StagingArtifactStore(tmp_path, JOB_ID, attempt).write_bytes(
+            "same.bin",
+            f"attempt-{attempt}".encode(),
+            "application/octet-stream",
+        )
+        paths[attempt] = tmp_path.joinpath(*descriptor.storage_key.split("/"))
+    stray = tmp_path / "staging" / str(JOB_ID) / "attempt-001"
+    stray.mkdir()
+    (stray / "keep.bin").write_bytes(b"stray")
+
+    StagingArtifactStore(tmp_path, JOB_ID, 3).cleanup_superseded_attempts()
+
+    assert not _attempt_root(tmp_path, 1).exists()
+    assert not _attempt_root(tmp_path, 2).exists()
+    assert paths[3].read_bytes() == b"attempt-3"
+    assert paths[4].read_bytes() == b"attempt-4"
+    assert (stray / "keep.bin").read_bytes() == b"stray"
+
+
+def test_windows_superseded_cleanup_rejects_junction_attempt(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-superseded"
+    outside.mkdir()
+    keep = outside / "keep.bin"
+    keep.write_bytes(b"keep")
+    job = tmp_path / "staging" / str(JOB_ID)
+    job.mkdir(parents=True)
+    _junction(job / ATTEMPT_NAME, outside)
+
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        StagingArtifactStore(tmp_path, JOB_ID, 2).cleanup_superseded_attempts()
+
+    assert keep.read_bytes() == b"keep"
+
+
+def test_windows_superseded_cleanup_does_not_follow_nested_junction(
+    tmp_path: Path,
+) -> None:
+    StagingArtifactStore(tmp_path, JOB_ID, 1).write_bytes(
+        "normal.bin", b"remove", "application/octet-stream"
+    )
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-superseded-nested"
+    outside.mkdir()
+    keep = outside / "keep.bin"
+    keep.write_bytes(b"keep")
+    _junction(_attempt_root(tmp_path, 1) / "external", outside)
+
+    StagingArtifactStore(tmp_path, JOB_ID, 2).cleanup_superseded_attempts()
+
+    assert not _attempt_root(tmp_path, 1).exists()
+    assert keep.read_bytes() == b"keep"

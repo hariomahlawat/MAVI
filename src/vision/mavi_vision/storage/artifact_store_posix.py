@@ -8,7 +8,10 @@ from collections.abc import Callable
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from mavi_vision.storage.artifact_store import StagingArtifactError
+from mavi_vision.storage.artifact_store import (
+    StagingArtifactError,
+    superseded_attempt_number,
+)
 
 
 _DIR_FLAGS = (
@@ -110,6 +113,27 @@ class PosixStagingBackend:
             self._close_fds(opened_fds)
 
     def cleanup(self) -> None:
+        self._with_job_directory(
+            lambda job_fd: self._remove_attempt_at(job_fd, self._attempt_name)
+        )
+
+    def cleanup_superseded_attempts(self, current_attempt_count: int) -> None:
+        def remove_superseded(job_fd: int) -> None:
+            try:
+                names = os.listdir(job_fd)
+            except OSError as exc:
+                raise StagingArtifactError("staging_cleanup_failed") from exc
+            superseded = sorted(
+                name
+                for name in names
+                if superseded_attempt_number(name, current_attempt_count) is not None
+            )
+            for name in superseded:
+                self._remove_attempt_at(job_fd, name)
+
+        self._with_job_directory(remove_superseded)
+
+    def _with_job_directory(self, action: Callable[[int], None]) -> None:
         self._require_secure_dirfd(require_safe_rmtree=True)
         root_fd = self._open_media_root_fd()
         staging_fd: int | None = None
@@ -133,32 +157,36 @@ class PosixStagingBackend:
                     raise StagingArtifactError("staging_path_escape") from exc
                 raise StagingArtifactError("staging_cleanup_failed") from exc
 
-            try:
-                attempt_stat = os.stat(
-                    self._attempt_name,
-                    dir_fd=job_fd,
-                    follow_symlinks=False,
-                )
-            except FileNotFoundError:
-                return
-            except OSError as exc:
-                raise StagingArtifactError("staging_cleanup_failed") from exc
-
-            if not stat.S_ISDIR(attempt_stat.st_mode):
-                raise StagingArtifactError("staging_path_escape")
-
-            try:
-                shutil.rmtree(self._attempt_name, dir_fd=job_fd)
-            except FileNotFoundError:
-                return
-            except OSError as exc:
-                raise StagingArtifactError("staging_cleanup_failed") from exc
+            action(job_fd)
         finally:
             if job_fd is not None:
                 os.close(job_fd)
             if staging_fd is not None:
                 os.close(staging_fd)
             os.close(root_fd)
+
+    @staticmethod
+    def _remove_attempt_at(job_fd: int, attempt_name: str) -> None:
+        try:
+            attempt_stat = os.stat(
+                attempt_name,
+                dir_fd=job_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise StagingArtifactError("staging_cleanup_failed") from exc
+
+        if not stat.S_ISDIR(attempt_stat.st_mode):
+            raise StagingArtifactError("staging_path_escape")
+
+        try:
+            shutil.rmtree(attempt_name, dir_fd=job_fd)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise StagingArtifactError("staging_cleanup_failed") from exc
 
     def _open_parent_chain(
         self,

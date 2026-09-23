@@ -7,7 +7,10 @@ from ctypes import wintypes
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from mavi_vision.storage.artifact_store import StagingArtifactError
+from mavi_vision.storage.artifact_store import (
+    StagingArtifactError,
+    superseded_attempt_number,
+)
 
 
 # This backend deliberately uses native relative opens rooted at already-validated
@@ -778,6 +781,26 @@ class WindowsStagingBackend:
             self._close_handles(handles)
 
     def cleanup(self) -> None:
+        self._with_job_directory(
+            lambda job: _remove_attempt_tree_no_reparse(job, self._attempt_name)
+        )
+
+    def cleanup_superseded_attempts(self, current_attempt_count: int) -> None:
+        def remove_superseded(job: _WindowsHandle) -> None:
+            superseded = sorted(
+                name
+                for name in _directory_entries(job)
+                if superseded_attempt_number(name, current_attempt_count) is not None
+            )
+            for name in superseded:
+                _remove_attempt_tree_no_reparse(job, name)
+
+        self._with_job_directory(remove_superseded)
+
+    def _with_job_directory(
+        self,
+        action: Callable[[_WindowsHandle], None],
+    ) -> None:
         root = _open_directory_no_reparse(self._media_root)
         staging: _WindowsHandle | None = None
         job: _WindowsHandle | None = None
@@ -800,7 +823,7 @@ class WindowsStagingBackend:
             except _MissingChild:
                 return
 
-            _remove_attempt_tree_no_reparse(job, self._attempt_name)
+            action(job)
         except StagingArtifactError:
             raise
         except Exception as exc:
