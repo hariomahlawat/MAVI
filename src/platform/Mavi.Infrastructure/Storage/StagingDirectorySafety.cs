@@ -122,7 +122,19 @@ internal sealed class LinuxStagingDirectory : StagingDirectory
 
     private LinuxStagingDirectory(int descriptor) => _descriptor = descriptor;
 
-    public static bool ArchitectureSupported => ArchitectureFlags is not null;
+    /// <summary>
+    /// A verified open-flag ABI and a libc that exports <c>statx</c> (glibc 2.28) and
+    /// <c>getdents64</c> (glibc 2.30). Without them the janitor reports itself unsupported
+    /// (1411) instead of failing every cycle.
+    /// </summary>
+    public static bool ArchitectureSupported => ArchitectureFlags is not null && LibraryExportsAvailable.Value;
+
+    private static readonly Lazy<bool> LibraryExportsAvailable = new(() =>
+        NativeLibrary.TryLoad("libc", typeof(LinuxStagingDirectory).Assembly, null, out var library) &&
+        NativeLibrary.TryGetExport(library, "statx", out _) &&
+        NativeLibrary.TryGetExport(library, "getdents64", out _) &&
+        NativeLibrary.TryGetExport(library, "openat", out _) &&
+        NativeLibrary.TryGetExport(library, "unlinkat", out _));
 
     private static int DirectoryFlags =>
         OpenReadOnly | OpenNonBlocking | OpenCloseOnExec | ArchitectureFlags!.Value.Directory | ArchitectureFlags.Value.NoFollow;

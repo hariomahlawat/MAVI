@@ -240,6 +240,8 @@ public sealed class StagingJanitorTests
             Assert.True(new DirectoryInfo(world.StagingPath(linkedJob.ToString("D"))).Attributes.HasFlag(FileAttributes.ReparsePoint));
             Assert.All(world.Logs.Entries(1402), entry => Assert.Equal(LogLevel.Error, entry.Level));
             Assert.Equal(2, world.Logs.Count(1402));
+            await world.RunCycleAsync();
+            Assert.Equal(2, world.Logs.Count(1402)); // once per link while it stays present
         }
         finally
         {
@@ -283,6 +285,48 @@ public sealed class StagingJanitorTests
         world.Stage(job, "attempt-0001");
         Assert.Equal(1, (await world.RunCycleAsync()).Removed);
         Assert.Equal(0, (await JanitorWorld.HealthAsync(client)).GetProperty("consecutiveFailures").GetInt32());
+    }
+
+    // J9 (review P2-1)
+    [Fact]
+    public async Task AnUnreadableJobDirectoryDoesNotStopOtherJobsBeingReclaimed()
+    {
+        using var world = await JanitorWorld.CreateAsync();
+        var blocked = await world.SeedJobAsync(VisionJobStatus.Completed, 1, Now.AddHours(-1));
+        var healthy = await world.SeedJobAsync(VisionJobStatus.Completed, 1, Now.AddHours(-1));
+        world.Stage(blocked, "attempt-0001");
+        world.Stage(healthy, "attempt-0001");
+        var blockedName = blocked.ToString("D");
+
+        var first = await world.RunCycleAsync(root => new FaultingDirectory(StagingDirectory.OpenRoot(root), blockedName));
+        Assert.Equal(1, first.Scanned); // the unreadable directory is reported, not scanned
+        Assert.Equal(1, first.Removed);
+        for (var attempt = 2; attempt <= 3; attempt++)
+            await world.RunCycleAsync(root => new FaultingDirectory(StagingDirectory.OpenRoot(root), blockedName));
+
+        Assert.False(world.JobExists(healthy));
+        Assert.True(world.AttemptExists(blocked, "attempt-0001"));
+        Assert.Equal(3, world.Logs.Count(1403));
+        Assert.Single(world.Logs.Entries(1404));
+    }
+
+    /// <summary>Delegates to the real handle but fails to open one named job directory.</summary>
+    private sealed class FaultingDirectory(StagingDirectory inner, string faultName) : StagingDirectory
+    {
+        public override StagingChildOpen TryOpenChildDirectory(string name, out StagingDirectory? child)
+        {
+            if (name == faultName)
+                throw new IOException("Injected: permission denied.");
+            var result = inner.TryOpenChildDirectory(name, out var real);
+            child = real is null ? null : new FaultingDirectory(real, faultName);
+            return result;
+        }
+
+        public override IReadOnlyList<StagingChildEntry> ListChildren() => inner.ListChildren();
+        public override DateTimeOffset LastWriteTimeUtc => inner.LastWriteTimeUtc;
+        public override long? RemoveChildTree(string name) => inner.RemoveChildTree(name);
+        public override bool TryRemoveEmptyChildDirectory(string name) => inner.TryRemoveEmptyChildDirectory(name);
+        public override void Dispose() => inner.Dispose();
     }
 
     // J10
@@ -500,6 +544,24 @@ public sealed class StagingJanitorTests
         {
             await using var scope = Factory.Services.CreateAsyncScope();
             return await scope.ServiceProvider.GetRequiredService<IStagingJanitor>().RunCycleAsync(CancellationToken.None);
+        }
+
+        /// <summary>One cycle of the host's janitor (shared state) over an injected root.</summary>
+        public async Task<StagingJanitorCycleResult> RunCycleAsync(Func<string, StagingDirectory> openRoot)
+        {
+            await using var scope = Factory.Services.CreateAsyncScope();
+            var provider = scope.ServiceProvider;
+            var janitor = new StagingJanitor(
+                provider.GetRequiredService<MaviDbContext>(),
+                provider.GetRequiredService<IOptions<MediaStorageOptions>>(),
+                provider.GetRequiredService<IOptions<StagingJanitorOptions>>(),
+                provider.GetRequiredService<StagingJanitorState>(),
+                Clock,
+                provider.GetRequiredService<ILogger<StagingJanitor>>())
+            {
+                OpenRoot = openRoot,
+            };
+            return await janitor.RunCycleAsync(CancellationToken.None);
         }
 
         /// <summary>A second janitor with its own state and gate, as an independent concurrent cleaner.</summary>

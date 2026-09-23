@@ -123,6 +123,10 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
     [InlineData("""{"evidenceAccounting":{"representative":{"candidates":1,"extra":0}}}""")]
     [InlineData("""{"evidenceAccounting":{"representative":{"candidates":1.5}}}""")]
     [InlineData("""{"tracks":[{"observations":[{"rank":0.5}]}]}""")]
+    // Version-exclusive members are absent or objects/arrays; an explicit null is rejected (review P3-1).
+    [InlineData("""{"schemaVersion":"2.0","evidenceAccounting":null}""")]
+    [InlineData("""{"schemaVersion":"2.0","tracks":[{"observations":null}]}""")]
+    [InlineData("""{"schemaVersion":"3.0","tracks":[{"representative":null}]}""")]
     public void V3MembersRejectUnknownNamesAndFractionalIntegers(string json) =>
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<VisionJobCompleteRequest>(json, Json));
 

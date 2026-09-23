@@ -14,6 +14,7 @@ public sealed record VisionJobCompleteRequest(
     VisionRuntimeProvenanceContract? Provenance,
     [property: JsonConverter(typeof(BoundedVisionTrackListJsonConverter))] IReadOnlyList<VisionTrackResultContract>? Tracks,
     // Completion 3.0 only. A 2.0 body omits it; a 3.0 body requires it.
+    [property: JsonConverter(typeof(PresentObjectJsonConverter<VisionEvidenceAccountingContract>))]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     VisionEvidenceAccountingContract? EvidenceAccounting = null);
 
@@ -96,6 +97,7 @@ public sealed record VisionTrackResultContract(
     // the bounded Evidence Set in Observations instead. Each version requires its
     // own member and forbids the other, so one binding path serves both.
     // Version-exclusive members are omitted when null so each version round-trips exactly.
+    [property: JsonConverter(typeof(PresentObjectJsonConverter<VisionRepresentativeObservationContract>))]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     VisionRepresentativeObservationContract? Representative,
     VisionArtifactDescriptorContract? TrajectoryArtifact,

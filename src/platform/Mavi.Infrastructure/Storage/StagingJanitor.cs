@@ -52,6 +52,9 @@ public sealed partial class StagingJanitor(
     /// <summary>Whether this platform has a verified handle-relative reclamation implementation.</summary>
     public static bool IsPlatformSupported => StagingDirectory.IsSupported;
 
+    /// <summary>Opens the media root; replaceable only by tests, to inject filesystem faults.</summary>
+    internal Func<string, StagingDirectory> OpenRoot { get; init; } = StagingDirectory.OpenRoot;
+
     public async Task<StagingJanitorCycleResult> RunCycleAsync(CancellationToken cancellationToken)
     {
         await state.Gate.WaitAsync(cancellationToken);
@@ -71,14 +74,14 @@ public sealed partial class StagingJanitor(
         var nowUtc = clock.GetUtcNow();
         var presentKeys = new HashSet<string>(StringComparer.Ordinal);
 
-        using var root = StagingDirectory.OpenRoot(mediaOptions.Value.RootPath);
+        using var root = OpenRoot(mediaOptions.Value.RootPath);
         StagingDirectory? staging;
         switch (root.TryOpenChildDirectory(StagingDirectoryName, out staging))
         {
             case StagingChildOpen.Missing:
                 return Finish(Empty(), nowUtc, presentKeys);
             case StagingChildOpen.NotARealDirectory:
-                LogPathEscape(logger, StagingDirectoryName);
+                LogPathEscape(logger, "(the staging directory itself)");
                 return Finish(Empty(), nowUtc, presentKeys);
         }
 
@@ -184,43 +187,66 @@ public sealed partial class StagingJanitor(
             presentKeys.Add($"cancelled:{name}");
             if (!entry.IsRealDirectory)
             {
-                LogPathEscape(logger, $"{StagingDirectoryName}/{name}");
+                ReportPathEscape(name, presentKeys);
                 continue;
             }
 
-            switch (staging.TryOpenChildDirectory(name, out var job))
+            try
             {
-                case StagingChildOpen.Missing:
-                    continue;
-                case StagingChildOpen.NotARealDirectory:
-                    LogPathEscape(logger, $"{StagingDirectoryName}/{name}");
-                    continue;
+                if (ScanJob(staging, name, jobId, presentKeys) is { } scanned)
+                    jobs.Add(scanned);
             }
-
-            using (job!)
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                var attempts = new List<Attempt>();
-                var other = false;
-                foreach (var child in job!.ListChildren())
-                {
-                    if (child.Name is { } childName && TryParseAttempt(childName, out var number) && child.IsRealDirectory)
-                    {
-                        attempts.Add(new Attempt(childName, number, child.LastWriteTimeUtc));
-                        continue;
-                    }
-
-                    other = true;
-                    if (child.Name is { } linkName && TryParseAttempt(linkName, out _))
-                        LogPathEscape(logger, $"{StagingDirectoryName}/{name}/{linkName}");
-                    else
-                        ReportUnrecognised($"{name}/{child.Name ?? "<non-utf8>"}", presentKeys);
-                }
-
-                jobs.Add(new JobDirectory(name, jobId, job.LastWriteTimeUtc, attempts, other));
+                // One unreadable job directory must not stop the others being reclaimed.
+                _ = Failure(name, exception);
             }
         }
 
         return jobs;
+    }
+
+    private JobDirectory? ScanJob(StagingDirectory staging, string name, Guid jobId, HashSet<string> presentKeys)
+    {
+        switch (staging.TryOpenChildDirectory(name, out var job))
+        {
+            case StagingChildOpen.Missing:
+                return null;
+            case StagingChildOpen.NotARealDirectory:
+                ReportPathEscape(name, presentKeys);
+                return null;
+        }
+
+        using (job!)
+        {
+            var attempts = new List<Attempt>();
+            var other = false;
+            foreach (var child in job!.ListChildren())
+            {
+                if (child.Name is { } childName && TryParseAttempt(childName, out var number) && child.IsRealDirectory)
+                {
+                    attempts.Add(new Attempt(childName, number, child.LastWriteTimeUtc));
+                    continue;
+                }
+
+                other = true;
+                if (child.Name is { } linkName && TryParseAttempt(linkName, out _))
+                    ReportPathEscape($"{name}/{linkName}", presentKeys);
+                else
+                    ReportUnrecognised($"{name}/{child.Name ?? "<non-utf8>"}", presentKeys);
+            }
+
+            return new JobDirectory(name, jobId, job.LastWriteTimeUtc, attempts, other);
+        }
+    }
+
+    /// <summary>1402 once while the link stays present; it is logged again if it reappears.</summary>
+    private void ReportPathEscape(string relativeName, HashSet<string> presentKeys)
+    {
+        var key = $"escape:{relativeName}";
+        presentKeys.Add(key);
+        if (state.FirstReport(key))
+            LogPathEscape(logger, relativeName);
     }
 
     private void ReportUnrecognised(string relativeName, HashSet<string> presentKeys)
@@ -348,7 +374,7 @@ public sealed partial class StagingJanitor(
                     // Removed concurrently (the worker's own cleanup): nothing left to reclaim.
                     return 0;
                 case StagingChildOpen.NotARealDirectory:
-                    LogPathEscape(logger, $"{StagingDirectoryName}/{name}");
+                    LogPathEscape(logger, name);
                     return Failure(name, null);
             }
 
@@ -365,7 +391,7 @@ public sealed partial class StagingJanitor(
         }
         catch (StagingPathEscapeException exception)
         {
-            LogPathEscape(logger, $"{StagingDirectoryName}/{name}", exception);
+            LogPathEscape(logger, name, exception);
             return Failure(name, null);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -402,8 +428,8 @@ public sealed partial class StagingJanitor(
     private static partial void LogQueuedWithStaging(ILogger logger, string jobId);
 
     [LoggerMessage(EventId = 1402, EventName = "staging_janitor_path_escape", Level = LogLevel.Error,
-        Message = "Staging janitor refused a path that is not a real directory (link, junction or file) and left it in place: {Path}.")]
-    private static partial void LogPathEscape(ILogger logger, string path, Exception? exception = null);
+        Message = "Staging janitor refused a path that is not a real directory (link, junction or file) and left it in place: staging/{RelativePath}.")]
+    private static partial void LogPathEscape(ILogger logger, string relativePath, Exception? exception = null);
 
     [LoggerMessage(EventId = 1403, EventName = "staging_janitor_deletion_failed", Level = LogLevel.Warning,
         Message = "Staging janitor could not reclaim {Path}; it stays and is retried next cycle.")]
