@@ -29,3 +29,20 @@
 ## Boundary
 
 No S1 feature implementation was performed. PR #74 remains open and draft.
+
+
+## Final owner review (2026-09-23)
+
+The owner review ratified **S1-01**: replacing final-duration temporal thirds with a streamable anchored early window and refreshed trailing late view is accepted as an amendment to ADR-013 §4. The amendment preserves the architectural intent (bounded, deterministic, model-neutral early/late diversity) while making it implementable in the single-pass pipeline.
+
+One additional plan defect was found during this review:
+
+| ID | Priority | Finding | Correction |
+|---|---:|---|---|
+| S1-14 | P2 | S1-04 treated `128×128×3 = 49,152` raw RGB bytes as a proof that the JPEG at the floor can never exceed the 64 KiB Representative cap. Encoded JPEG size is not mathematically bounded by raw RGB size, so the plan had eliminated Representative fallback using an invalid proof and diverged from ADR-013's fail-closed fallback semantics. | §7.3 now treats floor admissibility as a measured/contract-tested property. A bounded online reservoir of next-best qualified Representative candidates is retained as encoded bytes; the reservoir size K is profile/versioned and chosen from measurement. If the primary floor encoding exceeds the cap, fallback candidates are tried in deterministic score order; if none can be admitted, the VisionJob fails. Adversarial encoder tests are mandatory on every qualified runtime variant. |
+
+### Owner verdict
+
+With S1-01 ratified and S1-14 corrected, no open P1/P2 planning defect is known at this review point. Exact-head CI still governs merge readiness.
+
+No S1 feature code was implemented.
