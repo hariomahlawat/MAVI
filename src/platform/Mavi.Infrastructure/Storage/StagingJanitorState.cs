@@ -78,7 +78,8 @@ public sealed class StagingJanitorState(IOptions<StagingJanitorOptions> options)
                 result.BacklogDepth,
                 result.OldestEligibleAgeMinutes,
                 _failureStreaks.Count == 0 ? 0 : _failureStreaks.Values.Max(),
-                result.BacklogState);
+                result.BacklogState,
+                result.ScanFailed);
         }
     }
 }

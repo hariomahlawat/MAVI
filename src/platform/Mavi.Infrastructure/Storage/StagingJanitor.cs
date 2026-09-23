@@ -10,7 +10,7 @@ namespace Mavi.Infrastructure.Storage;
 
 /// <summary>
 /// Reclaims <c>{MediaStorage:RootPath}/staging/{jobId}/attempt-NNNN</c> directories that the
-/// VisionJob row proves dead (S1.2 plan §6.5; ADR-006 amendment pending).
+/// VisionJob row proves dead (ADR-006 §6; S1.2 plan §6.5).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -87,7 +87,7 @@ public sealed partial class StagingJanitor(
 
         using (staging!)
         {
-            var jobs = Scan(staging!, presentKeys);
+            var jobs = Scan(staging!, presentKeys, out var scanFailed);
             var rows = await LoadRowsAsync(jobs.Select(job => job.JobId).ToList(), cancellationToken);
 
             var eligible = new List<EligibleJob>();
@@ -124,7 +124,10 @@ public sealed partial class StagingJanitor(
                 }
             }
 
+            // Outstanding after this cycle = deferred by the cap + attempted and failed (both
+            // are in `remaining`). The drain estimate assumes later attempts succeed.
             var deferred = eligible.Count - batch.Count;
+            var backlog = remaining.Count;
             double? oldestAge = remaining.Count == 0
                 ? null
                 : Math.Max(0, (nowUtc - remaining.Min(unit => unit.ReferenceTimeUtc)).TotalMinutes);
@@ -148,9 +151,10 @@ public sealed partial class StagingJanitor(
                 failed,
                 deferred,
                 oldestAge,
-                deferred,
-                (deferred + options.MaxDirectoriesPerCycle - 1) / options.MaxDirectoriesPerCycle,
-                backlogState);
+                backlog,
+                (backlog + options.MaxDirectoriesPerCycle - 1) / options.MaxDirectoriesPerCycle,
+                backlogState,
+                scanFailed);
             return Finish(result, nowUtc, presentKeys);
         }
     }
@@ -159,7 +163,7 @@ public sealed partial class StagingJanitor(
     {
         LogCycle(logger, result.Scanned, result.Eligible, result.Processed, result.Removed, result.FreedBytes,
             result.Failed, result.DeferredByCap, result.OldestEligibleAgeMinutes, result.BacklogDepth,
-            result.EstimatedCyclesToDrain);
+            result.EstimatedCyclesToDrain, result.ScanFailed);
         state.CompleteCycle(result, nowUtc, presentKeys);
         return result;
     }
@@ -171,9 +175,10 @@ public sealed partial class StagingJanitor(
 
     private sealed record JobDirectory(string Name, Guid JobId, DateTimeOffset LastWriteTimeUtc, IReadOnlyList<Attempt> Attempts, bool HasOtherEntries);
 
-    private List<JobDirectory> Scan(StagingDirectory staging, HashSet<string> presentKeys)
+    private List<JobDirectory> Scan(StagingDirectory staging, HashSet<string> presentKeys, out int scanFailed)
     {
         var jobs = new List<JobDirectory>();
+        scanFailed = 0;
         foreach (var entry in staging.ListChildren())
         {
             if (entry.Name is not { } name || !TryParseJobId(name, out var jobId))
@@ -198,8 +203,11 @@ public sealed partial class StagingJanitor(
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                // One unreadable job directory must not stop the others being reclaimed.
-                _ = Failure(name, exception);
+                // One unreadable job directory must not stop the others being reclaimed. Its
+                // eligibility is unknown, so it is reported, escalated and never deleted.
+                scanFailed++;
+                LogScanFailed(logger, name, exception);
+                RecordFailureStreak(name);
             }
         }
 
@@ -404,10 +412,15 @@ public sealed partial class StagingJanitor(
     {
         if (exception is not null)
             LogDeletionFailed(logger, $"{StagingDirectoryName}/{name}", exception);
+        RecordFailureStreak(name);
+        return null;
+    }
+
+    private void RecordFailureStreak(string name)
+    {
         var streak = state.RecordFailure(name);
         if (streak >= FailureEscalationCycles)
             LogRepeatedFailure(logger, $"{StagingDirectoryName}/{name}", streak);
-        return null;
     }
 
     // Observability (EventIds 1400–1409)
@@ -415,9 +428,9 @@ public sealed partial class StagingJanitor(
         Message = "Staging janitor cycle: scanned={Scanned} eligible={Eligible} processed={Processed} removed={Removed} " +
                   "freedBytes={FreedBytes} failed={Failed} deferredByCap={DeferredByCap} " +
                   "oldestEligibleAgeMinutes={OldestEligibleAgeMinutes} backlogDepth={BacklogDepth} " +
-                  "estimatedCyclesToDrain={EstimatedCyclesToDrain}.")]
+                  "estimatedCyclesToDrain={EstimatedCyclesToDrain} scanFailed={ScanFailed}.")]
     private static partial void LogCycle(ILogger logger, int scanned, int eligible, int processed, int removed, long freedBytes,
-        int failed, int deferredByCap, double? oldestEligibleAgeMinutes, int backlogDepth, int estimatedCyclesToDrain);
+        int failed, int deferredByCap, double? oldestEligibleAgeMinutes, int backlogDepth, int estimatedCyclesToDrain, int scanFailed);
 
     [LoggerMessage(EventId = 1401, EventName = "staging_janitor_unrecognised_entry", Level = LogLevel.Information,
         Message = "Staging janitor left an unrecognised entry untouched: staging/{RelativePath}.")]
@@ -434,6 +447,10 @@ public sealed partial class StagingJanitor(
     [LoggerMessage(EventId = 1403, EventName = "staging_janitor_deletion_failed", Level = LogLevel.Warning,
         Message = "Staging janitor could not reclaim {Path}; it stays and is retried next cycle.")]
     private static partial void LogDeletionFailed(ILogger logger, string path, Exception exception);
+
+    [LoggerMessage(EventId = 1403, EventName = "staging_janitor_scan_failed", Level = LogLevel.Warning,
+        Message = "Staging janitor could not inspect staging/{JobId}; without its authority nothing in it is deleted. Retried next cycle.")]
+    private static partial void LogScanFailed(ILogger logger, string jobId, Exception exception);
 
     [LoggerMessage(EventId = 1404, EventName = "staging_janitor_repeated_failure", Level = LogLevel.Error,
         Message = "Staging janitor has failed to reclaim {Path} for {Cycles} consecutive cycles.")]

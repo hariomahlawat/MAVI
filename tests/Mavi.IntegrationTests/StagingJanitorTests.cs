@@ -287,7 +287,76 @@ public sealed class StagingJanitorTests
         Assert.Equal(0, (await JanitorWorld.HealthAsync(client)).GetProperty("consecutiveFailures").GetInt32());
     }
 
-    // J9 (review P2-1)
+    // Accounting A: a failed reclamation is outstanding backlog even with no cap deferral.
+    [Fact]
+    public async Task FailedReclamationIsCountedAsOutstandingBacklogUntilItDrains()
+    {
+        using var world = await JanitorWorld.CreateAsync(options: new StagingJanitorOptions { MaxDirectoriesPerCycle = 10 });
+        using var client = world.Factory.CreateClient();
+        var job = await world.SeedJobAsync(VisionJobStatus.Completed, 1, Now.AddMinutes(-400));
+        world.MakeUndeletable(job, "attempt-0001");
+
+        var cycle = await world.RunCycleAsync();
+
+        Assert.Equal(1, cycle.Eligible);
+        Assert.Equal(1, cycle.Processed);
+        Assert.Equal(0, cycle.Removed);
+        Assert.Equal(1, cycle.Failed);
+        Assert.Equal(0, cycle.DeferredByCap);
+        Assert.Equal(1, cycle.BacklogDepth);
+        Assert.Equal(1, cycle.EstimatedCyclesToDrain);
+        Assert.Equal(400, cycle.OldestEligibleAgeMinutes!.Value, 6);
+        Assert.Equal("critical", cycle.BacklogState);
+        var health = await JanitorWorld.HealthAsync(client);
+        Assert.Equal(1, health.GetProperty("failed").GetInt32());
+        Assert.Equal(1, health.GetProperty("backlogDepth").GetInt32());
+        Assert.Equal(0, health.GetProperty("deferredByCap").GetInt32());
+        Assert.Equal("critical", health.GetProperty("backlogState").GetString());
+
+        // Repair the obstruction: the next cycle drains it and health clears.
+        world.RemoveUndeletable(job, "attempt-0001");
+        var drained = await world.RunCycleAsync();
+
+        Assert.Equal(1, drained.Removed);
+        Assert.Equal(0, drained.Failed);
+        Assert.Equal(0, drained.BacklogDepth);
+        Assert.Equal(0, drained.EstimatedCyclesToDrain);
+        Assert.Null(drained.OldestEligibleAgeMinutes);
+        health = await JanitorWorld.HealthAsync(client);
+        Assert.Equal(0, health.GetProperty("backlogDepth").GetInt32());
+        Assert.Equal(0, health.GetProperty("failed").GetInt32());
+        Assert.Equal(0, health.GetProperty("consecutiveFailures").GetInt32());
+        Assert.Equal("normal", health.GetProperty("backlogState").GetString());
+    }
+
+    // Accounting B: cap deferral and failure are both outstanding.
+    [Fact]
+    public async Task BacklogCountsBothCapDeferredAndFailedDirectories()
+    {
+        using var world = await JanitorWorld.CreateAsync(options: new StagingJanitorOptions { MaxDirectoriesPerCycle = 2 });
+        var failing = await world.SeedJobAsync(VisionJobStatus.Completed, 1, Now.AddMinutes(-30));
+        var healthy = await world.SeedJobAsync(VisionJobStatus.Completed, 1, Now.AddMinutes(-20));
+        var deferred = await world.SeedJobAsync(VisionJobStatus.Completed, 1, Now.AddMinutes(-10));
+        world.MakeUndeletable(failing, "attempt-0001");
+        world.Stage(healthy, "attempt-0001");
+        world.Stage(deferred, "attempt-0001");
+
+        var cycle = await world.RunCycleAsync();
+
+        Assert.Equal(3, cycle.Eligible);
+        Assert.Equal(2, cycle.Processed);
+        Assert.Equal(1, cycle.Removed);
+        Assert.Equal(1, cycle.Failed);
+        Assert.Equal(1, cycle.DeferredByCap);
+        Assert.Equal(2, cycle.BacklogDepth);
+        Assert.Equal(1, cycle.EstimatedCyclesToDrain);
+        Assert.Equal(30, cycle.OldestEligibleAgeMinutes!.Value, 6); // the failed one is the oldest outstanding
+        Assert.False(world.JobExists(healthy));
+        Assert.True(world.JobExists(failing));
+        Assert.True(world.JobExists(deferred));
+    }
+
+    // J9 (review P2-1) and accounting C: an unreadable directory is reported, escalated, never deleted.
     [Fact]
     public async Task AnUnreadableJobDirectoryDoesNotStopOtherJobsBeingReclaimed()
     {
@@ -301,6 +370,9 @@ public sealed class StagingJanitorTests
         var first = await world.RunCycleAsync(root => new FaultingDirectory(StagingDirectory.OpenRoot(root), blockedName));
         Assert.Equal(1, first.Scanned); // the unreadable directory is reported, not scanned
         Assert.Equal(1, first.Removed);
+        Assert.Equal(1, first.ScanFailed);
+        Assert.Equal(0, first.Failed);       // no eligibility was established for it...
+        Assert.Equal(0, first.BacklogDepth); // ...so it is not reclaimable backlog
         for (var attempt = 2; attempt <= 3; attempt++)
             await world.RunCycleAsync(root => new FaultingDirectory(StagingDirectory.OpenRoot(root), blockedName));
 
@@ -308,6 +380,13 @@ public sealed class StagingJanitorTests
         Assert.True(world.AttemptExists(blocked, "attempt-0001"));
         Assert.Equal(3, world.Logs.Count(1403));
         Assert.Single(world.Logs.Entries(1404));
+
+        // Still observable in health; still never deleted without authority.
+        using var client = world.Factory.CreateClient();
+        var health = await JanitorWorld.HealthAsync(client);
+        Assert.Equal(1, health.GetProperty("scanFailed").GetInt32());
+        Assert.Equal(3, health.GetProperty("consecutiveFailures").GetInt32());
+        Assert.True(world.AttemptExists(blocked, "attempt-0001"));
     }
 
     /// <summary>Delegates to the real handle but fails to open one named job directory.</summary>
@@ -619,6 +698,21 @@ public sealed class StagingJanitorTests
                 Directory.CreateDirectory(Path.Combine(path, "evidence", "deep"));
                 File.WriteAllBytes(Path.Combine(path, "evidence", "deep", "a.jpg"), new byte[4]);
             }
+        }
+
+        /// <summary>An attempt whose tree is nested past the deletion depth bound: a real, retried deletion failure.</summary>
+        public void MakeUndeletable(Guid job, string attempt)
+        {
+            var path = AttemptPath(job, attempt);
+            for (var level = 0; level <= StagingDirectory.MaximumTreeDepth + 1; level++)
+                path = Path.Combine(path, "d");
+            Directory.CreateDirectory(path);
+        }
+
+        public void RemoveUndeletable(Guid job, string attempt)
+        {
+            Directory.Delete(AttemptPath(job, attempt), recursive: true);
+            Stage(job, attempt);
         }
 
         public bool JobExists(Guid job) => Directory.Exists(StagingPath(job.ToString("D")));

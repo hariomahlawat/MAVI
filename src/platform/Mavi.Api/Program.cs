@@ -22,7 +22,7 @@ builder.Services.AddHealthChecks();
 // puts the API host on the operational plane) and is bounded so it cannot compete with
 // serving requests; SceneAnalytics:Enabled turns it off entirely.
 builder.Services.AddHostedService<SceneAnalyticsHostedService>();
-// Platform-owned reclamation of worker attempt staging (ADR-006 amendment pending, S1.2 §6.5).
+// Platform-owned reclamation of worker attempt staging (ADR-006 §6, S1.2 §6.5).
 // The VisionJob row is its sole authority; StagingJanitor:Enabled turns it off.
 builder.Services.AddHostedService<StagingJanitorHostedService>();
 // Canonical API JSON policy: property names are case-sensitive and numeric properties must be JSON numbers.
