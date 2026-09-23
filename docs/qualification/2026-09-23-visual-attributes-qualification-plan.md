@@ -1,170 +1,364 @@
 # Stage 2 Visual Attributes — Qualification Plan
 
-**Status:** Draft pre-implementation qualification protocol  
+**Status:** Architecture-freeze candidate; pre-implementation protocol  
 **Date:** 2026-09-23  
-**Purpose:** Define how Stage-2 model quality is judged before model selection/threshold tuning can bias acceptance.
+**Purpose:** Predeclare the evidence, data-splitting, quality, performance, offline and requalification rules before model selection or threshold tuning can bias acceptance.
 
 ## 1. Principle
 
 MAVI exposes only attributes whose measured evidence supports operational use.
 
-A model output is not a product capability until:
-- the attribute semantic is frozen;
-- the corpus covers relevant operating conditions;
-- the threshold is predeclared/frozen;
-- accuracy and abstention behaviour are measured;
-- evidence provenance is complete;
-- offline/runtime compatibility is proven.
+Inference functioning is not qualification. A model output becomes an operator-facing capability only when:
+- the attribute semantic and value vocabulary are frozen;
+- the evidence-selection contract is frozen;
+- the labelling protocol is frozen;
+- validation/tuning data is separated from the frozen qualification test set;
+- class/value support is sufficient;
+- thresholds and aggregation policy are frozen before the frozen test set is evaluated;
+- accuracy, abstention and generalisation are measured;
+- provenance and licensing are complete;
+- runtime/offline compatibility is proven;
+- retrieval behaviour is measured in the product workflow.
 
-## 2. Qualification units
+A planned attribute that fails its gate remains disabled. The gate is not weakened to preserve roadmap scope.
+
+## 2. Qualification identity
 
 Qualification is recorded per:
-- attribute schema version;
+- capabilityId;
+- attribute schema version/SHA;
 - attribute pipeline version;
-- model/modelPackId;
+- evidence-selection pipeline/profile version;
+- aggregation-policy version/SHA;
+- modelPackId and model-manifest SHA;
 - runtimePackId / runtime variant;
 - object class;
-- attribute type;
-- confidence threshold;
-- corpus version.
+- attribute type/value family;
+- confidence/decision threshold(s);
+- labelled corpus version;
+- qualification protocol version;
+- hardware/profile classification.
 
-Changing any material identity requires a new or explicitly inherited qualification determination.
+A material change to any identity above triggers requalification unless an explicit policy entry documents why prior evidence remains valid.
 
-## 3. Corpus requirements
+Development and Production evidence remain distinct under ADR-009.
 
-The labelled corpus should include, where available:
+## 3. Corpus governance
+
+### 3.1 Dataset partitions
+
+Where training/fine-tuning occurs, data is partitioned into:
+- training set;
+- tuning/validation set;
+- frozen qualification test set.
+
+The frozen test set is not inspected for threshold, vocabulary, aggregation-policy or model-selection decisions after freeze.
+
+If the selected model is entirely pretrained and no MAVI fine-tuning occurs, a validation/tuning split is still required for threshold and aggregation decisions, distinct from the frozen test set.
+
+### 3.2 Scene/camera separation
+
+Corpus metadata records camera/scene identity.
+
+Qualification reports:
+- pooled metrics;
+- per-camera/scene metrics where support permits;
+- **leave-one-camera-out / held-camera generalisation** or an equivalent explicit unseen-camera protocol.
+
+No single demonstration video or single camera may qualify an attribute.
+
+### 3.3 Operating-condition coverage
+
+The corpus should intentionally cover, where relevant:
 - multiple cameras/scenes;
 - persons and vehicles separately;
-- daylight and lower-light examples;
+- daylight and lower-light conditions;
 - indoor/outdoor variation;
 - near/mid/far object scale bands;
-- frontal/side/rear or varied aspect;
-- blur/sharpness bands;
+- varied viewpoints/aspect;
+- motion blur and sharpness bands;
 - partial occlusion;
 - frame-edge clipping;
 - illumination/white-balance variation;
 - visually similar colour confusions;
-- bag/headwear difficult negatives.
+- difficult negatives for bag/headwear presence;
+- tracker/detector error crops and non-subject crops;
+- crowded/overlap cases;
+- evidence sets with fewer than the maximum supplemental roles.
 
-No single demonstration video may qualify an attribute.
+Coverage gaps are reported as limitations, not silently ignored.
 
-Training data and qualification corpus must be separate where model training/fine-tuning occurs.
+## 4. Labelling protocol and agreement
 
-## 4. Metrics
+Before the qualification corpus is labelled, each exposed attribute has a written annotation guide defining:
+- allowed values;
+- Unknown/Unlabelable criteria;
+- treatment of partial visibility;
+- treatment of mixed colours/patterns;
+- bag/headwear boundary cases;
+- vehicle dominant-colour rules;
+- minimum visual evidence needed to assign a ground-truth value.
 
-### Categorical attributes
+A representative double-labelled subset is required.
+
 Record:
+- annotator count;
+- disagreement rate;
+- agreement statistic appropriate to the attribute (for example Cohen/Fleiss kappa or percent agreement where justified);
+- adjudication procedure;
+- final adjudicated ground truth.
+
+An attribute whose ground truth cannot be labelled consistently is not operationally exposed merely because a model predicts it.
+
+## 5. Minimum support
+
+Before a class/value can pass an operational gate, the frozen test set must contain a predeclared minimum number of evaluable examples for that class/value and sufficient difficult negatives where applicable.
+
+S0 must record the numeric support table before the frozen test set is scored.
+
+Values below support threshold are reported as **insufficient evidence**, never merged into a passing macro score.
+
+## 6. Metrics
+
+### 6.1 Categorical attributes
+
+Record at crop level and aggregated Track level:
 - per-class precision;
 - per-class recall;
 - F1;
 - macro/micro summaries;
 - confusion matrix;
-- abstention/unknown rate;
-- coverage by scale/quality band.
+- Unknown/abstention rate;
+- coverage by scale/quality/occlusion band;
+- per-camera/held-camera performance.
 
-### Presence attributes
+Track-level metrics are the operator-facing primary metrics.
+
+### 6.2 Presence attributes
+
 Record:
 - positive precision/recall;
-- negative precision/recall if an explicit `absent` value is proposed;
 - false-positive rate;
 - false-negative rate;
-- unknown/abstention rate.
+- Unknown/abstention rate;
+- negative precision/recall only if an explicit qualified `absent` semantic is proposed.
 
-### Confidence
-If confidence is shown or used as a search gate:
-- reliability/calibration curve or equivalent;
-- observed precision by confidence band;
-- selected operational threshold rationale.
+No implicit negative is inferred from Unknown or missing analysis.
 
-## 5. Exposure rule
+### 6.3 Aggregation quality
 
-Each attribute/value family has a predeclared minimum gate before operator exposure.
-
-The final numeric gates are frozen during S0 after corpus inspection but **before** final evaluation on the qualification set.
-
-If an attribute fails:
-- it remains disabled in the operational schema;
-- it may remain available to engineering diagnostics;
-- the product does not weaken the gate to preserve planned scope.
-
-## 6. Evidence-selection qualification
-
-Measure whether the bounded Track Evidence Set preserves useful appearance evidence.
+Compare:
+- individual evidence-crop predictions;
+- Representative-only prediction;
+- bounded Evidence-Set aggregated prediction.
 
 Record:
-- percentage of eligible Tracks with at least one usable evidence crop;
-- evidence count distribution;
-- crop resolution distribution;
+- precision/recall change;
+- Track-level abstention change;
+- error cases introduced by aggregation;
+- sensitivity to evidence-count reduction.
+
+The aggregation policy is versioned and frozen before final test evaluation.
+
+### 6.4 Confidence/calibration
+
+If confidence is persisted, displayed or used as a decision/search gate, record:
+- reliability/calibration curve or equivalent;
+- observed precision by confidence band;
+- selected threshold rationale;
+- threshold sensitivity on validation data.
+
+Thresholds are chosen from validation/tuning data, not the frozen test set.
+
+## 7. Unknown, abstention and invalid evidence
+
+Qualification must demonstrate that:
+- low-quality/ambiguous evidence produces Unknown rather than forced labels;
+- non-subject crops caused by tracker/detector errors tend toward Unknown/Unavailable rather than confident false attributes;
+- corrupt/hash-mismatched evidence becomes Unavailable;
+- unsupported/applicability mismatches become NotApplicable at the correct level;
+- missing model/startup incompatibility does not fabricate failed attribute rows.
+
+Unknown is a product semantic and is therefore measured, not treated as an implementation exception.
+
+## 8. Evidence-selection qualification
+
+The Stage-2 Track Evidence Set is itself qualified.
+
+Record:
+- percentage of accepted Tracks with a valid mandatory Representative;
+- supplemental-role admission rates;
+- candidate/admitted/omitted counts by role;
+- run-level evidence bytes and cap utilisation;
+- crop dimension/encoded-size distributions;
 - selector score distribution;
-- redundancy/diversity metric where defined;
-- failure cases by scale/occlusion/blur.
+- redundancy/diversity metrics;
+- failure cases by scale/occlusion/blur/crowding;
+- quality impact of deterministic byte-cap re-encoding.
 
-Compare Representative-only inference against Track-Evidence-Set inference on the same corpus. The evidence-set complexity is retained only if it produces material quality/coverage value.
+Compare Representative-only inference against Evidence-Set inference on the same labelled tracks.
 
-## 7. Performance qualification
+The Evidence Set is retained only if it provides material Track-level quality/coverage benefit while respecting the declared bounds.
 
-Measure separately on CPU and CUDA Development variants where applicable:
+The architecture remains model-neutral even if qualification later changes the numeric evidence bounds.
+
+## 9. Retrieval/product metrics
+
+Model accuracy alone is insufficient. For each operator-exposed predicate/value family, evaluate realistic search result sets.
+
+Record at predeclared result depths (for example N=10/25/50 where corpus size permits):
+- result-set precision at N;
+- recall/coverage where ground truth supports it;
+- proportion of results whose supporting evidence is directly reviewable;
+- Unknown/Unavailable exclusion semantics;
+- conjunction behaviour for multi-attribute AND queries.
+
+The report must state the exact population, query predicate and analysis identity.
+
+## 10. Performance and resource qualification
+
+Measure separately for supported CPU and CUDA Development variants where applicable:
 - model initialization;
+- READY time;
 - mean/p50/p95 inference time per evidence crop;
 - mean/p50/p95 per Track;
 - batch behaviour;
 - RAM;
 - VRAM;
-- throughput;
+- sustained throughput;
+- backlog drain behaviour;
+- heartbeat margin versus lease duration;
 - timeout/watchdog behaviour;
 - bounded recovery after model failure;
-- attribute-analysis backlog behaviour.
+- behaviour when detector and attribute roles share one host but separate processes.
 
-## 8. Search/data qualification
+A classifier OOM/crash must not invalidate the detector/tracker process or completed ProcessingRun.
 
-At realistic fact volume:
+## 11. Search/data qualification
+
+At realistic and worst-supported fact volume:
 - PostgreSQL query plan;
 - query count;
 - p50/p95 latency;
 - allocation/memory where measurable;
 - pagination stability;
+- canonical predicate ordering;
 - multi-attribute AND semantics;
-- snapshot consistency during concurrent new analysis publication;
-- no N+1 evidence fetch.
+- multi-camera attribute-only semantics;
+- combined analytics + attribute identity pinning;
+- snapshot consistency during concurrent analysis publication/supersession;
+- no N+1 evidence fetch;
+- v4 cursor length and tamper rejection.
 
-A summary/materialization table is introduced only if measurements justify it.
+A projection/materialization table is introduced only if measured plans justify it.
 
-## 9. Resilience
+## 12. Lifecycle/resilience qualification
 
 Prove:
 - cancellation during evidence read;
 - cancellation during inference;
-- model exception;
 - malformed model output;
+- model exception/OOM;
 - missing/corrupt evidence;
+- hash mismatch;
 - stale lease completion;
+- heartbeat expiry and reclaim;
 - retry after failure;
-- re-analysis with a new model;
+- re-analysis with a new model/aggregation identity;
 - no partial default publication on failed completion;
-- previous completed analysis remains intact after failed replacement analysis.
+- previous completed analysis remains intact after failed replacement analysis;
+- supersession occurs only after successful completion;
+- startup with required model unavailable leaves units Queued without consuming attempts;
+- runtime/model version skew fails closed.
 
-## 10. Offline qualification
+## 13. Component binding and provenance qualification
+
+For capability-binding v2 prove:
+- unsupported capability id fails closed;
+- missing Model Pack fails closed for that role;
+- model manifest hash mismatch fails closed;
+- runtime/model compatibility mismatch fails closed;
+- unrelated capability role can still become READY when an optional downstream capability is unavailable;
+- modelPackId/runtimePackId/capabilityId appear in persisted provenance/digest;
+- detector qualification records affected by runtime-profile v2 are explicitly reconciled rather than silently inherited.
+
+## 14. Licence qualification
+
+Every operational Model Pack has:
+- licence identifier/text/source retained in the pack metadata;
+- documented commercial/operational redistribution/use review;
+- any attribution obligations captured in release material;
+- no unresolved licence ambiguity at Stage-2 acceptance.
+
+Licence review is a gate, not a documentation afterthought.
+
+## 15. Offline qualification
 
 With network disconnected:
-- install/verify required Runtime Pack;
-- install/verify Model Pack;
-- start worker;
-- analyse real Track evidence;
-- persist attributes;
+- install/verify Runtime Pack;
+- install/verify all Stage-2 Model Packs/bindings;
+- start detector role;
+- start attribute role independently;
+- process real video to Track Evidence Set;
+- lease an attribute analysis;
+- fetch accepted evidence through the lease-scoped API;
+- verify hashes;
+- persist final outcomes + sealed prediction artefact;
 - search attributes;
 - open supporting evidence;
-- verify no remote request or model-hub resolution.
+- verify no model-hub/package-index/remote request occurs.
 
-## 11. Acceptance evidence
+## 16. Requalification triggers
 
-Stage 2 cannot close on screenshots alone. Required evidence includes:
-- frozen corpus manifest;
+At minimum, requalification is required for:
+- Model Pack/checkpoint change;
+- model input preprocessing change;
+- attribute schema/value change;
+- confidence/decision threshold change;
+- aggregation-policy change;
+- evidence selector scoring/role/bounds change;
+- runtime dependency change that can affect numerical/model behaviour;
+- runtime profile/variant change not explicitly covered by inheritance policy;
+- capability-binding semantic change;
+- material camera/domain expansion outside the qualified population;
+- bug fix that can change predictions or evidence selection.
+
+Documentation-only changes that cannot affect execution do not trigger model-quality requalification.
+
+Each release records the exact trigger determination.
+
+## 17. Acceptance evidence
+
+Stage 2 cannot close on screenshots or one successful video.
+
+Required retained evidence includes:
+- frozen corpus manifest and partition manifest;
+- annotation guide + agreement/adjudication report;
+- minimum-support table;
 - model/runtime/component identities and hashes;
-- accuracy report;
-- threshold table;
-- performance report;
-- query qualification;
-- offline run;
-- real-video end-to-end operator workflow;
+- licence review;
+- crop-level and Track-level accuracy report;
+- held-camera/generalisation report;
+- aggregation/abstention report;
+- threshold table and validation rationale;
+- evidence-selection report;
+- performance/resource report;
+- resilience/failure-isolation report;
+- query/retrieval qualification;
+- component-binding/provenance checks;
+- disconnected offline run;
+- real-video Search → Investigation → Evidence Review workflow;
 - exact-head CI;
 - independent cold review.
+
+## 18. Freeze rule
+
+Before any real attribute model is implemented:
+1. annotation semantics are frozen;
+2. dataset partition method is frozen;
+3. minimum-support values are frozen;
+4. operational metric gates are frozen using validation/tuning evidence only;
+5. aggregation policy family and threshold-selection method are frozen;
+6. frozen qualification test set is sealed.
+
+Any later exception is documented as a protocol revision and invalidates prior final-test claims that it could bias.
