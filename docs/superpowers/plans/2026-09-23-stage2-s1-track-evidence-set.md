@@ -222,13 +222,12 @@ Do not expose native backend ids through this contract.
 
 `ByteTrackTracker` remains the only place that understands ByteTrack lost-buffer semantics.
 
-Add attempt-scoped per-native-id lifecycle state sufficient to record:
+Add attempt-scoped per-native-id lifecycle state sufficient to record, for each **live** confirmed native id:
 
 - MAVI id;
-- last emitted source frame/time;
-- whether the mapping has retired.
+- `last_seen_offset_ms` (media time of the last accepted update in which it appeared).
 
-Prefer deleting retired mapping entries rather than retaining an unbounded retired map. No-reuse of MAVI id is guaranteed by monotonic per-class MAVI counters.
+There is no "retired" flag and no retired map: retirement deletes the entry. No-reuse of a MAVI id is guaranteed by the monotonic per-class counters, never by remembering retired ids.
 
 Retirement rule (per class domain, evaluated after both native domains have been updated and validated for the frame):
 
