@@ -443,9 +443,10 @@ Algorithm:
 2. constrain long edge to ≤1024 while preserving aspect ratio (Pillow `LANCZOS`, fixed);
 3. encode JPEG at quality 85 with the existing fixed parameters (`optimize=False, progressive=False, subsampling=2`, no EXIF/ICC — `Image.fromarray` attaches none);
 4. if above the role byte cap, walk a **fixed ladder**: quality 85 → 75 at full size; then scale the long edge by 0.8 per step at quality 75 until the cap is met or the long edge would fall below 128 (clamp to 128); then quality 65 → 55 → 50 at 128 px;
-5. the ladder always terminates admitted: at the floor a crop is at most 128 × 128 px, whose raw RGB is 49,152 bytes, so even an incompressible image plus JPEG headers is below the 64 KiB Representative cap and far below the 160 KiB supplemental cap;
-6. the "still oversized at floor" branch is therefore unreachable and is kept only as a fail-closed invariant: Representative → fail the VisionJob result; supplemental → omit;
-7. consequently **no alternate candidates need to be retained for Representative fallback**; the single best encoded Representative is always admissible.
+5. at the floor a crop is at most 128 × 128 px and JPEG quality 50. This makes an oversize Representative extremely unlikely, but **raw RGB byte size is not a proof of the encoded JPEG upper bound**. S1 therefore treats the floor result as a measured/contract-tested property, not a mathematical guarantee;
+6. if the floor encoding still exceeds the role cap, the encoder reports that candidate as non-admissible. Supplemental → omit. Representative → try a bounded fallback reservoir of the next-best qualified Representative candidates maintained online; if none can be admitted, fail the VisionJob result rather than publish a Track without mandatory Representative evidence;
+7. the fallback reservoir is explicitly bounded by the pipeline profile (initially a small fixed K chosen from measurement, with K itself part of the profile/qualification identity). Candidates in the reservoir are held as bounded encoded bytes, not raw RGB, so the live-memory bound remains explicit;
+8. add adversarial encoder tests (high-entropy/noise, tiny/large aspect ratios, edge-size crops) that prove the chosen ladder and K behave within the byte cap on every qualified runtime variant. Do not replace this with an assumption that JPEG must be smaller than raw RGB.
 
 Determinism: for one runtime variant (same Pillow/libjpeg build from the qualified lock) the bytes are reproducible and are golden-tested by SHA-256 on fixtures. Across variants (Windows vs Linux libjpeg builds) byte identity is **not** promised; cross-variant tests assert dimensions, size ≤ cap and decodability. The crop SHA is provenance of what was sealed, never identity across platforms.
 
