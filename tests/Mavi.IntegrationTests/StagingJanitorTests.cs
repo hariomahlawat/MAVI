@@ -70,6 +70,11 @@ public sealed class StagingJanitorTests
 
         Assert.Equal(1, cycle.Removed);
         Assert.False(world.JobExists(lease.JobId));
+
+        // Replay never reads staging, so reclaiming it keeps completion idempotent.
+        using (var replay = await client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", request))
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+
         using var scope = world.Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
         foreach (var artifact in await db.Artifacts.Where(x => x.ArtifactType != ArtifactType.SourceVideo).ToListAsync())
