@@ -145,9 +145,12 @@ def test_source_head_sha_fails_closed_on_an_unusable_revision(
         module._resolve_source_head_sha(value)
 
 
-def test_preflight_refuses_to_run_off_windows() -> None:
+def test_preflight_refuses_to_run_off_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """R1 evidence may only be produced on the real build host."""
     module = _load()
+    monkeypatch.setattr(module.platform, "system", lambda: "Linux")
 
     with pytest.raises(
         module.ToolchainVerificationError,
