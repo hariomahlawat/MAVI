@@ -41,7 +41,7 @@ The documentation/architecture gate is closed on the reviewed PR head. Feature i
 | A9 | v4 attribute-search cursor identity (capability identity fingerprint, not the full tuple) and combined analytics+attribute semantics are frozen | PASS |
 | A10 | UI/UX specification is amended for Unknown, Evidence Set review and row-density rules | PASS |
 | A11 | Qualification protocol covers annotation agreement, data splits, support, generalisation, aggregation, abstention, licensing, retrieval and requalification triggers | PASS |
-| A12 | Final independent cold architecture review reports no open P1/P2; ADR-013/014 can move to Accepted | PASS — the second independent cold pass (2026-09-23) found and amended further P1/P2 gaps in place (see review resolution, *Second independent pass*); PASS is on the amended head |
+| A12 | Final independent cold architecture review reports no open P1/P2; ADR-013/014 can move to Accepted | PASS — Fable's second pass amended R-01–R-22; the final handover review then found and amended R-23 (tracker-retirement contract / staging contradiction). PASS applies only to the final amended documentation head; see the review-resolution record. |
 
 **Implementation gate:** satisfied for architecture. S1/S2 implementation may begin only in a follow-on implementation change; this documentation PR contains no Stage-2 feature code.
 
