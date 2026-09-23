@@ -30,6 +30,7 @@ from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
 from mavi_vision.storage.artifact_store import StagingArtifactError, StagingArtifactStore
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.tracking.interfaces import TrackCandidate, TrackerUpdate
+from tests.profile_fixtures import PRODUCTION_EVIDENCE_POLICY
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd771")
@@ -62,6 +63,7 @@ def _profile() -> PipelineProfile:
             lost_track_buffer_seconds=1.0,
         ),
         frame_policy="every-frame",
+        evidence=PRODUCTION_EVIDENCE_POLICY,
     )
 
 

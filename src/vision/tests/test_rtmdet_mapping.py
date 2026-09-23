@@ -16,6 +16,7 @@ from mavi_vision.runtime.interfaces import (
 )
 from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
 from mavi_vision.video.reader import DecodedFrame
+from tests.profile_fixtures import PRODUCTION_EVIDENCE_POLICY
 
 
 VOCABULARY = (
@@ -84,6 +85,7 @@ def _profile() -> PipelineProfile:
             lost_track_buffer_seconds=1.0,
         ),
         frame_policy="every-frame",
+        evidence=PRODUCTION_EVIDENCE_POLICY,
     )
 
 
