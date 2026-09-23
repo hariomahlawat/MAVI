@@ -9,7 +9,7 @@
 
 ## 1. Findings
 
-### P2 — the aggregate read has no work bound (OPEN — BLOCKED on transcribing the authoritative PostgreSQL 18 figures)
+### P2 — aggregate materialisation envelope (CLOSED — RETAIN within the qualified envelope)
 
 **What.** `AnalyticsAggregateRepository.ReadFactsAsync` materialises four fact families with `ToListAsync` and no `Take`. The row count scales with facts-in-window, bounded only by the camera and the requested window.
 
@@ -21,7 +21,7 @@
 
 **Required action on the Development machine:** run the plan qualification at 10^5 facts, record rows materialised, peak memory and latency, then take an explicit retain/bound decision in the performance document.
 
-**Where that action stands.** The first half is done: `PlanQualificationTests` passed on PostgreSQL 18.6 at 110,000 facts on the Development machine, at reachable SHA `5f5166628b0c4af04cc8f7efcd40f7022f5095c4`, and its evidence file records the rows materialised, database and application time, allocated bytes and GC deltas for all nine §T cases. The second half is not: those figures are held outside the repository and are **not available in this repository or in the environment that prepared this revision**, so no retain/bound decision has been taken. The finding remains **OPEN — BLOCKED on transcription**, and it is the P2 that holds formal exit-gate items 7, 12 and 18.
+**Where that action stands.** Complete. The owner ran `summarize_aggregate_qualification.py` against the authoritative Development-machine `plan-qualification.json` from reachable SHA `5f5166628b0c4af04cc8f7efcd40f7022f5095c4`. The file reported status **qualification evidence**, clean/resolvable provenance, PostgreSQL 18.6 / pgvector 0.8.6, 110,000 relevant facts, and SHA-256 `3e418ab9fca8dccf8b939cf356e6cde979db682b8d96bade0a799163c667275a`.
 
 **What is already known without the authoritative file, and why it is not enough.** Three of the quantities the decision needs do not depend on the database server at all, and are reproducible anywhere from the seeded corpus:
 
@@ -33,12 +33,21 @@
 
 What is **not** known is the one thing that is the server's: database materialisation and total latency on PostgreSQL 18 on the Development machine. That is exactly the figure the plan assigns to the authoritative run, and neither PostgreSQL 16 observations nor the superseded pass may stand in for it. Two further facts bear on the decision: the harness's 60-second case produces 2,400 buckets — beyond the 512-bucket response cap the API enforces — so its application-side cost is an upper bound on any request the API will accept; and the only hard bound on a request's work is the camera plus the window (at most 512 × 86,400 s), so the qualified envelope, not a guard, is what limits the facts one request reads.
 
-**Decision rule — proposed, and written before the authoritative figures have been seen.** Plan §5 requires objectives to be frozen before measurement; that did not happen, so the next best discipline is to fix the rule before the figures are read. **This rule is a proposal and needs the owner's approval before it is applied**:
+**Decision rule — applied.** The predeclared rule was: RETAIN only if **all nine §T cases** complete in **≤ 10,000 ms total**, allocate **≤ 64 MiB**, and issue exactly **10** database queries; otherwise BOUND with a semantics-preserving pre-work refusal guard, never truncation.
 
-- **RETAIN** the current design, close the P2 as dispositioned and document the envelope (per-request work linear in the facts inside the window; 10⁵ relevant facts per request is the qualified envelope; no request is truncated) **if, on the authoritative figures, every one of the nine §T cases** completes in **≤ 10,000 ms total**, allocates **≤ 64 MiB**, and issues the constant **10** database queries.
-- **BOUND** otherwise: add a pre-work guard on the covered-Track count, taken from the same cheap scope metadata the heatmap guard uses, that **refuses** with a named problem code rather than truncating — never a row cutoff that could return an incomplete aggregate. That is a contract change and is preceded by an ADR-011 note.
+| Bucket / class | Buckets | Visits | Crossings | Summaries | Intervals | DB ms | App ms | Total ms | Allocated MiB | GC 0/1/2 | DB queries |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 60 / any | 2400 | 30000 | 20000 | 26565 | 10000 | 1861 | 2544 | 4405 | 42.6 | 3/1/1 | 10 |
+| 60 / Person | 2400 | 19920 | 13280 | 17653 | 6640 | 2394 | 1797 | 4191 | 31.9 | 6/6/1 | 10 |
+| 60 / Vehicle | 2400 | 10080 | 6720 | 8912 | 3360 | 584 | 874 | 1458 | 15.4 | 2/0/0 | 10 |
+| 900 / any | 160 | 30000 | 20000 | 26565 | 10000 | 1346 | 171 | 1517 | 37.9 | 3/1/1 | 10 |
+| 900 / Person | 160 | 19920 | 13280 | 17653 | 6640 | 928 | 111 | 1039 | 28.0 | 2/1/1 | 10 |
+| 900 / Vehicle | 160 | 10080 | 6720 | 8912 | 3360 | 543 | 58 | 601 | 14.5 | 1/1/1 | 10 |
+| 3600 / any | 40 | 30000 | 20000 | 26565 | 10000 | 1335 | 54 | 1389 | 37.8 | 4/2/1 | 10 |
+| 3600 / Person | 40 | 19920 | 13280 | 17653 | 6640 | 941 | 31 | 972 | 27.9 | 2/1/1 | 10 |
+| 3600 / Vehicle | 40 | 10080 | 6720 | 8912 | 3360 | 543 | 19 | 562 | 14.4 | 2/0/0 | 10 |
 
-**Action:** run `tools/qualification/summarize_aggregate_qualification.py` on the authoritative file (runbook `docs/runbooks/scene-analytics-stage1-development-acceptance.md` §A), paste its table into the performance report §8.3, and apply the approved rule.
+Every case satisfies the RETAIN rule. Worst observed total time was **4,405 ms**, worst managed allocation was **42.6 MiB**, and every case issued exactly **10** database queries. **Disposition: RETAIN** the current design for Stage 1, document that work remains linear in facts inside the requested window, and treat **10⁵ relevant facts per request** as the qualified envelope. No row cutoff or truncation is introduced. The P2 is therefore **closed as dispositioned** for this gate.
 
 ### P3 — the Python worker decoder does not enforce the `[0,1]` centre range (RECORDED, not changed)
 
@@ -70,6 +79,6 @@ Not changed deliberately: tightening read validation in the worker changes what 
 - Cancellation and failure at realistic volume — **PASS**. `RealisticVolumeResilienceTests` cancels the heatmap part-way through its full 50-run / 2,000-Track envelope and a 1,000-Track analytical unit part-way through its Tracks, and fails each part-way with corrupt evidence or an evidence-store fault. No partial answer is returned or published, no read happens after the interruption point, and every retry reproduces the uninterrupted answer exactly. Details in `2026-09-22-scene-analytics-s7-resilience-concurrency.md`.
 - PostgreSQL restart/reconnect — **NOT EXECUTED**. An operator action on the Development machine (runbook §F).
 - API restart — **PASS**, on the Development machine: after restarting `Mavi.Api`, the real-worker analytics, the Revision 2 identity, the zone facts, the Activity values and the Heatmap were all still present.
-- Resource measurement behind the P2 above — **measured** on PostgreSQL 18; **decision BLOCKED** on transcribing the authoritative figures (§1).
+- Resource measurement behind the P2 above — **PASS for the predeclared Stage-1 envelope** on PostgreSQL 18; decision **RETAIN**, with the qualified envelope and linear-work caveat recorded (§1).
 
 Nothing in this list is converted into a pass unless it was executed.
