@@ -612,6 +612,9 @@ def test_real_video_processor_keeps_attempt_artifacts_and_tracker_state_isolated
         expected_source_sha256=digest,
         lease_guard=_guard(),
     )
+    first_thumbnail = tmp_path.joinpath(*first.tracks[0].thumbnail.storage_key.split("/"))
+    assert first_thumbnail.is_file()
+
     second = processor.process(
         job_id=JOB_ID,
         attempt_count=2,
@@ -626,6 +629,13 @@ def test_real_video_processor_keeps_attempt_artifacts_and_tracker_state_isolated
     assert first.tracks[0].track_id == second.tracks[0].track_id == "person-000001"
     assert "/attempt-0001/" in first.tracks[0].thumbnail.storage_key
     assert "/attempt-0002/" in second.tracks[0].thumbnail.storage_key
+    # The composed processor removes the superseded attempt's staging (S1 plan
+    # §6.5) and keeps the current attempt's. This mirrors the exact-package
+    # qualification in test_production_processor_runtime.py so the default suite
+    # observes the same cross-attempt staging contract.
+    assert not first_thumbnail.exists()
+    assert not (tmp_path / "staging" / str(JOB_ID) / "attempt-0001").exists()
+    assert tmp_path.joinpath(*second.tracks[0].thumbnail.storage_key.split("/")).is_file()
 
 
 def test_import_does_not_eagerly_load_optional_ml_packages() -> None:
