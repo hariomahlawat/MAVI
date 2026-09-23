@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from ctypes import wintypes
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -26,6 +26,7 @@ _FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
 _FILE_READ_DATA = 0x0001
 _FILE_LIST_DIRECTORY = 0x0001
 _FILE_WRITE_DATA = 0x0002
+_FILE_APPEND_DATA = 0x0004
 _FILE_ADD_FILE = 0x0002
 _FILE_ADD_SUBDIRECTORY = 0x0004
 _FILE_TRAVERSE = 0x0020
@@ -203,6 +204,16 @@ if _IS_WINDOWS:
         ctypes.c_void_p,
     ]
     _WriteFile.restype = wintypes.BOOL
+
+    _ReadFile = _kernel32.ReadFile
+    _ReadFile.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    _ReadFile.restype = wintypes.BOOL
 
     _FlushFileBuffers = _kernel32.FlushFileBuffers
     _FlushFileBuffers.argtypes = [wintypes.HANDLE]
@@ -530,7 +541,12 @@ def _reject_unsafe_destination(parent: _WindowsHandle, name: str) -> None:
             raise StagingArtifactError("staging_path_escape")
 
 
-def _write_all(handle: _WindowsHandle, content: bytes) -> None:
+def _write_all(
+    handle: _WindowsHandle,
+    content: bytes,
+    *,
+    flush: bool = True,
+) -> None:
     if not _IS_WINDOWS:
         raise StagingArtifactError("secure_staging_unavailable")
 
@@ -552,8 +568,101 @@ def _write_all(handle: _WindowsHandle, content: bytes) -> None:
             raise StagingArtifactError("staging_write_failed")
         offset += written.value
 
+    if flush:
+        _flush(handle)
+
+
+def _flush(handle: _WindowsHandle) -> None:
+    if not _IS_WINDOWS:
+        raise StagingArtifactError("secure_staging_unavailable")
     if not _FlushFileBuffers(wintypes.HANDLE(handle.value)):
         _raise_last_error("staging_write_failed")
+
+
+def _require_single_regular_file(handle: _WindowsHandle) -> None:
+    info = _file_information(handle)
+    attributes = int(info.dwFileAttributes)
+    # A reparse point, directory or hard link would let a planted name alias
+    # something other than this attempt's own file.
+    if (
+        attributes & (_FILE_ATTRIBUTE_REPARSE_POINT | _FILE_ATTRIBUTE_DIRECTORY)
+        or int(info.nNumberOfLinks) != 1
+    ):
+        raise StagingArtifactError("staging_path_escape")
+
+
+def _file_size(handle: _WindowsHandle) -> int:
+    info = _file_information(handle)
+    return (int(info.nFileSizeHigh) << 32) | int(info.nFileSizeLow)
+
+
+def _open_child_for_append(parent: _WindowsHandle, name: str) -> _WindowsHandle:
+    # FILE_APPEND_DATA without FILE_WRITE_DATA: every write lands at end of file
+    # and existing bytes can never be overwritten through this handle.
+    try:
+        handle = _nt_create_relative(
+            parent,
+            name,
+            desired_access=_FILE_APPEND_DATA | _FILE_READ_ATTRIBUTES | _SYNCHRONIZE,
+            disposition=_FILE_OPEN_IF,
+            options=(
+                _FILE_NON_DIRECTORY_FILE
+                | _FILE_OPEN_REPARSE_POINT
+                | _FILE_SYNCHRONOUS_IO_NONALERT
+            ),
+        )
+    except (_MissingChild, _NameCollision, OSError) as exc:
+        raise StagingArtifactError("staging_write_failed") from exc
+    try:
+        _require_single_regular_file(handle)
+        return handle
+    except Exception:
+        handle.close()
+        raise
+
+
+def _open_child_for_read(parent: _WindowsHandle, name: str) -> _WindowsHandle:
+    try:
+        handle = _nt_create_relative(
+            parent,
+            name,
+            desired_access=_FILE_READ_DATA | _FILE_READ_ATTRIBUTES | _SYNCHRONIZE,
+            disposition=_FILE_OPEN,
+            options=(
+                _FILE_NON_DIRECTORY_FILE
+                | _FILE_OPEN_REPARSE_POINT
+                | _FILE_SYNCHRONOUS_IO_NONALERT
+            ),
+        )
+    except (_MissingChild, OSError) as exc:
+        raise StagingArtifactError("staging_read_failed") from exc
+    try:
+        _require_single_regular_file(handle)
+        return handle
+    except Exception:
+        handle.close()
+        raise
+
+
+def _read_full(handle: _WindowsHandle, size: int) -> bytes:
+    if not _IS_WINDOWS:
+        raise StagingArtifactError("secure_staging_unavailable")
+    buffer = ctypes.create_string_buffer(size)
+    filled = 0
+    while filled < size:
+        read = wintypes.DWORD()
+        if not _ReadFile(
+            wintypes.HANDLE(handle.value),
+            ctypes.addressof(buffer) + filled,
+            size - filled,
+            ctypes.byref(read),
+            None,
+        ):
+            _raise_last_error("staging_read_failed")
+        if read.value == 0:
+            break
+        filled += read.value
+    return buffer.raw[:filled]
 
 
 def _replace_child_file(
@@ -722,6 +831,13 @@ def _remove_attempt_tree_no_reparse(
         _mark_delete(attempt, error_code="staging_cleanup_failed")
 
 
+class _DirectoryMissing(StagingArtifactError):
+    """A directory of the logical chain does not exist (opened without create)."""
+
+    def __init__(self) -> None:
+        super().__init__("staging_path_race")
+
+
 class WindowsStagingBackend:
     """Native Windows staging using handle-relative no-reparse operations."""
 
@@ -732,10 +848,10 @@ class WindowsStagingBackend:
         self._job_id = job_id
         self._attempt_name = attempt_name
 
-    def write_bytes(
+    def write_chunks(
         self,
         parts: tuple[str, ...],
-        content: bytes,
+        chunks: Iterable[bytes],
         *,
         authorize_publish: Callable[[], None] | None,
     ) -> None:
@@ -750,7 +866,9 @@ class WindowsStagingBackend:
             expected_parent = _directory_identity(parent)
 
             temporary = _create_exclusive_child_file(parent, temp_name)
-            _write_all(temporary, content)
+            for chunk in chunks:
+                _write_all(temporary, chunk, flush=False)
+            _flush(temporary)
             _reject_unsafe_destination(parent, destination_name)
 
             # Revalidate the logical ancestry before handing authority to the
@@ -778,6 +896,59 @@ class WindowsStagingBackend:
         finally:
             if temporary is not None:
                 temporary.close()
+            self._close_handles(handles)
+
+    def append_bytes(self, parts: tuple[str, ...], content: bytes) -> int:
+        parent, handles = self._open_parent_chain(parts[:-1], create=True)
+        try:
+            with _open_child_for_append(parent, parts[-1]) as handle:
+                _write_all(handle, content, flush=False)
+                return _file_size(handle)
+        finally:
+            self._close_handles(handles)
+
+    def read_chunks(
+        self,
+        parts: tuple[str, ...],
+        chunk_bytes: int,
+    ) -> Iterator[bytes]:
+        try:
+            parent, handles = self._open_parent_chain(parts[:-1], create=False)
+        except _DirectoryMissing as exc:
+            raise StagingArtifactError("staging_read_failed") from exc
+        try:
+            handle = _open_child_for_read(parent, parts[-1])
+        finally:
+            # Only the leaf handle stays open while the caller iterates.
+            self._close_handles(handles)
+        with handle:
+            while True:
+                chunk = _read_full(handle, chunk_bytes)
+                if not chunk:
+                    return
+                yield chunk
+
+    def remove_file(self, parts: tuple[str, ...]) -> bool:
+        try:
+            parent, handles = self._open_parent_chain(parts[:-1], create=False)
+        except _DirectoryMissing:
+            return False
+        try:
+            try:
+                leaf = _open_child_for_cleanup(parent, parts[-1])
+            except _MissingChild:
+                return False
+            with leaf:
+                # Checked on the very handle that is marked for deletion, so no
+                # swap between the check and the delete can redirect it.
+                attributes = _file_attributes(leaf)
+                if attributes & (
+                    _FILE_ATTRIBUTE_REPARSE_POINT | _FILE_ATTRIBUTE_DIRECTORY
+                ):
+                    raise StagingArtifactError("staging_path_escape")
+                _mark_delete(leaf, error_code="staging_cleanup_failed")
+            return True
+        finally:
             self._close_handles(handles)
 
     def cleanup(self) -> None:
@@ -858,7 +1029,7 @@ class WindowsStagingBackend:
                         create=create,
                     )
                 except _MissingChild as exc:
-                    raise StagingArtifactError("staging_path_race") from exc
+                    raise _DirectoryMissing() from exc
                 handles.append(child)
                 current = child
             return current, handles
