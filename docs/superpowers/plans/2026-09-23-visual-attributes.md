@@ -188,8 +188,8 @@ Maximum candidate roles per Track:
 |---|---|
 | 0 Representative | primary display/overall-quality evidence; mandatory |
 | NearView | largest qualified box / strongest useful pixel support |
-| EarlyDiverse | earlier temporally separated qualified view |
-| LateDiverse | later temporally separated qualified view |
+| EarlyDiverse | best qualified view inside the anchored early window |
+| LateDiverse | most recent qualified view, refreshed at a fixed interval |
 
 Selection is deterministic and model-neutral.
 
@@ -197,7 +197,7 @@ Quality terms may include area, sharpness, detector confidence, clipping penalty
 
 No face/plate/demographic/downstream-model-specific scoring is allowed.
 
-Selection method (frozen in ADR-013 §4; numeric floors set in S1 and recorded in the pipeline profile): a *qualified candidate* meets confidence, sharpness, edge-margin and occlusion-proxy floors; Representative is the best-scoring qualified candidate overall; NearView the largest-area qualified non-duplicate; EarlyDiverse/LateDiverse the best-scoring qualified candidates in the first/last temporal third that are at least the minimum separation from every selected frame. A role with no qualified candidate is omitted, never filled with an unqualified frame.
+Selection method (frozen in ADR-013 §4; numeric floors set in S1 and recorded in the pipeline profile): a *qualified candidate* meets confidence, sharpness, edge-margin and occlusion-proxy floors; Representative is the best-scoring qualified candidate overall; NearView the largest-area qualified non-duplicate; EarlyDiverse the best-scoring qualified candidate in the anchored early window and LateDiverse the most recent qualified view refreshed at a fixed interval (ADR-013 §4 as amended by the S1 plan review; thirds were not computable in one pass), each at least the minimum separation from every selected frame. A role with no qualified candidate is omitted, never filled with an unqualified frame.
 
 Tie rule within a role: selector score descending → source-frame number ascending. Roles are evaluated in fixed order.
 

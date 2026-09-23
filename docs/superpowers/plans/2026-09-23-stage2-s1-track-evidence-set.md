@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1 Track Evidence Set Implementation Plan
 
-**Status:** Draft implementation-grade plan for independent review  
+**Status:** Implementation-grade plan; independently reviewed 2026-09-23 (see `docs/reviews/2026-09-23-stage2-s1-plan-review-resolution.md`); awaiting final owner review  
 **Date:** 2026-09-23  
 **Baseline:** `main@6809606e596d121186b5244869760073fe82072a` — PR #73 merged; Stage-2 architecture frozen  
 **Governing architecture:** ADR-006, ADR-013, ADR-014, Stage-2 parent plan, Stage-2 acceptance register  
@@ -38,8 +38,10 @@ S1 MUST implement, not reinterpret, these ADR-013 decisions:
 
 - `Representative` — mandatory, rank 0, primary display evidence.
 - `NearView` — largest qualified non-duplicate subject view; analytic-resolution carrier.
-- `EarlyDiverse` — qualified diverse view in the first temporal third.
-- `LateDiverse` — qualified diverse view in the last temporal third.
+- `EarlyDiverse` — best qualified diverse view inside the Track's **early window** (the first `earlyWindowMs` of the Track, anchored at Track start).
+- `LateDiverse` — the most recent qualified diverse view, refreshed at most once per `lateRefreshIntervalMs` (a trailing view that ends near retirement).
+
+The "temporal thirds" wording of the first ADR-013 text was amended by this plan's review: thirds need the Track's final duration, which is unknown until retirement, so a one-pass selector cannot compute them without retaining candidate pixels for the whole Track. The anchored early window and refreshed trailing view give the same intent — one early and one late well-separated view — with exactly one encoded candidate per role at any time.
 
 ### Initial encoding bounds
 
@@ -66,7 +68,7 @@ A retired MAVI Track id:
 - is replaced by a fresh MAVI id if a backend native id is ever reused;
 - is emitted in deterministic order.
 
-For ByteTrack, retirement occurs only after the lost-track budget has become impossible to reassociate, including the one-accepted-frame safety interval frozen in ADR-013.
+For ByteTrack, retirement of a native id is derived at an accepted update **U** when both hold: (a) the id is absent from U's confirmed outputs, and (b) `U.offset_ms − last_seen_offset_ms(id) > lostTrackBufferSeconds × 1000 + 1000 / referenceFrameRate`. The margin is one **nominal** frame interval from the profile, not the spacing of the actual frames, so it is deterministic under variable frame rate. The native tracker (`test_bytetrack_runtime.py::test_native_time_budget_retains_inside_and_expires_beyond_one_second`) drops a lost track at the first update whose media time exceeds the budget and assigns a *new* native id when the object returns; the adapter therefore never retires an id the backend could still match. Should the backend ever re-emit a retired native id anyway, the mapping-release rule below maps it to a fresh MAVI id, so no-reappearance holds regardless.
 
 At end-of-stream, every still-live Track is finalised without requiring a synthetic retirement event.
 
@@ -228,15 +230,19 @@ Add attempt-scoped per-native-id lifecycle state sufficient to record:
 
 Prefer deleting retired mapping entries rather than retaining an unbounded retired map. No-reuse of MAVI id is guaranteed by monotonic per-class MAVI counters.
 
-Retirement rule:
+Retirement rule (per class domain, evaluated after both native domains have been updated and validated for the frame):
 
-- never retire on first disappearance;
-- never retire while backend reassociation remains possible;
-- if no explicit backend-removal event exists, retire only after elapsed accepted media time exceeds the configured lost budget by at least one accepted-frame interval;
-- if a native id is emitted again after its old mapping was retired, allocate a fresh MAVI id;
-- never retire and emit the same MAVI id in one update.
+- record `last_seen_offset_ms` for every native id that appears in the confirmed outputs of an accepted update;
+- a native id is retired at update U iff it has a mapping, is absent from U's confirmed outputs, and `U.offset_ms − last_seen_offset_ms > lostTrackBufferSeconds × 1000 + 1000 / referenceFrameRate`;
+- retirement evaluation runs on every accepted frame, including frames with no detections of that class (the adapter already advances both native domains on such frames, so ageing is consistent);
+- on retirement the native→MAVI entry is deleted; the MAVI id is appended to the update's `retired_track_ids`;
+- if a deleted native id is emitted again later, it is a new object to MAVI and receives a fresh id from the monotonic per-class counter;
+- a MAVI id can never be both a candidate and retired in one update, because retirement requires absence from that update's outputs;
+- the map therefore holds exactly the live confirmed ids, and the retired set is emitted sorted by MAVI id.
 
-The implementation MUST derive time/frame progression from accepted frames already validated by the adapter. `VideoProcessor` MUST NOT import/use `ByteTrackProfile.lost_track_buffer`.
+The implementation MUST derive time progression from the accepted frame's `offset_ms` already validated monotonic by the adapter. `VideoProcessor` MUST NOT import/use `ByteTrackProfile.lost_track_buffer`. The frame interval is `1000 / ByteTrackProfile.reference_frame_rate` from the profile; the adapter never measures actual frame spacing.
+
+The retirement state (`last_seen_offset_ms` per native id) is attempt-scoped and dies with the adapter, exactly like the counters and maps (`test_new_adapter_resets_native_trackers_maps_and_counters`). A poisoned adapter raises before evaluating retirement, so no retirement is emitted after failure.
 
 ## 6.3 FixtureTracker parity
 
@@ -277,6 +283,15 @@ Separate accumulator state into:
 - no trajectory list;
 - no raw/encoded candidate payloads.
 
+This requires a type change, not only a `VideoProcessor` change: today `ProcessedTrack` (`common/analytical.py`) carries `trajectory: tuple[TrajectoryPoint, ...]` and `ArtifactPublisher.publish_track` copies the full point tuple into it, so the **result object** — not the accumulator — would still hold every point of every Track until completion. `ProcessedTrack` becomes descriptor-only (scalars, observation metadata + crop descriptors, trajectory descriptor); the trajectory invariants it enforces today (`trajectory_required`, `trajectory_detection_count_mismatch`, `trajectory_offsets_not_monotonic`, `trajectory_offsets_outside_track`) move to `prepare_track`, where the points are last available. `PreparedTrack` remains the transient carrier of payload bytes and is dropped once staged.
+
+Three memory classes are then distinct and each bounded:
+- **live processing memory** — per live Track: trajectory-in-progress, scalar accumulators, and one encoded candidate per role (≤ 544 KiB);
+- **completion-metadata memory** — per finalised Track: scalars plus ≤ 4 observation descriptors and one trajectory descriptor, about 1–2.3 KB, so ≤ ~25 MB at 10,000 Tracks, the same order as the completion body it becomes;
+- **staging disk** — every staged candidate and trajectory until admission, ≤ ~5.2 GiB of crops at the bound plus trajectories.
+
+Completion order: finalised descriptors accumulate in retirement order; before the completion request is built they are sorted by canonical Track id so the worker's wire output is deterministic for a given video (`VisionResultValidator` sorts again and the digest is order-independent, so this is for reproducible fixtures, not correctness). Progress: `mark_finalization_started` moves to the start of the end-of-stream drain; per-Track staging during decode is not reported as finalisation.
+
 On each tracker update:
 
 1. process active candidates;
@@ -306,6 +321,8 @@ Required behavior when attempt N begins:
 
 Add an explicit store method with job-scoped semantics; do not broaden ordinary `cleanup()` ambiguously.
 
+**Authority.** The only proof that attempt N is current is the platform lease that carries `attempt_count = N` (`VisionJobLease.attempt_count`; `ProcessingOrchestrator.LeaseAsync` increments it under `FOR UPDATE`). Every earlier attempt of the same job is fenced by the platform: its completion is refused with `vision_job_attempt_mismatch` / `vision_job_lease_invalid`, so nothing under `attempt-k` for k < N can ever be sealed. Deleting those prefixes cannot lose accepted evidence. The rule is therefore purely numeric and needs no filesystem inference: at the start of attempt N, delete `staging/{job}/attempt-k` for every k < N; never touch k ≥ N (a later attempt may already own the job if this worker's own lease has lapsed) and never touch another job id. A stale N−1 process that is still writing into its prefix while N deletes it fails its own staging write and is refused at completion anyway; a stale N−1 process can never delete N's prefix because it only ever deletes below its own number. The method runs where `cleanup()` runs today, after `lease_guard.check_owned()` and before decode, in both backends with the same handle-relative, no-follow discipline.
+
 ## 6.6 S1.1 tests
 
 Extend/add:
@@ -329,7 +346,12 @@ Mandatory discriminating cases:
 9. end-of-stream drains remaining live Tracks;
 10. lease lost before retirement staging → no unauthorized publish;
 11. lease lost during finalisation → existing attempt-isolation semantics hold;
-12. attempt N cleanup removes N-1 leftovers but not N+1/other jobs.
+12. attempt N cleanup removes N-1 leftovers but not N+1/other jobs;
+13. the native→MAVI map size equals the number of live confirmed ids after retirement (fails if the map is not pruned);
+14. `ProcessedTrack` carries no trajectory points and the accumulator entry is removed after retirement (fails if either is retained);
+15. a retired id at update U is absent from U's candidates, and an id retired at U is never emitted at any later update (fails on same-update overlap or resurrection);
+16. retirement fires at the first accepted update past `budget + 1000/referenceFrameRate` and not one update earlier (fails on early retirement);
+17. the worker's completion Track order is canonical regardless of retirement order.
 
 ### S1.1 exit condition
 
@@ -370,7 +392,7 @@ Responsibilities:
 - candidate qualification;
 - quality scoring inputs;
 - overlap/occlusion proxy from concurrent boxes;
-- temporal thirds;
+- early window and trailing refresh;
 - duplicate/separation test;
 - deterministic role replacement;
 - final role ordering;
@@ -378,18 +400,33 @@ Responsibilities:
 
 The selector receives frame/Track facts; it does not call a learned model.
 
+### One-pass algorithm (per live Track, per accepted frame in which the Track has a candidate)
+
+1. **Qualify.** The candidate is qualified iff detector confidence ≥ `confidenceFloor`, `_normalized_sharpness` ≥ `sharpnessFloor`, frame-edge margin ≥ `edgeMarginFloor` and the occlusion proxy < `occlusionIouCeiling`. The occlusion proxy is the maximum IoU between the candidate box and **every other detection in the same frame of either class** (the detector output the tracker was given), so an occluding vehicle counts for a person and unconfirmed detections count too. Unqualified frames never enter any role.
+2. **Score.** `selectionScore = representative_quality(frame, bbox)` — the existing 0.45·sharpness + 0.35·area + 0.20·edge-margin formula, now versioned in the profile — optionally minus an occlusion term from the same profile section. Scores are in [0,1].
+3. **Representative.** Replace the current Representative iff `score > current.score + replaceEpsilon`; ties never replace. The epsilon bounds re-encodes to at most `1/replaceEpsilon` per Track over its life.
+4. **NearView.** Replace iff normalised area > `current.area × (1 + nearViewGrowth)` and the frame is not a near-duplicate of the Representative frame (see 6). Growth hysteresis bounds re-encodes logarithmically in the area ratio.
+5. **EarlyDiverse.** While `offset_ms − start_offset_ms ≤ earlyWindowMs`: replace iff `score > current.score + replaceEpsilon` and the frame is separated by ≥ `minSeparationMs` from the Representative and NearView frames and not a near-duplicate of them. After the window closes the role is frozen. If the Representative or NearView later moves onto the EarlyDiverse frame, EarlyDiverse is dropped at retirement (duplicate rule), not re-selected.
+6. **LateDiverse.** Replace iff the candidate is qualified, `offset_ms − current.offset_ms ≥ lateRefreshIntervalMs` (or no current), and the frame is separated by ≥ `minSeparationMs` from every other selected frame and not a near-duplicate. At retirement LateDiverse is the most recent such view. Re-encodes are bounded by `duration / lateRefreshIntervalMs`.
+7. **Near-duplicate** = same source frame, or `|Δoffset_ms| ≤ duplicateWindowMs` and box IoU ≥ `duplicateIouThreshold` against a selected frame.
+8. **Retirement resolution.** Roles are resolved in the fixed order Representative, NearView, EarlyDiverse, LateDiverse; a supplemental role whose frame duplicates or is under-separated from an earlier role is omitted; ranks are then 0..3 in role order over the roles that remain.
+
+Every step depends only on the frame sequence, the profile constants and prior selector state, so the result is deterministic for a given video and profile. At any moment the selector holds at most **four encoded candidates** per live Track; nothing else about past frames is retained by the selector.
+
+Ties: a candidate replaces only on strict improvement, so equal scores keep the earlier frame; within a frame the Track has one box, so no intra-frame tie exists.
+
 ### Numeric policy
 
 Create one versioned pipeline-profile section for the numeric values ADR-013 deliberately left to S1:
 
-- detector-confidence floor;
-- sharpness floor;
-- frame-edge margin floor;
-- maximum concurrent-box IoU;
-- duplicate time/frame window;
-- duplicate box-IoU threshold;
-- minimum temporal separation;
-- JPEG parameters and caps.
+- `confidenceFloor`, `sharpnessFloor`, `edgeMarginFloor`, `occlusionIouCeiling`;
+- `replaceEpsilon`, `nearViewGrowth`;
+- `earlyWindowMs`, `lateRefreshIntervalMs`, `minSeparationMs`;
+- `duplicateWindowMs`, `duplicateIouThreshold`;
+- JPEG parameters, caps and the reduction ladder;
+- the selector formula version.
+
+The pipeline-profile schema is `extra="forbid"` with `schemaVersion` `Literal["1.0"]` (`runtime/profile.py`), so adding this section is a profile schema version bump; the profile SHA already enters provenance and the digest.
 
 Do not scatter magic constants across selector/encoder/tests.
 
@@ -403,17 +440,17 @@ Create one encoder path shared by all EvidenceRole values.
 
 Algorithm:
 
-1. crop source pixels using the authoritative normalized bounding box;
-2. constrain long edge to ≤1024 while preserving aspect ratio;
-3. encode JPEG at target quality 85;
-4. if above role byte cap, deterministically reduce quality/dimensions;
-5. never go below quality 50 or long edge 128;
-6. if still oversized at floor:
-   - supplemental role: omit;
-   - Representative: fall back to next-best qualified Representative candidate;
-7. if no Representative can be encoded for an accepted Track: fail the VisionJob result; do not publish a Track without mandatory evidence.
+1. crop source pixels using the authoritative normalized bounding box (the existing `_crop_rgb` floor/ceil rule);
+2. constrain long edge to ≤1024 while preserving aspect ratio (Pillow `LANCZOS`, fixed);
+3. encode JPEG at quality 85 with the existing fixed parameters (`optimize=False, progressive=False, subsampling=2`, no EXIF/ICC — `Image.fromarray` attaches none);
+4. if above the role byte cap, walk a **fixed ladder**: quality 85 → 75 at full size; then scale the long edge by 0.8 per step at quality 75 until the cap is met or the long edge would fall below 128 (clamp to 128); then quality 65 → 55 → 50 at 128 px;
+5. the ladder always terminates admitted: at the floor a crop is at most 128 × 128 px, whose raw RGB is 49,152 bytes, so even an incompressible image plus JPEG headers is below the 64 KiB Representative cap and far below the 160 KiB supplemental cap;
+6. the "still oversized at floor" branch is therefore unreachable and is kept only as a fail-closed invariant: Representative → fail the VisionJob result; supplemental → omit;
+7. consequently **no alternate candidates need to be retained for Representative fallback**; the single best encoded Representative is always admissible.
 
-Encoding MUST be deterministic for the qualified Pillow/runtime graph and contract-tested by byte/hash on fixtures.
+Determinism: for one runtime variant (same Pillow/libjpeg build from the qualified lock) the bytes are reproducible and are golden-tested by SHA-256 on fixtures. Across variants (Windows vs Linux libjpeg builds) byte identity is **not** promised; cross-variant tests assert dimensions, size ≤ cap and decodability. The crop SHA is provenance of what was sealed, never identity across platforms.
+
+Re-encode churn is bounded by the selector's hysteresis (§7.2): a replacement re-encodes one crop; the candidate is held encoded, never as RGB.
 
 Do not repeatedly write replacement candidates to staging.
 
@@ -431,9 +468,13 @@ At end-of-run admission:
 6. stop admitting supplemental candidates when the next candidate would exceed 1 GiB;
 7. record candidate/admitted/omitted counts and bytes by role.
 
-**Important implementation point:** LocalTrackNumber is platform-created today, while worker Track ids are deterministic strings such as `person-000001`. S1 MUST NOT invent a platform LocalTrackNumber before persistence. For worker-side deterministic admission, define the secondary key as the canonical worker Track id; because platform LocalTrackNumber is created from the validator's canonical Track ordering, add a contract test proving these orderings are equivalent. If they are not equivalent, amend the plan/ADR before implementation rather than silently drifting.
+**Secondary key.** LocalTrackNumber is platform-created: `ProcessingResultStore` assigns `index + 1` over `result.Tracks`, which `VisionResultValidator` has sorted with `StringComparer.Ordinal` on the Track id. Worker ids match `[a-z0-9][a-z0-9._-]{0,63}` and are `person-NNNNNN` / `vehicle-NNNNNN`; Python's `sorted()` on such ASCII strings is code-point order, identical to .NET ordinal order for ASCII, and zero-padding makes lexical order equal numeric order within a class. So **canonical worker Track-id order is exactly eventual LocalTrackNumber order**, and the worker uses the Track id as the deterministic secondary key. A contract test pins this (a fixture of mixed person/vehicle ids sorted in Python must equal the .NET validator's order); if a future id scheme breaks the equivalence the test fails before any drift.
 
-Omitted supplemental staging objects may be deleted after admission to reduce transfer/storage pressure; this cleanup must remain attempt-scoped and lease-safe.
+Ties on (score, Track id) cannot occur because Track ids are unique.
+
+Admission needs metadata for every supplemental candidate (role, score, bytes, Track id) — ≤ 30,000 small records at the bound — which is completion-metadata memory, not live memory. It cannot be done incrementally without knowing all candidates, which is why it runs at end of run.
+
+Omitted supplemental staging objects **must** be deleted after admission, before the completion request is sent, so staging at completion holds only admitted evidence and trajectories; the deletion is attempt-scoped and lease-fenced like every other staging side effect.
 
 ## 7.5 Completion schema v3
 
@@ -464,6 +505,12 @@ v3 Track completion carries:
   - EvidenceCrop descriptor.
 
 Remove the wire-level concept that only Representative owns a `thumbnail`.
+
+Version scope: only the **completion** message moves to `schemaVersion "3.0"`. Lease request/response, heartbeat and fail stay `"2.0"` — they are unchanged and the worker's `Literal["2.0"]` models for them remain. `VisionJobEndpoints.CompleteAsync` accepts `{"2.0","3.0"}` while the other three handlers keep the single-version check; `VersionProblem()` text is per message. `ProcessingResultStore`'s early equality check (L52) becomes the same set membership.
+
+Staging and accepted keys carry the role: staging `staging/{job}/attempt-NNNN/evidence/{trackId}-{role}.jpg`, accepted `evidence/{job}/attempt-NNNN/crops/{trackId}-{role}-{sha}.jpg`; legacy `thumbnails/` keys are untouched. The validator's exact-key rule is extended per role.
+
+Completion Track count and evidence accounting: trajectories count against the 512 MiB quota; `EvidenceCrop` descriptors against the 1 GiB quota; both checked in the Python model and the .NET validator.
 
 ### v3 validation rules
 
@@ -509,7 +556,17 @@ Recommended migration:
 
 If repository deployment constraints make dual-version support unsafe or materially complex, stop and amend the plan before coding; do not simply change `SchemaVersion` globally and strand an in-flight v2 worker.
 
-The digest algorithm/version must distinguish v2 from v3 canonical payloads.
+The digest algorithm/version must distinguish v2 from v3 canonical payloads: the domain tag `mavi:vision-completion-digest:v2` stays for v2 bodies and `…:v3` is used for v3, so a stored v2 `CompletionDigest` can only ever match a v2 replay.
+
+Why dual-accept rather than a flag day: even a maintenance-window upgrade must replay v2 bodies, because `ProcessingResultStore` proves idempotent replay by re-validating the request and comparing digests (`CompletePersistsAuthoritativeIntelligenceAndExactReplayIsIdempotent`), and a worker that completed just before the upgrade may retry. Accepting v2 for *new* completions additionally lets an in-flight long video finish instead of burning an attempt. The cost is one normalisation (v2 → one Representative observation) in the validator, which is small. Dual-accept is therefore the simpler safe choice, not the complex one.
+
+Deployment order and failure modes:
+1. DB migration (additive, defaults; the preceding platform binary still reads/writes Observations because EF maps only the columns it knows);
+2. platform accepting v2+v3;
+3. workers emitting v3 — a v3 worker against an old platform receives `400 worker_contract_version_unsupported` and must not retry indefinitely: the runner treats it as a configuration failure of the attempt, not a transient error;
+4. web UI.
+
+A platform downgrade after v3 rows exist is unsupported and stated as such.
 
 ## 7.7 Re-derive body bound
 
@@ -523,6 +580,8 @@ Before selecting the new request-body constant:
 - pin the worst-shape serialized size with a contract test.
 
 This is required before S1.2 closes.
+
+Engineering estimate to be confirmed by that test (compact JSON, realistic key lengths, 36-char job id, 64-hex SHAs): a v2 Track serialises to ≈ 877 bytes (≈ 8.4 MiB at 10,000 Tracks); a v3 Track with four observations to ≈ 2.3 KB (≈ 22 MiB at 10,000), each observation ≈ 460 bytes; provenance adds a few KB once. The 32 MiB limit would leave ~10 MiB of headroom on the worst shape, which is too thin for a hard 413. Set `MaximumCompletionRequestBodyBytes` to **48 MiB** unless the measured worst shape exceeds 32 MiB, in which case revisit the contract rather than the limit (ADR-013 stop condition 3). The realistic worst case is smaller (the 1 GiB quota admits ≈ 2,550 supplemental crops, ≈ 13.5 MiB), but the wire bound must hold for what a validator can be *asked* to parse.
 
 ---
 
@@ -555,8 +614,11 @@ Database constraints:
 - selection score finite/range per selector contract;
 - unique `(track_id, evidence_rank)`;
 - unique `(track_id, observation_type)` for current four single-valued roles;
-- exactly one Representative/rank 0 is enforced as far as practical in domain + transaction validation;
-- crop FK remains immutable after attachment.
+- a CHECK ties role and rank: `(observation_type = 'Representative') = (evidence_rank = 0)` and `evidence_rank BETWEEN 0 AND 3`;
+- exactly one Representative/rank 0 is enforced as far as practical in domain + transaction validation ("at most one" by the unique index; "at least one" by `Track.RepresentativeObservationId` being set in the completion transaction — it cannot be a DB constraint because of the circular FK);
+- crop FK remains immutable after attachment; its `SetNull` delete behaviour changes to `Restrict` so accepted evidence linkage cannot be severed silently.
+
+Decision on `ObservationType`: keep the column and enum name, replace its vocabulary with the four evidence roles. Every persisted row today is `Representative` (only that value is ever written), so no data rewrite is needed; the migration **guards** this by failing if any row carries `TrackStart`, `BestQuality` or `TrackEnd`. Rank is persisted (ADR-013 §7) but constrained to be consistent with role by the CHECK above, so it cannot drift; it exists so that a future evidence kind with several instances per Track (plate crops) can keep a per-Track ordinal without redesign. `SelectionScore` is `double precision` with `CHECK (selection_score >= 0 AND selection_score <= 1)`; historical Representative rows receive `selection_score = quality_score` and `evidence_rank = 0` in the migration.
 
 Migration must preserve existing Representative observations as Representative rank 0. Historical Tracks do not invent supplemental observations.
 
@@ -597,6 +659,8 @@ Never persist an Observation for an omitted supplemental candidate.
 Accepted evidence keys include role or observation rank sufficiently to avoid collisions while retaining SHA-bound identity.
 
 The store must remain idempotent for replay.
+
+Scale note: sealing runs inside the completion transaction while the job row is held `FOR UPDATE`; today that is ≤ 20,000 streamed copies at the bound, and v3 raises it to ≤ 10,000 + ~2,550 crops + 10,000 trajectories (the quota, not the descriptor count, bounds admitted crops). S1.4 measures wall time at that bound; lease expiry during sealing is already judged at locked authority time (`LeaseExpiryDuringEvidenceSealingUsesLockedAuthorityTime`), so a long seal cannot be invalidated by its own duration.
 
 ## 8.4 Validator/store scale tests
 
@@ -678,7 +742,12 @@ UI must handle:
 - 2–4 observations;
 - missing supplementals;
 - historical Thumbnail-backed Representative;
-- evidence image unavailable/error distinctly from empty.
+- evidence image unavailable/error distinctly from empty;
+- loading state for the strip without layout shift of the Evidence Player.
+
+Accessibility: each supplemental item is a focusable control with a text label naming role and in-video offset (e.g. "Near view · 00:12.3"), images carry that text as `alt`, the strip is keyboard-navigable, and the Representative is announced as such; state cues are never colour-only (UI spec §14, §23).
+
+Scope guard: no attribute chips, model confidence, attribute search or new intelligence panels; the strip shows evidence and provenance only.
 
 ---
 
@@ -717,6 +786,12 @@ Therefore:
 - rebind CUDA/E2E evidence when that evidence is produced/re-run; do not claim a stale exact pipeline identity.
 
 Do not silently reuse a pre-S1 pipeline-profile hash.
+
+Two mechanics make this concrete:
+- Task 10's path triggers (`.github/workflows/task10-runtime-qualification.yml`) cover `mavi_vision/runtime/**`, `models/**` and `src/vision/runtime/**/*.json`, **not** `mavi_vision/pipeline/**` or `mavi_vision/tracking/**`. S1.1 therefore runs Task 10 by `workflow_dispatch` on its exact head and records the run ids; S1.2 adds `src/vision/mavi_vision/**` and `src/vision/config/pipelines/**` to the triggers so later pipeline changes cannot merge unqualified by omission.
+- `models/qualifications/rtmdet-m-coco-phase1-v1.json` records `pipelineProfileSha256`; the S1.2 profile schema bump changes that SHA, and `verify_qualification_relationships` compares it, so the record is re-derived in the same PR (it stays `pending`; nothing is claimed).
+
+Non-claims during S1: the Development CUDA runtime evidence (C4) binds the runtime variant, not the pipeline, and stays valid; no E2E (C6) evidence exists to rebind; the RTMDet manifest remains `unverified` and `runtime.json` `partial` throughout; no S1 sub-PR states a qualification claim beyond "Task 10 CPU matrices green on head X".
 
 ## 10.3 Offline
 
@@ -798,7 +873,7 @@ High-volume deterministic unit coverage for:
 - role selector;
 - candidate qualification;
 - duplicate detection;
-- temporal thirds/separation;
+- early window, late refresh and separation;
 - tie-breaking;
 - encoder cap/floor behavior;
 - run admission;
@@ -837,10 +912,29 @@ Must cover:
 The ByteTrack suite must discriminate against:
 
 - no retirement;
-- one-frame-early retirement;
+- one-frame-early retirement (an update at exactly `budget` or `budget + ½ interval` must not retire);
 - map not pruned;
-- MAVI id resurrection;
-- nondeterministic retirement order.
+- MAVI id resurrection (scripted native id reuse after retirement must yield a fresh MAVI id);
+- same-update active + retired id;
+- nondeterministic retirement order;
+- retirement after poison.
+
+## 12.6 Guarantee → test map
+
+| Guarantee | Failing test if violated |
+|---|---|
+| exact-once retirement, no resurrection | adapter scripted reuse test; fixture parity test |
+| live memory bounded by live Tracks | accumulator-removal + `ProcessedTrack` has no points (process_video) |
+| stale cleanup never touches current attempt | store test: N cleans N−1 only, N+1 and other jobs untouched |
+| deterministic selector | golden fixture; equal-score tie keeps earlier frame |
+| Representative always admissible | encoder floor test on incompressible 128 px noise |
+| no duplicate role/rank | validator + DB unique/CHECK tests |
+| cross-language digest | Python and .NET compute the same v3 digest on the golden fixture |
+| v2 replay unbroken | existing replay tests re-run against the dual-accept store |
+| oversized body refused | 413 test above the new limit; worst-shape test below it |
+| quota admission order | admission test with mixed scores/ids and a tight quota |
+| partial sealing failure | four-observation variant of `ArtifactIntegrityFailureRollsBackAllIntelligence…` |
+| historical Track detail unchanged | Track detail test on a pre-S1 fixture Track |
 
 ## 12.5 Visual QA
 
@@ -976,13 +1070,15 @@ Primary risk: backend retirement semantics and memory lifecycle.
 
 Do not proceed to v3 until its native + fixture tests are green.
 
-## PR S1.2 — Evidence Set + v3 contracts + persistence
+## PR S1.2a — Platform: migration, contracts, dual-accept validator/store
 
-Largest correctness PR.
+DB migration, `ArtifactType.EvidenceCrop`, Observation evolution, v3 contracts and JSON schema, validator/store accepting v2 and v3, digest v3, golden v3 fixture, worst-shape body test and the new request limit. Deployable alone: the platform keeps accepting the v2 the current worker emits. `verify_repo` and the qualification-record SHA update ride here if the profile schema lands here; otherwise in S1.2b.
 
-Must include worker/platform golden contract fixtures and DB migration.
+## PR S1.2b — Worker: selector, encoder, admission, v3 emission
 
-Do not split worker v3 emission from platform v3 acceptance into independently deployable incompatible commits.
+Selector module and profile section, encoder ladder, run-level admission, omitted-candidate deletion, `worker/client.py` v3 emission, cross-language digest test against the S1.2a golden fixture, Task-10 trigger extension. Requires S1.2a merged and deployed first.
+
+Splitting this way keeps each PR reviewable and matches the deployment order in §14; it does not create an incompatible intermediate state because the platform is bilingual before any worker speaks v3.
 
 ## PR S1.3 — Track detail + Evidence Set UI
 
