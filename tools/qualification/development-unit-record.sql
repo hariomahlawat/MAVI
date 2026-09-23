@@ -6,8 +6,8 @@
 --
 --   psql -h 127.0.0.1 -p 55433 -U <user> -d mavi_dev -f tools/qualification/development-unit-record.sql
 --
--- One row per analytical unit: its identity, attempt, the duration of its final
--- attempt (claim to fenced commit), analysed/unavailable Track counts, and the rows
+-- One row per analytical unit: its identity, attempt, the time from its first claim
+-- to its fenced commit, analysed/unavailable Track counts, and the rows
 -- it wrote to each fact table. Nothing is inferred; every figure is read from the
 -- unit and the facts that reference it.
 
@@ -21,7 +21,10 @@ SELECT
     sa.started_at_utc,
     sa.completed_at_utc,
     round(extract(epoch FROM (sa.completed_at_utc - sa.started_at_utc)) * 1000)::bigint
-                                                              AS final_attempt_duration_ms,
+                                                              AS claim_to_completion_ms,
+    -- started_at_utc is set by the cycle's FIRST claim (SceneAnalysis.Claim), so this
+    -- is the final attempt's duration only when attempt_count = 1; with retries it
+    -- also covers the failed or expired attempts before it.
     sa.analysed_track_count,
     sa.unavailable_track_count,
     (SELECT count(*) FROM track_analysis_outcomes o WHERE o.analysis_id = sa.id) AS outcomes,

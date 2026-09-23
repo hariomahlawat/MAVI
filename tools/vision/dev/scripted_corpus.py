@@ -113,9 +113,13 @@ def ffmpeg_command(spec: dict, scene: dict, output: Path) -> list[str]:
         "-f", "lavfi", "-i", f"color=c=0x202020:s={video['width']}x{video['height']}:r={fps}:d={video['durationSeconds']}",
         "-f", "lavfi", "-i", f"color=c=white:s={video['boxWidth']}x{video['boxHeight']}:r={fps}",
         "-filter_complex", overlay,
-        # H.264 at CRF 0 keeps luma lossless, so ``verify`` can check positions exactly;
-        # the worker and the import path already accept H.264 MP4.
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "0", "-pix_fmt", "yuv420p", "-g", str(fps),
+        # Constrained High profile, not CRF 0: lossless x264 is High 4:4:4 Predictive,
+        # which browser decoders commonly refuse, so Evidence Review could not play it.
+        # CRF 1 on a flat box leaves every decoded centre exact (``verify`` still checks
+        # each frame), and ``-bf 0`` keeps decode order equal to display order. The
+        # worker and the import path already accept H.264 MP4.
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "1", "-profile:v", "high", "-bf", "0",
+        "-pix_fmt", "yuv420p", "-g", str(fps),
         str(output),
     ]
 

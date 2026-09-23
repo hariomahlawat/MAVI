@@ -10,7 +10,10 @@ Standard library only::
     python tools/qualification/summarize_aggregate_qualification.py <plan-qualification.json>
 
 Exit code 1 when the file does not describe itself as qualification evidence, so an
-engineering observation cannot be transcribed as the authoritative table by mistake.
+engineering observation cannot be transcribed as the authoritative table by mistake;
+and also when it does not hold exactly the nine §T cases, each with every figure the
+decision rule reads, so a different evidence file (throughput, heatmap) or a partial
+run cannot pass as a complete table. A missing figure prints as ``missing``, never 0.
 """
 from __future__ import annotations
 
@@ -18,6 +21,16 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+
+EXPECTED_T_CASES = 9
+REQUIRED_T_FIGURES = ("elapsedMs", "allocatedBytes", "dbQueryCount",
+                      "databaseMaterialisationMs", "applicationAggregationMs")
+
+
+def _number(value: object, scale: float = 1.0, digits: int = 0) -> str:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "missing"
+    return f"{value / scale:,.{digits}f}"
 
 
 def summarize(path: Path) -> tuple[str, bool]:
@@ -41,19 +54,28 @@ def summarize(path: Path) -> tuple[str, bool]:
         "| Allocated MiB | GC 0/1/2 | DB queries |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
+    t_cases = 0
+    complete = True
     for result in document.get("results", []):
         if result.get("family") != "T":
             continue
+        t_cases += 1
+        complete = complete and all(
+            isinstance(result.get(key), (int, float)) and not isinstance(result.get(key), bool)
+            for key in REQUIRED_T_FIGURES)
         predicate = result["predicate"].removeprefix("aggregate all metrics, ")
         gc = result.get("gcCollections", {})
         lines.append(
             f"| {predicate} | {result.get('buckets')} | {result.get('zoneVisits')} | {result.get('lineCrossings')} "
             f"| {result.get('zoneSummaries')} | {result.get('trackIntervals')} "
-            f"| {result.get('databaseMaterialisationMs', 0):,.0f} | {result.get('applicationAggregationMs', 0):,.0f} "
-            f"| {result.get('elapsedMs', 0):,.0f} | {result.get('allocatedBytes', 0) / 1048576:,.1f} "
+            f"| {_number(result.get('databaseMaterialisationMs'))} | {_number(result.get('applicationAggregationMs'))} "
+            f"| {_number(result.get('elapsedMs'))} | {_number(result.get('allocatedBytes'), 1048576, 1)} "
             f"| {gc.get('generation0')}/{gc.get('generation1')}/{gc.get('generation2')} | {result.get('dbQueryCount')} |"
         )
-    return "\n".join(lines), qualifying
+    if t_cases != EXPECTED_T_CASES or not complete:
+        lines += ["", f"**Incomplete:** {t_cases} §T case(s), expected {EXPECTED_T_CASES}, "
+                      f"each with {', '.join(REQUIRED_T_FIGURES)}."]
+    return "\n".join(lines), qualifying and t_cases == EXPECTED_T_CASES and complete
 
 
 def main(argv: list[str]) -> int:
