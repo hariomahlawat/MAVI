@@ -71,11 +71,11 @@ For normal local development, set **Mavi.Api** as the startup project and press 
 
 The repository uses ASP.NET Core's development SPA proxy:
 
-1. Visual Studio starts `Mavi.Api` on `https://localhost:62152`.
+1. Visual Studio starts `Mavi.Api` listening on both `https://localhost:62152` and `http://localhost:62153`.
 2. The SPA proxy starts `npm run dev` in `src/web/mavi-web` when Vite is not already running.
 3. Vite listens only on `http://127.0.0.1:5173` with a strict port.
 4. The browser is redirected to the Vite development UI.
-5. Vite proxies `/api/*` back to the running ASP.NET Core API.
+5. Vite proxies `/api/*` to the running API's plain-HTTP loopback endpoint, `http://127.0.0.1:62153`.
 
 This behavior is local-development only. Published MAVI builds continue to serve the compiled React application from ASP.NET Core/IIS as same-origin static content.
 
@@ -83,13 +83,26 @@ This behavior is local-development only. Published MAVI builds continue to serve
 
 After `Setup-MAVI-Development.cmd` completes, start **Mavi.Api** from Visual Studio. The setup process restores the supported offline dependencies when the cache is present, so no separate npm/pgvector/FFmpeg preparation should be necessary. A successful F5 launch should open the React UI rather than the API root.
 
-The local API proxy target defaults to:
+The Vite `/api` proxy targets:
 
 ```text
-https://localhost:62152
+http://127.0.0.1:62153
 ```
 
-and is also set explicitly in the Visual Studio launch profile through `MAVI_API_PROXY_TARGET`.
+This is the default in `src/web/mavi-web/devApiProxy.ts`, and the Visual Studio launch profile also sets it explicitly through `MAVI_API_PROXY_TARGET`. To use another upstream, set `MAVI_API_PROXY_TARGET` yourself.
+
+It is an IP literal over plain HTTP deliberately, so the Development machine works air-gapped:
+
+- **No name resolution.** Node resolves `localhost` with `AI_ADDRCONFIG`, and Windows does not count loopback as a configured address. With every network adapter disabled, that lookup can fail even though the API is listening. `127.0.0.1` needs no lookup.
+- **No certificate dependency.** The browser already talks plain HTTP to Vite on `127.0.0.1:5173`. TLS on the Vite → API hop, between two processes on the same machine, protects nothing the browser can see. It does, however, make that hop depend on the development certificate.
+
+The chain in Development is therefore:
+
+```text
+browser → http://127.0.0.1:5173 → Vite /api proxy → http://127.0.0.1:62153 → PostgreSQL 127.0.0.1:55433
+```
+
+It stays on loopback and applies to Development only. `Mavi.Api` still listens on HTTPS (`https://localhost:62152`), and nothing about its TLS configuration changes. This is not a production transport decision: published builds serve the compiled UI same-origin from ASP.NET Core/IIS and never use the Vite proxy.
 
 ### Manual frontend launch
 
@@ -104,7 +117,7 @@ Open `http://127.0.0.1:5173`. The strict port prevents Vite from silently moving
 
 ### Local HTTPS certificate
 
-If the browser or Vite proxy reports a local certificate problem, trust the .NET development certificate once:
+The default Vite proxy path no longer uses HTTPS. If the browser reports a local certificate problem when opening the API's HTTPS endpoint directly, or when `MAVI_API_PROXY_TARGET` points at it, trust the .NET development certificate once:
 
 ```powershell
 dotnet dev-certs https --trust

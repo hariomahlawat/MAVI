@@ -6,7 +6,7 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "ASPNETCORE_HOSTINGSTARTUPASSEMBLIES": "Microsoft.AspNetCore.SpaProxy",
-        "MAVI_API_PROXY_TARGET": "https://localhost:62152"
+        "MAVI_API_PROXY_TARGET": "http://127.0.0.1:62153"
       },
       "applicationUrl": "https://localhost:62152;http://localhost:62153"
     }
