@@ -33,6 +33,7 @@ from mavi_vision.tracking.fixture import FixtureTracker
 from mavi_vision.tracking.interfaces import TrackCandidate, TrackerUpdate
 from mavi_vision.video.reader import DecodedFrame
 from mavi_vision.video.trajectory import deserialize_trajectory
+from tests.profile_fixtures import PRODUCTION_EVIDENCE_POLICY
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd761")
@@ -147,6 +148,7 @@ def _run(
         tracker,
         StagingArtifactStore(tmp_path, job_id, attempt),
         **options,
+        evidence_policy=PRODUCTION_EVIDENCE_POLICY,
     )
     return processor.process(
         job_id=job_id,
@@ -164,7 +166,8 @@ def _attempt_dir(root: Path, attempt: int = 1, job_id: UUID = JOB_ID) -> Path:
 
 
 def _thumbnail(root: Path, track_id: str, attempt: int = 1) -> Path:
-    return _attempt_dir(root, attempt) / "thumbnails" / f"{track_id}.jpg"
+    """The Track's staged Representative crop (the summary image)."""
+    return _attempt_dir(root, attempt) / "evidence" / f"{track_id}-representative.jpg"
 
 
 def _trajectory(root: Path, track_id: str, attempt: int = 1) -> Path:
@@ -571,7 +574,7 @@ def test_next_attempt_removes_staging_left_by_a_lease_lost_attempt(
     )
 
     assert not _attempt_dir(tmp_path, attempt=1).exists()
-    assert "/attempt-0002/" in result.tracks[0].thumbnail.storage_key
+    assert "/attempt-0002/" in result.tracks[0].representative.crop.storage_key
     assert _thumbnail(tmp_path, "person-a", attempt=2).exists()
     assert tmp_path.joinpath(*other_job.storage_key.split("/")).read_bytes() == b"other-job"
 
@@ -778,6 +781,7 @@ def test_many_live_tracks_need_no_descriptor_each(tmp_path: Path) -> None:
     processor = VideoProcessor(
         Crowd(), CrowdTracker(), StagingArtifactStore(tmp_path, JOB_ID, 1),
         trajectory_chunk_points=1,
+        evidence_policy=PRODUCTION_EVIDENCE_POLICY,
     )
     limits = resource.getrlimit(resource.RLIMIT_NOFILE)
     open_now = len(os.listdir("/proc/self/fd")) if os.path.isdir("/proc/self/fd") else 64

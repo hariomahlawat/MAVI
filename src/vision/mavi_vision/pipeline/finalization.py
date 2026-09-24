@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from io import BytesIO
 import sys
 
-import numpy as np
-from PIL import Image
-
-from mavi_vision.common.analytical import (
-    ObjectClass,
-    RepresentativeObservation,
-)
+from mavi_vision.common.analytical import ObjectClass
+from mavi_vision.evidence.errors import EvidenceError
+from mavi_vision.evidence.roles import ROLE_ORDER, EvidenceRole, role_cap_bytes
+from mavi_vision.evidence.selector import ResolvedEvidence
 from mavi_vision.video.trajectory_spool import TrajectorySummary
 
 
@@ -19,7 +15,9 @@ class PreparedTrack:
     """Filesystem-independent, deterministic representation of a finalized track.
 
     It carries the trajectory's summary, not its points: the canonical v1 payload
-    is streamed from the Track's spool straight into staging at publication.
+    is streamed from the Track's spool straight into staging at publication. The
+    resolved Evidence Set holds the Track's (at most four) encoded crops; they
+    are written once at publication and are not kept afterwards.
     """
 
     track_id: str
@@ -29,9 +27,8 @@ class PreparedTrack:
     detection_count: int
     mean_confidence: float
     max_confidence: float
-    representative: RepresentativeObservation
+    evidence: tuple[ResolvedEvidence, ...]
     trajectory: TrajectorySummary
-    thumbnail_payload: bytes
 
     @property
     def confidence(self) -> float:
@@ -48,8 +45,7 @@ def prepare_track(
     confidence_sum: float,
     max_confidence: float,
     observation_count: int,
-    representative: RepresentativeObservation | None,
-    representative_crop: np.ndarray | None,
+    evidence: tuple[ResolvedEvidence, ...],
     trajectory: TrajectorySummary,
 ) -> PreparedTrack:
     """Prepare deterministic track payloads without performing external side effects.
@@ -61,7 +57,7 @@ def prepare_track(
     ``ProcessedTrack`` keeps only the staged descriptor.
     """
 
-    if representative is None or representative_crop is None or observation_count <= 0:
+    if observation_count <= 0:
         raise ValueError("track_observation_missing")
 
     if trajectory.point_count <= 0 or trajectory.point_count != observation_count:
@@ -96,7 +92,8 @@ def prepare_track(
     if not 0.0 <= mean_confidence <= max_confidence <= 1.0:
         raise ValueError("track_confidence_invalid")
 
-    thumbnail_payload = _encode_jpeg(representative_crop)
+
+    _validate_evidence(evidence, start_offset_ms, end_offset_ms, max_confidence)
 
     return PreparedTrack(
         track_id=track_id,
@@ -106,24 +103,36 @@ def prepare_track(
         detection_count=observation_count,
         mean_confidence=mean_confidence,
         max_confidence=max_confidence,
-        representative=representative,
+        evidence=evidence,
         trajectory=trajectory,
-        thumbnail_payload=thumbnail_payload,
     )
 
 
-def _encode_jpeg(crop: np.ndarray) -> bytes:
-    if crop.ndim != 3 or crop.shape[2] != 3 or crop.size == 0:
-        raise ValueError("representative_crop_invalid")
-
-    image_data = np.ascontiguousarray(crop, dtype=np.uint8)
-    buffer = BytesIO()
-    Image.fromarray(image_data).save(
-        buffer,
-        format="JPEG",
-        quality=90,
-        optimize=False,
-        progressive=False,
-        subsampling=2,
-    )
-    return buffer.getvalue()
+def _validate_evidence(
+    evidence: tuple[ResolvedEvidence, ...],
+    start_offset_ms: int,
+    end_offset_ms: int,
+    max_confidence: float,
+) -> None:
+    """The resolved Evidence Set must be canonical before anything is staged."""
+    if not evidence:
+        # No admissible qualified Representative was ever seen for this Track.
+        raise EvidenceError("evidence_representative_missing")
+    if len(evidence) > len(ROLE_ORDER) or evidence[0].role is not EvidenceRole.REPRESENTATIVE:
+        raise EvidenceError("evidence_set_invalid")
+    previous = -1
+    frames: set[int] = set()
+    for rank, item in enumerate(evidence):
+        role_index = ROLE_ORDER.index(item.role)
+        held = item.evidence
+        if (
+            item.rank != rank
+            or role_index <= previous
+            or held.source_frame_number in frames
+            or not start_offset_ms <= held.offset_ms <= end_offset_ms
+            or held.confidence > max_confidence
+            or not 0 < held.image.size_bytes <= role_cap_bytes(item.role)
+        ):
+            raise EvidenceError("evidence_set_invalid")
+        previous = role_index
+        frames.add(held.source_frame_number)

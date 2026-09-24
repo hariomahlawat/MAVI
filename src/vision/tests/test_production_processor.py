@@ -125,7 +125,8 @@ def test_process_constructs_fresh_attempt_graph_in_exact_order_and_delegates(
         return store
 
     class FakeVideoProcessor:
-        def __init__(self, detector, tracker, store):
+        def __init__(self, detector, tracker, store, *, evidence_policy):
+            assert evidence_policy is PRODUCTION_EVIDENCE_POLICY
             events.append(("processor", detector, tracker, store))
             processors.append(self)
 
@@ -257,7 +258,8 @@ def test_next_attempt_uses_replacement_runtime_from_provider(
             pass
 
     class FakeVideoProcessor:
-        def __init__(self, detector, tracker, store):
+        def __init__(self, detector, tracker, store, *, evidence_policy):
+            assert evidence_policy is PRODUCTION_EVIDENCE_POLICY
             pass
 
         def process(self, **kwargs):
@@ -322,7 +324,7 @@ def test_typed_construction_failure_notifies_once_and_short_circuits(
         return object()
 
     class FakeVideoProcessor:
-        def __init__(self, *args):
+        def __init__(self, *args, **kwargs):
             calls.append("processor")
 
     monkeypatch.setattr(production_module, "RTMDetDetector", FakeDetector, raising=False)
@@ -379,7 +381,8 @@ def test_typed_processing_failure_notifies_exact_object_once(
             pass
 
     class FakeVideoProcessor:
-        def __init__(self, detector, tracker, store):
+        def __init__(self, detector, tracker, store, *, evidence_policy):
+            assert evidence_policy is PRODUCTION_EVIDENCE_POLICY
             pass
 
         def process(self, **kwargs):
@@ -427,7 +430,8 @@ def test_typed_failure_is_reported_locally_even_if_lease_is_lost_during_unwind(
             pass
 
     class FakeVideoProcessor:
-        def __init__(self, detector, tracker, store):
+        def __init__(self, detector, tracker, store, *, evidence_policy):
+            assert evidence_policy is PRODUCTION_EVIDENCE_POLICY
             pass
 
         def process(self, **kwargs):
@@ -485,7 +489,8 @@ def test_non_dependency_processing_failure_does_not_notify_sink(
             pass
 
     class FakeVideoProcessor:
-        def __init__(self, detector, tracker, store):
+        def __init__(self, detector, tracker, store, *, evidence_policy):
+            assert evidence_policy is PRODUCTION_EVIDENCE_POLICY
             pass
 
         def process(self, **kwargs):
@@ -614,7 +619,7 @@ def test_real_video_processor_keeps_attempt_artifacts_and_tracker_state_isolated
         expected_source_sha256=digest,
         lease_guard=_guard(),
     )
-    first_thumbnail = tmp_path.joinpath(*first.tracks[0].thumbnail.storage_key.split("/"))
+    first_thumbnail = tmp_path.joinpath(*first.tracks[0].representative.crop.storage_key.split("/"))
     assert first_thumbnail.is_file()
 
     second = processor.process(
@@ -629,15 +634,15 @@ def test_real_video_processor_keeps_attempt_artifacts_and_tracker_state_isolated
     assert len(tracker_instances) == 2
     assert tracker_instances[0] is not tracker_instances[1]
     assert first.tracks[0].track_id == second.tracks[0].track_id == "person-000001"
-    assert "/attempt-0001/" in first.tracks[0].thumbnail.storage_key
-    assert "/attempt-0002/" in second.tracks[0].thumbnail.storage_key
+    assert "/attempt-0001/" in first.tracks[0].representative.crop.storage_key
+    assert "/attempt-0002/" in second.tracks[0].representative.crop.storage_key
     # The composed processor removes the superseded attempt's staging (S1 plan
     # §6.5) and keeps the current attempt's. This mirrors the exact-package
     # qualification in test_production_processor_runtime.py so the default suite
     # observes the same cross-attempt staging contract.
     assert not first_thumbnail.exists()
     assert not (tmp_path / "staging" / str(JOB_ID) / "attempt-0001").exists()
-    assert tmp_path.joinpath(*second.tracks[0].thumbnail.storage_key.split("/")).is_file()
+    assert tmp_path.joinpath(*second.tracks[0].representative.crop.storage_key.split("/")).is_file()
 
 
 def test_import_does_not_eagerly_load_optional_ml_packages() -> None:

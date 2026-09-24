@@ -4,21 +4,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-import numpy as np
-
 from mavi_vision.common.analytical import (
-    NormalizedBoundingBox,
     ObjectClass,
     ProcessedTrack,
-    RepresentativeObservation,
     VisionProcessingResult,
 )
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
-from mavi_vision.detection.interfaces import Detector
+from mavi_vision.detection.interfaces import DetectionCandidate, Detector
+from mavi_vision.evidence.admission import admit
+from mavi_vision.evidence.encoder import EvidenceEncoder, JpegLadderEncoder
+from mavi_vision.evidence.policy import EvidencePolicy
+from mavi_vision.evidence.quality import FrameContext, QualityScorer, QualityV1Scorer
+from mavi_vision.evidence.selector import EvidenceSelector
 from mavi_vision.pipeline.finalization import prepare_track
 from mavi_vision.runtime.errors import ProcessingDependencyError, TrackerError
 from mavi_vision.runtime.progress import ProcessingProgressSink
-from mavi_vision.quality.scoring import representative_quality
 from mavi_vision.storage.artifact_publisher import ArtifactPublisher
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.integrity import (
@@ -38,28 +38,23 @@ class VideoProcessingError(RuntimeError):
 
 
 @dataclass(slots=True)
-class _RepresentativeCandidate:
-    observation: RepresentativeObservation
-    crop: np.ndarray
-
-
-@dataclass(slots=True)
 class _TrackAccumulator:
     """Live state of one Track; discarded when the Track is finalised.
 
     Everything here is bounded independently of the Track's duration: scalars,
-    one Representative crop, and a trajectory spool that holds at most one chunk
-    of points in memory (the rest is spilled to attempt-scoped staging).
+    an evidence selector holding at most one encoded JPEG per role (never raw
+    pixels), and a trajectory spool that holds at most one chunk of points in
+    memory (the rest is spilled to attempt-scoped staging).
     """
 
     object_class: ObjectClass
     start_offset_ms: int
     end_offset_ms: int
     trajectory: TrajectorySpool
+    evidence: EvidenceSelector
     confidence_sum: float = 0.0
     max_confidence: float = 0.0
     observation_count: int = 0
-    representative: _RepresentativeCandidate | None = None
 
 
 class VideoProcessor:
@@ -91,13 +86,30 @@ class VideoProcessor:
         tracker: Tracker,
         artifact_store: StagingArtifactStore,
         *,
+        evidence_policy: EvidencePolicy,
+        evidence_scorer: QualityScorer | None = None,
+        evidence_encoder: EvidenceEncoder | None = None,
+        evidence_quota_bytes: int | None = None,
         trajectory_chunk_points: int = DEFAULT_CHUNK_POINTS,
     ) -> None:
         self._detector = detector
         self._tracker = tracker
         self._artifact_store = artifact_store
-        # A test seam, deliberately not operator configuration: the chunk size
-        # changes memory and I/O cadence, never the bytes produced.
+        self._evidence_policy = evidence_policy
+        # The scorer and encoder are chosen by the profile's versions; the
+        # arguments are replacement seams (a future scorer, a test stub).
+        self._evidence_scorer = evidence_scorer or QualityV1Scorer(
+            evidence_policy.occlusion_penalty_weight
+        )
+        self._evidence_encoder = evidence_encoder or JpegLadderEncoder(evidence_policy.encoder)
+        # Test seams, deliberately not operator configuration: the quota is the
+        # profile's ADR-013 bound in production, and the chunk size changes
+        # memory and I/O cadence, never the bytes produced.
+        self._evidence_quota_bytes = (
+            evidence_policy.run_evidence_crop_quota_bytes
+            if evidence_quota_bytes is None
+            else evidence_quota_bytes
+        )
         self._trajectory_chunk_points = trajectory_chunk_points
 
     def process(
@@ -159,12 +171,15 @@ class VideoProcessor:
                         raise TrackerError("tracker_update_invalid")
                     lease_guard.check_owned()
 
+                    # Every detection the tracker was given, both classes: the
+                    # evidence occlusion proxy needs all concurrent boxes.
+                    context = FrameContext(frame, _detections_tuple(detections))
                     for candidate in update.candidates:
                         if candidate.track_id in finalised:
                             raise TrackerError(
                                 "tracker_track_reappeared_after_retirement"
                             )
-                        self._accumulate(live, frame, candidate)
+                        self._accumulate(live, context, candidate)
 
                     # Retirement is final: the tracker guarantees these ids can
                     # never be emitted again, so each whole Track is staged now
@@ -231,14 +246,25 @@ class VideoProcessor:
                     lease_guard,
                 )
 
+            # Run-level admission needs every candidate of the run, so it
+            # happens once, after the drain (ADR-013 §6). Omitted supplemental
+            # crops are removed from staging before completion; admitted ones
+            # keep contiguous ranks.
+            lease_guard.check_owned()
+            admission = admit(tuple(finalised.values()), self._evidence_quota_bytes)
+            publisher.remove_omitted(
+                tuple((item.track_id, item.observation) for item in admission.omitted)
+            )
+
             lease_guard.check_owned()
             if progress_sink is not None:
                 progress_sink.mark_finalization_ready()
-            # Tracks were finalised in retirement order; the result is canonical.
+            # Admission returns Tracks in canonical Track-id order.
             return VisionProcessingResult(
                 job_id=job_id,
                 frames_processed=frames_processed,
-                tracks=tuple(finalised[track_id] for track_id in sorted(finalised)),
+                tracks=admission.tracks,
+                evidence_accounting=admission.accounting,
             )
         except LeaseLostError:
             raise
@@ -258,9 +284,10 @@ class VideoProcessor:
     def _accumulate(
         self,
         live: dict[str, _TrackAccumulator],
-        frame: DecodedFrame,
+        context: FrameContext,
         candidate: TrackCandidate,
     ) -> None:
+        frame = context.frame
         accumulator = live.get(candidate.track_id)
         if accumulator is None:
             accumulator = _TrackAccumulator(
@@ -271,6 +298,12 @@ class VideoProcessor:
                     self._artifact_store,
                     candidate.track_id,
                     chunk_points=self._trajectory_chunk_points,
+                ),
+                evidence=EvidenceSelector(
+                    policy=self._evidence_policy,
+                    scorer=self._evidence_scorer,
+                    encoder=self._evidence_encoder,
+                    track_start_ms=frame.offset_ms,
                 ),
             )
             live[candidate.track_id] = accumulator
@@ -290,21 +323,7 @@ class VideoProcessor:
             bbox.x + bbox.width / 2.0,
             bbox.y + bbox.height / 2.0,
         )
-        observation = RepresentativeObservation(
-            offset_ms=frame.offset_ms,
-            source_frame_number=frame.source_frame_number,
-            confidence=candidate.confidence,
-            bounding_box=bbox,
-            quality_score=representative_quality(frame, bbox),
-        )
-        if self._is_better_representative(
-            observation,
-            accumulator.representative,
-        ):
-            accumulator.representative = _RepresentativeCandidate(
-                observation=observation,
-                crop=self._crop_rgb(frame, bbox),
-            )
+        accumulator.evidence.observe(context, candidate)
 
     @staticmethod
     def _finalise_track(
@@ -315,7 +334,6 @@ class VideoProcessor:
     ) -> ProcessedTrack:
         """Prepare and stage one complete Track: the only finalisation path."""
         lease_guard.check_owned()
-        representative = accumulator.representative
         prepared = prepare_track(
             track_id=track_id,
             object_class=accumulator.object_class,
@@ -324,12 +342,7 @@ class VideoProcessor:
             confidence_sum=accumulator.confidence_sum,
             max_confidence=accumulator.max_confidence,
             observation_count=accumulator.observation_count,
-            representative=(
-                None if representative is None else representative.observation
-            ),
-            representative_crop=(
-                None if representative is None else representative.crop
-            ),
+            evidence=accumulator.evidence.resolve(),
             trajectory=accumulator.trajectory.summary(),
         )
         lease_guard.check_owned()
@@ -343,43 +356,17 @@ class VideoProcessor:
         lease_guard.check_owned()
         return processed
 
-    @staticmethod
-    def _is_better_representative(
-        candidate: RepresentativeObservation,
-        current: _RepresentativeCandidate | None,
-    ) -> bool:
-        if current is None:
-            return True
-        existing = current.observation
-        candidate_rank = (
-            candidate.quality_score,
-            candidate.confidence,
-            -candidate.offset_ms,
-            -candidate.source_frame_number,
-        )
-        existing_rank = (
-            existing.quality_score,
-            existing.confidence,
-            -existing.offset_ms,
-            -existing.source_frame_number,
-        )
-        return candidate_rank > existing_rank
-
-    @staticmethod
-    def _crop_rgb(frame: DecodedFrame, bbox: NormalizedBoundingBox) -> np.ndarray:
-        height, width, _ = frame.image.shape
-        left = max(0, min(width, int(np.floor(bbox.x * width))))
-        top = max(0, min(height, int(np.floor(bbox.y * height))))
-        right = max(left, min(width, int(np.ceil((bbox.x + bbox.width) * width))))
-        bottom = max(top, min(height, int(np.ceil((bbox.y + bbox.height) * height))))
-        crop = frame.image[top:bottom, left:right]
-        if crop.size == 0:
-            raise ValueError("representative_crop_empty")
-        return np.ascontiguousarray(crop.copy(), dtype=np.uint8)
-
     def _cleanup_best_effort(self, lease_guard: LeaseGuard) -> None:
         lease_guard.check_owned()
         try:
             self._artifact_store.cleanup()
         except Exception:
             pass
+
+
+def _detections_tuple(detections: object) -> tuple[DetectionCandidate, ...]:
+    """The frame's detections as an immutable tuple of the detector contract type."""
+    values = tuple(detections)  # type: ignore[arg-type]
+    if not all(isinstance(detection, DetectionCandidate) for detection in values):
+        raise ValueError("detector_output_invalid")
+    return values

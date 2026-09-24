@@ -570,3 +570,67 @@ def test_append_and_read_refuse_a_fifo_without_blocking(tmp_path) -> None:
         list(store.read_chunks("spool/t.traj", chunk_bytes=4, expected_size=4))
     with pytest.raises(StagingArtifactError, match="staging_path_escape"):
         store.remove("spool/t.traj")
+
+
+# --- S1.2c evidence crop names -----------------------------------------------------
+
+
+def test_evidence_names_are_canonical_and_attempt_scoped(tmp_path) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
+
+    name = store.evidence_relative_name("person-0001", "near-view")
+    descriptor = store.write_bytes(name, b"\xff\xd8jpeg", "image/jpeg")
+
+    assert name == "evidence/person-0001-near-view.jpg"
+    assert descriptor.storage_key == f"staging/{JOB_ID}/attempt-0001/evidence/person-0001-near-view.jpg"
+    assert store.remove(name) is True
+    assert store.remove(name) is False
+
+
+@pytest.mark.parametrize(
+    ("track_id", "role"),
+    [
+        ("../escape", "representative"),
+        ("person/0001", "representative"),
+        ("person-0001", "../representative"),
+        ("person-0001", "thumbnail"),
+        ("person-0001", "Representative"),
+        ("person-0001", ""),
+    ],
+)
+def test_evidence_names_reject_traversal_and_unknown_roles(tmp_path, track_id: str, role: str) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
+
+    with pytest.raises(StagingArtifactError, match="track_id_invalid|evidence_role_invalid"):
+        store.evidence_relative_name(track_id, role)
+    assert not (tmp_path / "staging").exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX no-follow fixture")
+def test_evidence_write_and_remove_refuse_a_linked_evidence_directory(tmp_path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-evidence"
+    outside.mkdir()
+    (outside / "person-0001-near-view.jpg").write_bytes(b"keep")
+    attempt = _attempt_dir(tmp_path)
+    attempt.mkdir(parents=True)
+    (attempt / "evidence").symlink_to(outside, target_is_directory=True)
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
+    name = store.evidence_relative_name("person-0001", "near-view")
+
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.write_bytes(name, b"x", "image/jpeg")
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.remove(name)
+    assert (outside / "person-0001-near-view.jpg").read_bytes() == b"keep"
+
+
+def test_duplicate_evidence_leaf_is_replaced_atomically_not_duplicated(tmp_path) -> None:
+    store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
+    name = store.evidence_relative_name("person-0001", "representative")
+    store.write_bytes(name, b"first", "image/jpeg")
+    second = store.write_bytes(name, b"second", "image/jpeg")
+
+    directory = _attempt_dir(tmp_path) / "evidence"
+    assert sorted(p.name for p in directory.iterdir()) == ["person-0001-representative.jpg"]
+    assert (directory / "person-0001-representative.jpg").read_bytes() == b"second"
+    assert second.size_bytes == 6

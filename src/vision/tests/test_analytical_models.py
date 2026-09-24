@@ -8,11 +8,14 @@ from mavi_vision.common.analytical import (
     ArtifactDescriptor,
     NormalizedBoundingBox,
     ObjectClass,
+    EvidenceAccounting,
+    ObservationDescriptor,
     ProcessedTrack,
-    RepresentativeObservation,
+    RoleAccounting,
     TrajectoryPoint,
     VisionProcessingResult,
 )
+from mavi_vision.evidence.roles import EvidenceRole
 
 
 def _artifact(storage_key: str, sha_char: str = "a") -> ArtifactDescriptor:
@@ -24,17 +27,34 @@ def _artifact(storage_key: str, sha_char: str = "a") -> ArtifactDescriptor:
     )
 
 
-def _representative(confidence: float = 0.9) -> RepresentativeObservation:
-    return RepresentativeObservation(
-        offset_ms=500,
-        source_frame_number=12,
+def _observation(
+    role: EvidenceRole = EvidenceRole.REPRESENTATIVE,
+    rank: int = 0,
+    *,
+    frame: int = 12,
+    offset: int = 500,
+    confidence: float = 0.9,
+    size: int = 1000,
+) -> ObservationDescriptor:
+    return ObservationDescriptor(
+        role=role,
+        rank=rank,
+        offset_ms=offset,
+        source_frame_number=frame,
         confidence=confidence,
         bounding_box=NormalizedBoundingBox(0.1, 0.1, 0.2, 0.4),
-        quality_score=0.8,
+        quality_micro=800_000,
+        selection_micro=800_000,
+        crop=ArtifactDescriptor(
+            storage_key=f"staging/job/evidence/fixture-0001-{role.value}.jpg",
+            media_type="image/jpeg",
+            size_bytes=size,
+            sha256="c" * 64,
+        ),
     )
 
 
-def _track(*, mean: float = 0.85, maximum: float = 0.9) -> ProcessedTrack:
+def _track(*, mean: float = 0.85, maximum: float = 0.9, observations=None) -> ProcessedTrack:
     return ProcessedTrack(
         track_id="fixture-0001",
         object_class=ObjectClass.PERSON,
@@ -43,8 +63,7 @@ def _track(*, mean: float = 0.85, maximum: float = 0.9) -> ProcessedTrack:
         detection_count=2,
         mean_confidence=mean,
         max_confidence=maximum,
-        representative=_representative(),
-        thumbnail=_artifact("staging/job/thumbnails/fixture-0001.jpg"),
+        observations=observations if observations is not None else (_observation(),),
         trajectory_artifact=_artifact(
             "staging/job/trajectories/fixture-0001.msgpack", "b"
         ),
@@ -63,7 +82,10 @@ def test_processing_result_is_track_oriented_and_has_complete_confidence_facts()
     track = _track()
 
     result = VisionProcessingResult(
-        job_id=UUID(int=1), frames_processed=25, tracks=(track,)
+        job_id=UUID(int=1),
+        frames_processed=25,
+        tracks=(track,),
+        evidence_accounting=EvidenceAccounting(representative=RoleAccounting(1, 1, 0, 1000, 1000)),
     )
 
     assert result.tracks == (track,)
@@ -88,8 +110,11 @@ def test_processed_track_is_descriptor_only() -> None:
     fields = set(ProcessedTrack.__dataclass_fields__)
 
     assert "trajectory" not in fields
-    assert not any("payload" in name for name in fields)
-    assert {"thumbnail", "trajectory_artifact"} <= fields
+    assert not any("payload" in name or "image" in name for name in fields)
+    assert {"observations", "trajectory_artifact"} <= fields
+    assert not any(
+        "payload" in name or "image" in name for name in ObservationDescriptor.__dataclass_fields__
+    )
 
 
 def test_artifact_descriptor_rejects_noncanonical_storage_key_and_sha() -> None:
@@ -114,13 +139,7 @@ def test_offsets_scores_and_sizes_are_bounded() -> None:
     with pytest.raises(ValueError):
         TrajectoryPoint(-1, 0.2, 0.3)
     with pytest.raises(ValueError):
-        RepresentativeObservation(
-            offset_ms=0,
-            source_frame_number=-1,
-            confidence=0.5,
-            bounding_box=NormalizedBoundingBox(0.1, 0.1, 0.2, 0.2),
-            quality_score=0.5,
-        )
+        _observation(frame=-1)
     with pytest.raises(ValueError):
         ArtifactDescriptor(
             storage_key="staging/job/path.jpg",
@@ -128,3 +147,44 @@ def test_offsets_scores_and_sizes_are_bounded() -> None:
             size_bytes=-1,
             sha256="a" * 64,
         )
+
+
+def test_track_observations_must_be_canonical() -> None:
+    near = _observation(EvidenceRole.NEAR_VIEW, 1, frame=13, offset=600)
+    late = _observation(EvidenceRole.LATE_DIVERSE, 2, frame=20, offset=900)
+    assert _track(observations=(_observation(), near, late)).representative.role is EvidenceRole.REPRESENTATIVE
+
+    for bad, code in (
+        ((), "track_observations_invalid"),
+        ((near,), "observation_rank_invalid"),
+        ((_observation(), _observation(EvidenceRole.LATE_DIVERSE, 1, frame=20), _observation(EvidenceRole.NEAR_VIEW, 2, frame=13)), "track_observation_order_invalid"),
+        ((_observation(), _observation(EvidenceRole.NEAR_VIEW, 2, frame=13)), "track_observation_rank_invalid"),
+        ((_observation(), _observation(EvidenceRole.NEAR_VIEW, 1, frame=12)), "track_observation_frame_duplicate"),
+        ((_observation(), _observation(EvidenceRole.NEAR_VIEW, 1, frame=13, offset=1001)), "observation_outside_track"),
+        ((_observation(confidence=0.95),), "observation_confidence_exceeds_track_max"),
+    ):
+        with pytest.raises(ValueError, match=code):
+            _track(observations=bad)
+
+
+def test_observation_crop_is_bounded_by_its_role_cap() -> None:
+    with pytest.raises(ValueError, match="observation_crop_size_invalid"):
+        _observation(size=65537)
+    assert _observation(EvidenceRole.NEAR_VIEW, 1, size=163840).crop.size_bytes == 163840
+    with pytest.raises(ValueError, match="observation_crop_size_invalid"):
+        _observation(EvidenceRole.NEAR_VIEW, 1, size=163841)
+
+
+def test_result_accounting_must_describe_the_observations_present() -> None:
+    track = _track()
+    with pytest.raises(ValueError, match="evidence_accounting_mismatch"):
+        VisionProcessingResult(UUID(int=1), 25, (track,))
+    with pytest.raises(ValueError, match="evidence_accounting_mismatch"):
+        VisionProcessingResult(
+            UUID(int=1),
+            25,
+            (track,),
+            EvidenceAccounting(representative=RoleAccounting(1, 1, 0, 1000, 999)),
+        )
+    with pytest.raises(ValueError, match="evidence_accounting_invalid"):
+        RoleAccounting(2, 1, 0, 10, 5)  # omitted must equal candidates - admitted

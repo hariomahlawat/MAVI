@@ -5,11 +5,23 @@ which the Track has a candidate, holds at most one *encoded* image per role,
 and never keeps pixels: a crop is cut from the frame only to encode a
 candidate that would replace a holder, and is dropped immediately.
 
-Invariant (plan §4.2, correction C1): after every frame the Representative
-holder is the ε-maximum of the admissible qualified candidates seen so far --
-the earliest of those within ε of the best selection score. A would-be
-replacement is encoded first and replaces the holder only if admissible, so an
-encoding failure can never cost the Track a Representative it already has.
+Representative invariant. The Representative is mandatory for every accepted
+Track (ADR-013 §4), so its slot has two tiers, and nothing else keeps state:
+
+- once the Track has had an admissible *qualified* candidate, the holder is the
+  ε-rule folded over the admissible qualified candidates in frame order (a
+  candidate replaces the holder only by beating it by more than ε);
+- before that, the holder is the same ε-rule folded over every admissible
+  candidate, and the first admissible qualified candidate displaces it
+  unconditionally.
+
+A would-be replacement is encoded first and replaces the holder only if
+admissible, so an encoding failure never costs the Track a Representative it
+already has. Supplemental roles are filled only by qualified candidates.
+(S1.2c deviation E8, proposed ADR-013 §4 amendment: the plan's strict
+"qualified-only" Representative fails the whole attempt whenever one Track has
+no qualified frame at all -- a subject clipped at the frame edge, a pair
+walking together, a low-texture subject -- which common footage produces.)
 """
 
 from __future__ import annotations
@@ -33,7 +45,11 @@ from mavi_vision.tracking.interfaces import TrackCandidate
 
 @dataclass(frozen=True, slots=True)
 class SelectedEvidence:
-    """A role holder: encoded bytes plus the scalars that identify the view."""
+    """A role holder: encoded bytes plus the scalars that identify the view.
+
+    ``qualified`` is False only for a fallback Representative (see the module
+    invariant); every supplemental holder is qualified.
+    """
 
     role: EvidenceRole
     offset_ms: int
@@ -43,6 +59,7 @@ class SelectedEvidence:
     area: float
     quality_micro: int
     selection_micro: int
+    qualified: bool
     image: EncodedImage
 
 
@@ -107,9 +124,7 @@ class EvidenceSelector:
         """Evaluate one frame's candidate for every role, in canonical order."""
         self.stats.candidates_seen += 1
         quality = self._scorer.score(context, candidate)
-        if not self._qualified(candidate, quality):
-            return
-        self.stats.candidates_qualified += 1
+        qualified = self._qualified(candidate, quality)
         policy = self._policy
         frame = context.frame
         view = _View(
@@ -118,14 +133,25 @@ class EvidenceSelector:
             bounding_box=candidate.bounding_box,
         )
 
-        # Representative: strict improvement by more than ε. A frame that wins
-        # it is the holder the later roles are evaluated against, so one frame
-        # can never take two roles.
+        # Representative: a qualified candidate always outranks a fallback
+        # holder; within a tier, strict improvement by more than ε. A frame that
+        # wins it is the holder the later roles are evaluated against, so one
+        # frame can never take two roles.
         representative = self._holders[0]
-        if representative is None or (
-            quality.selection_micro > representative.selection_micro + policy.replace_epsilon_micro
+        if (
+            representative is None
+            or (qualified and not representative.qualified)
+            or (
+                qualified == representative.qualified
+                and quality.selection_micro
+                > representative.selection_micro + policy.replace_epsilon_micro
+            )
         ):
-            self._try_hold(EvidenceRole.REPRESENTATIVE, context, candidate, quality)
+            self._try_hold(EvidenceRole.REPRESENTATIVE, context, candidate, quality, qualified)
+
+        if not qualified:
+            return
+        self.stats.candidates_qualified += 1
 
         # NearView: a materially larger view, not a near-duplicate of the
         # Representative; growth hysteresis prevents thrashing on small changes.
@@ -134,7 +160,7 @@ class EvidenceSelector:
         if not self._near_duplicate(view, representative) and (
             near_view is None or self._area_grew(quality.area, near_view.area)
         ):
-            self._try_hold(EvidenceRole.NEAR_VIEW, context, candidate, quality)
+            self._try_hold(EvidenceRole.NEAR_VIEW, context, candidate, quality, True)
 
         # EarlyDiverse: best view inside the anchored early window; frozen once
         # the window has closed (it is known online from Track start).
@@ -145,14 +171,14 @@ class EvidenceSelector:
                 early is None
                 or quality.selection_micro > early.selection_micro + policy.replace_epsilon_micro
             ):
-                self._try_hold(EvidenceRole.EARLY_DIVERSE, context, candidate, quality)
+                self._try_hold(EvidenceRole.EARLY_DIVERSE, context, candidate, quality, True)
 
         # LateDiverse: a trailing view, refreshed at most once per interval.
         late = self._holders[3]
         if (
             late is None or frame.offset_ms - late.offset_ms >= policy.late_refresh_interval_ms
         ) and self._diverse_from(view, (self._holders[0], self._holders[1], self._holders[2])):
-            self._try_hold(EvidenceRole.LATE_DIVERSE, context, candidate, quality)
+            self._try_hold(EvidenceRole.LATE_DIVERSE, context, candidate, quality, True)
 
     # -- retirement -------------------------------------------------------------
 
@@ -234,6 +260,7 @@ class EvidenceSelector:
         context: FrameContext,
         candidate: TrackCandidate,
         quality: CandidateQuality,
+        qualified: bool,
     ) -> None:
         self.stats.encode_attempts += 1
         # The crop is a view of the decoded frame; the encoder copies what it
@@ -254,6 +281,7 @@ class EvidenceSelector:
             area=quality.area,
             quality_micro=quality.quality_micro,
             selection_micro=quality.selection_micro,
+            qualified=qualified,
             image=image,
         )
 

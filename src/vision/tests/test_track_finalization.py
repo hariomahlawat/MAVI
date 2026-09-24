@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from mavi_vision.common.analytical import (
     NormalizedBoundingBox,
     ObjectClass,
-    RepresentativeObservation,
     TrajectoryPoint,
 )
+from mavi_vision.evidence.errors import EvidenceError
+from mavi_vision.evidence.roles import EvidenceRole
 from mavi_vision.pipeline.finalization import PreparedTrack, prepare_track
 from mavi_vision.video.trajectory_spool import TrajectorySummary
+from tests.evidence_fixtures import representative_only, resolved
 
 
 def _summary(points: tuple[TrajectoryPoint, ...]) -> TrajectorySummary:
@@ -19,18 +20,7 @@ def _summary(points: tuple[TrajectoryPoint, ...]) -> TrajectorySummary:
     return TrajectorySummary(len(points), points[0].offset_ms, points[-1].offset_ms)
 
 
-def _representative() -> RepresentativeObservation:
-    return RepresentativeObservation(
-        offset_ms=40,
-        source_frame_number=1,
-        confidence=0.9,
-        bounding_box=NormalizedBoundingBox(0.1, 0.1, 0.4, 0.5),
-        quality_score=0.8,
-    )
-
-
 def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
-    crop = np.full((12, 10, 3), 120, dtype=np.uint8)
     trajectory = (
         TrajectoryPoint(0, 0.3, 0.4),
         TrajectoryPoint(40, 0.4, 0.4),
@@ -44,8 +34,7 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
         confidence_sum=1.7,
         max_confidence=0.9,
         observation_count=2,
-        representative=_representative(),
-        representative_crop=crop,
+        evidence=representative_only(),
         trajectory=_summary(trajectory),
     )
     second = prepare_track(
@@ -56,8 +45,7 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
         confidence_sum=1.7,
         max_confidence=0.9,
         observation_count=2,
-        representative=_representative(),
-        representative_crop=crop,
+        evidence=representative_only(),
         trajectory=_summary(trajectory),
     )
 
@@ -67,8 +55,8 @@ def test_prepare_track_is_deterministic_and_side_effect_free() -> None:
     assert first.mean_confidence == pytest.approx(0.85)
     assert first.max_confidence == pytest.approx(0.9)
     assert first.confidence == first.mean_confidence
-    assert first.thumbnail_payload.startswith(b"\xff\xd8")
-    assert first.thumbnail_payload.endswith(b"\xff\xd9")
+    # prepare_track encodes nothing: the resolved Evidence Set passes through.
+    assert first.evidence == representative_only()
     # Only the summary travels; the points are streamed from the spool.
     assert first.trajectory == TrajectorySummary(2, 0, 40)
     assert not hasattr(first, "trajectory_payload")
@@ -97,8 +85,7 @@ def _prepare_constant_track(confidence: float, count: int, confidence_sum: float
         confidence_sum=confidence_sum,
         max_confidence=confidence,
         observation_count=count,
-        representative=_representative(),
-        representative_crop=np.full((12, 10, 3), 120, dtype=np.uint8),
+        evidence=representative_only(),
         trajectory=_summary(tuple(TrajectoryPoint(index * 40, 0.3, 0.4) for index in range(count))),
     )
 
@@ -154,7 +141,6 @@ def test_prepare_track_rejects_non_finite_and_out_of_range_confidence(
 
 
 def test_prepare_track_rejects_materially_inconsistent_confidence_aggregate() -> None:
-    crop = np.full((12, 10, 3), 120, dtype=np.uint8)
     trajectory = (
         TrajectoryPoint(0, 0.3, 0.4),
         TrajectoryPoint(40, 0.4, 0.4),
@@ -169,8 +155,7 @@ def test_prepare_track_rejects_materially_inconsistent_confidence_aggregate() ->
             confidence_sum=1.81,
             max_confidence=0.9,
             observation_count=2,
-            representative=_representative(),
-            representative_crop=crop,
+            evidence=representative_only(),
             trajectory=_summary(trajectory),
         )
 
@@ -185,8 +170,7 @@ def test_prepare_track_rejects_missing_observations() -> None:
             confidence_sum=0.0,
             max_confidence=0.0,
             observation_count=0,
-            representative=_representative(),
-            representative_crop=np.ones((2, 2, 3), dtype=np.uint8),
+            evidence=representative_only(),
             trajectory=_summary(()),
         )
 
@@ -205,8 +189,7 @@ def _prepare_with_trajectory(
         confidence_sum=0.9 * len(trajectory),
         max_confidence=0.9,
         observation_count=len(trajectory),
-        representative=_representative(),
-        representative_crop=np.ones((4, 4, 3), dtype=np.uint8),
+        evidence=representative_only(),
         trajectory=_summary(trajectory),
     )
 
@@ -249,7 +232,56 @@ def test_prepare_track_rejects_point_count_differing_from_detections() -> None:
             confidence_sum=2.7,
             max_confidence=0.9,
             observation_count=3,
-            representative=_representative(),
-            representative_crop=np.ones((4, 4, 3), dtype=np.uint8),
+            evidence=representative_only(),
             trajectory=_summary((TrajectoryPoint(0, 0.2, 0.3), TrajectoryPoint(1000, 0.4, 0.3))),
         )
+
+
+def _prepare_with_evidence(evidence) -> PreparedTrack:
+    return prepare_track(
+        track_id="person-0001",
+        object_class=ObjectClass.PERSON,
+        start_offset_ms=0,
+        end_offset_ms=1000,
+        confidence_sum=1.8,
+        max_confidence=0.9,
+        observation_count=2,
+        evidence=evidence,
+        trajectory=TrajectorySummary(2, 0, 1000),
+    )
+
+
+def test_prepare_track_requires_a_representative() -> None:
+    with pytest.raises(EvidenceError, match="evidence_representative_missing"):
+        _prepare_with_evidence(())
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        # Supplemental first.
+        resolved((EvidenceRole.NEAR_VIEW, 1, 100)),
+        # Roles out of canonical order.
+        resolved((EvidenceRole.REPRESENTATIVE, 0, 0), (EvidenceRole.LATE_DIVERSE, 2, 900), (EvidenceRole.NEAR_VIEW, 1, 100)),
+        # Two roles on one source frame.
+        resolved((EvidenceRole.REPRESENTATIVE, 0, 0), (EvidenceRole.NEAR_VIEW, 0, 0)),
+        # An observation outside the Track.
+        resolved((EvidenceRole.REPRESENTATIVE, 0, 0), (EvidenceRole.LATE_DIVERSE, 9, 1001)),
+        # Confidence above the Track maximum.
+        resolved((EvidenceRole.REPRESENTATIVE, 0, 0), confidence=0.95),
+    ],
+)
+def test_prepare_track_refuses_a_non_canonical_evidence_set(evidence) -> None:
+    with pytest.raises(EvidenceError, match="evidence_set_invalid"):
+        _prepare_with_evidence(evidence)
+
+
+def test_prepare_track_accepts_the_full_canonical_set() -> None:
+    evidence = resolved(
+        (EvidenceRole.REPRESENTATIVE, 0, 0),
+        (EvidenceRole.NEAR_VIEW, 1, 100),
+        (EvidenceRole.EARLY_DIVERSE, 2, 400),
+        (EvidenceRole.LATE_DIVERSE, 3, 900),
+    )
+
+    assert _prepare_with_evidence(evidence).evidence == evidence

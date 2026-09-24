@@ -13,6 +13,11 @@ from mavi_vision.common.analytical import ArtifactDescriptor
 
 _TRACK_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
 _ATTEMPT_NAME_PATTERN = re.compile(r"attempt-([0-9]{4,10})\Z")
+# The completion-v3 role tokens; kept literal so the store does not depend on
+# the evidence package.
+_EVIDENCE_ROLE_TOKENS = frozenset(
+    {"representative", "near-view", "early-diverse", "late-diverse"}
+)
 
 
 def attempt_directory_name(attempt_count: int) -> str:
@@ -103,6 +108,13 @@ class StagingArtifactStore:
             f"staging/{self._job_id}/{self._attempt_name}/"
             f"trajectories/{track_id}.msgpack"
         )
+
+    def evidence_relative_name(self, track_id: str, role_token: str) -> str:
+        """Staging name of one Track Evidence Set crop (completion v3, plan §7.2)."""
+        self._validate_track_id(track_id)
+        if role_token not in _EVIDENCE_ROLE_TOKENS:
+            raise StagingArtifactError("evidence_role_invalid")
+        return f"evidence/{track_id}-{role_token}.jpg"
 
     def spool_relative_name(self, track_id: str) -> str:
         """Name of a Track's internal trajectory spool inside this attempt.

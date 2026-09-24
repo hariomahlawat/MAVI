@@ -18,6 +18,7 @@ from mavi_vision.pipeline.process_video import VideoProcessor
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.tracking.fixture import FixtureTracker
 from mavi_vision.tracking.interfaces import TrackCandidate, TrackerUpdate
+from tests.profile_fixtures import PRODUCTION_EVIDENCE_POLICY
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd761")
@@ -91,6 +92,7 @@ def test_deadline_expiry_during_decode_stops_before_detector(
         RecordingDetector(),
         FixtureTracker({}),
         StagingArtifactStore(tmp_path, JOB_ID, 1),
+        evidence_policy=PRODUCTION_EVIDENCE_POLICY,
     )
 
     with pytest.raises(LeaseLostError, match="lease_lost"):
@@ -122,6 +124,7 @@ def test_deadline_expiry_during_detector_stops_before_tracker(tmp_path: Path) ->
         ExpiringDetector(),
         RecordingTracker(),
         StagingArtifactStore(tmp_path, JOB_ID, 1),
+        evidence_policy=PRODUCTION_EVIDENCE_POLICY,
     )
 
     with pytest.raises(LeaseLostError, match="lease_lost"):
@@ -155,6 +158,7 @@ def test_deadline_expiry_during_tracker_stops_before_finalization(tmp_path: Path
         FixtureDetector({0: (_person(),)}),
         ExpiringTracker(),
         StagingArtifactStore(tmp_path, JOB_ID, 1),
+        evidence_policy=PRODUCTION_EVIDENCE_POLICY,
     )
 
     with pytest.raises(LeaseLostError, match="lease_lost"):

@@ -172,10 +172,12 @@ def test_encodes_only_candidates_that_would_replace_a_holder() -> None:
 
 
 def test_representative_invariant_holds_against_an_independent_oracle() -> None:
-    """The online holder equals the ε-rule folded over admissible qualified candidates.
+    """The online holder equals the two-tier ε-rule folded over admissible candidates.
 
-    Consequently it is always within ε of the best admissible score seen, and it
-    never changes to an unadmissible candidate.
+    Once any admissible qualified candidate has been seen, the holder is the ε-rule
+    folded over the admissible qualified candidates alone -- so it is within ε of
+    the best admissible qualified score. Before that it is the ε-rule over every
+    admissible candidate. It never changes to an unadmissible candidate.
     """
     rng = random.Random(20260923)
     rep_cap = role_cap_bytes(REP)
@@ -183,29 +185,56 @@ def test_representative_invariant_holds_against_an_independent_oracle() -> None:
         count = rng.randint(1, 40)
         specs = {}
         refuse = set()
-        admissible_scores: list[tuple[int, int]] = []
+        admissible: list[tuple[int, int, bool]] = []
         for number in range(count):
             score = rng.choice([rng.random(), 0.5, 0.52, 0.54, 0.51])
-            qualified = rng.random() > 0.15
+            qualified = rng.random() > 0.4
             specs[number] = Spec(score, sharpness=0.5 if qualified else 0.0)
             if rng.random() < 0.3:
                 refuse.add((number, rep_cap))
-            elif qualified:
-                admissible_scores.append((number, micro(score)))
+            else:
+                admissible.append((number, micro(score), qualified))
         selector = _selector(specs, StubEncoder(refuse))
-        oracle: tuple[int, int] | None = None
-        admissible_iter = iter(admissible_scores)
-        pending = next(admissible_iter, None)
+        oracle: tuple[int, int, bool] | None = None
+        pending = iter(admissible)
+        head = next(pending, None)
+        eps = POLICY.replace_epsilon_micro
         for number in range(count):
             _observe(selector, number, number * 700)
-            while pending is not None and pending[0] <= number:
-                if oracle is None or pending[1] > oracle[1] + POLICY.replace_epsilon_micro:
-                    oracle = pending
-                pending = next(admissible_iter, None)
+            while head is not None and head[0] <= number:
+                if (
+                    oracle is None
+                    or (head[2] and not oracle[2])
+                    or (head[2] == oracle[2] and head[1] > oracle[1] + eps)
+                ):
+                    oracle = head
+                head = next(pending, None)
             assert _holder_frame(selector, REP) == (None if oracle is None else oracle[0]), trial
-            if oracle is not None:
-                best = max(score for n, score in admissible_scores if n <= number)
-                assert oracle[1] >= best - POLICY.replace_epsilon_micro
+            seen_qualified = [score for n, score, q in admissible if n <= number and q]
+            if seen_qualified:
+                assert oracle is not None and oracle[2]
+                assert oracle[1] >= max(seen_qualified) - eps
+
+
+def test_first_qualified_candidate_displaces_a_fallback_whatever_its_score() -> None:
+    specs = {0: Spec(0.95, edge_margin=0.0), 1: Spec(0.10), 2: Spec(0.99, edge_margin=0.0)}
+    selector = _selector(specs)
+
+    _observe(selector, 0, 0)
+    assert _holder_frame(selector, REP) == 0 and not selector.holder(REP).qualified
+    _observe(selector, 1, 5000)
+    assert _holder_frame(selector, REP) == 1 and selector.holder(REP).qualified
+    # An unqualified frame never displaces a qualified holder, however it scores.
+    _observe(selector, 2, 10000)
+    assert _holder_frame(selector, REP) == 1
+
+
+def test_fallback_holders_follow_the_epsilon_rule_among_themselves() -> None:
+    specs = {0: Spec(0.50, sharpness=0.0), 1: Spec(0.51, sharpness=0.0), 2: Spec(0.53, sharpness=0.0)}
+    selector = _run(specs, {0: 0, 1: 5000, 2: 10000})
+
+    assert _holder_frame(selector, REP) == 2
+    assert selector.holder(REP).qualified is False
 
 
 # Qualification --------------------------------------------------------------------
@@ -220,13 +249,18 @@ def test_representative_invariant_holds_against_an_independent_oracle() -> None:
         (Spec(0.9, occlusion=0.30), 0.9),       # occlusion must be strictly below 0.30
     ],
 )
-def test_unqualified_frames_never_hold_any_role(spec: Spec, confidence: float) -> None:
-    """S3: one axis below its floor is enough to disqualify every role."""
-    selector = _selector({0: spec})
-    _observe(selector, 0, 0, confidence=confidence)
+def test_unqualified_frames_never_hold_a_supplemental_role(spec: Spec, confidence: float) -> None:
+    """S3: one axis below its floor disqualifies the frame. It can only be a
+    fallback Representative (the Representative is mandatory); it never fills a
+    supplemental role, however many such frames the Track has."""
+    specs = {n: dataclasses.replace(spec, area=0.1 * (n + 1)) for n in range(6)}
+    selector = _selector(specs)
+    for number in range(6):
+        _observe(selector, number, number * 6000, confidence=confidence)
 
-    assert selector.holders() == ()
-    assert selector.resolve() == ()
+    assert [holder.role for holder in selector.holders()] == [REP]
+    assert selector.holder(REP).qualified is False
+    assert [r.role for r in selector.resolve()] == [REP]
 
 
 def test_qualification_thresholds_are_inclusive_floors() -> None:
@@ -259,7 +293,9 @@ def test_real_scorer_disqualifies_an_occluded_frame() -> None:
         candidate,
     )
 
-    assert selector.holders() == ()
+    # Occluded: only a fallback Representative, never a qualified one.
+    assert [holder.role for holder in selector.holders()] == [REP]
+    assert selector.holder(REP).qualified is False
 
 
 # NearView -------------------------------------------------------------------------
