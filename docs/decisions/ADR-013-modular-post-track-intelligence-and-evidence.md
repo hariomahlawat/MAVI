@@ -76,6 +76,16 @@ The selection method is frozen; only its numeric parameters are set in S1 after 
 
 Ties within a role resolve deterministically: a candidate replaces the current holder only on strict improvement (score, or area for NearView, by at least the profile's replacement epsilon), so equal scores keep the earlier frame. Roles are evaluated in the order Representative, NearView, EarlyDiverse, LateDiverse, so the same Track always yields the same set.
 
+> **Proposed amendment (S1.2c, 2026-09-24) — pending owner ratification. Two-tier Representative.**
+>
+> *Problem.* Read strictly, the two rules above require every accepted Track to have at least one qualified frame, and §5 fails the whole attempt when a Track has no Representative. Real Tracks can have none: a subject that stays clipped by the frame edge, one that stays overlapped by another box, or a low-texture subject below the sharpness floor. The C1 scripted corpus shows it outright. Its uniform box measures sharpness 0–0.023, below the 0.05 floor, in every frame of all three videos, so under the strict rule every corpus job fails with `evidence_representative_missing` (`docs/qualification/2026-09-24-evidence-selector-parameter-note.md`). One such Track would fail a whole ProcessingRun, discarding every other Track's evidence, and a retry fails the same way.
+>
+> *Proposed rule.* The Representative is selected in two tiers. While a Track has no qualified candidate, the Representative is the highest-scoring **admissible** candidate under the same ε rule, held as a fallback. The first qualified admissible candidate displaces a fallback holder whatever its score, and from then on only qualified candidates can hold the role. The three supplemental roles are unchanged: qualified candidates only, omitted otherwise. The attempt still fails if no candidate at all is admissible (`evidence_representative_missing`). The rule is online, needs no reservoir, and still encodes only would-be replacements. The worker implements it as `evidence-selector-v1`; the selector module docstring and `test_evidence_selector.py` (two-tier oracle property test) pin it.
+>
+> *Trade-off accepted.* A Track can carry a Representative that fails a quality floor, so "Representative" no longer implies "qualified". The wire does not yet mark this: the observation's `qualityScore` is present, but there is no qualified flag. In exchange, one hard Track no longer fails the whole run and loses every other Track's evidence. Supplemental roles keep the strict rule, so later analytical coverage never rests on unqualified frames.
+>
+> *If rejected.* The smallest reversal is to evaluate the Representative only for qualified candidates (one guard in `EvidenceSelector.observe`; the tier comparison then never fires). The strict rule then applies exactly as written above, and the scripted-corpus jobs (and any footage like them) fail closed.
+
 Representative remains the primary display summary. Supplemental roles exist to improve later analytical coverage, not to redefine the Track.
 
 ### 5. Evidence crops are encoded in-loop and staged only when a Track retires

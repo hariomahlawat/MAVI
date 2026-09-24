@@ -16,3 +16,5 @@ JSON Schema expresses the shape and per-field bounds (including the 64 KiB Repre
 
 `vision-job-complete-v3.example.json` is a golden fixture: `test-vectors/vision-job-complete-v3-digest.json` pins its file SHA-256 and the digest the platform computes for it. Changing either the example or the v3 digest sequence requires re-pinning deliberately. `test-vectors/vision-job-complete-v3-conformance.json` holds integer-binding cases addressed by JSON pointer, shared by the .NET and Python tests.
 
+**Worker emission (S1.2c).** The worker emits completion **3.0 only**, and only after `GET /api/vision/contract` has listed `"3.0"`. Until then it stays not ready and leases nothing; it never falls back to 2.0. Its Pydantic model `VisionJobCompleteV3` also enforces the validator-level rules, so it rejects every vector in `control-plane-v3-invalid.json` (schema- and validator-level). The worker's body for the golden inputs is byte-identical to `vision-job-complete-v3.example.json`, so it reproduces the pinned digest (`src/vision/tests/test_worker_completion_v3.py`). The 2.0 schema, example and models stay for the platform's continued 2.0 acceptance.
+

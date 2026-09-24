@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.2 Track Evidence Set: implementation plan
 
-**Status:** Implementation-ready plan, revision 3 (after the second independent cold review; janitor precision only). **S1.2a implemented** (platform v3 and staging janitor; deviations D1–D3 recorded in its PR). **S1.2b implemented** (worker trajectory spool; implementation notes and deviations E1–E7 in §16.1). S1.2c not started.  
+**Status:** Implementation-ready plan, revision 3 (after the second independent cold review; janitor precision only). **S1.2a implemented** (platform v3 and staging janitor; deviations D1–D3 recorded in its PR). **S1.2b implemented** (worker trajectory spool; implementation notes and deviations E1–E7 in §16.1). **S1.2c implemented, not merged** (worker Evidence Set and completion 3.0; deviations E8–E18 and test mapping in §16.2). E8 needs owner ratification (proposed ADR-013 §4 amendment). The real-clip half of the §5 measurement note is still open.  
 **Date:** 2026-09-23  
 **Baseline:** `main@4b6141f52d6d6a0a72de664e60b8cd4441487799` (PR #75, S1.1 merged)  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §7–§8, §10.2, §12–§16  
@@ -710,6 +710,55 @@ Test mapping. The request's T1–T9 map to the plan's §14 names as follows. T1/
 As revision 1's S1.2b sequence (profile → roles/quality/encoder → selector → admission → pipeline integration → wire/client/runner → measurement note/docs/register).
 
 Exit: all gates green on the exact head; the worker's own emitted golden example matches the S1.2a pinned digest.
+
+### 16.2 S1.2c as implemented (baseline `main@85ae91f`)
+
+Seven commits: profile 1.1 → scorer and encoder → selector → admission and pipeline integration → wire 3.0, capability gate and runner → CI → S14 golden and measurement tool, then docs. No new dependency; `config/dependencies/offline-dependency-policy-v1.json` is untouched (§13.3 holds).
+
+**Module layout.** `mavi_vision/evidence/`: `roles.py` (roles, order, caps, quota), `policy.py` (immutable `EvidencePolicy`, versions, integer-micro quantisation), `quality.py` (`QualityScorer` protocol, `QualityV1Scorer`, occlusion proxy), `encoder.py` (`EvidenceEncoder` protocol, `JpegLadderEncoder`), `selector.py` (`EvidenceSelector`), `admission.py` (pure `admit`), `errors.py`. Scorer, encoder and selector are replaceable behind their protocols; `VideoProcessor` takes `evidence_scorer` / `evidence_encoder` seams, and the profile's version strings name what is running.
+
+| ID | Plan | As implemented | Why |
+|---|---|---|---|
+| **E8** | §4.2: Representative = best *qualified* admissible candidate; none → attempt fails | **Two-tier Representative.** Until a Track has a qualified admissible candidate, the holder is the ε-fold over all admissible candidates; the first qualified one displaces it, and from then on only qualified candidates can hold the role. Supplemental roles unchanged. No admissible candidate at all → `evidence_representative_missing` | The strict rule fails a whole run whenever one Track has no qualified frame (edge-clipped, persistently overlapped, low texture). The scripted corpus measures 0 % qualified frames (§5 note), so under the strict rule every corpus job fails. **Proposed ADR-013 §4 amendment, pending owner ratification**; the one-guard reversal is stated there |
+| E9 | §4.1: occlusion excludes the candidate by `frame_ordinal` | Excludes the one detection with the candidate's class **and exact box**. No match → `evidence_candidate_detection_unmatched` (fail closed) | `TrackCandidate` carries no detection ordinal. Exact equality is reliable because ByteTrack and the fixture tracker return the detector's box object unchanged |
+| E10 | §5 encoder block | Adds `encoder.encoderVersion: "evidence-jpeg-ladder-v1"`; every encoder value and the quota are fixed and the loader rejects anything else | So the profile (and therefore `pipelineProfileSha256` in provenance) names the scorer, the selector **and** the encoder |
+| E11 | §4.1 `quantize(x) = floor(x·10⁶)/10⁶` | Scores are held and compared as integer millionths (`quality_micro`, `selection_micro`); `replaceEpsilon` is converted exactly and the loader rejects precision finer than 10⁻⁶. The wire value is `micro / 10⁶` | Integer comparison has no float edge cases at ε; the emitted values are identical |
+| E12 | §4.2 C1 invariant: "the earliest candidate among those within ε of the top score" | The online rule is the **ε-fold**: the holder changes only when a candidate beats the *current holder* by more than ε. The two differ (scores .50, .515, .53 fold to .53; "earliest within ε of top" would pick .515). Tests assert the fold with an independent oracle (300 random trials); the no-reservoir argument holds for the fold unchanged | Correction of the invariant's wording, not of the rule |
+| E13 | §11.1: not-ready and **exit non-zero** | The runner probes `GET /api/vision/contract` before its first lease and after any control-plane error. An incompatible, missing or malformed answer keeps the worker **not-ready and re-probed each poll**, with no lease and no v2 fallback. Local readiness reason: `vision_platform_contract_unsupported`, logged once per incompatible period; `get_worker_health` refuses READY without it | Matches the request (stay not-ready, never lease) and the existing readiness loop; an exit loop under the service manager adds nothing |
+| E14 | §11.1: `400 worker_contract_version_unsupported` at `complete` is a non-retryable attempt failure | `PlatformContractUnsupported` → `/fail` with `vision_worker_contract_unsupported`, the capability is un-confirmed, and the completion is neither retried nor re-sent as 2.0 | Terminal for the attempt; the platform's retry policy decides the job |
+| E15 | §6.2 `AdmissionError("representative_quota_exceeded")` | `EvidenceError("evidence_quota_exceeded")`; all evidence errors are `EvidenceError(ValueError)` with a stable `.code` and surface as `pipeline_processing_failed` | One error family for the evidence package |
+| E16 | S1.2b E4: publication order thumbnail → trajectory | Trajectory stream first, then each crop in rank order, each write lease-fenced (`evidence/{trackId}-{role}.jpg`); `remove_omitted` is lease-fenced and removes one regular-file leaf per omitted crop through the hardened `remove` | Crops are the part admission may later remove; staging them last keeps the ordering simple |
+| E17 | §14 S14: golden selection on the C1 videos | Rendered losslessly in numpy from the same position model, in two variants (flat as drawn; textured). The flat outcome matches the real ffmpeg videos (fallback Representative at frames 40, 29, 25) | Pinned outcome independent of the x264 build |
+| E18 | — | `control_plane.VisionJobComplete` (2.0) is kept for the unchanged 2.0 contract tests; the worker never emits it. `VisionJobCompleteResponse.schemaVersion` accepts "2.0" and "3.0", and the client refuses any echo other than "3.0" | The platform echoes the request's version |
+
+**Accounting semantics.** Per role, `candidates` = observations in the Tracks' resolved Evidence Sets (every one of them staged); `admitted` = observations kept after admission; `omitted = candidates − admitted`; bytes likewise. Views dropped by `resolve()` as duplicates were never staged and are not candidates. Representative `omitted` is always 0 (a run whose Representatives exceed the quota fails instead).
+
+**Test mapping.**
+
+| Plan ID | Test (file) |
+|---|---|
+| S1, S2 | `test_representative_replaces_only_beyond_epsilon`, `test_epsilon_boundary_is_strict_and_exact` (`test_evidence_selector.py`) |
+| S3 | `test_unqualified_frames_never_hold_a_supplemental_role`, `test_qualification_thresholds_are_inclusive_floors` |
+| S4 | `test_real_scorer_disqualifies_an_occluded_frame`; `test_occlusion_uses_every_other_detection_of_both_classes` (`test_evidence_quality.py`) |
+| S5, S6 | `test_near_view_grows_by_hysteresis_only`, `test_repeated_marginal_improvements_do_not_thrash`, `test_near_view_seeds_on_the_first_non_duplicate_and_never_on_the_representative_frame` |
+| S7, S8 | `test_early_diverse_takes_the_best_view_inside_the_window_and_freezes_after_it`, `test_early_diverse_requires_separation_at_evaluation_time`, `test_early_window_is_anchored_to_track_start_not_frame_zero` |
+| S9 | `test_late_diverse_is_a_trailing_view_refreshed_at_the_interval`, `test_late_diverse_does_not_refresh_too_soon` |
+| S10, S11 | `test_resolve_omits_duplicates_in_role_order_and_reranks_contiguously`, `test_resolve_is_idempotent_and_pure` |
+| S12, S13 | `test_better_candidate_that_fails_encoding_keeps_the_valid_holder`, `test_no_admissible_representative_resolves_to_nothing` |
+| S14 | `test_golden_selection_on_the_scripted_corpus` (`test_evidence_scripted_corpus.py`) |
+| S15 | `test_selector_holds_at_most_four_encoded_images_and_no_ndarray` |
+| E8 (two-tier) | `test_representative_invariant_holds_against_an_independent_oracle`, `test_first_qualified_candidate_displaces_a_fallback_whatever_its_score`, `test_fallback_holders_follow_the_epsilon_rule_among_themselves`, `test_short_featureless_track_still_gets_a_fallback_representative` |
+| E1–E4, E7, E8 (encoder) | `test_evidence_encoder.py`: exact ladder, never upscales, first step under cap, `None` after exactly 15 attempts, 1-px and extreme aspect ratios, baseline 4:2:0 without EXIF/ICC |
+| E5, E6 | `test_golden_bytes_per_runtime_variant` (pinned for Linux / Pillow 11.3.0; other variants skip rather than claim), `test_adversarial_noise_is_admitted_as_measured_under_each_cap` |
+| A1–A6 | `test_evidence_admission.py` (named in each docstring), plus skip-and-continue, exact-fill, re-ranking and input-order determinism |
+| P1–P7 | `test_evidence_pipeline.py` (named in each docstring), plus encoder and staging-write failure cleanup |
+| M1–M5 | `test_live_track_state_holds_no_ndarray_and_at_most_four_images` (M1, M3), `test_evidence_memory_is_flat_with_track_duration` (M2), `test_many_live_selectors_retain_only_their_holders` (M4), `test_result_observations_are_canonical_and_descriptor_only` (M5) |
+| W1, W2 | `test_python_v3_model_rejects_every_shared_invalid_vector` (all 29 vectors of `control-plane-v3-invalid.json`, schema- and validator-level, the ones the .NET validator rejects), `test_python_v3_model_follows_the_shared_integer_conformance_corpus`, `test_worker_body_validates_against_the_v3_json_schema` (`test_worker_completion_v3.py`) |
+| W3 | `test_worker_body_is_byte_equivalent_to_the_golden_example` (the emitter reproduces the golden example exactly, so it reproduces the S1.2a pinned digest), `test_pipeline_generated_body_validates_against_schema_and_model` |
+| W4 | `test_worker_contract_capability.py` (never leases before "3.0"; re-probe; upgrade; terminal 400), `test_incompatible_or_malformed_capabilities_are_unsupported`, `test_contract_rejection_raises_unsupported_and_sends_nothing_else`, `test_worker_health_is_not_ready_until_platform_accepts_completion_3` |
+| W6 | `test_worst_shape_body_stays_within_the_budget`: 10,000 Tracks × 4 roles through the real client, **24.72 MiB** (gate 40 MiB) |
+| Profile | `test_evidence_profile.py` (versions, bounds, closed shape, any parameter change changes the SHA, qualification record re-derived and `pending`) |
+| Staging security | evidence-name tests in `test_artifact_store.py` / `test_artifact_store_windows.py`; `test_evidence_pipeline.py` added to Task 10 Staging Security (Ubuntu + Windows) |
 
 Each boundary leaves `main` buildable, testable, deployable and contract-compatible with the previous one: S1.2a changes no worker; S1.2b changes no byte any consumer sees; S1.2c is the only wire change and is guarded by the capability check.
 
