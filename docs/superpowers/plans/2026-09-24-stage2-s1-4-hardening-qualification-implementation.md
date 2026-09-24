@@ -49,7 +49,7 @@ S1.4 execution begins only when all are true on one exact source head:
 3. MAVI Quality Gate is green.
 4. `python tools/verify_repo.py` passes.
 5. no open P1/P2 against S1.
-6. the pipeline profile, worker completion v3 contract, DB migration and web Evidence Set contract are unchanged after the chosen qualification head is frozen.
+6. no path in the behavior-bearing surface defined by §2.1 changes after the chosen qualification head is frozen; any such change invalidates the affected evidence under §2.2 and requires the corresponding B-items to be rerun.
 7. the exact commit SHA is recorded in the S1.4 report before authoritative measurements begin.
 
 Moving the behavior-bearing head invalidates the entry gate. Documentation-only report edits after measurement may continue only when they cannot affect execution; the measured source SHA remains explicit.
@@ -686,10 +686,10 @@ Keep S1.4 reviewable. Preferred sequence:
 
 ### PR/commit A — qualification harness and plan support
 
-Only if required:
+This PR is **mandatory before authoritative measurement begins**. It contains the code-level prerequisites required to make the S1.4 evidence executable and non-vacuous:
 
 - small measurement harnesses;
-- sparse/fake-store scale helpers;
+- sparse/fake-store scale helpers where needed for arithmetic/scale evidence;
 - machine-readable S1 qualification schema/checker;
 - no selector/profile behavior change.
 
@@ -712,11 +712,11 @@ Evidence is never measured on PR A's branch; it is measured after PR A merges (�
 - write B1–B6 evidence;
 - update acceptance register.
 
-Harness code (A) and qualification evidence (B) are **separate PRs**. B's measured SHA is A's merge commit or a later `main` commit, and B contains only evidence and documentation, so the §2.3 diff is empty on the behavior-bearing surface by construction.
+Harness code (A) and qualification evidence (B) are **separate PRs**. B's measured SHA is A's merge commit or a later `main` commit. B itself contains only evidence and documentation, but other changes may land on `main` between the measured SHA and B's merge. Therefore the §2.3 diff check remains mandatory; if that diff touches the behavior-bearing surface, the affected B-items are rerun before closure.
 
 ### Post-merge
 
-Run required `main` workflows and append/post a final closure record only if the repository convention requires post-merge evidence.
+Run the required `main` workflows and record the final closure evidence **mandatorily** at the resulting merge SHA, including the §2.3 diff, exact workflow run identities and verified `head_sha` values. S1.4 is not closed until this post-merge record exists and agrees with the authoritative acceptance register.
 
 ---
 
