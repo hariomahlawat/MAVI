@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.3 Evidence Read Contract and Minimal UI: implementation plan
 
-**Status:** Implementation-ready plan, revision 3 — two independent cold passes completed 2026-09-24; no P1, all P2 findings resolved (see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`)  
+**Status:** Implementation-ready plan, revision 4 — three independent cold passes completed 2026-09-24; no P1, all P2 findings resolved (see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`)  
 **Date:** 2026-09-24  
 **Baseline:** `main@2060599a9786651f36071742034076369520d0ce` — PR #79 merged; S1.2 complete  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §9  
@@ -308,18 +308,20 @@ The Track-detail application result carries:
 
 Persistence constraints should make invalid combinations impossible, but the read mapping should still fail closed on impossible domain values rather than render contradictory evidence.
 
-Pin at least:
+The read seam checks the **same Evidence Set contract the v3 completion validator enforces on write** (S1.2 plan §6: "ranks unique and contiguous `0..n−1` in `ROLE_ORDER`"; `VisionResultValidator`). The database enforces only part of it: rank in 0..3, `Representative ⇔ rank 0`, and unique (Track, rank) and (Track, role). **Contiguity and role order are not database constraints**, so the read seam must check them explicitly.
 
-- ranks strictly increasing after ordered read;
-- rank in 0..3;
-- if observations are present, the first is Representative rank 0;
-- no duplicate role;
-- no duplicate rank;
+Pin all of:
+
 - count <= 4;
-- `RepresentativeObservationId == null` is compatible only with an empty observation collection on the legacy read path;
-- `RepresentativeObservationId`, when present, equals the rank-0 observation id.
+- ranks are exactly `0..n−1` after the ordered read: contiguous, no gap, no duplicate. `Representative@0, NearView@2` is corrupt;
+- roles are unique, and rank order follows the canonical role order `Representative < NearView < EarlyDiverse < LateDiverse`, the declaration order of `ObservationType`. `Representative@0, LateDiverse@1, NearView@2` is corrupt, while `Representative@0, LateDiverse@1` is a valid omission;
+- if observations are present, the first is Representative rank 0;
+- `RepresentativeObservationId == null` is compatible only with an empty observation collection. That is the legacy read path, and the C1 semantic-acceptance world is one such Track;
+- `RepresentativeObservationId`, when present, equals the rank-0 observation id of **this** Track's collection. The Track → Observation foreign key does not itself prove the Observation belongs to the same Track, so a pointer to another Track's Observation fails this check.
 
-Do not “repair” rank order, role vocabulary or Representative identity in API code. An impossible persisted combination is an internal server invariant failure, not `track_not_found`, `track_search_invalid`, or a partially repaired 200 response.
+Do not “repair” rank order, role vocabulary or Representative identity in API code.
+
+**Failure mechanism.** An impossible persisted combination is an internal server invariant failure, not `track_not_found`, `track_search_invalid`, or a partially repaired 200 response. Implement it the same way at every check: the projection throws an `InvalidOperationException` with a stable message such as `track_evidence_set_invariant_violated: <rule>`. Do not throw `DomainValidationException`, which other endpoints map to 400, and do not return a failed `Result`, which `TrackEndpoints` maps to 400. `TrackEndpoints` has no exception mapping and the API has no global exception handler, so the exception surfaces as an ordinary HTTP 500 and is logged. S1.3a adds no new handler or error vocabulary for this.
 
 ---
 
@@ -378,7 +380,7 @@ Pin:
 
 - exact role vocabulary/casing;
 - observations always treated as bounded ordered input;
-- existing `representative` callers remain source-compatible;
+- the `representative` field stays in the `TrackDetail` type, so the type is source-compatible. S1.3b migrates every UI reader of it to the rank-0 selector (§8.1);
 - no React component constructs an artifact URL from `evidenceArtifactId`.
 
 ---
@@ -397,6 +399,29 @@ and **reuse that same component in both hosts**, but place it according to each 
 - **Investigation:** in the existing Track inspector body, near the Track evidence/player and before lower-priority provenance/details as space permits.
 
 “Do not duplicate the strip” means one implementation/component, not one identical DOM location. The UI specification explicitly assigns Stage-2's bounded Evidence Set to Review's evidence rail while Investigation owns it inside the inspector.
+
+**The Evidence Set replaces the existing Representative crop surfaces; it does not sit beside them.** Today both hosts render `RepresentativeEvidence` (`TrackDetailsPanels.tsx`), which shows the Representative crop from `detail.representative.thumbnailContentUrl`:
+- **Review:** the rail's "Representative evidence" panel, after Track summary and Scene analytics.
+- **Investigation:** the inspector's "Representative frame" disclosure.
+
+In S1.3b the Evidence Set takes exactly that position in each host, and its rank-0 item is the Representative crop:
+- **Review:** the panel keeps its place after Track summary and Scene analytics, so §4.5.1 holds at 1366×768. It shows the Evidence Set followed by `TrackIdentity`.
+- **Investigation:** the Evidence Set replaces the disclosure's content at the same position in the inspector body. It is rendered uncollapsed, as the compact strip of §8.8.
+
+`RepresentativeEvidence` is removed. No host may render the Representative crop twice.
+
+**One Representative authority in the web.** The web derives the Representative from the rank-0 entry of `observations`, through one pure feature-local selector (for example `representativeObservation(detail)`).
+
+Every Track-detail consumer uses that selector:
+- the Evidence Set;
+- the timeline marker;
+- the Representative bounding-box layer and its accessible description (§8.5);
+- the player's `representative` prop and `E` seek target;
+- the Representative scalars in `TrackIdentity` (source frame, video offset, confidence, quality score).
+
+`detail.representative` stays on the wire and in the TypeScript type for compatibility, but S1.3b leaves **no UI reader of it**. A guard test fails if feature code outside `api/tracks.ts` reads `.representative`. Search result cards are unaffected: they use `TrackSearchItem`, not `TrackDetail`.
+
+**DOM boundary.** The Evidence Set, including its crop-inspection region (§8.3), is rendered **outside** the `EvidencePlayer` root element. It is never passed into the shared player as a child or slot, and never rendered inside `TrackEvidence`'s player subtree. The player's grammar is a React `onKeyDown` on its own root, and `isShortcutTarget` lets every key except Space/Enter through on a button. A crop button inside the player root would therefore seek or step the video on J/L/arrows.
 
 **Keyboard-scope seam:** Investigation's window-level J/K navigation is suppressed only for targets under the exported `data-evidence-player` boundary. The Evidence Set component itself must therefore reuse `EVIDENCE_PLAYER_ATTRIBUTE` on its own root (or an equivalent wrapper using that exact exported contract), so a focused crop control is recognised as evidence interaction. Do not invent a second shortcut-suppression mechanism and do not wrap the whole inspector merely to obtain suppression. A focused strip button must never move the selected search result when J/K is pressed.
 
@@ -432,7 +457,7 @@ Technical/provenance scalars remain available in existing secondary detail surfa
 
 ### 8.3 Crop inspection
 
-Selecting an item opens/updates one bounded crop-inspection region in the Track evidence composition.
+Selecting an item opens/updates one bounded crop-inspection region **owned by the `TrackEvidenceSet` component**: in Review's rail panel or Investigation's inspector body, outside the Evidence Player root (§8.1).
 
 The inspection region may show:
 
@@ -465,7 +490,7 @@ Analytics markers remain additive.
 
 ### 8.5 Bounding-box layer
 
-The persisted bounding-box overlay remains tied to the Representative observation only in S1.3.
+The persisted bounding-box overlay remains tied to the Representative observation only in S1.3. It reads the Representative through the rank-0 selector of §8.1, not through `detail.representative`.
 
 Do not dynamically swap the source-video bounding box to a selected supplemental crop unless a later design explicitly defines that interaction. Selection in the crop strip is crop inspection, while timeline markers seek source video.
 
@@ -551,7 +576,7 @@ Scope:
 - Representative derivation from the canonical observation collection;
 - server-authored evidence URLs;
 - integration/contract/security tests;
-- no UI behavior change beyond web type compatibility needed to keep main green.
+- **no web source change.** The web client decodes Track detail as a plain typed cast (`apiRequest<TrackDetail>`) with no runtime validation, so an extra `observations` field is ignored until S1.3b adds it to `TrackDetail` and updates every typed fixture. This is what makes S1.3a independently mergeable. If S1.3b never lands, `main` serves a backward-compatible superset that no UI reads.
 
 Exit condition:
 
@@ -600,6 +625,7 @@ Tests:
 - `tests/Mavi.IntegrationTests/TrackSearchApiTests.cs`
 - `tests/Mavi.IntegrationTests/ContentApiTests.cs`
 - existing Track analytics contract/detail tests that construct `TrackDetailResponse`
+- `tests/fixtures/scene-analytics/c1-operator-contract.json`: a golden that `SemanticAcceptanceTests` compares byte-for-byte against the real Track-detail response. Regenerate it deliberately with `MAVI_UPDATE_GOLDEN=1`. The C1 world's Track has no Representative, so the only expected diff is `"observations": []`, and no id token shifts. `c1OperatorContract.test.tsx` casts it `as unknown as TrackDetail`, so the web suite is unaffected.
 
 No migration is expected.
 
@@ -608,9 +634,10 @@ No migration is expected.
 Web:
 
 - `src/web/mavi-web/src/api/tracks.ts`
-- `src/web/mavi-web/src/features/video-review/TrackEvidence.tsx` (timeline markers only; no Track-specific crop rail inside the shared player)
+- `src/web/mavi-web/src/features/video-review/TrackEvidence.tsx` (observation timeline markers; the Representative box layer, `representative` prop and `E` target move to the rank-0 selector; no Track-specific crop rail inside the shared player)
 - `src/web/mavi-web/src/features/video-review/VideoReviewPage.tsx` (Review evidence-rail placement)
-- `src/web/mavi-web/src/features/visual-search/TrackInspector.tsx` (Investigation placement)
+- `src/web/mavi-web/src/features/visual-search/TrackInspector.tsx` (Investigation placement, replacing the "Representative frame" disclosure content)
+- `src/web/mavi-web/src/features/video-review/TrackDetailsPanels.tsx` (remove `RepresentativeEvidence`; `TrackIdentity` Representative scalars via the rank-0 selector)
 - new feature-local Evidence Set component/style as needed
 - Review/Investigation fixtures and tests
 - web visual-QA fixtures/states if those fixtures model Track detail
@@ -633,7 +660,14 @@ Must discriminate against:
 6. EvidenceCrop URL constructed from an unrelated artifact id;
 7. arbitrary/unreferenced EvidenceCrop becoming readable;
 8. null/absent supplemental treated as corruption;
-9. analytics identity detail accidentally multiplied by observation joins.
+9. analytics identity detail accidentally multiplied by observation joins;
+10. a rank gap (`Representative@0, NearView@2`) accepted as valid;
+11. rank order contradicting role order (`Representative@0, LateDiverse@1, NearView@2`) accepted as valid, while `Representative@0, LateDiverse@1` is still accepted;
+12. `RepresentativeObservationId` naming another Track's Observation, or a non-rank-0 Observation of this Track, accepted as valid;
+13. observations present while `RepresentativeObservationId` is null accepted as valid;
+14. any of 10–13 reported as 404, 400 or a repaired 200 instead of HTTP 500.
+
+Cases 10–13 need rows the write path never produces, so the tests seed them directly through the DbContext, bypassing `ProcessingResultStore`. Each asserts a 500 from `GET /api/tracks/{id}`.
 
 ### 12.2 Web unit/component tests
 
@@ -653,7 +687,12 @@ Cover:
 - keyboard activation and focus state;
 - the same Evidence Set component is reused in Review and Investigation while respecting their different archetype placement;
 - Review keeps the Evidence Set in the evidence rail after the primary summary;
-- focus in the strip suppresses Investigation window-level J/K result navigation via the existing `data-evidence-player` subtree contract.
+- focus in the strip suppresses Investigation window-level J/K result navigation via the existing `data-evidence-player` subtree contract;
+- with focus on a crop control, the player grammar's non-activation keys (J, L, ←, →, Home, End, E; `EvidencePlayer.onKeyDown`) leave the video's `currentTime` and play state unchanged, and Space/Enter only activate the crop control. This proves the strip is outside the player's key grammar, not just outside result navigation;
+- Escape still closes the Investigation drawer from a focused crop control (the workspace's window-capture handler is not gated by `data-evidence-player`), and unrelated inspector controls outside the Evidence Set still receive J/K result navigation;
+- neither host renders the Representative crop twice, and `RepresentativeEvidence` is no longer mounted;
+- the timeline marker, bounding-box layer, `E` target and `TrackIdentity` Representative scalars follow `observations[0]`, not `detail.representative`. A fixture whose compatibility `representative` deliberately disagrees with `observations[0]` renders only the `observations[0]` values;
+- guard: no feature source outside `api/tracks.ts` reads `.representative` of a `TrackDetail`.
 
 ### 12.3 Composition guards
 
@@ -694,7 +733,7 @@ S1.3 preserves these truths:
 - crop metadata exists but bytes unavailable -> Track detail still succeeds; crop UI shows unavailable;
 - trajectory unavailable -> existing trajectory warning remains independent of crop evidence;
 - one supplemental role absent -> valid bounded omission;
-- Representative compatibility mismatch -> fail closed in tests/read seam; do not choose one silently;
+- Representative compatibility mismatch, rank gap, role-order contradiction, or observations present while the Representative pointer is null -> HTTP 500 through an `InvalidOperationException` from the read seam (§5.3); never 404/400 and never a silently chosen or repaired representation;
 - analytics unavailable -> independent from raw Evidence Set;
 - crop load failure does not invalidate source-video evidence.
 
@@ -767,8 +806,8 @@ S1.4 remains responsible for the end-to-end bound proofs and qualification rebin
 
 S1.3 is complete only when all are true:
 
-1. Track detail exposes all accepted observations in canonical rank order.
-2. Representative compatibility is derived from the same rank-0 observation.
+1. Track detail exposes all accepted observations in canonical rank order. Any persisted set that breaks the Evidence Set contract (§5.3) fails as HTTP 500.
+2. Representative compatibility is derived from the same rank-0 observation. The web reads the Representative only through that rank-0 entry, and no host renders the Representative crop twice.
 3. ordinary historical v2 Track detail still works and returns one observation; legacy Track detail with no Representative relation remains readable with an empty observation set.
 4. EvidenceCrop and historical Thumbnail bytes are served only through the existing authorized accepted-evidence route.
 5. Search rows remain Representative-only and unchanged in density/semantics.
