@@ -7,7 +7,9 @@
 
 ## Verdict
 
-**First pass (below): "no open P1 or P2".** The independent second pass (§ Second pass) overturns this. It found three P1 and sixteen P2 against the repository mechanics. All are resolved by documentation amendments to the plan in PR #84 (revision 2). After those amendments, no P1/P2 remains open against the plan.
+**First pass (below): "no open P1 or P2".** The independent second pass overturns this. It found three P1 and sixteen P2 against the repository mechanics, resolved in revision 2.
+
+A third, independent fresh-context pass at `d8ca646d` found **one P1 in the second pass's own amendments** (sealing compared with the wrong limit), plus eight P2 and ten P3. All are resolved in revision 3. After revision 3, no P1/P2 remains open against the plan.
 
 The review treated the S1.4 plan as a qualification contract rather than a feature brief and checked it against:
 
@@ -142,8 +144,9 @@ Its coverage table marked every B-item "Complete" after reviewing the prose only
    - *Evidence:* `ProcessingResultStore` deliberately skips compensation when rollback confirmation fails (`compensationSafe = false`). A process kill between seal and commit leaves unreferenced accepted objects. No test covers a `CommitAsync` failure or a rollback-confirmation failure.
    - *Resolution:* the PASS criterion is restated; both tests are added in PR A; never-served and replay-idempotent are proven for the non-compensable windows; the residual orphans are recorded.
 6. **A fake store makes the sealing-time measurement vacuous** (§7.4).
-   - *Evidence:* `DurableFilePublication` flushes per object and re-fsyncs the directory chain, inside the `FOR UPDATE` completion transaction; the vision lease is 900 s.
-   - *Resolution:* measure the real store on the real filesystem at worst-case object count, with at least 2× headroom against the lease.
+   - *Evidence:* `DurableFilePublication` publishes each object durably inside the `FOR UPDATE` completion transaction.
+   - *Resolution:* measure the real store on the real filesystem at worst-case object count.
+   - *Superseded in part by the third pass, T-P1:* this pass gave the vision lease as 900 s and compared against the lease. Both were wrong, as shown below.
 7. **Missing B3 boundaries** (§7).
    - *Resolution:* added the 10,001st-Track fail-before-staging, the exact per-role cap edges (worker and platform), cross-source bound agreement, staging measured against the ADR-013 5.2 GiB derivation, the completion-time peak, and both worst-shape body figures (the Python body and the .NET body without provenance).
 8. **One real video, with examples picked after the fact** (§9.2).
@@ -184,8 +187,85 @@ Its coverage table marked every B-item "Complete" after reviewing the prose only
 - `0be0087` — stale S1.3 statuses and the Task-10 trigger correction;
 - `324cc84` — identity, behavior-bearing surface, invalidation map, closure binding, skips and retention;
 - `cac5913`, `b1c18a6` — B1–B4 made falsifiable against the implementation;
-- `aa05b16` — B5/B6/offline evidence bound to the measured code; dispatch mechanics; qualification-record rule; measurement quality.
+- `aa05b16` — B5/B6/offline evidence bound to the measured code; dispatch mechanics; qualification-record rule; measurement quality;
+- `9c4a6be` — this second-pass record;
+- `dafc20f`, `d8ca646` (owner) — the Windows golden is required for final B1; the four normative §26 viewports; the post-merge dispatch uses an immutable ref and a `head_sha` check. These also resolve the three review-bot threads on PR #84: the viewports, the immutable ref, and the stale parent-plan §5 status, which `0be0087` fixed.
 
 ## Second-pass verdict
 
 **READY WITH AMENDMENTS — amendments applied.** With revision 2, no P1/P2 remains open against the plan. B1–B6 remain **OPEN**. Nothing here is qualification evidence.
+
+
+---
+
+# Third pass — independent fresh-context review of revision 2
+
+**Reviewed head:** `d8ca646d475656c82fa69ce2ab87b0d52b0ac088`.
+**Method:** a reviewer with no prior context, who had not written any of the amendments, checked every technical claim in revision 2 against the code. The author of revision 2 then verified each finding independently before amending.
+
+**Confirmed without change:**
+- the profile SHA;
+- the `finalised` descriptor retention;
+- the 544 KiB bound;
+- the Windows golden skip;
+- the Task-10 filter and suite omissions;
+- the `compensationSafe` logic and its test gap: only a `SaveChanges` failure is tested;
+- the ContentCatalog rule;
+- the 48 MiB limit and both worst-shape tests;
+- the source-bound bundle checks;
+- the offline probe;
+- the parameter-note figures;
+- every cited commit SHA.
+
+## P1
+
+**T-P1 — sealing time was compared with the wrong limit** (§7.4, B3 PASS, stop 15).
+- *Evidence:*
+  - `VisionProcessing:LeaseSeconds` is **120 s** (`src/platform/Mavi.Api/appsettings.json`, VisionProcessing block); the 900 s value is `SceneAnalytics:LeaseSeconds`;
+  - the lease is checked once, under `FOR UPDATE`, *before* sealing (`ProcessingResultStore.cs`);
+  - the worker's completion POST times out at `request_timeout_seconds`: 30 s by default, at most 120 s (`mavi_vision/common/settings.py:21`, used in `worker/client.py`);
+  - the server has no request-timeout middleware.
+- *Why it matters:* a seal of about 400 s would have "passed" with 2× headroom against 900 s while every real completion timed out. That is a false B3 PASS.
+- *Resolution:* the comparison is now against the worker `request_timeout_seconds` (2× headroom is blocking), the 120 s lease (for idempotent replay) and the Npgsql command timeout. The worker-observed timeout and replay are recorded.
+
+## P2
+
+1. Stop condition 3 still said "RSS grows with retired history", contradicting §6.2. It is replaced by the §6.2 bounds.
+2. The USS slope "≤ D + 10 %" sat below allocator granularity, and it ran with tracemalloc on. Now: an absolute 16 KiB per retired Track, at least 5,000 retirements, tracemalloc off. This is the only native-retention detector.
+3. The bound-2 workload was infeasible as written:
+   - one spool chunk is 4,096 points;
+   - a lossy codec destroys high-entropy crops;
+   - "4× larger" Representative crops exceed the 64 KiB cap.
+
+   Now: the frame source, frame count, live level and wall time are declared in PR A, and larger crops apply to supplemental roles only.
+4. "Zero skips" was impossible on Windows by design, and B6 used a different rule ("unexplained"). There is now one paired-variant skip rule, with the `test_track_lifecycle` and `test_artifact_store` counterparts listed. The missing B2 suites are added to PR A: `test_track_finalization`, `test_artifact_store*`, `test_artifact_publisher` and `test_analytical_models`.
+5. Skip counts lived only in expiring logs, and two uploaded records were missing from the retention list. Now: JUnit XML from every evidence pytest step, and every uploaded record retained with its SHA.
+6. The §5.3 exact rerun was not reproducible:
+   - the remux procedure is not in the repository;
+   - the files are CC BY-NC-SA and outside Git;
+   - the mmcv build is local;
+   - there is no thread pinning;
+   - "new baseline" contradicted the exact-match PASS.
+
+   Now: the original files and the wheel are pinned by SHA with the host and threads recorded; a detector-independent replay is added; a new baseline does not satisfy B1.
+7. The §2.1 surface had holes: `infrastructure/**`, `tools/setup|native/**`, `config/setup|acceptance/**`, root setup scripts, and `tests/**` including the scripted corpus. Evidence tests are now inside the surface.
+8. B2 PASS required bound 4 "within limit", but bound 4 had no limit. It is now recorded only, as the regression baseline.
+
+## P3
+
+1. The observable failure code for the 10,001st Track is `pipeline_processing_failed` (cause `track_limit_exceeded`).
+2. The worst case is 10,000 trajectories plus up to 40,000 crop descriptors; Windows publishes with write-through `MoveFileEx` and no directory fsync.
+3. The existing body budgets are kept: Python ≤ 40 MiB; .NET ≤ 32 MiB.
+4. Both outcomes of an unconfirmed rollback are covered. Unreferenced objects have no Artifact row, and trajectories are served through Tracks.
+5. The Quality Gate has no `workflow_dispatch`: re-run the merge-SHA push run.
+6. The §13 contradictions are removed: PR A is required; the §2.3 diff is not "empty by construction"; the post-merge closure record is mandatory.
+7. Windows `PrivateUsage` is named as commit charge.
+8. The system proxy and LAN mirror are also checked.
+9. The §2.2 map is widened: web changes invalidate the disconnected run, and platform changes invalidate all of B3.
+10. This record now lists the owner commits and corrects the 900 s error.
+
+The same review also found that entry-gate item 6 listed a narrower frozen set than §2.1. It now references §2.1.
+
+## Third-pass verdict
+
+**NOT READY at `d8ca646d`; READY after revision 3.** No P1/P2 remains open. B1–B6 remain **OPEN**, and nothing here is qualification evidence.
