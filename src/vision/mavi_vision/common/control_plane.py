@@ -36,6 +36,12 @@ def _snake_to_camel(name: str) -> str:
 
 _COMPLETION_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
 _COMPLETION_EVIDENCE_MAX_BYTES = 512 * 1024 * 1024
+# Completion 3.0 (S1.2 plan §7.2): crops are counted against their own quota;
+# the 512 MiB aggregate becomes the trajectory/other-artefact quota.
+_COMPLETION_EVIDENCE_CROP_MAX_BYTES = 1024 * 1024 * 1024
+_REPRESENTATIVE_CROP_MAX_BYTES = 64 * 1024
+_SUPPLEMENTAL_CROP_MAX_BYTES = 160 * 1024
+_EVIDENCE_ROLE_ORDER = ("representative", "near-view", "early-diverse", "late-diverse")
 _COMPLETION_DEPENDENCY_VERSION_MAX_COUNT = 128
 _TRACKER_POSITIVE_MIN = 1e-9
 _TRACKER_POSITIVE_MAX = 1e9
@@ -719,8 +725,10 @@ class VisionRuntimeProvenance(ControlPlaneModel):
         return self
 
 
-class VisionJobComplete(ControlPlaneModel):
-    @field_validator("tracks", mode="before")
+class _CompletionModel(ControlPlaneModel):
+    """Precision-preserving JSON handling shared by completion 2.0 and 3.0."""
+
+    @field_validator("tracks", mode="before", check_fields=False)
     @classmethod
     def normalize_tracks_json_array(
         cls,
@@ -766,6 +774,10 @@ class VisionJobComplete(ControlPlaneModel):
         )
         return super().model_validate_json(normalized_json, **kwargs)
 
+
+class VisionJobComplete(_CompletionModel):
+    """Completion 2.0: retained for contract conformance; the worker emits 3.0."""
+
     schema_version: Literal["2.0"]
     job_id: UUID
     worker_id: WorkerId
@@ -799,8 +811,194 @@ class VisionJobComplete(ControlPlaneModel):
         return self
 
 
-class VisionJobCompleteResponse(ControlPlaneModel):
+class VisionCompletionCrop(ControlPlaneModel):
+    storage_key: StorageKey
+    media_type: Literal["image/jpeg"]
+    size_bytes: CompletionInt64 = Field(gt=0, le=_SUPPLEMENTAL_CROP_MAX_BYTES)
+    sha256: Sha256
+
+
+class VisionCompletionObservation(ControlPlaneModel):
+    role: Literal["representative", "near-view", "early-diverse", "late-diverse"]
+    rank: CompletionInt32 = Field(ge=0, le=3)
+    offset_ms: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    source_frame_number: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
+    quality_score: float = Field(ge=0, le=1, allow_inf_nan=False)
+    selection_score: float = Field(ge=0, le=1, allow_inf_nan=False)
+    bounding_box: VisionCompletionBoundingBox
+    crop: VisionCompletionCrop
+
+    @model_validator(mode="after")
+    def validate_role_rank_and_cap(self) -> "VisionCompletionObservation":
+        if (self.role == "representative") != (self.rank == 0):
+            raise ValueError("representative must be rank 0 and only rank 0")
+        cap = (
+            _REPRESENTATIVE_CROP_MAX_BYTES
+            if self.role == "representative"
+            else _SUPPLEMENTAL_CROP_MAX_BYTES
+        )
+        if self.crop.size_bytes > cap:
+            raise ValueError("crop exceeds its role cap")
+        return self
+
+
+class VisionCompletionTrackV3(ControlPlaneModel):
+    track_id: TrackId
+    object_class: Literal["person", "vehicle"]
+    start_offset_ms: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    end_offset_ms: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    detection_count: CompletionInt32 = Field(gt=0, le=2_147_483_647)
+    mean_confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
+    max_confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
+    observations: tuple[VisionCompletionObservation, ...] = Field(min_length=1, max_length=4)
+    trajectory_artifact: VisionCompletionArtifact
+
+    @field_validator("observations", mode="before")
+    @classmethod
+    def normalize_observations_json_array(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> object:
+        return _json_array_to_tuple(value, info)
+
+    @model_validator(mode="after")
+    def validate_track_semantics(self) -> "VisionCompletionTrackV3":
+        if self.end_offset_ms < self.start_offset_ms:
+            raise ValueError("track offsets are invalid")
+        if self.mean_confidence > self.max_confidence:
+            raise ValueError("meanConfidence cannot exceed maxConfidence")
+        roles = [observation.role for observation in self.observations]
+        if len(set(roles)) != len(roles):
+            raise ValueError("observation roles must be unique")
+        # Ranks are contiguous 0..n-1 in canonical role order (plan §7.2).
+        ordered = sorted(self.observations, key=lambda o: _EVIDENCE_ROLE_ORDER.index(o.role))
+        if [observation.rank for observation in ordered] != list(range(len(ordered))):
+            raise ValueError("observation ranks must be contiguous in role order")
+        if ordered[0].role != "representative":
+            raise ValueError("exactly one representative observation is required")
+        frames = [observation.source_frame_number for observation in self.observations]
+        if len(set(frames)) != len(frames):
+            raise ValueError("observations must use distinct source frames")
+        for observation in self.observations:
+            if observation.confidence > self.max_confidence:
+                raise ValueError("observation confidence cannot exceed maxConfidence")
+            if not self.start_offset_ms <= observation.offset_ms <= self.end_offset_ms:
+                raise ValueError("observation must lie inside the track")
+        return self
+
+
+class VisionEvidenceRoleAccounting(ControlPlaneModel):
+    candidates: CompletionInt32 = Field(ge=0, le=2_147_483_647)
+    admitted: CompletionInt32 = Field(ge=0, le=2_147_483_647)
+    omitted: CompletionInt32 = Field(ge=0, le=2_147_483_647)
+    candidate_bytes: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    admitted_bytes: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> "VisionEvidenceRoleAccounting":
+        if (
+            self.admitted > self.candidates
+            or self.omitted != self.candidates - self.admitted
+            or self.admitted_bytes > self.candidate_bytes
+        ):
+            raise ValueError("evidence accounting is inconsistent")
+        return self
+
+
+class VisionEvidenceAccounting(ControlPlaneModel):
+    representative: VisionEvidenceRoleAccounting
+    near_view: VisionEvidenceRoleAccounting = Field(alias="near-view")
+    early_diverse: VisionEvidenceRoleAccounting = Field(alias="early-diverse")
+    late_diverse: VisionEvidenceRoleAccounting = Field(alias="late-diverse")
+
+    def for_role(self, role: str) -> VisionEvidenceRoleAccounting:
+        return {
+            "representative": self.representative,
+            "near-view": self.near_view,
+            "early-diverse": self.early_diverse,
+            "late-diverse": self.late_diverse,
+        }[role]
+
+
+class VisionJobCompleteV3(_CompletionModel):
+    """Completion 3.0 with the Track Evidence Set (S1.2a contract; S1.2 plan §7).
+
+    Field names and bounds mirror ``contracts/schemas/vision-job-complete-v3``;
+    the contract tests validate this model's output against that schema and the
+    golden example, so the two cannot drift silently.
+    """
+
+    schema_version: Literal["3.0"]
+    job_id: UUID
+    worker_id: WorkerId
+    lease_token: LeaseToken
+    attempt_count: CompletionInt32 = Field(ge=1, le=2_147_483_647)
+    frames_processed: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    processing_duration_ms: CompletionInt64 = Field(ge=0, le=9_223_372_036_854_775_807)
+    provenance: VisionRuntimeProvenance
+    tracks: tuple[VisionCompletionTrackV3, ...] = Field(max_length=10_000)
+    evidence_accounting: VisionEvidenceAccounting
+
+    @model_validator(mode="after")
+    def validate_result_semantics(self) -> "VisionJobCompleteV3":
+        if self.frames_processed == 0 and self.tracks:
+            raise ValueError("tracks require at least one processed frame")
+        track_ids = [track.track_id for track in self.tracks]
+        if len(track_ids) != len(set(track_ids)):
+            raise ValueError("trackId values must be unique")
+        trajectory_bytes = sum(track.trajectory_artifact.size_bytes for track in self.tracks)
+        if trajectory_bytes > _COMPLETION_EVIDENCE_MAX_BYTES:
+            raise ValueError("completion trajectory size limit exceeded")
+        crop_bytes = 0
+        for track in self.tracks:
+            if track.detection_count > self.frames_processed:
+                raise ValueError("track detectionCount cannot exceed framesProcessed")
+            for observation in track.observations:
+                if observation.source_frame_number >= self.frames_processed:
+                    raise ValueError("observation sourceFrameNumber must be below framesProcessed")
+                crop_bytes += observation.crop.size_bytes
+        if crop_bytes > _COMPLETION_EVIDENCE_CROP_MAX_BYTES:
+            raise ValueError("completion evidence crop quota exceeded")
+        # The accounting must describe exactly the observations sent.
+        for role in _EVIDENCE_ROLE_ORDER:
+            present = [o for track in self.tracks for o in track.observations if o.role == role]
+            accounting = self.evidence_accounting.for_role(role)
+            if accounting.admitted != len(present) or accounting.admitted_bytes != sum(
+                o.crop.size_bytes for o in present
+            ):
+                raise ValueError("evidence accounting does not match the observations")
+        representative = self.evidence_accounting.representative
+        if representative.candidates != len(self.tracks) or representative.omitted != 0:
+            raise ValueError("every track must have its representative admitted")
+        return self
+
+
+class VisionContractCapabilities(ControlPlaneModel):
+    """``GET /api/vision/contract`` (S1.2a). Additive fields are tolerated."""
+
+    model_config = ConfigDict(
+        extra="ignore",
+        frozen=True,
+        strict=True,
+        validate_by_alias=True,
+        validate_by_name=False,
+        serialize_by_alias=True,
+        alias_generator=_snake_to_camel,
+    )
+
     schema_version: Literal["2.0"]
+    completion_schema_versions: tuple[StrictStr, ...] = Field(min_length=1, max_length=16)
+
+    @field_validator("completion_schema_versions", mode="before")
+    @classmethod
+    def normalize_versions_json_array(cls, value: object, info: ValidationInfo) -> object:
+        return _json_array_to_tuple(value, info)
+
+
+class VisionJobCompleteResponse(ControlPlaneModel):
+    schema_version: Literal["2.0", "3.0"]
     job_id: UUID
     processing_run_id: UUID
     tracks_accepted: int = Field(ge=0)

@@ -33,7 +33,7 @@ from mavi_vision.runtime.watchdog import (
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import MediaStoreError
 from mavi_vision.worker.attempt_telemetry import AttemptCompletion
-from mavi_vision.worker.client import WorkerApiError
+from mavi_vision.worker.client import PlatformContractUnsupported, WorkerApiError
 from mavi_vision.worker.watchdog_incident import (
     WATCHDOG_FAILURE_CODE,
     WATCHDOG_OBSERVATION_FAILURE_CODE,
@@ -71,6 +71,8 @@ class _WatchdogExpiredDuringHeartbeat(RuntimeError):
 
 # Worker collaborators
 class WorkerApi(Protocol):
+    async def get_contract_capabilities(self) -> object: ...
+
     async def lease(self) -> VisionJobLease | None: ...
 
     async def heartbeat(
@@ -186,13 +188,55 @@ class WorkerRunner:
         self._attempt_completed_sink = attempt_completed_sink
         self._staging_cleaner = staging_cleaner
         self._fatal_termination_active = False
+        self._platform_contract_confirmed = False
+        self._platform_contract_reported = False
 
     @property
     def fatal_termination_active(self) -> bool:
         """True once watchdog containment requires process-level termination."""
         return self._fatal_termination_active
 
+    @property
+    def platform_contract_confirmed(self) -> bool:
+        """True while the platform is known to accept completion 3.0."""
+        return self._platform_contract_confirmed
+
     async def run_once(self) -> bool:
+        try:
+            return await self._run_once()
+        except WorkerApiError:
+            # Any control-plane failure (transport, lease loss, a rejected
+            # contract) may mean a different platform answers next time; the
+            # capability is probed again before the next lease.
+            self._platform_contract_confirmed = False
+            raise
+
+    async def _confirm_platform_contract(self) -> bool:
+        """Plan §23: never lease before the platform lists completion 3.0.
+
+        An incompatible or malformed answer keeps the worker not-ready (no
+        lease, no v2 fallback) and is re-probed on the next poll; a transport
+        failure propagates as the ordinary polling back-off.
+        """
+        if self._platform_contract_confirmed:
+            return True
+        try:
+            await self._api_client.get_contract_capabilities()
+        except PlatformContractUnsupported:
+            if not self._platform_contract_reported:
+                _LOGGER.error(
+                    "Vision worker not ready: vision_platform_contract_unsupported "
+                    "(the platform does not accept completion 3.0); no job is leased"
+                )
+                self._platform_contract_reported = True
+            return False
+        self._platform_contract_confirmed = True
+        self._platform_contract_reported = False
+        return True
+
+    async def _run_once(self) -> bool:
+        if not await self._confirm_platform_contract():
+            return False
         lease = await self._api_client.lease()
         if lease is None:
             return False
@@ -350,6 +394,23 @@ class WorkerRunner:
                 provenance_snapshot,
                 authorize_publish=completion_guard.check_owned,
             )
+        except PlatformContractUnsupported:
+            # The platform rejected completion 3.0 after confirming it (for
+            # example a downgrade). Terminal for this attempt: no retry of the
+            # completion and no v2 fallback. The staging stays for the next
+            # attempt's cleanup or the platform janitor.
+            self._platform_contract_confirmed = False
+            _LOGGER.error(
+                "Vision job %s attempt %s: platform rejected completion 3.0",
+                lease.job_id,
+                lease.attempt_count,
+            )
+            await self._best_effort_fail(
+                lease,
+                "vision_worker_contract_unsupported",
+                "The platform does not accept this worker's completion contract.",
+            )
+            return True
         except LeaseLostError as exc:
             raise WorkerApiError("lease ownership lost") from exc
 

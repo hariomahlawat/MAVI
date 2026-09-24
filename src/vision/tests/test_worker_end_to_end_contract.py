@@ -24,6 +24,9 @@ class RecordingApi:
         self.completed_result: VisionProcessingResult | None = None
         self.provenance: object | None = None
 
+    async def get_contract_capabilities(self) -> None:
+        return None
+
     async def lease(self) -> VisionJobLease | None:
         self.events.append("lease")
         value, self.lease_value = self.lease_value, None

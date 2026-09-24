@@ -167,6 +167,9 @@ class _WatchdogApi:
         self.failures: list[str] = []
         self.completions: list[tuple[VisionProcessingResult, object]] = []
 
+    async def get_contract_capabilities(self) -> None:
+        return None
+
     async def lease(self) -> VisionJobLease | None:
         return self.lease_value
 

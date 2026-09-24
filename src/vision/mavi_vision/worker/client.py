@@ -5,15 +5,24 @@ from typing import Final
 
 import httpx
 
-from mavi_vision.common.analytical import VisionProcessingResult
+from mavi_vision.common.analytical import (
+    EvidenceAccounting,
+    ObservationDescriptor,
+    RoleAccounting,
+    VisionProcessingResult,
+)
 from mavi_vision.common.control_plane import (
     VisionCompletionArtifact,
     VisionCompletionBoundingBox,
-    VisionCompletionRepresentative,
-    VisionCompletionTrack,
+    VisionCompletionCrop,
+    VisionCompletionObservation,
+    VisionCompletionTrackV3,
+    VisionContractCapabilities,
+    VisionEvidenceAccounting,
+    VisionEvidenceRoleAccounting,
     VisionGpuIdentity,
-    VisionJobComplete,
     VisionJobCompleteResponse,
+    VisionJobCompleteV3,
     VisionJobFail,
     VisionJobHeartbeat,
     VisionJobHeartbeatResponse,
@@ -29,9 +38,36 @@ from mavi_vision.runtime.provenance import RuntimeProvenance
 
 _SAFE_PROBLEM_CODE: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}$", re.ASCII)
 
+# The completion contract this worker emits; the platform must advertise it.
+COMPLETION_SCHEMA_VERSION: Final = "3.0"
+_CONTRACT_VERSION_UNSUPPORTED: Final = "worker_contract_version_unsupported"
+
 
 class WorkerApiError(RuntimeError):
-    """A sanitized worker control-plane transport or status error."""
+    """A sanitized worker control-plane transport or status error.
+
+    ``status_code`` and ``code`` are set when the platform answered; ``code`` is
+    only ever a validated safe problem code, never free text.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        code: str | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.code = code
+        super().__init__(message)
+
+
+class PlatformContractUnsupported(WorkerApiError):
+    """The platform does not accept the completion contract this worker emits.
+
+    Raised by the capability probe and, defensively, when a completion is
+    rejected for its version. It is never answered by falling back to 2.0.
+    """
 
 
 class WorkerApiClient:
@@ -45,6 +81,40 @@ class WorkerApiClient:
             timeout=settings.request_timeout_seconds,
             verify=str(settings.ca_bundle) if settings.ca_bundle is not None else True,
         )
+
+    async def get_contract_capabilities(self) -> VisionContractCapabilities:
+        """``GET /api/vision/contract``; raises unless completion 3.0 is accepted.
+
+        A transport failure is an ordinary ``WorkerApiError`` (the platform may
+        be starting); a definite answer that is missing, malformed or lacks
+        ``"3.0"`` is ``PlatformContractUnsupported``.
+        """
+        try:
+            response = await self._http_client.get(
+                f"{self._settings.api_base_url}/api/vision/contract",
+                timeout=self._settings.request_timeout_seconds,
+            )
+        except httpx.HTTPError as exc:
+            raise WorkerApiError("worker API request failed") from exc
+        if response.status_code in (httpx.codes.NOT_FOUND, httpx.codes.METHOD_NOT_ALLOWED):
+            raise PlatformContractUnsupported(
+                "platform does not advertise completion capabilities",
+                status_code=response.status_code,
+            )
+        self._raise_for_status(response)
+        try:
+            capabilities = VisionContractCapabilities.model_validate_json(response.content)
+        except ValueError as exc:
+            raise PlatformContractUnsupported(
+                "platform completion capabilities are malformed",
+                status_code=response.status_code,
+            ) from exc
+        if COMPLETION_SCHEMA_VERSION not in capabilities.completion_schema_versions:
+            raise PlatformContractUnsupported(
+                "platform does not accept completion 3.0",
+                status_code=response.status_code,
+            )
+        return capabilities
 
     async def lease(self) -> VisionJobLease | None:
         request = VisionJobLeaseRequest(
@@ -109,8 +179,8 @@ class WorkerApiClient:
         if processing_duration_ms < 0:
             raise WorkerApiError("vision processing duration is invalid")
 
-        request = VisionJobComplete(
-            schemaVersion="2.0",
+        request = VisionJobCompleteV3(
+            schemaVersion=COMPLETION_SCHEMA_VERSION,
             jobId=lease.job_id,
             workerId=self._settings.worker_id,
             leaseToken=lease.lease_token,
@@ -119,7 +189,7 @@ class WorkerApiClient:
             processingDurationMs=processing_duration_ms,
             provenance=self._map_provenance(provenance),
             tracks=tuple(
-                VisionCompletionTrack(
+                VisionCompletionTrackV3(
                     trackId=track.track_id,
                     objectClass=track.object_class.value,
                     startOffsetMs=track.start_offset_ms,
@@ -127,23 +197,11 @@ class WorkerApiClient:
                     detectionCount=track.detection_count,
                     meanConfidence=track.mean_confidence,
                     maxConfidence=track.max_confidence,
-                    representative=VisionCompletionRepresentative(
-                        offsetMs=track.representative.offset_ms,
-                        sourceFrameNumber=track.representative.source_frame_number,
-                        confidence=track.representative.confidence,
-                        qualityScore=track.representative.quality_score,
-                        boundingBox=VisionCompletionBoundingBox(
-                            x=track.representative.bounding_box.x,
-                            y=track.representative.bounding_box.y,
-                            width=track.representative.bounding_box.width,
-                            height=track.representative.bounding_box.height,
-                        ),
-                        thumbnail=VisionCompletionArtifact(
-                            storageKey=track.thumbnail.storage_key,
-                            mediaType=track.thumbnail.media_type,
-                            sizeBytes=track.thumbnail.size_bytes,
-                            sha256=track.thumbnail.sha256,
-                        ),
+                    # Canonical order is the Track's own: Representative first,
+                    # then supplemental roles, ranks 0..n-1 (already validated).
+                    observations=tuple(
+                        self._map_observation(observation)
+                        for observation in track.observations
                     ),
                     trajectoryArtifact=VisionCompletionArtifact(
                         storageKey=track.trajectory_artifact.storage_key,
@@ -154,6 +212,7 @@ class WorkerApiClient:
                 )
                 for track in result.tracks
             ),
+            evidenceAccounting=self._map_accounting(result.evidence_accounting),
         )
         body = request.model_dump_json(by_alias=True)
         if authorize_publish is not None:
@@ -162,11 +221,70 @@ class WorkerApiClient:
             f"/api/vision/jobs/{lease.job_id}/complete",
             body,
         )
+        if (
+            response.status_code == httpx.codes.BAD_REQUEST
+            and self._safe_problem_code(response) == _CONTRACT_VERSION_UNSUPPORTED
+        ):
+            # Defence in depth behind the startup probe: never retried and
+            # never re-sent as 2.0.
+            raise PlatformContractUnsupported(
+                "platform rejected completion 3.0",
+                status_code=response.status_code,
+                code=_CONTRACT_VERSION_UNSUPPORTED,
+            )
         self._raise_for_status(response)
-        return VisionJobCompleteResponse.model_validate_json(response.content)
+        completed = VisionJobCompleteResponse.model_validate_json(response.content)
+        if completed.schema_version != COMPLETION_SCHEMA_VERSION:
+            raise WorkerApiError("platform answered completion with an unexpected version")
+        return completed
 
     async def aclose(self) -> None:
         await self._http_client.aclose()
+
+    @staticmethod
+    def _map_observation(observation: ObservationDescriptor) -> VisionCompletionObservation:
+        box = observation.bounding_box
+        return VisionCompletionObservation(
+            role=observation.role.value,
+            rank=observation.rank,
+            offsetMs=observation.offset_ms,
+            sourceFrameNumber=observation.source_frame_number,
+            confidence=observation.confidence,
+            qualityScore=observation.quality_score,
+            selectionScore=observation.selection_score,
+            boundingBox=VisionCompletionBoundingBox(
+                x=box.x,
+                y=box.y,
+                width=box.width,
+                height=box.height,
+            ),
+            crop=VisionCompletionCrop(
+                storageKey=observation.crop.storage_key,
+                mediaType=observation.crop.media_type,
+                sizeBytes=observation.crop.size_bytes,
+                sha256=observation.crop.sha256,
+            ),
+        )
+
+    @staticmethod
+    def _map_accounting(accounting: EvidenceAccounting) -> VisionEvidenceAccounting:
+        def role(value: RoleAccounting) -> VisionEvidenceRoleAccounting:
+            return VisionEvidenceRoleAccounting(
+                candidates=value.candidates,
+                admitted=value.admitted,
+                omitted=value.omitted,
+                candidateBytes=value.candidate_bytes,
+                admittedBytes=value.admitted_bytes,
+            )
+
+        return VisionEvidenceAccounting.model_validate(
+            {
+                "representative": role(accounting.representative),
+                "near-view": role(accounting.near_view),
+                "early-diverse": role(accounting.early_diverse),
+                "late-diverse": role(accounting.late_diverse),
+            }
+        )
 
     @staticmethod
     def _map_provenance(provenance: RuntimeProvenance) -> VisionRuntimeProvenance:
@@ -253,7 +371,11 @@ class WorkerApiClient:
             return
         code = WorkerApiClient._safe_problem_code(response)
         suffix = f" ({code})" if code is not None else ""
-        raise WorkerApiError(f"worker API returned HTTP {response.status_code}{suffix}")
+        raise WorkerApiError(
+            f"worker API returned HTTP {response.status_code}{suffix}",
+            status_code=response.status_code,
+            code=code,
+        )
 
     @staticmethod
     def _safe_problem_code(response: httpx.Response) -> str | None:

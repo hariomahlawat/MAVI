@@ -222,7 +222,7 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == f"/api/vision/jobs/{expected.job_id}/complete"
         payload = json.loads(request.content)
-        assert payload["schemaVersion"] == "2.0"
+        assert payload["schemaVersion"] == "3.0"
         assert payload["jobId"] == str(expected.job_id)
         assert payload["workerId"] == expected.worker_id
         assert payload["leaseToken"] == expected.lease_token
@@ -230,13 +230,16 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
         assert payload["framesProcessed"] == 1
         assert payload["processingDurationMs"] == 125
         assert payload["tracks"] == []
+        assert set(payload["evidenceAccounting"]) == {
+            "representative", "near-view", "early-diverse", "late-diverse"
+        }
         assert payload["provenance"]["modelId"] == "rtmdet-m"
         assert payload["provenance"]["dependencyVersions"]["trackers"] == "2.6.0"
         assert payload["provenance"]["inputColourSpace"] == "RGB"
         return httpx.Response(
             200,
             json={
-                "schemaVersion": "2.0",
+                "schemaVersion": "3.0",
                 "jobId": str(expected.job_id),
                 "processingRunId": str(expected.processing_run_id),
                 "tracksAccepted": 0,
@@ -265,7 +268,7 @@ def test_complete_projects_physical_gpu_identity_and_resolution_reason(
             return httpx.Response(
                 200,
                 json={
-                    "schemaVersion": "2.0",
+                    "schemaVersion": "3.0",
                     "jobId": str(expected.job_id),
                     "processingRunId": str(expected.processing_run_id),
                     "tracksAccepted": 0,
