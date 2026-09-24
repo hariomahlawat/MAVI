@@ -275,8 +275,9 @@ class _PipelineProfileSchema(_StrictModel):
         if not self.detector_inference_floor < self.tracker.high_confidence_threshold:
             raise ValueError("detector_floor_not_below_high_confidence")
         # A confirmed Track always has candidates at or above the activation
-        # threshold, so the confidence floor alone can never leave it without a
-        # qualified Representative (plan §4.2).
+        # threshold, so the confidence floor alone can never be the reason its
+        # Representative is a fallback rather than qualified (plan §4.2, ADR-013
+        # §4 two-tier amendment).
         if self.evidence.confidence_floor > self.tracker.track_activation_threshold:
             raise ValueError("evidence_confidence_floor_above_activation")
         # Validate the evidence policy eagerly so a bad profile fails at load.

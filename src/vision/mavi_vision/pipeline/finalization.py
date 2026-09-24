@@ -116,7 +116,7 @@ def _validate_evidence(
 ) -> None:
     """The resolved Evidence Set must be canonical before anything is staged."""
     if not evidence:
-        # No admissible qualified Representative was ever seen for this Track.
+        # No admissible candidate at all (qualified or fallback) was seen for this Track.
         raise EvidenceError("evidence_representative_missing")
     if len(evidence) > len(ROLE_ORDER) or evidence[0].role is not EvidenceRole.REPRESENTATIVE:
         raise EvidenceError("evidence_set_invalid")
