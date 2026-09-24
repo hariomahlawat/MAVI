@@ -181,6 +181,8 @@ S1 should be implemented as **four mergeable sub-slices**. Each sub-slice leaves
 
 The implementation PRs may be separate, but all remain inside Stage-2 S1 and the Stage-2 acceptance register remains the authority.
 
+**Current implementation state (2026-09-24):** S1.1 merged in PR #75. S1.2a/#77, S1.2b/#78 and S1.2c/#79 are merged; S1.2 is complete on `main@2060599a9786651f36071742034076369520d0ce`. The dedicated S1.3 implementation plan is `docs/superpowers/plans/2026-09-24-stage2-s1-3-evidence-read-ui-implementation.md`.
+
 ---
 
 # 6. S1.1 — Tracker lifecycle and retirement infrastructure
