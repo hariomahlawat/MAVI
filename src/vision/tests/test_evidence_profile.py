@@ -40,6 +40,9 @@ def test_shipped_profile_carries_the_versioned_evidence_policy() -> None:
     assert profile.schema_version == "1.1"
     assert profile.profile_version == "1.2.0-candidate"
     assert (policy.selector_version, policy.scorer_version) == (SELECTOR_VERSION, SCORER_VERSION)
+    # The two-tier Representative (ADR-013 §4, amended 2026-09-24) has its own
+    # identity: strict and two-tier outcomes never share a selector version.
+    assert policy.selector_version == "evidence-selector-v1-two-tier"
     assert policy.encoder == PRODUCTION_ENCODER_POLICY
     assert policy.encoder.encoder_version == ENCODER_VERSION
     assert policy.replace_epsilon_micro == 20_000
@@ -74,6 +77,7 @@ def test_qualification_record_binds_the_changed_profile_and_stays_pending() -> N
         (("encoder", "encoderVersion"), "evidence-jpeg-ladder-v2"),
         (("runEvidenceCropQuotaBytes",), 2 * 1073741824),
         (("selectorVersion",), "evidence-selector-v2"),
+        (("selectorVersion",), "evidence-selector-v1"),  # the strict rule's name
         (("scorerVersion",), "quality-v2"),
         (("replaceEpsilon",), 0.0),
         (("replaceEpsilon",), 0.6),

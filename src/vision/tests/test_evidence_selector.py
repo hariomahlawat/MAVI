@@ -237,6 +237,53 @@ def test_fallback_holders_follow_the_epsilon_rule_among_themselves() -> None:
     assert selector.holder(REP).qualified is False
 
 
+def test_fallback_ties_and_the_exact_epsilon_keep_the_earlier_frame() -> None:
+    """Within the fallback tier the ε rule is strict, exactly as for qualified
+    holders: equal scores and a gain of exactly ε both keep the earlier frame."""
+    specs = {0: Spec(0.50, sharpness=0.0), 1: Spec(0.50, sharpness=0.0), 2: Spec(0.52, sharpness=0.0)}
+    selector = _run(specs, {0: 0, 1: 5000, 2: 10000})
+
+    assert _holder_frame(selector, REP) == 0
+    assert selector.holder(REP).qualified is False
+
+
+def test_a_qualified_candidate_that_fails_encoding_leaves_the_fallback_in_place() -> None:
+    """Displacement needs an admissible qualified candidate: a refused encoding
+    keeps the fallback, and the next admissible qualified candidate wins."""
+    specs = {0: Spec(0.9, sharpness=0.0), 1: Spec(0.2), 2: Spec(0.1)}
+    encoder = StubEncoder(refuse={(1, 0)})
+    selector = _run(specs, {0: 0, 1: 5000, 2: 10000}, encoder=encoder)
+
+    assert _holder_frame(selector, REP) == 2
+    assert selector.holder(REP).qualified is True
+
+
+def test_supplementals_see_the_current_representative_after_displacing_a_fallback() -> None:
+    """The frame that displaces a fallback is the Representative the later roles
+    are evaluated against in that same frame, so it never also takes NearView;
+    the next qualified, non-duplicate frame seeds NearView."""
+    far = NormalizedBoundingBox(0.6, 0.1, 0.3, 0.3)
+    specs = {0: Spec(0.9, edge_margin=0.0), 1: Spec(0.2, area=0.3), 2: Spec(0.2, area=0.2)}
+    selector = _selector(specs)
+    _observe(selector, 0, 0)
+    _observe(selector, 1, 2000)
+    assert _holder_frame(selector, REP) == 1 and selector.holder(NEAR) is None
+    _observe(selector, 2, 2100, box=far)
+
+    assert _holder_frame(selector, NEAR) == 2
+    assert all(holder.qualified for holder in selector.holders())
+
+
+def test_a_fallback_representative_never_qualifies_a_frame_for_a_supplemental_role() -> None:
+    """While the Representative is a fallback, frames that fail a floor stay
+    ineligible for every supplemental role, however large or well separated."""
+    specs = {n: Spec(0.9, sharpness=0.0, area=0.05 * (n + 1)) for n in range(6)}
+    selector = _run(specs, {n: n * 6000 for n in range(6)})
+
+    assert [holder.role for holder in selector.holders()] == [REP]
+    assert [r.role for r in selector.resolve()] == [REP]
+
+
 # Qualification --------------------------------------------------------------------
 
 
