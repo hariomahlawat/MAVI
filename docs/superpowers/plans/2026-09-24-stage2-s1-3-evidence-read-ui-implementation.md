@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.3 Evidence Read Contract and Minimal UI: implementation plan
 
-**Status:** Implementation-ready draft for cold review  
+**Status:** Implementation-ready plan, revision 2 — cold review completed 2026-09-24; no P1, P2 findings resolved (see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`)  
 **Date:** 2026-09-24  
 **Baseline:** `main@2060599a9786651f36071742034076369520d0ce` — PR #79 merged; S1.2 complete  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §9  
@@ -111,10 +111,11 @@ Invariant:
 
 - zero or one `representative` value;
 - when present, it names the same Observation/artifact/scalars as `observations[0]`;
-- a completed valid S1.2 Track is expected to have exactly one Representative;
-- historical v2 Tracks naturally produce one `Representative` observation.
+- an S1.2/v3 Track is expected to have exactly one Representative;
+- an ordinary historical v2 Track returns one Representative observation;
+- **legacy records with `RepresentativeObservationId == null` remain valid read history and return `representative: null` plus an empty `observations[]`**. S1.3 must not retroactively fabricate evidence or turn an already-readable legacy Track into a 500 merely because newer completion contracts require a Representative.
 
-A corrupted persisted evidence set is not repaired in the read path. DB/domain invariants remain the authority; unexpected inconsistency fails rather than inventing evidence.
+A corrupted persisted evidence set is not repaired in the read path. DB/domain invariants remain the authority. If `RepresentativeObservationId` is non-null but does not name the rank-0 Representative in the bounded collection, or the collection contains contradictory role/rank data, the read fails as an internal invariant violation rather than choosing one representation silently.
 
 ### D2 — neutral API vocabulary for crop artifacts
 
@@ -237,7 +238,7 @@ It is derived from the canonical Representative observation and maps:
 
 ### 4.3 Historical v2 behavior
 
-Historical Tracks persisted under v2 must return:
+Historical Tracks persisted under ordinary v2 completion return:
 
 - `observations.length == 1`;
 - role Representative;
@@ -245,7 +246,7 @@ Historical Tracks persisted under v2 must return:
 - existing historical crop artifact, which may be `ArtifactType.Thumbnail`;
 - the existing Representative compatibility object with the same content URL.
 
-No supplemental observations are fabricated.
+A legacy Track whose existing direct Representative relation is null remains readable with `observations: []` and `representative: null`. No supplemental or Representative observation is fabricated.
 
 ### 4.4 Nullability and unavailable bytes
 
@@ -307,13 +308,14 @@ Pin at least:
 
 - ranks strictly increasing after ordered read;
 - rank in 0..3;
-- first observation is Representative rank 0;
+- if observations are present, the first is Representative rank 0;
 - no duplicate role;
 - no duplicate rank;
 - count <= 4;
-- RepresentativeObservationId, when present, equals the rank-0 observation id.
+- `RepresentativeObservationId == null` is compatible only with an empty observation collection on the legacy read path;
+- `RepresentativeObservationId`, when present, equals the rank-0 observation id.
 
-Do not “repair” rank order, role vocabulary or Representative identity in API code.
+Do not “repair” rank order, role vocabulary or Representative identity in API code. An impossible persisted combination is an internal server invariant failure, not `track_not_found`, `track_search_invalid`, or a partially repaired 200 response.
 
 ---
 
@@ -393,6 +395,8 @@ and compose it from `TrackEvidence.tsx`, so both:
 receive the same Evidence Set behavior.
 
 Do not duplicate the strip in both hosts.
+
+**Keyboard-scope seam:** today Investigation's window-level J/K navigation is suppressed only for targets under `data-evidence-player`. Because the crop strip is outside the inner `EvidencePlayer` DOM node, `TrackEvidence` must make the **whole Track evidence composition** (player + strip + crop inspector) part of that same evidence subtree, reusing the exported `EVIDENCE_PLAYER_ATTRIBUTE`/`isInsideEvidencePlayer` contract. Do not invent a second shortcut-suppression mechanism. A focused strip button must never move the selected search result when J/K is pressed.
 
 Do not promote the component to `shared/` in S1.3: its semantics are Track-specific and the existing shared Evidence Player remains the correct shared abstraction.
 
@@ -497,7 +501,7 @@ Requirements:
 - image alt text uses the role + offset, not “image”;
 - unavailable image state is textual, not colour-only;
 - DOM order equals EvidenceRank;
-- no keyboard conflict with Evidence Player J/K/L/arrow grammar when focus is inside the strip: strip-specific controls handle only selection activation; global result navigation must continue to suppress itself inside the evidence surface as today.
+- no keyboard conflict with Evidence Player/result-navigation grammar when focus is inside the strip: strip-specific controls handle only selection activation; the outer Track evidence composition is marked with the existing evidence-player subtree attribute so window-level result navigation refuses those events. J/K/L/arrows are not redefined by the strip.
 
 ### 8.8 Responsive behavior
 
@@ -620,11 +624,12 @@ Must discriminate against:
 1. only Representative projected despite supplemental rows;
 2. observation ordering by timestamp instead of rank;
 3. duplicate/mismatched Representative compatibility object;
-4. historical Thumbnail rejected because code assumes EvidenceCrop only;
-5. EvidenceCrop URL constructed from an unrelated artifact id;
-6. arbitrary/unreferenced EvidenceCrop becoming readable;
-7. null/absent supplemental treated as corruption;
-8. analytics identity detail accidentally multiplied by observation joins.
+4. legacy null-Representative Track incorrectly rejected or given fabricated evidence;
+5. historical Thumbnail rejected because code assumes EvidenceCrop only;
+6. EvidenceCrop URL constructed from an unrelated artifact id;
+7. arbitrary/unreferenced EvidenceCrop becoming readable;
+8. null/absent supplemental treated as corruption;
+9. analytics identity detail accidentally multiplied by observation joins.
 
 ### 12.2 Web unit/component tests
 
@@ -642,7 +647,8 @@ Cover:
 - source video remains the only video element;
 - no direct `/api/artifacts/` construction from ids in the new component;
 - keyboard activation and focus state;
-- Review and Investigation composition parity.
+- Review and Investigation composition parity;
+- focus in the strip suppresses Investigation window-level J/K result navigation via the existing `data-evidence-player` subtree contract.
 
 ### 12.3 Composition guards
 
