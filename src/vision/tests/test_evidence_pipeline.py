@@ -24,7 +24,7 @@ from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.detection.interfaces import DetectionCandidate
 from mavi_vision.evidence.encoder import EncodedImage, JpegLadderEncoder
 from mavi_vision.evidence.errors import EvidenceError
-from mavi_vision.evidence.quality import FrameContext, QualityV1Scorer
+from mavi_vision.evidence.quality import FrameContext, scorer_for_policy
 from mavi_vision.evidence.roles import ROLE_ORDER, EvidenceRole
 from mavi_vision.evidence.selector import EvidenceSelector
 from mavi_vision.pipeline.process_video import VideoProcessingError, VideoProcessor
@@ -388,7 +388,7 @@ class FixedSizeEncoder:
 
 
 def _selector_run(frames: int) -> int:
-    selector = EvidenceSelector(policy=POLICY, scorer=QualityV1Scorer(0.0), encoder=FixedSizeEncoder(), track_start_ms=0)
+    selector = EvidenceSelector(policy=POLICY, scorer=scorer_for_policy(POLICY), encoder=FixedSizeEncoder(), track_start_ms=0)
     image = np.random.default_rng(3).integers(0, 256, (48, 64, 3), dtype=np.uint8)
     gc.collect()
     tracemalloc.start()
@@ -419,7 +419,7 @@ def test_many_live_selectors_retain_only_their_holders() -> None:
     """M4-style: 1,000 live Tracks retain ≤ 4 images each, never a history."""
     image = np.random.default_rng(4).integers(0, 256, (48, 64, 3), dtype=np.uint8)
     selectors = [
-        EvidenceSelector(policy=POLICY, scorer=QualityV1Scorer(0.0), encoder=JpegLadderEncoder(POLICY.encoder), track_start_ms=0)
+        EvidenceSelector(policy=POLICY, scorer=scorer_for_policy(POLICY), encoder=JpegLadderEncoder(POLICY.encoder), track_start_ms=0)
         for _ in range(1000)
     ]
     for number in range(12):

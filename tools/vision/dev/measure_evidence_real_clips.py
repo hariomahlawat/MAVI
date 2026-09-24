@@ -10,7 +10,7 @@ scripted, and detections are never derived from ground truth.
 
 Instrumentation observes; it never decides:
 
-* the scorer and encoder are the production ``QualityV1Scorer`` and
+* the scorer and encoder are the production ``scorer_for_policy`` (quality-v2) and
   ``JpegLadderEncoder``, wrapped only to record what they compute;
 * ``EvidenceSelector.observe`` / ``resolve`` are wrapped to read the holders the
   selector already has (tier after each frame, holders before resolve), then
@@ -51,7 +51,7 @@ from mavi_vision.common.lease import LeaseGuard
 from mavi_vision.detection.rtmdet import RTMDetDetector
 from mavi_vision.evidence import selector as selector_module
 from mavi_vision.evidence.encoder import JpegLadderEncoder
-from mavi_vision.evidence.quality import QualityV1Scorer, box_iou
+from mavi_vision.evidence.quality import QualityScorer, box_iou, scorer_for_policy
 from mavi_vision.evidence.roles import ROLE_ORDER, EvidenceRole
 from mavi_vision.pipeline.process_video import VideoProcessor
 from mavi_vision.storage.artifact_store import StagingArtifactStore
@@ -63,21 +63,23 @@ CANDIDATE_FIELDS = (
     "clip", "track_id", "object_class", "frame", "offset_ms", "confidence", "area", "sharpness",
     "edge_margin", "occlusion_iou", "quality_micro", "selection_micro", "pass_confidence",
     "pass_sharpness", "pass_edge", "pass_occlusion", "qualified",
-    "occluder_confidence", "occluder_same_class", "occlusion_iou_confident", "pass_occlusion_confident",
+    "occluder_confidence", "occluder_same_class", "occlusion_iou_all", "pass_occlusion_all",
     "box_x", "box_y", "box_w", "box_h",
 )
 
 
-def occluder_diagnostics(context, candidate, confidence_floor: float) -> tuple[float | None, bool | None, float]:
-    """Diagnostic only; the selector uses the production scorer's ``occlusion_iou``.
+def occluder_diagnostics(context, candidate) -> tuple[float | None, bool | None, float]:
+    """Diagnostic only; the selector uses the production scorer's ``occlusion_iou``
+    (quality-v2: competing detections at or above ``confidenceFloor``).
 
-    Which detection the proxy's maximum came from (its confidence, and whether it
-    has the candidate's class), and the maximum IoU over the other detections at
-    or above ``confidenceFloor``. The candidate's own detection is excluded by the
-    production rule (first exact class and box match).
+    Returns the confidence and class-match of the detection that produced the
+    maximum IoU over *every* other detection, and that maximum: the superseded
+    quality-v1 proxy, kept as the before/after counterfactual (parameter note F1).
+    The candidate's own detection is excluded by the production rule (first exact
+    class and box match).
     """
     excluded = False
-    best, best_conf, best_same, confident = 0.0, None, None, 0.0
+    best, best_conf, best_same = 0.0, None, None
     for detection in context.detections:
         if (
             not excluded
@@ -89,9 +91,7 @@ def occluder_diagnostics(context, candidate, confidence_floor: float) -> tuple[f
         iou = box_iou(candidate.bounding_box, detection.bounding_box)
         if iou > best:
             best, best_conf, best_same = iou, detection.confidence, detection.object_class is candidate.object_class
-        if detection.confidence >= confidence_floor:
-            confident = max(confident, iou)
-    return best_conf, best_same, confident
+    return best_conf, best_same, best
 
 
 def percentiles(values: list[float]) -> dict[str, float] | None:
@@ -130,7 +130,7 @@ def media_metadata(path: Path) -> dict:
 class RecordingScorer:
     """The production scorer, recording each candidate's scalars (no pixels)."""
 
-    def __init__(self, inner: QualityV1Scorer, policy, clip: str, sink) -> None:
+    def __init__(self, inner: QualityScorer, policy, clip: str, sink) -> None:
         self._inner, self._policy, self._clip, self._sink = inner, policy, clip, sink
 
     def score(self, context, candidate):
@@ -163,14 +163,12 @@ class RecordingScorer:
                 "qualified": all(passes),
             }
         )
-        occluder_confidence, occluder_same_class, confident = occluder_diagnostics(
-            context, candidate, p.confidence_floor
-        )
+        occluder_confidence, occluder_same_class, all_detections = occluder_diagnostics(context, candidate)
         self._sink[-1].update(
             occluder_confidence=occluder_confidence,
             occluder_same_class=occluder_same_class,
-            occlusion_iou_confident=confident,
-            pass_occlusion_confident=confident < p.occlusion_iou_ceiling,
+            occlusion_iou_all=all_detections,
+            pass_occlusion_all=all_detections < p.occlusion_iou_ceiling,
             # Normalised box scalars, so a candidate can be matched to benchmark
             # ground truth offline (descriptive context only).
             box_x=candidate.bounding_box.x,
@@ -267,7 +265,7 @@ def measure_clip(runtime, profile, clip: str, video: Path, work_dir: Path) -> tu
         ByteTrackTracker(profile.tracker),
         StagingArtifactStore(staging, JOB_ID, 1),
         evidence_policy=policy,
-        evidence_scorer=RecordingScorer(QualityV1Scorer(policy.occlusion_penalty_weight), policy, clip, rows),
+        evidence_scorer=RecordingScorer(scorer_for_policy(policy), policy, clip, rows),
         evidence_encoder=encoder,
     )
     digest, size = sha256_file(video)
@@ -376,9 +374,9 @@ def aggregate(label: str, summaries: list[dict], rows: list[dict]) -> dict:
             "occlusion": share("pass_occlusion"),
             "allFloors": share("qualified"),
         },
-        # Diagnostic only (not what the selector did): the occlusion proxy's
-        # composition, and the pass rates if it counted only detections at or
-        # above confidenceFloor.
+        # Diagnostic only (not what the selector did): what the superseded
+        # quality-v1 proxy (every detection down to detectorInferenceFloor) would
+        # have rejected, for the before/after comparison.
         "occlusionDiagnostics": _occlusion_diagnostics(rows),
         "tracksWithQualifiedFrame": sum(t["qualifiedFrames"] > 0 for t in tracks),
         "fallbackRepresentatives": sum(not t["representativeQualified"] for t in tracks),
@@ -450,20 +448,12 @@ def _occlusion_diagnostics(rows: list[dict]) -> dict | None:
     blocked = [r for r in rows if not r["pass_occlusion"]]
     other_floors = [r for r in rows if r["pass_confidence"] and r["pass_sharpness"] and r["pass_edge"]]
     return {
-        "occlusionIouConfident": percentiles([r["occlusion_iou_confident"] for r in rows]),
+        "occlusionIouAllDetections": percentiles([r["occlusion_iou_all"] for r in rows]),
         "blockedCandidates": len(blocked),
-        "blockedOnlyByOccludersBelowConfidenceFloor": sum(r["pass_occlusion_confident"] for r in blocked),
-        "blockedBySameClassOccluder": sum(bool(r["occluder_same_class"]) for r in blocked),
-        "blockingOccluderConfidence": percentiles(
-            [r["occluder_confidence"] for r in blocked if r["occluder_confidence"] is not None]
-        ),
+        "rescuedFromQualityV1": sum(r["pass_occlusion"] and not r["pass_occlusion_all"] for r in rows),
         "otherThreeFloorsPassed": round(len(other_floors) / len(rows), 4),
-        "counterfactualOcclusionPassConfidentOnly": round(
-            sum(r["pass_occlusion_confident"] for r in rows) / len(rows), 4
-        ),
-        "counterfactualAllFloorsConfidentOnly": round(
-            sum(r["pass_occlusion_confident"] for r in other_floors) / len(rows), 4
-        ),
+        "qualityV1OcclusionPass": round(sum(r["pass_occlusion_all"] for r in rows) / len(rows), 4),
+        "qualityV1AllFloors": round(sum(r["pass_occlusion_all"] for r in other_floors) / len(rows), 4),
     }
 
 

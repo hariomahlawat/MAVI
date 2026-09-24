@@ -78,7 +78,8 @@ def test_qualification_record_binds_the_changed_profile_and_stays_pending() -> N
         (("runEvidenceCropQuotaBytes",), 2 * 1073741824),
         (("selectorVersion",), "evidence-selector-v2"),
         (("selectorVersion",), "evidence-selector-v1"),  # the strict rule's name
-        (("scorerVersion",), "quality-v2"),
+        (("scorerVersion",), "quality-v1"),  # the superseded proxy (parameter note F1)
+        (("scorerVersion",), "quality-v3"),
         (("replaceEpsilon",), 0.0),
         (("replaceEpsilon",), 0.6),
         (("replaceEpsilon",), 0.0200005),

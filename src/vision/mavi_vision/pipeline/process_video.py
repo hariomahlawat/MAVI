@@ -15,7 +15,7 @@ from mavi_vision.detection.interfaces import DetectionCandidate, Detector
 from mavi_vision.evidence.admission import admit
 from mavi_vision.evidence.encoder import EvidenceEncoder, JpegLadderEncoder
 from mavi_vision.evidence.policy import EvidencePolicy
-from mavi_vision.evidence.quality import FrameContext, QualityScorer, QualityV1Scorer
+from mavi_vision.evidence.quality import FrameContext, QualityScorer, scorer_for_policy
 from mavi_vision.evidence.selector import EvidenceSelector
 from mavi_vision.pipeline.finalization import prepare_track
 from mavi_vision.runtime.errors import ProcessingDependencyError, TrackerError
@@ -99,9 +99,7 @@ class VideoProcessor:
         self._evidence_policy = evidence_policy
         # The scorer and encoder are chosen by the profile's versions; the
         # arguments are replacement seams (a future scorer, a test stub).
-        self._evidence_scorer = evidence_scorer or QualityV1Scorer(
-            evidence_policy.occlusion_penalty_weight
-        )
+        self._evidence_scorer = evidence_scorer or scorer_for_policy(evidence_policy)
         self._evidence_encoder = evidence_encoder or JpegLadderEncoder(evidence_policy.encoder)
         # Test seams, deliberately not operator configuration: the quota is the
         # profile's ADR-013 bound in production, and the chunk size changes

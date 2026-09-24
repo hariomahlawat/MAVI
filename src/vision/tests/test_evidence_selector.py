@@ -14,7 +14,7 @@ from mavi_vision.common.analytical import NormalizedBoundingBox, ObjectClass
 from mavi_vision.detection.interfaces import DetectionCandidate
 from mavi_vision.evidence.encoder import EncodedImage, JpegLadderEncoder
 from mavi_vision.evidence.policy import SCORE_SCALE
-from mavi_vision.evidence.quality import CandidateQuality, FrameContext, QualityV1Scorer
+from mavi_vision.evidence.quality import CandidateQuality, FrameContext, scorer_for_policy
 from mavi_vision.evidence.roles import EvidenceRole, role_cap_bytes
 from mavi_vision.evidence.selector import EvidenceSelector
 from mavi_vision.tracking.interfaces import TrackCandidate
@@ -317,14 +317,13 @@ def test_qualification_thresholds_are_inclusive_floors() -> None:
     assert _holder_frame(selector, REP) == 0
 
 
-def test_real_scorer_disqualifies_an_occluded_frame() -> None:
-    """S4 end to end: an unconfirmed vehicle overlapping the person disqualifies the frame."""
+def _observe_with_vehicle(vehicle_confidence: float) -> EvidenceSelector:
     frame = DecodedFrame(0, 0, np.random.default_rng(2).integers(0, 256, (120, 160, 3), dtype=np.uint8))
     person = NormalizedBoundingBox(0.2, 0.2, 0.3, 0.4)
     vehicle = NormalizedBoundingBox(0.25, 0.2, 0.3, 0.4)
     selector = EvidenceSelector(
         policy=POLICY,
-        scorer=QualityV1Scorer(0.0),
+        scorer=scorer_for_policy(POLICY),
         encoder=JpegLadderEncoder(POLICY.encoder),
         track_start_ms=0,
     )
@@ -334,15 +333,31 @@ def test_real_scorer_disqualifies_an_occluded_frame() -> None:
             frame,
             (
                 DetectionCandidate(ObjectClass.PERSON, 0.9, person, frame_ordinal=0),
-                DetectionCandidate(ObjectClass.VEHICLE, 0.3, vehicle, frame_ordinal=1),
+                DetectionCandidate(ObjectClass.VEHICLE, vehicle_confidence, vehicle, frame_ordinal=1),
             ),
         ),
         candidate,
     )
+    return selector
+
+
+def test_real_scorer_disqualifies_an_occluded_frame() -> None:
+    """S4 end to end: an unconfirmed but credible vehicle (confidence ≥ confidenceFloor)
+    overlapping the person disqualifies the frame."""
+    selector = _observe_with_vehicle(0.6)
 
     # Occluded: only a fallback Representative, never a qualified one.
     assert [holder.role for holder in selector.holders()] == [REP]
     assert selector.holder(REP).qualified is False
+
+
+def test_real_scorer_ignores_a_sub_floor_overlap() -> None:
+    """quality-v2 end to end (parameter note F1): the same overlap from a detection
+    below confidenceFloor is detector residue and does not disqualify the frame."""
+    selector = _observe_with_vehicle(0.3)
+
+    assert [holder.role for holder in selector.holders()] == [REP]
+    assert selector.holder(REP).qualified is True
 
 
 # NearView -------------------------------------------------------------------------
@@ -555,7 +570,7 @@ def test_resolved_order_and_ranks_are_canonical() -> None:
 def test_selector_holds_at_most_four_encoded_images_and_no_ndarray() -> None:
     """S15: after every frame, nothing reachable from the selector is a pixel array."""
     encoder = JpegLadderEncoder(POLICY.encoder)
-    selector = EvidenceSelector(policy=POLICY, scorer=QualityV1Scorer(0.0), encoder=encoder, track_start_ms=0)
+    selector = EvidenceSelector(policy=POLICY, scorer=scorer_for_policy(POLICY), encoder=encoder, track_start_ms=0)
     rng = np.random.default_rng(5)
     for number in range(60):
         frame = DecodedFrame(number, number * 400, rng.integers(0, 256, (96, 128, 3), dtype=np.uint8))

@@ -4,7 +4,7 @@ Produces the figures the S1.2 plan §5 asks for, per confirmed Track: the
 sharpness / area / edge-margin distributions, the share of frames that pass each
 floor and all floors, the roles filled, and the encodes per Track. It runs the
 real ``VideoProcessor`` with the shipped profile's evidence policy, the real
-``QualityV1Scorer`` and the real ``JpegLadderEncoder``; only detection and
+``scorer_for_policy`` (quality-v2) and the real ``JpegLadderEncoder``; only detection and
 tracking are scripted (the box ffmpeg drew on each frame), exactly as
 ``fixture_worker_harness.py`` does for the same videos.
 
@@ -36,7 +36,7 @@ from mavi_vision.common.analytical import NormalizedBoundingBox, ObjectClass  # 
 from mavi_vision.common.lease import LeaseGuard  # noqa: E402
 from mavi_vision.detection.interfaces import DetectionCandidate  # noqa: E402
 from mavi_vision.evidence.encoder import JpegLadderEncoder  # noqa: E402
-from mavi_vision.evidence.quality import QualityV1Scorer  # noqa: E402
+from mavi_vision.evidence.quality import QualityScorer, scorer_for_policy  # noqa: E402
 from mavi_vision.evidence.roles import ROLE_ORDER  # noqa: E402
 from mavi_vision.pipeline.process_video import VideoProcessor  # noqa: E402
 from mavi_vision.runtime.profile import load_pipeline_profile  # noqa: E402
@@ -71,7 +71,7 @@ class ScriptedScene:
 
 
 class RecordingScorer:
-    def __init__(self, inner: QualityV1Scorer) -> None:
+    def __init__(self, inner: QualityScorer) -> None:
         self._inner = inner
         self.scores = []
 
@@ -111,7 +111,7 @@ def measure(work_dir: Path) -> dict:
     for scene, video in zip(spec["scenarios"], videos, strict=True):
         payload = video.read_bytes()
         driver = ScriptedScene(scripted_corpus.detection_boxes(spec, scene))
-        scorer = RecordingScorer(QualityV1Scorer(policy.occlusion_penalty_weight))
+        scorer = RecordingScorer(scorer_for_policy(policy))
         encoder = CountingEncoder(JpegLadderEncoder(policy.encoder))
         staging_root = work_dir / "staging" / scene["id"]
         staging_root.mkdir(parents=True, exist_ok=True)

@@ -183,12 +183,14 @@ def test_percentiles_and_pass_rates_are_exact() -> None:
              "candidateFrames": 4, "durationMs": 120, "supplementalUnqualified": 0,
              "nearViewDropCause": "near-duplicate-of-representative",
              "cropPixels": {"representative": [40, 90, 0]}}
-    for row, (confident_pass, same) in zip(rows, ((True, True), (True, True), (False, False), (True, None))):
-        row.update(object_class="person", occlusion_iou=0.9, occlusion_iou_confident=0.1 if confident_pass else 0.5,
-                   pass_occlusion_confident=confident_pass, occluder_same_class=same,
-                   occluder_confidence=None if same is None else 0.2)
-    rows[0]["pass_occlusion"] = rows[3]["pass_occlusion"] = False
-    rows[1]["pass_occlusion"] = rows[2]["pass_occlusion"] = False
+    # Rows 0-3 under quality-v2: rows 0 and 3 pass occlusion; quality-v1 (all
+    # detections) would have blocked rows 0, 1 and 2.
+    for row, (passes_v2, passes_v1) in zip(rows, ((True, False), (False, False), (False, False), (True, True))):
+        row.update(object_class="person", pass_occlusion=passes_v2, occlusion_iou=0.1 if passes_v2 else 0.5,
+                   pass_occlusion_all=passes_v1, occlusion_iou_all=0.1 if passes_v1 else 0.9,
+                   occluder_same_class=True, occluder_confidence=0.2)
+    for row in rows:
+        row["qualified"] = row["pass_sharpness"] and row["pass_occlusion"]
     combined = harness.aggregate("t", [{"tracks": [track]}], rows)
     assert combined["passRates"]["sharpness"] == 0.5
     assert combined["passRates"]["allFloors"] == 0.5
@@ -204,19 +206,16 @@ def test_percentiles_and_pass_rates_are_exact() -> None:
     assert combined["candidateFramesPerTrack"]["max"] == 4 and combined["trackDurationMs"]["max"] == 120
     assert combined["roleCoverageAmongTracksWithQualifiedFrame"]["near-view"] == 0.0
     diagnostics = combined["occlusionDiagnostics"]
-    assert diagnostics["blockedCandidates"] == 4
-    assert diagnostics["blockedOnlyByOccludersBelowConfidenceFloor"] == 3
-    assert diagnostics["blockedBySameClassOccluder"] == 2
-    assert diagnostics["blockingOccluderConfidence"]["max"] == 0.2
-    # sharpness passes on rows 0 and 3 only; rows 0 and 3 also pass occlusion confident-only
+    assert diagnostics["blockedCandidates"] == 2
+    assert diagnostics["rescuedFromQualityV1"] == 1  # row 0
+    # sharpness passes on rows 0 and 3 only (the other floors always pass)
     assert diagnostics["otherThreeFloorsPassed"] == 0.5
-    assert diagnostics["counterfactualOcclusionPassConfidentOnly"] == 0.75
-    assert diagnostics["counterfactualAllFloorsConfidentOnly"] == 0.5
-    assert combined["fallbackToQualifiedTransitions"] == 1
-    assert combined["fallbackRepresentatives"] == 0
+    assert diagnostics["qualityV1OcclusionPass"] == 0.25
+    assert diagnostics["qualityV1AllFloors"] == 0.25
+    assert diagnostics["occlusionIouAllDetections"]["max"] == 0.9
 
 
-def test_occluder_diagnostics_attribute_the_proxy_without_replacing_it() -> None:
+def test_occluder_diagnostics_report_the_superseded_proxy_without_replacing_it() -> None:
     from types import SimpleNamespace
 
     from mavi_vision.common.analytical import NormalizedBoundingBox, ObjectClass
@@ -234,9 +233,10 @@ def test_occluder_diagnostics_attribute_the_proxy_without_replacing_it() -> None
     )
     context = SimpleNamespace(detections=detections)
     candidate = SimpleNamespace(object_class=ObjectClass.PERSON, bounding_box=own)
-    confidence, same_class, confident = harness.occluder_diagnostics(context, candidate, 0.5)
-    # The proxy's maximum comes from the low-confidence same-class duplicate ...
+    confidence, same_class, all_detections = harness.occluder_diagnostics(context, candidate)
+    # The superseded all-detections maximum comes from the low-confidence duplicate ...
     assert (confidence, same_class) == (0.08, True)
-    # ... and without detections below the floor only the real neighbour counts.
-    assert confident < occlusion_iou(context, candidate)
-    assert abs(confident - 1 / 3) < 1e-9
+    assert all_detections > 0.9
+    # ... while the production quality-v2 proxy counts only the credible neighbour.
+    production = occlusion_iou(context, candidate, competitor_confidence_floor=0.5)
+    assert abs(production - 1 / 3) < 1e-9

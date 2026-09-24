@@ -30,7 +30,7 @@ import pytest
 from mavi_vision.common.analytical import NormalizedBoundingBox, ObjectClass
 from mavi_vision.detection.interfaces import DetectionCandidate
 from mavi_vision.evidence.encoder import JpegLadderEncoder
-from mavi_vision.evidence.quality import FrameContext, QualityV1Scorer
+from mavi_vision.evidence.quality import FrameContext, scorer_for_policy
 from mavi_vision.evidence.selector import EvidenceSelector
 from mavi_vision.tracking.interfaces import TrackCandidate
 from mavi_vision.video.reader import DecodedFrame
@@ -78,7 +78,7 @@ def _select(scenario_id: str, textured: bool):
     fps = VIDEO["fps"]
     selector = EvidenceSelector(
         policy=POLICY,
-        scorer=QualityV1Scorer(POLICY.occlusion_penalty_weight),
+        scorer=scorer_for_policy(POLICY),
         encoder=JpegLadderEncoder(POLICY.encoder),
         track_start_ms=first * 1000 // fps,
     )

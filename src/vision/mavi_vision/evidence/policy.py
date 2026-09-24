@@ -20,7 +20,7 @@ from mavi_vision.evidence.roles import (
 
 
 SELECTOR_VERSION = "evidence-selector-v1-two-tier"
-SCORER_VERSION = "quality-v1"
+SCORER_VERSION = "quality-v2"
 ENCODER_VERSION = "evidence-jpeg-ladder-v1"
 
 # Scores are compared and emitted in integer millionths (plan §4.1, §8): the
