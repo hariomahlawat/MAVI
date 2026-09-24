@@ -3,7 +3,7 @@
 **Status:** Partial. Scripted corpus measured; real Development clips **not yet measured**. The profile defaults are unchanged, and this note does not qualify anything.
 **Date:** 2026-09-24
 **Asked for by:** S1.2 implementation plan §5 ("before S1.2c merges, record a measurement note over the C1 scripted corpus and ≥ 2 real Development clips … adjust defaults in the same PR").
-**Profile measured:** `src/vision/config/pipelines/phase1-detection-tracking-v1.json`, schema 1.1, `profileVersion` 1.2.0-candidate, SHA-256 `9eb642f85c9c5091e56d0c8acda7efedfa21411f264a19297e56fa10f48f27c7`. The qualification record `models/qualifications/rtmdet-m-coco-phase1-v1.json` binds this SHA and stays `pending`.
+**Profile measured:** `src/vision/config/pipelines/phase1-detection-tracking-v1.json`, schema 1.1, `profileVersion` 1.2.0-candidate, SHA-256 `47560e0e2f5d9c8c7cb74d990ea11515bc31c7d4a9a30f6f624949aeb7213eba`. The measurement ran on the preceding revision (`9eb642f8…`). That revision differs only in `selectorVersion` (`evidence-selector-v1` → `evidence-selector-v1-two-tier`), and every numeric value and every behaviour is identical. The qualification record `models/qualifications/rtmdet-m-coco-phase1-v1.json` binds this SHA and stays `pending`.
 
 ## 1. What was measured and how
 
