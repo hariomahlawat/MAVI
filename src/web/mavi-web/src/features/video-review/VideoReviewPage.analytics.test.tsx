@@ -64,7 +64,7 @@ function detail(analytics: TrackDetailAnalytics): TrackDetail {
       frameRateNumerator: 25, frameRateDenominator: 1,
       videoContentUrl: '/api/videos/' + videoId + '/content',
     },
-    representative: null,
+    representative: null, observations: [], // The legacy shape: no Representative relation, no Evidence Set.
     trajectoryArtifactId: null,
     trajectoryContentUrl: null,
     analytics,

@@ -8,8 +8,9 @@ import Button, { ButtonLink } from '../../shared/components/Button';
 import LoadingState from '../../shared/components/LoadingState';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { Inspector } from '../../shared/workspace';
-import { RepresentativeEvidence, TrackSummary } from '../video-review/TrackDetailsPanels';
+import { TrackSummary } from '../video-review/TrackDetailsPanels';
 import TrackEvidence from '../video-review/TrackEvidence';
+import TrackEvidenceSet from '../video-review/TrackEvidenceSet';
 import TrackAnalyticsExplanation from '../video-review/TrackAnalyticsExplanation';
 import { buildAnalyticsEvidence } from '../video-review/analyticsEvidence';
 import { pinnedNames, pinnedRevision, useAnalyticsScene } from '../video-review/useAnalyticsScene';
@@ -160,12 +161,10 @@ export default function TrackInspector({
                 compact
               />
             ) : null}
-            <details className="disclosure">
-              <summary>Representative frame</summary>
-              <div className="disclosure__body">
-                <RepresentativeEvidence detail={detail} />
-              </div>
-            </details>
+            {/* In the old Representative-frame disclosure's place, uncollapsed:
+                the same component Review shows, and its rank 0 is the
+                Representative crop, so the crop is not rendered a second time. */}
+            <TrackEvidenceSet detail={detail} compact />
           </>
         ) : null}
       </div>

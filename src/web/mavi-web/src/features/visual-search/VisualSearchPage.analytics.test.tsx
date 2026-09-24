@@ -80,7 +80,7 @@ function detail(): TrackDetail {
     durationMs: 8_000, detectionCount: 32, meanConfidence: 0.91, maxConfidence: 0.97, reviewStatus: 'Unreviewed',
     processing: { pipelineVersion: 'phase1', detectorName: null, detectorVersion: null, trackerName: null, trackerVersion: null, completedAtUtc: '2026-09-14T02:40:00Z' },
     video: { recordingStartUtc: '2026-09-14T02:26:42Z', recordingEndUtc: '2026-09-14T02:36:42Z', durationMs: 600_000, width: 1920, height: 1080, frameRateNumerator: 25, frameRateDenominator: 1, videoContentUrl: summary.videoContentUrl },
-    representative: null, trajectoryArtifactId: null, trajectoryContentUrl: null,
+    representative: null, observations: [], trajectoryArtifactId: null, trajectoryContentUrl: null,
     analytics: notConfiguredAnalytics({
       sceneRevisionId: revisionId, sceneRevisionNumber: 4, status: 'Analysed', referencePoint: 'bbox-centre', sampleCount: 120, gapCount: 0, gapTotalMs: 0,
       zoneSummaries: [{ zoneId, visitCount: 2, totalDwellMs: 14_000, firstEntryTimestampUtc: '2026-09-14T02:30:01Z', lastExitTimestampUtc: '2026-09-14T02:30:07Z', loitering: true, loiteringThresholdSeconds: 120, loiteringDwellMs: 14_000 }],

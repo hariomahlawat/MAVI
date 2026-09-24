@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +7,13 @@ import { getTrack, type TrackDetail } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
+import {
+  DISAGREEING_REPRESENTATIVE,
+  evidenceObservation,
+  evidenceSet,
+  FULL_EVIDENCE_SET_ROLES,
+  trackEvidence,
+} from '../../test/trackEvidenceFixtures';
 import VideoReviewPage from './VideoReviewPage';
 
 vi.mock('../../api/system', () => ({
@@ -65,17 +72,19 @@ function detail(overrides: Partial<TrackDetail> = {}): TrackDetail {
       frameRateDenominator: 1,
       videoContentUrl: '/api/videos/' + videoId + '/content',
     },
-    representative: {
+    // A historical v2 Track: one Representative, its crop a Thumbnail artifact.
+    ...trackEvidence([evidenceObservation('Representative', 0, {
       observationId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21461',
       sourceFrameNumber: 4935,
       videoOffsetMs: 197_420,
       timestampUtc: '2026-09-14T02:30:00Z',
       confidence: 0.96,
       qualityScore: 0.93,
+      selectionScore: 0.93,
       boundingBox: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
-      thumbnailArtifactId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21441',
-      thumbnailContentUrl: '/api/artifacts/018f3f5a-2f70-7a2b-8a12-2d02f4c21441/content',
-    },
+      evidenceArtifactId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21441',
+      evidenceContentUrl: '/api/artifacts/018f3f5a-2f70-7a2b-8a12-2d02f4c21441/content',
+    })]),
     trajectoryArtifactId: null,
     trajectoryContentUrl: null,
     analytics: notConfiguredAnalytics(),
@@ -138,6 +147,71 @@ describe('VideoReviewPage', () => {
     expect(video).toHaveAttribute('src', '/api/videos/' + videoId + '/content');
     expect(screen.getByText(/CAM-01.*North Gate/)).toBeInTheDocument();
     expect(screen.getByText(/08:00:00/)).toBeInTheDocument();
+  });
+
+  describe('the Evidence Set in the evidence rail', () => {
+    function renderReview(track: TrackDetail) {
+      vi.mocked(getTrack).mockResolvedValue(track);
+      return renderWithApp(<VideoReviewPage />, {
+        route: '/review/video/' + videoId + '?trackId=' + trackId,
+        routePath: '/review/video/:videoAssetId',
+      });
+    }
+
+    const fourRole = () => detail(trackEvidence(evidenceSet(FULL_EVIDENCE_SET_ROLES)));
+
+    it('sits in the rail after the primary summary, never under the player', async () => {
+      const { container } = renderReview(fourRole());
+      const set = await screen.findByRole('region', { name: 'Evidence Set' });
+
+      expect(set.closest('.workspace__review-rail')).not.toBeNull();
+      expect(set.closest('.workspace__review-main')).toBeNull();
+      expect(container.querySelector('.workspace__player')?.contains(set)).toBe(false);
+
+      // Section 4.5.1: the primary summary still leads the rail.
+      const rail = container.querySelector('.workspace__review-rail')!;
+      const headings = within(rail as HTMLElement).getAllByRole('heading').map((heading) => heading.textContent);
+      expect(headings.indexOf('Track summary')).toBe(0);
+      expect(headings.indexOf('Evidence Set')).toBeGreaterThan(headings.indexOf('Track summary'));
+      expect(headings.indexOf('Evidence Set')).toBeLessThan(headings.indexOf('Processing provenance'));
+    });
+
+    it('replaces the old Representative panel, so the Representative crop has one surface', async () => {
+      const { container } = renderReview(fourRole());
+      const set = await screen.findByRole('region', { name: 'Evidence Set' });
+
+      expect(screen.queryByRole('heading', { name: 'Representative evidence' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Representative evidence unavailable')).not.toBeInTheDocument();
+      expect(screen.getAllByRole('region', { name: 'Evidence Set' })).toHaveLength(1);
+
+      // Every image of the Representative crop is inside the one Evidence Set,
+      // and the strip carries it once.
+      const url = evidenceSet(['Representative'])[0].evidenceContentUrl!;
+      const images = [...container.querySelectorAll('img')].filter((img) => img.getAttribute('src') === url);
+      expect(images.length).toBeGreaterThan(0);
+      expect(images.every((img) => set.contains(img))).toBe(true);
+      const strip = within(set).getByRole('list', { name: 'Evidence Set observations' });
+      expect(within(strip).getAllByRole('img').filter((img) => img.getAttribute('src') === url)).toHaveLength(1);
+
+      expect(container.querySelectorAll('video')).toHaveLength(1);
+    });
+
+    it('keeps the Track identity beside it, following rank 0', async () => {
+      renderReview(detail({ ...trackEvidence(evidenceSet(FULL_EVIDENCE_SET_ROLES)), representative: DISAGREEING_REPRESENTATIVE }));
+      await screen.findByRole('region', { name: 'Evidence Set' });
+
+      expect(screen.getByText('Source frame').nextElementSibling).toHaveTextContent('300');
+      expect(screen.getByText('Video offset').nextElementSibling).toHaveTextContent('00:12.0');
+      expect(screen.queryByText('9999')).not.toBeInTheDocument();
+    });
+
+    it('reads the legacy shape without an error', async () => {
+      renderReview(detail({ representative: null, observations: [] }));
+
+      expect(await screen.findByText('No Evidence Set was persisted for this Track.')).toBeInTheDocument();
+      expect(screen.queryByText('Source frame')).not.toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
   });
 
   it('rejects malformed route video and missing Track identity without API calls', async () => {
@@ -243,9 +317,13 @@ describe('VideoReviewPage', () => {
       routePath: '/review/video/:videoAssetId',
     });
 
-    const thumbnail = await screen.findByRole('img', { name: /representative evidence/i });
-    fireEvent.error(thumbnail);
-    expect(screen.getByText('Representative evidence unavailable')).toBeInTheDocument();
+    // A failed crop keeps its Observation: role and offset stay, the image is
+    // stated unavailable, and the video is unaffected until it fails itself.
+    const crop = await screen.findByRole('img', { name: 'Representative · 03:17.4 evidence crop' });
+    fireEvent.error(crop);
+    expect(screen.getByText('Evidence image unavailable.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Representative · 03:17.4, evidence image unavailable' })).toBeInTheDocument();
+    expect(screen.queryByText(/Source video could not be loaded/i)).not.toBeInTheDocument();
 
     const video = screen.getByLabelText(/source video evidence$/);
     fireEvent.error(video);

@@ -18,7 +18,7 @@ import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { configuredUtcToWallTimeText } from '../../shared/time/wallTime';
 import { ContextBar, InvestigationLayout, Segmented } from '../../shared/workspace';
-import { isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
+import { isDismissTarget, isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
 import { findSelectControl, isSelectedResultControl } from './resultSelection';
 import type { AnalyticsCoverage, TrackAnalyticsIdentity } from '../../api/tracks';
 import CommittedFilterChips from './CommittedFilterChips';
@@ -449,6 +449,13 @@ export default function VisualSearchPage() {
     if (items.length === 0) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+      // Escape is decided before the navigation gate: it closes the inspector
+      // from the Evidence Player and the Evidence Set as well, which bind no
+      // Escape of their own. J, K, the arrows and Enter stay refused there.
+      if (event.key === 'Escape') {
+        if (selectedId && isDismissTarget(event.target)) closeInspector();
+        return;
+      }
       if (!isNavigationTarget(event.target)) return;
       switch (event.key) {
         case 'j':
@@ -476,9 +483,6 @@ export default function VisualSearchPage() {
           openSelected();
           break;
         }
-        case 'Escape':
-          if (selectedId) closeInspector();
-          break;
         default:
       }
     };

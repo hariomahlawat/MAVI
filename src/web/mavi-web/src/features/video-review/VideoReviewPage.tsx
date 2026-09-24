@@ -12,8 +12,9 @@ import PageHeader from '../../shared/components/PageHeader';
 import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { ContextBar, ReviewLayout } from '../../shared/workspace';
-import { ProvenancePanel, RepresentativeEvidence, TrackIdentity, TrackSummary } from './TrackDetailsPanels';
+import { ProvenancePanel, TrackIdentity, TrackSummary } from './TrackDetailsPanels';
 import TrackEvidence from './TrackEvidence';
+import TrackEvidenceSet from './TrackEvidenceSet';
 import TrackAnalyticsExplanation from './TrackAnalyticsExplanation';
 import { buildAnalyticsEvidence } from './analyticsEvidence';
 import { pinnedNames, pinnedRevision, useAnalyticsScene } from './useAnalyticsScene';
@@ -210,9 +211,13 @@ export default function VideoReviewPage() {
                   />
                 </Panel>
               ) : null}
-              <Panel title="Representative evidence" description="Persisted representative frame and stable Track identity.">
+              {/* The Evidence Set takes the Representative panel's old place,
+                  after the primary summary, so section 4.5.1 is unchanged. It is
+                  supporting evidence in the rail, never a second canvas under
+                  the player. Its rank 0 is the Representative crop. */}
+              <Panel title="Evidence Set" description="Accepted observations in rank order, and the stable Track identity.">
                 <div className="stack">
-                  <RepresentativeEvidence detail={detail} />
+                  <TrackEvidenceSet detail={detail} />
                   <TrackIdentity detail={detail} displayTimeZoneId={displayTimeZoneId} />
                 </div>
               </Panel>

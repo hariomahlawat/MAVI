@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ApiError } from '../../api/client';
 import { getRunAttestation } from '../../api/processing';
 import type { TrackDetail } from '../../api/tracks';
@@ -11,27 +11,7 @@ import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence, formatOffset, frameRateText } from '../../shared/format/format';
-
-export function RepresentativeEvidence({ detail }: { detail: TrackDetail }) {
-  const [thumbnailFailed, setThumbnailFailed] = useState(false);
-  useEffect(() => {
-    setThumbnailFailed(false);
-  }, [detail.representative?.thumbnailContentUrl]);
-
-  const url = detail.representative?.thumbnailContentUrl;
-  return url && !thumbnailFailed ? (
-    <img
-      className="evidence-thumb"
-      src={url}
-      alt={detail.objectClass + ' representative evidence from ' + detail.camera.code}
-      onError={() => setThumbnailFailed(true)}
-    />
-  ) : (
-    <div className="evidence-thumb-placeholder" role="img" aria-label="Representative evidence unavailable">
-      Representative evidence unavailable
-    </div>
-  );
-}
+import { representativeObservation } from './evidenceSet';
 
 export function TrackSummary({ detail, displayTimeZoneId }: { detail: TrackDetail; displayTimeZoneId?: string }) {
   return (
@@ -53,6 +33,8 @@ export function TrackSummary({ detail, displayTimeZoneId }: { detail: TrackDetai
 }
 
 export function TrackIdentity({ detail, displayTimeZoneId }: { detail: TrackDetail; displayTimeZoneId?: string }) {
+  // The Evidence Set's rank 0, the same Observation the strip and the player use.
+  const representative = representativeObservation(detail);
   return (
     <KeyValue
       items={[
@@ -62,12 +44,12 @@ export function TrackIdentity({ detail, displayTimeZoneId }: { detail: TrackDeta
         { label: 'Video duration', value: formatDuration(detail.video.durationMs) },
         { label: 'Resolution', value: `${detail.video.width}×${detail.video.height} · ${frameRateText(detail.video.frameRateNumerator, detail.video.frameRateDenominator)}` },
         { label: 'Display timezone', value: displayTimeZoneId ?? 'UTC fallback', mono: true },
-        ...(detail.representative
+        ...(representative
           ? [
-            { label: 'Source frame', value: detail.representative.sourceFrameNumber },
-            { label: 'Video offset', value: formatOffset(detail.representative.videoOffsetMs, 'tenths') },
-            { label: 'Representative confidence', value: formatConfidence(detail.representative.confidence) },
-            { label: 'Quality score', value: detail.representative.qualityScore.toFixed(3) },
+            { label: 'Source frame', value: representative.sourceFrameNumber },
+            { label: 'Video offset', value: formatOffset(representative.videoOffsetMs, 'tenths') },
+            { label: 'Representative confidence', value: formatConfidence(representative.confidence) },
+            { label: 'Quality score', value: representative.qualityScore.toFixed(3) },
           ]
           : []),
       ]}
