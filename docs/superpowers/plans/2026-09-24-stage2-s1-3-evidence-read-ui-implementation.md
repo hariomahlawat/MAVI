@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.3 Evidence Read Contract and Minimal UI: implementation plan
 
-**Status:** Accepted plan, revision 4 (merged in PR #81; three independent cold passes, no P1, all P2 resolved; see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`). **S1.3a (read contract) is implemented in PR #82, in review**; see §20. **S1.3b (minimal Evidence Set UI) is outstanding. S1.4 is outstanding.**  
+**Status:** Accepted plan, revision 4 (merged in PR #81; three independent cold passes, no P1, all P2 resolved; see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`). **S1.3a (read contract) is complete: PR #82, merged at `main@eb521172c3029750fb64ad0d1851250de926fdf9`.** **S1.3b (minimal Evidence Set UI) is implemented in PR #83, in review**; see §20. S1.3 is complete only once S1.3b is reviewed and merged. **S1.4 is outstanding.**  
 **Date:** 2026-09-24  
 **Baseline:** `main@2060599a9786651f36071742034076369520d0ce` — PR #79 merged; S1.2 complete  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §9  
@@ -853,9 +853,9 @@ The architectural boundary remains deliberate:
 
 ## 20. Implementation status
 
-### 20.1 S1.3a — read contract (PR #82, in review; not merged)
+### 20.1 S1.3a — read contract (PR #82, merged)
 
-Baseline `main@0eb969a6e9205467f1dd275995e09aa5b9acd887` (PR #81 merged). This implements §4–§6, §10 S1.3a and §12.1. It makes no web source change (§10).
+Baseline `main@0eb969a6e9205467f1dd275995e09aa5b9acd887` (PR #81 merged). Merged as `main@eb521172c3029750fb64ad0d1851250de926fdf9`; S1.3a is complete. This implements §4–§6, §10 S1.3a and §12.1. It makes no web source change (§10).
 
 **Implemented:**
 - **Evidence Set.** `TrackDetailResponse.observations[]`, typed `TrackEvidenceObservationResponse`, is the authoritative read-side Evidence Set.
@@ -879,8 +879,32 @@ Baseline `main@0eb969a6e9205467f1dd275995e09aa5b9acd887` (PR #81 merged). This i
 **Measured (§14):** Track-detail JSON is 2,250 B with one Observation and 3,655 B with four (seeded fixture; about 470 B per Observation).
 
 **Not done in S1.3a:**
-- the web type, the Evidence Set UI and timeline markers (S1.3b). S1.3b must also add `observations` to the web visual-QA Track-detail fixtures (`tools/web-visual-qa/fixtures/tracks_*.json`), which the web ignores until then;
+- the web type, the Evidence Set UI and timeline markers (S1.3b, §20.2);
 - bound proofs at volume and qualification closure (S1.4).
 
 The pipeline profile, the model/runtime records and the qualification record are unchanged. B5 stays OPEN.
+
+### 20.2 S1.3b — minimal Evidence Set UI (PR #83, in review; not merged)
+
+Baseline `main@eb521172c3029750fb64ad0d1851250de926fdf9` (PR #82 merged). This implements §7, §8, §10 S1.3b and §12.2–§12.4. It changes no server, worker, persistence, schema, pipeline-profile or dependency.
+
+**Implemented:**
+- **Web contract.** `TRACK_EVIDENCE_ROLES`, `TrackEvidenceObservation` and `TrackDetail.observations` mirror the S1.3a response. `representative` stays on the type for wire compatibility only.
+- **One Representative authority.** `features/video-review/evidenceSet.ts` `representativeObservation(detail)` returns rank 0. The bounding-box layer and its description, the player's `representative`/`E` target, the Representative timeline marker and the `TrackIdentity` Representative scalars all read it. A source guard fails if feature code reads `.representative` of a Track detail, and a test fixture whose compatibility `representative` disagrees with `observations[0]` renders only `observations[0]`.
+- **One Evidence Set component.** `features/video-review/TrackEvidenceSet.tsx`, mounted by both hosts: Review's evidence rail in the old Representative panel's place (after Track summary and Scene analytics, followed by `TrackIdentity`), and the Investigation inspector in place of the Representative-frame disclosure, uncollapsed. `RepresentativeEvidence` is removed.
+- **Timeline.** Every Observation is one exact-seek marker from the existing `TrackEvidence` → `EvidencePlayer` path, the Representative marker included, so it is never duplicated. Supplemental markers use a shorter tick than the Representative's.
+- **Crop inspection.** Selecting an Observation changes only the one inspection region: no seek, play, pause, overlay or media change. The crop is contained in its own matte and never presented as the source frame.
+- **States.** A failed crop and a never-persisted crop each keep the Observation's role and offset and say so in words; an omitted supplemental role is not an error; the legacy shape states that no Evidence Set was persisted; video and crop failures are independent.
+- **Visual QA.** The harness cuts each Evidence Set crop from the generated footage at the Observation's offset and box at run time (no committed binaries), and adds the Evidence Set states at 1366, 1600, 1920 and 2560.
+
+**Implementation refinements (recorded; no architecture change):**
+
+| # | Plan text | Implemented | Why |
+|---|---|---|---|
+| R5 | §8.1, §12.2: Escape still closes the Investigation drawer from a focused crop control because "the workspace's window-capture handler is not gated by `data-evidence-player`" | That handler belongs to `WorkbenchLayout`; Investigation closes its inspector only through `VisualSearchPage`'s window handler, which refused every key from the evidence subtree, Escape included. Escape is now decided before that gate (`isDismissTarget`): it closes the inspector from the Evidence Set and from the Evidence Player alike. J/K/↑/↓/Enter stay refused there, and text fields still keep Escape. | The audit found the plan's premise contradicted the code; the owner chose this resolution before implementation. No evidence grammar binds Escape, so the subtree never needed to refuse it. The same subtree attribute is reused; no second suppression mechanism exists. |
+| R6 | §8.2: "a compact bounded strip" of cards/tiles | The inspected crop sits beside a rank-ordered list of the four Observations (thumbnail, role, offset). | In a four-tile row at 1366 the rail truncated "Representative" and "Early diverse"; the list keeps every role and offset legible and costs the height of one crop rather than a crop plus a gallery. |
+| R7 | §8.7: selected state via `aria-current`, `aria-pressed` or equivalent | `aria-current="true"` on the inspected Observation, plus a doubled accent border. | The selection is one-of-n and never toggled off, which is `aria-current`'s meaning; the result list uses the same semantics. The border weight carries the state without relying on hue. |
+| R8 | §8.4: every Observation is a timeline marker | Unchanged; recorded consequence. The shared timeline caps marker rows at three, so four instants inside a short Track on a long video can saturate the rail. The unplaced marker is then carried by the timeline's existing dense navigator, still once and still an exact seek (pinned by test). | Changing the shared rail is a generic Evidence Player change and out of S1.3 scope (§11). A Track-zoomed timeline would remove the saturation; it is a later player decision. |
+
+**Not done in S1.3b:** bound proofs at volume, the disconnected end-to-end run and qualification closure (S1.4). Search rows are unchanged and remain Representative-only (§9). B5 stays OPEN until the S1.4 evidence.
 
