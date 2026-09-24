@@ -198,3 +198,29 @@ def test_percentiles_and_pass_rates_are_exact() -> None:
     assert combined["fallbackDespiteQualifiedFrame"] == 0
     assert combined["fallbackToQualifiedTransitions"] == 1
     assert combined["fallbackRepresentatives"] == 0
+
+
+def test_occluder_diagnostics_attribute_the_proxy_without_replacing_it() -> None:
+    from types import SimpleNamespace
+
+    from mavi_vision.common.analytical import NormalizedBoundingBox, ObjectClass
+    from mavi_vision.detection.interfaces import DetectionCandidate
+    from mavi_vision.evidence.quality import occlusion_iou
+
+    harness = _harness()
+    own = NormalizedBoundingBox(x=0.1, y=0.1, width=0.2, height=0.4)
+    near_duplicate = NormalizedBoundingBox(x=0.11, y=0.1, width=0.2, height=0.4)
+    neighbour = NormalizedBoundingBox(x=0.2, y=0.1, width=0.2, height=0.4)
+    detections = (
+        DetectionCandidate(ObjectClass.PERSON, 0.9, own),
+        DetectionCandidate(ObjectClass.PERSON, 0.08, near_duplicate),  # low-confidence duplicate
+        DetectionCandidate(ObjectClass.VEHICLE, 0.8, neighbour),
+    )
+    context = SimpleNamespace(detections=detections)
+    candidate = SimpleNamespace(object_class=ObjectClass.PERSON, bounding_box=own)
+    confidence, same_class, confident = harness.occluder_diagnostics(context, candidate, 0.5)
+    # The proxy's maximum comes from the low-confidence same-class duplicate ...
+    assert (confidence, same_class) == (0.08, True)
+    # ... and without detections below the floor only the real neighbour counts.
+    assert confident < occlusion_iou(context, candidate)
+    assert abs(confident - 1 / 3) < 1e-9
