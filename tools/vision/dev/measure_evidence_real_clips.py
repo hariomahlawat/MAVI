@@ -24,14 +24,21 @@ the parameter note. Neither the clips nor the outputs belong in Git.
 Usage, from ``src/vision`` with the qualified Development runtime installed and the
 worker settings in the environment::
 
-    PYTHONPATH=. python ../../tools/vision/dev/measure_evidence_real_clips.py <out-dir> \\
+    PYTHONPATH=. python ../../tools/vision/dev/measure_evidence_real_clips.py [--record-detections <dir>] <out-dir> \\
         MOT17-02-FRCNN=<path> MOT17-13-FRCNN=<path>
+
+S1.4 §5.3 detector-independent replay: run once with ``--record-detections <dir>``,
+then again with ``--replay-detections <dir>``. The replay feeds the recorded
+per-frame detections through the real tracker and selector, with no model
+runtime, and ``tools/qualification/s1_b1.py compare`` requires the two
+summaries to match exactly.
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import csv
+import functools
 import gzip
 import hashlib
 import json
@@ -58,6 +65,58 @@ from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.tracking.bytetrack import ByteTrackTracker
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a1")
+
+
+# S1.4 §5.3 detector-independent replay: record the detector's per-frame output
+# on the real run, then replay it through the real tracker and selector. An exact
+# match separates selector determinism (B1's claim) from detector numerics.
+class RecordingDetector:
+    """Delegates to the production detector and records what it returned."""
+
+    def __init__(self, inner, sink: list) -> None:
+        self._inner = inner
+        self._sink = sink
+
+    def detect(self, frame):
+        detections = self._inner.detect(frame)
+        self._sink.append({
+            "frame": frame.source_frame_number,
+            "detections": [
+                [d.object_class.value, d.confidence, d.bounding_box.x, d.bounding_box.y,
+                 d.bounding_box.width, d.bounding_box.height, d.frame_ordinal]
+                for d in detections
+            ],
+        })
+        return detections
+
+
+class ReplayDetector:
+    """Returns the recorded detections for each frame; never runs a model."""
+
+    def __init__(self, recorded: list[dict]) -> None:
+        self._by_frame = {entry["frame"]: entry["detections"] for entry in recorded}
+
+    def detect(self, frame):
+        from mavi_vision.common.analytical import NormalizedBoundingBox, ObjectClass
+        from mavi_vision.detection.interfaces import DetectionCandidate
+
+        if frame.source_frame_number not in self._by_frame:
+            raise RuntimeError(f"replay_frame_not_recorded:{frame.source_frame_number}")
+        return tuple(
+            DetectionCandidate(ObjectClass(cls), confidence, NormalizedBoundingBox(x, y, w, h), frame_ordinal=ordinal)
+            for cls, confidence, x, y, w, h, ordinal in self._by_frame[frame.source_frame_number]
+        )
+
+
+def write_detections(path: Path, recorded: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for entry in recorded:
+            handle.write(json.dumps(entry, separators=(",", ":")) + "\n")
+
+
+def read_detections(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 PERCENTILES = (("min", 0.0), ("p10", 0.10), ("p25", 0.25), ("p50", 0.50), ("p75", 0.75), ("p90", 0.90), ("max", 1.0))
 CANDIDATE_FIELDS = (
     "clip", "track_id", "object_class", "frame", "offset_ms", "confidence", "area", "sharpness",
@@ -252,16 +311,25 @@ def observe_selectors(tracks: dict[str, dict]):
         cls.observe, cls.resolve = original_observe, original_resolve
 
 
-def measure_clip(runtime, profile, clip: str, video: Path, work_dir: Path) -> tuple[dict, list[dict]]:
-    """One clip through the production composition, instrumented read-only."""
+def measure_clip(
+    runtime, profile, clip: str, video: Path, work_dir: Path, *, detector=None, record: list | None = None
+) -> tuple[dict, list[dict]]:
+    """One clip through the production composition, instrumented read-only.
+
+    ``detector`` replaces ``RTMDetDetector`` only for the §5.3 replay; ``record``
+    collects the production detector's per-frame output for that replay.
+    """
     policy = profile.evidence
     rows: list[dict] = []
     selectors: dict[str, dict] = {}
     encoder = CountingEncoder(JpegLadderEncoder(policy.encoder))
     staging = work_dir / "staging" / clip
     staging.mkdir(parents=True, exist_ok=True)
+    detector = detector if detector is not None else RTMDetDetector(runtime, profile)
+    if record is not None:
+        detector = RecordingDetector(detector, record)
     processor = VideoProcessor(
-        RTMDetDetector(runtime, profile),
+        detector,
         ByteTrackTracker(profile.tracker),
         StagingArtifactStore(staging, JOB_ID, 1),
         evidence_policy=policy,
@@ -489,7 +557,7 @@ def _jsonable(value):
     return value
 
 
-async def _measure(out: Path, clips: list[list[str]]) -> dict:
+async def _measure(out: Path, clips: list[list[str]], record_dir: Path | None = None) -> dict:
     """The worker's own composition: WorkerSettings → RuntimeSupervisor (READY or stop);
     every clip runs on the vision execution lane, as the worker runs attempts."""
     from mavi_vision.common.settings import WorkerSettings
@@ -526,9 +594,13 @@ async def _measure(out: Path, clips: list[list[str]]) -> dict:
             raise SystemExit(f"qualified runtime not READY: {supervisor.unavailable_reason}")
         summaries, all_rows = [], []
         for clip, path in clips:
+            recorded: list | None = [] if record_dir is not None else None
             summary, rows = await lane.run(
-                measure_clip, supervisor.runtime, supervisor.profile, clip, Path(path), out
+                functools.partial(measure_clip, record=recorded),
+                supervisor.runtime, supervisor.profile, clip, Path(path), out,
             )
+            if recorded is not None:
+                write_detections(record_dir / f"{clip}.detections.jsonl", recorded)
             summaries.append(summary)
             all_rows.extend(rows)
         return {
@@ -544,13 +616,52 @@ async def _measure(out: Path, clips: list[list[str]]) -> dict:
         await supervisor.close()
 
 
+async def _replay(out: Path, clips: list[list[str]], detections_dir: Path) -> dict:
+    """§5.3 replay: recorded detections through the real tracker and selector.
+    No model runtime is started; the profile is the worker's own."""
+    from mavi_vision.common.settings import WorkerSettings
+    from mavi_vision.runtime.profile import load_pipeline_profile
+
+    profile_path = WorkerSettings().pipeline_profile_path
+    profile = load_pipeline_profile(profile_path)
+    summaries, all_rows, sources = [], [], {}
+    for clip, path in clips:
+        detections = detections_dir / f"{clip}.detections.jsonl"
+        sources[clip] = sha256_file(detections)[0]
+        summary, rows = measure_clip(None, profile, clip, Path(path), out, detector=ReplayDetector(read_detections(detections)))
+        summaries.append(summary)
+        all_rows.extend(rows)
+    return {
+        "provenance": {"replay": True, "pipelineProfileSha256": sha256_file(Path(profile_path))[0], "detectionsSha256": sources},
+        "clips": summaries,
+        "perClip": [aggregate(s["clip"], [s], [r for r in all_rows if r["clip"] == s["clip"]]) for s in summaries],
+        "combined": aggregate("combined", summaries, all_rows),
+        "rows": all_rows,
+    }
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) < 3:
+    args = list(argv[1:])
+    record_dir = replay_dir = None
+    while args and args[0].startswith("--"):
+        flag = args.pop(0)
+        if flag == "--record-detections" and args:
+            record_dir = Path(args.pop(0))
+        elif flag == "--replay-detections" and args:
+            replay_dir = Path(args.pop(0))
+        else:
+            print(__doc__, file=sys.stderr)
+            return 2
+    if len(args) < 2 or (record_dir and replay_dir):
         print(__doc__, file=sys.stderr)
         return 2
-    out = Path(argv[1])
+    out = Path(args[0])
     out.mkdir(parents=True, exist_ok=True)
-    report = asyncio.run(_measure(out, [arg.split("=", 1) for arg in argv[2:]]))
+    clips = [arg.split("=", 1) for arg in args[1:]]
+    if replay_dir is not None:
+        report = asyncio.run(_replay(out, clips, replay_dir))
+    else:
+        report = asyncio.run(_measure(out, clips, record_dir))
     rows = report.pop("rows")
     with gzip.open(out / "candidates.csv.gz", "wt", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=CANDIDATE_FIELDS)

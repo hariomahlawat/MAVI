@@ -661,3 +661,28 @@ if loaded:
         text=True,
     )
     assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+def test_production_never_substitutes_the_frame_reader() -> None:
+    """``VideoProcessor(frame_reader=...)`` is the S1.4 B2 qualification seam
+    (plan §6.2), never production configuration: the production attempt graph
+    constructs ``VideoProcessor`` with the profile's evidence policy only, and no
+    worker module other than its definition names the seam."""
+    import ast
+
+    package = Path(production_module.__file__).resolve().parents[1]
+    tree = ast.parse(Path(production_module.__file__).read_text(encoding="utf-8"))
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "VideoProcessor"
+    ]
+    assert len(calls) == 1
+    assert [keyword.arg for keyword in calls[0].keywords] == ["evidence_policy"]
+    assert len(calls[0].args) == 3 and not any(isinstance(arg, ast.Starred) for arg in calls[0].args)
+
+    naming = sorted(
+        path.relative_to(package).as_posix()
+        for path in package.rglob("*.py")
+        if "frame_reader" in path.read_text(encoding="utf-8")
+    )
+    assert naming == ["pipeline/process_video.py"]

@@ -460,3 +460,91 @@ def _reachable(root: object) -> list[object]:
             stack.extend(item.keys())
             stack.extend(item.values())
     return list(seen.values())
+
+
+# S1.4 Harness A: the declared frame-source seam -------------------------------
+
+
+def test_frame_reader_defaults_to_the_real_decoder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # No reader means the module's ``iter_frames``, looked up when processing
+    # starts, so production composition (and tests that patch it) is unchanged.
+    import inspect
+
+    assert inspect.signature(VideoProcessor.__init__).parameters["frame_reader"].default is None
+    calls: list[object] = []
+
+    def recording(stream):
+        calls.append(stream)
+        return iter(())
+
+    monkeypatch.setattr(process_video_module, "iter_frames", recording)
+    walker = Walker({})
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"declared")
+    result = VideoProcessor(walker, walker, StagingArtifactStore(tmp_path, JOB_ID, 1), evidence_policy=POLICY).process(
+        job_id=JOB_ID, attempt_count=1, source_path=source,
+        expected_source_size_bytes=source.stat().st_size,
+        expected_source_sha256=sha256(source.read_bytes()).hexdigest(),
+        lease_guard=_guard(),
+    )
+    assert len(calls) == 1 and result.frames_processed == 0
+
+
+def test_a_substituted_frame_reader_feeds_the_real_pipeline(tmp_path: Path) -> None:
+    # The source file is still opened and SHA-verified; only decoding is
+    # replaced. Here the substitute ignores the stream and yields synthetic
+    # frames, and the Track they carry is finalised through the real selector,
+    # encoder and staging.
+    rng = np.random.default_rng(5)
+    frames = [
+        DecodedFrame(source_frame_number=index, offset_ms=index * 100, image=rng.integers(0, 256, (48, 64, 3), dtype=np.uint8))
+        for index in range(12)
+    ]
+    streams: list[object] = []
+
+    def reader(stream):
+        streams.append(stream)
+        return iter(frames)
+
+    walker = Walker({"synthetic-a": range(0, 12)})
+    source = tmp_path / "placeholder.bin"
+    source.write_bytes(b"not a video")
+    processor = VideoProcessor(
+        walker, walker, StagingArtifactStore(tmp_path, JOB_ID, 1), evidence_policy=POLICY, frame_reader=reader,
+    )
+    result = processor.process(
+        job_id=JOB_ID, attempt_count=1, source_path=source,
+        expected_source_size_bytes=source.stat().st_size,
+        expected_source_sha256=sha256(source.read_bytes()).hexdigest(),
+        lease_guard=_guard(),
+    )
+
+    assert len(streams) == 1 and hasattr(streams[0], "read")
+    assert result.frames_processed == 12
+    assert [track.track_id for track in result.tracks] == ["synthetic-a"]
+    assert result.tracks[0].observations[0].crop.size_bytes > 0
+
+
+def test_a_substituted_frame_reader_does_not_bypass_source_integrity(tmp_path: Path) -> None:
+    called: list[bool] = []
+
+    def reader(stream):
+        called.append(True)
+        return iter(())
+
+    source = tmp_path / "placeholder.bin"
+    source.write_bytes(b"not a video")
+    walker = Walker({})
+    processor = VideoProcessor(
+        walker, walker, StagingArtifactStore(tmp_path, JOB_ID, 1), evidence_policy=POLICY, frame_reader=reader,
+    )
+    from mavi_vision.storage.integrity import SourceIntegrityError
+
+    with pytest.raises(SourceIntegrityError, match="source_sha256_mismatch"):
+        processor.process(
+            job_id=JOB_ID, attempt_count=1, source_path=source,
+            expected_source_size_bytes=source.stat().st_size,
+            expected_source_sha256="0" * 64,
+            lease_guard=_guard(),
+        )
+    assert called == []

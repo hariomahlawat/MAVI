@@ -101,8 +101,20 @@ jobs:
       - name: Build .NET
         run: dotnet build MAVI.sln --configuration Release
 
+      # One TRX per test project (the SDK's built-in logger), retained below so an
+      # S1.4 evidence record's .NET suite counts come from the results
+      # themselves. Every project runs; the step fails if any failed.
       - name: Test .NET
-        run: dotnet test MAVI.sln --configuration Release --no-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          for project in $(dotnet sln MAVI.sln list | grep '^tests/'); do
+            name="$(basename "$project" .csproj)"
+            dotnet test "$project" --configuration Release --no-build \
+              --logger "trx;LogFileName=${name}.trx" --results-directory qualification-evidence/trx || status=1
+          done
+          exit "$status"
 
       - name: Verify repository
         run: python tools/verify_repo.py
@@ -118,13 +130,27 @@ jobs:
       - name: Test Task 17 acceptance tooling
         run: python -m pytest -q tools/phase1/tests
 
+      # S1.4 Harness A: the evidence checker and measurement harnesses. The
+      # native-ByteTrack cases run in Task 10's qualified job, not here.
+      - name: Test S1.4 qualification tooling
+        run: python -m pytest -q -rs tools/qualification/tests
+
       - name: Install frontend dependencies
         working-directory: src/web/mavi-web
         run: npm ci
 
       - name: Test frontend
         working-directory: src/web/mavi-web
-        run: npm test
+        run: npm test -- --reporter=default --reporter=junit --outputFile.junit=../../../qualification-evidence/junit/mavi-web.xml
+
+      - name: Retain test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-test-results
+          path: qualification-evidence/
+          include-hidden-files: false
+          if-no-files-found: warn
 
       - name: Typecheck frontend
         working-directory: src/web/mavi-web

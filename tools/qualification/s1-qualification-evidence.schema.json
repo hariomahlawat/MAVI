@@ -1,0 +1,622 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mavi:s1-qualification-evidence-v1",
+  "title": "MAVI Stage-2 S1 qualification evidence record (S1.4 plan \u00a74)",
+  "description": "Structural contract only. The fail-closed semantic rules (head_sha binding, skip rules, per-unit requirements, \u00a72.3 closure binding) live in tools/qualification/s1_evidence.py; a record is valid only if both pass.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "measuredSha",
+    "identity",
+    "hosts",
+    "runs",
+    "retainedArtifacts",
+    "suites",
+    "pairedVariantSkips",
+    "measurements",
+    "units",
+    "closure"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "s1-qualification-evidence-v1"
+    },
+    "measuredSha": {
+      "$ref": "#/$defs/sha"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileVersion",
+        "profileSha256",
+        "selectorVersion",
+        "scorerVersion",
+        "encoderVersion",
+        "completionSchemaVersion",
+        "digestVersion"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/text"
+        },
+        "profileVersion": {
+          "$ref": "#/$defs/text"
+        },
+        "profileSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "selectorVersion": {
+          "$ref": "#/$defs/text"
+        },
+        "scorerVersion": {
+          "$ref": "#/$defs/text"
+        },
+        "encoderVersion": {
+          "$ref": "#/$defs/text"
+        },
+        "completionSchemaVersion": {
+          "$ref": "#/$defs/text"
+        },
+        "digestVersion": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "hosts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cpuModel",
+          "physicalCores",
+          "logicalCores",
+          "ramBytes",
+          "os",
+          "osBuild",
+          "stagingFilesystem",
+          "acceptedEvidenceFilesystem",
+          "storageClass"
+        ],
+        "properties": {
+          "cpuModel": {
+            "$ref": "#/$defs/text"
+          },
+          "physicalCores": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "logicalCores": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "ramBytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "os": {
+            "$ref": "#/$defs/text"
+          },
+          "osBuild": {
+            "$ref": "#/$defs/text"
+          },
+          "stagingFilesystem": {
+            "$ref": "#/$defs/text"
+          },
+          "acceptedEvidenceFilesystem": {
+            "$ref": "#/$defs/text"
+          },
+          "storageClass": {
+            "enum": [
+              "ssd",
+              "hdd",
+              "nvme",
+              "network",
+              "hosted-runner"
+            ]
+          }
+        }
+      }
+    },
+    "runs": {
+      "type": "object",
+      "description": "Workflow runs (kind=workflow) or host-local executions (kind=local). headSha is read from the run itself (Actions API) or from git rev-parse HEAD on a clean tree.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "headSha",
+          "conclusion"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "workflow",
+              "local"
+            ]
+          },
+          "workflow": {
+            "$ref": "#/$defs/text"
+          },
+          "runId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "runAttempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "url": {
+            "$ref": "#/$defs/text"
+          },
+          "host": {
+            "$ref": "#/$defs/text"
+          },
+          "command": {
+            "$ref": "#/$defs/text"
+          },
+          "cleanTree": {
+            "type": "boolean"
+          },
+          "headSha": {
+            "$ref": "#/$defs/sha"
+          },
+          "conclusion": {
+            "enum": [
+              "success",
+              "failure",
+              "cancelled",
+              "skipped",
+              "timed_out"
+            ]
+          }
+        }
+      }
+    },
+    "retainedArtifacts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "run"
+        ],
+        "properties": {
+          "path": {
+            "$ref": "#/$defs/text"
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "run": {
+            "$ref": "#/$defs/text"
+          },
+          "description": {
+            "$ref": "#/$defs/text"
+          },
+          "variant": {
+            "$ref": "#/$defs/text",
+            "description": "The runtime variant whose job produced this artifact (JUnit from a variant-bound suite must carry it)."
+          }
+        }
+      }
+    },
+    "suites": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "suite",
+          "variant",
+          "run",
+          "junitArtifact",
+          "passed",
+          "skipped",
+          "failed",
+          "errors",
+          "passedTests",
+          "skippedTests"
+        ],
+        "properties": {
+          "suite": {
+            "$ref": "#/$defs/text"
+          },
+          "variant": {
+            "$ref": "#/$defs/text"
+          },
+          "run": {
+            "$ref": "#/$defs/text"
+          },
+          "junitArtifact": {
+            "$ref": "#/$defs/text"
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "errors": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "skippedTests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/text"
+            },
+            "uniqueItems": true
+          },
+          "passedTests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/text"
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "pairedVariantSkips": {
+      "type": "array",
+      "description": "S1.4 \u00a73.1: a test that skips by design on one OS, with the counterpart that must pass on the other qualified variant.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "test",
+          "skipsOn",
+          "counterpartSuite",
+          "counterpartTest",
+          "counterpartVariant"
+        ],
+        "properties": {
+          "test": {
+            "$ref": "#/$defs/text"
+          },
+          "skipsOn": {
+            "$ref": "#/$defs/text"
+          },
+          "counterpartSuite": {
+            "$ref": "#/$defs/text"
+          },
+          "counterpartTest": {
+            "$ref": "#/$defs/text"
+          },
+          "counterpartVariant": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "metric",
+          "value",
+          "unit",
+          "host",
+          "run"
+        ],
+        "properties": {
+          "metric": {
+            "$ref": "#/$defs/text"
+          },
+          "value": {
+            "type": "number"
+          },
+          "unit": {
+            "enum": [
+              "bytes",
+              "bytes/track",
+              "ms",
+              "count",
+              "ratio",
+              "MiB"
+            ]
+          },
+          "host": {
+            "$ref": "#/$defs/text"
+          },
+          "run": {
+            "$ref": "#/$defs/text"
+          },
+          "artifact": {
+            "$ref": "#/$defs/text"
+          },
+          "limit": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op",
+              "value",
+              "source"
+            ],
+            "properties": {
+              "op": {
+                "enum": [
+                  "<=",
+                  "<",
+                  ">=",
+                  "==",
+                  ">"
+                ]
+              },
+              "value": {
+                "type": "number"
+              },
+              "source": {
+                "$ref": "#/$defs/text"
+              }
+            }
+          },
+          "samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "repeats": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "warmupExcluded": {
+            "type": "boolean"
+          },
+          "stats": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "min",
+              "p50",
+              "p95",
+              "max"
+            ],
+            "properties": {
+              "min": {
+                "type": "number"
+              },
+              "p50": {
+                "type": "number"
+              },
+              "p95": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              },
+              "p50RunSpread": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "units": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "B1",
+        "B2",
+        "B3",
+        "B4",
+        "B5",
+        "B6",
+        "DISCONNECTED"
+      ],
+      "properties": {
+        "B1": {
+          "$ref": "#/$defs/unit"
+        },
+        "B2": {
+          "$ref": "#/$defs/unit"
+        },
+        "B3": {
+          "$ref": "#/$defs/unit"
+        },
+        "B4": {
+          "$ref": "#/$defs/unit"
+        },
+        "B5": {
+          "$ref": "#/$defs/unit"
+        },
+        "B6": {
+          "$ref": "#/$defs/unit"
+        },
+        "DISCONNECTED": {
+          "$ref": "#/$defs/unit"
+        }
+      }
+    },
+    "disconnected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtimeBundleSourceCommit",
+        "maviVisionWheelSha256",
+        "installProfile",
+        "variant",
+        "isolationMethod",
+        "isolationBefore",
+        "isolationAfter"
+      ],
+      "properties": {
+        "runtimeBundleSourceCommit": {
+          "$ref": "#/$defs/sha"
+        },
+        "maviVisionWheelSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "installProfile": {
+          "const": "development"
+        },
+        "variant": {
+          "$ref": "#/$defs/text"
+        },
+        "isolationMethod": {
+          "$ref": "#/$defs/text"
+        },
+        "isolationBefore": {
+          "$ref": "#/$defs/isolation"
+        },
+        "isolationAfter": {
+          "$ref": "#/$defs/isolation"
+        }
+      }
+    },
+    "closure": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mergeSha",
+            "changedPaths"
+          ],
+          "properties": {
+            "mergeSha": {
+              "$ref": "#/$defs/sha"
+            },
+            "changedPaths": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text"
+              },
+              "uniqueItems": true
+            }
+          }
+        }
+      ]
+    },
+    "s1Closed": {
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "isolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "proxyEnvironmentAbsent",
+        "probes"
+      ],
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "proxyEnvironmentAbsent": {
+          "type": "boolean"
+        },
+        "systemProxy": {
+          "$ref": "#/$defs/text"
+        },
+        "probes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "host",
+              "port",
+              "reachable"
+            ],
+            "properties": {
+              "host": {
+                "type": "string"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "reachable": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict",
+        "suites",
+        "measurements",
+        "artifacts",
+        "nonClaims"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "OPEN",
+            "PASS",
+            "FAIL"
+          ]
+        },
+        "measuredSha": {
+          "$ref": "#/$defs/sha"
+        },
+        "suites": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "uniqueItems": true
+        },
+        "measurements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "uniqueItems": true
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "uniqueItems": true
+        },
+        "nonClaims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    }
+  }
+}

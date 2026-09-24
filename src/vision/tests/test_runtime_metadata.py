@@ -141,6 +141,75 @@ def test_runtime_qualification_binds_evidence_to_exact_checked_out_source() -> N
     assert 'if bytetrack.get("headSha") != executed_source_sha:' in workflow
 
 
+def test_task10_triggers_on_and_qualifies_the_whole_s1_surface() -> None:
+    """S1.4 §10.1: every vision-package change runs Task 10, and the qualified
+    CPU job runs the S1 suites that used to run only on the unqualified Quality
+    Gate interpreter, with JUnit XML so pass/skip/fail counts are retained."""
+    workflow = (
+        Path(__file__).parents[3] / ".github" / "workflows" / "task10-runtime-qualification.yml"
+    ).read_text(encoding="utf-8")
+    pull_request, push = workflow.split("\n  push:\n", 1)
+    push = push.split("\n  workflow_dispatch:", 1)[0]
+    for trigger in (pull_request, push):
+        assert "- 'src/vision/mavi_vision/**'" in trigger
+        assert "- 'tools/qualification/**'" in trigger
+        for suite in (
+            "test_worker_completion_v3.py",
+            "test_completion_contract_*.py",
+            "test_tracker_update.py",
+            "test_track_finalization.py",
+            "test_artifact_store*.py",
+            "test_artifact_publisher.py",
+            "test_analytical_models.py",
+            "test_s1_bound_agreement.py",
+        ):
+            assert f"- 'src/vision/tests/{suite}'" in trigger, suite
+
+    boundary_step = workflow.split("- name: Run production runtime boundary unit tests without ML imports", 1)[1]
+    boundary_step = boundary_step.split("\n      - name:", 1)[0]
+    for suite in (
+        "test_evidence_encoder.py",
+        "test_evidence_selector.py",
+        "test_evidence_scripted_corpus.py",
+        "test_worker_completion_v3.py",
+        "test_completion_contract_bounds.py",
+        "test_tracker_update.py",
+        "test_track_finalization.py",
+        "test_artifact_store.py",
+        "test_artifact_store_windows.py",
+        "test_artifact_publisher.py",
+        "test_analytical_models.py",
+        "test_s1_bound_agreement.py",
+    ):
+        assert f"tests/{suite}" in boundary_step, suite
+
+    # Every JUnit file carries its matrix variant as the test-suite name, so a
+    # retained XML cannot be relabelled as the other variant's evidence.
+    for line in workflow.splitlines():
+        if "--junitxml=" in line:
+            assert "-o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=" in line, line
+
+    # The qualification harness tests run on the qualified runtime with the
+    # native ByteTrack backend, where a missing backend fails instead of skipping.
+    harness_step = workflow.split("- name: Run S1.4 qualification harness tests with the native ByteTrack backend", 1)[1]
+    harness_step = harness_step.split("\n      - name:", 1)[0]
+    assert "MAVI_RUN_QUALIFIED_BYTETRACK_TESTS: '1'" in harness_step or "MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1" in harness_step
+    assert "tools/qualification/tests" in harness_step
+
+    # Every pytest invocation in the qualified job writes JUnit XML.
+    invocations = [line for line in workflow.splitlines() if "python -m pytest" in line]
+    assert invocations
+    for index, line in enumerate(workflow.splitlines()):
+        if "python -m pytest" not in line:
+            continue
+        window = "\n".join(workflow.splitlines()[index:index + 40])
+        command = window.split("\n      - ", 1)[0]
+        assert "--junitxml=" in command, line.strip()
+
+    assert "tools/qualification/tests" in workflow
+    assert "MAVI_RUNTIME_VARIANT: ${{ matrix.runtime-variant }}" in workflow
+
+
 def test_task12_linux_native_bundle_is_bound_to_qualified_host_abi() -> None:
     workflow_path = (
         Path(__file__).parents[3]
