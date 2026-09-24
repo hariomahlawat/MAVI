@@ -38,6 +38,7 @@
       "videoContentUrl": "/api/videos/00000000-0000-4000-8000-000000000003/content"
     },
     "representative": null,
+    "observations": [],
     "trajectoryArtifactId": "00000000-0000-4000-8000-000000000005",
     "trajectoryContentUrl": "/api/artifacts/00000000-0000-4000-8000-000000000005/content",
     "analytics": {

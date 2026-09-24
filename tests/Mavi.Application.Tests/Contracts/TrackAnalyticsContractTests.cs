@@ -93,7 +93,7 @@ public sealed class TrackAnalyticsContractTests
                 "Person", 1, 0, 8_000, At, At.AddSeconds(8), 8_000, 40, 0.9, 0.95, "Unreviewed",
                 new TrackProcessingResponse("phase1-v1", null, null, null, null, At),
                 new TrackVideoResponse(At, At.AddMinutes(1), 60_000, 1920, 1080, 25, 1, "/api/videos/x/content"),
-                null, null, null),
+                null, [], null, null),
             ApiJson);
         using (var document = JsonDocument.Parse(withoutAnalytics))
         {

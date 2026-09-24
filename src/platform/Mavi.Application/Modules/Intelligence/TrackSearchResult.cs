@@ -34,6 +34,13 @@ public sealed record TrackSearchRow(
     ReviewStatus ReviewStatus,
     Guid? ThumbnailArtifactId);
 
+/// <summary>The scalar part of a Track's detail: Track, run, video and camera.</summary>
+/// <remarks>
+/// Deliberately carries no Observation payload. <paramref name="RepresentativeObservationId"/>
+/// is the Track's own pointer, kept only so the Evidence Set read can check it against
+/// rank 0. Every Representative value comes from <see cref="TrackEvidenceSet"/>, so there
+/// is one read projection of the Representative, not two (S1.3 plan §5.1).
+/// </remarks>
 public sealed record TrackDetailRow(
     Guid Id,
     Guid ProcessingRunId,
@@ -66,16 +73,6 @@ public sealed record TrackDetailRow(
     int FrameRateNumerator,
     int FrameRateDenominator,
     Guid? RepresentativeObservationId,
-    long? RepresentativeSourceFrameNumber,
-    long? RepresentativeVideoOffsetMs,
-    DateTimeOffset? RepresentativeTimestampUtc,
-    double? RepresentativeConfidence,
-    double? RepresentativeQualityScore,
-    float? BoundingBoxX,
-    float? BoundingBoxY,
-    float? BoundingBoxWidth,
-    float? BoundingBoxHeight,
-    Guid? ThumbnailArtifactId,
     Guid? TrajectoryArtifactId);
 
 // --- Analytics (Slice 4) ---------------------------------------------------

@@ -67,9 +67,6 @@ public sealed partial class TrackSearchRepository(
             join run in db.ProcessingRuns.AsNoTracking() on track.ProcessingRunId equals run.Id
             join video in db.VideoAssets.AsNoTracking() on track.VideoAssetId equals video.Id
             join camera in db.Cameras.AsNoTracking() on video.CameraId equals camera.Id
-            join observation in db.Observations.AsNoTracking()
-                on track.RepresentativeObservationId equals observation.Id into observations
-            from observation in observations.DefaultIfEmpty()
             where track.Id == trackId &&
                   run.Status == ProcessingRunStatus.Completed &&
                   run.CompletedAtUtc != null
@@ -104,19 +101,37 @@ public sealed partial class TrackSearchRepository(
                 video.Height,
                 video.FrameRateNumerator,
                 video.FrameRateDenominator,
-                observation == null ? null : observation.Id,
-                observation == null ? null : observation.SourceFrameNumber,
-                observation == null ? null : observation.VideoOffsetMs,
-                observation == null ? null : observation.TimestampUtc,
-                observation == null ? null : observation.Confidence,
-                observation == null ? null : observation.QualityScore,
-                observation == null ? null : observation.BoundingBoxX,
-                observation == null ? null : observation.BoundingBoxY,
-                observation == null ? null : observation.BoundingBoxWidth,
-                observation == null ? null : observation.BoundingBoxHeight,
-                observation == null ? null : observation.ThumbnailArtifactId,
+                track.RepresentativeObservationId,
                 track.TrajectoryArtifactId))
         .SingleOrDefaultAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<TrackEvidenceObservationRow>> GetEvidenceSetAsync(
+        Guid trackId,
+        CancellationToken cancellationToken) =>
+        await db.Observations
+            .AsNoTracking()
+            .Where(observation => observation.TrackId == trackId)
+            .OrderBy(observation => observation.EvidenceRank)
+            .ThenBy(observation => observation.Id)
+            // One more than a full set, so an over-full set is seen and refused by the
+            // read seam rather than silently truncated to look valid.
+            .Take(TrackEvidenceSet.MaximumCount + 1)
+            .Select(observation => new TrackEvidenceObservationRow(
+                observation.Id,
+                observation.ObservationType,
+                observation.EvidenceRank,
+                observation.SourceFrameNumber,
+                observation.VideoOffsetMs,
+                observation.TimestampUtc,
+                observation.Confidence,
+                observation.QualityScore,
+                observation.SelectionScore,
+                observation.BoundingBoxX,
+                observation.BoundingBoxY,
+                observation.BoundingBoxWidth,
+                observation.BoundingBoxHeight,
+                observation.ThumbnailArtifactId))
+            .ToArrayAsync(cancellationToken);
 
     private IQueryable<TrackSearchRow> BuildQuery(
         TrackSearchQuery query,

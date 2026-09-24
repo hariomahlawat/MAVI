@@ -212,6 +212,11 @@ public sealed class TrackSearchServiceTests
             CancellationToken cancellationToken) =>
             Task.FromResult<TrackDetailRow?>(null);
 
+        public Task<IReadOnlyList<TrackEvidenceObservationRow>> GetEvidenceSetAsync(
+            Guid trackId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<TrackEvidenceObservationRow>>([]);
+
         public Task<TrackAnalyticsSearchRepositoryResult> SearchAnalyticsAsync(
             TrackSearchQuery query,
             TrackAnalyticsCursorPosition? cursor,

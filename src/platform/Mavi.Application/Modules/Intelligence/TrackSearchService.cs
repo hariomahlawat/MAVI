@@ -25,13 +25,17 @@ public sealed record TrackSearchServiceResult(
 public sealed record TrackDetailServiceResult(
     bool IsSuccess,
     TrackDetailRow? Row,
+    TrackEvidenceSet? EvidenceSet,
     TrackDetailAnalytics? Analytics,
     string? ErrorCode)
 {
-    public static TrackDetailServiceResult NotFound { get; } = new(true, null, null, null);
-    public static TrackDetailServiceResult Invalid { get; } = new(false, null, null, "track_search_invalid");
-    public static TrackDetailServiceResult Found(TrackDetailRow row, TrackDetailAnalytics analytics) =>
-        new(true, row, analytics, null);
+    public static TrackDetailServiceResult NotFound { get; } = new(true, null, null, null, null);
+    public static TrackDetailServiceResult Invalid { get; } = new(false, null, null, null, "track_search_invalid");
+    public static TrackDetailServiceResult Found(
+        TrackDetailRow row,
+        TrackEvidenceSet evidenceSet,
+        TrackDetailAnalytics analytics) =>
+        new(true, row, evidenceSet, analytics, null);
 }
 
 public sealed class TrackSearchService(
@@ -176,13 +180,21 @@ public sealed class TrackSearchService(
         if (row is null)
             return TrackDetailServiceResult.NotFound;
 
+        // The raw Evidence Set: the second of the two bounded raw-evidence reads. A
+        // completed run's Observations are immutable and committed with its completion,
+        // so no transaction is needed. A persisted set that breaks the contract throws
+        // TrackEvidenceSetInvariantException here; nothing is repaired or dropped.
+        var evidenceSet = TrackEvidenceSet.FromPersisted(
+            row.RepresentativeObservationId,
+            await repository.GetEvidenceSetAsync(trackId, cancellationToken));
+
         var analytics = await repository.GetDetailAnalyticsAsync(trackId, request, cancellationToken);
         if (analytics is null)
             return TrackDetailServiceResult.NotFound;
         if (analytics.Analytics is not { } resolved)
             return TrackDetailServiceResult.Invalid;
 
-        return TrackDetailServiceResult.Found(row, resolved);
+        return TrackDetailServiceResult.Found(row, evidenceSet, resolved);
     }
 
     private static bool IsWithinValidity(DateTimeOffset snapshotUtc, DateTimeOffset nowUtc) =>

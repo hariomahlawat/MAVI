@@ -260,6 +260,10 @@ public sealed class TrackSearchServiceAnalyticsTests
         public Task<TrackDetailRow?> GetDetailAsync(Guid trackId, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Not part of these scenarios.");
 
+        public Task<IReadOnlyList<TrackEvidenceObservationRow>> GetEvidenceSetAsync(
+            Guid trackId, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Not part of these scenarios.");
+
         public Task<TrackDetailAnalyticsResult?> GetDetailAnalyticsAsync(
             Guid trackId, TrackAnalyticsDetailRequest request, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Not part of these scenarios.");
