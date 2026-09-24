@@ -39,6 +39,9 @@ class FakeWorkerApiClient:
         self.completions: list[tuple[VisionProcessingResult, int, object]] = []
         self.events: list[str] = []
 
+    async def get_contract_capabilities(self) -> None:
+        return None
+
     async def lease(self) -> VisionJobLease | None:
         self.events.append("lease")
         return self.leased_job

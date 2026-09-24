@@ -21,6 +21,7 @@ from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.tracking.fixture import FixtureTracker
 from mavi_vision.video.trajectory import deserialize_trajectory
+from tests.profile_fixtures import PRODUCTION_EVIDENCE_POLICY
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd761")
@@ -77,6 +78,7 @@ def _processor(
         FixtureDetector(detections),
         FixtureTracker(associations),
         StagingArtifactStore(tmp_path, JOB_ID, attempt),
+        evidence_policy=PRODUCTION_EVIDENCE_POLICY,
     )
 
 
@@ -127,7 +129,9 @@ def test_process_builds_one_deterministic_track_and_artifacts(tmp_path: Path) ->
     assert track.max_confidence == pytest.approx(0.9)
     assert track.start_offset_ms <= track.representative.offset_ms <= track.end_offset_ms
     assert track.representative.offset_ms == track.start_offset_ms
-    thumbnail_path = _artifact_path(tmp_path, track.thumbnail.storage_key)
+    representative = track.observations[0]
+    assert representative.role.value == "representative" and representative.rank == 0
+    thumbnail_path = _artifact_path(tmp_path, representative.crop.storage_key)
     trajectory_path = _artifact_path(tmp_path, track.trajectory_artifact.storage_key)
     trajectory = deserialize_trajectory(trajectory_path.read_bytes())
     offsets = [point.offset_ms for point in trajectory]
@@ -135,10 +139,12 @@ def test_process_builds_one_deterministic_track_and_artifacts(tmp_path: Path) ->
     assert all(current > previous for previous, current in zip(offsets, offsets[1:]))
     assert thumbnail_path.exists()
     assert trajectory_path.exists()
-    assert "/attempt-0001/thumbnails/" in track.thumbnail.storage_key
+    assert representative.crop.storage_key.endswith("/attempt-0001/evidence/person-0001-representative.jpg")
+    assert not (_attempt_path(tmp_path) / "thumbnails").exists()
     assert "/attempt-0001/trajectories/" in track.trajectory_artifact.storage_key
-    assert track.thumbnail.size_bytes == thumbnail_path.stat().st_size
-    assert track.thumbnail.sha256 == sha256(thumbnail_path.read_bytes()).hexdigest()
+    assert representative.crop.size_bytes == thumbnail_path.stat().st_size
+    assert representative.crop.sha256 == sha256(thumbnail_path.read_bytes()).hexdigest()
+    assert result.evidence_accounting.representative.admitted == 1
     assert track.trajectory_artifact.size_bytes == trajectory_path.stat().st_size
     assert track.trajectory_artifact.sha256 == sha256(trajectory_path.read_bytes()).hexdigest()
 
@@ -198,7 +204,7 @@ def test_integrity_mismatch_cleans_only_current_attempt_staging(tmp_path: Path) 
         "keep.bin", b"replacement", "application/octet-stream"
     )
     replacement_path = _artifact_path(tmp_path, replacement_descriptor.storage_key)
-    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), store)
+    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), store, evidence_policy=PRODUCTION_EVIDENCE_POLICY)
 
     with pytest.raises(SourceIntegrityError, match="source_sha256_mismatch"):
         _run(processor, source, size, "0" * 64)
@@ -214,7 +220,7 @@ def test_pre_lost_processor_preserves_existing_attempt_staging(tmp_path: Path) -
     store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
     descriptor = store.write_bytes("keep.bin", b"keep", "application/octet-stream")
     keep_path = _artifact_path(tmp_path, descriptor.storage_key)
-    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), store)
+    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), store, evidence_policy=PRODUCTION_EVIDENCE_POLICY)
     guard = _owned_guard()
     guard.mark_lost()
 
@@ -245,7 +251,7 @@ def test_processing_failure_after_lease_loss_preserves_replacement_attempt(tmp_p
             guard.mark_lost()
             raise RuntimeError("processing failure after lease loss")
 
-    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), stale_store)
+    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), stale_store, evidence_policy=PRODUCTION_EVIDENCE_POLICY)
 
     with pytest.raises(LeaseLostError, match="lease_lost"):
         _run(processor, source, size, digest, lease_guard=guard)
@@ -317,7 +323,7 @@ def test_corrupt_video_maps_to_stable_error_and_cleans_attempt(tmp_path: Path) -
     size, digest = _source_facts(source)
     store = StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT)
     store.write_bytes("stale.bin", b"stale", "application/octet-stream")
-    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), store)
+    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), store, evidence_policy=PRODUCTION_EVIDENCE_POLICY)
 
     with pytest.raises(VideoProcessingError) as exc_info:
         _run(processor, source, size, digest)
@@ -336,7 +342,7 @@ def test_detector_failure_maps_to_pipeline_error_and_cleans_attempt(tmp_path: Pa
         def detect(self, frame):
             raise RuntimeError("fixture failure")
 
-    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store)
+    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store, evidence_policy=PRODUCTION_EVIDENCE_POLICY)
 
     with pytest.raises(VideoProcessingError) as exc_info:
         _run(processor, source, size, digest)
@@ -360,7 +366,7 @@ def test_gpu_oom_error_propagates_unchanged_and_cleans_owned_attempt(
         def detect(self, frame):
             raise error
 
-    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store)
+    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store, evidence_policy=PRODUCTION_EVIDENCE_POLICY)
 
     with pytest.raises(GpuOutOfMemoryError) as exc_info:
         _run(processor, source, size, digest)
@@ -387,6 +393,7 @@ def test_tracker_error_propagates_unchanged_and_cleans_owned_attempt(
         FixtureDetector({0: (_person(),)}),
         FailingTracker(),
         store,
+        evidence_policy=PRODUCTION_EVIDENCE_POLICY,
     )
 
     with pytest.raises(TrackerError) as exc_info:
@@ -419,7 +426,7 @@ def test_typed_dependency_failure_survives_lease_loss_without_stale_cleanup(
             guard.mark_lost()
             raise error
 
-    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store)
+    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store, evidence_policy=PRODUCTION_EVIDENCE_POLICY)
 
     with pytest.raises(GpuOutOfMemoryError) as exc_info:
         _run(processor, source, size, digest, lease_guard=guard)
@@ -435,7 +442,7 @@ def test_process_rejects_store_scoped_to_different_job_without_cleanup(tmp_path:
     other_store = StagingArtifactStore(tmp_path, OTHER_JOB_ID, ATTEMPT)
     descriptor = other_store.write_bytes("keep.bin", b"keep", "application/octet-stream")
     keep_path = _artifact_path(tmp_path, descriptor.storage_key)
-    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), other_store)
+    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), other_store, evidence_policy=PRODUCTION_EVIDENCE_POLICY)
 
     with pytest.raises(VideoProcessingError) as exc_info:
         _run(processor, source, size, digest)
@@ -451,7 +458,7 @@ def test_process_rejects_store_scoped_to_different_attempt_without_cleanup(tmp_p
     other_store = StagingArtifactStore(tmp_path, JOB_ID, 2)
     descriptor = other_store.write_bytes("keep.bin", b"keep", "application/octet-stream")
     keep_path = _artifact_path(tmp_path, descriptor.storage_key)
-    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), other_store)
+    processor = VideoProcessor(FixtureDetector({}), FixtureTracker({}), other_store, evidence_policy=PRODUCTION_EVIDENCE_POLICY)
 
     with pytest.raises(VideoProcessingError) as exc_info:
         _run(processor, source, size, digest, attempt=ATTEMPT)
@@ -469,6 +476,7 @@ def test_unsafe_tracker_id_is_rejected_before_artifact_creation(tmp_path: Path) 
         FixtureDetector(detections),
         FixtureTracker({(0, 0): "person/nested"}),
         StagingArtifactStore(tmp_path, JOB_ID, ATTEMPT),
+        evidence_policy=PRODUCTION_EVIDENCE_POLICY,
     )
 
     with pytest.raises(VideoProcessingError) as exc_info:
@@ -514,7 +522,7 @@ def test_detector_failure_does_not_count_incomplete_frame_as_progress(
         def detect(self, frame):
             raise RuntimeError("fixture failure")
 
-    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store)
+    processor = VideoProcessor(FailingDetector(), FixtureTracker({}), store, evidence_policy=PRODUCTION_EVIDENCE_POLICY)
 
     with pytest.raises(VideoProcessingError, match="pipeline_processing_failed"):
         _run(
@@ -569,18 +577,17 @@ def test_lease_expiry_during_frame_analytics_does_not_advance_progress(
     progress = ProcessingProgress(source_duration_ms=100)
     now = BASE
     guard = LeaseGuard(BASE + timedelta(seconds=1), now_utc=lambda: now)
-    real_quality = process_video_module.representative_quality
+    real_observe = process_video_module.EvidenceSelector.observe
 
-    def quality_then_expire(frame, bbox):
+    def observe_then_expire(self, context, candidate):
         nonlocal now
-        quality = real_quality(frame, bbox)
+        real_observe(self, context, candidate)
         now = BASE + timedelta(seconds=2)
-        return quality
 
     monkeypatch.setattr(
-        process_video_module,
-        "representative_quality",
-        quality_then_expire,
+        process_video_module.EvidenceSelector,
+        "observe",
+        observe_then_expire,
     )
 
     with pytest.raises(LeaseLostError, match="lease_lost"):

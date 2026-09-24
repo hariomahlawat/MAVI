@@ -28,6 +28,7 @@ from mavi_vision.runtime.qualification import (
     RuntimeReleaseLockIdentity,
     VerifiedReleaseSelection,
 )
+from tests.profile_fixtures import PRODUCTION_EVIDENCE_POLICY
 
 
 SHA_A = "a" * 64
@@ -112,6 +113,7 @@ def _profile() -> PipelineProfile:
             lost_track_buffer_seconds=1.0,
         ),
         frame_policy="every-frame",
+        evidence=PRODUCTION_EVIDENCE_POLICY,
     )
 
 

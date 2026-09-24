@@ -155,7 +155,7 @@ def test_exact_packages_compose_two_isolated_attempts_around_one_runtime(
     )
     # Attempt 1 really staged its whole Track before attempt 2 existed.
     first_paths = {
-        _artifact_path(tmp_path, first.tracks[0].thumbnail.storage_key),
+        _artifact_path(tmp_path, first.tracks[0].representative.crop.storage_key),
         _artifact_path(tmp_path, first.tracks[0].trajectory_artifact.storage_key),
     }
     assert all(path.is_file() for path in first_paths)
@@ -180,18 +180,18 @@ def test_exact_packages_compose_two_isolated_attempts_around_one_runtime(
     assert first.tracks[0].track_id == "person-000001"
     assert second.tracks[0].track_id == "person-000001"
 
-    first_thumbnail = first.tracks[0].thumbnail
+    first_crop = first.tracks[0].representative.crop
     first_trajectory = first.tracks[0].trajectory_artifact
-    second_thumbnail = second.tracks[0].thumbnail
+    second_crop = second.tracks[0].representative.crop
     second_trajectory = second.tracks[0].trajectory_artifact
 
-    assert "/attempt-0001/" in first_thumbnail.storage_key
+    assert "/attempt-0001/" in first_crop.storage_key
     assert "/attempt-0001/" in first_trajectory.storage_key
-    assert "/attempt-0002/" in second_thumbnail.storage_key
+    assert "/attempt-0002/" in second_crop.storage_key
     assert "/attempt-0002/" in second_trajectory.storage_key
 
     second_paths = {
-        _artifact_path(tmp_path, second_thumbnail.storage_key),
+        _artifact_path(tmp_path, second_crop.storage_key),
         _artifact_path(tmp_path, second_trajectory.storage_key),
     }
     assert first_paths.isdisjoint(second_paths)

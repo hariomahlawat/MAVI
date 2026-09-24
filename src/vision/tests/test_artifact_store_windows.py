@@ -402,3 +402,21 @@ def test_windows_write_stream_source_failure_leaves_no_destination_or_temp(tmp_p
         store.write_stream("trajectories/t.msgpack", failing(), "application/msgpack")
 
     assert list((_attempt_root(tmp_path) / "trajectories").iterdir()) == []
+
+
+def test_windows_evidence_write_and_remove_refuse_a_junctioned_evidence_directory(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-evidence-junction"
+    outside.mkdir()
+    keep = outside / "person-0001-near-view.jpg"
+    keep.write_bytes(b"keep")
+    attempt = _attempt_root(tmp_path)
+    attempt.mkdir(parents=True)
+    _junction(attempt / "evidence", outside)
+    store = StagingArtifactStore(tmp_path, JOB_ID, 1)
+    name = store.evidence_relative_name("person-0001", "near-view")
+
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.write_bytes(name, b"x", "image/jpeg")
+    with pytest.raises(StagingArtifactError, match="staging_path_escape"):
+        store.remove(name)
+    assert keep.read_bytes() == b"keep"

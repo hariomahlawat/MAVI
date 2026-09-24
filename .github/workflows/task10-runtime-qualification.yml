@@ -17,6 +17,15 @@ on:
       - 'src/vision/tests/test_process_video.py'
       - 'src/vision/tests/test_track_lifecycle.py'
       - 'src/vision/tests/test_trajectory_spool.py'
+      - 'src/vision/tests/test_evidence_*.py'
+      - 'src/vision/tests/evidence_fixtures.py'
+      - 'src/vision/tests/profile_fixtures.py'
+      - 'tools/vision/dev/scripted_corpus.py'
+      - 'tools/vision/dev/measure_evidence_real_clips.py'
+      - 'src/vision/tests/test_measure_evidence_real_clips.py'
+      - 'tests/fixtures/scene-analytics/scripted-corpus-v1.json'
+      - 'src/vision/mavi_vision/evidence/**'
+      - 'src/vision/mavi_vision/quality/**'
       - 'src/vision/mavi_vision/video/**'
       - 'src/vision/mavi_vision/storage/**'
       - 'src/vision/mavi_vision/runtime/**'
@@ -50,6 +59,15 @@ on:
       - 'src/vision/tests/test_process_video.py'
       - 'src/vision/tests/test_track_lifecycle.py'
       - 'src/vision/tests/test_trajectory_spool.py'
+      - 'src/vision/tests/test_evidence_*.py'
+      - 'src/vision/tests/evidence_fixtures.py'
+      - 'src/vision/tests/profile_fixtures.py'
+      - 'tools/vision/dev/scripted_corpus.py'
+      - 'tools/vision/dev/measure_evidence_real_clips.py'
+      - 'src/vision/tests/test_measure_evidence_real_clips.py'
+      - 'tests/fixtures/scene-analytics/scripted-corpus-v1.json'
+      - 'src/vision/mavi_vision/evidence/**'
+      - 'src/vision/mavi_vision/quality/**'
       - 'src/vision/mavi_vision/video/**'
       - 'src/vision/mavi_vision/storage/**'
       - 'src/vision/mavi_vision/runtime/**'
@@ -147,6 +165,13 @@ jobs:
           tests/test_process_video.py
           tests/test_track_lifecycle.py
           tests/test_trajectory_spool.py
+          tests/test_evidence_profile.py
+          tests/test_evidence_quality.py
+          tests/test_evidence_encoder.py
+          tests/test_evidence_selector.py
+          tests/test_evidence_admission.py
+          tests/test_evidence_pipeline.py
+          tests/test_evidence_scripted_corpus.py
           -q
 
       - name: Install candidate PyTorch CPU build
@@ -383,6 +408,12 @@ jobs:
           )
           print("bytetrack-qualification-ok", json.dumps(record, sort_keys=True))
           PY
+
+      - name: Run real-clip measurement harness composition test
+        shell: bash
+        run: >-
+          MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1 PYTHONPATH=src/vision
+          python -m pytest src/vision/tests/test_measure_evidence_real_clips.py -q
 
       - name: Run exact production attempt composition qualification
         shell: bash

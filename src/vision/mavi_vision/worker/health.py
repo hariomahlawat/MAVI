@@ -15,9 +15,13 @@ def get_worker_health(
     worker_id: str,
     *,
     runtime_ready: bool,
+    platform_contract_confirmed: bool,
 ) -> WorkerHealth:
     if not runtime_ready:
         raise WorkerHealthUnavailable("runtime_not_ready")
+    if not platform_contract_confirmed:
+        # The platform has not (yet) listed completion 3.0; no job is leased.
+        raise WorkerHealthUnavailable("vision_platform_contract_unsupported")
 
     return WorkerHealth.model_validate(
         {

@@ -69,7 +69,12 @@ class ProductionVisionProcessor:
             detector = RTMDetDetector(runtime, self._profile)
             tracker = ByteTrackTracker(self._profile.tracker)
             artifact_store = self._staging_factory(job_id, attempt_count)
-            processor = VideoProcessor(detector, tracker, artifact_store)
+            processor = VideoProcessor(
+                detector,
+                tracker,
+                artifact_store,
+                evidence_policy=self._profile.evidence,
+            )
 
             return processor.process(
                 job_id=job_id,

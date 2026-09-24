@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 import json
 from pathlib import Path
 
@@ -7,11 +9,12 @@ import pytest
 
 from mavi_vision.runtime.manifest import ReleaseMetadataError
 from mavi_vision.runtime.profile import ByteTrackProfile, load_pipeline_profile
+from tests.profile_fixtures import PRODUCTION_EVIDENCE_SECTION
 
 
 def _payload() -> dict:
     return {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "profileId": "phase1-detection-tracking-v1",
         "profileVersion": "1.1.0-candidate",
         "modelId": "rtmdet-m-coco-phase1",
@@ -33,6 +36,7 @@ def _payload() -> dict:
             "lostTrackBufferSeconds": 1.0,
         },
         "framePolicy": "every-frame",
+        "evidence": copy.deepcopy(PRODUCTION_EVIDENCE_SECTION),
     }
 
 

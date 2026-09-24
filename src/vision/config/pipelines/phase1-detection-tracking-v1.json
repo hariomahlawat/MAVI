@@ -1,7 +1,7 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "profileId": "phase1-detection-tracking-v1",
-  "profileVersion": "1.1.0-candidate",
+  "profileVersion": "1.2.0-candidate",
   "modelId": "rtmdet-m-coco-phase1",
   "detectorInferenceFloor": 0.05,
   "allowedSourceClasses": [
@@ -26,5 +26,41 @@
     "minimumConsecutiveFrames": 2,
     "lostTrackBufferSeconds": 1.0
   },
-  "framePolicy": "every-frame"
+  "framePolicy": "every-frame",
+  "evidence": {
+    "selectorVersion": "evidence-selector-v1-two-tier",
+    "scorerVersion": "quality-v2",
+    "confidenceFloor": 0.5,
+    "sharpnessFloor": 0.05,
+    "edgeMarginFloor": 0.005,
+    "occlusionIouCeiling": 0.3,
+    "occlusionPenaltyWeight": 0.0,
+    "replaceEpsilon": 0.02,
+    "nearViewGrowth": 0.25,
+    "earlyWindowMs": 3000,
+    "lateRefreshIntervalMs": 5000,
+    "minSeparationMs": 1000,
+    "duplicateWindowMs": 500,
+    "duplicateIouThreshold": 0.85,
+    "encoder": {
+      "encoderVersion": "evidence-jpeg-ladder-v1",
+      "maxLongEdgePx": 1024,
+      "initialQuality": 85,
+      "representativeCapBytes": 65536,
+      "supplementalCapBytes": 163840,
+      "floorLongEdgePx": 128,
+      "floorQuality": 50,
+      "ladderScale": 0.8,
+      "ladderQualities": [
+        85,
+        75
+      ],
+      "floorQualities": [
+        65,
+        55,
+        50
+      ]
+    },
+    "runEvidenceCropQuotaBytes": 1073741824
+  }
 }

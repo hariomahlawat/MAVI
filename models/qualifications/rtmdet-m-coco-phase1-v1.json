@@ -6,30 +6,19 @@
   "checkpointSha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
   "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
   "pipelineProfileId": "phase1-detection-tracking-v1",
-  "pipelineProfileSha256": "1d109f4dd666f18d1a234bf89d13ff3347cff09f48ce0f3c1c6c95714e4c530f",
+  "pipelineProfileSha256": "503225be736d9622ed110aa69e49a83dde4ae02c858d5e8fa41e527b1c4b23fb",
   "runtimeProfileId": "mmdetection-phase1-v1",
   "runtimeProfileSha256": "b3c59ac4e535d5e2e7356fef55f5266937e56751207f37a06dd13140b01c6873",
   "requiredGates": {
-    "windows-x86_64-cpu": "passed",
+    "windows-x86_64-cpu": "pending",
     "windows-x86_64-cuda": "pending",
-    "linux-x86_64-cpu": "passed",
+    "linux-x86_64-cpu": "pending",
     "linux-x86_64-cuda": "pending",
     "windows-offline-install": "pending",
     "linux-offline-install": "pending",
     "cctv-quality-baseline": "pending",
     "linux-nvidia-recovery-performance": "pending"
   },
-  "evidence": {
-    "windows-x86_64-cpu": {
-      "kind": "github-actions",
-      "reference": "run=34740540263;job=103679381173;artifact=10312129704;head=695be6f69421eec006837636b36d6375043a5f2b",
-      "sha256": "ed5f977c3c31b91475d1def1ce7ab41c1fb3831a992b1be85cfb46d2d10e489a"
-    },
-    "linux-x86_64-cpu": {
-      "kind": "github-actions",
-      "reference": "run=34740540263;job=103679381111;artifact=10312274171;head=695be6f69421eec006837636b36d6375043a5f2b",
-      "sha256": "f69b2e7deb9961b23faa8797fa18861686b05cdb367a7d81438e73ce99ace349"
-    }
-  },
+  "evidence": {},
   "overallResult": "pending"
 }

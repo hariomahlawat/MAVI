@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 import hashlib
 import json
 from pathlib import Path
@@ -12,6 +14,7 @@ from mavi_vision.runtime.qualification import (
     load_qualification_record,
     verify_release_selection,
 )
+from tests.profile_fixtures import PRODUCTION_EVIDENCE_SECTION
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -58,7 +61,7 @@ def _offline_lock_bytes(
 
 def _profile_payload() -> dict:
     return {
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "profileId": "phase1-detection-tracking-v1",
         "profileVersion": "1.1.0-candidate",
         "modelId": "model-a",
@@ -80,6 +83,7 @@ def _profile_payload() -> dict:
             "lostTrackBufferSeconds": 1.0,
         },
         "framePolicy": "every-frame",
+        "evidence": copy.deepcopy(PRODUCTION_EVIDENCE_SECTION),
     }
 
 

@@ -37,6 +37,7 @@ from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.detection.fixture import FixtureDetector
 from mavi_vision.detection.interfaces import DetectionCandidate
 from mavi_vision.pipeline.process_video import VideoProcessor
+from mavi_vision.runtime.profile import load_pipeline_profile
 from mavi_vision.runtime.progress import ProcessingProgressSink
 from mavi_vision.runtime.provenance import RuntimeProvenance, TrackerParameters, capture_platform_identity
 from mavi_vision.storage.artifact_store import StagingArtifactStore
@@ -48,6 +49,9 @@ from mavi_vision.worker.runner import WorkerRunner
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 FPS = 25
+PIPELINE_PROFILE_PATH = (
+    Path(__file__).resolve().parents[3] / "src" / "vision" / "config" / "pipelines" / "phase1-detection-tracking-v1.json"
+)
 WIDTH, HEIGHT = 640, 360
 
 
@@ -95,8 +99,12 @@ class FixtureVisionProcessor:
         # unset keeps the original PR-50 walk.
         scenario_id = os.environ.get("MAVI_FIXTURE_SCENARIO")
         detections, associations = build_scripted_fixture(scenario_id) if scenario_id else build_fixture()
+        # The shipped profile's evidence policy, so the harness exercises the
+        # production selector, encoder and admission.
+        evidence_policy = load_pipeline_profile(PIPELINE_PROFILE_PATH).evidence
         processor = VideoProcessor(FixtureDetector(detections), FixtureTracker(associations),
-                                   StagingArtifactStore(self._media_root, job_id, attempt_count))
+                                   StagingArtifactStore(self._media_root, job_id, attempt_count),
+                                   evidence_policy=evidence_policy)
         return processor.process(job_id=job_id, attempt_count=attempt_count, source_path=source_path,
                                  expected_source_size_bytes=expected_source_size_bytes,
                                  expected_source_sha256=expected_source_sha256, lease_guard=lease_guard,

@@ -24,7 +24,6 @@ from mavi_vision.common.analytical import (
     NormalizedBoundingBox,
     ObjectClass,
     ProcessedTrack,
-    RepresentativeObservation,
     VisionProcessingResult,
 )
 from mavi_vision.common import gpu_digest
@@ -35,6 +34,7 @@ from mavi_vision.runtime.provenance import (
     TrackerParameters,
 )
 from mavi_vision.worker import attempt_telemetry as MODULE
+from tests.evidence_fixtures import admitted_accounting, observation
 from mavi_vision.worker.attempt_telemetry import (
     AttemptCompletion,
     JsonlAttemptTelemetryRecorder,
@@ -65,14 +65,7 @@ def _track(track_id: str, detections: int) -> ProcessedTrack:
         detection_count=detections,
         mean_confidence=0.8,
         max_confidence=0.9,
-        representative=RepresentativeObservation(
-            offset_ms=0,
-            source_frame_number=1,
-            confidence=0.9,
-            bounding_box=NormalizedBoundingBox(0.1, 0.1, 0.2, 0.4),
-            quality_score=0.8,
-        ),
-        thumbnail=_artifact(f"staging/job/thumbnails/{track_id}.jpg"),
+        observations=(observation(track_id, prefix="staging/job"),),
         trajectory_artifact=_artifact(f"staging/job/trajectories/{track_id}.msgpack"),
     )
 
@@ -154,7 +147,8 @@ def _completion(provenance: RuntimeProvenance, *, attempt: int = 1) -> AttemptCo
         result=VisionProcessingResult(
             job_id=_JOB,
             frames_processed=3600,
-            tracks=(_track("fixture-0001", 3), _track("fixture-0002", 5)),
+            tracks=(tracks := (_track("fixture-0001", 3), _track("fixture-0002", 5))),
+            evidence_accounting=admitted_accounting(tracks),
         ),
         processing_duration_ms=96400,
         provenance=provenance,

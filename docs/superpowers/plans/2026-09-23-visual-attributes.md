@@ -193,11 +193,13 @@ Maximum candidate roles per Track:
 
 Selection is deterministic and model-neutral.
 
-Quality terms may include area, sharpness, detector confidence, clipping penalty, temporal separation and concurrent-box overlap as an occlusion proxy.
+Quality terms may include area, sharpness, detector confidence, clipping penalty, temporal separation and concurrent-box overlap as an occlusion proxy *(credible concurrent boxes only, confidence ≥ `confidenceFloor`: scorer `quality-v2`, ADR-013 §4 amendment of 2026-09-24)*.
 
 No face/plate/demographic/downstream-model-specific scoring is allowed.
 
 Selection method (frozen in ADR-013 §4; numeric floors set in S1 and recorded in the pipeline profile): a *qualified candidate* meets confidence, sharpness, edge-margin and occlusion-proxy floors; Representative is the best-scoring qualified candidate overall; NearView the largest-area qualified non-duplicate; EarlyDiverse the best-scoring qualified candidate in the anchored early window and LateDiverse the most recent qualified view refreshed at a fixed interval (ADR-013 §4 as amended by the S1 plan review; thirds were not computable in one pass), each at least the minimum separation from every selected frame. A role with no qualified candidate is omitted, never filled with an unqualified frame.
+
+*(Amended 2026-09-24 by the accepted ADR-013 §4 two-tier amendment, S1.2c.) The mandatory Representative may be a **fallback**: before a Track's first qualified admissible candidate, the best admissible candidate holds the role, and the first qualified one displaces it. The omission rule above applies to the supplemental roles. A Representative is therefore not necessarily qualified evidence. Qualification-sensitive attribute work must use the qualified-only supplemental roles, or introduce an explicit qualification contract before consuming the Representative.*
 
 Tie rule within a role: selector score descending → source-frame number ascending. Roles are evaluated in fixed order.
 
