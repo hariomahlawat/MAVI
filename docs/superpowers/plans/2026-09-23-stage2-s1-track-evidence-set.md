@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1 Track Evidence Set Implementation Plan
 
-**Status:** Implementation-grade plan; independently reviewed 2026-09-23 (see `docs/reviews/2026-09-23-stage2-s1-plan-review-resolution.md`); awaiting final owner review  
+**Status:** Implementation-grade parent plan; independently reviewed 2026-09-23. S1.1 and S1.2 are merged; S1.3 is the active next slice; S1.4 follows.  
 **Date:** 2026-09-23  
 **Baseline:** `main@6809606e596d121186b5244869760073fe82072a` — PR #73 merged; Stage-2 architecture frozen  
 **Governing architecture:** ADR-006, ADR-013, ADR-014, Stage-2 parent plan, Stage-2 acceptance register  
@@ -180,6 +180,8 @@ S1 should be implemented as **four mergeable sub-slices**. Each sub-slice leaves
 **Goal:** close B1–B6 with exact-head evidence.
 
 The implementation PRs may be separate, but all remain inside Stage-2 S1 and the Stage-2 acceptance register remains the authority.
+
+**Current implementation state (2026-09-24):** S1.1 merged in PR #75. S1.2a/#77, S1.2b/#78 and S1.2c/#79 are merged; S1.2 is complete on `main@2060599a9786651f36071742034076369520d0ce`. The dedicated S1.3 implementation plan is `docs/superpowers/plans/2026-09-24-stage2-s1-3-evidence-read-ui-implementation.md`.
 
 ---
 
