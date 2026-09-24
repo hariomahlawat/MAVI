@@ -681,7 +681,7 @@ def test_production_never_substitutes_the_frame_reader() -> None:
     assert len(calls[0].args) == 3 and not any(isinstance(arg, ast.Starred) for arg in calls[0].args)
 
     naming = sorted(
-        str(path.relative_to(package))
+        path.relative_to(package).as_posix()
         for path in package.rglob("*.py")
         if "frame_reader" in path.read_text(encoding="utf-8")
     )
