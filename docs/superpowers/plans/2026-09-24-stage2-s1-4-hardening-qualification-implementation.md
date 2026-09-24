@@ -457,7 +457,23 @@ Re-run:
 
 ### 9.2 Real-video end-to-end path
 
-Execute at least one real recorded video through the actual S1 path:
+Qualification-plan §17 says Stage 2 cannot close on one successful video. S1 closure is narrower, but the same discipline applies.
+
+**Clips.** Execute **at least two** real recorded clips through the actual S1 path, from different scenes and conditions. The minimum is the two hashed clips in the parameter note: MOT17-02-FRCNN and MOT17-13-FRCNN, a static and a moving camera. Together they must contain:
+- person and vehicle Tracks;
+- at least one four-role Track;
+- at least one partial or Representative-only Track;
+- at least one Track longer than `lateRefreshIntervalMs` + `minSeparationMs`;
+- a crowded interval with concurrent Tracks that exercises the occlusion proxy.
+
+If a declared characteristic is absent, record it as absent. Do not substitute a synthetic clip into "real-video".
+
+**Choice of examples.** Examples shown as evidence are chosen by a rule declared **before** the run, not picked afterwards:
+- the first four-role Track in canonical Track-id order;
+- the first partial Track;
+- the longest Track.
+
+**Path.** The run goes through platform video import and a leased VisionJob, not through `measure_evidence_real_clips.py`:
 
 `Video -> VisionJob -> v3 completion -> seal/persist -> GET Track detail -> Investigation -> Review`
 
@@ -474,7 +490,11 @@ For the run, record:
 - exact marker seeks;
 - Search remains Representative-only.
 
-If the real corpus does not naturally produce every UI error state, keep synthetic/fixture QA for unavailable crop/legacy/error states rather than corrupting real accepted evidence.
+If the real corpus does not naturally produce every UI error state, keep synthetic/fixture QA for unavailable crop/legacy/error states rather than corrupting real accepted evidence. Such items are labelled `fixture` (§4).
+
+Also record, as observed facts:
+- whether any real Track saturated the three-row timeline marker rail, in which case the marker was carried by the dense navigator (S1.3 plan §20.2, R8);
+- the known Review behaviour, present before S1.3b, where the sticky player scrolls out of view when the page scrolls. This is recorded, not hidden, and does not by itself fail B5.
 
 ### 9.3 Accessibility/visual record
 
@@ -491,7 +511,12 @@ Confirm:
 - crop failure does not disable video;
 - video failure does not erase crop metadata.
 
-**B5 PASS:** automated and real-video operator path evidence are green. The merge of PR #83 alone is not the B5 acceptance evidence.
+**B5 PASS:**
+- automated suites pass with zero skips;
+- the real-video path of §9.2 is executed on at least two clips, with the declared characteristics present or recorded absent;
+- every exact-marker-seek, one-Representative-authority and authorised-crop check in the real-video record passes.
+
+The merge of PR #83 alone is not the B5 acceptance evidence, and fixture-only QA never satisfies the real-video half.
 
 ---
 
@@ -499,12 +524,32 @@ Confirm:
 
 ### 10.1 Exact-head Task-10 CPU matrix
 
-The current Task-10 workflow covers all relevant S1 behavior paths and runs CPU candidates on:
+The current Task-10 workflow does **not** trigger on every S1 behavior path. Its path filters omit:
+- `src/vision/mavi_vision/worker/**`;
+- `common/control_plane.py`, which holds the v3 completion contract;
+- `common/contracts.py` and `common/lease.py`;
+- `detection/rtmdet.py`.
+
+Its qualified-variant suites also omit `test_worker_completion_v3.py`, `test_completion_contract_bounds.py` and `test_tracker_update.py`. Today these run only in the Quality Gate on Python 3.13.
+
+The harness PR (§13, A) therefore:
+- widens the Task-10 filters to `src/vision/mavi_vision/**`;
+- adds those suites to the qualified CPU job.
+
+Whatever the filters, S1.4 always dispatches Task 10 explicitly at the frozen head. Task 10 runs CPU candidates on:
 
 - Linux x86_64 / Python 3.12.14;
 - Windows x86_64 / Python 3.12.10.
 
 Run it on the frozen S1.4 qualification head, using `workflow_dispatch` if the qualification-only change set would not otherwise trigger it.
+
+**`workflow_dispatch` runs the tip of a ref; it cannot name a SHA.** Task 10 also cancels in-progress runs per ref (`concurrency: cancel-in-progress`). So an exact-SHA run works like this:
+1. Create a dedicated immutable ref at the SHA, for example tag `qual/s1-4/<sha>`.
+2. Dispatch against that ref.
+3. Read the run's `head_sha` from the Actions API and require it to equal the intended SHA.
+4. A cancelled or superseded run is not evidence; dispatch again.
+
+A dispatch on `main` itself is valid only if the run's `head_sha` is verified to equal the intended SHA.
 
 Retain:
 
@@ -524,7 +569,9 @@ Before modifying any qualification JSON:
 
 Do **not** manufacture a new profile SHA by editing the profile in S1.4.
 
-The qualification record remains `pending` unless all its independent required gates are actually satisfied. S1.4 may add/reconcile evidence metadata only if the existing schema and qualification policy permit it; otherwise keep S1 evidence in the dedicated S1 qualification record and cite it.
+The qualification record remains `pending` unless all its independent required gates are actually satisfied.
+
+**S1.4 does not edit `models/qualifications/rtmdet-m-coco-phase1-v1.json` at all.** Not `requiredGates`, not `evidence`, not `overallResult`. Its `linux-x86_64-cpu` and `windows-x86_64-cpu` gates are RTMDet model/runtime release gates. The only governed way to change them is the fail-closed Task-17 promotion constructor `tools/phase1/promote_phase1_release.py`, run in a release task. A green S1 Task-10 matrix is S1 pipeline evidence; it is not detector/model qualification and must not be written as such. S1 evidence lives in `docs/qualification/stage2-s1/` and cites the record's unchanged `pipelineProfileSha256`.
 
 ### 10.3 CUDA/E2E
 
@@ -548,7 +595,11 @@ After the S1.4 PR merges, verify the resulting `main` head with:
 
 If the merge is documentation/evidence-only and Task 10's path filters do not start a push run, invoke its existing `workflow_dispatch` explicitly against the **merge SHA on `main`**, not against the pre-merge PR head. Record that run as the post-merge B6 evidence. Do not treat an older green run on an ancestor as post-merge verification.
 
-**B6 PASS:** current CPU matrices are green on the final S1 identity, no qualification record points at a stale pipeline profile, unavailable CUDA/E2E evidence is explicitly pending rather than inherited, and exact-head/post-merge CI is green.
+**B6 PASS:**
+- the Task-10 CPU matrix passes with zero unexplained skips, on a run whose verified `head_sha` equals the measured SHA, including the suites the harness PR added;
+- no qualification record points at a stale pipeline profile, and none was edited by S1.4;
+- unavailable CUDA/E2E evidence is explicitly pending rather than inherited;
+- post-merge CI on the §2.3 merge SHA passes, with each run's `head_sha` verified.
 
 ---
 
@@ -557,6 +608,19 @@ If the merge is documentation/evidence-only and Task 10's path filters do not st
 S1.4 must prove the S1 path without network resolution.
 
 The authoritative disconnected run is a **host/local qualification action**, not hosted CI pretending to be offline.
+
+**The disconnected run must execute the measured code.** The MAVI Vision Runtime Bundle is **source-bound**:
+- `tools/vision/build_offline_bundle.py` validates `sourceCommit` against the checkout;
+- it verifies the embedded `mavi-vision` wheel against the source tree (`_verify_mavi_wheel_source`).
+
+A Runtime Bundle built from an earlier commit therefore runs *different worker code*, and a disconnected run on it is not S1 evidence. So:
+- the Runtime Bundle used is built from the measured SHA;
+- its manifest `sourceCommit` equals the measured SHA;
+- the `mavi-vision` wheel SHA-256 is recorded.
+
+The companion Development binary kit (.NET/Node/Python dependency caches) may be reused unrebuilt, but only after verifying that its component identities match the measured head's lock files.
+
+**The run is a Development install.** The profile is the Development install on a named variant. It is not a Production or Task-18 claim.
 
 Use the existing Offline Binary Kit/runtime/model installation path and record:
 
@@ -571,6 +635,11 @@ Use the existing Offline Binary Kit/runtime/model installation path and record:
 - Review/Investigation Evidence Set.
 
 No package manager, model hub, CDN, checkpoint download or remote API may be required after disconnection.
+
+**Network isolation is evidenced, not asserted.**
+- Reuse the existing probe, `assert_outbound_internet_unavailable` in `tools/phase1/qualify_offline_variant.py`. It checks there is no proxy environment and probes TCP 1.1.1.1:443, 8.8.8.8:53, pypi.org, github.com and www.microsoft.com.
+- Run it **before and after** the S1 run, and retain both results together with the isolation method (for example an adapter disabled, or a firewall deny-all outbound rule).
+- The probe proves the network was unavailable, so success proves nothing required it. It does not prove nothing *tried* to connect. Optionally record connection attempts during the run (Linux `strace -f -e trace=connect`, or a Windows Firewall dropped-packet log); any attempt observed to a non-loopback address is a finding.
 
 Task 12 hosted CI remains a build/verification gate for Runtime Packs; it is not by itself the disconnected operator-path proof.
 
@@ -598,6 +667,15 @@ Minimum metrics:
 
 Where a metric has no pre-existing product limit, report the measured value and regression interpretation rather than declaring a new arbitrary PASS threshold inside S1.4.
 
+Every timing metric:
+- records its sample count, n, which must be at least 30 for per-item metrics;
+- records min, p50, p95 and max;
+- is taken after a declared warm-up, which is excluded from the statistics;
+- is repeated in at least three runs, with the run-to-run spread of p50 recorded;
+- carries the §3 host identity.
+
+A single mean is not a measurement. These records are the regression baseline for later slices.
+
 A result is blocking when it violates a frozen bound, demonstrates unbounded growth, breaks an existing timeout/lease/request limit, or makes the supported workflow operationally unusable.
 
 ---
@@ -617,6 +695,15 @@ Only if required:
 
 Every new test/harness must first demonstrate a failure mode against an intentionally broken implementation or otherwise prove discrimination.
 
+PR A is where every code-level prerequisite named in this plan lands:
+- the evidence schema/checker (§4);
+- the Windows golden pin (§5.2);
+- the B2 memory harness (§6.2);
+- the missing B4 tests (§8);
+- the Task-10 filter and suite widening (§10.1).
+
+Evidence is never measured on PR A's branch; it is measured after PR A merges (§2).
+
 ### PR/commit B — execute and record S1 evidence
 
 - run bound/resource measurements;
@@ -625,7 +712,7 @@ Every new test/harness must first demonstrate a failure mode against an intentio
 - write B1–B6 evidence;
 - update acceptance register.
 
-If no new harness code is needed, A and B may be one PR, but evidence and implementation changes must remain easy to distinguish.
+Harness code (A) and qualification evidence (B) are **separate PRs**. B's measured SHA is A's merge commit or a later `main` commit, and B contains only evidence and documentation, so the §2.3 diff is empty on the behavior-bearing surface by construction.
 
 ### Post-merge
 
@@ -646,7 +733,12 @@ Stop and amend/fix rather than weakening evidence if any occurs:
 7. real-video Evidence Set cannot be read through the platform boundary;
 8. disconnected execution performs network resolution;
 9. Task-10 CPU matrix fails on the frozen identity;
-10. a P1/P2 appears in final review.
+10. a P1/P2 appears in final review;
+11. a required B-item test skipped on a qualified variant without a recorded non-claim;
+12. a workflow run's `head_sha` differs from the SHA it is cited for;
+13. the disconnected run's Runtime Bundle `sourceCommit` differs from the measured SHA;
+14. the real-clip re-run differs from the parameter note without a reviewed explanation;
+15. real-store sealing time at the worst-case object count has less than 2× headroom against the lease.
 
 A stop condition does not become a qualification exception. Repair first, then rerun affected evidence.
 
