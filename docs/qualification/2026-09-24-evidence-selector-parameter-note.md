@@ -1,6 +1,6 @@
 # Evidence selector parameter note (S1.2c)
 
-**Status:** Complete. The C1 scripted corpus and two real benchmark clips (MOT17-02-FRCNN, MOT17-13-FRCNN) were measured through the production RTMDet → ByteTrack → Evidence Set path on the qualified `linux-x86_64-cpu` runtime. **No selector parameter change is justified. Every default is retained**, so the profile bytes, `pipelineProfileSha256` and the qualification record are unchanged. The measurement also found one material issue that is outside the parameter space: the occlusion proxy's input set (finding **F1**, §7). It needs an owner decision (§8). This note qualifies nothing.
+**Status:** Complete. The C1 scripted corpus and two real benchmark clips (MOT17-02-FRCNN, MOT17-13-FRCNN) were measured through the production RTMDet → ByteTrack → Evidence Set path, on a runtime built from the repository's qualified `linux-x86_64-cpu` definition (`mmcv` rebuilt locally from its pinned source; §4). **No selector parameter change is justified under the current scorer. Every default is retained**, so the profile bytes, `pipelineProfileSha256` and the qualification record are unchanged. The measurement also found one material issue that is outside the parameter space: the occlusion proxy's input set (finding **F1**, §7). It needs an owner decision (§8). This note qualifies nothing.
 **Date:** 2026-09-24
 **Asked for by:** S1.2 implementation plan §5 ("before S1.2c merges, record a measurement note over the C1 scripted corpus and ≥ 2 real Development clips … adjust defaults in the same PR").
 **Profile measured:** `src/vision/config/pipelines/phase1-detection-tracking-v1.json`, schema 1.1, `profileVersion` 1.2.0-candidate, SHA-256 `47560e0e2f5d9c8c7cb74d990ea11515bc31c7d4a9a30f6f624949aeb7213eba`. The real clips ran on this exact profile. The scripted corpus ran on the preceding revision (`9eb642f8…`), which differs only in `selectorVersion` (`evidence-selector-v1` → `evidence-selector-v1-two-tier`); every numeric value and behaviour is identical. The qualification record `models/qualifications/rtmdet-m-coco-phase1-v1.json` binds this SHA and stays `pending`.
@@ -62,7 +62,7 @@ MOTChallenge MOT17 training sequences, used for qualification only. They are lic
 | `seqinfo.ini` | frameRate 30, seqLength 600, 1920×1080 | frameRate 25, seqLength 750, 1920×1080 |
 | Ground truth (context only)² | 62 considered pedestrian identities | 110 considered pedestrian identities, 23 annotated cars |
 
-¹ SHA-256 over, in file-name order, `name + NUL + SHA-256(JPEG bytes)` for every `img1` frame.
+¹ SHA-256 over the concatenation, in file-name order, of `basename + NUL + raw 32-byte SHA-256 digest of the JPEG bytes`, for every `img1` frame.
 ² From `MOT17Labels.zip` (SHA-256 `0aa79322…82b2b9`). Used only to describe the scenes. It never fed the detector, the tracker or the selector.
 
 Supplementary files (§6.6):
@@ -91,7 +91,7 @@ The runtime was built from the repository's own qualified definition for `linux-
 | Pipeline | profile `phase1-detection-tracking-v1` 1.2.0-candidate, SHA-256 `47560e0e…3eba`. Selector `evidence-selector-v1-two-tier`, scorer `quality-v1`, encoder `evidence-jpeg-ladder-v1`. Tracker: ByteTrack (`trackers` 2.6.0), activation 0.7, high 0.6, IoU 0.1, 2 frames, lost buffer 1.0 s at 30 fps reference. Frame policy every-frame. Detector inference floor 0.05. |
 | Device | configured `cpu` (`MAVI_DEVICE_POLICY=cpu`, Development mode); actual `cpu` |
 | Supervisor | `RuntimeSupervisor` from `WorkerSettings` reached READY. The qualified ByteTrack (10) and production-composition (1) suites and the harness suite (3) passed on this runtime. |
-| Code | measured at commit `9917817` (PR #79 branch). The provenance's `mavi_commit` records it. |
+| Code | Primary corpus measured at commit `73e0315`, supplementary at `9917817` (PR #79 branch; the harness only differs by recorded columns). The provenance's `mavi_commit` records it. The primary corpus was also measured at `9917817`, and every statistic was identical. |
 
 ## 5. Method
 
@@ -103,15 +103,15 @@ The instrumentation observes and never decides:
 - Diagnostic columns attribute the occlusion proxy (the confidence and class of the box that produced its maximum, and the maximum IoU over boxes at or above `confidenceFloor`). The selector always used the production value.
 - No pixel or selector is retained, and per-candidate rows are scalars.
 - `test_measure_evidence_real_clips.py` proves that the instrumented run's Evidence Sets are identical to the plain production processor's (Tracks, roles, ranks, frames, scores and crop bytes). It runs in the Task 10 qualified job.
-- The supplementary clips were measured twice, before and after the diagnostic columns were added (heads `5c005b8` and `9917817`). Every count, rate and encode statistic was identical.
+- Re-runs as the harness gained columns reproduced every count, rate and encode statistic exactly: the primary corpus at `9917817` and `73e0315` (both `summary.json` files compared), and the supplementary corpus at `5c005b8` and `9917817` (printed summaries compared).
 
-Percentiles are nearest-rank, at index `round(q·(n−1))` of the sorted values. "Candidate" means one Track candidate in one frame, over every confirmed Track; no Track is excluded. Rates are over candidates unless stated per Track. Reproduce from `src/vision`, with the worker settings in the environment:
+The statistics describe the Tracks the tracker confirmed, not benchmark subjects: 21 confirmed Tracks in MOT17-02 against 62 annotated pedestrians. Percentiles are nearest-rank, at index `round(q·(n−1))` of the sorted values. "Candidate" means one Track candidate in one frame, over every confirmed Track; no Track is excluded. Rates are over candidates unless stated per Track. Reproduce from `src/vision`, with the worker settings in the environment:
 
 ```
 PYTHONPATH=. python ../../tools/vision/dev/measure_evidence_real_clips.py <out> MOT17-02-FRCNN=<mp4> MOT17-13-FRCNN=<mp4>
 ```
 
-The outputs (`summary.json` of about 84 KB and `candidates.csv.gz` of about 590 KB) stay local.
+The outputs (`summary.json` of about 84 KB, `candidates.csv.gz` of about 880 KB, and `<out>/staging`: the run's staged Evidence crops and trajectories, 157 files) stay local. The staging directory holds crops of benchmark subjects and is deleted after review. Peak RSS and processing time include the harness's own overhead (one scalar row per candidate and the diagnostics).
 
 ## 6. Results (primary corpus, 1920×1080)
 
@@ -179,7 +179,7 @@ Sharpness by class, p10 / p25 / p50: person 0.028 / 0.042 / 0.060, vehicle 0.045
 
 The E8 behaviour holds on real footage:
 - Every Track kept a Representative.
-- A fallback was displaced by the first admissible qualified candidate on every Track that had one (24 transitions, and no fallback left on a Track with a qualified frame).
+- No fallback was left on a Track that had a qualified candidate (24 fallback → qualified transitions). Displacement by the *first* admissible qualified candidate follows from the selector rule, with 0 encode refusals. The harness records the tier change, not its frame.
 - No supplemental role was ever filled by, or relaxed for, an unqualified frame.
 - 37 of 63 real Representatives are fallbacks, so `role == representative` visibly carries no qualification signal, as ADR-013 §4 (amended) states.
 
@@ -191,12 +191,12 @@ Among the 37 fallback Tracks, the failure rate per floor over their 4,185 candid
 - **JPEG cap refusals:** 0 (Representative 64 KiB, supplemental 160 KiB). Unadmissible-by-role: 0. Admission omitted nothing: 94 crops (63 + 19 + 7 + 5), 580,314 B, against the 1 GiB quota.
 - **NearView dropped at `resolve()`:** 0 of 19 held at 1080p. In the supplementary run, 1 of 23 was dropped (4.3 %), as a near-duplicate of a later Representative. Over both corpora that is **1 of 42 (2.4 %)**. That Track still kept its Representative. The plan §20 residual is real, but it is not material on this corpus, and it stays with S1.4.
 - **Encoded crops (bytes, p10 / p50 / max):** Representative 1,583 / 3,760 / 31,001; NearView 2,680 / 4,731 / 14,613; EarlyDiverse 1,937 / 5,562 / 11,818; LateDiverse 2,418 / 4,942 / 12,363. **Long edge in px (p10 / p50 / max):** Representative 76 / 203 / 700; NearView 147 / 276 / 535. Every crop was admitted at ladder step 0, well under its cap.
-- **Runtime (engineering facts, not a performance qualification).** CPU on 4 vCPU:
+- **Runtime (engineering facts, not a performance qualification).** CPU on 4 vCPU, run at `9917817`; the `73e0315` re-run took 182.7 s and 219.6 s:
   - MOT17-02: 191.3 s for 20.0 s of video, 0.10× real time (3.1 fps).
   - MOT17-13: 224.6 s for 30.0 s, 0.13× (3.3 fps).
   - The whole run took 7 min 04 s including model load.
-  - Peak RSS was 939 MiB and the staging footprint 1.1 MiB.
-  - No errors. Only upstream `FutureWarning`s (`torch.cuda.amp.autocast`, `torch.meshgrid`) and MMEngine's notice that `data_preprocessor.mean/std` in the checkpoint are unused.
+  - Peak RSS was 767–939 MiB across runs (process `ru_maxrss`, harness included). Staging was 0.73 MiB apparent across 157 files (1.1 MiB on disk).
+  - No errors. Only upstream warnings: `FutureWarning` for `torch.cuda.amp.autocast`, `UserWarning` for `torch.meshgrid`, and MMEngine's notice that `data_preprocessor.mean/std` in the checkpoint are unused.
 
 ### 6.6 Supplementary: the official 960×540 VP9 previews
 
@@ -214,13 +214,26 @@ Sharpness is resolution-dependent: the median is 0.113 at 540p against 0.066 at 
 
 The proxy is the maximum IoU with **every** other detection the tracker was given (plan §4.1; ADR-013 §4: "any concurrent box"). With `detectorInferenceFloor` 0.05 and RTMDet's per-source-class NMS (IoU 0.65), those detections include:
 - low-confidence duplicates and part-boxes of the same person;
-- same-object `car` / `truck` / `bus` boxes, which all map to `vehicle`. After per-class NMS at 0.65, an IoU of about 0.93 with a same-mapped-class box can only come from a different source class, so this is an inference from the measured values.
+- for vehicles, same-object `car` / `truck` / `bus` boxes, which all map to `vehicle`. 2,587 of 2,787 blocked vehicle candidates have a same-class occluder with IoU > 0.65 (median 0.96). Per-class NMS at 0.65 leaves such overlaps in practice only across source classes: persons exceed 0.65 against a same-class box in just 6 cases, all edge-clipped after MAVI's post-NMS clipping. That makes these boxes, in practice, duplicates of the subject.
 
 Measured at 1080p:
 - **92.9 %** of occlusion rejections (7,061 of 7,598) are due *only* to boxes below `confidenceFloor`. The median confidence of the blocking box is 0.115, and 92.6 % of blocking boxes have the candidate's own class.
 - Counting only boxes at or above `confidenceFloor` would pass 93.5 % of candidates on occlusion. The all-floor rate would rise from 4.0 % to 55.4 %.
 - The fallback Representatives would fall from 37 to at most 9 of 63 (assuming those candidates encode, as every candidate here did): 28 of the 37 fallback Tracks had a candidate that failed only this way.
 - Vehicles qualify in 1 frame of 2,801, and 14 of 15 vehicle Tracks use a fallback.
+
+**Ground-truth context (descriptive only).** Each candidate was matched to the best MOT17 ground-truth box of its class in the same frame (IoU ≥ 0.5; persons: classes 1, 2, 7; vehicles: 3, 5). The table shows the annotated visibility of the matched boxes:
+
+| Candidate group (1080p) | Candidates | Matched | GT visibility p25 / p50 / p75 | Visible ≥ 0.75 | Visible < 0.5 |
+|---|---|---|---|---|---|
+| person, passes occlusion | 672 | 587 | 0.90 / 1.00 / 1.00 | 84.3 % | 3.4 % |
+| person, blocked only by boxes < `confidenceFloor` | 4,444 | 3,613 | 0.78 / 1.00 / 1.00 | 77.8 % | 10.1 % |
+| person, blocked by a box ≥ `confidenceFloor` | 367 | 235 | 0.16 / 0.45 / 1.00 | 42.1 % | 51.9 % |
+| vehicle, passes occlusion | 14 | 3 | 1.00 / 1.00 / 1.00 | 3 of 3 | 0 |
+| vehicle, blocked only by boxes < `confidenceFloor` | 2,617 | 2,470 | 0.90 / 1.00 / 1.00 | 87.4 % | 2.8 % |
+| vehicle, blocked by a box ≥ `confidenceFloor` | 170 | 160 | 1.00 / 1.00 / 1.00 | 84.4 % | 10.6 % |
+
+The persons the proxy rejects only because of sub-floor boxes are, in the annotation, almost as visible as those it accepts. The proxy over boxes at or above the floor isolates the genuinely occluded ones (median visibility 0.45). The trade-off of the candidate fix is visible too: 10.1 % of the sub-floor-blocked persons are under half visible, against 3.4 % of those passing today.
 
 **Why no parameter change addresses it.** The blocking boxes are near-duplicates of the subject (IoU ≈ 0.9 for vehicles), so no `occlusionIouCeiling` separates them from real occlusion. Raising the ceiling far enough would admit genuinely occluded crowd frames and still not qualify vehicles. `confidenceFloor` and `detectorInferenceFloor` do not help either: the first applies to the candidate, not to its occluders, and the second drives ByteTrack's low-confidence association and belongs to Task 10's qualified tracking behaviour. The defect is the proxy's **input set**, which is scorer semantics frozen by ADR-013 §4. Changing it is an architecture decision (a new scorer version and an ADR-013 §4 clarification), not a selector-parameter adjustment, so this note does not make it.
 
@@ -238,22 +251,23 @@ That matters to S1.3/S1.4 and to any downstream consumer of qualified evidence.
 | Parameter | Current | Evidence (1080p corpus unless stated) | Decision | Final |
 |---|---|---|---|---|
 | `confidenceFloor` | 0.5 | 20.2 % of candidates fall below it: ByteTrack's second-stage association of low-confidence boxes (p10 confidence 0.17). This is the intended filter; the pass rate is 77 % for persons and 85 % for vehicles. It is bounded above by activation 0.7. | Retain | 0.5 |
-| `sharpnessFloor` | 0.05 | Pass rate 71.2 % (person 63.8 %, vehicle 85.6 %). The floor sits near the person p25 (0.042) and below the median (0.060). It rejects small, soft, distant crops in MOT17-02, which is the quality intent. Among frames passing the other floors (occlusion over boxes ≥ 0.5), 77.3 % pass. It is not the binding floor. At 540p the pass rate is 91.7 % (resolution effect, §6.6). | Retain | 0.05 |
-| `edgeMarginFloor` | 0.005 | Pass rate 85.3 % (≈ 5 px at 1080p). The failures are boxes at the frame border (edge-margin p10 ≈ 0), which is real truncation. | Retain | 0.005 |
+| `sharpnessFloor` | 0.05 | Pass rate 71.2 % (person 63.8 %, vehicle 85.6 %). The floor sits near the person p25 (0.042) and below the median (0.060). It rejects small, soft, distant crops in MOT17-02, which is the quality intent. It is not the binding floor under the current proxy. With F1 fixed it would become the binding floor in MOT17-02, where only 59.4 % of candidates passing the other floors (occlusion over boxes ≥ 0.5) are sharp enough; MOT17-13 is at 91.1 % and the combined corpus at 77.3 %. At 540p the pass rate is 91.7 % (resolution effect, §6.6). | Retain | 0.05 |
+| `edgeMarginFloor` | 0.005 | Pass rate 85.3 % (5.4 px vertically, 9.6 px horizontally at 1080p). The failures are boxes at the frame border (edge-margin p10 ≈ 0), which is real truncation. | Retain | 0.005 |
 | `occlusionIouCeiling` | 0.30 | Pass rate 8.3 %, the binding floor. 93 % of its rejections come from sub-floor boxes (F1). No ceiling value separates those near-duplicates from real occlusion. Over boxes ≥ `confidenceFloor` it would pass 93.5 %, a plausible share for crowded scenes. | Retain the value. The defect is F1's input set, and it needs an owner decision. | 0.30 |
 | `occlusionPenaltyWeight` | 0.0 | Selection equals quality. F1 makes any positive weight unsafe until the proxy is fixed. | Retain | 0.0 |
-| `replaceEpsilon` | 0.02 | No churn: re-encodes median 1 and mean 2.1 per Track, max 11 on a 284-candidate Track. 226 encodes for 8,284 candidates. | Retain | 0.02 |
+| `replaceEpsilon` | 0.02 | Re-encodes median 1 and mean 2.1 per Track; 226 encodes for 8,284 candidates. The worst churn is in the fallback tier: `vehicle-000011` (99 candidates, fallback only) re-encoded 11 times and `vehicle-000013` 10 times, as approaching vehicles' scores grow. The busiest qualified Track (`person-000010`, 284 candidates, all four roles) re-encoded 10 times. That is bounded, and not material; F1 would move most of it into the qualified tier. | Retain | 0.02 |
 | `nearViewGrowth` | 0.25 | NearView on 19 of 26 qualified Tracks (73 %); no growth thrash (encodes above); 0 resolve drops at 1080p. | Retain | 0.25 |
-| `earlyWindowMs` | 3000 | All 26 qualified Tracks had a qualified candidate inside the window. EarlyDiverse (7/26) is limited by separation from the Representative / NearView and by short qualified spans, not by the window. | Retain | 3000 |
+| `earlyWindowMs` | 3000 | All 26 qualified Tracks had a qualified candidate inside the window, so the window is not what starves EarlyDiverse (7/26). The selector rules leave separation from the Representative / NearView and short qualified spans as the limits; that is inferred from the code, not measured per rule. | Retain | 3000 |
 | `lateRefreshIntervalMs` | 5000 | The interval only limits *refreshing* an existing LateDiverse holder. LateDiverse (5/26) is limited by the qualified span: 11 of 26 qualified Tracks span < 1 s of qualified frames. | Retain | 5000 |
 | `minSeparationMs` | 1000 | It limits Early/Late on short qualified spans. Shrinking it would admit views within a second of each other, near-duplicates in these scenes. Short Tracks are expected. | Retain | 1000 |
 | `duplicateWindowMs` / `duplicateIouThreshold` | 500 / 0.85 | NearView resolve drops 0/19 (1080p) and 1/23 (540p), with no other resolve drop observed. | Retain | 500 / 0.85 |
+| *Caveat* | | The four floors were judged on all 8,284 candidates. The role parameters (NearView growth, windows, separation, duplicate rule) were judged on a censored sample: 331 qualified candidates in 26 Tracks, with 7 EarlyDiverse and 5 LateDiverse. Their retention is **provisional**. If F1 is fixed (option (a), §9), the whole measurement is re-run and every parameter re-adjudicated. | | |
 | Encoder and quota | fixed by ADR-013 §5 | 0 cap refusals; every crop admitted at ladder step 0; 580 KB of crops against 1 GiB. | Not tunable | — |
 
 ## 9. Conclusion
 
 - **Real-clip gate: measured.** Two real benchmark clips (MOT17-02-FRCNN, MOT17-13-FRCNN at 1920×1080) went through the production detector, tracker and Evidence Set path on the qualified runtime, plus the C1 scripted corpus and a supplementary 540p variant.
-- **Defaults: retained.** Real-world Development measurement completed; no parameter change is justified by the measured corpus. The profile bytes, `pipelineProfileSha256` `47560e0e…3eba` and the qualification record are unchanged, and no qualification gate was reset or earned.
+- **Defaults: retained.** Real-world Development measurement completed; no parameter change is justified by the measured corpus under the current scorer. The role-parameter retentions are provisional (§8 caveat). The profile bytes, `pipelineProfileSha256` `47560e0e…3eba` and the qualification record are unchanged, and no qualification gate was reset or earned.
 - **E8 two-tier behaviour: confirmed on real footage:**
   - every Track has a Representative;
   - fallback → qualified displacement always happened when possible (24 transitions);
@@ -261,6 +275,6 @@ That matters to S1.3/S1.4 and to any downstream consumer of qualified evidence.
   - no fallback relaxed any supplemental floor.
 - **NearView resolve-drop residual:** 1 of 42 held NearViews (2.4 %). Not material; it stays with S1.4.
 - **Material finding F1 (§7):** the occlusion proxy's input set drives a 58.7 % fallback-Representative rate and near-zero vehicle qualification. It is not fixable by any selector parameter, and fixing it is a scorer or ADR change. **It needs an owner decision before S1.2c merges:**
-  - (a) fix it in S1.2c: `quality-v2`, an ADR-013 §4 clarification, a profile rebind and a re-measurement; or
+  - (a) fix it in S1.2c: `quality-v2`, an ADR-013 §4 clarification, a profile rebind, and a re-measurement with every parameter re-adjudicated; or
   - (b) accept it explicitly as a recorded residual for S1.4, with the fallback-heavy real-scene behaviour documented.
 - **Not claimed:** admission at volume, peak RSS and staging at scale, GPU, and any Stage-2 acceptance row. Those belong to S1.4.
