@@ -61,6 +61,11 @@ def complete_record() -> dict:
                 "os": "Ubuntu", "osBuild": "24.04", "stagingFilesystem": "ext4",
                 "acceptedEvidenceFilesystem": "ext4", "storageClass": "hosted-runner",
             },
+            "runner-windows": {
+                "cpuModel": "AMD EPYC 7763", "physicalCores": 2, "logicalCores": 4, "ramBytes": 16 * 2**30,
+                "os": "Windows Server", "osBuild": "2022", "stagingFilesystem": "NTFS",
+                "acceptedEvidenceFilesystem": "NTFS", "storageClass": "hosted-runner",
+            },
         },
         "runs": {
             "task10": {"kind": "workflow", "workflow": "task10-runtime-qualification.yml", "runId": 1, "headSha": SHA, "conclusion": "success"},
@@ -91,7 +96,8 @@ def complete_record() -> dict:
                 suite_id = f"{name}:{suite}:{variant}"
                 junit = f"junit:{suite_id}"
                 run = "quality" if variant == "any" else "task10"
-                record["retainedArtifacts"][junit] = {"path": f"junit/{abs(hash(suite_id))}.xml", "sha256": _sha256(suite_id), "run": run}
+                path = f"{variant}/junit/{suite.split(':', 1)[1]}.xml" if suite.startswith("task10:") else f"junit/{abs(hash(suite_id))}.xml"
+                record["retainedArtifacts"][junit] = {"path": path, "sha256": _sha256(suite_id), "run": run}
                 if variant != "any":
                     record["retainedArtifacts"][junit]["variant"] = variant
                 record["suites"][suite_id] = {
@@ -106,14 +112,19 @@ def complete_record() -> dict:
             if requirement.timing:
                 entry.update(samples=30, repeats=3, warmupExcluded=True, stats={"min": 10.0, "p50": 20.0, "p95": 30.0, "max": 40.0, "p50RunSpread": 1.0})
             entry["artifact"] = required.artifacts[0]
-            if requirement.metric in ("b3.real-store-completion-wall-ms", "b3.worker-request-timeout-ms"):
-                entry["artifact"] = "b3.sealing-scale-output"
+            for variant in s1_evidence.QUALIFIED_CPU_VARIANTS:
+                if requirement.metric == f"{s1_evidence.SEALING_WALL_METRIC}.{variant}":
+                    entry["artifact"] = f"{s1_evidence.SEALING_OUTPUT_ARTIFACT}.{variant}"
+                    entry["host"] = "runner-windows" if variant.startswith("windows") else "runner-linux"
             if requirement.metric == "b3.worker-request-timeout-ms":
                 entry["value"] = 30000.0
             record["measurements"][measurement_id] = entry
             unit["measurements"].append(measurement_id)
         for artifact in required.artifacts:
             record["retainedArtifacts"][artifact] = {"path": f"records/{artifact}.json", "sha256": _sha256(artifact), "run": "host"}
+            if artifact.startswith("b6."):
+                _, variant, record_name = artifact.split(".", 2)
+                record["retainedArtifacts"][artifact] = {"path": f"task10/{variant}/{record_name}", "sha256": _sha256(artifact), "run": "task10", "variant": variant}
             unit["artifacts"].append(artifact)
         record["units"][name] = unit
     for outcome in s1_evidence.DISCONNECTED_OUTCOMES:
@@ -147,6 +158,8 @@ def _b2_output(record: dict) -> str:
     return json.dumps({
         "schema": "s1-b2-memory-derived-v1",
         "identity": {"sourceSha": record["units"]["B2"].get("measuredSha", record["measuredSha"]), "cleanTree": True},
+        "runtime": {"runtimeVariant": "linux-x86_64-cpu"},
+        "host": {key: record["hosts"]["runner-linux"][key] for key in ("cpuModel", "logicalCores")},
         "measurements": values,
     })
 
@@ -162,11 +175,13 @@ def _disconnected_run(record: dict) -> str:
     })
 
 
-def _sealing_output(record: dict) -> str:
-    wall = next(m for m in record["measurements"].values() if m["metric"] == "b3.real-store-completion-wall-ms")
+def _sealing_output(record: dict, variant: str) -> str:
+    wall = next(m for m in record["measurements"].values() if m["metric"] == f"{s1_evidence.SEALING_WALL_METRIC}.{variant}")
     timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
+    filesystem = record["hosts"][wall["host"]]["acceptedEvidenceFilesystem"]
     return json.dumps({
-        "status": "complete", "authoritative": True,
+        "status": "complete", "authoritative": True, "variant": variant,
+        "evidenceFilesystem": f"{filesystem} at /",
         "shape": {"tracks": 10_000, "sealedObjects": 50_000},
         "workerRequestTimeoutMs": timeout["value"],
         "environment": {"gitSha": record["units"]["B3"].get("measuredSha", record["measuredSha"]), "gitWorkingTreeClean": "true"},
@@ -194,8 +209,13 @@ def materialize(record: dict, root: Path) -> dict:
     for artifact_id, entry in record["retainedArtifacts"].items():
         if artifact_id in by_junit:
             content = _junit_for(by_junit[artifact_id])
-        elif artifact_id == "b3.sealing-scale-output":
-            content = _sealing_output(record)
+        elif artifact_id.startswith(s1_evidence.SEALING_OUTPUT_ARTIFACT + "."):
+            content = _sealing_output(record, artifact_id.split(".", 2)[2])
+        elif artifact_id.endswith(".production-composition-qualification.json"):
+            content = json.dumps({"status": "passed"})
+        elif artifact_id in ("disconnected.isolation-before", "disconnected.isolation-after"):
+            phase = "isolationBefore" if artifact_id.endswith("before") else "isolationAfter"
+            content = json.dumps(record["disconnected"][phase])
         elif artifact_id == "b2.memory-harness-output":
             content = _b2_output(record)
         elif artifact_id == "disconnected.run-record":
@@ -432,16 +452,16 @@ def test_a_recorded_only_metric_has_no_threshold() -> None:
 )
 def test_timing_needs_samples_repeats_warmup_percentiles_and_spread(mutate) -> None:
     record = complete_record()
-    mutate(record["measurements"]["B3:b3.real-store-completion-wall-ms"])
+    mutate(record["measurements"]["B3:b3.real-store-completion-wall-ms.linux-x86_64-cpu"])
     found = codes(record)
     assert ("B3", "timing_incomplete") in found or ("B3", "timing_inconsistent") in found
 
 
 def test_b3_completion_time_needs_2x_headroom_against_the_worker_timeout() -> None:
     record = complete_record()
-    record["measurements"]["B3:b3.real-store-completion-wall-ms"]["stats"]["max"] = 15_001.0
+    record["measurements"]["B3:b3.real-store-completion-wall-ms.linux-x86_64-cpu"]["stats"]["max"] = 15_001.0
     assert ("B3", "completion_headroom_insufficient") in codes(record)
-    record["measurements"]["B3:b3.real-store-completion-wall-ms"]["stats"]["max"] = 15_000.0
+    record["measurements"]["B3:b3.real-store-completion-wall-ms.linux-x86_64-cpu"]["stats"]["max"] = 15_000.0
     assert ("B3", "completion_headroom_insufficient") not in codes(record)
 
 
@@ -605,7 +625,7 @@ def test_the_recorded_closure_diff_must_be_the_real_git_diff(tmp_path: Path) -> 
     repo = tmp_path / "repo"
     repo.mkdir()
     git = lambda *args: subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()  # noqa: E731
-    git("init", "-q")
+    git("init", "-q", "-b", "main")
     git("config", "user.email", "t@example.invalid")
     git("config", "user.name", "t")
     (repo / "a.txt").write_text("a")
@@ -778,7 +798,7 @@ def test_the_worker_timeout_is_bound_to_the_worker_default() -> None:
     timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
     timeout["value"] = 90_000.0
     # Citing the sealing output (or any artifact but the install configuration) is not a binding.
-    assert timeout["artifact"] == "b3.sealing-scale-output"
+    assert timeout["artifact"] == "b3.sealing-scale-output.linux-x86_64-cpu"
     assert ("B3", "worker_timeout_unbound") in codes(record)
     timeout["value"] = 600_000.0
     assert ("B3", "worker_timeout_out_of_range") in codes(record)
@@ -816,7 +836,7 @@ def test_a_non_default_timeout_is_refused_even_with_a_cited_configuration(tmp_pa
 )
 def test_the_b3_wall_time_must_be_the_authoritative_sealing_output(tmp_path: Path, mutate, detail: str) -> None:
     record = materialize(complete_record(), tmp_path)
-    entry = record["retainedArtifacts"]["b3.sealing-scale-output"]
+    entry = record["retainedArtifacts"]["b3.sealing-scale-output.linux-x86_64-cpu"]
     output = json.loads((tmp_path / entry["path"]).read_text(encoding="utf-8"))
     mutate(output)
     content = json.dumps(output)
@@ -828,7 +848,7 @@ def test_the_b3_wall_time_must_be_the_authoritative_sealing_output(tmp_path: Pat
 
 def test_the_b3_wall_time_must_cite_the_sealing_output() -> None:
     record = complete_record()
-    wall = next(m for m in record["measurements"].values() if m["metric"] == "b3.real-store-completion-wall-ms")
+    wall = next(m for m in record["measurements"].values() if m["metric"] == "b3.real-store-completion-wall-ms.linux-x86_64-cpu")
     del wall["artifact"]
     assert ("B3", "sealing_output_unbound") in codes(record)
 
@@ -968,9 +988,15 @@ def test_a_changed_dotnet_evidence_test_invalidates_its_unit() -> None:
     assert invalidated_units(["tests/Mavi.Application.Tests/CompletionDigestGoldenTests.Vectors.cs"], cited) == {
         "tests/Mavi.Application.Tests/CompletionDigestGoldenTests.Vectors.cs": {"B4"}
     }
-    # A different class sharing the prefix is not the cited suite.
-    assert invalidated_units(["tests/Mavi.IntegrationTests/S1BoundAgreementTestsExtra.cs"], cited) == {}
-    assert invalidated_units(["tests/Mavi.IntegrationTests/S1BoundAgreementTests.json"], cited) == {}
+    # Any file of a cited .NET project is shared support (helpers are test classes there).
+    assert invalidated_units(["tests/Mavi.IntegrationTests/S1BoundAgreementTestsExtra.cs"], cited) == {
+        "tests/Mavi.IntegrationTests/S1BoundAgreementTestsExtra.cs": {"B3"}
+    }
+    # A project no unit cites invalidates nothing.
+    assert invalidated_units(["tests/Mavi.Domain.Tests/AnythingTests.cs"], cited) == {}
+    assert s1_evidence.suite_covers("tests/Mavi.IntegrationTests/S1BoundAgreementTests", "tests/Mavi.IntegrationTests/S1BoundAgreementTests.cs")
+    assert not s1_evidence.suite_covers("tests/Mavi.IntegrationTests/S1BoundAgreementTests", "tests/Mavi.IntegrationTests/S1BoundAgreementTestsExtra.cs")
+    assert not s1_evidence.suite_covers("tests/Mavi.IntegrationTests/S1BoundAgreementTests", "tests/Mavi.IntegrationTests/S1BoundAgreementTests.json")
 
 
 def test_a_closure_diff_touching_a_cited_dotnet_suite_requires_a_rerun() -> None:
@@ -1081,33 +1107,81 @@ def test_a_pair_must_name_the_same_test_of_the_same_suite() -> None:
     assert ("B2", "skip_not_permitted") in codes(record)
 
 
-def test_approved_paired_skips_are_the_os_conditional_tests() -> None:
-    """The approved list is exactly the source's OS-conditional tests."""
+# OS-conditional tests whose condition is false on both qualified platforms, so
+# they never skip in Task 10 and need no approval.
+NEVER_SKIPS_ON_A_QUALIFIED_VARIANT = {
+    ("tools/qualification/tests", "test_a_process_mode_run_fits_the_platform_metric"),
+}
+_OS_CONDITION = ("os.name", "sys.platform", "hasattr(os", "platform.system")
+
+
+def _os_conditional_tests(repo: Path, suite: str) -> set[str]:
     import ast
 
-    repo = Path(__file__).resolve().parents[3]
-    discovered: dict[str, set[str]] = {}
-    for suite in {suite for suite, _ in s1_evidence.APPROVED_PAIRED_SKIPS}:
-        tree = ast.parse((repo / suite).read_text(encoding="utf-8"))
+    root = repo / suite
+    files = sorted(root.glob("test_*.py")) if root.is_dir() else [root]
+    found: set[str] = set()
+    for path in files:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         module_skip = any(
-            isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "pytestmark" for t in node.targets)
-            and "skipif" in ast.unparse(node.value)
+            isinstance(node, ast.Assign)
+            and any(getattr(t, "id", "") == "pytestmark" for t in node.targets)
+            and any(token in ast.unparse(node.value) for token in _OS_CONDITION)
             for node in tree.body
         )
-        discovered[suite] = {
-            node.name
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name.startswith("test")
-            and (module_skip or any("skipif" in ast.unparse(d) for d in node.decorator_list))
-        }
-    assert {suite: set(names) for (suite, _), names in s1_evidence.APPROVED_PAIRED_SKIPS.items()} == discovered
+        for node in tree.body:
+            if not (isinstance(node, ast.FunctionDef) and node.name.startswith("test")):
+                continue
+            decorated = any(
+                "skipif" in ast.unparse(d) and any(token in ast.unparse(d) for token in _OS_CONDITION)
+                for d in node.decorator_list
+            )
+            if module_skip or decorated:
+                found.add(node.name)
+    return found
+
+
+def test_approved_paired_skips_are_the_os_conditional_tests() -> None:
+    """Every OS-conditional test in every required worker suite is approved on
+    exactly the variant it skips on, and nothing else is approved."""
+    repo = Path(__file__).resolve().parents[3]
+    worker_suites = {
+        suite
+        for requirement in UNIT_REQUIREMENTS.values()
+        for suite in requirement.suites
+        if suite.startswith(("src/vision/", "tools/qualification/"))
+    }
+    discovered = {
+        (suite, name)
+        for suite in worker_suites
+        for name in _os_conditional_tests(repo, suite)
+    } - NEVER_SKIPS_ON_A_QUALIFIED_VARIANT
+    approved = {(suite, name) for (suite, _), names in s1_evidence.APPROVED_PAIRED_SKIPS.items() for name in names}
+    assert approved == discovered
+    # Each approved test is approved on one variant only.
+    variants = {}
+    for (suite, variant), names in s1_evidence.APPROVED_PAIRED_SKIPS.items():
+        for name in names:
+            assert (suite, name) not in variants, (suite, name)
+            variants[(suite, name)] = variant
+
+
+def test_the_drift_scan_sees_a_new_os_conditional_test(tmp_path: Path) -> None:
+    suite = tmp_path / "tests"
+    suite.mkdir()
+    (suite / "test_new.py").write_text(
+        "import os, pytest\n@pytest.mark.skipif(os.name != 'nt', reason='x')\ndef test_only_windows():\n    pass\n"
+        "@pytest.mark.skipif(True, reason='not OS')\ndef test_other():\n    pass\n",
+        encoding="utf-8",
+    )
+    assert _os_conditional_tests(tmp_path, "tests") == {"test_only_windows"}
 
 
 def test_the_sealing_output_must_measure_the_b3_sha(tmp_path: Path) -> None:
     record = materialize(complete_record(), tmp_path)
-    _rewrite_json(record, tmp_path, "b3.sealing-scale-output", lambda d: d["environment"].update(gitSha="c" * 40))
+    _rewrite_json(record, tmp_path, "b3.sealing-scale-output.linux-x86_64-cpu", lambda d: d["environment"].update(gitSha="c" * 40))
     assert ("B3", "sealing_output_mismatch") in _verified_codes(record, tmp_path)
-    _rewrite_json(record, tmp_path, "b3.sealing-scale-output", lambda d: d["environment"].update(gitSha=SHA, gitWorkingTreeClean="false"))
+    _rewrite_json(record, tmp_path, "b3.sealing-scale-output.linux-x86_64-cpu", lambda d: d["environment"].update(gitSha=SHA, gitWorkingTreeClean="false"))
     assert ("B3", "sealing_output_mismatch") in _verified_codes(record, tmp_path)
 
 
@@ -1151,3 +1225,261 @@ def test_a_change_to_the_sealing_harness_invalidates_b3_even_uncited() -> None:
     assert "B3" in invalidated_units(["tests/Mavi.IntegrationTests/Qualification/QualificationGate.cs"], {})[
         "tests/Mavi.IntegrationTests/Qualification/QualificationGate.cs"
     ]
+
+
+# --------------------------------------------------------------------------- independent review
+
+
+def test_a_duplicate_metric_cannot_hide_a_failing_value() -> None:
+    record = complete_record()
+    good = next(mid for mid in record["units"]["B1"]["measurements"])
+    bad = dict(record["measurements"][good], value=7.0)
+    bad.pop("limit", None)
+    record["measurements"]["B1:duplicate"] = bad
+    record["units"]["B1"]["measurements"].insert(0, "B1:duplicate")
+    assert ("B1", "measurement_duplicate") in codes(record)
+
+
+def _closure_repo(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = lambda *args: subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()  # noqa: E731
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.invalid")
+    git("config", "user.name", "t")
+    selector = repo / "src/vision/mavi_vision/evidence/selector.py"
+    selector.parent.mkdir(parents=True)
+    selector.write_text("selector")
+    git("add", ".")
+    git("commit", "-qm", "measured")
+    return repo, git, git("rev-parse", "HEAD")
+
+
+def _closure_record(measured: str, merge: str, changed: list[str]) -> dict:
+    record = complete_record()
+    record["measuredSha"] = measured
+    for run in record["runs"].values():
+        run["headSha"] = measured
+    record["disconnected"]["runtimeBundleSourceCommit"] = measured
+    record["closure"] = {"mergeSha": merge, "changedPaths": changed}
+    return record
+
+
+def test_a_moved_behavior_bearing_file_is_seen_under_its_old_path(tmp_path: Path) -> None:
+    repo, git, measured = _closure_repo(tmp_path)
+    (repo / "docs").mkdir()
+    git("mv", "src/vision/mavi_vision/evidence/selector.py", "docs/selector.py")
+    git("commit", "-qm", "move")
+    merge = git("rev-parse", "HEAD")
+    # Recording only the new path (what rename detection shows) is refused...
+    assert ("record", "closure_diff_mismatch") in {(f.unit, f.code) for f in _check_with_git(_closure_record(measured, merge, ["docs/selector.py"]), repo)}
+    # ...and the honest, rename-free diff invalidates the selector's units.
+    honest = _closure_record(measured, merge, ["docs/selector.py", "src/vision/mavi_vision/evidence/selector.py"])
+    found = {(f.unit, f.code) for f in _check_with_git(honest, repo)}
+    assert ("record", "closure_diff_mismatch") not in found
+    assert ("B1", "closure_rerun_required") in found
+
+
+def test_a_closure_must_be_a_later_commit_on_main(tmp_path: Path) -> None:
+    repo, git, measured = _closure_repo(tmp_path)
+    same = {(f.unit, f.code) for f in _check_with_git(_closure_record(measured, measured, []), repo)}
+    assert ("record", "closure_not_a_merge") in same
+    # A commit on a side branch that never reached main.
+    git("checkout", "-qb", "side")
+    (repo / "notes.md").write_text("n")
+    git("add", ".")
+    git("commit", "-qm", "side")
+    side = git("rev-parse", "HEAD")
+    git("checkout", "-q", "main")
+    assert ("record", "closure_not_on_main") in {(f.unit, f.code) for f in _check_with_git(_closure_record(measured, side, ["notes.md"]), repo)}
+    # A merge SHA that does not descend from the measured SHA.
+    git("checkout", "-q", "--orphan", "unrelated")
+    (repo / "other.md").write_text("o")
+    git("add", "other.md")
+    git("commit", "-qm", "unrelated")
+    unrelated = git("rev-parse", "HEAD")
+    git("checkout", "-q", "main")
+    assert ("record", "closure_not_a_merge") in {(f.unit, f.code) for f in _check_with_git(_closure_record(measured, unrelated, []), repo)}
+
+
+def test_shared_test_support_invalidates_the_units_citing_its_project() -> None:
+    cited = {
+        "B2": {"src/vision/tests/test_track_lifecycle.py"},
+        "B4": {"tests/Mavi.IntegrationTests/VisionResultCompletionV3ApiTests"},
+        "B5": {"src/web/mavi-web"},
+    }
+    assert invalidated_units(["src/vision/tests/conftest.py"], cited)["src/vision/tests/conftest.py"] == {"B2"}
+    assert invalidated_units(["src/vision/tests/profile_fixtures.py"], cited)["src/vision/tests/profile_fixtures.py"] == {"B2"}
+    assert invalidated_units(["tests/Mavi.IntegrationTests/ApiTestFactory.cs"], cited)["tests/Mavi.IntegrationTests/ApiTestFactory.cs"] == {"B4"}
+    # An uncited Python test module stays free (§2.1).
+    assert invalidated_units(["src/vision/tests/test_unrelated.py"], cited) == {}
+    # A cited suite's non-surface file still invalidates its unit.
+    assert invalidated_units(["src/web/mavi-web/vite.config.ts"], cited) == {"src/web/mavi-web/vite.config.ts": {"B5"}}
+
+
+def test_a_suite_of_only_approved_skips_is_not_empty_but_other_empty_suites_are() -> None:
+    record = complete_record()
+    linux = next(sid for sid in record["units"]["B2"]["suites"] if "test_artifact_store_windows.py:linux" in sid)
+    windows = linux.replace("linux-x86_64-cpu", "windows-x86_64-cpu")
+    names = sorted(s1_evidence.APPROVED_PAIRED_SKIPS[("src/vision/tests/test_artifact_store_windows.py", "linux-x86_64-cpu")])
+    tests = [f"tests.test_artifact_store_windows::{n}" for n in names]
+    record["suites"][linux].update(passed=0, passedTests=[], skipped=len(tests), skippedTests=tests)
+    record["suites"][windows].update(passed=len(tests), passedTests=tests)
+    for test in tests:
+        record["pairedVariantSkips"].append({
+            "test": test, "skipsOn": "linux-x86_64-cpu", "counterpartSuite": "src/vision/tests/test_artifact_store_windows.py",
+            "counterpartTest": test, "counterpartVariant": "windows-x86_64-cpu",
+        })
+    assert structural(record) == []
+    spool = next(sid for sid in record["units"]["B2"]["suites"] if "test_trajectory_spool.py:linux" in sid)
+    record["suites"][spool].update(passed=0, passedTests=[])
+    assert ("B2", "suite_empty") in codes(record)
+
+
+# --------------------------------------------------------------------------- independent review (2)
+
+
+def _variant_suite_id(record: dict, unit: str, fragment: str, variant: str) -> str:
+    return next(sid for sid in record["units"][unit]["suites"] if fragment in sid and sid.endswith(":" + variant))
+
+
+def test_a_variant_suite_from_a_local_run_is_refused() -> None:
+    record = complete_record()
+    sid = _variant_suite_id(record, "B1", "test_evidence_selector.py", "windows-x86_64-cpu")
+    record["runs"]["laptop"] = {"kind": "local", "host": "runner-linux", "command": "pytest -k one", "cleanTree": True, "headSha": SHA, "conclusion": "success"}
+    record["suites"][sid]["run"] = "laptop"
+    record["retainedArtifacts"][record["suites"][sid]["junitArtifact"]]["run"] = "laptop"
+    assert ("B1", "suite_provenance_invalid") in codes(record)
+
+
+def test_a_variant_suite_from_the_quality_gate_is_refused() -> None:
+    record = complete_record()
+    sid = _variant_suite_id(record, "B1", "test_evidence_selector.py", "linux-x86_64-cpu")
+    record["suites"][sid]["run"] = "quality"
+    record["retainedArtifacts"][record["suites"][sid]["junitArtifact"]]["run"] = "quality"
+    assert ("B1", "suite_provenance_invalid") in codes(record)
+
+
+def test_a_dotnet_suite_must_come_from_the_quality_gate() -> None:
+    record = complete_record()
+    sid = next(sid for sid in record["units"]["B4"]["suites"] if "CompletionDigestGoldenTests" in sid)
+    record["suites"][sid]["run"] = "task10"
+    record["retainedArtifacts"][record["suites"][sid]["junitArtifact"]]["run"] = "task10"
+    assert ("B4", "suite_provenance_invalid") in codes(record)
+
+
+def test_a_task10_step_must_be_backed_by_its_own_junit_file() -> None:
+    record = complete_record()
+    boundary = _variant_suite_id(record, "B6", "task10:s1-boundary", "linux-x86_64-cpu")
+    probe = _variant_suite_id(record, "B6", "task10:runtime-probe-real-torch", "linux-x86_64-cpu")
+    # The one-test real-torch XML standing in for the boundary step.
+    record["retainedArtifacts"][record["suites"][boundary]["junitArtifact"]]["path"] = record["retainedArtifacts"][record["suites"][probe]["junitArtifact"]]["path"]
+    assert ("B6", "suite_provenance_invalid") in codes(record)
+
+
+def test_b6_needs_every_task10_step_and_record_per_variant() -> None:
+    record = complete_record()
+    sid = _variant_suite_id(record, "B6", "task10:bytetrack-runtime", "windows-x86_64-cpu")
+    record["units"]["B6"]["suites"].remove(sid)
+    assert ("B6", "variant_result_missing") in codes(record)
+    record = complete_record()
+    record["units"]["B6"]["artifacts"].remove("b6.windows-x86_64-cpu.bytetrack-qualification.json")
+    assert ("B6", "artifact_missing") in codes(record)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda a: a.update(run="host"),
+        lambda a: a.update(variant="linux-x86_64-cpu"),
+        lambda a: a.update(path="task10/windows-x86_64-cpu/runtime.json"),
+    ],
+)
+def test_a_task10_record_must_come_from_its_variants_task10_run(mutate) -> None:
+    record = complete_record()
+    mutate(record["retainedArtifacts"]["b6.windows-x86_64-cpu.bytetrack-qualification.json"])
+    assert ("B6", "task10_record_invalid") in codes(record)
+
+
+def test_a_failed_production_composition_record_blocks_b6(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b6.linux-x86_64-cpu.production-composition-qualification.json", lambda d: d.update(status="failed"))
+    assert ("B6", "task10_record_invalid") in _verified_codes(record, tmp_path)
+
+
+def test_disconnected_outcome_evidence_must_come_from_a_measured_successful_run(tmp_path: Path) -> None:
+    record = complete_record()
+    record["runs"]["failed-elsewhere"] = {**record["runs"]["host"], "headSha": OTHER, "conclusion": "failure"}
+    record["retainedArtifacts"]["disconnected.realVideoProcessing"]["run"] = "failed-elsewhere"
+    record = materialize(record, tmp_path)
+    found = _verified_codes(record, tmp_path)
+    assert ("DISCONNECTED", "head_sha_mismatch") in found and ("DISCONNECTED", "run_not_successful") in found
+
+
+@pytest.mark.parametrize("reused", ["disconnected.workerStartup", "disconnected.run-record", "disconnected.runtime-bundle-manifest"])
+def test_disconnected_outcomes_need_distinct_evidence_other_than_the_record_itself(tmp_path: Path, reused: str) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "disconnected.run-record", lambda d: d["outcomes"]["completionV3"].update(evidence=reused))
+    assert ("DISCONNECTED", "disconnected_run_incomplete") in _verified_codes(record, tmp_path)
+
+
+def test_isolation_probes_must_be_the_retained_probe_output(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    # The retained probe saw a reachable host; the record says isolated.
+    _rewrite_json(record, tmp_path, "disconnected.isolation-after", lambda d: d["probes"][0].update(reachable=True))
+    assert ("DISCONNECTED", "isolation_not_evidenced") in _verified_codes(record, tmp_path)
+
+
+def test_b2_output_must_come_from_a_qualified_variant_on_the_recorded_host(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b2.memory-harness-output", lambda d: d["runtime"].update(runtimeVariant=None))
+    assert ("B2", "b2_output_mismatch") in _verified_codes(record, tmp_path)
+    record = materialize(complete_record(), tmp_path / "2")
+    _rewrite_json(record, tmp_path / "2", "b2.memory-harness-output", lambda d: d["host"].update(cpuModel="a laptop"))
+    assert ("B2", "b2_output_mismatch") in _verified_codes(record, tmp_path / "2")
+
+
+def test_b3_needs_a_sealing_measurement_on_each_supported_os() -> None:
+    record = complete_record()
+    record["units"]["B3"]["measurements"].remove(f"B3:{s1_evidence.SEALING_WALL_METRIC}.windows-x86_64-cpu")
+    assert ("B3", "measurement_missing") in codes(record)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "detail"),
+    [
+        (lambda o: o.update(variant="linux-x86_64-cpu"), "ran on"),
+        (lambda o: o.update(evidenceFilesystem="tmpfs at /tmp"), "evidence filesystem"),
+    ],
+)
+def test_each_sealing_output_is_its_os_on_the_hosts_filesystem(tmp_path: Path, mutate, detail: str) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b3.sealing-scale-output.windows-x86_64-cpu", mutate)
+    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "sealing_output_mismatch"]
+    assert findings and any(detail in f.detail for f in findings)
+
+
+def test_the_task10_steps_are_every_junit_file_task10_writes() -> None:
+    import re as _re
+
+    workflow = (Path(__file__).resolve().parents[3] / ".github/workflows/task10-runtime-qualification.yml").read_text(encoding="utf-8")
+    written = set(_re.findall(r"--junitxml=\S*?junit/([A-Za-z0-9_-]+)\.xml", workflow))
+    assert written == set(s1_evidence.TASK10_JUNIT_STEPS)
+    records = set(_re.findall(r'"([a-z-]+\.json)",\n', workflow))
+    assert set(s1_evidence.TASK10_RECORDS) <= records
+
+
+def test_tampered_or_unretained_outcome_evidence_is_refused(tmp_path: Path) -> None:
+    # Outcome evidence is not among the unit's listed artifacts, so only this
+    # rule verifies it: a tampered file must be caught by its hash.
+    record = materialize(complete_record(), tmp_path)
+    evidence = record["retainedArtifacts"]["disconnected.completionV3"]
+    (tmp_path / evidence["path"]).write_text("tampered", encoding="utf-8")
+    found = check_record(record, repo_root=tmp_path, verify_git=False)
+    assert ("DISCONNECTED", "artifact_hash_mismatch") in {(f.unit, f.code) for f in found}
+    assert any("completionV3 does not cite a retained, verified evidence artifact" in f.detail for f in found)
+    # An id that names no retained artifact is refused for that reason, not by accident.
+    record = materialize(complete_record(), tmp_path / "2")
+    _rewrite_json(record, tmp_path / "2", "disconnected.run-record", lambda d: d["outcomes"]["trackDetail"].update(evidence="disconnected.never-retained"))
+    found = check_record(record, repo_root=tmp_path / "2", verify_git=False)
+    assert any("trackDetail does not cite a retained, verified evidence artifact" in f.detail for f in found)

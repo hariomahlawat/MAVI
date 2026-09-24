@@ -185,6 +185,10 @@ APPROVED_PAIRED_SKIPS: dict[tuple[str, str], frozenset[str]] = {
         "test_windows_write_stream_source_failure_leaves_no_destination_or_temp",
         "test_windows_evidence_write_and_remove_refuse_a_junctioned_evidence_directory",
     }),
+    # PR A's own process-memory probes (tools/qualification/tests/test_s1_memory.py):
+    # each platform's probe is exercised on that platform only.
+    ("tools/qualification/tests", _WINDOWS): frozenset({"test_linux_probe_reads_this_process"}),
+    ("tools/qualification/tests", _LINUX): frozenset({"test_windows_probe_reads_commit_charge"}),
 }
 
 
@@ -199,6 +203,13 @@ POST_MERGE_WORKFLOWS = (
     "task10-runtime-qualification.yml",
     "task17-acceptance.yml",
 )
+
+NON_OUTCOME_ARTIFACTS = frozenset({
+    "disconnected.run-record",
+    "disconnected.runtime-bundle-manifest",
+    "disconnected.isolation-before",
+    "disconnected.isolation-after",
+})
 
 # §11: every step of the S1 operator path, each passed with named evidence.
 DISCONNECTED_OUTCOMES = (
@@ -219,6 +230,30 @@ def worker_request_timeout_bounds_ms() -> tuple[float, float]:
     if match is None:
         raise RuntimeError("worker_request_timeout_setting_not_found")
     return float(match.group(1)) * 1000.0, float(match.group(2)) * 1000.0
+
+TRAJECTORY_CHUNK_POINTS = 4096  # mavi_vision.video.trajectory_spool.DEFAULT_CHUNK_POINTS
+SEALING_WALL_METRIC = "b3.real-store-completion-wall-ms"
+SEALING_OUTPUT_ARTIFACT = "b3.sealing-scale-output"
+TASK10_WORKFLOW = "task10-runtime-qualification.yml"
+QUALITY_GATE_WORKFLOW = "quality-gate.yml"
+# §10.1 / §4: every JUnit file and JSON record the Task-10 CPU job writes.
+TASK10_JUNIT_STEPS = (
+    "runtime-tooling",
+    "s1-boundary",
+    "runtime-probe-real-torch",
+    "bytetrack-runtime",
+    "real-clip-harness",
+    "s1-qualification-harness",
+    "production-processor-runtime",
+)
+TASK10_RECORDS = (
+    "runtime-probe.json",
+    "resolved-config.json",
+    "runtime.json",
+    "production-runtime-smoke.json",
+    "bytetrack-qualification.json",
+    "production-composition-qualification.json",
+)
 
 # Suites whose result depends on the Python runtime variant. They are required
 # on every variant a unit names. Platform (.NET) and web suites run once, in the
@@ -272,6 +307,8 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
         variants=QUALIFIED_CPU_VARIANTS,
         measurements=(
             MeasurementRequirement("b2.per-live-held-evidence-bytes-max", "bytes", "<=", 544 * KIB),
+            # Bound 1, trajectory part: at most one spool chunk buffered per live Track.
+            MeasurementRequirement("b2.per-live-buffered-trajectory-points-max", "count", "<=", TRAJECTORY_CHUNK_POINTS),
             MeasurementRequirement("b2.per-retired-traced-bytes-slope", "bytes/track", "<=", 16 * KIB),
             MeasurementRequirement("b2.retired-slope-duration-variation", "ratio", "<=", 0.10),
             MeasurementRequirement("b2.retired-slope-crop-variation", "ratio", "<=", 0.10),
@@ -299,9 +336,10 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
             MeasurementRequirement("b3.python-worst-shape-body-bytes", "bytes", "<=", 40 * MIB),
             MeasurementRequirement("b3.dotnet-worst-shape-body-bytes", "bytes", "<=", 32 * MIB),
             MeasurementRequirement("b3.worker-request-timeout-ms", "ms"),
-            MeasurementRequirement("b3.real-store-completion-wall-ms", "ms", timing=True),
+            # §7.4: on the real filesystem of each supported Development OS.
+            *(MeasurementRequirement(f"{SEALING_WALL_METRIC}.{variant}", "ms", timing=True) for variant in QUALIFIED_CPU_VARIANTS),
         ),
-        artifacts=("b3.sealing-scale-output",),
+        artifacts=tuple(f"{SEALING_OUTPUT_ARTIFACT}.{variant}" for variant in QUALIFIED_CPU_VARIANTS),
     ),
     # §8: Python/.NET agreement, replay and both non-compensable windows.
     "B4": UnitRequirement(
@@ -328,17 +366,22 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
     ),
     # §10: the Task-10 matrix on the measured SHA, records retained.
     "B6": UnitRequirement(
-        suites=("task10:cpu-candidate",),
+        suites=tuple(f"task10:{step}" for step in TASK10_JUNIT_STEPS),
         variants=QUALIFIED_CPU_VARIANTS,
         measurements=(),
-        artifacts=("b6.task10-records",),
+        artifacts=tuple(f"b6.{variant}.{record}" for variant in QUALIFIED_CPU_VARIANTS for record in TASK10_RECORDS),
     ),
     # §11: executed with the measured code, isolation evidenced before/after.
     "DISCONNECTED": UnitRequirement(
         suites=(),
         variants=(),
         measurements=(),
-        artifacts=("disconnected.run-record", "disconnected.runtime-bundle-manifest"),
+        artifacts=(
+            "disconnected.run-record",
+            "disconnected.runtime-bundle-manifest",
+            "disconnected.isolation-before",
+            "disconnected.isolation-after",
+        ),
     ),
 }
 
@@ -380,24 +423,54 @@ def suite_covers(suite: str, path: str) -> bool:
     return False
 
 
+def test_project(path: str) -> str | None:
+    """The test project a path belongs to (``src/vision/tests``,
+    ``tools/qualification/tests``, ``tests/<Project>``), or ``None``."""
+    for root in ("src/vision/tests", "tools/qualification/tests"):
+        if path == root or path.startswith(root + "/"):
+            return root
+    match = re.match(r"(tests/[^/]+)(/|$)", path)
+    return match.group(1) if match else None
+
+
+def is_shared_test_support(path: str) -> bool:
+    """A file other suites of its project can depend on without citing it:
+    every file of a .NET test project (helpers there are test classes too,
+    for example ``VisionResultCompletionApiTests.SeedVideoAsync``), and any
+    non-``test_*.py`` file of a Python test tree (``conftest.py``, fixtures)."""
+    project = test_project(path)
+    if project is None:
+        return False
+    if project.startswith("tests/"):
+        return True
+    return not path.rsplit("/", 1)[-1].startswith("test_")
+
+
 def invalidated_units(changed_paths: Iterable[str], cited: dict[str, set[str]]) -> dict[str, set[str]]:
     """Map each changed path to the units §2.2 says it invalidates.
 
-    ``cited`` maps a unit to the suite paths it relies on. Behavior-bearing
-    paths the table does not name invalidate every unit: an unmapped change is
-    treated as the widest one rather than as a free pass.
+    ``cited`` maps a unit to the suite paths it relies on. A cited suite's own
+    source invalidates its unit; so does shared test support (conftest,
+    fixtures, .NET helpers) in the same test project, which cited suites use
+    without citing. Behavior-bearing paths the table does not name invalidate
+    every unit: an unmapped change is treated as the widest one rather than as
+    a free pass.
     """
     result: dict[str, set[str]] = {}
     for path in changed_paths:
         units: set[str] = set(ALWAYS_EVIDENCE.get(path, ()))
+        shared = is_shared_test_support(path)
         for unit, suites in cited.items():
-            if any(suite_covers(suite, path) for suite in suites):
+            if any(
+                suite_covers(suite, path) or (shared and test_project(suite) == test_project(path))
+                for suite in suites
+            ):
                 units.add(unit)
-        if _matches(path, EVIDENCE_TEST_TREES):
+        if _matches(path, EVIDENCE_TEST_TREES) or not is_behavior_bearing(path):
+            # Test trees and non-surface paths invalidate only through the
+            # suites that cite them, never by themselves.
             if units:
                 result[path] = units
-            continue
-        if not is_behavior_bearing(path):
             continue
         for patterns, mapped in INVALIDATION_MAP:
             if _matches(path, patterns):
@@ -532,6 +605,8 @@ class _Checker:
             self._disconnected(measured_sha)
         if name == "B2":
             self._b2_output(measured_sha)
+        if name == "B6":
+            self._task10_records(measured_sha)
 
     def _unit_sha(self, name: str) -> str:
         return self.record["units"][name].get("measuredSha", self.record["measuredSha"])
@@ -566,11 +641,17 @@ class _Checker:
                 continue
             cited.append(entry)
         for suite_id, entry in ((suite_id, suites[suite_id]) for suite_id in unit["suites"] if suite_id in suites):
-            self._run(name, entry["run"], measured_sha, f"suite {suite_id}")
+            run = self._run(name, entry["run"], measured_sha, f"suite {suite_id}")
+            self._suite_provenance(name, suite_id, entry, run, required)
             self._junit(name, suite_id, entry, measured_sha)
             if entry["failed"] or entry["errors"]:
                 self.fail(name, "suite_failed", f"suite {suite_id}: {entry['failed']} failed, {entry['errors']} errors")
-            if entry["passed"] == 0:
+            approved_here = APPROVED_PAIRED_SKIPS.get((entry["suite"], entry["variant"]), frozenset())
+            only_approved_skips = entry["skipped"] > 0 and all(test_function_name(t) in approved_here for t in entry["skippedTests"])
+            # A suite whose every test is an approved OS-conditional skip (the
+            # Windows store suite on Linux) is legitimately empty; any other
+            # empty suite ran nothing.
+            if entry["passed"] == 0 and not only_approved_skips:
                 self.fail(name, "suite_empty", f"suite {suite_id} passed no test")
             if entry["skipped"] != len(entry["skippedTests"]) or entry["passed"] != len(entry["passedTests"]):
                 self.fail(name, "count_inconsistent", f"suite {suite_id}: counts do not match the named passed/skipped tests")
@@ -589,6 +670,28 @@ class _Checker:
                 ):
                     where = f" on {variant}" if variant else ""
                     self.fail(name, "variant_result_missing", f"required suite {suite}{where} has no cited result")
+
+    def _suite_provenance(self, name: str, suite_id: str, entry: dict[str, Any], run: dict[str, Any] | None, required: UnitRequirement) -> None:
+        """Plan §3: every suite result comes from a workflow run, never a local
+        one. A variant-bound or Task-10 result comes from the Task-10 matrix,
+        whose committed invocation at the measured SHA fixes what ran; a .NET or
+        web result from the Quality Gate."""
+        if run is None:
+            return
+        suite = entry["suite"]
+        if suite.startswith("task10:") or (required.variants and suite.startswith(VARIANT_SUITE_PREFIXES)):
+            allowed = {TASK10_WORKFLOW}
+        elif suite.startswith(("tests/", "src/web/")):
+            allowed = {QUALITY_GATE_WORKFLOW}
+        else:
+            allowed = {TASK10_WORKFLOW, QUALITY_GATE_WORKFLOW}
+        if run["kind"] != "workflow" or run.get("workflow") not in allowed:
+            self.fail(name, "suite_provenance_invalid", f"suite {suite_id} cites run {entry['run']!r} ({run['kind']} {run.get('workflow')}), not {sorted(allowed)}")
+        if suite.startswith("task10:"):
+            step = suite.split(":", 1)[1]
+            artifact = self.record["retainedArtifacts"].get(entry["junitArtifact"])
+            if artifact is not None and not artifact["path"].endswith(f"junit/{step}.xml"):
+                self.fail(name, "suite_provenance_invalid", f"suite {suite_id} is backed by {artifact['path']}, not Task 10's junit/{step}.xml")
 
     def _junit(self, name: str, suite_id: str, entry: dict[str, Any], measured_sha: str) -> None:
         """The suite's counts must be the retained XML's, not hand-written ones."""
@@ -674,6 +777,9 @@ class _Checker:
             if entry is None:
                 self.fail(name, "measurement_missing", f"cites measurement {measurement_id!r}, which is not recorded")
                 continue
+            if entry["metric"] in by_metric:
+                # One value per metric: a second, failing value must not hide behind a passing one.
+                self.fail(name, "measurement_duplicate", f"{entry['metric']} is cited more than once")
             by_metric[entry["metric"]] = entry
             self._run(name, entry["run"], measured_sha, f"measurement {measurement_id}")
             if entry["host"] not in self.record["hosts"]:
@@ -722,11 +828,8 @@ class _Checker:
 
     def _b3_headroom(self, by_metric: dict[str, dict[str, Any]], measured_sha: str) -> None:
         timeout = by_metric.get("b3.worker-request-timeout-ms")
-        wall = by_metric.get("b3.real-store-completion-wall-ms")
-        if timeout is None or wall is None or wall.get("stats") is None:
+        if timeout is None:
             return
-        # The timeout is not free input: the worker default, or a non-default
-        # value bound to a retained copy of the qualified install's configuration.
         default_ms, maximum_ms = worker_request_timeout_bounds_ms()
         if not 0 < timeout["value"] <= maximum_ms:
             self.fail("B3", "worker_timeout_out_of_range", f"worker timeout {timeout['value']} ms is outside (0, {maximum_ms}] ms")
@@ -736,17 +839,24 @@ class _Checker:
         # that parses a real install configuration, not a cited file.
         if timeout["value"] != default_ms:
             self.fail("B3", "worker_timeout_unbound", f"worker timeout {timeout['value']} ms is not the {default_ms} ms WorkerSettings default the qualified install uses")
-        # §7.4: headroom below 2× against the worker request timeout is blocking.
-        if wall["stats"]["max"] * 2 > timeout["value"]:
-            self.fail("B3", "completion_headroom_insufficient", f"max completion {wall['stats']['max']} ms × 2 > worker timeout {timeout['value']} ms")
-        self._sealing_output(wall, timeout, measured_sha)
+        for variant in QUALIFIED_CPU_VARIANTS:
+            wall = by_metric.get(f"{SEALING_WALL_METRIC}.{variant}")
+            if wall is None or wall.get("stats") is None:
+                continue
+            # §7.4: headroom below 2× against the worker request timeout is blocking.
+            if wall["stats"]["max"] * 2 > timeout["value"]:
+                self.fail("B3", "completion_headroom_insufficient", f"{variant}: max completion {wall['stats']['max']} ms × 2 > worker timeout {timeout['value']} ms")
+            self._sealing_output(wall, timeout, measured_sha, variant)
 
-    def _sealing_output(self, wall: dict[str, Any], timeout: dict[str, Any], measured_sha: str) -> None:
-        """The wall time must be the sealing harness's authoritative output."""
+    def _sealing_output(self, wall: dict[str, Any], timeout: dict[str, Any], measured_sha: str, variant: str) -> None:
+        """The wall time must be the sealing harness's authoritative output, on
+        that variant's OS and on the host's declared evidence filesystem."""
+        expected_id = f"{SEALING_OUTPUT_ARTIFACT}.{variant}"
         artifact_id = wall.get("artifact")
-        if artifact_id != "b3.sealing-scale-output":
-            self.fail("B3", "sealing_output_unbound", "b3.real-store-completion-wall-ms must cite the b3.sealing-scale-output artifact")
+        if artifact_id != expected_id:
+            self.fail("B3", "sealing_output_unbound", f"{SEALING_WALL_METRIC}.{variant} must cite the {expected_id} artifact")
             return
+        host = self.record["hosts"].get(wall["host"], {})
         artifact = self.record["retainedArtifacts"].get(artifact_id)
         path = None if artifact is None else self._verify_file("B3", artifact_id, artifact)
         if path is None:
@@ -764,6 +874,11 @@ class _Checker:
                     ("its worker timeout differs from the recorded one", output["workerRequestTimeoutMs"] == timeout["value"]),
                     (f"it measured {output['environment']['gitSha']}, not {measured_sha}", output["environment"]["gitSha"] == measured_sha),
                     ("its tree was not clean", output["environment"]["gitWorkingTreeClean"] == "true"),
+                    (f"it ran on {output['variant']}, not {variant}", output["variant"] == variant),
+                    (
+                        f"its evidence filesystem {output['evidenceFilesystem']!r} is not the host's {host.get('acceptedEvidenceFilesystem')!r}",
+                        str(output["evidenceFilesystem"]).split(" ", 1)[0].lower() == str(host.get("acceptedEvidenceFilesystem")).lower(),
+                    ),
                     *(
                         (f"its {stat} differs from the recorded one", output["completion"][stat] == wall["stats"][stat])
                         for stat in ("min", "p50", "p95", "max")
@@ -822,6 +937,32 @@ class _Checker:
             self.fail(unit, code, f"{artifact_id} is not readable JSON ({exc})")
             return None
 
+    def _task10_records(self, measured_sha: str) -> None:
+        """Each variant's Task-10 records come from a successful Task-10 run on
+        the measured SHA, from that variant's job, under their own names."""
+        for variant in QUALIFIED_CPU_VARIANTS:
+            for record_name in TASK10_RECORDS:
+                artifact_id = f"b6.{variant}.{record_name}"
+                artifact = self.record["retainedArtifacts"].get(artifact_id)
+                if artifact is None:
+                    continue  # reported by _artifacts
+                run = self.record["runs"].get(artifact["run"])
+                problems = []
+                if run is None or run["kind"] != "workflow" or run.get("workflow") != TASK10_WORKFLOW:
+                    problems.append("it is not from a Task-10 workflow run")
+                if artifact.get("variant") != variant:
+                    problems.append(f"it is not retained as {variant} output")
+                if not artifact["path"].endswith("/" + record_name) and artifact["path"] != record_name:
+                    problems.append(f"its path {artifact['path']} is not {record_name}")
+                for problem in problems:
+                    self.fail("B6", "task10_record_invalid", f"{artifact_id}: {problem}")
+        # Task 10's own final step requires the composition record to pass;
+        # check the retained bytes say so too.
+        for variant in QUALIFIED_CPU_VARIANTS:
+            composition = self._retained_json("B6", f"b6.{variant}.production-composition-qualification.json", "task10_record_invalid")
+            if composition is not None and composition.get("status") != "passed":
+                self.fail("B6", "task10_record_invalid", f"{variant} production composition status is {composition.get('status')!r}")
+
     def _b2_output(self, measured_sha: str) -> None:
         """Every B2 value must be the retained derived harness output's value."""
         derived = self._retained_json("B2", "b2.memory-harness-output", "b2_output_mismatch")
@@ -834,9 +975,13 @@ class _Checker:
             if identity["sourceSha"] != measured_sha or identity["cleanTree"] is not True:
                 self.fail("B2", "b2_output_mismatch", f"b2.memory-harness-output measured {identity['sourceSha']} (clean: {identity['cleanTree']}), not a clean {measured_sha}")
             values = derived["measurements"]
+            runtime_variant = derived["runtime"]["runtimeVariant"]
+            derived_host = derived["host"]
         except (KeyError, TypeError) as exc:
             self.fail("B2", "b2_output_mismatch", f"b2.memory-harness-output is incomplete ({exc})")
             return
+        if runtime_variant not in QUALIFIED_CPU_VARIANTS:
+            self.fail("B2", "b2_output_mismatch", f"b2.memory-harness-output ran on {runtime_variant!r}, not a qualified variant")
         for measurement_id in self.record["units"]["B2"]["measurements"]:
             entry = self.record["measurements"].get(measurement_id)
             if entry is None:
@@ -844,6 +989,10 @@ class _Checker:
             source = values.get(entry["metric"])
             if source is None or source.get("value") != entry["value"] or source.get("unit") != entry["unit"]:
                 self.fail("B2", "b2_output_mismatch", f"{entry['metric']} {entry['value']} {entry['unit']} is not the harness output's {source}")
+            host = self.record["hosts"].get(entry["host"], {})
+            for key in ("cpuModel", "logicalCores"):
+                if derived_host.get(key) != host.get(key):
+                    self.fail("B2", "b2_output_mismatch", f"{entry['metric']}: the harness host's {key} {derived_host.get(key)!r} is not host {entry['host']}'s {host.get(key)!r}")
 
     def _disconnected_run(self, measured_sha: str) -> None:
         """The run record must show every §11 outcome succeeded on the measured code."""
@@ -863,6 +1012,7 @@ class _Checker:
                 )
                 if not holds
             ]
+            used_evidence: set[str] = set()
             for outcome in DISCONNECTED_OUTCOMES:
                 result = run["outcomes"].get(outcome)
                 if not isinstance(result, dict) or result.get("passed") is not True:
@@ -870,8 +1020,14 @@ class _Checker:
                     continue
                 evidence = result.get("evidence")
                 artifact = self.record["retainedArtifacts"].get(evidence) if isinstance(evidence, str) else None
+                if evidence in NON_OUTCOME_ARTIFACTS or evidence in used_evidence:
+                    problems.append(f"outcome {outcome} reuses {evidence!r}; every outcome needs its own evidence")
+                    continue
+                used_evidence.add(evidence)
                 if artifact is None or self._verify_file("DISCONNECTED", evidence, artifact) is None:
                     problems.append(f"outcome {outcome} does not cite a retained, verified evidence artifact ({evidence!r})")
+                    continue
+                self._run("DISCONNECTED", artifact["run"], measured_sha, f"outcome {outcome} evidence {evidence}")
         except (KeyError, TypeError, AttributeError) as exc:
             problems = [f"incomplete ({exc})"]
         for problem in problems:
@@ -890,6 +1046,11 @@ class _Checker:
                 self.fail("DISCONNECTED", "isolation_not_evidenced", f"{phase} does not show an isolated host")
         self._disconnected_run(measured_sha)
         self._bundle_manifest(measured_sha)
+        # The probes are retained probe output, not record fields.
+        for phase, artifact_id in (("isolationBefore", "disconnected.isolation-before"), ("isolationAfter", "disconnected.isolation-after")):
+            probe = self._retained_json("DISCONNECTED", artifact_id, "isolation_not_evidenced")
+            if probe is not None and probe != record[phase]:
+                self.fail("DISCONNECTED", "isolation_not_evidenced", f"{phase} differs from the retained {artifact_id} probe output")
 
     def _bundle_manifest(self, measured_sha: str) -> None:
         """The retained Runtime Bundle manifest, not the record's copy, must show
@@ -950,20 +1111,31 @@ class _Checker:
                     self.fail(name, "closure_rerun_required", f"{path} changed between measured and merge SHA; {name} was not re-measured on {closure['mergeSha']}")
 
     def verify_git_diff(self) -> None:
-        """The recorded changedPaths must be the real diff, not a hand-written list."""
+        """The closure must be a real merge of the measured code, and its
+        changedPaths the real diff, not a hand-written list."""
         closure = self.record["closure"]
         if closure is None or self.repo_root is None:
             return
-        try:
-            actual = subprocess.run(
-                ["git", "diff", "--name-only", self.record["measuredSha"], closure["mergeSha"]],
-                cwd=self.repo_root, check=True, capture_output=True, text=True,
-            ).stdout.split()
-        except (OSError, subprocess.CalledProcessError) as exc:
-            self.fail("record", "closure_diff_unverifiable", f"git diff failed: {exc}")
+        measured, merge = self.record["measuredSha"], closure["mergeSha"]
+        if merge == measured:
+            self.fail("record", "closure_not_a_merge", "closure mergeSha equals measuredSha; §2.3 closes on the later merge commit")
+        git = lambda *args: subprocess.run(["git", *args], cwd=self.repo_root, capture_output=True, text=True)  # noqa: E731
+        if git("merge-base", "--is-ancestor", measured, merge).returncode != 0:
+            self.fail("record", "closure_not_a_merge", f"measured {measured} is not an ancestor of merge {merge}")
+        main = next((ref for ref in ("refs/heads/main", "refs/remotes/origin/main") if git("rev-parse", "--verify", "-q", ref).returncode == 0), None)
+        if main is None:
+            self.fail("record", "closure_diff_unverifiable", "no main or origin/main ref to verify the merge against")
+        elif git("merge-base", "--is-ancestor", merge, main).returncode != 0:
+            self.fail("record", "closure_not_on_main", f"merge {merge} is not on {main}")
+        # --no-renames: a moved file must show its old path too, or moving a
+        # behavior-bearing file out of the surface would hide the change.
+        diff = git("diff", "--no-renames", "--name-only", "-z", measured, merge)
+        if diff.returncode != 0:
+            self.fail("record", "closure_diff_unverifiable", f"git diff failed: {diff.stderr.strip()}")
             return
+        actual = [path for path in diff.stdout.split("\0") if path]
         if sorted(actual) != sorted(closure["changedPaths"]):
-            self.fail("record", "closure_diff_mismatch", "recorded changedPaths differ from git diff --name-only measured..merge")
+            self.fail("record", "closure_diff_mismatch", "recorded changedPaths differ from git diff --no-renames --name-only measured..merge")
 
 
 def check_record(

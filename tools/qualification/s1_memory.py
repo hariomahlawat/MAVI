@@ -80,6 +80,7 @@ OUTPUT_SCHEMA = "s1-b2-memory-output-v1"
 FRAME_SOURCE = "synthetic-noise-pool-v1"
 PROFILE_PATH = VISION / "config" / "pipelines" / "phase1-detection-tracking-v1.json"
 JOB_ID = UUID("01920000-0000-7000-8000-00000000b2b2")
+QUALIFIED_CPU_VARIANTS = ("linux-x86_64-cpu", "windows-x86_64-cpu")
 PER_LIVE_HELD_BOUND_BYTES = 64 * 1024 + 3 * 160 * 1024  # ADR-013 §4: 544 KiB
 
 
@@ -672,10 +673,14 @@ def _linux_filesystem(path: Path) -> str | None:
     return best[1]
 
 
+# The slope resolution the ±10 % invariance is judged against (§6.2 bound 2). A
+# near-zero baseline would make a relative change pure noise, and a negative one
+# meaningless, so the denominator never falls below 1 KiB per retired Track.
+VARIATION_FLOOR_BYTES = 1024.0
+
+
 def _relative_change(baseline: float, variant: float) -> float:
-    if baseline <= 0:
-        raise ValueError("derive_baseline_slope_nonpositive")
-    return abs(variant - baseline) / baseline
+    return abs(variant - baseline) / max(abs(baseline), VARIATION_FLOOR_BYTES)
 
 
 def _require(output: dict[str, Any], preset: str) -> dict[str, Any]:
@@ -692,6 +697,8 @@ def _require(output: dict[str, Any], preset: str) -> dict[str, Any]:
         raise ValueError(f"derive_output_not_clean_source:{preset}")
     if not output.get("runtime") or not output.get("host"):
         raise ValueError(f"derive_output_identity_incomplete:{preset}")
+    if output["runtime"].get("runtimeVariant") not in QUALIFIED_CPU_VARIANTS:
+        raise ValueError(f"derive_output_not_qualified_variant:{preset}")
     # The workload is the declared preset, parameter for parameter.
     if output["workload"] != asdict(PRESETS[preset]):
         raise ValueError(f"derive_output_workload_not_declared:{preset}")
@@ -730,6 +737,7 @@ def derive(outputs: dict[str, dict[str, Any]]) -> dict[str, Any]:
         "runtime": outputs["b2-retained-baseline"]["runtime"],
         "host": outputs["b2-retained-baseline"]["host"],
         "measurements": {
+            "b2.per-live-buffered-trajectory-points-max": {"value": max(outputs[p]["results"]["perLiveBufferedTrajectoryPointsMax"] for p in trace_presets), "unit": "count"},
             "b2.per-live-held-evidence-bytes-max": {"value": max(outputs[p]["results"]["perLiveHeldEvidenceBytesMax"] for p in trace_presets), "unit": "bytes"},
             "b2.per-retired-traced-bytes-slope": {"value": max(slope(p) for p in trace_presets[:3]), "unit": "bytes/track"},
             "b2.retired-slope-duration-variation": {"value": _relative_change(slope("b2-retained-baseline"), slope("b2-retained-long")), "unit": "ratio"},

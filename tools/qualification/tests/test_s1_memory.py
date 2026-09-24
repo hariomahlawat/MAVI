@@ -299,6 +299,7 @@ def _synthetic_outputs() -> dict[str, dict]:
             "results": {
                 "retirements": preset.retirements,
                 "perLiveHeldEvidenceBytesMax": 100_000 + level,
+                "perLiveBufferedTrajectoryPointsMax": 4_000 + level,
                 "retiredSlope": {"bytesPerRetiredTrack": slope},
                 "stagingPeakBytes": 1_000 * level,
                 "completion": {"tracedPeakBytes": 90_000_000, "bodyBytes": 30_000_000} if preset.measure_completion else None,
@@ -318,6 +319,7 @@ def test_derive_computes_the_bound_metrics() -> None:
     assert values["b2.completion-peak-bytes"] == 90_000_000
     assert values["b2.per-live-held-evidence-bytes-max"] == 100_064
     assert values["b2.staging-peak-bytes"] == 64_000
+    assert values["b2.per-live-buffered-trajectory-points-max"] == 4_064
     assert derived["recorded"]["processMemoryPerLiveTrackSlopeBytes"] == pytest.approx(200_000)
 
 
@@ -338,9 +340,10 @@ def test_derive_metric_names_are_the_ones_the_checker_binds() -> None:
         (lambda o: o["b2-retained-long"].update(identity={"sourceSha": "b" * 40, "cleanTree": True}), "derive_outputs_mixed_identity"),
         (lambda o: [output.update(identity={"sourceSha": "a" * 40, "cleanTree": False}) for output in o.values()], "derive_output_not_clean_source"),
         (lambda o: [output.update(identity={"sourceSha": None, "cleanTree": True}) for output in o.values()], "derive_output_not_clean_source"),
-        (lambda o: o["b2-live-4"].update(runtime={"platform": "win32"}), "derive_outputs_mixed_runtime"),
+        (lambda o: o["b2-live-4"].update(runtime=dict(o["b2-live-4"]["runtime"], runtimeVariant="windows-x86_64-cpu")), "derive_outputs_mixed_runtime"),
         (lambda o: o["b2-live-4"].update(host={"cpuModel": "other"}), "derive_outputs_mixed_host"),
         (lambda o: o["b2-live-4"].pop("host"), "derive_output_identity_incomplete"),
+        (lambda o: [output["runtime"].update(runtimeVariant=None) for output in o.values()], "derive_output_not_qualified_variant"),
         (lambda o: o["b2-retained-long"].update(schema="other"), "derive_output_schema_invalid"),
         (lambda o: o["b2-retained-long"]["workload"].update(name="b2-retained-baseline"), "derive_output_preset_mismatch"),
         (lambda o: o["b2-retained-long"]["workload"].update(track_frames=450), "derive_output_workload_not_declared"),
@@ -380,3 +383,17 @@ def test_native_and_fixture_runs_agree_on_structure(tmp_path: Path) -> None:
     for results in (fixture, native_run):
         assert results["admittedCropsByRole"]["representative"]["count"] == results["tracks"]
     assert abs(native_run["tracks"] - fixture["tracks"]) <= workload.live_tracks
+
+
+def test_slope_variation_is_floored_and_never_raises() -> None:
+    # Near-zero or negative baselines do not blow up the ratio or raise.
+    assert s1_memory._relative_change(2_000.0, 2_100.0) == pytest.approx(0.05)
+    assert s1_memory._relative_change(10.0, 60.0) == pytest.approx(50 / 1024)
+    assert s1_memory._relative_change(-50.0, 50.0) == pytest.approx(100 / 1024)
+    assert s1_memory._relative_change(0.0, 0.0) == 0.0
+
+
+def test_the_checker_trajectory_bound_is_the_spool_chunk() -> None:
+    from s1_evidence import TRAJECTORY_CHUNK_POINTS
+
+    assert TRAJECTORY_CHUNK_POINTS == s1_memory.DEFAULT_CHUNK_POINTS

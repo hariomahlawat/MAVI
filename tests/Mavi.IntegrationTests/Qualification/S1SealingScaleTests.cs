@@ -127,6 +127,8 @@ public sealed class S1SealingScaleTests
             environment,
             evidenceRoot,
             evidenceFilesystem = FilesystemOf(evidenceRoot!),
+            // The checker requires one output per supported Development OS (§7.4).
+            variant = RuntimeVariant(),
             shape,
             workerRequestTimeoutMs = timeoutSeconds * 1000.0,
             samples,
@@ -155,6 +157,7 @@ public sealed class S1SealingScaleTests
         if (configuredTimeout is not null)
             reasons.Add("MAVI_REQUEST_TIMEOUT_SECONDS overrides the worker default; bind the install configuration in the record instead");
         if (!QualificationGate.IsQualificationGrade(environment)) reasons.Add("not a qualification-grade PostgreSQL");
+        if (RuntimeVariant().StartsWith("unqualified", StringComparison.Ordinal)) reasons.Add($"host is {RuntimeVariant()}");
         foreach (var key in new[] { QualificationGate.GitWorkingTreeCleanKey, QualificationGate.GitCommitObjectPresentKey })
         {
             if (!environment.TryGetValue(key, out var value) || value != "true")
@@ -283,6 +286,17 @@ public sealed class S1SealingScaleTests
         if (ordered.Length == 0) throw new InvalidOperationException("percentile_of_empty_series");
         var rank = (int)Math.Ceiling(fraction * ordered.Length);
         return ordered[Math.Clamp(rank, 1, ordered.Length) - 1];
+    }
+
+    /// <summary>The qualified CPU variant of this host, or <c>unqualified-*</c>.</summary>
+    internal static string RuntimeVariant()
+    {
+        var architecture = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture;
+        if (architecture != System.Runtime.InteropServices.Architecture.X64)
+            return $"unqualified-{architecture}".ToLowerInvariant();
+        if (OperatingSystem.IsWindows()) return "windows-x86_64-cpu";
+        if (OperatingSystem.IsLinux()) return "linux-x86_64-cpu";
+        return "unqualified-os";
     }
 
     private static string FilesystemOf(string path)
