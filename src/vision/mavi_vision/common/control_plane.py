@@ -951,13 +951,20 @@ class VisionJobCompleteV3(_CompletionModel):
         trajectory_bytes = sum(track.trajectory_artifact.size_bytes for track in self.tracks)
         if trajectory_bytes > _COMPLETION_EVIDENCE_MAX_BYTES:
             raise ValueError("completion trajectory size limit exceeded")
+        # The platform accepts only this attempt's staging keys, one per artefact
+        # (VisionResultValidator): a crop key names its own Track and role.
+        prefix = f"staging/{self.job_id}/attempt-{self.attempt_count:04d}"
         crop_bytes = 0
         for track in self.tracks:
             if track.detection_count > self.frames_processed:
                 raise ValueError("track detectionCount cannot exceed framesProcessed")
+            if track.trajectory_artifact.storage_key != f"{prefix}/trajectories/{track.track_id}.msgpack":
+                raise ValueError("trajectory storageKey is not this attempt's key for the track")
             for observation in track.observations:
                 if observation.source_frame_number >= self.frames_processed:
                     raise ValueError("observation sourceFrameNumber must be below framesProcessed")
+                if observation.crop.storage_key != f"{prefix}/evidence/{track.track_id}-{observation.role}.jpg":
+                    raise ValueError("crop storageKey is not this attempt's key for the track and role")
                 crop_bytes += observation.crop.size_bytes
         if crop_bytes > _COMPLETION_EVIDENCE_CROP_MAX_BYTES:
             raise ValueError("completion evidence crop quota exceeded")

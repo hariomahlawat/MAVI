@@ -14,6 +14,7 @@ from pathlib import Path
 import httpx
 import jsonschema
 import pytest
+from pydantic import ValidationError
 
 from mavi_vision.common.analytical import (
     ArtifactDescriptor,
@@ -510,3 +511,56 @@ def test_pipeline_generated_body_validates_against_schema_and_model(tmp_path: Pa
     omitted = sum(accounting[role.value]["omitted"] for role in ROLE_ORDER)
     assert (omitted > 0) is tight
     assert accounting["representative"]["omitted"] == 0
+
+
+# Cross-language alignment (W1) ------------------------------------------------
+
+VECTORS = ROOT / "contracts/test-vectors"
+
+
+@pytest.mark.parametrize(
+    "vector",
+    json.loads((VECTORS / "control-plane-v3-invalid.json").read_text(encoding="utf-8")),
+    ids=lambda vector: vector["name"],
+)
+def test_python_v3_model_rejects_every_shared_invalid_vector(vector: dict) -> None:
+    """The .NET schema and validator reject each of these; so must the worker's
+    own model, including the cross-field rules the JSON Schema cannot express,
+    so the worker can never build a body the platform refuses."""
+    with pytest.raises(ValueError):
+        VisionJobCompleteV3.model_validate_json(json.dumps(vector["payload"]))
+
+
+def test_python_v3_model_follows_the_shared_integer_conformance_corpus() -> None:
+    placeholder = "__MAVI_V3_NUMBER__"
+    for vector in json.loads((VECTORS / "vision-job-complete-v3-conformance.json").read_text(encoding="utf-8"))[
+        "integerCases"
+    ]:
+        payload = _golden()
+        parent: object = payload
+        parts = vector["path"].strip("/").split("/")
+        for part in parts[:-1]:
+            parent = parent[int(part)] if isinstance(parent, list) else parent[part]
+        if isinstance(parent, list):
+            parent[int(parts[-1])] = placeholder
+        else:
+            parent[parts[-1]] = placeholder
+        raw = json.dumps(payload).replace(f'"{placeholder}"', vector["token"])
+        # The corpus pins *binding* (type and range of the one number). The model
+        # also runs the cross-field rules in the same step, so an accepted token
+        # may still break one of those (e.g. candidates no longer equal admitted
+        # + omitted). Binding is judged by errors located at the vector's path.
+        try:
+            VisionJobCompleteV3.model_validate_json(raw)
+            located: list[dict] = []
+        except ValidationError as exc:
+            # A non-integral integer token is refused before field binding by the
+            # model's integer wire-tree check, which reports at the root; only
+            # one number differs from the golden example, so it is this one.
+            located = [
+                e
+                for e in exc.errors()
+                if tuple(str(part) for part in e["loc"]) == tuple(parts)
+                or (e["loc"] == () and "completion integer" in e["msg"])
+            ]
+        assert (not located) is vector["accepted"], (vector["name"], located)
