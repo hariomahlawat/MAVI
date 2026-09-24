@@ -24,7 +24,7 @@ the parameter note. Neither the clips nor the outputs belong in Git.
 Usage, from ``src/vision`` with the qualified Development runtime installed and the
 worker settings in the environment::
 
-    python ../../tools/vision/dev/measure_evidence_real_clips.py <out-dir> \\
+    PYTHONPATH=. python ../../tools/vision/dev/measure_evidence_real_clips.py <out-dir> \\
         MOT17-02-FRCNN=<path> MOT17-13-FRCNN=<path>
 """
 from __future__ import annotations
