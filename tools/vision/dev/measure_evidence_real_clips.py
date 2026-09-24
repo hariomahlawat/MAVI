@@ -38,8 +38,10 @@ import json
 import statistics
 import sys
 import time
-from dataclasses import asdict, is_dataclass
+from collections.abc import Mapping
+from dataclasses import asdict, fields, is_dataclass
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
 from uuid import UUID
 
@@ -177,8 +179,26 @@ def observe_selectors(tracks: dict[str, dict]):
     def resolve(self):
         resolved = original_resolve(self)
         record = tracks[live.pop(id(self))]
-        record["heldBeforeResolve"] = [h.role.value for h in self.holders()]
+        held = self.holders()
+        record["heldBeforeResolve"] = [h.role.value for h in held]
         record["resolved"] = [r.role.value for r in resolved]
+        # Invariant check, not a decision: supplemental holders are qualified-only.
+        record["supplementalUnqualified"] = sum(
+            1 for h in held if h.role is not EvidenceRole.REPRESENTATIVE and not h.qualified
+        )
+        near_view = self.holder(EvidenceRole.NEAR_VIEW)
+        representative = self.holder(EvidenceRole.REPRESENTATIVE)
+        if near_view is not None and EvidenceRole.NEAR_VIEW.value not in record["resolved"]:
+            # Why resolve() dropped it, re-using the selector's own rule.
+            record["nearViewDropCause"] = (
+                "near-duplicate-of-representative"
+                if self._near_duplicate(selector_module._View.of(near_view), representative)
+                else "other"
+            )
+        record["cropPixels"] = {
+            r.role.value: [r.evidence.image.width, r.evidence.image.height, r.evidence.image.ladder_step]
+            for r in resolved
+        }
         record["representativeQualified"] = bool(resolved) and resolved[0].evidence.qualified
         record["encodeAttempts"] = self.stats.encode_attempts
         record["unadmissibleByRole"] = {k.value: v for k, v in self.stats.unadmissible_by_role.items() if v}
@@ -220,16 +240,20 @@ def measure_clip(runtime, profile, clip: str, video: Path, work_dir: Path) -> tu
         )
     elapsed = time.perf_counter() - started
     by_id = selectors
+    rows_by_track: dict[str, list[dict]] = {}
+    for row in rows:
+        rows_by_track.setdefault(row["track_id"], []).append(row)
     tracks = []
     for track in result.tracks:
         record = by_id[track.track_id]
-        track_rows = [row for row in rows if row["track_id"] == track.track_id]
+        track_rows = rows_by_track.get(track.track_id, [])
         tiers = record["tiers"]
         tracks.append(
             {
                 "trackId": track.track_id,
                 "objectClass": track.object_class.value,
                 "candidateFrames": len(track_rows),
+                "durationMs": track_rows[-1]["offset_ms"] - track_rows[0]["offset_ms"] if track_rows else 0,
                 "qualifiedFrames": sum(row["qualified"] for row in track_rows),
                 "representativeQualified": record["representativeQualified"],
                 "fallbackToQualified": "fallback" in tiers and tiers[-1] == "qualified",
@@ -239,7 +263,10 @@ def measure_clip(runtime, profile, clip: str, video: Path, work_dir: Path) -> tu
                 "admitted": [o.role.value for o in track.observations],
                 "encodeAttempts": record["encodeAttempts"],
                 "unadmissibleByRole": record["unadmissibleByRole"],
+                "supplementalUnqualified": record["supplementalUnqualified"],
+                "nearViewDropCause": record.get("nearViewDropCause"),
                 "cropBytes": {o.role.value: o.crop.size_bytes for o in track.observations},
+                "cropPixels": record["cropPixels"],
             }
         )
     frames = result.frames_processed
@@ -274,11 +301,23 @@ def aggregate(label: str, summaries: list[dict], rows: list[dict]) -> dict:
     held_nv = [t for t in tracks if EvidenceRole.NEAR_VIEW.value in t["heldBeforeResolve"]]
     dropped_nv = [t for t in held_nv if EvidenceRole.NEAR_VIEW.value not in t["resolved"]]
     encodes = [t["encodeAttempts"] for t in tracks]
+    re_encodes = [t["encodeAttempts"] - len(t["heldBeforeResolve"]) for t in tracks]
     by_class: dict[str, dict] = {}
     for track in tracks:
         entry = by_class.setdefault(track["objectClass"], {"tracks": 0, "fallback": 0})
         entry["tracks"] += 1
         entry["fallback"] += not track["representativeQualified"]
+    rows_by_class: dict[str, list[dict]] = {}
+    for row in rows:
+        rows_by_class.setdefault(row["object_class"], []).append(row)
+    qualified_tracks = [t for t in tracks if t["qualifiedFrames"] > 0]
+
+    def coverage(subset: list[dict]) -> dict:
+        count = len(subset)
+        return {
+            role: (round(sum(role in t["resolved"] for t in subset) / count, 4) if count else None)
+            for role in ("near-view", "early-diverse", "late-diverse")
+        } | {"allFour": round(sum(len(t["resolved"]) == 4 for t in subset) / count, 4) if count else None}
     return {
         "label": label,
         "candidateFrames": n,
@@ -304,15 +343,55 @@ def aggregate(label: str, summaries: list[dict], rows: list[dict]) -> dict:
             "late-diverse": role_share("late-diverse"),
             "allFour": round(sum(len(t["resolved"]) == 4 for t in tracks) / len(tracks), 4) if tracks else None,
         },
-        "nearViewResolveDrops": {"held": len(held_nv), "dropped": len(dropped_nv)},
+        "roleCoverageAmongTracksWithQualifiedFrame": coverage(qualified_tracks),
+        "passRatesByClass": {
+            cls: {
+                "candidateFrames": len(class_rows),
+                "confidence": round(sum(r["pass_confidence"] for r in class_rows) / len(class_rows), 4),
+                "sharpness": round(sum(r["pass_sharpness"] for r in class_rows) / len(class_rows), 4),
+                "edgeMargin": round(sum(r["pass_edge"] for r in class_rows) / len(class_rows), 4),
+                "occlusion": round(sum(r["pass_occlusion"] for r in class_rows) / len(class_rows), 4),
+                "allFloors": round(sum(r["qualified"] for r in class_rows) / len(class_rows), 4),
+            }
+            for cls, class_rows in sorted(rows_by_class.items())
+        },
+        "candidateFramesPerTrack": percentiles([t["candidateFrames"] for t in tracks]),
+        "trackDurationMs": percentiles([t["durationMs"] for t in tracks]),
+        # A fallback Representative on a Track that had a qualified frame would mean
+        # a qualified encode was refused (or a bug); it must be 0 or explained.
+        "fallbackDespiteQualifiedFrame": sum(
+            t["qualifiedFrames"] > 0 and not t["representativeQualified"] for t in tracks
+        ),
+        "emptyEvidenceTracks": sum(not t["resolved"] for t in tracks),
+        "supplementalUnqualified": sum(t["supplementalUnqualified"] for t in tracks),
+        "nearViewResolveDrops": {
+            "held": len(held_nv),
+            "dropped": len(dropped_nv),
+            "causes": {
+                cause: sum(t.get("nearViewDropCause") == cause for t in dropped_nv)
+                for cause in ("near-duplicate-of-representative", "other")
+            },
+        },
         "encodeAttemptsPerTrack": {
             "mean": round(statistics.fmean(encodes), 3) if encodes else None,
             "median": statistics.median(encodes) if encodes else None,
             "max": max(encodes) if encodes else None,
+            "total": sum(encodes),
+        },
+        "reEncodesPerTrack": {
+            "mean": round(statistics.fmean(re_encodes), 3) if re_encodes else None,
+            "median": statistics.median(re_encodes) if re_encodes else None,
+            "max": max(re_encodes) if re_encodes else None,
         },
         "unadmissibleTotal": sum(sum(t["unadmissibleByRole"].values()) for t in tracks),
         "cropBytes": {
             role.value: percentiles([t["cropBytes"][role.value] for t in tracks if role.value in t["cropBytes"]])
+            for role in ROLE_ORDER
+        },
+        "cropLongEdgePx": {
+            role.value: percentiles(
+                [max(t["cropPixels"][role.value][:2]) for t in tracks if role.value in t.get("cropPixels", {})]
+            )
             for role in ROLE_ORDER
         },
     }
@@ -335,12 +414,18 @@ def _peak_rss_kib() -> int | None:
 
 
 def _jsonable(value):
-    if is_dataclass(value):
-        return {k: _jsonable(v) for k, v in asdict(value).items()}
-    if isinstance(value, (list, tuple)):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, dict):
+    # Field by field, not ``asdict``: provenance holds ``MappingProxyType`` values,
+    # which ``asdict`` cannot deep-copy.
+    if is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _jsonable(getattr(value, f.name)) for f in fields(value)}
+    if isinstance(value, Mapping):
         return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, frozenset, set)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (Path, UUID, datetime)):
+        return str(value)
     return value
 
 

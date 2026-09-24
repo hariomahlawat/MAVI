@@ -159,6 +159,8 @@ def test_harness_measures_without_changing_the_evidence_set(tmp_path: Path) -> N
         assert track["resolved"][0] == "representative"
         assert set(track["admitted"]) <= set(track["resolved"]) <= set(track["heldBeforeResolve"])
         assert track["representativeQualified"] == (track["qualifiedFrames"] > 0)
+        assert track["supplementalUnqualified"] == 0
+        assert set(track["cropPixels"]) == set(track["resolved"])
     assert summary["sha256"] == sha256(video.read_bytes()).hexdigest()
     assert summary["media"]["width"] == 256 and summary["framesProcessed"] == FRAMES
 
@@ -177,10 +179,22 @@ def test_percentiles_and_pass_rates_are_exact() -> None:
     track = {"trackId": "person-000001", "objectClass": "person", "qualifiedFrames": 2,
              "representativeQualified": True, "fallbackToQualified": True,
              "heldBeforeResolve": ["representative", "near-view"], "resolved": ["representative"],
-             "encodeAttempts": 3, "unadmissibleByRole": {}, "cropBytes": {"representative": 1000}}
+             "encodeAttempts": 3, "unadmissibleByRole": {}, "cropBytes": {"representative": 1000},
+             "candidateFrames": 4, "durationMs": 120, "supplementalUnqualified": 0,
+             "nearViewDropCause": "near-duplicate-of-representative",
+             "cropPixels": {"representative": [40, 90, 0]}}
+    for row in rows:
+        row["object_class"] = "person"
     combined = harness.aggregate("t", [{"tracks": [track]}], rows)
     assert combined["passRates"]["sharpness"] == 0.5
     assert combined["passRates"]["allFloors"] == 0.5
-    assert combined["nearViewResolveDrops"] == {"held": 1, "dropped": 1}
+    assert combined["passRatesByClass"]["person"]["allFloors"] == 0.5
+    assert combined["nearViewResolveDrops"] == {
+        "held": 1, "dropped": 1,
+        "causes": {"near-duplicate-of-representative": 1, "other": 0},
+    }
+    assert combined["reEncodesPerTrack"]["max"] == 1
+    assert combined["cropLongEdgePx"]["representative"]["max"] == 90
+    assert combined["fallbackDespiteQualifiedFrame"] == 0
     assert combined["fallbackToQualifiedTransitions"] == 1
     assert combined["fallbackRepresentatives"] == 0
