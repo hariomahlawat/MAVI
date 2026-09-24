@@ -687,6 +687,11 @@ def _require(output: dict[str, Any], preset: str) -> dict[str, Any]:
         raise ValueError(f"derive_output_not_bytetrack:{preset}")
     if output["results"]["retirements"] < PRESETS[preset].retirements:
         raise ValueError(f"derive_output_short:{preset}")
+    identity = output.get("identity") or {}
+    if identity.get("cleanTree") is not True or not identity.get("sourceSha"):
+        raise ValueError(f"derive_output_not_clean_source:{preset}")
+    if not output.get("runtime") or not output.get("host"):
+        raise ValueError(f"derive_output_identity_incomplete:{preset}")
     return output
 
 
@@ -694,16 +699,18 @@ def derive(outputs: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """The §6.2 B2 measurements, from one output per authoritative preset.
 
     Metric names are those ``s1_evidence.UNIT_REQUIREMENTS`` binds. Every output
-    must come from the native ByteTrack adapter and from one source identity.
+    must come from the native ByteTrack adapter, from a clean tree at a known
+    source SHA, and from one identical source, runtime and host identity.
     """
     missing = sorted(set(PRESETS) - outputs.keys())
     if missing:
         raise ValueError(f"derive_outputs_missing:{missing}")
     for preset, output in outputs.items():
         _require(output, preset)
-    identities = {json.dumps(output.get("identity"), sort_keys=True) for output in outputs.values()}
-    if len(identities) != 1:
-        raise ValueError("derive_outputs_mixed_identity")
+    # One source, one runtime and one host: B2 is a claim about that triple.
+    for key in ("identity", "runtime", "host"):
+        if len({json.dumps(output.get(key), sort_keys=True) for output in outputs.values()}) != 1:
+            raise ValueError(f"derive_outputs_mixed_{key}")
 
     def slope(preset: str) -> float:
         return outputs[preset]["results"]["retiredSlope"]["bytesPerRetiredTrack"]
@@ -717,6 +724,8 @@ def derive(outputs: dict[str, dict[str, Any]]) -> dict[str, Any]:
     return {
         "schema": "s1-b2-memory-derived-v1",
         "identity": outputs["b2-retained-baseline"]["identity"],
+        "runtime": outputs["b2-retained-baseline"]["runtime"],
+        "host": outputs["b2-retained-baseline"]["host"],
         "measurements": {
             "b2.per-live-held-evidence-bytes-max": {"value": max(outputs[p]["results"]["perLiveHeldEvidenceBytesMax"] for p in trace_presets), "unit": "bytes"},
             "b2.per-retired-traced-bytes-slope": {"value": max(slope(p) for p in trace_presets[:3]), "unit": "bytes/track"},

@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ElementTree
@@ -38,6 +39,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 SCHEMA_PATH = Path(__file__).resolve().with_name("s1-qualification-evidence.schema.json")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# The worker default (``WorkerSettings.request_timeout_seconds``) and its bound.
+WORKER_SETTINGS_PATH = REPO_ROOT / "src/vision/mavi_vision/common/settings.py"
 UNITS = ("B1", "B2", "B3", "B4", "B5", "B6", "DISCONNECTED")
 QUALIFIED_CPU_VARIANTS = ("linux-x86_64-cpu", "windows-x86_64-cpu")
 TIMING_UNITS = frozenset({"ms"})
@@ -128,6 +132,18 @@ class UnitRequirement:
 
 KIB = 1024
 MIB = 1024 * 1024
+MAXIMUM_COMPLETION_TRACKS = 10_000
+# §7.4 worst case: a trajectory plus four crops per Track.
+WORST_CASE_SEALED_OBJECTS = MAXIMUM_COMPLETION_TRACKS * 5
+
+
+def worker_request_timeout_bounds_ms() -> tuple[float, float]:
+    """(default, maximum) of ``WorkerSettings.request_timeout_seconds``, in ms."""
+    text = WORKER_SETTINGS_PATH.read_text(encoding="utf-8")
+    match = re.search(r"request_timeout_seconds: float = Field\(default=([0-9.]+), ge=[0-9.]+, le=([0-9.]+)\)", text)
+    if match is None:
+        raise RuntimeError("worker_request_timeout_setting_not_found")
+    return float(match.group(1)) * 1000.0, float(match.group(2)) * 1000.0
 
 # Suites whose result depends on the Python runtime variant. They are required
 # on every variant a unit names. Platform (.NET) and web suites run once, in the
@@ -420,9 +436,9 @@ class _Checker:
                 self.fail(name, "suite_missing", f"cites suite result {suite_id!r}, which is not recorded")
                 continue
             cited.append(entry)
+        for suite_id, entry in ((suite_id, suites[suite_id]) for suite_id in unit["suites"] if suite_id in suites):
             self._run(name, entry["run"], measured_sha, f"suite {suite_id}")
-            if entry["junitArtifact"] not in self.record["retainedArtifacts"]:
-                self.fail(name, "junit_not_retained", f"suite {suite_id} JUnit {entry['junitArtifact']!r} is not a retained artifact")
+            self._junit(name, suite_id, entry, measured_sha)
             if entry["failed"] or entry["errors"]:
                 self.fail(name, "suite_failed", f"suite {suite_id}: {entry['failed']} failed, {entry['errors']} errors")
             if entry["passed"] == 0:
@@ -430,7 +446,7 @@ class _Checker:
             if entry["skipped"] != len(entry["skippedTests"]) or entry["passed"] != len(entry["passedTests"]):
                 self.fail(name, "count_inconsistent", f"suite {suite_id}: counts do not match the named passed/skipped tests")
             for test in entry["skippedTests"]:
-                if not self._skip_is_paired(test, entry["variant"]):
+                if not self._skip_is_paired(test, entry["variant"], cited, measured_sha):
                     self.fail(name, "skip_not_permitted", f"suite {suite_id} skipped {test} on {entry['variant']} without a paired-variant counterpart")
         for suite in required.suites:
             for variant in required_variants(required, suite):
@@ -441,20 +457,48 @@ class _Checker:
                     where = f" on {variant}" if variant else ""
                     self.fail(name, "variant_result_missing", f"required suite {suite}{where} has no cited result")
 
-    def _skip_is_paired(self, test: str, variant: str) -> bool:
+    def _junit(self, name: str, suite_id: str, entry: dict[str, Any], measured_sha: str) -> None:
+        """The suite's counts must be the retained XML's, not hand-written ones."""
+        artifact = self.record["retainedArtifacts"].get(entry["junitArtifact"])
+        if artifact is None:
+            self.fail(name, "junit_not_retained", f"suite {suite_id} JUnit {entry['junitArtifact']!r} is not a retained artifact")
+            return
+        if artifact["run"] != entry["run"]:
+            self.fail(name, "junit_run_mismatch", f"suite {suite_id}: JUnit was retained from run {artifact['run']}, the result cites {entry['run']}")
+        path = self._verify_file(name, entry["junitArtifact"], artifact)
+        if path is None:
+            return
+        try:
+            counts = suite_counts_from_junit(path, entry.get("junitFilter"))
+        except (ValueError, ElementTree.ParseError) as exc:
+            self.fail(name, "junit_unreadable", f"suite {suite_id}: {exc}")
+            return
+        for key in ("passed", "skipped", "failed", "errors"):
+            if counts[key] != entry[key]:
+                self.fail(name, "junit_count_mismatch", f"suite {suite_id}: {key} {entry[key]} != {counts[key]} in the retained XML")
+        for key in ("passedTests", "skippedTests"):
+            if sorted(counts[key]) != sorted(entry[key]):
+                self.fail(name, "junit_count_mismatch", f"suite {suite_id}: {key} differ from the retained XML")
+
+    def _skip_is_paired(self, test: str, variant: str, cited: list[dict[str, Any]], measured_sha: str) -> bool:
         """A skip is permitted only with *positive* evidence: the named
         counterpart test is among the passed tests of a clean result for the
-        counterpart suite on the other variant."""
+        counterpart suite on the other variant. That result is cited by the same
+        unit and comes from a successful run on the unit's measured SHA."""
         for pair in self.record["pairedVariantSkips"]:
             if pair["test"] != test or pair["skipsOn"] != variant or pair["counterpartVariant"] == variant:
                 continue
-            for entry in self.record["suites"].values():
+            for entry in cited:
+                run = self.record["runs"].get(entry["run"])
                 if (
                     entry["suite"] == pair["counterpartSuite"]
                     and entry["variant"] == pair["counterpartVariant"]
                     and not entry["failed"]
                     and not entry["errors"]
                     and pair["counterpartTest"] in entry["passedTests"]
+                    and run is not None
+                    and run["headSha"] == measured_sha
+                    and run["conclusion"] == "success"
                 ):
                     return True
         return False
@@ -515,9 +559,52 @@ class _Checker:
         wall = by_metric.get("b3.real-store-completion-wall-ms")
         if timeout is None or wall is None or wall.get("stats") is None:
             return
+        # The timeout is not free input: the worker default, or a non-default
+        # value bound to a retained copy of the qualified install's configuration.
+        default_ms, maximum_ms = worker_request_timeout_bounds_ms()
+        if not 0 < timeout["value"] <= maximum_ms:
+            self.fail("B3", "worker_timeout_out_of_range", f"worker timeout {timeout['value']} ms is outside (0, {maximum_ms}] ms")
+        if timeout["value"] != default_ms:
+            artifact = timeout.get("artifact")
+            if artifact is None or artifact not in self.record["retainedArtifacts"]:
+                self.fail("B3", "worker_timeout_unbound", f"worker timeout {timeout['value']} ms is not the {default_ms} ms default and cites no retained install configuration")
+            else:
+                self._verify_file("B3", artifact, self.record["retainedArtifacts"][artifact])
         # §7.4: headroom below 2× against the worker request timeout is blocking.
         if wall["stats"]["max"] * 2 > timeout["value"]:
             self.fail("B3", "completion_headroom_insufficient", f"max completion {wall['stats']['max']} ms × 2 > worker timeout {timeout['value']} ms")
+        self._sealing_output(wall, timeout)
+
+    def _sealing_output(self, wall: dict[str, Any], timeout: dict[str, Any]) -> None:
+        """The wall time must be the sealing harness's authoritative output."""
+        artifact_id = wall.get("artifact")
+        if artifact_id != "b3.sealing-scale-output":
+            self.fail("B3", "sealing_output_unbound", "b3.real-store-completion-wall-ms must cite the b3.sealing-scale-output artifact")
+            return
+        artifact = self.record["retainedArtifacts"].get(artifact_id)
+        path = None if artifact is None else self._verify_file("B3", artifact_id, artifact)
+        if path is None:
+            return
+        try:
+            output = json.loads(path.read_text(encoding="utf-8"))
+            shape = output["shape"]
+            problems = [
+                label
+                for label, holds in (
+                    ("status is not complete", output["status"] == "complete"),
+                    ("the run was not authoritative", output["authoritative"] is True),
+                    (f"tracks {shape['tracks']} != {MAXIMUM_COMPLETION_TRACKS}", shape["tracks"] == MAXIMUM_COMPLETION_TRACKS),
+                    (f"sealed objects {shape['sealedObjects']} != {WORST_CASE_SEALED_OBJECTS}", shape["sealedObjects"] == WORST_CASE_SEALED_OBJECTS),
+                    ("its worker timeout differs from the recorded one", output["workerRequestTimeoutMs"] == timeout["value"]),
+                    ("its maximum differs from the recorded one", output["completion"]["max"] == wall["stats"]["max"]),
+                    ("its sample count differs from the recorded one", output["completion"]["n"] == wall.get("samples")),
+                )
+                if not holds
+            ]
+        except (KeyError, TypeError, ValueError) as exc:
+            problems = [f"unreadable ({exc})"]
+        for problem in problems:
+            self.fail("B3", "sealing_output_mismatch", f"sealing output: {problem}")
 
     def _artifacts(self, name: str, unit: dict[str, Any], required: UnitRequirement, measured_sha: str) -> None:
         artifacts = self.record["retainedArtifacts"]
@@ -532,15 +619,23 @@ class _Checker:
             if required_id not in unit["artifacts"]:
                 self.fail(name, "artifact_missing", f"required artifact {required_id} is not cited")
 
-    def _verify_file(self, name: str, artifact_id: str, entry: dict[str, Any]) -> None:
+    def _verify_file(self, name: str, artifact_id: str, entry: dict[str, Any]) -> Path | None:
+        """The retained file, hash-verified; ``None`` when it cannot be trusted.
+
+        Without a repository root nothing can be verified. Unless the caller
+        asked for a structural-only check, that is itself a finding, recorded
+        once in ``check_record``.
+        """
         if self.repo_root is None:
-            return
+            return None
         path = (self.repo_root / entry["path"]).resolve()
         if not path.is_relative_to(self.repo_root.resolve()) or not path.is_file():
             self.fail(name, "artifact_file_missing", f"{artifact_id}: {entry['path']} is not a retained file")
-            return
+            return None
         if sha256_file(path) != entry["sha256"]:
             self.fail(name, "artifact_hash_mismatch", f"{artifact_id}: {entry['path']} does not match its sha256")
+            return None
+        return path
 
     def _disconnected(self, measured_sha: str) -> None:
         record = self.record.get("disconnected")
@@ -592,19 +687,36 @@ class _Checker:
             self.fail("record", "closure_diff_mismatch", "recorded changedPaths differ from git diff --name-only measured..merge")
 
 
-def check_record(record: dict[str, Any], *, repo_root: Path | None = None, verify_git: bool = False) -> list[Finding]:
+def check_record(
+    record: dict[str, Any],
+    *,
+    repo_root: Path | None = None,
+    verify_git: bool | None = None,
+    structural_only: bool = False,
+) -> list[Finding]:
+    """Findings that refuse the record's PASS verdicts and closure.
+
+    A PASS or a closure is accepted only against a repository: retained files
+    and JUnit XML are hash-verified and re-counted, and the §2.3 diff is
+    recomputed with git. ``structural_only`` skips that and is for tests of the
+    rules themselves; a record checked that way is never evidence.
+    """
     checker = _Checker(record, repo_root)
     if not checker.schema():
         return sorted(checker.findings)
+    if repo_root is None and not structural_only:
+        claims = [name for name in UNITS if record["units"][name]["verdict"] == "PASS"]
+        if claims or record["closure"] is not None or record.get("s1Closed") is True:
+            checker.fail("record", "repository_not_verified", "a PASS or closure needs --repo-root to verify retained files, JUnit counts and the git diff")
     for name in UNITS:
         checker.unit(name)
     checker.closure()
-    if verify_git:
+    if verify_git if verify_git is not None else repo_root is not None:
         checker.verify_git_diff()
     return sorted(set(checker.findings))
 
 
-def open_requirements(record: dict[str, Any]) -> dict[str, list[str]]:
+def open_requirements(record: dict[str, Any], repo_root: Path | None = None) -> dict[str, list[str]]:
     """For an OPEN unit: what a PASS would still need. Informational only."""
     result: dict[str, list[str]] = {}
     for name in UNITS:
@@ -613,7 +725,7 @@ def open_requirements(record: dict[str, Any]) -> dict[str, list[str]]:
         trial = json.loads(json.dumps(record))
         trial["units"][name]["verdict"] = "PASS"
         trial["s1Closed"] = False
-        missing = [f.code + ": " + f.detail for f in check_record(trial) if f.unit == name]
+        missing = [f.code + ": " + f.detail for f in check_record(trial, repo_root=repo_root, structural_only=repo_root is None) if f.unit == name]
         result[name] = missing
     return result
 
@@ -623,7 +735,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser("check", help="validate an evidence record; exit 1 on any finding")
     check.add_argument("record", type=Path)
-    check.add_argument("--repo-root", type=Path, default=None, help="verify retained files and the §2.3 git diff against this checkout")
+    check.add_argument("--repo-root", type=Path, default=REPO_ROOT, help="the checkout that holds the retained files (default: this repository)")
     junit = sub.add_parser("junit", help="derive a suite entry's counts from JUnit XML")
     junit.add_argument("xml", type=Path)
     junit.add_argument("--suite", default=None)
@@ -634,13 +746,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     record = json.loads(args.record.read_text(encoding="utf-8"))
-    findings = check_record(record, repo_root=args.repo_root, verify_git=args.repo_root is not None)
+    findings = check_record(record, repo_root=args.repo_root, verify_git=True)
     for finding in findings:
         print(finding)
     if not findings:
         verdicts = {name: record["units"][name]["verdict"] for name in UNITS}
         print("s1-evidence-record-valid", json.dumps(verdicts, sort_keys=True))
-        for name, missing in open_requirements(record).items():
+        for name, missing in open_requirements(record, args.repo_root).items():
             print(f"{name} OPEN; a PASS still needs {len(missing)} item(s)")
     return 1 if findings else 0
 

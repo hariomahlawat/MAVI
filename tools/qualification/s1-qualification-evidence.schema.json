@@ -262,6 +262,13 @@
               "$ref": "#/$defs/text"
             },
             "uniqueItems": true
+          },
+          "junitFilter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Restricts the JUnit XML to this suite's test cases (substring of file or classname); null uses every test case in the file."
           }
         }
       }

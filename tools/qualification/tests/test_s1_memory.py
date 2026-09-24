@@ -284,6 +284,8 @@ def test_the_cli_writes_identified_machine_readable_output(tmp_path: Path, monke
 # --------------------------------------------------------------------------- derive
 def _synthetic_outputs() -> dict[str, dict]:
     identity = {"sourceSha": "a" * 40, "cleanTree": True}
+    runtime = {"platform": "linux", "runtimeVariant": "linux-x86_64-cpu", "versions": {"python": "3.12.14"}}
+    host = {"cpuModel": "reference", "logicalCores": 8}
     outputs = {}
     for name, preset in s1_memory.PRESETS.items():
         slope = {"b2-retained-long": 2_100.0, "b2-retained-large-crops": 1_900.0, "b2-process-memory": 3_000.0}.get(name, 2_000.0)
@@ -291,6 +293,8 @@ def _synthetic_outputs() -> dict[str, dict]:
         outputs[name] = {
             "schema": s1_memory.OUTPUT_SCHEMA,
             "identity": identity,
+            "runtime": runtime,
+            "host": host,
             "workload": dataclasses.asdict(preset),
             "results": {
                 "retirements": preset.retirements,
@@ -332,6 +336,11 @@ def test_derive_metric_names_are_the_ones_the_checker_binds() -> None:
         (lambda o: o["b2-retained-long"]["workload"].update(tracker="fixture"), "derive_output_not_bytetrack"),
         (lambda o: o["b2-process-memory"]["results"].update(retirements=4_999), "derive_output_short"),
         (lambda o: o["b2-retained-long"].update(identity={"sourceSha": "b" * 40, "cleanTree": True}), "derive_outputs_mixed_identity"),
+        (lambda o: [output.update(identity={"sourceSha": "a" * 40, "cleanTree": False}) for output in o.values()], "derive_output_not_clean_source"),
+        (lambda o: [output.update(identity={"sourceSha": None, "cleanTree": True}) for output in o.values()], "derive_output_not_clean_source"),
+        (lambda o: o["b2-live-4"].update(runtime={"platform": "win32"}), "derive_outputs_mixed_runtime"),
+        (lambda o: o["b2-live-4"].update(host={"cpuModel": "other"}), "derive_outputs_mixed_host"),
+        (lambda o: o["b2-live-4"].pop("host"), "derive_output_identity_incomplete"),
         (lambda o: o["b2-retained-long"].update(schema="other"), "derive_output_schema_invalid"),
         (lambda o: o["b2-retained-long"]["workload"].update(name="b2-retained-baseline"), "derive_output_preset_mismatch"),
     ],

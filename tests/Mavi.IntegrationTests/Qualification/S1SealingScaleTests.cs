@@ -76,7 +76,12 @@ public sealed class S1SealingScaleTests
         var samples = Setting("MAVI_S1_SEALING_SAMPLES", 30);
         var repeats = Setting("MAVI_S1_SEALING_REPEATS", 3);
         var warmup = Setting("MAVI_S1_SEALING_WARMUP", 1);
-        var timeoutSeconds = Setting("MAVI_S1_WORKER_REQUEST_TIMEOUT_SECONDS", 30);
+        // The worker's own setting (WorkerSettings, env prefix MAVI_), not a
+        // harness knob: the value the qualified install's worker would use.
+        var configuredTimeout = Environment.GetEnvironmentVariable("MAVI_REQUEST_TIMEOUT_SECONDS");
+        var timeoutSeconds = string.IsNullOrWhiteSpace(configuredTimeout)
+            ? DefaultWorkerRequestTimeoutSeconds
+            : double.Parse(configuredTimeout, NumberStyles.Float, CultureInfo.InvariantCulture);
         var evidenceRoot = Environment.GetEnvironmentVariable("MAVI_S1_SEALING_EVIDENCE_ROOT");
         Assert.False(string.IsNullOrWhiteSpace(evidenceRoot), "MAVI_S1_SEALING_EVIDENCE_ROOT must name a directory on the filesystem being qualified.");
         Directory.CreateDirectory(evidenceRoot!);
@@ -108,16 +113,22 @@ public sealed class S1SealingScaleTests
             runs.Add(new { repeat, completionMs = completion, replayMs = replay, completion = Stats(completion), replay = Stats(replay) });
         }
 
+        // Any reduced envelope or unqualified environment still produces output,
+        // but never authoritative output; the evidence checker requires it.
+        var nonAuthoritative = NonAuthoritativeReasons(tracks, samples, repeats, warmup, configuredTimeout, environment);
         var path = QualificationGate.Write(EvidenceFile, new
         {
             schema = "s1-b3-sealing-scale-v1",
             status = "complete",
+            authoritative = nonAuthoritative.Count == 0,
+            nonAuthoritativeReasons = nonAuthoritative,
+            workerRequestTimeoutSource = configuredTimeout is null ? "WorkerSettings default" : "MAVI_REQUEST_TIMEOUT_SECONDS",
             runId,
             environment,
             evidenceRoot,
             evidenceFilesystem = FilesystemOf(evidenceRoot!),
             shape,
-            workerRequestTimeoutMs = timeoutSeconds * 1000,
+            workerRequestTimeoutMs = timeoutSeconds * 1000.0,
             samples,
             repeats,
             warmupExcluded = warmup,
@@ -126,6 +137,31 @@ public sealed class S1SealingScaleTests
             runs,
         });
         Console.WriteLine($"S1 B3 sealing scale evidence: {path}");
+    }
+
+    /// <summary>The worker's <c>request_timeout_seconds</c> default (<c>mavi_vision/common/settings.py</c>).</summary>
+    internal const double DefaultWorkerRequestTimeoutSeconds = 30.0;
+
+    /// <summary>Why a run cannot be B3 evidence; empty only for the plan's full envelope.</summary>
+    internal static List<string> NonAuthoritativeReasons(
+        int tracks, int samples, int repeats, int warmup, string? configuredTimeout, IReadOnlyDictionary<string, string> environment)
+    {
+        var reasons = new List<string>();
+        if (tracks != WorkerContractRules.MaximumCompletionTracks)
+            reasons.Add($"tracks {tracks} != the {WorkerContractRules.MaximumCompletionTracks} contract maximum");
+        if (samples < 30) reasons.Add($"samples {samples} < 30");
+        if (repeats < 3) reasons.Add($"repeats {repeats} < 3");
+        if (warmup < 1) reasons.Add("no warm-up sample excluded");
+        if (configuredTimeout is not null)
+            reasons.Add("MAVI_REQUEST_TIMEOUT_SECONDS overrides the worker default; bind the install configuration in the record instead");
+        if (!QualificationGate.IsQualificationGrade(environment)) reasons.Add("not a qualification-grade PostgreSQL");
+        foreach (var key in new[] { QualificationGate.GitWorkingTreeCleanKey, QualificationGate.GitCommitObjectPresentKey })
+        {
+            if (!environment.TryGetValue(key, out var value) || value != "true")
+                reasons.Add($"{key} is not true");
+        }
+
+        return reasons;
     }
 
     private sealed record Sample(double CompletionMs, double ReplayMs, object Shape);
@@ -256,6 +292,28 @@ public sealed class S1SealingScaleTests
             .Where(x => full.StartsWith(x.RootDirectory.FullName, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             .MaxBy(x => x.RootDirectory.FullName.Length);
         return drive is null ? "unknown" : $"{drive.DriveFormat} at {drive.RootDirectory.FullName}";
+    }
+
+    [Fact]
+    public void OnlyTheFullEnvelopeInAQualifiedEnvironmentIsAuthoritative()
+    {
+        var qualified = new Dictionary<string, string>
+        {
+            [QualificationGate.QualificationGradeKey] = "true",
+            [QualificationGate.GitWorkingTreeCleanKey] = "true",
+            [QualificationGate.GitCommitObjectPresentKey] = "true",
+        };
+        Assert.Empty(NonAuthoritativeReasons(WorkerContractRules.MaximumCompletionTracks, 30, 3, 1, null, qualified));
+        Assert.NotEmpty(NonAuthoritativeReasons(200, 30, 3, 1, null, qualified));
+        Assert.NotEmpty(NonAuthoritativeReasons(WorkerContractRules.MaximumCompletionTracks, 29, 3, 1, null, qualified));
+        Assert.NotEmpty(NonAuthoritativeReasons(WorkerContractRules.MaximumCompletionTracks, 30, 2, 1, null, qualified));
+        Assert.NotEmpty(NonAuthoritativeReasons(WorkerContractRules.MaximumCompletionTracks, 30, 3, 0, null, qualified));
+        Assert.NotEmpty(NonAuthoritativeReasons(WorkerContractRules.MaximumCompletionTracks, 30, 3, 1, "120", qualified));
+        foreach (var key in qualified.Keys)
+        {
+            var degraded = new Dictionary<string, string>(qualified) { [key] = "false" };
+            Assert.NotEmpty(NonAuthoritativeReasons(WorkerContractRules.MaximumCompletionTracks, 30, 3, 1, null, degraded));
+        }
     }
 
     [Theory]

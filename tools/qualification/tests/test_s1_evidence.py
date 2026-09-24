@@ -103,6 +103,8 @@ def complete_record() -> dict:
             entry = {"metric": requirement.metric, "value": _value_for(requirement), "unit": requirement.unit, "host": "runner-linux", "run": "host"}
             if requirement.timing:
                 entry.update(samples=30, repeats=3, warmupExcluded=True, stats={"min": 10.0, "p50": 20.0, "p95": 30.0, "max": 40.0, "p50RunSpread": 1.0})
+            if requirement.metric == "b3.real-store-completion-wall-ms":
+                entry["artifact"] = "b3.sealing-scale-output"
             if requirement.metric == "b3.worker-request-timeout-ms":
                 entry["value"] = 30000.0
             record["measurements"][measurement_id] = entry
@@ -115,20 +117,61 @@ def complete_record() -> dict:
 
 
 def codes(record: dict, **options) -> set[tuple[str, str]]:
+    # Rule tests are structural unless they supply a repository to verify against.
+    options.setdefault("structural_only", "repo_root" not in options)
     return {(finding.unit, finding.code) for finding in check_record(record, **options)}
+
+
+def structural(record: dict) -> list:
+    return check_record(record, structural_only=True)
+
+
+def _junit_for(entry: dict) -> str:
+    cases = [f'<testcase classname="{t.split("::")[0]}" name="{t.split("::", 1)[1]}"/>' for t in entry["passedTests"]]
+    cases += [f'<testcase classname="{t.split("::")[0]}" name="{t.split("::", 1)[1]}"><skipped/></testcase>' for t in entry["skippedTests"]]
+    return '<?xml version="1.0"?><testsuites><testsuite>' + "".join(cases) + "</testsuite></testsuites>"
+
+
+def _sealing_output(record: dict) -> str:
+    wall = next(m for m in record["measurements"].values() if m["metric"] == "b3.real-store-completion-wall-ms")
+    timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
+    return json.dumps({
+        "status": "complete", "authoritative": True,
+        "shape": {"tracks": 10_000, "sealedObjects": 50_000},
+        "workerRequestTimeoutMs": timeout["value"],
+        "completion": {"n": wall["samples"], "max": wall["stats"]["max"]},
+    })
+
+
+def materialize(record: dict, root: Path) -> dict:
+    """Write every retained artifact under ``root`` with real content and hashes:
+    JUnit XML matching each suite result, and a matching sealing output."""
+    by_junit = {entry["junitArtifact"]: entry for entry in record["suites"].values()}
+    for artifact_id, entry in record["retainedArtifacts"].items():
+        if artifact_id in by_junit:
+            content = _junit_for(by_junit[artifact_id])
+        elif artifact_id == "b3.sealing-scale-output":
+            content = _sealing_output(record)
+        else:
+            content = artifact_id
+        path = root / entry["path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        entry["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    return record
 
 
 # --------------------------------------------------------------------------- positive
 
 
 def test_a_complete_record_passes_with_no_finding() -> None:
-    assert check_record(complete_record()) == []
+    assert structural(complete_record()) == []
 
 
 def test_open_units_may_be_incomplete_and_are_not_errors() -> None:
     record = complete_record()
     record["units"]["B2"] = {"verdict": "OPEN", "suites": [], "measurements": [], "artifacts": [], "nonClaims": []}
-    assert check_record(record) == []
+    assert structural(record) == []
     # ... and the checker still reports what a PASS would need.
     missing = s1_evidence.open_requirements(record)["B2"]
     assert any("measurement_missing" in line for line in missing)
@@ -243,7 +286,7 @@ def _paired_record(counterpart_passed: bool) -> dict:
 
 
 def test_a_paired_variant_skip_passes_only_with_its_counterpart_positively_passing() -> None:
-    assert check_record(_paired_record(counterpart_passed=True)) == []
+    assert structural(_paired_record(counterpart_passed=True)) == []
     assert ("B2", "skip_not_permitted") in codes(_paired_record(counterpart_passed=False))
 
 
@@ -322,7 +365,7 @@ def test_a_declared_limit_is_also_enforced() -> None:
 def test_a_recorded_only_metric_has_no_threshold() -> None:
     record = complete_record()
     record["measurements"]["B2:b2.completion-peak-bytes"]["value"] = 10**12
-    assert check_record(record) == []
+    assert structural(record) == []
 
 
 @pytest.mark.parametrize(
@@ -375,17 +418,12 @@ def test_an_artifact_without_a_hash_is_refused() -> None:
 
 
 def test_retained_files_are_verified_against_their_hash(tmp_path: Path) -> None:
-    record = complete_record()
-    for entry in record["retainedArtifacts"].values():
-        path = tmp_path / entry["path"]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"retained")
-        entry["sha256"] = hashlib.sha256(b"retained").hexdigest()
-    assert check_record(record, repo_root=tmp_path) == []
+    record = materialize(complete_record(), tmp_path)
+    assert check_record(record, repo_root=tmp_path, verify_git=False) == []
     (tmp_path / record["retainedArtifacts"]["b1.real-clip-measurement"]["path"]).write_bytes(b"edited")
-    assert ("B1", "artifact_hash_mismatch") in codes(record, repo_root=tmp_path)
+    assert ("B1", "artifact_hash_mismatch") in codes(record, repo_root=tmp_path, verify_git=False)
     (tmp_path / record["retainedArtifacts"]["b1.real-clip-measurement"]["path"]).unlink()
-    assert ("B1", "artifact_file_missing") in codes(record, repo_root=tmp_path)
+    assert ("B1", "artifact_file_missing") in codes(record, repo_root=tmp_path, verify_git=False)
 
 
 def test_an_artifact_path_cannot_escape_the_repository(tmp_path: Path) -> None:
@@ -397,7 +435,7 @@ def test_an_artifact_path_cannot_escape_the_repository(tmp_path: Path) -> None:
         entry["sha256"] = hashlib.sha256(b"x").hexdigest()
     (tmp_path / "outside.json").write_bytes(b"x")
     record["retainedArtifacts"]["b1.real-clip-measurement"]["path"] = "../outside.json"
-    assert ("B1", "artifact_file_missing") in codes(record, repo_root=tmp_path / "repo")
+    assert ("B1", "artifact_file_missing") in codes(record, repo_root=tmp_path / "repo", verify_git=False)
 
 
 # --------------------------------------------------------------------------- disconnected
@@ -479,7 +517,7 @@ def test_a_closure_diff_on_the_surface_requires_the_affected_units_rerun() -> No
 def test_a_closure_diff_touching_nothing_behavior_bearing_is_clean() -> None:
     record = complete_record()
     record["closure"] = {"mergeSha": MERGE, "changedPaths": ["docs/qualification/stage2-s1/s1-qualification-summary.md"]}
-    assert check_record(record) == []
+    assert structural(record) == []
 
 
 def test_units_rerun_on_the_merge_sha_satisfy_the_closure_rule() -> None:
@@ -491,12 +529,13 @@ def test_units_rerun_on_the_merge_sha_satisfy_the_closure_rule() -> None:
         record["units"][name]["measuredSha"] = MERGE
     for suite_id in record["units"]["B5"]["suites"]:
         record["suites"][suite_id]["run"] = "rerun"
+        record["retainedArtifacts"][record["suites"][suite_id]["junitArtifact"]]["run"] = "rerun"
     for artifact in record["units"]["B5"]["artifacts"] + record["units"]["DISCONNECTED"]["artifacts"]:
         record["retainedArtifacts"][artifact]["run"] = "rerun-host"
     for measurement_id in record["units"]["B5"]["measurements"]:
         record["measurements"][measurement_id]["run"] = "rerun-host"
     record["disconnected"]["runtimeBundleSourceCommit"] = MERGE
-    assert check_record(record) == []
+    assert structural(record) == []
 
 
 def test_s1_closed_needs_every_unit_pass_and_a_closure() -> None:
@@ -504,7 +543,7 @@ def test_s1_closed_needs_every_unit_pass_and_a_closure() -> None:
     record["s1Closed"] = True
     assert ("record", "closure_missing") in codes(record)
     record["closure"] = {"mergeSha": MERGE, "changedPaths": []}
-    assert check_record(record) == []
+    assert structural(record) == []
     record["units"]["B6"]["verdict"] = "OPEN"
     assert ("record", "closure_units_open") in codes(record)
 
@@ -580,14 +619,22 @@ def test_junit_counts_come_from_the_test_cases(tmp_path: Path) -> None:
 
 
 def test_the_cli_exits_nonzero_on_a_finding(tmp_path: Path, capsys) -> None:
+    # A closure-free record needs no git history, only the retained files.
+    root = tmp_path / "repo"
     good = tmp_path / "good.json"
-    good.write_text(json.dumps(complete_record()))
-    assert s1_evidence.main(["check", str(good)]) == 0
-    bad_record = complete_record()
+    good.write_text(json.dumps(materialize(complete_record(), root)))
+    assert s1_evidence.main(["check", str(good), "--repo-root", str(root)]) == 0
+    # Without --repo-root the default is this repository, where the files do not
+    # exist: it is verified (and refused), not skipped.
+    capsys.readouterr()
+    assert s1_evidence.main(["check", str(good)]) == 1
+    output = capsys.readouterr().out
+    assert "artifact_file_missing" in output and "repository_not_verified" not in output
+    bad_record = materialize(complete_record(), root)
     bad_record["runs"]["task10"]["headSha"] = OTHER
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps(bad_record))
-    assert s1_evidence.main(["check", str(bad)]) == 1
+    assert s1_evidence.main(["check", str(bad), "--repo-root", str(root)]) == 1
     assert "head_sha_mismatch" in capsys.readouterr().out
 
 
@@ -610,5 +657,137 @@ def test_a_worker_suite_missing_on_one_variant_blocks_its_unit() -> None:
     suite_id = "B3:src/vision/tests/test_s1_bound_agreement.py:windows-x86_64-cpu"
     del record["suites"][suite_id]
     record["units"]["B3"]["suites"].remove(suite_id)
-    failures = check_record(record)
+    failures = structural(record)
     assert ("B3", "variant_result_missing") in {(f.unit, f.code) for f in failures}
+
+
+# --------------------------------------------------------------------------- review round 1
+
+
+def test_a_pass_is_refused_without_repository_verification() -> None:
+    assert ("record", "repository_not_verified") in {(f.unit, f.code) for f in check_record(complete_record())}
+    record = complete_record()
+    for unit in record["units"].values():
+        unit["verdict"] = "OPEN"
+    assert check_record(record) == []  # nothing claimed, nothing to verify
+
+
+def test_a_fully_verified_record_passes(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    assert check_record(record, repo_root=tmp_path, verify_git=False) == []
+
+
+def test_suite_counts_must_be_the_retained_junit_counts(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    suite_id = next(iter(record["units"]["B1"]["suites"]))
+    entry = record["suites"][suite_id]
+    entry.update(passed=2, passedTests=[*entry["passedTests"], "invented::test_never_run"])
+    assert ("B1", "junit_count_mismatch") in codes(record, repo_root=tmp_path, verify_git=False)
+
+
+def test_a_tampered_or_missing_junit_file_is_refused(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    suite_id = next(iter(record["units"]["B1"]["suites"]))
+    junit = record["retainedArtifacts"][record["suites"][suite_id]["junitArtifact"]]
+    (tmp_path / junit["path"]).write_text("<testsuites/>", encoding="utf-8")
+    assert ("B1", "artifact_hash_mismatch") in codes(record, repo_root=tmp_path, verify_git=False)
+    (tmp_path / junit["path"]).unlink()
+    assert ("B1", "artifact_file_missing") in codes(record, repo_root=tmp_path, verify_git=False)
+
+
+def test_junit_must_come_from_the_run_the_result_cites() -> None:
+    record = complete_record()
+    suite_id = next(iter(record["units"]["B1"]["suites"]))
+    record["retainedArtifacts"][record["suites"][suite_id]["junitArtifact"]]["run"] = "quality"
+    assert ("B1", "junit_run_mismatch") in codes(record)
+
+
+def test_a_paired_counterpart_must_be_cited_by_the_same_unit() -> None:
+    record = _paired_record(counterpart_passed=True)
+    linux = next(sid for sid in record["units"]["B2"]["suites"] if "test_track_lifecycle.py:linux" in sid)
+    record["units"]["B2"]["suites"].remove(linux)
+    record["suites"]["stale-counterpart"] = dict(record["suites"][linux])
+    assert ("B2", "skip_not_permitted") in codes(record)
+
+
+def test_a_paired_counterpart_from_a_stale_run_does_not_excuse_a_skip() -> None:
+    record = _paired_record(counterpart_passed=True)
+    linux = next(sid for sid in record["units"]["B2"]["suites"] if "test_track_lifecycle.py:linux" in sid)
+    record["runs"]["stale"] = {**record["runs"]["task10"], "headSha": OTHER, "runId": 99}
+    record["suites"][linux]["run"] = "stale"
+    assert ("B2", "skip_not_permitted") in codes(record)
+
+
+def test_the_worker_timeout_is_bound_to_the_worker_default() -> None:
+    default_ms, maximum_ms = s1_evidence.worker_request_timeout_bounds_ms()
+    assert (default_ms, maximum_ms) == (30_000.0, 120_000.0)
+    record = complete_record()
+    timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
+    timeout["value"] = 90_000.0
+    assert ("B3", "worker_timeout_unbound") in codes(record)
+    timeout["value"] = 600_000.0
+    assert ("B3", "worker_timeout_out_of_range") in codes(record)
+
+
+def test_a_non_default_timeout_is_accepted_only_with_a_retained_install_configuration(tmp_path: Path) -> None:
+    record = complete_record()
+    timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
+    timeout.update(value=60_000.0, artifact="b3.worker-configuration")
+    record["retainedArtifacts"]["b3.worker-configuration"] = {"path": "records/worker.env", "sha256": "e" * 64, "run": "host"}
+    record = materialize(record, tmp_path)
+    assert check_record(record, repo_root=tmp_path, verify_git=False) == []
+
+
+@pytest.mark.parametrize(
+    ("mutate", "detail"),
+    [
+        (lambda o: o.update(status="smoke"), "status"),
+        (lambda o: o.update(authoritative=False), "authoritative"),
+        (lambda o: o["shape"].update(tracks=200), "tracks"),
+        (lambda o: o["shape"].update(sealedObjects=1_000), "sealed objects"),
+        (lambda o: o.update(workerRequestTimeoutMs=120_000), "worker timeout"),
+        (lambda o: o["completion"].update(max=1.0), "maximum"),
+        (lambda o: o["completion"].update(n=1), "sample count"),
+    ],
+)
+def test_the_b3_wall_time_must_be_the_authoritative_sealing_output(tmp_path: Path, mutate, detail: str) -> None:
+    record = materialize(complete_record(), tmp_path)
+    entry = record["retainedArtifacts"]["b3.sealing-scale-output"]
+    output = json.loads((tmp_path / entry["path"]).read_text(encoding="utf-8"))
+    mutate(output)
+    content = json.dumps(output)
+    (tmp_path / entry["path"]).write_text(content, encoding="utf-8")
+    entry["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "sealing_output_mismatch"]
+    assert findings and any(detail in f.detail for f in findings)
+
+
+def test_the_b3_wall_time_must_cite_the_sealing_output() -> None:
+    record = complete_record()
+    wall = next(m for m in record["measurements"].values() if m["metric"] == "b3.real-store-completion-wall-ms")
+    del wall["artifact"]
+    assert ("B3", "sealing_output_unbound") in codes(record)
+
+
+def _rewrite_junit(record: dict, root: Path, suite_id: str, xml: str) -> None:
+    artifact = record["retainedArtifacts"][record["suites"][suite_id]["junitArtifact"]]
+    (root / artifact["path"]).write_text(xml, encoding="utf-8")
+    artifact["sha256"] = hashlib.sha256(xml.encode("utf-8")).hexdigest()
+
+
+def test_junit_counts_are_compared_even_when_the_named_tests_agree(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    suite_id = next(iter(record["units"]["B1"]["suites"]))
+    xml = _junit_for(record["suites"][suite_id]).replace("</testsuite>", '<testcase classname="x" name="y"><error/></testcase></testsuite>')
+    _rewrite_junit(record, tmp_path, suite_id, xml)
+    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "junit_count_mismatch"]
+    assert findings and all("errors" in f.detail for f in findings)
+
+
+def test_junit_test_names_are_compared_even_when_the_counts_agree(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    suite_id = next(iter(record["units"]["B1"]["suites"]))
+    xml = _junit_for(record["suites"][suite_id]).replace('name="test_ok"', 'name="test_other"')
+    _rewrite_junit(record, tmp_path, suite_id, xml)
+    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "junit_count_mismatch"]
+    assert findings and all("passedTests" in f.detail for f in findings)
