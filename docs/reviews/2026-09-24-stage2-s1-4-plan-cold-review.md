@@ -258,13 +258,13 @@ Its coverage table marked every B-item "Complete" after reviewing the prose only
 3. The existing body budgets are kept: Python ≤ 40 MiB; .NET ≤ 32 MiB.
 4. Both outcomes of an unconfirmed rollback are covered. Unreferenced objects have no Artifact row, and trajectories are served through Tracks.
 5. The Quality Gate has no `workflow_dispatch`: re-run the merge-SHA push run.
-6. The §13 contradictions are removed: PR A is required; the §2.3 diff is not "empty by construction"; the post-merge closure record is mandatory.
+6. The §13 contradictions are removed: PR A is required; the §2.3 diff is not "empty by construction"; the post-merge closure record is mandatory. The owner resolved these independently in `3b318b7`, and that wording was kept.
 7. Windows `PrivateUsage` is named as commit charge.
 8. The system proxy and LAN mirror are also checked.
 9. The §2.2 map is widened: web changes invalidate the disconnected run, and platform changes invalidate all of B3.
 10. This record now lists the owner commits and corrects the 900 s error.
 
-The same review also found that entry-gate item 6 listed a narrower frozen set than §2.1. It now references §2.1.
+The same review also found that entry-gate item 6 listed a narrower frozen set than §2.1. It now references §2.1 (owner, `3b318b7`).
 
 ## Third-pass verdict
 
