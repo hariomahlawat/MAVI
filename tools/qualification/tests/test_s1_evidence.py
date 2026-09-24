@@ -92,6 +92,8 @@ def complete_record() -> dict:
                 junit = f"junit:{suite_id}"
                 run = "quality" if variant == "any" else "task10"
                 record["retainedArtifacts"][junit] = {"path": f"junit/{abs(hash(suite_id))}.xml", "sha256": _sha256(suite_id), "run": run}
+                if variant != "any":
+                    record["retainedArtifacts"][junit]["variant"] = variant
                 record["suites"][suite_id] = {
                     "suite": suite, "variant": variant, "run": run, "junitArtifact": junit,
                     "passed": 1, "skipped": 0, "failed": 0, "errors": 0,
@@ -129,7 +131,31 @@ def structural(record: dict) -> list:
 def _junit_for(entry: dict) -> str:
     cases = [f'<testcase classname="{t.split("::")[0]}" name="{t.split("::", 1)[1]}"/>' for t in entry["passedTests"]]
     cases += [f'<testcase classname="{t.split("::")[0]}" name="{t.split("::", 1)[1]}"><skipped/></testcase>' for t in entry["skippedTests"]]
-    return '<?xml version="1.0"?><testsuites><testsuite>' + "".join(cases) + "</testsuite></testsuites>"
+    name = "" if entry["variant"] == "any" else f' name="{entry["variant"]}"'
+    return f'<?xml version="1.0"?><testsuites><testsuite{name}>' + "".join(cases) + "</testsuite></testsuites>"
+
+
+def _b2_output(record: dict) -> str:
+    values = {
+        record["measurements"][mid]["metric"]: {"value": record["measurements"][mid]["value"], "unit": record["measurements"][mid]["unit"]}
+        for mid in record["units"]["B2"]["measurements"]
+    }
+    return json.dumps({
+        "schema": "s1-b2-memory-derived-v1",
+        "identity": {"sourceSha": record["units"]["B2"].get("measuredSha", record["measuredSha"]), "cleanTree": True},
+        "measurements": values,
+    })
+
+
+def _disconnected_run(record: dict) -> str:
+    return json.dumps({
+        "schema": "s1-disconnected-run-v1",
+        "sourceCommit": record["units"]["DISCONNECTED"].get("measuredSha", record["measuredSha"]),
+        "variant": record["disconnected"]["variant"],
+        "installProfile": "development",
+        "outboundConnectionAttempts": [],
+        "outcomes": {name: {"passed": True, "evidence": f"records/{name}.log"} for name in s1_evidence.DISCONNECTED_OUTCOMES},
+    })
 
 
 def _sealing_output(record: dict) -> str:
@@ -152,6 +178,10 @@ def materialize(record: dict, root: Path) -> dict:
             content = _junit_for(by_junit[artifact_id])
         elif artifact_id == "b3.sealing-scale-output":
             content = _sealing_output(record)
+        elif artifact_id == "b2.memory-harness-output":
+            content = _b2_output(record)
+        elif artifact_id == "disconnected.run-record":
+            content = _disconnected_run(record)
         else:
             content = artifact_id
         path = root / entry["path"]
@@ -791,3 +821,123 @@ def test_junit_test_names_are_compared_even_when_the_counts_agree(tmp_path: Path
     _rewrite_junit(record, tmp_path, suite_id, xml)
     findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "junit_count_mismatch"]
     assert findings and all("passedTests" in f.detail for f in findings)
+
+
+# --------------------------------------------------------------------------- review round 2
+
+
+def _rewrite_json(record: dict, root: Path, artifact_id: str, mutate) -> None:
+    entry = record["retainedArtifacts"][artifact_id]
+    data = json.loads((root / entry["path"]).read_text(encoding="utf-8"))
+    mutate(data)
+    content = json.dumps(data)
+    (root / entry["path"]).write_text(content, encoding="utf-8")
+    entry["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _verified_codes(record: dict, root: Path) -> set[tuple[str, str]]:
+    return codes(record, repo_root=root, verify_git=False)
+
+
+def test_b2_values_must_be_the_retained_harness_output(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    slope = next(m for m in record["measurements"].values() if m["metric"] == "b2.per-retired-traced-bytes-slope")
+    # The harness measured an over-limit slope; the record shows a low one.
+    _rewrite_json(record, tmp_path, "b2.memory-harness-output",
+                  lambda d: d["measurements"]["b2.per-retired-traced-bytes-slope"].update(value=40_000.0))
+    assert slope["value"] <= 16 * 1024
+    assert ("B2", "b2_output_mismatch") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d.update(schema="other"),
+        lambda d: d["identity"].update(sourceSha="c" * 40),
+        lambda d: d["identity"].update(cleanTree=False),
+        lambda d: d["measurements"].pop("b2.staging-peak-bytes"),
+        lambda d: d["measurements"]["b2.completion-peak-bytes"].update(unit="ms"),
+    ],
+)
+def test_the_b2_harness_output_must_be_complete_and_from_the_measured_clean_source(tmp_path: Path, mutate) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b2.memory-harness-output", mutate)
+    assert ("B2", "b2_output_mismatch") in _verified_codes(record, tmp_path)
+
+
+def _variant_suite(record: dict, variant: str) -> str:
+    return next(sid for sid in record["units"]["B2"]["suites"] if sid.endswith(":" + variant) and "test_track_lifecycle" in sid)
+
+
+def test_a_linux_junit_relabelled_as_windows_is_refused(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    linux, windows = _variant_suite(record, "linux-x86_64-cpu"), _variant_suite(record, "windows-x86_64-cpu")
+    # Cite the Linux XML for the Windows result as well.
+    record["suites"][windows]["junitArtifact"] = record["suites"][linux]["junitArtifact"]
+    found = _verified_codes(record, tmp_path)
+    assert {("B2", "junit_variant_unbound"), ("B2", "junit_variant_reused"), ("B2", "junit_variant_mismatch")} <= found
+
+
+def test_a_copied_junit_file_is_refused_even_under_its_own_artifact_id(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    linux, windows = _variant_suite(record, "linux-x86_64-cpu"), _variant_suite(record, "windows-x86_64-cpu")
+    source = record["retainedArtifacts"][record["suites"][linux]["junitArtifact"]]
+    target = record["retainedArtifacts"][record["suites"][windows]["junitArtifact"]]
+    (tmp_path / target["path"]).write_bytes((tmp_path / source["path"]).read_bytes())
+    target["sha256"] = source["sha256"]
+    found = _verified_codes(record, tmp_path)
+    assert ("B2", "junit_variant_reused") in found and ("B2", "junit_variant_mismatch") in found
+
+
+def test_a_variant_junit_must_name_its_variant_in_the_xml(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    windows = _variant_suite(record, "windows-x86_64-cpu")
+    xml = _junit_for(record["suites"][windows]).replace('name="windows-x86_64-cpu"', 'name="pytest"')
+    _rewrite_junit(record, tmp_path, windows, xml)
+    assert ("B2", "junit_variant_mismatch") in _verified_codes(record, tmp_path)
+
+
+def test_a_variant_junit_artifact_must_declare_its_variant() -> None:
+    record = complete_record()
+    windows = _variant_suite(record, "windows-x86_64-cpu")
+    del record["retainedArtifacts"][record["suites"][windows]["junitArtifact"]]["variant"]
+    assert ("B2", "junit_variant_unbound") in codes(record)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d.update(schema="other"),
+        lambda d: d.update(sourceCommit="c" * 40),
+        lambda d: d.update(variant="linux-x86_64-cpu"),
+        lambda d: d.update(installProfile="production"),
+        lambda d: d.update(outboundConnectionAttempts=["10.0.0.5:443"]),
+        lambda d: d["outcomes"].pop("completionV3"),
+        lambda d: d["outcomes"]["reviewInvestigationEvidenceSet"].update(passed=False),
+        lambda d: d["outcomes"]["sealedTrackEvidence"].update(evidence=""),
+        lambda d: d.pop("outcomes"),
+    ],
+)
+def test_disconnected_pass_needs_every_evidenced_outcome_on_the_measured_code(tmp_path: Path, mutate) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "disconnected.run-record", mutate)
+    assert ("DISCONNECTED", "disconnected_run_incomplete") in _verified_codes(record, tmp_path)
+
+
+def test_a_changed_dotnet_evidence_test_invalidates_its_unit() -> None:
+    cited = {"B3": {"tests/Mavi.IntegrationTests/S1BoundAgreementTests"}, "B4": {"tests/Mavi.Application.Tests/CompletionDigestGoldenTests"}}
+    assert invalidated_units(["tests/Mavi.IntegrationTests/S1BoundAgreementTests.cs"], cited) == {
+        "tests/Mavi.IntegrationTests/S1BoundAgreementTests.cs": {"B3"}
+    }
+    assert invalidated_units(["tests/Mavi.Application.Tests/CompletionDigestGoldenTests.Vectors.cs"], cited) == {
+        "tests/Mavi.Application.Tests/CompletionDigestGoldenTests.Vectors.cs": {"B4"}
+    }
+    # A different class sharing the prefix is not the cited suite.
+    assert invalidated_units(["tests/Mavi.IntegrationTests/S1BoundAgreementTestsExtra.cs"], cited) == {}
+    assert invalidated_units(["tests/Mavi.IntegrationTests/S1BoundAgreementTests.json"], cited) == {}
+
+
+def test_a_closure_diff_touching_a_cited_dotnet_suite_requires_a_rerun() -> None:
+    record = complete_record()
+    record["closure"] = {"mergeSha": MERGE, "changedPaths": ["tests/Mavi.IntegrationTests/S1BoundAgreementTests.cs"]}
+    assert ("B3", "closure_rerun_required") in codes(record)

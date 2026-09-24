@@ -183,6 +183,12 @@ def test_task10_triggers_on_and_qualifies_the_whole_s1_surface() -> None:
     ):
         assert f"tests/{suite}" in boundary_step, suite
 
+    # Every JUnit file carries its matrix variant as the test-suite name, so a
+    # retained XML cannot be relabelled as the other variant's evidence.
+    for line in workflow.splitlines():
+        if "--junitxml=" in line:
+            assert "-o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=" in line, line
+
     # The qualification harness tests run on the qualified runtime with the
     # native ByteTrack backend, where a missing backend fails instead of skipping.
     harness_step = workflow.split("- name: Run S1.4 qualification harness tests with the native ByteTrack backend", 1)[1]

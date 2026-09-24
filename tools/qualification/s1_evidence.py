@@ -137,6 +137,18 @@ MAXIMUM_COMPLETION_TRACKS = 10_000
 WORST_CASE_SEALED_OBJECTS = MAXIMUM_COMPLETION_TRACKS * 5
 
 
+# §11: every step of the S1 operator path, each passed with named evidence.
+DISCONNECTED_OUTCOMES = (
+    "setupVerification",
+    "workerStartup",
+    "realVideoProcessing",
+    "completionV3",
+    "sealedTrackEvidence",
+    "trackDetail",
+    "reviewInvestigationEvidenceSet",
+)
+
+
 def worker_request_timeout_bounds_ms() -> tuple[float, float]:
     """(default, maximum) of ``WorkerSettings.request_timeout_seconds``, in ms."""
     text = WORKER_SETTINGS_PATH.read_text(encoding="utf-8")
@@ -287,6 +299,24 @@ def is_behavior_bearing(path: str) -> bool:
     return _matches(path, BEHAVIOR_BEARING_SURFACE)
 
 
+SUITE_SOURCE_SUFFIXES = (".cs", ".py", ".ts", ".tsx")
+
+
+def suite_covers(suite: str, path: str) -> bool:
+    """Whether a changed path is part of a cited suite's source.
+
+    Python suites are cited by file, the web suite by directory, and .NET
+    suites by their extension-less class path (``tests/Proj/ClassTests`` is
+    ``tests/Proj/ClassTests.cs``, including partial ``ClassTests.*.cs`` files).
+    """
+    suite = suite.rstrip("/")
+    if path == suite or path.startswith(suite + "/"):
+        return True
+    if path.startswith(suite + "."):
+        return path.endswith(SUITE_SOURCE_SUFFIXES)
+    return False
+
+
 def invalidated_units(changed_paths: Iterable[str], cited: dict[str, set[str]]) -> dict[str, set[str]]:
     """Map each changed path to the units §2.2 says it invalidates.
 
@@ -298,7 +328,7 @@ def invalidated_units(changed_paths: Iterable[str], cited: dict[str, set[str]]) 
     for path in changed_paths:
         units: set[str] = set(ALWAYS_EVIDENCE.get(path, ()))
         for unit, suites in cited.items():
-            if any(path == suite or path.startswith(suite.rstrip("/") + "/") for suite in suites):
+            if any(suite_covers(suite, path) for suite in suites):
                 units.add(unit)
         if _matches(path, EVIDENCE_TEST_TREES):
             if units:
@@ -403,6 +433,8 @@ class _Checker:
         self._artifacts(name, unit, required, measured_sha)
         if name == "DISCONNECTED":
             self._disconnected(measured_sha)
+        if name == "B2":
+            self._b2_output(measured_sha)
 
     def _unit_sha(self, name: str) -> str:
         return self.record["units"][name].get("measuredSha", self.record["measuredSha"])
@@ -465,9 +497,32 @@ class _Checker:
             return
         if artifact["run"] != entry["run"]:
             self.fail(name, "junit_run_mismatch", f"suite {suite_id}: JUnit was retained from run {artifact['run']}, the result cites {entry['run']}")
+        variant_bound = entry["suite"].startswith(VARIANT_SUITE_PREFIXES) and entry["variant"] in QUALIFIED_CPU_VARIANTS
+        if variant_bound:
+            if artifact.get("variant") != entry["variant"]:
+                self.fail(name, "junit_variant_unbound", f"suite {suite_id}: JUnit {entry['junitArtifact']!r} is not retained as {entry['variant']} output")
+            reused = {
+                other["variant"]
+                for other in self.record["suites"].values()
+                if other["variant"] != entry["variant"]
+                and other["junitArtifact"] in self.record["retainedArtifacts"]
+                and self.record["retainedArtifacts"][other["junitArtifact"]]["sha256"] == artifact["sha256"]
+            }
+            if reused:
+                self.fail(name, "junit_variant_reused", f"suite {suite_id}: the same JUnit bytes also back {sorted(reused)}")
         path = self._verify_file(name, entry["junitArtifact"], artifact)
         if path is None:
             return
+        if variant_bound:
+            # Task 10 names every JUnit test suite after its matrix variant
+            # (``-o junit_suite_name``), so the bytes carry the variant too.
+            try:
+                names = {suite.get("name") for suite in ElementTree.parse(path).getroot().iter("testsuite")}
+            except ElementTree.ParseError as exc:
+                self.fail(name, "junit_unreadable", f"suite {suite_id}: {exc}")
+                return
+            if names != {entry["variant"]}:
+                self.fail(name, "junit_variant_mismatch", f"suite {suite_id}: JUnit test suites are named {sorted(n or '' for n in names)}, not {entry['variant']}")
         try:
             counts = suite_counts_from_junit(path, entry.get("junitFilter"))
         except (ValueError, ElementTree.ParseError) as exc:
@@ -637,6 +692,67 @@ class _Checker:
             return None
         return path
 
+    def _retained_json(self, unit: str, artifact_id: str, code: str) -> dict[str, Any] | None:
+        artifact = self.record["retainedArtifacts"].get(artifact_id)
+        path = None if artifact is None else self._verify_file(unit, artifact_id, artifact)
+        if path is None:
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            self.fail(unit, code, f"{artifact_id} is not readable JSON ({exc})")
+            return None
+
+    def _b2_output(self, measured_sha: str) -> None:
+        """Every B2 value must be the retained derived harness output's value."""
+        derived = self._retained_json("B2", "b2.memory-harness-output", "b2_output_mismatch")
+        if derived is None:
+            return
+        try:
+            if derived["schema"] != "s1-b2-memory-derived-v1":
+                self.fail("B2", "b2_output_mismatch", f"b2.memory-harness-output schema {derived['schema']!r} is not s1-b2-memory-derived-v1")
+            identity = derived["identity"]
+            if identity["sourceSha"] != measured_sha or identity["cleanTree"] is not True:
+                self.fail("B2", "b2_output_mismatch", f"b2.memory-harness-output measured {identity['sourceSha']} (clean: {identity['cleanTree']}), not a clean {measured_sha}")
+            values = derived["measurements"]
+        except (KeyError, TypeError) as exc:
+            self.fail("B2", "b2_output_mismatch", f"b2.memory-harness-output is incomplete ({exc})")
+            return
+        for measurement_id in self.record["units"]["B2"]["measurements"]:
+            entry = self.record["measurements"].get(measurement_id)
+            if entry is None:
+                continue
+            source = values.get(entry["metric"])
+            if source is None or source.get("value") != entry["value"] or source.get("unit") != entry["unit"]:
+                self.fail("B2", "b2_output_mismatch", f"{entry['metric']} {entry['value']} {entry['unit']} is not the harness output's {source}")
+
+    def _disconnected_run(self, measured_sha: str) -> None:
+        """The run record must show every §11 outcome succeeded on the measured code."""
+        run = self._retained_json("DISCONNECTED", "disconnected.run-record", "disconnected_run_incomplete")
+        if run is None:
+            return
+        block = self.record["disconnected"]
+        try:
+            problems = [
+                label
+                for label, holds in (
+                    ("schema is not s1-disconnected-run-v1", run["schema"] == "s1-disconnected-run-v1"),
+                    (f"sourceCommit {run['sourceCommit']} is not the measured {measured_sha}", run["sourceCommit"] == measured_sha),
+                    ("its variant differs from the record's", run["variant"] == block["variant"]),
+                    ("it is not a Development install", run["installProfile"] == "development"),
+                    ("it observed outbound connection attempts", run["outboundConnectionAttempts"] == []),
+                )
+                if not holds
+            ]
+            for outcome in DISCONNECTED_OUTCOMES:
+                result = run["outcomes"].get(outcome)
+                if not isinstance(result, dict) or result.get("passed") is not True or not result.get("evidence"):
+                    problems.append(f"outcome {outcome} is not a passed, evidenced step")
+        except (KeyError, TypeError, AttributeError) as exc:
+            problems = [f"incomplete ({exc})"]
+        for problem in problems:
+            self.fail("DISCONNECTED", "disconnected_run_incomplete", f"disconnected.run-record: {problem}")
+
     def _disconnected(self, measured_sha: str) -> None:
         record = self.record.get("disconnected")
         if record is None:
@@ -648,6 +764,7 @@ class _Checker:
             probe = record[phase]
             if not probe["passed"] or not probe["proxyEnvironmentAbsent"] or any(item["reachable"] for item in probe["probes"]):
                 self.fail("DISCONNECTED", "isolation_not_evidenced", f"{phase} does not show an isolated host")
+        self._disconnected_run(measured_sha)
 
     # -- closure (§2.3) -------------------------------------------------------------
     def closure(self) -> None:

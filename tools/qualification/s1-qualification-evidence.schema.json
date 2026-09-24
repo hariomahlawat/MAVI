@@ -199,6 +199,10 @@
           },
           "description": {
             "$ref": "#/$defs/text"
+          },
+          "variant": {
+            "$ref": "#/$defs/text",
+            "description": "The runtime variant whose job produced this artifact (JUnit from a variant-bound suite must carry it)."
           }
         }
       }

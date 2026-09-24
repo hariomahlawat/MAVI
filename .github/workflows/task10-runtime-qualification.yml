@@ -172,7 +172,7 @@ jobs:
           src/vision/tests/test_resolve_mmdet_config.py
           src/vision/tests/test_runtime_metadata.py
           -q
-          --junitxml=qualification-evidence/junit/runtime-tooling.xml
+          -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=qualification-evidence/junit/runtime-tooling.xml
 
       - name: Run production runtime boundary unit tests without ML imports
         working-directory: src/vision
@@ -204,7 +204,7 @@ jobs:
           tests/test_analytical_models.py
           tests/test_s1_bound_agreement.py
           -q
-          --junitxml=../../qualification-evidence/junit/s1-boundary.xml
+          -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=../../qualification-evidence/junit/s1-boundary.xml
 
       - name: Install candidate PyTorch CPU build
         run: >-
@@ -255,7 +255,7 @@ jobs:
           Pillow==11.3.0
 
       - name: Test real PyTorch restricted checkpoint loading
-        run: python -m pytest src/vision/tests/test_runtime_probe.py -q -k real_torch --junitxml=qualification-evidence/junit/runtime-probe-real-torch.xml
+        run: python -m pytest src/vision/tests/test_runtime_probe.py -q -k real_torch -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=qualification-evidence/junit/runtime-probe-real-torch.xml
 
       - name: Verify compiled MMCV ops and dependency imports
         run: >-
@@ -364,7 +364,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p qualification-evidence
-          MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_bytetrack_runtime.py -q --junitxml=qualification-evidence/junit/bytetrack-runtime.xml
+          MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_bytetrack_runtime.py -q -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=qualification-evidence/junit/bytetrack-runtime.xml
 
           PYTHONPATH=src/vision python - <<'PY'
           import hashlib
@@ -446,20 +446,20 @@ jobs:
         run: >-
           MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1 PYTHONPATH=src/vision
           python -m pytest src/vision/tests/test_measure_evidence_real_clips.py -q
-          --junitxml=qualification-evidence/junit/real-clip-harness.xml
+          -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=qualification-evidence/junit/real-clip-harness.xml
 
       - name: Run S1.4 qualification harness tests with the native ByteTrack backend
         shell: bash
         run: >-
           MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1 PYTHONPATH=src/vision
           python -m pytest tools/qualification/tests -q
-          --junitxml=qualification-evidence/junit/s1-qualification-harness.xml
+          -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=qualification-evidence/junit/s1-qualification-harness.xml
 
       - name: Run exact production attempt composition qualification
         shell: bash
         run: |
           set -euo pipefail
-          MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_production_processor_runtime.py -q --junitxml=qualification-evidence/junit/production-processor-runtime.xml
+          MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_production_processor_runtime.py -q -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=qualification-evidence/junit/production-processor-runtime.xml
 
           PYTHONPATH=src/vision python - <<'PY'
           import importlib.metadata
