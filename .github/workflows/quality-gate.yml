@@ -118,6 +118,11 @@ jobs:
       - name: Test Task 17 acceptance tooling
         run: python -m pytest -q tools/phase1/tests
 
+      # S1.4 Harness A: the evidence checker and measurement harnesses. The
+      # native-ByteTrack cases run in Task 10's qualified job, not here.
+      - name: Test S1.4 qualification tooling
+        run: python -m pytest -q -rs tools/qualification/tests
+
       - name: Install frontend dependencies
         working-directory: src/web/mavi-web
         run: npm ci
