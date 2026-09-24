@@ -10,9 +10,9 @@ Nothing unexecuted is marked PASS.
 
 ## Current verdict
 
-**ARCHITECTURE FROZEN — IMPLEMENTATION NOT STARTED.**
+**ARCHITECTURE FROZEN — S1 IMPLEMENTATION IN PROGRESS; S1.2 MERGED.**
 
-The documentation/architecture gate is closed on the reviewed PR head. Feature implementation remains a separate follow-on activity and has not started.
+The documentation/architecture gate remains closed. S1.1 and S1.2 are merged; S1.3 is the active next slice and S1.4 supplies the acceptance/qualification evidence. Nothing in section B is marked PASS before that evidence is executed.
 
 ## Governing documents
 
@@ -49,10 +49,10 @@ The documentation/architecture gate is closed on the reviewed PR head. Feature i
 
 | ID | Requirement | Status |
 |---|---|---|
-| B1 | Deterministic four-role candidate selector implemented with documented tie-breaking | OPEN — implemented in S1.2c (not merged); the two-tier Representative follows the ADR-013 §4 amendment accepted on 2026-09-24; evidence pending S1.4 |
-| B2 | JPEG encoding occurs in-loop; the model-neutral tracker emits exact-once retired Track ids with no post-retirement reappearance (mapping released on retirement, fresh id on backend id reuse); the whole Track — trajectory, Representative, supplemental candidates — is finalised and staged once at retirement/end-of-stream and only descriptors remain; earlier attempts' staging is removed on new lease; retirement/reactivation/no-reappearance/end-of-stream tests, on both the ByteTrack adapter and the fixture tracker, prove the live-Track memory bound | OPEN — in-loop encoding, retirement finalisation (S1.1), bounded trajectory spool (S1.2b) and the bounded Evidence Set (S1.2c, not merged) implemented; live memory per Track constant; RSS evidence pending S1.4 |
-| B3 | Representative and supplemental byte caps, reduction floors, score-ordered admission and the 1 GiB run EvidenceCrop quota are enforced; body bound re-derived; all contract-tested at the 10,000-Track bound | OPEN — implemented in S1.2c (not merged), worker worst-shape body 24.72 MiB; evidence pending S1.4 |
-| B4 | Vision completion schema v3, digest v3, validator/store/sealing and Observation evolution pass contract tests | OPEN — platform side merged in S1.2a; worker emission and cross-language vectors in S1.2c (not merged); evidence pending S1.4 |
+| B1 | Deterministic four-role candidate selector implemented with documented tie-breaking | OPEN — implemented and merged in S1.2c / PR #79; the two-tier Representative and scorer `quality-v2` follow the accepted ADR-013 §4 amendments; evidence pending S1.4 |
+| B2 | JPEG encoding occurs in-loop; the model-neutral tracker emits exact-once retired Track ids with no post-retirement reappearance (mapping released on retirement, fresh id on backend id reuse); the whole Track — trajectory, Representative, supplemental candidates — is finalised and staged once at retirement/end-of-stream and only descriptors remain; earlier attempts' staging is removed on new lease; retirement/reactivation/no-reappearance/end-of-stream tests, on both the ByteTrack adapter and the fixture tracker, prove the live-Track memory bound | OPEN — in-loop encoding, retirement finalisation (S1.1), bounded trajectory spool (S1.2b) and the bounded Evidence Set (S1.2c / PR #79) are merged; live memory per Track constant by construction; RSS evidence pending S1.4 |
+| B3 | Representative and supplemental byte caps, reduction floors, score-ordered admission and the 1 GiB run EvidenceCrop quota are enforced; body bound re-derived; all contract-tested at the 10,000-Track bound | OPEN — implemented and merged in S1.2c / PR #79, worker worst-shape body 24.72 MiB; evidence pending S1.4 |
+| B4 | Vision completion schema v3, digest v3, validator/store/sealing and Observation evolution pass contract tests | OPEN — platform side merged in S1.2a; worker emission and cross-language vectors merged in S1.2c / PR #79; evidence pending S1.4 |
 | B5 | `TrackDetail.observations[]` and evidence viewer expose accepted roles without breaking Representative behaviour | OPEN |
 | B6 | Relevant Task-10 CPU matrices are rerun; CUDA/E2E evidence is rebound when produced; no stale qualification claim remains | OPEN |
 
