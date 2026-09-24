@@ -209,7 +209,20 @@ At minimum include the existing selector/profile/quality/admission/scripted-corp
 - `test_evidence_scripted_corpus.py`;
 - real-clip harness composition test.
 
-Run a deterministic repeat test over the scripted corpus: same input/profile and runtime variant must produce the same roles, ranks, source-frame/offset choices, scores and artifact descriptor metadata. Exact JPEG bytes are required only within a runtime variant where the existing encoder contract promises that identity.
+Run a deterministic repeat test over the scripted corpus. The same input, profile and runtime variant must produce the same roles, ranks, source-frame/offset choices, scores and artifact descriptor metadata.
+
+Determinism is defined at three levels, each with its own evidence.
+
+**1. Within a variant.** The comparison is:
+- at least two runs in **separate processes**, not only within one process as `test_encoding_is_deterministic_within_a_process` does today;
+- on the same variant;
+- requiring exact equality of roles, ranks, frames/offsets, quantised scores, crop dimensions and **crop SHA-256**.
+
+The encoder contract (`JpegLadderEncoder`) promises byte identity within a qualified variant, meaning a locked Pillow build. So a byte difference here is a defect.
+
+**2. Across the two CPU variants (Linux x86_64 / Python 3.12.14 and Windows x86_64 / Python 3.12.10).** Role selection is coupled to the encoder. `EvidenceSelector._try_hold` keeps a candidate only if it encodes under the role cap, and across variants the encoder promises only dimensions, the cap and decodability, not bytes. So roles, ranks and frames must match the committed scripted-corpus expectation on both variants. Any cross-variant difference is a stop condition unless it is individually traced to a candidate that one variant's encoder admitted at its cap and the other did not. That trace is recorded as a variant divergence, never silently accepted.
+
+**3. Golden bytes per variant.** Today `GOLDEN_SHA256` pins only `("linux", "11.3.0")`, and `test_golden_bytes_per_runtime_variant` **skips on Windows**. The harness PR pins the Windows golden. Until then, Windows byte identity is recorded as an explicit variant non-claim (§3.1), not as PASS.
 
 ### 5.3 Real-clip measurement
 
@@ -225,7 +238,19 @@ Reuse the accepted real-clip corpus/harness used to resolve S1.2 F1. Record at l
 
 This is confirmation of the frozen defaults, not another parameter-tuning exercise.
 
-**B1 PASS:** all deterministic suites green on the frozen head, repeated output stable, real-clip measurement consistent with the accepted two-tier/scorer design, and no selector default changed during qualification.
+The comparison is **exact**, not "consistent". `docs/qualification/2026-09-24-evidence-selector-parameter-note.md` records the accepted measurement:
+- input file SHA-256s for MOT17-02-FRCNN and MOT17-13-FRCNN;
+- 63 confirmed Tracks and 8,284 candidates;
+- per-role rates and fallback counts.
+
+Re-run it on the same inputs, verified by SHA, on the `linux-x86_64-cpu` variant. Every recorded count and rate must match exactly. A difference is a stop condition (§14) until it is explained by a documented, non-behavioural cause and the explanation is reviewed. If an input file cannot be reproduced bit-for-bit, record the new file SHAs and treat the run as a new baseline rather than a confirmation.
+
+**B1 PASS:**
+- all deterministic suites pass with **zero skips** on both qualified CPU variants, except the recorded Windows golden-byte non-claim;
+- the within-variant repeat is exact;
+- the cross-variant comparison is exact or every divergence is traced;
+- the real-clip re-run matches the parameter note exactly;
+- no selector default changed during qualification.
 
 ---
 
@@ -262,9 +287,26 @@ Record:
 - retired Track count;
 - staged descriptor/artifact counts.
 
-Acceptance is **shape-based**, not an arbitrary new RAM promise: after warm-up, increasing completed/retired Track history with a fixed live-Track envelope must not produce monotonic unbounded live-memory growth attributable to retained trajectories/candidates. A regression that retains per-Track history fails regardless of whether the machine still has spare RAM.
+**Memory legitimately grows with retired Tracks, by design.** `VideoProcessor` keeps a `finalised: dict[str, ProcessedTrack]` until completion: one descriptor-only `ProcessedTrack` per retired Track, capped at 10,000 by `MAXIMUM_TRACKS_PER_RESULT`. So "no monotonic growth with retired history" is the wrong criterion. A correct implementation fails it, and RSS alone cannot tell which retained bytes are the cause.
 
-A controlled stress run should exercise meaningful concurrency; normal CI must not allocate a literal multi-gigabyte fixture.
+The acceptance is therefore **decomposed and quantitative**. Every term is measured and compared against a stated bound:
+
+1. **Per-live-Track bound, by accounting.**
+   - Encoded bytes held by a live Track's role holders ≤ 64 KiB + 3 × 160 KiB = 544 KiB. This is ADR-013 §4, asserted from the holders' payload sizes.
+   - Its in-memory trajectory buffer stays within the spool's chunk bound, independent of Track length. The existing `tracemalloc` flat-with-length tests in `test_trajectory_spool.py` and `test_evidence_pipeline.py` are part of this.
+2. **Per-retired-Track retained cost.** With `tracemalloc`, measure the bytes retained per retired Track as the slope over at least 1,000 retirements at a fixed live envelope. Record it as the descriptor budget D. It must be:
+   - independent of that Track's duration, trajectory length and crop sizes. Repeat with 10× longer Tracks and 4× larger crops, and the slope must not change beyond measurement noise, predeclared as ±10 %;
+   - ≤ 16 KiB, a predeclared ceiling far below the smallest per-Track payload (one crop or one trajectory chunk). A retained crop or trajectory would exceed it.
+3. **Process-level corroboration.**
+   - Sample RSS and, on Linux, USS/PSS from `/proc/self/smaps_rollup`; on Windows, `PrivateUsage` through `GetProcessMemoryInfo` via `ctypes`. `psutil` is **not** a MAVI dependency and must not be added for this.
+   - Take each sample after `gc.collect()` and a declared warm-up.
+   - Take at least five plateaus at stepped live-Track levels, and at least three plateaus of growing retired history at a fixed live level.
+   - The fitted slope of USS against retired count must not exceed D + 10 %. The fitted slope against live count is recorded as the empirical per-live-Track cost and compared with bound 1.
+4. **Completion peak.** Record peak memory while the 10,000-Track completion is serialised and sent. The body is 24–40 MiB, and this is the process's designed peak.
+
+The workload runs through the **qualified native ByteTrack adapter** (`trackers` backend), the real `VideoProcessor`, the real encoder and staging. `FixtureTracker` parity is a separate structural test. A FixtureTracker-only memory run cannot see native backend state, such as an unpruned lost/removed-track list, so it is not B2 memory evidence.
+
+A regression that retains per-Track history fails regardless of spare RAM. A controlled stress run exercises meaningful concurrency; normal CI must not allocate a literal multi-gigabyte fixture.
 
 ### 6.3 Staging lifecycle measurement
 
@@ -275,9 +317,12 @@ Measure staging bytes through:
 - superseding attempt cleanup;
 - successful completion followed by platform janitor ownership.
 
-Record maximum observed staging bytes and prove attempt isolation.
+Record maximum observed staging bytes and prove attempt isolation. Compare the maximum with the ADR-013 §4 staging derivation (≤ 10,000 × 544 KiB ≈ 5.2 GiB plus trajectories) using a near-worst controlled stress run. Measure, rather than assume, that staging stays within the derived bound.
 
-**B2 PASS:** lifecycle tests green, accumulator release directly tested, RSS shape supports the live-Track bound, and retry/staging cleanup is demonstrated without cross-attempt/job deletion.
+**B2 PASS:**
+- lifecycle tests pass with zero skips on the qualified variants, on both the ByteTrack adapter and FixtureTracker;
+- bounds 1–4 above are measured and each is within its stated limit;
+- retry and staging cleanup is demonstrated without cross-attempt or cross-job deletion.
 
 ---
 
@@ -310,6 +355,11 @@ Use deterministic fake/sparse artifact descriptors to exercise:
 
 No test needs to allocate 1 GiB of real JPEG bytes merely to prove arithmetic.
 
+Exact edges also cover:
+- **Track count.** 10,000 Tracks complete. The 10,001st distinct Track fails with `track_limit_exceeded` *before* anything is staged for it (`VideoProcessor`), and the attempt's staging is cleaned.
+- **Per-role cap.** An encoder output of exactly the cap is admitted; one byte over is refused. This is checked on the worker and in the platform validator (`WorkerContractRules.MaximumRepresentativeCropBytes` and `MaximumSupplementalCropBytes`).
+- **Bound agreement.** The profile encoder caps and quota (`representativeCapBytes`, `supplementalCapBytes`, `runEvidenceCropQuotaBytes`) equal the platform constants and the Python control-plane constants.
+
 ### 7.3 10,000-Track completion contract
 
 Re-run the true worst-shape 10,000-Track v3 serialization/validation test and record:
@@ -325,6 +375,12 @@ The accepted S1.2 measurement is ~24.72 MiB; S1.4 records the exact final measur
 
 Exercise a scale harness that uses a sparse/fake content store where appropriate to measure validator/sealing/DB work without producing several GiB of physical test data.
 
+**A fake store cannot supply sealing timing.** Sealing runs inside the completion transaction while the job row is held `FOR UPDATE`. `DurableFilePublication` flushes the file and re-fsyncs the directory chain per published object, and the worst case is about 10,000 trajectories plus the quota-bounded crops. So the sealing-time measurement uses the **real** accepted-evidence store:
+- on the real filesystem of each supported Development OS (NTFS on Windows; ext4 or the declared filesystem on Linux);
+- at the worst-case object *count*. Object bytes may be small, because count and fsync dominate.
+
+Compare the measured wall time with the vision lease (`VisionProcessing:LeaseSeconds`, 900 s by default) and with the API request timeout. Headroom below 2× is a blocking finding. The fake/sparse store remains valid for arithmetic, row-count and N+1 evidence only.
+
 Record:
 
 - Track/Observation counts;
@@ -334,7 +390,11 @@ Record:
 - resulting DB rows;
 - resulting accepted-evidence bytes or simulated byte accounting.
 
-**B3 PASS:** all hard arithmetic boundaries discriminate at exact edges, 10,000-Track body remains below the configured bound with documented headroom, and scale execution does not reveal an unbounded algorithm or N+1 artifact-content read.
+**B3 PASS:**
+- all hard boundaries, including the Track-count and per-role cap edges, discriminate at exact edges;
+- the 10,000-Track body stays below the 48 MiB configured bound with documented headroom. Both figures are recorded: the Python body and the .NET body *without* provenance, which `WorstShapeBodyFitsUnderLimit` bounds separately;
+- the real-store sealing time at worst-case object count has at least 2× headroom against the lease;
+- scale execution reveals no unbounded algorithm and no N+1 artifact-content read.
 
 ---
 
@@ -359,7 +419,24 @@ Re-run the complete contract matrix on the frozen head:
 
 Retain the golden fixture hash and exact suite results.
 
-**B4 PASS:** Python/.NET agreement is exact, v2 replay remains valid, v3 replay is idempotent, and every partial-failure case leaves neither partially published DB intelligence nor uncompensated newly sealed accepted evidence.
+Two partial-failure windows are **by design not compensated**, and B4 must prove their real guarantee rather than claim compensation:
+
+1. **Commit ambiguity.** In `ProcessingResultStore`, if `CommitAsync` throws *and* the rollback cannot be confirmed, `compensationSafe` is false. Newly sealed evidence is deliberately retained, because deleting it could orphan a transaction that did commit, and the failure is logged. No test currently exercises either the `CommitAsync` failure or the rollback-confirmation failure. The harness PR adds both:
+   - commit throws and rollback succeeds: newly sealed evidence is compensated;
+   - rollback confirmation fails: evidence is retained, the log event is emitted, and a later exact replay is idempotent and reuses it.
+2. **Process loss between seal and commit.** No in-process compensation can run. The guarantee to prove:
+   - sealed-but-unreferenced accepted objects are **never served**, because `ContentCatalog` requires an Observation of a Completed run;
+   - a later exact replay completes idempotently over them;
+   - no DB intelligence is published.
+
+   The residual storage orphan is recorded as a known limitation, pending the retention/reconciliation policy ADR-013 already defers.
+
+**B4 PASS:**
+- Python and .NET agree exactly;
+- v2 replay remains valid;
+- v3 replay is idempotent;
+- every *compensable* partial failure leaves neither partially published DB intelligence nor uncompensated newly sealed accepted evidence;
+- the two non-compensable windows above are proven never to publish or serve evidence, and their residual orphans are recorded.
 
 ---
 
