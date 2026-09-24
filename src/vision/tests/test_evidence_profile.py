@@ -124,8 +124,8 @@ def test_any_parameter_change_changes_the_profile_identity(tmp_path: Path) -> No
 
     first = tmp_path / "a.json"
     second = tmp_path / "b.json"
-    first.write_text(json.dumps(base, indent=2) + "\n", encoding="utf-8")
-    second.write_text(json.dumps(changed, indent=2) + "\n", encoding="utf-8")
+    first.write_text(json.dumps(base, indent=2) + "\n", encoding="utf-8", newline="\n")
+    second.write_text(json.dumps(changed, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     assert load_pipeline_profile(second).evidence.late_refresh_interval_ms == 6000
     assert hashlib.sha256(first.read_bytes()).digest() != hashlib.sha256(second.read_bytes()).digest()
