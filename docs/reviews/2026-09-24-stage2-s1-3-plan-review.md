@@ -8,7 +8,7 @@
 
 ## Verdict
 
-**No P1. Two P2 planning defects found and resolved before implementation.**
+**No P1. Four P2 planning defects found across two independent cold passes; all resolved before implementation.**
 
 The revised plan is implementation-ready. It preserves the one authoritative Evidence Set, the existing accepted-evidence security boundary, the one Evidence Player/media controller, historical Track readability, and the S1/S1.4 qualification boundary.
 
@@ -128,3 +128,56 @@ Recommended implementation sequence remains:
 3. S1.4 — hardening, bound proof and qualification closure.
 
 No further architecture review is required before S1.3a unless implementation discovers one of the plan's stop conditions.
+
+
+---
+
+## Second independent cold pass
+
+A second pass deliberately ignored the first review's conclusions and checked the revised plan against the current read projection and the adopted Review/Investigation archetypes.
+
+### P2-3 — the plan could retain two independent Representative read projections
+
+**Finding.** D1 correctly said `observations[]` must be authoritative, but §5 still allowed the existing scalar `TrackDetailRow` to survive with its full Representative payload while a second observation query was added. On today's code that row contains Representative frame, offset, timestamp, confidence, quality, bbox and artifact fields populated by a dedicated Representative join. An implementation could therefore satisfy the words “query Observations separately” yet still build the compatibility Representative from the old fields.
+
+That leaves exactly the two independently projected representations the architecture says must not drift.
+
+**Resolution.** Revision 3 makes the cleanup mandatory:
+
+- remove the current Representative Observation join from the scalar Track-detail query;
+- remove duplicated Representative evidence payload fields from `TrackDetailRow`;
+- retain only `RepresentativeObservationId` as the persisted Track integrity pointer;
+- read the bounded observation set once;
+- derive `TrackRepresentativeResponse` only from rank 0;
+- compare the retained pointer against rank 0 and fail on contradiction.
+
+A discriminator is required: mutate the old-style scalar construction path in a scratch/broken variant and prove the tests cannot still pass without reading the canonical observations.
+
+### P2-4 — composing the strip inside `TrackEvidence` violates the frozen Review archetype
+
+**Finding.** Revision 2 put the Evidence Set component inside `TrackEvidence.tsx` to share it between Review and Investigation. In the actual Review page, `TrackEvidence` is the **player column** passed to `ReviewLayout`; the evidence rail is a separate `rail` slot. The adopted UI specification §4.5 explicitly states that Stage-2's bounded Track Evidence Set belongs in the **evidence rail**, with Representative primary, and §4.5.1 requires the Evidence Player plus primary summary to remain visible in the initial 1366×768 viewport.
+
+Putting the strip under `TrackEvidence` would make it part of the player column, not the rail, and could push the primary player vertically while duplicating the rail's evidence role.
+
+**Resolution.** Revision 3 separates **component reuse** from **placement**:
+
+- one feature-local `TrackEvidenceSet` component is reused;
+- Review mounts it in the evidence rail, after the primary Track summary;
+- Investigation mounts it in the inspector body;
+- timeline markers remain in `TrackEvidence` / the one Evidence Player;
+- the Evidence Set component itself reuses the existing `data-evidence-player` attribute for keyboard suppression in Investigation;
+- Review's 1366×768 visual QA must prove the player and primary summary remain initially visible.
+
+This keeps one implementation without forcing one DOM location and matches the frozen archetypes.
+
+## Second-pass residual checks
+
+The second pass also confirmed:
+
+- two bounded raw-evidence reads need no transaction because completed Track observations are immutable; Scene Analytics identity remains independently resolved as today;
+- `ObservationType` is a closed enum with DB CHECK + unique role/rank/frame indexes, so the API may map it to a closed wire string without adding a new persistence vocabulary;
+- S1.3a can merge independently because additive JSON fields do not break existing browser consumers, provided all .NET constructors/tests are updated and the web type change is mechanical;
+- search rows should continue using the direct Representative thumbnail path; forcing the detail Evidence Set into search would be scope expansion;
+- no new content authorization route is necessary because S1.2 already admits both `Thumbnail` and `EvidenceCrop` only through an Observation belonging to a Completed run.
+
+**Second-pass verdict: implementation-ready after revision 3.**
