@@ -180,19 +180,21 @@ public sealed class TrackSearchService(
         if (row is null)
             return TrackDetailServiceResult.NotFound;
 
-        // The raw Evidence Set: the second of the two bounded raw-evidence reads. A
-        // completed run's Observations are immutable and committed with its completion,
-        // so no transaction is needed. A persisted set that breaks the contract throws
-        // TrackEvidenceSetInvariantException here; nothing is repaired or dropped.
-        var evidenceSet = TrackEvidenceSet.FromPersisted(
-            row.RepresentativeObservationId,
-            await repository.GetEvidenceSetAsync(trackId, cancellationToken));
-
         var analytics = await repository.GetDetailAnalyticsAsync(trackId, request, cancellationToken);
         if (analytics is null)
             return TrackDetailServiceResult.NotFound;
         if (analytics.Analytics is not { } resolved)
             return TrackDetailServiceResult.Invalid;
+
+        // The raw Evidence Set: the second of the two bounded raw-evidence reads. It is
+        // read only once the request is known to be answerable, so every 404 and 400 stays
+        // exactly what it was. A completed run's Observations are immutable and committed
+        // with its completion, so no transaction is needed. A persisted set that breaks the
+        // contract throws TrackEvidenceSetInvariantException here; nothing is repaired or
+        // dropped.
+        var evidenceSet = TrackEvidenceSet.FromPersisted(
+            row.RepresentativeObservationId,
+            await repository.GetEvidenceSetAsync(trackId, cancellationToken));
 
         return TrackDetailServiceResult.Found(row, evidenceSet, resolved);
     }
