@@ -94,7 +94,7 @@ class VideoProcessor:
         evidence_encoder: EvidenceEncoder | None = None,
         evidence_quota_bytes: int | None = None,
         trajectory_chunk_points: int = DEFAULT_CHUNK_POINTS,
-        frame_reader: Callable[[BinaryIO], Iterable[DecodedFrame]] = iter_frames,
+        frame_reader: Callable[[BinaryIO], Iterable[DecodedFrame]] | None = None,
     ) -> None:
         self._detector = detector
         self._tracker = tracker
@@ -118,7 +118,8 @@ class VideoProcessor:
         # uses ``iter_frames``; the B2 memory harness substitutes a declared
         # synthetic frame source so a long, lossless, high-entropy workload
         # runs through the real tracker, selector, encoder, staging and
-        # finalisation without a multi-gigabyte video file.
+        # finalisation without a multi-gigabyte video file. ``None`` resolves to
+        # the module's ``iter_frames`` at processing time, exactly as before.
         self._frame_reader = frame_reader
 
     def process(
@@ -169,7 +170,8 @@ class VideoProcessor:
                 if progress_sink is not None:
                     progress_sink.mark_processing_started()
 
-                for frame in self._frame_reader(verified.stream):
+                frame_reader = iter_frames if self._frame_reader is None else self._frame_reader
+                for frame in frame_reader(verified.stream):
                     lease_guard.check_owned()
 
                     detections = self._detector.detect(frame)

@@ -465,13 +465,29 @@ def _reachable(root: object) -> list[object]:
 # S1.4 Harness A: the declared frame-source seam -------------------------------
 
 
-def test_frame_reader_defaults_to_the_real_decoder() -> None:
+def test_frame_reader_defaults_to_the_real_decoder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # No reader means the module's ``iter_frames``, looked up when processing
+    # starts, so production composition (and tests that patch it) is unchanged.
     import inspect
 
-    from mavi_vision.video.reader import iter_frames
+    assert inspect.signature(VideoProcessor.__init__).parameters["frame_reader"].default is None
+    calls: list[object] = []
 
-    default = inspect.signature(VideoProcessor.__init__).parameters["frame_reader"].default
-    assert default is iter_frames
+    def recording(stream):
+        calls.append(stream)
+        return iter(())
+
+    monkeypatch.setattr(process_video_module, "iter_frames", recording)
+    walker = Walker({})
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"declared")
+    result = VideoProcessor(walker, walker, StagingArtifactStore(tmp_path, JOB_ID, 1), evidence_policy=POLICY).process(
+        job_id=JOB_ID, attempt_count=1, source_path=source,
+        expected_source_size_bytes=source.stat().st_size,
+        expected_source_sha256=sha256(source.read_bytes()).hexdigest(),
+        lease_guard=_guard(),
+    )
+    assert len(calls) == 1 and result.frames_processed == 0
 
 
 def test_a_substituted_frame_reader_feeds_the_real_pipeline(tmp_path: Path) -> None:
