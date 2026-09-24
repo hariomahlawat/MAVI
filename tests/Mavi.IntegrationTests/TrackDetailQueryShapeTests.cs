@@ -14,6 +14,12 @@ namespace Mavi.IntegrationTests;
 /// of the Evidence Set.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <see cref="SqlCapture"/> records reader SELECTs, which is how EF Core issues every
+/// query, including lazy loads and split queries. A future hand-written scalar or
+/// non-query command would not be counted, so a change of that kind needs its own
+/// assertion.
+/// </para>
 /// Like <see cref="AnalyticsQueryShapeTests"/>, this counts the statements the
 /// repository really issues. A per-Observation read, a lazily loaded crop or a join that
 /// multiplies the Track row would change the count or the SQL, and a latency number would
@@ -87,7 +93,11 @@ public sealed class TrackDetailQueryShapeTests
 
         Assert.Equal(1, one.Observations);
         Assert.Equal(4, four.Observations);
-        Assert.Equal(one.Statements, four.Statements);
+        Assert.Equal(one.Statements.Count, four.Statements.Count);
+        // And the Evidence Set is read exactly once: an equal count could otherwise hide
+        // the set being read twice in both cases.
+        Assert.Single(four.Statements, statement => ReadsObservations(statement.Sql));
+        Assert.Single(one.Statements, statement => ReadsObservations(statement.Sql));
     }
 
     private static async Task<(int Observations, IReadOnlyList<CapturedStatement> Statements)> MeasureRawEvidenceReadAsync(
@@ -106,7 +116,7 @@ public sealed class TrackDetailQueryShapeTests
         return (observations.Count, capture.Statements.ToArray());
     }
 
-    private static async Task<(int Observations, int Statements)> MeasureServiceReadAsync(
+    private static async Task<(int Observations, IReadOnlyList<CapturedStatement> Statements)> MeasureServiceReadAsync(
         ApiTestFactory factory,
         Guid trackId)
     {
@@ -121,8 +131,11 @@ public sealed class TrackDetailQueryShapeTests
         Assert.True(result.IsSuccess);
         Assert.NotNull(result.EvidenceSet);
 
-        return (result.EvidenceSet.Observations.Count, capture.Statements.Count);
+        return (result.EvidenceSet.Observations.Count, capture.Statements.ToArray());
     }
+
+    private static bool ReadsObservations(string sql) =>
+        System.Text.RegularExpressions.Regex.IsMatch(sql, @"\bobservations\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     private static MaviDbContext CreateContext(ApiTestFactory factory, SqlCapture capture) =>
         new(new DbContextOptionsBuilder<MaviDbContext>()

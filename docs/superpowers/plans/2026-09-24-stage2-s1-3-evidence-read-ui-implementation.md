@@ -879,7 +879,7 @@ Baseline `main@0eb969a6e9205467f1dd275995e09aa5b9acd887` (PR #81 merged). This i
 **Measured (§14):** Track-detail JSON is 2,250 B with one Observation and 3,655 B with four (seeded fixture; about 470 B per Observation).
 
 **Not done in S1.3a:**
-- the web type, the Evidence Set UI and timeline markers (S1.3b);
+- the web type, the Evidence Set UI and timeline markers (S1.3b). S1.3b must also add `observations` to the web visual-QA Track-detail fixtures (`tools/web-visual-qa/fixtures/tracks_*.json`), which the web ignores until then;
 - bound proofs at volume and qualification closure (S1.4).
 
 The pipeline profile, the model/runtime records and the qualification record are unchanged. B5 stays OPEN.

@@ -7,6 +7,7 @@ using Mavi.Domain.Media;
 using Mavi.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using static Mavi.IntegrationTests.Task14TestData;
 
 namespace Mavi.IntegrationTests;
@@ -267,6 +268,32 @@ public sealed class TrackEvidenceSetReadApiTests
             new RepresentativePointer.RankZero()));
     }
 
+    [Fact]
+    public async Task TheIntegrityFailureIsLoggedWithTheTrackAndTheViolatedRuleForTheOperator()
+    {
+        var logs = new CapturingLoggerProvider();
+        using var factory = new ApiTestFactory
+        {
+            OverrideServices = services => services.AddSingleton<ILoggerProvider>(logs),
+        };
+        await factory.ResetAndMigrateAsync();
+        var video = await SeedBaseVideoAsync(factory);
+        var seeded = await AddTrackWithEvidenceSetAsync(
+            factory, video, CompletedAt,
+            [(ObservationType.Representative, 0), (ObservationType.NearView, 2)],
+            new RepresentativePointer.RankZero());
+
+        await AssertIntegrityFailureAsync(factory, seeded);
+
+        // The client got nothing specific. The detail goes to the log, where the
+        // operator can find which Track and which rule.
+        var entry = Assert.Single(logs.Entries, x => x.EventId.Id == 1420);
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.Equal("track_evidence_integrity_failure", entry.EventId.Name);
+        Assert.Contains(seeded.TrackId.ToString(), entry.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RankNotContiguous", entry.Message, StringComparison.Ordinal);
+    }
+
     // --- evidence security and the wire shape --------------------------------------
 
     [Fact]
@@ -403,6 +430,32 @@ public sealed class TrackEvidenceSetReadApiTests
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
         return (await db.Artifacts.AsNoTracking().SingleAsync(x => x.Id == artifactId)).ArtifactType;
+    }
+
+    private sealed record LoggedEntry(LogLevel Level, EventId EventId, string Message);
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<LoggedEntry> _entries = new();
+
+        public IReadOnlyCollection<LoggedEntry> Entries => _entries.ToArray();
+
+        public ILogger CreateLogger(string categoryName) => new Capturing(_entries);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class Capturing(System.Collections.Concurrent.ConcurrentQueue<LoggedEntry> entries) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+                entries.Enqueue(new LoggedEntry(logLevel, eventId, formatter(state, exception)));
+        }
     }
 
     private static async Task<long> StoredSizeAsync(ApiTestFactory factory, Guid artifactId)
