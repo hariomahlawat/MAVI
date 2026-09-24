@@ -112,7 +112,21 @@ public interface ITrackSearchRepository
         int take,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The Track's scalar detail, or null when the Track is not addressable (no such Track,
+    /// or its run is not Completed). One query; no Observation is joined.
+    /// </summary>
     Task<TrackDetailRow?> GetDetailAsync(Guid trackId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every Observation of the Track, ordered by <c>EvidenceRank</c>, as persisted and
+    /// unvalidated. One bounded query, never one per Observation. It reads at most
+    /// <see cref="TrackEvidenceSet.MaximumCount"/> + 1 rows, so an over-full set is seen
+    /// and refused rather than silently truncated.
+    /// </summary>
+    Task<IReadOnlyList<TrackEvidenceObservationRow>> GetEvidenceSetAsync(
+        Guid trackId,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// The Track's analytics for the requested identity. Null when the Track is not

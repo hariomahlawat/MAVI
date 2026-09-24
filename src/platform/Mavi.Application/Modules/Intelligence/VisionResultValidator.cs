@@ -136,8 +136,8 @@ public sealed class VisionResultValidator
         // keep that bound; crops have their own 1 GiB quota (ADR-013 §6).
         long aggregateEvidenceBytes = 0;
         long aggregateCropBytes = 0;
-        var admittedCountByRole = new int[RoleOrder.Length];
-        var admittedBytesByRole = new long[RoleOrder.Length];
+        var admittedCountByRole = new int[RoleOrder.Count];
+        var admittedBytesByRole = new long[RoleOrder.Count];
 
         foreach (var contract in request.Tracks)
         {
@@ -253,13 +253,7 @@ public sealed class VisionResultValidator
     }
 
     /// <summary>Canonical role order (ADR-013 §4); also the rank order.</summary>
-    private static readonly ObservationType[] RoleOrder =
-    [
-        ObservationType.Representative,
-        ObservationType.NearView,
-        ObservationType.EarlyDiverse,
-        ObservationType.LateDiverse,
-    ];
+    private static IReadOnlyList<ObservationType> RoleOrder => EvidenceRoleOrder.Canonical;
 
     /// <summary>Wire and storage-key token for each role.</summary>
     public static string RoleToken(ObservationType role) => role switch
@@ -406,7 +400,8 @@ public sealed class VisionResultValidator
 
         // Ranks are contiguous 0..n-1 in canonical role order over the roles kept;
         // Representative is therefore rank 0 and supplementals are never rank 0.
-        observations.Sort((left, right) => left.Role.CompareTo(right.Role));
+        observations.Sort((left, right) =>
+            EvidenceRoleOrder.PositionOf(left.Role).CompareTo(EvidenceRoleOrder.PositionOf(right.Role)));
         for (var index = 0; index < observations.Count; index++)
         {
             if (observations[index].Rank != index)

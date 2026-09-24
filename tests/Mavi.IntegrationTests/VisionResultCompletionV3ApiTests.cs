@@ -257,7 +257,7 @@ public sealed class VisionResultCompletionV3ApiTests
 
     private static byte[] CropBytes(string role) => Encoding.UTF8.GetBytes($"jpeg-evidence-{role}");
 
-    private static async Task<VisionJobCompleteRequest> BuildRequestAsync(
+    internal static async Task<VisionJobCompleteRequest> BuildRequestAsync(
         ApiTestFactory factory,
         VisionJobLeaseContract lease,
         string[] roles)

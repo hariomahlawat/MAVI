@@ -7,7 +7,7 @@ using Mavi.Domain.SceneAnalytics;
 
 namespace Mavi.Api.Endpoints;
 
-public static class TrackEndpoints
+public static partial class TrackEndpoints
 {
     public static IEndpointRouteBuilder MapTrackEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -61,6 +61,7 @@ public static class TrackEndpoints
         Guid id,
         HttpContext context,
         TrackSearchService service,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         // The detail accepts the two identity keys and nothing else, so a link out of a
@@ -71,15 +72,35 @@ public static class TrackEndpoints
             !SingleOrMissing(values, TrackSearchContractRules.AnalyticsAlgorithmVersionKey, out var version))
             return Problem(400, "track_search_invalid", "Track detail parameters are invalid.");
 
-        var result = await service.GetDetailAsync(
-            id,
-            new TrackAnalyticsDetailRequest(revisionId, version),
-            cancellationToken);
+        TrackDetailServiceResult result;
+        try
+        {
+            result = await service.GetDetailAsync(
+                id,
+                new TrackAnalyticsDetailRequest(revisionId, version),
+                cancellationToken);
+        }
+        catch (TrackEvidenceSetInvariantException exception)
+        {
+            // Persisted evidence that breaks the Evidence Set contract is an integrity
+            // failure of the platform's own data: a 500, never a 404 or a 400, and never a
+            // repaired or partial answer (S1.3 plan §5.3). The client gets no detail; the
+            // violated rule is logged for the operator.
+            LogEvidenceIntegrityFailure(
+                loggerFactory.CreateLogger(typeof(TrackEndpoints).FullName!),
+                id,
+                exception.Invariant);
+            return Problem(
+                StatusCodes.Status500InternalServerError,
+                "track_evidence_integrity_failure",
+                "The Track's persisted evidence is invalid.");
+        }
+
         if (!result.IsSuccess)
             return Problem(400, result.ErrorCode!, "Track detail parameters are invalid.");
         return result.Row is null
             ? Problem(404, "track_not_found", "Track was not found.")
-            : Results.Ok(ToDetail(result.Row, result.Analytics!));
+            : Results.Ok(ToDetail(result.Row, result.EvidenceSet!, result.Analytics!));
     }
 
     private static readonly HashSet<string> SupportedQueryKeys =
@@ -461,28 +482,17 @@ public static class TrackEndpoints
             other.UnitStatus.ToString(),
             other.Outcome.ToString())).ToArray());
 
-    private static TrackDetailResponse ToDetail(TrackDetailRow row, TrackDetailAnalytics analytics)
+    private static TrackDetailResponse ToDetail(
+        TrackDetailRow row,
+        TrackEvidenceSet evidenceSet,
+        TrackDetailAnalytics analytics)
     {
-        TrackRepresentativeResponse? representative = null;
-        if (row.RepresentativeObservationId is { } observationId)
-        {
-            representative = new TrackRepresentativeResponse(
-                observationId,
-                row.RepresentativeSourceFrameNumber!.Value,
-                row.RepresentativeVideoOffsetMs!.Value,
-                row.RepresentativeTimestampUtc!.Value,
-                row.RepresentativeConfidence!.Value,
-                row.RepresentativeQualityScore!.Value,
-                new TrackBoundingBoxResponse(
-                    row.BoundingBoxX!.Value,
-                    row.BoundingBoxY!.Value,
-                    row.BoundingBoxWidth!.Value,
-                    row.BoundingBoxHeight!.Value),
-                row.ThumbnailArtifactId,
-                row.ThumbnailArtifactId is { } thumbnailId
-                    ? $"/api/artifacts/{thumbnailId:D}/content"
-                    : null);
-        }
+        // One source: the Evidence Set. The compatibility Representative is rank 0 of the
+        // same list, so the two cannot disagree (S1.3 plan D1).
+        var observations = evidenceSet.Observations.Select(ToObservation).ToArray();
+        var representative = evidenceSet.Representative is { } rankZero
+            ? ToRepresentative(rankZero)
+            : null;
 
         return new TrackDetailResponse(
             row.Id,
@@ -517,12 +527,57 @@ public static class TrackEndpoints
                 row.FrameRateDenominator,
                 $"/api/videos/{row.VideoAssetId:D}/content"),
             representative,
+            observations,
             row.TrajectoryArtifactId,
-            row.TrajectoryArtifactId is { } trajectoryId
-                ? $"/api/artifacts/{trajectoryId:D}/content"
-                : null,
+            ArtifactContentUrl(row.TrajectoryArtifactId),
             ToDetailAnalytics(analytics));
     }
+
+    private static TrackEvidenceObservationResponse ToObservation(TrackEvidenceObservationRow observation) => new(
+        observation.ObservationId,
+        observation.Role.ToString(),
+        observation.EvidenceRank,
+        observation.SourceFrameNumber,
+        observation.VideoOffsetMs,
+        observation.TimestampUtc,
+        observation.Confidence,
+        observation.QualityScore,
+        observation.SelectionScore,
+        ToBoundingBox(observation),
+        observation.EvidenceArtifactId,
+        ArtifactContentUrl(observation.EvidenceArtifactId));
+
+    private static TrackRepresentativeResponse ToRepresentative(TrackEvidenceObservationRow rankZero) => new(
+        rankZero.ObservationId,
+        rankZero.SourceFrameNumber,
+        rankZero.VideoOffsetMs,
+        rankZero.TimestampUtc,
+        rankZero.Confidence,
+        rankZero.QualityScore,
+        ToBoundingBox(rankZero),
+        rankZero.EvidenceArtifactId,
+        ArtifactContentUrl(rankZero.EvidenceArtifactId));
+
+    private static TrackBoundingBoxResponse ToBoundingBox(TrackEvidenceObservationRow observation) => new(
+        observation.BoundingBoxX,
+        observation.BoundingBoxY,
+        observation.BoundingBoxWidth,
+        observation.BoundingBoxHeight);
+
+    /// <summary>
+    /// The one server-authored route for a persisted artifact. It is built only from an id
+    /// the platform's own relation supplied, never from a path. The accepted-evidence route
+    /// then authorises the read (ContentCatalog: referenced by a Completed run).
+    /// </summary>
+    private static string? ArtifactContentUrl(Guid? artifactId) =>
+        artifactId is { } id ? $"/api/artifacts/{id:D}/content" : null;
+
+    [LoggerMessage(EventId = 1420, EventName = "track_evidence_integrity_failure", Level = LogLevel.Error,
+        Message = "Track {TrackId} has a persisted Evidence Set that violates {Invariant}; its detail is refused.")]
+    private static partial void LogEvidenceIntegrityFailure(
+        ILogger logger,
+        Guid trackId,
+        TrackEvidenceSetInvariant invariant);
 
     private static IResult Problem(int statusCode, string code, string detail) =>
         Results.Problem(

@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.3 Evidence Read Contract and Minimal UI: implementation plan
 
-**Status:** Implementation-ready plan, revision 4 — three independent cold passes completed 2026-09-24; no P1, all P2 findings resolved (see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`)  
+**Status:** Accepted plan, revision 4 (merged in PR #81; three independent cold passes, no P1, all P2 resolved; see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`). **S1.3a (read contract) is implemented in PR #82, in review**; see §20. **S1.3b (minimal Evidence Set UI) is outstanding. S1.4 is outstanding.**  
 **Date:** 2026-09-24  
 **Baseline:** `main@2060599a9786651f36071742034076369520d0ce` — PR #79 merged; S1.2 complete  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §9  
@@ -848,3 +848,39 @@ After S1.3 merges:
 The architectural boundary remains deliberate:
 
 **S1 produces and exposes trustworthy raw Track evidence. Later Stage-2 slices derive replaceable model-based intelligence from that evidence.**
+
+---
+
+## 20. Implementation status
+
+### 20.1 S1.3a — read contract (PR #82, in review; not merged)
+
+Baseline `main@0eb969a6e9205467f1dd275995e09aa5b9acd887` (PR #81 merged). This implements §4–§6, §10 S1.3a and §12.1. It makes no web source change (§10).
+
+**Implemented:**
+- **Evidence Set.** `TrackDetailResponse.observations[]`, typed `TrackEvidenceObservationResponse`, is the authoritative read-side Evidence Set.
+- **Representative.** The compatibility `representative` is built only from `observations[0]`.
+- **Scalar row.** `TrackDetailRow` no longer carries the joined Representative payload. It keeps only `RepresentativeObservationId`, and a structural test guards against its return.
+- **Bounded read.** The Evidence Set is read by `ITrackSearchRepository.GetEvidenceSetAsync`: one statement, ordered by `EvidenceRank`, `LIMIT` `MaximumCount + 1`. `TrackDetailQueryShapeTests` pins exactly two raw-evidence statements for one Observation or four, and a constant whole-detail statement count.
+- **Validation.** `TrackEvidenceSet.FromPersisted` checks the full §5.3 contract: count, contiguous `0..n−1`, strictly canonical role order, and the Track-local rank-0 pointer. It never re-sorts, repairs or trims.
+- **Legacy shape.** No pointer and no Observations reads as `representative: null`, `observations: []`.
+- **Evidence URLs.** They are server-authored from each Observation's own crop relation. `ContentCatalog`'s accepted-evidence boundary is reused unchanged.
+- **Golden.** `c1-operator-contract.json` is regenerated. The only diff is `"observations": []`.
+
+**Implementation refinements (recorded; no architecture change):**
+
+| # | Plan text | Implemented | Why |
+|---|---|---|---|
+| R1 | §5.3: the read seam throws `InvalidOperationException`; with no global handler it surfaces as an ordinary 500; no new handler or error vocabulary | `TrackEvidenceSetInvariantException` (an `InvalidOperationException` carrying the violated rule) is caught in `TrackEndpoints.GetAsync` and returned as `Problem(500, "track_evidence_integrity_failure", "The Track's persisted evidence is invalid.")`. The rule and Track id are logged (event 1420, `track_evidence_integrity_failure`). | This follows the repository's existing integrity-failure convention (`ProcessingEndpoints`: `processing_attestation_integrity_failure`). It gives an RFC 7807 body with no internal detail, and avoids a developer exception page in Development. The status is the same, and it is still never a 404, 400 or repaired 200. |
+| R2 | §5.3: canonical role order | The role order moves from `VisionResultValidator`'s private array to Domain `EvidenceRoleOrder.Canonical`, used by both the write validator and the read seam. | One definition instead of two; write-side behaviour is unchanged. |
+| R3 | §5.1: scalar row, then the Evidence Set | The Evidence Set is read after the analytics identity resolves. | Every existing 404/400 outcome stays identical, even over corrupt evidence, and evidence is not read for a refused request (`TrackDetailEvidenceServiceTests`). |
+| R4 | §4 D4: at most four | The query reads up to five rows. | An over-full set is refused as `TooManyObservations` rather than silently truncated into a valid-looking four. |
+
+**Measured (§14):** Track-detail JSON is 2,250 B with one Observation and 3,655 B with four (seeded fixture; about 470 B per Observation).
+
+**Not done in S1.3a:**
+- the web type, the Evidence Set UI and timeline markers (S1.3b). S1.3b must also add `observations` to the web visual-QA Track-detail fixtures (`tools/web-visual-qa/fixtures/tracks_*.json`), which the web ignores until then;
+- bound proofs at volume and qualification closure (S1.4).
+
+The pipeline profile, the model/runtime records and the qualification record are unchanged. B5 stays OPEN.
+
