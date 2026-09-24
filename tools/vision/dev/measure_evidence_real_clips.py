@@ -64,6 +64,7 @@ CANDIDATE_FIELDS = (
     "edge_margin", "occlusion_iou", "quality_micro", "selection_micro", "pass_confidence",
     "pass_sharpness", "pass_edge", "pass_occlusion", "qualified",
     "occluder_confidence", "occluder_same_class", "occlusion_iou_confident", "pass_occlusion_confident",
+    "box_x", "box_y", "box_w", "box_h",
 )
 
 
@@ -170,6 +171,12 @@ class RecordingScorer:
             occluder_same_class=occluder_same_class,
             occlusion_iou_confident=confident,
             pass_occlusion_confident=confident < p.occlusion_iou_ceiling,
+            # Normalised box scalars, so a candidate can be matched to benchmark
+            # ground truth offline (descriptive context only).
+            box_x=candidate.bounding_box.x,
+            box_y=candidate.bounding_box.y,
+            box_w=candidate.bounding_box.width,
+            box_h=candidate.bounding_box.height,
         )
         return quality
 
@@ -438,7 +445,7 @@ def aggregate(label: str, summaries: list[dict], rows: list[dict]) -> dict:
 
 
 def _occlusion_diagnostics(rows: list[dict]) -> dict | None:
-    if not rows or "occlusion_iou_confident" not in rows[0]:
+    if not rows:
         return None
     blocked = [r for r in rows if not r["pass_occlusion"]]
     other_floors = [r for r in rows if r["pass_confidence"] and r["pass_sharpness"] and r["pass_edge"]]

@@ -183,8 +183,12 @@ def test_percentiles_and_pass_rates_are_exact() -> None:
              "candidateFrames": 4, "durationMs": 120, "supplementalUnqualified": 0,
              "nearViewDropCause": "near-duplicate-of-representative",
              "cropPixels": {"representative": [40, 90, 0]}}
-    for row in rows:
-        row["object_class"] = "person"
+    for row, (confident_pass, same) in zip(rows, ((True, True), (True, True), (False, False), (True, None))):
+        row.update(object_class="person", occlusion_iou=0.9, occlusion_iou_confident=0.1 if confident_pass else 0.5,
+                   pass_occlusion_confident=confident_pass, occluder_same_class=same,
+                   occluder_confidence=None if same is None else 0.2)
+    rows[0]["pass_occlusion"] = rows[3]["pass_occlusion"] = False
+    rows[1]["pass_occlusion"] = rows[2]["pass_occlusion"] = False
     combined = harness.aggregate("t", [{"tracks": [track]}], rows)
     assert combined["passRates"]["sharpness"] == 0.5
     assert combined["passRates"]["allFloors"] == 0.5
@@ -196,6 +200,18 @@ def test_percentiles_and_pass_rates_are_exact() -> None:
     assert combined["reEncodesPerTrack"]["max"] == 1
     assert combined["cropLongEdgePx"]["representative"]["max"] == 90
     assert combined["fallbackDespiteQualifiedFrame"] == 0
+    assert combined["emptyEvidenceTracks"] == 0
+    assert combined["candidateFramesPerTrack"]["max"] == 4 and combined["trackDurationMs"]["max"] == 120
+    assert combined["roleCoverageAmongTracksWithQualifiedFrame"]["near-view"] == 0.0
+    diagnostics = combined["occlusionDiagnostics"]
+    assert diagnostics["blockedCandidates"] == 4
+    assert diagnostics["blockedOnlyByOccludersBelowConfidenceFloor"] == 3
+    assert diagnostics["blockedBySameClassOccluder"] == 2
+    assert diagnostics["blockingOccluderConfidence"]["max"] == 0.2
+    # sharpness passes on rows 0 and 3 only; rows 0 and 3 also pass occlusion confident-only
+    assert diagnostics["otherThreeFloorsPassed"] == 0.5
+    assert diagnostics["counterfactualOcclusionPassConfidentOnly"] == 0.75
+    assert diagnostics["counterfactualAllFloorsConfidentOnly"] == 0.5
     assert combined["fallbackToQualifiedTransitions"] == 1
     assert combined["fallbackRepresentatives"] == 0
 
