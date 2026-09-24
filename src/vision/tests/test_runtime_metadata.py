@@ -243,11 +243,29 @@ def test_probe_tests_needing_the_ml_graph_run_after_it_is_installed() -> None:
 
     tooling = step("Run runtime qualification tooling unit tests")
     real_torch = step("Test real PyTorch restricted checkpoint loading")
-    deselected = set(re.findall(r"--deselect (\S+)", tooling))
     selected = set(re.findall(r"(src/vision/tests/test_runtime_probe\.py::\w+)", real_torch))
-    assert deselected == needs_ml
     assert selected == needs_ml
     assert " -k " not in real_torch
+
+    # What the tooling step actually collects, with its exact arguments from the
+    # repository root: a --deselect that matches no node id would be a no-op.
+    import subprocess
+    import sys
+
+    command = tooling.split("python -m pytest", 1)[1].split("-o junit_suite_name", 1)[0].split()
+    repository = Path(__file__).parents[3]
+    collected = subprocess.run(
+        [sys.executable, "-m", "pytest", *command, "--collect-only", "-o", "addopts=", "-p", "no:cacheprovider"],
+        cwd=repository, capture_output=True, text=True, check=True,
+    ).stdout
+    collected_probe = {
+        "src/vision/" + line.strip()
+        for line in collected.splitlines()
+        if line.strip().startswith("tests/test_runtime_probe.py::")
+    }
+    assert collected_probe, collected
+    assert not collected_probe & needs_ml, sorted(collected_probe & needs_ml)
+    assert f"({len(needs_ml)} deselected)" in collected, collected.splitlines()[-1:]
 
 
 def test_task12_linux_native_bundle_is_bound_to_qualified_host_abi() -> None:
