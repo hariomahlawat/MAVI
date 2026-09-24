@@ -715,7 +715,7 @@ Exit: all gates green on the exact head; the worker's own emitted golden example
 
 Seven commits: profile 1.1 → scorer and encoder → selector → admission and pipeline integration → wire 3.0, capability gate and runner → CI → S14 golden and measurement tool, then docs. No new dependency; `config/dependencies/offline-dependency-policy-v1.json` is untouched (§13.3 holds).
 
-**Module layout.** `mavi_vision/evidence/`: `roles.py` (roles, order, caps, quota), `policy.py` (immutable `EvidencePolicy`, versions, integer-micro quantisation), `quality.py` (`QualityScorer` protocol, `QualityV1Scorer`, occlusion proxy), `encoder.py` (`EvidenceEncoder` protocol, `JpegLadderEncoder`), `selector.py` (`EvidenceSelector`), `admission.py` (pure `admit`), `errors.py`. Scorer, encoder and selector are replaceable behind their protocols; `VideoProcessor` takes `evidence_scorer` / `evidence_encoder` seams, and the profile's version strings name what is running.
+**Module layout.** `mavi_vision/evidence/`: `roles.py` (roles, order, caps, quota), `policy.py` (immutable `EvidencePolicy`, versions, integer-micro quantisation), `quality.py` (`QualityScorer` protocol, `QualityV2Scorer`, credible-competitor occlusion proxy, `scorer_for_policy`; E24), `encoder.py` (`EvidenceEncoder` protocol, `JpegLadderEncoder`), `selector.py` (`EvidenceSelector`), `admission.py` (pure `admit`), `errors.py`. Scorer, encoder and selector are replaceable behind their protocols; `VideoProcessor` takes `evidence_scorer` / `evidence_encoder` seams, and the profile's version strings name what is running.
 
 | ID | Plan | As implemented | Why |
 |---|---|---|---|
@@ -745,7 +745,8 @@ Seven commits: profile 1.1 → scorer and encoder → selector → admission and
 |---|---|
 | S1, S2 | `test_representative_replaces_only_beyond_epsilon`, `test_epsilon_boundary_is_strict_and_exact` (`test_evidence_selector.py`) |
 | S3 | `test_unqualified_frames_never_hold_a_supplemental_role`, `test_qualification_thresholds_are_inclusive_floors` |
-| S4 | `test_real_scorer_disqualifies_an_occluded_frame`; `test_occlusion_uses_every_other_detection_of_both_classes` (`test_evidence_quality.py`) |
+| S4 | `test_real_scorer_disqualifies_an_occluded_frame`; `test_occlusion_uses_every_other_credible_detection_of_both_classes` (`test_evidence_quality.py`) |
+| E24 | `test_low_confidence_duplicate_is_ignored`, `test_detection_exactly_at_the_floor_is_counted_and_just_below_is_not`, `test_high_confidence_same_class_overlap_is_counted`, `test_high_confidence_cross_class_overlap_is_counted`, `test_the_strongest_credible_competitor_wins_over_a_stronger_sub_floor_overlap`, `test_a_sub_floor_source_detection_is_still_excluded_as_the_candidate_itself`, `test_the_competitor_floor_is_mandatory_and_bounded`, `test_the_policy_scorer_follows_the_profiles_confidence_floor` (`test_evidence_quality.py`); `test_real_scorer_ignores_a_sub_floor_overlap` (`test_evidence_selector.py`); `scorerVersion` `quality-v1` refused (`test_evidence_profile.py`) |
 | S5, S6 | `test_near_view_grows_by_hysteresis_only`, `test_repeated_marginal_improvements_do_not_thrash`, `test_near_view_seeds_on_the_first_non_duplicate_and_never_on_the_representative_frame` |
 | S7, S8 | `test_early_diverse_takes_the_best_view_inside_the_window_and_freezes_after_it`, `test_early_diverse_requires_separation_at_evaluation_time`, `test_early_window_is_anchored_to_track_start_not_frame_zero` |
 | S9 | `test_late_diverse_is_a_trailing_view_refreshed_at_the_interval`, `test_late_diverse_does_not_refresh_too_soon` |

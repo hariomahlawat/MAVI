@@ -131,6 +131,18 @@ def test_scorer_version_is_quality_v2_and_the_policy_scorer_uses_confidence_floo
     assert scorer.score(at_floor, _cand(BOX)).occlusion_iou == 1.0
 
 
+def test_the_policy_scorer_follows_the_profiles_confidence_floor() -> None:
+    """The competitor floor is bound to confidenceFloor, not to its shipped value."""
+    import dataclasses
+
+    stricter = dataclasses.replace(POLICY, confidence_floor=0.6)
+    context = FrameContext(_frame(), (_det(BOX), _det(OVERLAPPING, ordinal=1, confidence=0.55)))
+    assert scorer_for_policy(stricter).score(context, _cand(BOX)).occlusion_iou == 0.0
+    assert scorer_for_policy(POLICY).score(context, _cand(BOX)).occlusion_iou == pytest.approx(
+        box_iou(BOX, OVERLAPPING)
+    )
+
+
 def test_low_confidence_duplicate_is_ignored() -> None:
     """The F1 case: a sub-floor near-duplicate of the subject is detector residue."""
     context = FrameContext(

@@ -202,6 +202,8 @@ def test_percentiles_and_pass_rates_are_exact() -> None:
     assert combined["reEncodesPerTrack"]["max"] == 1
     assert combined["cropLongEdgePx"]["representative"]["max"] == 90
     assert combined["fallbackDespiteQualifiedFrame"] == 0
+    assert combined["fallbackToQualifiedTransitions"] == 1
+    assert combined["fallbackRepresentatives"] == 0
     assert combined["emptyEvidenceTracks"] == 0
     assert combined["candidateFramesPerTrack"]["max"] == 4 and combined["trackDurationMs"]["max"] == 120
     assert combined["roleCoverageAmongTracksWithQualifiedFrame"]["near-view"] == 0.0

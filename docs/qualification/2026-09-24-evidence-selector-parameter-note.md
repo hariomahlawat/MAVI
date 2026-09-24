@@ -20,7 +20,7 @@ This is the engineering measurement that plan §5 requires before S1.2c merges. 
 
 ### Method
 
-`tools/vision/dev/measure_evidence_parameters.py` (a Development tool, not a runtime component) generates the three C1 scripted-corpus videos with ffmpeg (`tools/vision/dev/scripted_corpus.py`). It runs each video through the real `VideoProcessor` with the shipped profile's evidence policy, the real `QualityV1Scorer` and the real `JpegLadderEncoder`. Only detection and tracking are scripted: they report the box ffmpeg drew on each frame, as `fixture_worker_harness.py` does. Reproduce from the repository root:
+`tools/vision/dev/measure_evidence_parameters.py` (a Development tool, not a runtime component) generates the three C1 scripted-corpus videos with ffmpeg (`tools/vision/dev/scripted_corpus.py`). It runs each video through the real `VideoProcessor` with the shipped profile's evidence policy, the profile's scorer from `scorer_for_policy` (quality-v1 when first measured, quality-v2 on the re-run) and the real `JpegLadderEncoder`. Only detection and tracking are scripted: they report the box ffmpeg drew on each frame, as `fixture_worker_harness.py` does. Reproduce from the repository root:
 
 ```
 PYTHONPATH=src/vision python tools/vision/dev/measure_evidence_parameters.py <work-dir>
@@ -178,7 +178,7 @@ Sharpness by class, p10 / p25 / p50: person 0.028 / 0.042 / 0.060, vehicle 0.045
 |---|---|---|---|---|---|
 | confidence ≥ 0.5 | 74.6 % | 84.4 % | 79.8 % | 77.3 % | 84.7 % |
 | sharpness ≥ 0.05 | 54.6 % | 85.7 % | 71.2 % | 63.8 % | 85.6 % |
-| edge margin ≥ 0.005 | 81.0 % | 89.1 % | 85.3 % | 81.3 % | 92.9 % |
+| edge margin ≥ 0.005 | 81.0 % | 89.0 % | 85.3 % | 81.3 % | 92.9 % |
 | occlusion < 0.30 (quality-v2) | 93.3 % | 93.7 % | 93.5 % | 93.3 % | 93.9 % |
 | **all floors (qualified)** | **39.5 %** | **69.3 %** | **55.4 %** | 46.7 % | 72.3 % |
 
@@ -217,7 +217,7 @@ The E8 behaviour holds:
 | MOT17-13 | `person-000018` (46) | frame edge **and** sharpness in every frame |
 | MOT17-13 | `person-000025` (35) | sharpness in every frame |
 
-Sharpness is involved in 6 of the 9, and the frame edge in 4 (moving-camera subjects entering or leaving). The reviewed fallback crops show large near-camera subjects that are visibly motion-blurred in low light, and a subject in low-texture dark clothing. These are the soft, low-texture and truncated cases the two-tier Representative exists for.
+Sharpness is involved in 6 of the 9, and the frame edge in 4 (moving-camera subjects entering or leaving). The reviewed fallback crops show large near-camera subjects that are visibly motion-blurred in low light, and a subject in low-texture dark clothing. That explanation rests on the reviewed crops; the 1,985 sharpness-failing person candidates were not individually inspected. They are larger than the passing ones, and 67.5 % of them are at least 0.75 visible (§6.4, §10 residual 1). These are the soft, low-texture and truncated cases the two-tier Representative exists for.
 
 **Ground-truth context (descriptive only).** Each candidate was matched to the best MOT17 box of its class in the same frame (IoU ≥ 0.5; persons 1, 2, 7; vehicles 3, 5):
 
@@ -229,13 +229,13 @@ Sharpness is involved in 6 of the 9, and the frame edge in 4 (moving-camera subj
 | vehicle, qualified | 2,026 | 2,009 | 0.90 / 1.00 / 1.00 | 88.5 % | 2.4 % |
 | vehicle, blocked by a credible occluder | 170 | 160 | 1.00 / 1.00 / 1.00 | 84.4 % | 10.6 % |
 
-Qualified person evidence is well visible, and the credible-occluder rule isolates the genuinely occluded persons. The 170 vehicle candidates blocked by credible boxes are mostly unoccluded by the annotation. The residue is same-object `car` / `truck` boxes that both reach `confidenceFloor` (maximum proxy 0.998). That is 6.1 % of vehicle candidates, and it costs no vehicle Track its qualified Representative (0 / 15 fallbacks). It is a recorded residual (§10), not a reason to change a parameter.
+Qualified person evidence is well visible, and the credible-occluder rule isolates the genuinely occluded persons. The 170 vehicle candidates blocked by credible boxes are mostly unoccluded by the annotation. The residue is, by inference, same-object `car` / `truck` boxes that both reach `confidenceFloor` (maximum proxy 0.998): 160 of the 170 have a credible overlap above 0.65, which per-class NMS leaves in practice only across source classes. For 138 of them, the blocking box is provably the same class at confidence ≥ 0.5. The harness records the class of the all-detection maximum, not of the quality-v2 blocker. That is 6.1 % of vehicle candidates, and it costs no vehicle Track its qualified Representative (0 / 15 fallbacks). It is a recorded residual (§10), not a reason to change a parameter.
 
 ### 6.5 Encodes, caps, NearView resolve drops, crops, runtime
 
 - **Encode attempts per Track:** mean 6.35, median 6, max 16. That is 400 attempts for 8,284 candidates (4.8 %). Re-encodes were mean 3.84, median 2, max 14.
   - The 14-re-encode Track is `vehicle-000011`: 99 candidates, qualified Representative only. Its score rises steadily as the vehicle approaches, and it passes ε each time.
-  - The next are `vehicle-000002` (13; 332 candidates) and `person-000010` (12; 284 candidates, all four roles).
+  - The next are `vehicle-000002` (13; 332 candidates), then `vehicle-000005` (12; 208 candidates) and `person-000010` (12; 284 candidates, all four roles).
 - **JPEG cap refusals:** 0. Unadmissible-by-role: 0. Admission omitted nothing: 153 crops (63 + 51 + 23 + 16), 875,395 B, against the 1 GiB quota. Every crop was admitted at ladder step 0.
 - **NearView dropped at `resolve()`:** 1 of 52 held (1.9 %), as a near-duplicate of a later Representative (MOT17-13). The Track kept its Representative. The plan §20 residual is real but not material.
 - **Encoded crops (bytes, p10 / p50 / max):** Representative 1,626 / 3,380 / 28,005; NearView 2,879 / 5,318 / 20,374; EarlyDiverse 1,755 / 4,763 / 14,707; LateDiverse 1,588 / 4,741 / 14,336. **Long edge in px (p10 / p50 / max):** Representative 85 / 193 / 700; NearView 142 / 248 / 504.
@@ -262,9 +262,9 @@ Qualified person evidence is well visible, and the credible-occluder rule isolat
 | Admitted crops / bytes | 94 / 580,314 B | 153 / 875,395 B |
 | JPEG cap refusals | 0 | 0 |
 | NearView resolve drops | 0 / 19 | 1 / 52 |
-| Processing time (02 / 13) | 191.3 / 224.6 s | 181.4 / 226.2 s |
+| Processing time (02 / 13) | 182.7 / 219.6 s (191.3 / 224.6 s at `9917817`) | 181.4 / 226.2 s |
 
-The first measurement predicted these results from its counterfactual columns (all-floor 55.4 %, at most 9 fallbacks), and they were met exactly. The rest of the run is unchanged: detections, Tracks, the other three floors and every encoder bound. More encodes per Track is the cost of 2.6× more qualified roles, and it stays small (4.8 % of candidates; ladder step 0 throughout).
+The first measurement predicted these results from its counterfactual columns (all-floor 55.4 %, at most 9 fallbacks), and they were met exactly. The rest of the run is unchanged: detections, Tracks, the other three floors and every encoder bound. More encodes per Track is the cost of 2.5× more qualified role holders (144 qualified Representatives and supplemental roles against 57), and it stays small (4.8 % of candidates; ladder step 0 throughout).
 
 ## 8. Finding F1 (resolved) — the quality-v1 occlusion proxy counted sub-floor detections
 
@@ -307,8 +307,8 @@ The official 960×540 VP9 previews, measured under quality-v1 as a supplementary
 | `occlusionPenaltyWeight` | 0.0 | Selection equals quality. A positive weight would be a new ordering design, and nothing measured asks for one. | Retain | 0.0 |
 | `replaceEpsilon` | 0.02 | Re-encodes median 2, mean 3.8 and max 14 per Track (a steadily approaching vehicle). That is 400 encodes for 8,284 candidates, every one at ladder step 0: bounded CPU, with no oscillation. A larger ε would trade the best frame for fewer encodes, and nothing measured asks for it. | Retain | 0.02 |
 | `nearViewGrowth` | 0.25 | NearView on 51 of 54 qualified Tracks (94.4 %), with 1 resolve drop in 52 and no growth thrash. | Retain | 0.25 |
-| `earlyWindowMs` | 3000 | EarlyDiverse on 23 of 54 qualified Tracks. Of the 31 without it, 10 have < 1 s of qualified frames in the window and 1 has none. The rest are limited by the required separation from the Representative / NearView, which in 3.5-s median Tracks are often themselves early. Widening the window would move "early" toward "middle". | Retain | 3000 |
-| `lateRefreshIntervalMs` | 5000 | LateDiverse on 16 of 54 qualified Tracks. Of the 38 without it, 15 Tracks last < 2 s and 10 have < 1 s of qualified frames in total. The interval only limits *refreshing* a holder, never the first fill. | Retain | 5000 |
+| `earlyWindowMs` | 3000 | EarlyDiverse on 23 of 54 qualified Tracks. Of the 31 without it, 9 have a qualified span of < 1 s inside the window and 1 has no qualified frame in it. The rest are limited by the required separation from the Representative / NearView, which in 3.5-s median Tracks are often themselves early. Widening the window would move "early" toward "middle". | Retain | 3000 |
+| `lateRefreshIntervalMs` | 5000 | LateDiverse on 16 of 54 qualified Tracks. Of the 38 without it, 15 Tracks last < 2 s and 10 have a total qualified span of < 1 s. The interval only limits *refreshing* a holder, never the first fill. | Retain | 5000 |
 | `minSeparationMs` | 1000 | It limits Early/Late on short qualified spans (10 of 54 qualified Tracks span < 1 s). Shrinking it would admit views within a second of each other, near-duplicates in these scenes. | Retain | 1000 |
 | `duplicateWindowMs` / `duplicateIouThreshold` | 500 / 0.85 | 1 NearView resolve drop in 52, and no other resolve drop. | Retain | 500 / 0.85 |
 | Encoder and quota | fixed by ADR-013 §5 | 0 cap refusals; every crop admitted at ladder step 0; 875 KB of crops against 1 GiB. | Not tunable | — |
@@ -330,7 +330,7 @@ Unlike the quality-v1 adjudication, the role parameters are now judged on 4,586 
   - Supplemental roles are qualified-only, and no fallback relaxed any floor.
 - **Residual risks** (for S1.4; none blocks S1.2c):
   1. **Sharpness is scale- and texture-dependent.** It is per-pixel gradient energy, so large near-camera and dark-clothed subjects score low. It is involved in 6 of the 9 remaining fallbacks. A normalised sharpness would be a future scorer version.
-  2. **Credible cross-class duplicates.** Same-object `car` / `truck` boxes both at or above `confidenceFloor` still block 6.1 % of vehicle candidates, though no vehicle Track loses its qualified Representative.
+  2. **Credible cross-class duplicates.** Same-object `car` / `truck` boxes both at or above `confidenceFloor` (inferred; §6.4) still block 6.1 % of vehicle candidates, though no vehicle Track loses its qualified Representative.
   3. **Sub-floor real occluders.** A real occluder seen only below `confidenceFloor` no longer disqualifies a frame (the accepted F1 trade-off).
   4. **NearView resolve drop.** It is measured at 1 in 52, and should be re-measured at volume.
   5. **Not claimed:** admission at volume, peak RSS and staging at scale, and GPU. Those belong to S1.4.
