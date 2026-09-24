@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackSearchItem } from '../../api/tracks';
-import { isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
+import { isDismissTarget, isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
 
 const items = ['A', 'B', 'C', 'D'].map((id) => ({ id: `00000000-0000-0000-0000-00000000000${id}` }) as TrackSearchItem);
 
@@ -61,5 +61,27 @@ describe('result navigation', () => {
     player.remove();
     outside.remove();
     expect(isNavigationTarget(null)).toBe(true);
+  });
+
+  it('lets Escape through from the evidence subtree, and from nowhere that types', () => {
+    // No evidence grammar binds Escape, so the subtree that refuses J and K
+    // does not refuse it (S1.3 plan §20.2). A text field still keeps it.
+    const player = document.createElement('div');
+    player.setAttribute('data-evidence-player', '');
+    const control = document.createElement('button');
+    player.append(control);
+    player.insertAdjacentHTML('beforeend', '<svg></svg>');
+    document.body.append(player);
+
+    expect(isDismissTarget(control)).toBe(true);
+    expect(isDismissTarget(player.querySelector('svg'))).toBe(true);
+    expect(isNavigationTarget(control)).toBe(false);
+
+    expect(isDismissTarget(document.createElement('input'))).toBe(false);
+    expect(isDismissTarget(document.createElement('select'))).toBe(false);
+    expect(isDismissTarget(document.createElement('textarea'))).toBe(false);
+    expect(isDismissTarget(document.createElement('video'))).toBe(false);
+    expect(isDismissTarget(null)).toBe(true);
+    player.remove();
   });
 });

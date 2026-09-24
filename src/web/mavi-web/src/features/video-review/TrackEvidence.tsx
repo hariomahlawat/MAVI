@@ -9,6 +9,7 @@ import { analyticsLayers } from './analyticsLayers';
 import { isBoxVisibleAt, projectBox, projectPoint } from '../../shared/evidence/projection';
 import type { EvidenceTimelineInterval, EvidenceTimelineMarker } from '../../shared/evidence/timeline';
 import { STATIONARY_LANE, SUBJECT_LANE } from '../../shared/evidence/timeline';
+import { evidenceMarkers, representativeObservation } from './evidenceSet';
 import { calculateReviewSeekSeconds } from './seek';
 import { hasSampleAt, trajectoryPositionAt, type TrajectoryPoint } from './trajectory';
 
@@ -61,7 +62,10 @@ function evidenceIdentity(detail: TrackDetail): string {
 }
 
 export default function TrackEvidence({ detail, analytics, trajectory, trajectoryError = false, compact = false }: Props) {
-  const representative = detail.representative;
+  // Rank 0 of the Evidence Set, through the one selector: the box, its
+  // description, the E target and the marker all name the same Observation the
+  // Evidence Set shows as its Representative.
+  const representative = representativeObservation(detail);
   // Two different facts, and conflating them discarded valid evidence. The
   // worker finalises a Track on one observation — `finalization.py` requires
   // only `observation_count > 0` with a point per observation — so a
@@ -269,17 +273,13 @@ export default function TrackEvidence({ detail, analytics, trajectory, trajector
     ...(analytics?.intervals ?? []),
   ], [detail.id, detail.startOffsetMs, detail.endOffsetMs, detail.localTrackNumber, analytics]);
 
+  // One exact-seek marker per accepted Observation, Representative included.
+  // Seeking an Observation is the timeline's job; the Evidence Set's crop
+  // controls only inspect.
   const markers: EvidenceTimelineMarker[] = useMemo(() => [
-    ...(representative
-      ? [{
-        id: 'representative-' + representative.observationId,
-        offsetMs: representative.videoOffsetMs,
-        label: 'Representative frame',
-        kind: 'representative',
-      }]
-      : []),
+    ...evidenceMarkers(detail.observations),
     ...(analytics?.markers ?? []),
-  ], [representative, analytics]);
+  ], [detail.observations, analytics]);
 
   return (
     <EvidencePlayer

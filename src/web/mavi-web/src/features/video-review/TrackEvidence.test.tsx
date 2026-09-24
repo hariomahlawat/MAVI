@@ -6,6 +6,7 @@ import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import TrackEvidence from './TrackEvidence';
 import { buildAnalyticsEvidence } from './analyticsEvidence';
 import { analysedAnalytics } from '../../test/analyticsFixtures';
+import { evidenceObservation, trackEvidence } from '../../test/trackEvidenceFixtures';
 
 const detail: TrackDetail = {
   id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21451',
@@ -25,10 +26,10 @@ const detail: TrackDetail = {
   reviewStatus: 'Unreviewed',
   processing: { pipelineVersion: 'phase1', detectorName: 'RTMDet', detectorVersion: '1', trackerName: 'ByteTrack', trackerVersion: '1', completedAtUtc: '2026-09-14T02:40:00Z' },
   video: { recordingStartUtc: '2026-09-14T02:26:42Z', recordingEndUtc: '2026-09-14T02:36:42Z', durationMs: 600_000, width: 1920, height: 1080, frameRateNumerator: 25, frameRateDenominator: 1, videoContentUrl: '/api/videos/v/content' },
-  representative: {
+  ...trackEvidence([evidenceObservation('Representative', 0, {
     observationId: 'o', sourceFrameNumber: 300, videoOffsetMs: 12_000, timestampUtc: '2026-09-14T02:30:02Z', confidence: 0.96, qualityScore: 0.9,
-    boundingBox: { x: 0.5, y: 0.5, width: 0.25, height: 0.5 }, thumbnailArtifactId: null, thumbnailContentUrl: null,
-  },
+    boundingBox: { x: 0.5, y: 0.5, width: 0.25, height: 0.5 }, evidenceArtifactId: null, evidenceContentUrl: null,
+  })]),
   trajectoryArtifactId: 'a',
   trajectoryContentUrl: '/api/artifacts/a/content',
   analytics: notConfiguredAnalytics(),
@@ -510,7 +511,7 @@ describe('Track evidence overlay', () => {
   });
 
   it('offers no bounding-box layer when no representative frame was persisted', () => {
-    render(<TrackEvidence detail={{ ...detail, representative: null }} />);
+    render(<TrackEvidence detail={{ ...detail, representative: null, observations: [] }} />);
     expect(screen.getByRole('button', { name: 'Bounding box' })).toBeDisabled();
     expect(screen.getByText('No representative frame was persisted for this Track.')).toBeInTheDocument();
     // With no representative frame there is nowhere for the evidence jump to go.

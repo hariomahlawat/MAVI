@@ -152,6 +152,44 @@ export type TrackBoundingBox = {
   height: number;
 };
 
+/**
+ * The closed Evidence Set role vocabulary, in canonical order (S1.3 plan §4.1,
+ * §7.1). Wire values are case-sensitive and match the persisted domain roles.
+ */
+export const TRACK_EVIDENCE_ROLES = [
+  'Representative',
+  'NearView',
+  'EarlyDiverse',
+  'LateDiverse',
+] as const;
+
+export type TrackEvidenceRole = (typeof TRACK_EVIDENCE_ROLES)[number];
+
+/**
+ * One accepted Observation of a Track's Evidence Set. `evidenceContentUrl` is
+ * server-authored; nothing in the web builds an artifact URL from
+ * `evidenceArtifactId`.
+ */
+export type TrackEvidenceObservation = {
+  observationId: string;
+  evidenceRole: TrackEvidenceRole;
+  evidenceRank: number;
+  sourceFrameNumber: number;
+  videoOffsetMs: number;
+  timestampUtc: string;
+  confidence: number;
+  qualityScore: number;
+  selectionScore: number;
+  boundingBox: TrackBoundingBox;
+  evidenceArtifactId: string | null;
+  evidenceContentUrl: string | null;
+};
+
+/**
+ * The wire's compatibility Representative. The server derives it from
+ * `observations[0]`; the web reads the Representative only from there, through
+ * `representativeObservation` (S1.3 plan §8.1), and never from this object.
+ */
 export type TrackRepresentative = {
   observationId: string;
   sourceFrameNumber: number;
@@ -263,7 +301,14 @@ export type TrackDetail = {
   reviewStatus: string;
   processing: TrackProcessing;
   video: TrackVideo;
+  /** Compatibility only. No feature code reads it: see `TrackRepresentative`. */
   representative: TrackRepresentative | null;
+  /**
+   * The Track's Evidence Set: at most four accepted Observations in
+   * `evidenceRank` order, rank 0 the Representative. Empty for a legacy Track
+   * with no Representative. The authoritative Track evidence on the read side.
+   */
+  observations: TrackEvidenceObservation[];
   trajectoryArtifactId: string | null;
   trajectoryContentUrl: string | null;
   analytics: TrackDetailAnalytics;

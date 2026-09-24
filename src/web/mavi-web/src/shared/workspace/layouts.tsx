@@ -294,7 +294,7 @@ export function ReviewLayout({
   notices?: ReactNode;
   /** The Evidence Player region. Sticky within its column above 1100px. */
   player: ReactNode;
-  /** Summary, representative frame, provenance. */
+  /** Summary, the Track Evidence Set, provenance. */
   rail?: ReactNode;
   /** Evidence content below the player, in the same column. */
   children?: ReactNode;

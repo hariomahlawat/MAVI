@@ -10,6 +10,7 @@ import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
+import { evidenceSet, FULL_EVIDENCE_SET_ROLES, trackEvidence } from '../../test/trackEvidenceFixtures';
 import VisualSearchPage from './VisualSearchPage';
 
 vi.mock('../../api/cameras', () => ({
@@ -109,7 +110,8 @@ function detail(item: TrackSearchItem, localTrackNumber: number): TrackDetail {
       frameRateDenominator: 1,
       videoContentUrl: item.videoContentUrl,
     },
-    representative: null,
+    // A v3 Track with its full four-role Evidence Set.
+    ...trackEvidence(evidenceSet(FULL_EVIDENCE_SET_ROLES)),
     trajectoryArtifactId: null,
     trajectoryContentUrl: null,
     analytics: notConfiguredAnalytics(),
@@ -906,6 +908,86 @@ describe('VisualSearchPage', () => {
     beforeEach(() => {
       vi.mocked(searchTracks).mockResolvedValue({ items: [first, second], nextCursor: null });
       vi.mocked(getTrack).mockImplementation(async (id) => detail(id === first.id ? first : second, id === first.id ? 7 : 8));
+    });
+
+    describe('the Evidence Set in the inspector', () => {
+      async function openFirst() {
+        const user = userEvent.setup();
+        renderWithApp(<SearchHistoryHarness />, { route: '/search?track=' + first.id });
+        await screen.findByRole('heading', { name: 'Person · Track 7' });
+        const set = screen.getByRole('region', { name: 'Evidence Set' });
+        return { user, set, crop: within(set).getByRole('button', { name: 'Near view · 00:14.6' }) };
+      }
+      const selectedHeading = () => screen.queryByRole('heading', { name: 'Person · Track 7' });
+
+      it('is shown in the inspector, uncollapsed, in place of the Representative-frame disclosure', async () => {
+        const { set } = await openFirst();
+        const inspector = screen.getByRole('complementary', { name: 'Track inspector' });
+
+        expect(inspector.contains(set)).toBe(true);
+        expect(set.closest('details')).toBeNull();
+        expect(within(inspector).queryByText('Representative frame', { selector: 'summary' })).not.toBeInTheDocument();
+        expect(within(set).getAllByRole('button')).toHaveLength(4);
+        expect(inspector.querySelectorAll('video')).toHaveLength(1);
+      });
+
+      it('does not move the selected result when J or K is pressed on a crop control', async () => {
+        const { user, crop } = await openFirst();
+        crop.focus();
+
+        await user.keyboard('j');
+        await user.keyboard('k');
+        await user.keyboard('{ArrowDown}');
+
+        expect(selectedHeading()).toBeInTheDocument();
+        expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search?track=' + first.id);
+        expect(crop).toHaveFocus();
+      });
+
+      it('does not open the full review when Enter selects a crop', async () => {
+        const { user, crop, set } = await openFirst();
+        crop.focus();
+        await user.keyboard('{Enter}');
+
+        expect(within(set).getByRole('figure')).toHaveAccessibleName('Inspecting Near view · 00:14.6');
+        expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search?track=' + first.id);
+      });
+
+      it('still closes the inspector on Escape from a crop control', async () => {
+        const { user, crop } = await openFirst();
+        crop.focus();
+        await user.keyboard('{Escape}');
+
+        await waitFor(() => expect(selectedHeading()).not.toBeInTheDocument());
+        expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search');
+      });
+
+      it('now closes the inspector on Escape from the player frame too, while J there stays the player\'s', async () => {
+        const { user } = await openFirst();
+        screen.getByRole('group', { name: /evidence frame/ }).focus();
+
+        await user.keyboard('j');
+        expect(selectedHeading()).toBeInTheDocument();
+
+        await user.keyboard('{Escape}');
+        await waitFor(() => expect(selectedHeading()).not.toBeInTheDocument());
+      });
+
+      it('still leaves Escape to a text field', async () => {
+        const { user } = await openFirst();
+        await user.click(screen.getByLabelText('Minimum confidence (%)'));
+        await user.keyboard('{Escape}');
+
+        expect(selectedHeading()).toBeInTheDocument();
+      });
+
+      it('keeps J and K result navigation for inspector controls outside the Evidence Set', async () => {
+        const { user } = await openFirst();
+        screen.getByRole('link', { name: 'Open' }).focus();
+
+        await user.keyboard('j');
+        expect(await screen.findByRole('heading', { name: 'Vehicle · Track 8' })).toBeInTheDocument();
+      });
     });
 
     it('returns focus to the result it was opened from when it closes', async () => {

@@ -47,7 +47,7 @@ function detail(item: TrackSearchItem, localTrackNumber: number): TrackDetail {
     reviewStatus: item.reviewStatus,
     processing: { pipelineVersion: 'phase1', detectorName: 'RTMDet', detectorVersion: '1', trackerName: 'ByteTrack', trackerVersion: '1', completedAtUtc: '2026-09-14T02:40:00Z' },
     video: { recordingStartUtc: '2026-09-14T02:26:42Z', recordingEndUtc: '2026-09-14T02:36:42Z', durationMs: 600_000, width: 1920, height: 1080, frameRateNumerator: 25, frameRateDenominator: 1, videoContentUrl: item.videoContentUrl },
-    representative: null, trajectoryArtifactId: null, trajectoryContentUrl: null, analytics: notConfiguredAnalytics(),
+    representative: null, observations: [], trajectoryArtifactId: null, trajectoryContentUrl: null, analytics: notConfiguredAnalytics(),
   };
 }
 

@@ -22,7 +22,7 @@ const detail: TrackDetail = {
   reviewStatus: 'Unreviewed',
   processing: { pipelineVersion: 'phase1', detectorName: 'RTMDet', detectorVersion: '1', trackerName: 'ByteTrack', trackerVersion: '1', completedAtUtc: '2026-09-14T02:40:00Z' },
   video: { recordingStartUtc: '2026-09-14T02:26:42Z', recordingEndUtc: '2026-09-14T02:36:42Z', durationMs: 600_000, width: 1920, height: 1080, frameRateNumerator: 25, frameRateDenominator: 1, videoContentUrl: '/api/videos/v/content' },
-  representative: null,
+  representative: null, observations: [], // The legacy shape: no Representative relation, no Evidence Set.
   trajectoryArtifactId: null,
   trajectoryContentUrl: null,
   analytics: notConfiguredAnalytics(),
