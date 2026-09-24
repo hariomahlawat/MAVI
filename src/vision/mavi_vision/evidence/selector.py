@@ -18,7 +18,7 @@ Track (ADR-013 §4), so its slot has two tiers, and nothing else keeps state:
 A would-be replacement is encoded first and replaces the holder only if
 admissible, so an encoding failure never costs the Track a Representative it
 already has. Supplemental roles are filled only by qualified candidates.
-(S1.2c deviation E8, proposed ADR-013 §4 amendment: the plan's strict
+(S1.2c deviation E8, ADR-013 §4 amendment accepted 2026-09-24: the plan's strict
 "qualified-only" Representative fails the whole attempt whenever one Track has
 no qualified frame at all -- a subject clipped at the frame edge, a pair
 walking together, a low-texture subject -- which common footage produces.)

@@ -2,6 +2,7 @@
 
 **Status:** Accepted — Stage-2 architecture freeze; amended 2026-09-23 by the second independent cold pass (see *Architecture-freeze gate*)  
 **Date:** 2026-09-23  
+**Amended:** 2026-09-24 — §4 two-tier Representative (S1.2c), ratified by the owner  
 **Supersedes:** any Stage-2 planning text that treats attribute inference as part of VisionJob completion or treats Representative as the only analytical image evidence
 
 ## Context
@@ -68,23 +69,38 @@ Selection uses only model-neutral Track/frame information available during raw p
 The selection method is frozen; only its numeric parameters are set in S1 after measurement and recorded in the pipeline profile:
 
 - a **qualified candidate** is an observation whose detector confidence, sharpness and frame-edge margin each meet the profile's floors and whose occlusion proxy (maximum IoU with any concurrent box in the same frame) is below the profile's ceiling;
-- **Representative** is the highest-scoring qualified candidate over the whole Track (the current selector rule, now versioned);
+- **Representative** is the highest-scoring qualified candidate over the whole Track (the current selector rule, now versioned); *(Amended 2026-09-24, S1.2c: before a Track's first qualified admissible candidate, a fallback Representative may hold the role. See the two-tier amendment below.)*
 - **NearView** is the qualified candidate with the largest normalised box area that is not a near-duplicate of Representative;
 - **EarlyDiverse** is the highest-scoring qualified candidate inside the Track's early window — the first `earlyWindowMs` after Track start; **LateDiverse** is the most recent qualified candidate, refreshed at most once per `lateRefreshIntervalMs`, so at retirement it is a view from the Track's final stretch; each must lie at least the profile's minimum separation from every already-selected frame and must not be a near-duplicate of one. *(Amended 2026-09-23 by the S1 plan review: the earlier "first/last temporal third" definition needs the Track's final duration, which a one-pass selector does not know until retirement, and would therefore require retaining candidate pixels for the whole Track. The anchored early window and refreshed trailing view keep the intent — one early and one late well-separated view — with exactly one encoded candidate per role at any time. See `docs/reviews/2026-09-23-stage2-s1-plan-review-resolution.md`.)*
 - **near-duplicate** means the same source frame, or a frame within the profile's duplicate window whose box IoU with a selected frame exceeds the profile's threshold;
-- a role that has no qualified candidate is omitted for that Track; roles are never filled with unqualified frames.
+- a role that has no qualified candidate is omitted for that Track; roles are never filled with unqualified frames. *(Amended 2026-09-24, S1.2c: this now holds for the three supplemental roles only. The mandatory Representative follows the two-tier rule below.)*
 
 Ties within a role resolve deterministically: a candidate replaces the current holder only on strict improvement (score, or area for NearView, by at least the profile's replacement epsilon), so equal scores keep the earlier frame. Roles are evaluated in the order Representative, NearView, EarlyDiverse, LateDiverse, so the same Track always yields the same set.
 
-> **Proposed amendment (S1.2c, 2026-09-24) — pending owner ratification. Two-tier Representative.**
+> **Amendment (S1.2c, 2026-09-24): two-tier Representative.**
 >
-> *Problem.* Read strictly, the two rules above require every accepted Track to have at least one qualified frame, and §5 fails the whole attempt when a Track has no Representative. Real Tracks can have none: a subject that stays clipped by the frame edge, one that stays overlapped by another box, or a low-texture subject below the sharpness floor. The C1 scripted corpus shows it outright. Its uniform box measures sharpness 0–0.023, below the 0.05 floor, in every frame of all three videos, so under the strict rule every corpus job fails with `evidence_representative_missing` (`docs/qualification/2026-09-24-evidence-selector-parameter-note.md`). One such Track would fail a whole ProcessingRun, discarding every other Track's evidence, and a retry fails the same way.
+> **Status of this amendment:** Accepted 2026-09-24. The owner ratified it with the S1.2c implementation. Plan `docs/superpowers/plans/2026-09-23-stage2-s1-2-evidence-set-implementation.md` §16.2 (E8, E19) and `docs/qualification/2026-09-24-evidence-selector-parameter-note.md` record the implementation and the evidence.
 >
-> *Proposed rule.* The Representative is selected in two tiers. While a Track has no qualified candidate, the Representative is the highest-scoring **admissible** candidate under the same ε rule, held as a fallback. The first qualified admissible candidate displaces a fallback holder whatever its score, and from then on only qualified candidates can hold the role. The three supplemental roles are unchanged: qualified candidates only, omitted otherwise. The attempt still fails if no candidate at all is admissible (`evidence_representative_missing`). The rule is online, needs no reservoir, and still encodes only would-be replacements. The worker implements it as `evidence-selector-v1-two-tier` (a distinct name, so the strict rule and this one are never reported under one version); the selector module docstring and `test_evidence_selector.py` (two-tier oracle property test) pin it.
+> *Problem.* Read strictly, the two rules above require every accepted Track to have at least one qualified frame, and §5 fails the whole attempt when a Track has no Representative. Real Tracks can have none: a subject that stays clipped by the frame edge, one that stays overlapped by another box, or a low-texture subject below the sharpness floor. The C1 scripted corpus shows it outright. Its uniform box measures sharpness 0–0.023, below the 0.05 floor, in every frame of all three videos, so under the strict rule every corpus job fails with `evidence_representative_missing`. One such Track would fail a whole ProcessingRun and discard every other Track's evidence, and a retry fails the same way.
 >
-> *Trade-off accepted.* A Track can carry a Representative that fails a quality floor, so "Representative" no longer implies "qualified". The wire does not yet mark this: the observation's `qualityScore` is present, but there is no qualified flag. In exchange, one hard Track no longer fails the whole run and loses every other Track's evidence. Supplemental roles keep the strict rule, so later analytical coverage never rests on unqualified frames.
+> *Rule.*
+> 1. The Representative is mandatory for every accepted Track.
+> 2. While a Track has no qualified admissible candidate, the Representative is the best **admissible** candidate under the ε rule: a candidate replaces the holder only when its selection score is **strictly greater** than the holder's plus `replaceEpsilon`, so equal or near-equal scores keep the earlier frame. This holder is a *fallback Representative*.
+> 3. The first qualified admissible candidate displaces a fallback Representative, whatever its score relative to the fallback.
+> 4. Once the Representative is qualified, only qualified candidates may replace it, under the same ε rule.
+> 5. NearView, EarlyDiverse and LateDiverse stay **qualified-only**. A fallback Representative never relaxes their eligibility.
+> 6. The attempt fails if no admissible candidate exists at all (`evidence_representative_missing`). Run-level admission (§6) never omits a Representative; if the Representatives alone exceed the quota, the run fails (`evidence_quota_exceeded`).
 >
-> *If rejected.* The smallest reversal is to evaluate the Representative only for qualified candidates (one guard in `EvidenceSelector.observe`; the tier comparison then never fires). The strict rule then applies exactly as written above, and the scripted-corpus jobs (and any footage like them) fail closed.
+> The rule is online, needs no reservoir, and encodes only would-be replacements. The worker implements it as selector version **`evidence-selector-v1-two-tier`**, a name distinct from the strict rule, so strict and two-tier outcomes are never reported under one selector identity. The version is part of the pipeline profile and therefore of `pipelineProfileSha256` in completion provenance.
+>
+> *Semantic consequence (binding on consumers).*
+> - **The existence of a Representative does not imply that it passed every selector quality floor.** It is the Track's mandatory display/summary crop, not "qualified evidence".
+> - Supplemental roles remain qualified-only, and are therefore the appropriate raw evidence roles for downstream analytical coverage when qualification is required.
+> - No downstream capability may infer "qualified" from `role == representative`.
+>
+> *Wire boundary (known limitation).* Completion 3.0 carries no per-observation qualified flag. A consumer has the observation's `qualityScore`, the role (supplemental roles are qualified by construction), and the selector version via the pipeline-profile provenance; nothing on the wire says whether a given Representative is a fallback. A later analytical feature that must consume the Representative under a qualification-sensitive rule has to introduce or derive an explicit qualification contract first (for example a contract revision carrying the tier, or its own re-scoring of the crop). Adding such a flag is deliberately not part of S1.2c.
+>
+> *Trade-off accepted.* A Track can carry a Representative that fails a quality floor. In exchange, one hard Track no longer fails the whole run and discards every other Track's evidence, and later analytical coverage still never rests on unqualified supplemental frames.
 
 Representative remains the primary display summary. Supplemental roles exist to improve later analytical coverage, not to redefine the Track.
 
@@ -105,7 +121,7 @@ These are product bounds, not quality claims. Qualification determines whether t
 Two consequences are stated so they are not discovered in implementation:
 
 - At quality 85 a 1024-px-long-edge crop of natural imagery typically encodes to 100–160 KiB, so the 64 KiB Representative cap implies an effective Representative ceiling of roughly 600–700 px long edge for large subjects. **Representative is the display/summary crop; NearView (160 KiB) is the analytic-resolution carrier** on which later plate/embedding work depends. Qualification §8 measures the quality impact of both caps.
-- Deterministic reduction has a floor: the long edge is never reduced below **128 px** and quality never below **50**. A candidate that still exceeds its cap at the floor is not admitted for that role (Representative then falls back to the next-best qualified candidate; the run fails only if no Representative can be produced for an accepted Track).
+- Deterministic reduction has a floor: the long edge is never reduced below **128 px** and quality never below **50**. A candidate that still exceeds its cap at the floor is not admitted for that role (Representative then falls back to the next-best qualified candidate; the run fails only if no Representative can be produced for an accepted Track). *(Amended 2026-09-24, S1.2c: the online rule keeps the current admissible holder when a better candidate is not admissible. A fallback Representative is possible under the §4 two-tier amendment.)*
 
 **Memory, Track retirement and staging behaviour.** The current pipeline retains one raw RGB crop per Track for the whole run and the current model-neutral `Tracker` protocol returns only per-frame `TrackCandidate` values; it exposes no Track-retirement event. Contract v3 therefore requires an explicit model-neutral lifecycle extension rather than having `VideoProcessor` duplicate ByteTrack's lost-track timing.
 
