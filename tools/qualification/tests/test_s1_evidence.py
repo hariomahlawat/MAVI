@@ -169,8 +169,21 @@ def _sealing_output(record: dict) -> str:
         "status": "complete", "authoritative": True,
         "shape": {"tracks": 10_000, "sealedObjects": 50_000},
         "workerRequestTimeoutMs": timeout["value"],
+        "environment": {"gitSha": record["units"]["B3"].get("measuredSha", record["measuredSha"]), "gitWorkingTreeClean": "true"},
         "repeats": wall["repeats"], "warmupExcluded": 1, "p50RunSpreadMs": wall["stats"]["p50RunSpread"],
         "completion": {"n": wall["samples"], **{k: wall["stats"][k] for k in ("min", "p50", "p95", "max")}},
+    })
+
+
+def _bundle_manifest(record: dict) -> str:
+    block = record["disconnected"]
+    return json.dumps({
+        "sourceCommit": block["runtimeBundleSourceCommit"],
+        "platformVariant": block["variant"],
+        "artifacts": [
+            {"relativePath": "wheels/mavi_vision-0.1.0-py3-none-any.whl", "package": "mavi-vision", "sha256": block["maviVisionWheelSha256"]},
+            {"relativePath": "wheels/numpy.whl", "package": "numpy", "sha256": "f" * 64},
+        ],
     })
 
 
@@ -187,6 +200,8 @@ def materialize(record: dict, root: Path) -> dict:
             content = _b2_output(record)
         elif artifact_id == "disconnected.run-record":
             content = _disconnected_run(record)
+        elif artifact_id == "disconnected.runtime-bundle-manifest":
+            content = _bundle_manifest(record)
         else:
             content = artifact_id
         path = root / entry["path"]
@@ -301,14 +316,15 @@ def test_an_unpaired_skip_cannot_carry_a_pass() -> None:
     record = complete_record()
     suite_id = record["units"]["B1"]["suites"][2]
     record["suites"][suite_id].update(skipped=1, skippedTests=["tests.test_evidence_encoder::test_golden"])
-    assert ("B1", "skip_not_permitted") in codes(record)
+    # Not on the §3.1 list at all, so it is refused before pairing is considered.
+    assert ("B1", "skip_not_approved") in codes(record)
 
 
 def _paired_record(counterpart_passed: bool) -> dict:
     record = complete_record()
     windows = next(sid for sid in record["units"]["B2"]["suites"] if "test_track_lifecycle.py:windows" in sid)
     linux = windows.replace("windows-x86_64-cpu", "linux-x86_64-cpu")
-    test = "tests.test_track_lifecycle::test_posix_descriptor_limit"
+    test = "tests.test_track_lifecycle::test_many_live_tracks_need_no_descriptor_each"
     record["suites"][windows].update(skipped=1, skippedTests=[test])
     if counterpart_passed:
         record["suites"][linux].update(passed=2, passedTests=[*record["suites"][linux]["passedTests"], test])
@@ -578,6 +594,8 @@ def test_s1_closed_needs_every_unit_pass_and_a_closure() -> None:
     record["s1Closed"] = True
     assert ("record", "closure_missing") in codes(record)
     record["closure"] = {"mergeSha": MERGE, "changedPaths": []}
+    for index, workflow in enumerate(s1_evidence.POST_MERGE_WORKFLOWS):
+        record["runs"][f"post-merge-{index}"] = {"kind": "workflow", "workflow": workflow, "runId": 100 + index, "headSha": MERGE, "conclusion": "success"}
     assert structural(record) == []
     record["units"]["B6"]["verdict"] = "OPEN"
     assert ("record", "closure_units_open") in codes(record)
@@ -766,14 +784,16 @@ def test_the_worker_timeout_is_bound_to_the_worker_default() -> None:
     assert ("B3", "worker_timeout_out_of_range") in codes(record)
 
 
-def test_a_non_default_timeout_is_accepted_only_with_a_retained_install_configuration(tmp_path: Path) -> None:
+def test_a_non_default_timeout_is_refused_even_with_a_cited_configuration(tmp_path: Path) -> None:
+    # No install path configures the worker timeout, so a cited file cannot
+    # stand in for the value the qualified worker actually uses.
     record = complete_record()
     timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
-    timeout.update(value=60_000.0, artifact="b3.worker-configuration")
+    timeout.update(value=120_000.0, artifact="b3.worker-configuration")
     record["retainedArtifacts"]["b3.worker-configuration"] = {"path": "records/worker.env", "sha256": "e" * 64, "run": "host"}
     record["units"]["B3"]["artifacts"].append("b3.worker-configuration")
     record = materialize(record, tmp_path)
-    assert check_record(record, repo_root=tmp_path, verify_git=False) == []
+    assert ("B3", "worker_timeout_unbound") in _verified_codes(record, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -1016,3 +1036,118 @@ def test_a_unit_measured_off_the_diffed_shas_is_refused() -> None:
     # Re-measured on the closure merge SHA is the one other permitted SHA.
     record["closure"] = {"mergeSha": OTHER, "changedPaths": []}
     assert ("B6", "unit_sha_unbound") not in codes(record)
+
+
+# --------------------------------------------------------------------------- review round 3
+
+
+def test_an_unapproved_skip_is_refused_even_with_a_passing_counterpart() -> None:
+    # The golden-byte test may no longer skip anywhere (§3.1, §5).
+    record = complete_record()
+    windows = next(sid for sid in record["units"]["B1"]["suites"] if "test_evidence_encoder.py:windows" in sid)
+    linux = windows.replace("windows-x86_64-cpu", "linux-x86_64-cpu")
+    test = "tests.test_evidence_encoder::test_golden_bytes_per_runtime_variant[smooth]"
+    record["suites"][windows].update(skipped=1, skippedTests=[test])
+    record["suites"][linux].update(passed=2, passedTests=[*record["suites"][linux]["passedTests"], test])
+    record["pairedVariantSkips"].append({
+        "test": test, "skipsOn": "windows-x86_64-cpu", "counterpartSuite": "src/vision/tests/test_evidence_encoder.py",
+        "counterpartTest": test, "counterpartVariant": "linux-x86_64-cpu",
+    })
+    assert ("B1", "skip_not_approved") in codes(record)
+
+
+def test_an_approved_skip_is_approved_only_on_its_own_variant() -> None:
+    record = _paired_record(counterpart_passed=True)
+    windows = next(sid for sid in record["units"]["B2"]["suites"] if "test_track_lifecycle.py:windows" in sid)
+    linux = windows.replace("windows-x86_64-cpu", "linux-x86_64-cpu")
+    test = record["suites"][windows]["skippedTests"][0]
+    # The POSIX case skipping on Linux is not an approved skip.
+    record["suites"][linux].update(skipped=1, skippedTests=[test], passed=1, passedTests=[record["suites"][linux]["passedTests"][0]])
+    assert ("B2", "skip_not_approved") in codes(record)
+
+
+def test_a_pair_must_name_the_same_test_of_the_same_suite() -> None:
+    # A genuinely passing but different test on the other variant does not excuse the skip.
+    record = _paired_record(counterpart_passed=True)
+    linux = next(sid for sid in record["units"]["B2"]["suites"] if "test_track_lifecycle.py:linux" in sid)
+    record["pairedVariantSkips"][0]["counterpartTest"] = record["suites"][linux]["passedTests"][0]
+    assert ("B2", "skip_not_permitted") in codes(record)
+    # Nor does the same-named test passing in a different suite.
+    record = _paired_record(counterpart_passed=True)
+    spool = next(sid for sid in record["units"]["B2"]["suites"] if "test_trajectory_spool.py:linux" in sid)
+    borrowed = "tests.test_trajectory_spool::test_many_live_tracks_need_no_descriptor_each"
+    record["suites"][spool].update(passed=2, passedTests=[*record["suites"][spool]["passedTests"], borrowed])
+    record["pairedVariantSkips"][0].update(counterpartSuite="src/vision/tests/test_trajectory_spool.py", counterpartTest=borrowed)
+    assert ("B2", "skip_not_permitted") in codes(record)
+
+
+def test_approved_paired_skips_are_the_os_conditional_tests() -> None:
+    """The approved list is exactly the source's OS-conditional tests."""
+    import ast
+
+    repo = Path(__file__).resolve().parents[3]
+    discovered: dict[str, set[str]] = {}
+    for suite in {suite for suite, _ in s1_evidence.APPROVED_PAIRED_SKIPS}:
+        tree = ast.parse((repo / suite).read_text(encoding="utf-8"))
+        module_skip = any(
+            isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "pytestmark" for t in node.targets)
+            and "skipif" in ast.unparse(node.value)
+            for node in tree.body
+        )
+        discovered[suite] = {
+            node.name
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("test")
+            and (module_skip or any("skipif" in ast.unparse(d) for d in node.decorator_list))
+        }
+    assert {suite: set(names) for (suite, _), names in s1_evidence.APPROVED_PAIRED_SKIPS.items()} == discovered
+
+
+def test_the_sealing_output_must_measure_the_b3_sha(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b3.sealing-scale-output", lambda d: d["environment"].update(gitSha="c" * 40))
+    assert ("B3", "sealing_output_mismatch") in _verified_codes(record, tmp_path)
+    _rewrite_json(record, tmp_path, "b3.sealing-scale-output", lambda d: d["environment"].update(gitSha=SHA, gitWorkingTreeClean="false"))
+    assert ("B3", "sealing_output_mismatch") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d.update(sourceCommit="c" * 40),
+        lambda d: d.update(platformVariant="linux-x86_64-cpu"),
+        lambda d: d["artifacts"][0].update(sha256="0" * 64),
+        lambda d: d["artifacts"].pop(0),
+        lambda d: d["artifacts"].append(dict(d["artifacts"][0], relativePath="wheels/other.whl")),  # a second, same-hash wheel
+        lambda d: d.pop("artifacts"),
+    ],
+)
+def test_the_disconnected_bundle_manifest_must_be_the_measured_code(tmp_path: Path, mutate) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "disconnected.runtime-bundle-manifest", mutate)
+    assert ("DISCONNECTED", "bundle_manifest_mismatch") in _verified_codes(record, tmp_path)
+
+
+def test_a_closure_needs_every_post_merge_workflow_on_the_merge_sha() -> None:
+    record = complete_record()
+    record["s1Closed"] = True
+    record["closure"] = {"mergeSha": MERGE, "changedPaths": []}
+    for index, workflow in enumerate(s1_evidence.POST_MERGE_WORKFLOWS):
+        record["runs"][f"post-merge-{index}"] = {"kind": "workflow", "workflow": workflow, "runId": 100 + index, "headSha": MERGE, "conclusion": "success"}
+    assert ("record", "post_merge_verification_missing") not in codes(record)
+    for index in range(len(s1_evidence.POST_MERGE_WORKFLOWS)):
+        broken = copy.deepcopy(record)
+        broken["runs"][f"post-merge-{index}"]["headSha"] = SHA  # an ancestor's green run
+        assert ("record", "post_merge_verification_missing") in codes(broken)
+        broken = copy.deepcopy(record)
+        broken["runs"][f"post-merge-{index}"]["conclusion"] = "failure"
+        assert ("record", "post_merge_verification_missing") in codes(broken)
+
+
+def test_a_change_to_the_sealing_harness_invalidates_b3_even_uncited() -> None:
+    assert invalidated_units(["tests/Mavi.IntegrationTests/Qualification/S1SealingScaleTests.cs"], {}) == {
+        "tests/Mavi.IntegrationTests/Qualification/S1SealingScaleTests.cs": {"B3"}
+    }
+    assert "B3" in invalidated_units(["tests/Mavi.IntegrationTests/Qualification/QualificationGate.cs"], {})[
+        "tests/Mavi.IntegrationTests/Qualification/QualificationGate.cs"
+    ]

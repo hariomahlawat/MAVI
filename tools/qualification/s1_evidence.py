@@ -83,6 +83,10 @@ BEHAVIOR_BEARING_SURFACE: tuple[str, ...] = (
 EVIDENCE_TEST_TREES: tuple[str, ...] = ("src/vision/tests/*", "tests/*")
 ALWAYS_EVIDENCE: dict[str, tuple[str, ...]] = {
     "tests/fixtures/scene-analytics/scripted-corpus-v1.json": ("B1",),
+    # The harnesses that produce a unit's retained output are evidence whether
+    # or not the record cites them as suites.
+    "tests/Mavi.IntegrationTests/Qualification/S1SealingScaleTests.cs": ("B3",),
+    "tests/Mavi.IntegrationTests/Qualification/QualificationGate.cs": ("B3",),
 }
 
 # --------------------------------------------------------------------------- §2.2
@@ -137,7 +141,64 @@ MAXIMUM_COMPLETION_TRACKS = 10_000
 WORST_CASE_SEALED_OBJECTS = MAXIMUM_COMPLETION_TRACKS * 5
 
 
-WORKER_CONFIGURATION_ARTIFACT = "b3.worker-configuration"
+# §3.1: the only skips a PASS admits, each an OS-conditional test that passes
+# on the other variant. Keyed by (suite, variant it skips on). The golden-byte
+# test is deliberately absent: PR A pins both variants, so B1 admits no golden
+# skip. ``test_approved_paired_skips_are_the_os_conditional_tests`` fails if the
+# source's OS-conditional tests drift from this list.
+_WINDOWS, _LINUX = "windows-x86_64-cpu", "linux-x86_64-cpu"
+APPROVED_PAIRED_SKIPS: dict[tuple[str, str], frozenset[str]] = {
+    ("src/vision/tests/test_track_lifecycle.py", _WINDOWS): frozenset({
+        "test_many_live_tracks_need_no_descriptor_each",
+    }),
+    ("src/vision/tests/test_artifact_store.py", _WINDOWS): frozenset({
+        "test_rejects_symlink_escape",
+        "test_rejected_intermediate_symlink_does_not_create_outside_directories",
+        "test_rejects_symlinked_job_root_and_cleanup_preserves_target",
+        "test_directory_swap_during_write_cannot_redirect_artifact_outside_root",
+        "test_cleanup_superseded_attempts_never_follows_a_linked_attempt",
+        "test_cleanup_superseded_attempts_does_not_follow_links_inside_an_attempt",
+        "test_cleanup_superseded_attempts_rejects_a_linked_job_root",
+        "test_append_read_and_remove_never_follow_a_leaf_symlink",
+        "test_append_read_and_remove_refuse_a_symlinked_ancestor",
+        "test_append_and_read_refuse_a_hard_linked_file",
+        "test_append_and_read_refuse_a_fifo_without_blocking",
+        "test_evidence_write_and_remove_refuse_a_linked_evidence_directory",
+    }),
+    ("src/vision/tests/test_artifact_store_windows.py", _LINUX): frozenset({
+        "test_windows_rejects_junction_in_attempt_ancestry",
+        "test_windows_parent_swap_cannot_redirect_publish",
+        "test_windows_cleanup_does_not_follow_reparse_point",
+        "test_windows_cleanup_preserves_sibling_attempt",
+        "test_windows_publish_rechecks_authority_immediately_before_replace",
+        "test_windows_denied_authority_leaves_no_destination_or_temp",
+        "test_windows_post_replace_identity_failure_rolls_back_exact_published_handle",
+        "test_windows_rejects_component_before_unicode_string_length_wrap",
+        "test_windows_superseded_cleanup_removes_only_older_attempts",
+        "test_windows_superseded_cleanup_rejects_junction_attempt",
+        "test_windows_superseded_cleanup_does_not_follow_nested_junction",
+        "test_windows_append_accumulates_through_append_only_handle",
+        "test_windows_append_read_and_remove_refuse_junction_ancestor",
+        "test_windows_remove_refuses_a_junction_leaf_and_preserves_its_target",
+        "test_windows_append_and_read_refuse_a_hard_linked_file",
+        "test_windows_remove_deletes_only_the_leaf_and_refuses_directories",
+        "test_windows_write_stream_source_failure_leaves_no_destination_or_temp",
+        "test_windows_evidence_write_and_remove_refuse_a_junctioned_evidence_directory",
+    }),
+}
+
+
+def test_function_name(test_id: str) -> str:
+    """``tests.test_x::test_name[param]`` -> ``test_name``."""
+    return test_id.rsplit("::", 1)[-1].split("[", 1)[0]
+
+
+# §10.4: the post-merge workflows a closure needs on the exact merge SHA.
+POST_MERGE_WORKFLOWS = (
+    "quality-gate.yml",
+    "task10-runtime-qualification.yml",
+    "task17-acceptance.yml",
+)
 
 # §11: every step of the S1 operator path, each passed with named evidence.
 DISCONNECTED_OUTCOMES = (
@@ -514,6 +575,10 @@ class _Checker:
             if entry["skipped"] != len(entry["skippedTests"]) or entry["passed"] != len(entry["passedTests"]):
                 self.fail(name, "count_inconsistent", f"suite {suite_id}: counts do not match the named passed/skipped tests")
             for test in entry["skippedTests"]:
+                approved = APPROVED_PAIRED_SKIPS.get((entry["suite"], entry["variant"]), frozenset())
+                if test_function_name(test) not in approved:
+                    self.fail(name, "skip_not_approved", f"suite {suite_id} skipped {test} on {entry['variant']}; §3.1 approves no such skip")
+                    continue
                 if not self._skip_is_paired(test, entry["variant"], cited, measured_sha):
                     self.fail(name, "skip_not_permitted", f"suite {suite_id} skipped {test} on {entry['variant']} without a paired-variant counterpart")
         for suite in required.suites:
@@ -572,12 +637,19 @@ class _Checker:
                 self.fail(name, "junit_count_mismatch", f"suite {suite_id}: {key} differ from the retained XML")
 
     def _skip_is_paired(self, test: str, variant: str, cited: list[dict[str, Any]], measured_sha: str) -> bool:
-        """A skip is permitted only with *positive* evidence: the named
-        counterpart test is among the passed tests of a clean result for the
-        counterpart suite on the other variant. That result is cited by the same
-        unit and comes from a successful run on the unit's measured SHA."""
+        """An approved skip still needs *positive* evidence: the same test of the
+        same suite passed on the other qualified variant, in a clean result the
+        same unit cites, from a successful run on the unit's measured SHA."""
+        suites_of_test = {entry["suite"] for entry in cited if test in entry["skippedTests"] and entry["variant"] == variant}
         for pair in self.record["pairedVariantSkips"]:
-            if pair["test"] != test or pair["skipsOn"] != variant or pair["counterpartVariant"] == variant:
+            if (
+                pair["test"] != test
+                or pair["skipsOn"] != variant
+                or pair["counterpartVariant"] == variant
+                or pair["counterpartVariant"] not in QUALIFIED_CPU_VARIANTS
+                or pair["counterpartSuite"] not in suites_of_test
+                or test_function_name(pair["counterpartTest"]) != test_function_name(test)
+            ):
                 continue
             for entry in cited:
                 run = self.record["runs"].get(entry["run"])
@@ -633,7 +705,7 @@ class _Checker:
                 else:
                     self._timing(name, requirement.metric, entry)
         if name == "B3":
-            self._b3_headroom(by_metric)
+            self._b3_headroom(by_metric, measured_sha)
 
     def _timing(self, name: str, label: str, entry: dict[str, Any]) -> None:
         if entry.get("samples", 0) < MINIMUM_TIMING_SAMPLES:
@@ -648,7 +720,7 @@ class _Checker:
         if "p50RunSpread" not in stats:
             self.fail(name, "timing_incomplete", f"{label}: run-to-run p50 spread not recorded")
 
-    def _b3_headroom(self, by_metric: dict[str, dict[str, Any]]) -> None:
+    def _b3_headroom(self, by_metric: dict[str, dict[str, Any]], measured_sha: str) -> None:
         timeout = by_metric.get("b3.worker-request-timeout-ms")
         wall = by_metric.get("b3.real-store-completion-wall-ms")
         if timeout is None or wall is None or wall.get("stats") is None:
@@ -658,19 +730,18 @@ class _Checker:
         default_ms, maximum_ms = worker_request_timeout_bounds_ms()
         if not 0 < timeout["value"] <= maximum_ms:
             self.fail("B3", "worker_timeout_out_of_range", f"worker timeout {timeout['value']} ms is outside (0, {maximum_ms}] ms")
+        # No supported install path configures the worker timeout (installs set
+        # none of MAVI_REQUEST_TIMEOUT_SECONDS), so the qualified value is the
+        # WorkerSettings default. A non-default value needs a checker change
+        # that parses a real install configuration, not a cited file.
         if timeout["value"] != default_ms:
-            # Only a retained copy of the install's worker configuration can
-            # justify a non-default timeout; citing any other artifact cannot.
-            if timeout.get("artifact") != WORKER_CONFIGURATION_ARTIFACT or WORKER_CONFIGURATION_ARTIFACT not in self.record["retainedArtifacts"]:
-                self.fail("B3", "worker_timeout_unbound", f"worker timeout {timeout['value']} ms is not the {default_ms} ms default and does not cite {WORKER_CONFIGURATION_ARTIFACT}")
-            else:
-                self._verify_file("B3", WORKER_CONFIGURATION_ARTIFACT, self.record["retainedArtifacts"][WORKER_CONFIGURATION_ARTIFACT])
+            self.fail("B3", "worker_timeout_unbound", f"worker timeout {timeout['value']} ms is not the {default_ms} ms WorkerSettings default the qualified install uses")
         # §7.4: headroom below 2× against the worker request timeout is blocking.
         if wall["stats"]["max"] * 2 > timeout["value"]:
             self.fail("B3", "completion_headroom_insufficient", f"max completion {wall['stats']['max']} ms × 2 > worker timeout {timeout['value']} ms")
-        self._sealing_output(wall, timeout)
+        self._sealing_output(wall, timeout, measured_sha)
 
-    def _sealing_output(self, wall: dict[str, Any], timeout: dict[str, Any]) -> None:
+    def _sealing_output(self, wall: dict[str, Any], timeout: dict[str, Any], measured_sha: str) -> None:
         """The wall time must be the sealing harness's authoritative output."""
         artifact_id = wall.get("artifact")
         if artifact_id != "b3.sealing-scale-output":
@@ -691,6 +762,8 @@ class _Checker:
                     (f"tracks {shape['tracks']} != {MAXIMUM_COMPLETION_TRACKS}", shape["tracks"] == MAXIMUM_COMPLETION_TRACKS),
                     (f"sealed objects {shape['sealedObjects']} != {WORST_CASE_SEALED_OBJECTS}", shape["sealedObjects"] == WORST_CASE_SEALED_OBJECTS),
                     ("its worker timeout differs from the recorded one", output["workerRequestTimeoutMs"] == timeout["value"]),
+                    (f"it measured {output['environment']['gitSha']}, not {measured_sha}", output["environment"]["gitSha"] == measured_sha),
+                    ("its tree was not clean", output["environment"]["gitWorkingTreeClean"] == "true"),
                     *(
                         (f"its {stat} differs from the recorded one", output["completion"][stat] == wall["stats"][stat])
                         for stat in ("min", "p50", "p95", "max")
@@ -816,6 +889,34 @@ class _Checker:
             if not probe["passed"] or not probe["proxyEnvironmentAbsent"] or any(item["reachable"] for item in probe["probes"]):
                 self.fail("DISCONNECTED", "isolation_not_evidenced", f"{phase} does not show an isolated host")
         self._disconnected_run(measured_sha)
+        self._bundle_manifest(measured_sha)
+
+    def _bundle_manifest(self, measured_sha: str) -> None:
+        """The retained Runtime Bundle manifest, not the record's copy, must show
+        the measured code: its sourceCommit, variant and mavi-vision wheel."""
+        manifest = self._retained_json("DISCONNECTED", "disconnected.runtime-bundle-manifest", "bundle_manifest_mismatch")
+        if manifest is None:
+            return
+        block = self.record["disconnected"]
+        try:
+            wheels = [
+                item for item in manifest["artifacts"]
+                if re.sub(r"[-_.]+", "-", str(item.get("package") or "")).lower() == "mavi-vision"
+            ]
+            problems = [
+                label
+                for label, holds in (
+                    (f"sourceCommit {manifest['sourceCommit']} is not the measured {measured_sha}", manifest["sourceCommit"] == measured_sha),
+                    (f"platformVariant {manifest['platformVariant']} is not {block['variant']}", manifest["platformVariant"] == block["variant"]),
+                    (f"it lists {len(wheels)} mavi-vision artifacts, not one", len(wheels) == 1),
+                    ("its mavi-vision wheel hash differs from the record's", bool(wheels) and all(item["sha256"] == block["maviVisionWheelSha256"] for item in wheels)),
+                )
+                if not holds
+            ]
+        except (KeyError, TypeError) as exc:
+            problems = [f"incomplete ({exc})"]
+        for problem in problems:
+            self.fail("DISCONNECTED", "bundle_manifest_mismatch", f"disconnected.runtime-bundle-manifest: {problem}")
 
     # -- closure (§2.3) -------------------------------------------------------------
     def closure(self) -> None:
@@ -827,6 +928,16 @@ class _Checker:
             for name in UNITS:
                 if self.record["units"][name]["verdict"] != "PASS":
                     self.fail("record", "closure_units_open", f"s1Closed with {name} {self.record['units'][name]['verdict']}")
+            if closure is not None:
+                for workflow in POST_MERGE_WORKFLOWS:
+                    if not any(
+                        run["kind"] == "workflow"
+                        and run.get("workflow") == workflow
+                        and run["headSha"] == closure["mergeSha"]
+                        and run["conclusion"] == "success"
+                        for run in self.record["runs"].values()
+                    ):
+                        self.fail("record", "post_merge_verification_missing", f"s1Closed needs a successful {workflow} run on the merge SHA {closure['mergeSha']}")
         if closure is None:
             return
         cited = {
