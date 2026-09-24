@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1 Track Evidence Set Implementation Plan
 
-**Status:** Implementation-grade parent plan; independently reviewed 2026-09-23. S1.1 and S1.2 are merged. The S1.3 plan is accepted (PR #81); S1.3a (read contract) is merged (PR #82, `main@eb521172`); S1.3b (UI) is implemented in PR #83, in review; S1.4 is outstanding.  
+**Status:** Implementation-grade parent plan; independently reviewed 2026-09-23. S1.1, S1.2 and S1.3 are merged. S1.3b merged in PR #83 at `main@81b43dec32bec0c5e876d2df372503016c05dbdf`. S1.4 hardening/qualification is the active closure slice; execution plan: `2026-09-24-stage2-s1-4-hardening-qualification-implementation.md`.  
 **Date:** 2026-09-23  
 **Baseline:** `main@6809606e596d121186b5244869760073fe82072a` — PR #73 merged; Stage-2 architecture frozen  
 **Governing architecture:** ADR-006, ADR-013, ADR-014, Stage-2 parent plan, Stage-2 acceptance register  
@@ -181,7 +181,7 @@ S1 should be implemented as **four mergeable sub-slices**. Each sub-slice leaves
 
 The implementation PRs may be separate, but all remain inside Stage-2 S1 and the Stage-2 acceptance register remains the authority.
 
-**Current implementation state (2026-09-24):** S1.1 merged in PR #75. S1.2a/#77, S1.2b/#78 and S1.2c/#79 are merged; S1.2 is complete on `main@2060599a9786651f36071742034076369520d0ce`. The dedicated S1.3 implementation plan is `docs/superpowers/plans/2026-09-24-stage2-s1-3-evidence-read-ui-implementation.md` (accepted, PR #81). S1.3a, the Track-detail `observations[]` read contract, is merged (PR #82, `main@eb521172c3029750fb64ad0d1851250de926fdf9`). S1.3b, the minimal Evidence Set UI, is implemented in PR #83 and in review (plan §20.2). S1.3 is complete once S1.3b merges; S1.4 is outstanding.
+**Current implementation state (2026-09-24):** S1.1 merged in PR #75. S1.2a/#77, S1.2b/#78 and S1.2c/#79 are merged; S1.2 is complete on `main@2060599a9786651f36071742034076369520d0ce`. The dedicated S1.3 implementation plan is `docs/superpowers/plans/2026-09-24-stage2-s1-3-evidence-read-ui-implementation.md` (accepted, PR #81). S1.3a, the Track-detail `observations[]` read contract, is merged (PR #82, `main@eb521172c3029750fb64ad0d1851250de926fdf9`). S1.3b, the minimal Evidence Set UI, is merged (PR #83, `main@81b43dec32bec0c5e876d2df372503016c05dbdf`; plan §20.2). S1.3 is complete. S1.4 hardening/qualification is active under `2026-09-24-stage2-s1-4-hardening-qualification-implementation.md`; B1–B6 remain OPEN.
 
 ---
 
@@ -800,7 +800,7 @@ Therefore:
 Do not silently reuse a pre-S1 pipeline-profile hash.
 
 Two mechanics make this concrete:
-- Task 10's path triggers (`.github/workflows/task10-runtime-qualification.yml`) already cover `mavi_vision/runtime/**`, `mavi_vision/pipeline/**`, `mavi_vision/tracking/**`, `common/analytical.py`, `src/vision/config/pipelines/**`, `models/**` and `src/vision/runtime/**/*.json` on both `pull_request` and `push` *(corrected in S1.1: an earlier draft of this plan stated that pipeline/tracking were not covered; the workflow on `main` at `2112d3a` covers them)*. S1.1 is therefore qualified by the Task 10 run its own PR triggers, whose run ids and exact head are recorded in the PR; `workflow_dispatch` remains available for re-runs. S1.2 widens the triggers to all of `src/vision/mavi_vision/**` so evidence/storage modules cannot merge unqualified by omission.
+- Task 10's path triggers (`.github/workflows/task10-runtime-qualification.yml`) already cover `mavi_vision/runtime/**`, `mavi_vision/pipeline/**`, `mavi_vision/tracking/**`, `common/analytical.py`, `src/vision/config/pipelines/**`, `models/**` and `src/vision/runtime/**/*.json` on both `pull_request` and `push` *(corrected in S1.1: an earlier draft of this plan stated that pipeline/tracking were not covered; the workflow on `main` at `2112d3a` covers them)*. S1.1 is therefore qualified by the Task 10 run its own PR triggers, whose run ids and exact head are recorded in the PR; `workflow_dispatch` remains available for re-runs. S1.2 widens the triggers to all of `src/vision/mavi_vision/**` so evidence/storage modules cannot merge unqualified by omission. *(Corrected at the S1.4 plan review, `main@81b43dec`: S1.2 added `evidence/**`, `quality/**`, `video/**` and `storage/**` but not all of `mavi_vision/**`. `worker/**`, `common/control_plane.py` (the v3 completion contract), `common/contracts.py`, `common/lease.py` and `detection/rtmdet.py` still do not trigger Task 10; see S1.4 plan §10.1.)*
 - `models/qualifications/rtmdet-m-coco-phase1-v1.json` records `pipelineProfileSha256`; the S1.2 profile schema bump changes that SHA, and `verify_qualification_relationships` compares it, so the record is re-derived in the same PR (it stays `pending`; nothing is claimed).
 
 Non-claims during S1: the Development CUDA runtime evidence (C4) binds the runtime variant, not the pipeline, and stays valid; no E2E (C6) evidence exists to rebind; the RTMDet manifest remains `unverified` and `runtime.json` `partial` throughout; no S1 sub-PR states a qualification claim beyond "Task 10 CPU matrices green on head X".
@@ -1103,7 +1103,7 @@ Keep UI compact and evidence-oriented.
 
 ## PR S1.4 — qualification/hardening closure
 
-Run bound/performance/offline/Task-10 evidence and update acceptance B1–B6.
+Execute `2026-09-24-stage2-s1-4-hardening-qualification-implementation.md`: freeze the final S1 identity; run B1–B6 deterministic, resource, bound, contract, real-video, disconnected and Task-10 evidence; reconcile qualification truth without changing behavior merely to obtain a new identity; then update the authoritative acceptance register.
 
 S1 closes only here.
 

@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.3 Evidence Read Contract and Minimal UI: implementation plan
 
-**Status:** Accepted plan, revision 4 (merged in PR #81; three independent cold passes, no P1, all P2 resolved; see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`). **S1.3a (read contract) is complete: PR #82, merged at `main@eb521172c3029750fb64ad0d1851250de926fdf9`.** **S1.3b (minimal Evidence Set UI) is implemented in PR #83, in review**; see §20. S1.3 is complete only once S1.3b is reviewed and merged. **S1.4 is outstanding.**  
+**Status:** Accepted plan, revision 4 (merged in PR #81; three independent cold passes, no P1, all P2 resolved; see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`). **S1.3 is complete.** S1.3a (read contract) merged in PR #82 at `main@eb521172c3029750fb64ad0d1851250de926fdf9`; S1.3b (minimal Evidence Set UI) merged in PR #83 at `main@81b43dec32bec0c5e876d2df372503016c05dbdf`. **S1.4 hardening/qualification is the active next slice**; execution plan: `2026-09-24-stage2-s1-4-hardening-qualification-implementation.md`.  
 **Date:** 2026-09-24  
 **Baseline:** `main@2060599a9786651f36071742034076369520d0ce` — PR #79 merged; S1.2 complete  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §9  
@@ -884,9 +884,9 @@ Baseline `main@0eb969a6e9205467f1dd275995e09aa5b9acd887` (PR #81 merged). Merged
 
 The pipeline profile, the model/runtime records and the qualification record are unchanged. B5 stays OPEN.
 
-### 20.2 S1.3b — minimal Evidence Set UI (PR #83, in review; not merged)
+### 20.2 S1.3b — minimal Evidence Set UI (PR #83, merged)
 
-Baseline `main@eb521172c3029750fb64ad0d1851250de926fdf9` (PR #82 merged). This implements §7, §8, §10 S1.3b and §12.2–§12.4. It changes no server, worker, persistence, schema, pipeline-profile or dependency.
+Baseline `main@eb521172c3029750fb64ad0d1851250de926fdf9` (PR #82 merged). PR #83 merged as `main@81b43dec32bec0c5e876d2df372503016c05dbdf`; S1.3 is complete. This implements §7, §8, §10 S1.3b and §12.2–§12.4. It changes no server, worker, persistence, schema, pipeline-profile or dependency.
 
 **Implemented:**
 - **Web contract.** `TRACK_EVIDENCE_ROLES`, `TrackEvidenceObservation` and `TrackDetail.observations` mirror the S1.3a response. `representative` stays on the type for wire compatibility only.
