@@ -498,7 +498,7 @@ Also record, as observed facts:
 
 ### 9.3 Accessibility/visual record
 
-At minimum inspect 1366x768, 1600x900 and one ultra-wide viewport.
+At minimum inspect the four normative real-browser viewports required by the UI/UX specification §26: 1366x768, 1440x900, 1920x1080 and approximately 2560x1080.
 
 Confirm:
 
@@ -593,7 +593,7 @@ After the S1.4 PR merges, verify the resulting `main` head with:
 - Task 17 Acceptance Validation;
 - any other workflow triggered by actual S1.4 code/config changes.
 
-If the merge is documentation/evidence-only and Task 10's path filters do not start a push run, invoke its existing `workflow_dispatch` explicitly against the **merge SHA on `main`**, not against the pre-merge PR head. Record that run as the post-merge B6 evidence. Do not treat an older green run on an ancestor as post-merge verification.
+If the merge is documentation/evidence-only and Task 10's path filters do not start a push run, create a dedicated immutable ref (for example `qual/s1-4/<merge-sha>`) at the **merge SHA**, dispatch the existing `workflow_dispatch` against that ref, and verify the resulting run's `head_sha` equals the merge SHA. A dispatch against moving `main` is not sufficient unless `main` still points to that exact SHA at dispatch time and the run's `head_sha` is verified. Record that run as the post-merge B6 evidence. Do not treat an older green run on an ancestor as post-merge verification.
 
 **B6 PASS:**
 - the Task-10 CPU matrix passes with zero unexplained skips, on a run whose verified `head_sha` equals the measured SHA, including the suites the harness PR added;
