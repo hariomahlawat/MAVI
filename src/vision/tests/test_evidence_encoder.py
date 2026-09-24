@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 from io import BytesIO
 
 import numpy as np
 import PIL
 import pytest
-from PIL import Image, JpegImagePlugin
+from PIL import Image, JpegImagePlugin, features
 
 import mavi_vision.evidence.encoder as encoder_module
 from mavi_vision.evidence.encoder import (
@@ -161,21 +162,70 @@ def test_encoding_is_deterministic_within_a_process() -> None:
     assert first == second
 
 
-# Golden bytes are claimed only within a runtime variant (plan §8): the table is
-# keyed by OS and Pillow build, and other variants skip rather than assert.
+# Golden bytes are claimed only within a runtime variant (S1.2 plan §8, S1.4
+# plan §5.2). A variant's encoding identity is its OS platform, its Pillow
+# build and the libjpeg-turbo that build bundles: any of the three can change
+# the bytes, so all three are the key.
+#
+# Two cases, so the pin covers both encoder paths: a smooth crop that fits at
+# the first ladder step, and a noise crop that the Representative cap forces
+# down the reduction ladder (a smaller long edge and a lower quality).
+GOLDEN_CASES = {
+    "smooth-400x300-supplemental": (lambda: _smooth(300, 400), SUPPLEMENTAL_CAP_BYTES),
+    "noise-500x300-representative": (lambda: _noise(300, 500, seed=3), REPRESENTATIVE_CAP_BYTES),
+}
 GOLDEN_SHA256 = {
-    ("linux", "11.3.0"): "0e30820563fb84ddf7de44d6a59278cf12a2f184d344cf7d19a1537d678765d2",
+    ("linux", "11.3.0", "3.1.1"): {
+        "smooth-400x300-supplemental": "0e30820563fb84ddf7de44d6a59278cf12a2f184d344cf7d19a1537d678765d2",
+        "noise-500x300-representative": "ec2a23be5f16bae00276639984731befb4f70f24b1e5162e01222a98268fd0ca",
+    },
+}
+
+# The qualified CPU variants (Task 10) and the platform each must run on. In a
+# qualified job ``MAVI_RUNTIME_VARIANT`` names the variant, and a missing pin
+# there is a failure, never a skip: final B1 closure admits no golden skip.
+QUALIFIED_VARIANT_PLATFORMS = {
+    "linux-x86_64-cpu": "linux",
+    "windows-x86_64-cpu": "win32",
 }
 
 
-def test_golden_bytes_per_runtime_variant() -> None:
-    key = (sys.platform, PIL.__version__)
-    expected = GOLDEN_SHA256.get(key)
-    if expected is None:
-        pytest.skip(f"no pinned golden encoding for runtime variant {key}")
-    encoded = JpegLadderEncoder(POLICY).encode(_smooth(300, 400), SUPPLEMENTAL_CAP_BYTES)
+def _encoding_identity() -> tuple[str, str, str | None]:
+    return (sys.platform, PIL.__version__, features.version("libjpeg_turbo"))
+
+
+@pytest.mark.parametrize("case", sorted(GOLDEN_CASES))
+def test_golden_bytes_per_runtime_variant(case: str) -> None:
+    make_crop, cap = GOLDEN_CASES[case]
+    encoded = JpegLadderEncoder(POLICY).encode(make_crop(), cap)
     assert encoded is not None
-    assert hashlib.sha256(encoded.payload).hexdigest() == expected
+    actual = hashlib.sha256(encoded.payload).hexdigest()
+
+    identity = _encoding_identity()
+    variant = os.environ.get("MAVI_RUNTIME_VARIANT")
+    if variant is not None:
+        assert variant in QUALIFIED_VARIANT_PLATFORMS, f"unknown qualified runtime variant {variant!r}"
+        assert sys.platform == QUALIFIED_VARIANT_PLATFORMS[variant], (
+            f"runtime variant {variant!r} is running on {sys.platform!r}"
+        )
+
+    pinned = GOLDEN_SHA256.get(identity)
+    if pinned is None:
+        detail = f"encoding identity {identity}: {case} sha256 {actual} ({encoded.size_bytes} B, step {encoded.ladder_step})"
+        if variant is not None:
+            pytest.fail(f"no pinned golden for qualified variant {variant} at {detail}")
+        pytest.skip(f"no pinned golden outside a qualified variant; {detail}")
+    assert actual == pinned[case]
+
+
+def test_every_qualified_variant_has_a_complete_pin() -> None:
+    """A pin table that lost a case, or a qualified platform with no pin at all,
+    would turn a golden check back into a skip."""
+    pinned_platforms = {platform for platform, _, _ in GOLDEN_SHA256}
+    assert set(QUALIFIED_VARIANT_PLATFORMS.values()) <= pinned_platforms
+    for identity, digests in GOLDEN_SHA256.items():
+        assert set(digests) == set(GOLDEN_CASES), identity
+        assert all(len(value) == 64 and int(value, 16) >= 0 for value in digests.values()), identity
 
 
 # E7 / E8 --------------------------------------------------------------------------
