@@ -300,8 +300,9 @@ def _synthetic_outputs() -> dict[str, dict]:
                 "retirements": preset.retirements,
                 "perLiveHeldEvidenceBytesMax": 100_000 + level,
                 "perLiveBufferedTrajectoryPointsMax": 4_000 + level,
-                "retiredSlope": {"bytesPerRetiredTrack": slope},
+                "retiredSlope": {"bytesPerRetiredTrack": slope, "stderr": slope * 0.01},
                 "stagingPeakBytes": 1_000 * level,
+                "stagingDerivedBoundBytes": 4_000 * level,
                 "completion": {"tracedPeakBytes": 90_000_000, "bodyBytes": 30_000_000} if preset.measure_completion else None,
                 "process": {"plateauMeanBytes": 50_000_000 + 200_000 * level} if preset.mode == "process" else None,
             },
@@ -320,13 +321,28 @@ def test_derive_computes_the_bound_metrics() -> None:
     assert values["b2.per-live-held-evidence-bytes-max"] == 100_064
     assert values["b2.staging-peak-bytes"] == 64_000
     assert values["b2.per-live-buffered-trajectory-points-max"] == 4_064
-    assert derived["recorded"]["processMemoryPerLiveTrackSlopeBytes"] == pytest.approx(200_000)
+    # The per-live slope is a first-class metric, fitted from the five plateaus
+    # it retains, and reconciled with the bound-1 accounting.
+    assert values["b2.process-memory-per-live-track-slope"] == pytest.approx(200_000)
+    assert values["b2.staging-peak-to-derived-bound-ratio"] == pytest.approx(0.25)
+    fit = derived["liveLevelFit"]
+    assert [level for level, _ in fit["points"]] == list(s1_memory.LIVE_LEVELS)
+    assert fit["slope"] == pytest.approx(200_000) and fit["r2"] == pytest.approx(1.0)
+    reconciliation = derived["boundOneReconciliation"]
+    assert reconciliation["perLiveProcessSlopeBytes"] == values["b2.process-memory-per-live-track-slope"]
+    assert reconciliation["unaccountedPerLiveBytes"] == pytest.approx(200_000 - reconciliation["accountedEncodedEvidenceBytesMax"])
+    assert reconciliation["encodedEvidenceBoundBytes"] == s1_memory.PER_LIVE_HELD_BOUND_BYTES
+    assert "processMemoryPerLiveTrackSlopeBytes" not in derived.get("recorded", {})
 
 
 def test_derive_metric_names_are_the_ones_the_checker_binds() -> None:
     from s1_evidence import UNIT_REQUIREMENTS
 
-    bound = {requirement.metric: requirement.unit for requirement in UNIT_REQUIREMENTS["B2"].measurements}
+    from s1_evidence import B2_BASE_MEASUREMENTS, QUALIFIED_CPU_VARIANTS
+
+    # One derived output per variant, carrying every base metric the checker binds.
+    bound = {requirement.metric: requirement.unit for requirement in B2_BASE_MEASUREMENTS}
+    assert {r.metric for r in UNIT_REQUIREMENTS["B2"].measurements} == {f"{m}.{v}" for m in bound for v in QUALIFIED_CPU_VARIANTS}
     derived = s1_memory.derive(_synthetic_outputs())["measurements"]
     assert {name: entry["unit"] for name, entry in derived.items()} == bound
 
@@ -385,15 +401,108 @@ def test_native_and_fixture_runs_agree_on_structure(tmp_path: Path) -> None:
     assert abs(native_run["tracks"] - fixture["tracks"]) <= workload.live_tracks
 
 
-def test_slope_variation_is_floored_and_never_raises() -> None:
-    # Near-zero or negative baselines do not blow up the ratio or raise.
-    assert s1_memory._relative_change(2_000.0, 2_100.0) == pytest.approx(0.05)
-    assert s1_memory._relative_change(10.0, 60.0) == pytest.approx(50 / 1024)
-    assert s1_memory._relative_change(-50.0, 50.0) == pytest.approx(100 / 1024)
-    assert s1_memory._relative_change(0.0, 0.0) == 0.0
+def test_slope_variation_is_the_plain_relative_change() -> None:
+    fit = lambda slope, stderr=1.0: {"bytesPerRetiredTrack": slope, "stderr": stderr}  # noqa: E731
+    assert s1_memory._variation(fit(2_000.0), fit(2_100.0))["value"] == pytest.approx(0.05)
+    # No floor: a doubling from 100 B/track is a 100 % change, not 9.8 %.
+    assert s1_memory._variation(fit(100.0), fit(200.0))["value"] == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    ("baseline", "reason"),
+    [
+        ({"bytesPerRetiredTrack": 0.0, "stderr": 0.0}, "not positive"),
+        ({"bytesPerRetiredTrack": -50.0, "stderr": 1.0}, "not positive"),
+        ({"bytesPerRetiredTrack": 100.0, "stderr": 10.0}, "cannot resolve"),
+        ({"bytesPerRetiredTrack": 100.0}, "cannot resolve"),
+    ],
+)
+def test_an_unresolvable_baseline_makes_variation_undefined(baseline, reason: str) -> None:
+    result = s1_memory._variation(baseline, {"bytesPerRetiredTrack": 120.0, "stderr": 1.0})
+    assert result["value"] is None and reason in result["undefined"]
+
+
+def test_fit_line_reports_the_slope_standard_error() -> None:
+    exact = s1_memory.fit_line([(x, 2.0 * x) for x in range(10)])
+    assert exact["stderr"] == pytest.approx(0.0, abs=1e-9)
+    noisy = s1_memory.fit_line([(0, 0.0), (1, 3.0), (2, 1.0), (3, 5.0), (4, 2.0)])
+    assert noisy["stderr"] > 0
 
 
 def test_the_checker_trajectory_bound_is_the_spool_chunk() -> None:
     from s1_evidence import TRAJECTORY_CHUNK_POINTS
 
     assert TRAJECTORY_CHUNK_POINTS == s1_memory.DEFAULT_CHUNK_POINTS
+
+
+# --------------------------------------------------------------------------- §6.3 staging lifecycle and bound
+LIFECYCLE = dataclasses.replace(
+    s1_memory.LIFECYCLE_WORKLOAD, tracker="fixture", gap_frames=12, retirements=12, track_frames=20, sample_every=2
+)
+
+
+def test_the_staging_lifecycle_holds_on_the_real_processor(tmp_path: Path) -> None:
+    output = s1_memory.staging_lifecycle(LIFECYCLE, tmp_path)
+    assert output["schema"] == "s1-b2-staging-lifecycle-v1"
+    assert output["checks"] == {check: True for check in s1_memory_checks()}
+
+
+def s1_memory_checks():
+    from s1_evidence import STAGING_LIFECYCLE_CHECKS
+
+    return STAGING_LIFECYCLE_CHECKS
+
+
+def test_a_processor_that_leaks_failed_attempt_staging_is_detected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(s1_memory.VideoProcessor, "_cleanup_best_effort", lambda self, guard: None)
+    checks = s1_memory.staging_lifecycle(LIFECYCLE, tmp_path)["checks"]
+    assert checks["failedAttemptCleaned"] is False and checks["supersededAttemptRemoved"] is True
+
+
+def test_a_store_that_never_supersedes_is_detected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(s1_memory.StagingArtifactStore, "cleanup_superseded_attempts", lambda self: None)
+    checks = s1_memory.staging_lifecycle(LIFECYCLE, tmp_path)["checks"]
+    assert checks["supersededAttemptRemoved"] is False and checks["failedAttemptCleaned"] is True
+
+
+def test_staging_beyond_the_derived_bound_is_detected(tmp_path: Path) -> None:
+    workload = dataclasses.replace(SMALL, retirements=12, sample_every=2, measure_completion=False)
+    clean = run(workload, tmp_path / "clean")
+    assert 0 < clean["stagingPeakBytes"] <= clean["stagingDerivedBoundBytes"]
+    # The bound is ADR-013's derivation applied to this run's own Tracks: 544
+    # KiB each, plus the trajectory artifacts staged and their spool records.
+    terms = clean["stagingDerivedBoundTerms"]
+    staged = s1_memory.attempt_directory(tmp_path / "clean", s1_memory.JOB_ID, 1)
+    assert terms["tracks"] == clean["tracks"] > 0
+    assert terms["perTrackEvidenceBoundBytes"] == 64 * 1024 + 3 * 160 * 1024
+    assert terms["trajectoryArtifactBytes"] == sum(path.stat().st_size for path in staged.rglob("trajectories/*.msgpack")) > 0
+    assert terms["spoolRecordBytes"] > 0 and terms["spoolRecordBytes"] % s1_memory.SPOOL_RECORD_BYTES == 0
+    assert clean["stagingDerivedBoundBytes"] == (
+        terms["tracks"] * terms["perTrackEvidenceBoundBytes"] + terms["trajectoryArtifactBytes"] + terms["spoolRecordBytes"]
+    )
+
+    attempt = s1_memory.attempt_directory(tmp_path / "junk", s1_memory.JOB_ID, 1)
+    junk = attempt / "junk.bin"
+
+    def stage_junk(frame: int) -> None:
+        # Once the attempt has staged something, add bytes no Track accounts for.
+        if attempt.exists() and not junk.exists():
+            junk.write_bytes(b"\0" * (clean["stagingDerivedBoundBytes"] * 2))
+
+    leaking = run(workload, tmp_path / "junk", on_frame=stage_junk)
+    assert leaking["stagingPeakBytes"] > leaking["stagingDerivedBoundBytes"]
+
+
+def test_a_lifecycle_phase_beyond_its_derived_bound_is_detected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    real = s1_memory.run_workload
+
+    def superseding_over_its_bound(*args, **kwargs):
+        output = real(*args, **kwargs)
+        if kwargs.get("attempt_count") == 3:
+            output["results"]["stagingPeakBytes"] = output["results"]["stagingDerivedBoundBytes"] + 1
+        return output
+
+    monkeypatch.setattr(s1_memory, "run_workload", superseding_over_its_bound)
+    checks = s1_memory.staging_lifecycle(LIFECYCLE, tmp_path)["checks"]
+    assert checks["peaksWithinDerivedBound"] is False
+    assert all(value for name, value in checks.items() if name != "peaksWithinDerivedBound")

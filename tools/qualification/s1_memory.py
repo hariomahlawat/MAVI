@@ -67,14 +67,14 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 
 import process_memory  # noqa: E402
 from mavi_vision.common.analytical import NormalizedBoundingBox, ObjectClass, VisionProcessingResult  # noqa: E402
-from mavi_vision.common.lease import LeaseGuard  # noqa: E402
+from mavi_vision.common.lease import LeaseGuard, LeaseLostError  # noqa: E402
 from mavi_vision.detection.interfaces import DetectionCandidate  # noqa: E402
-from mavi_vision.pipeline.process_video import VideoProcessor  # noqa: E402
+from mavi_vision.pipeline.process_video import VideoProcessingError, VideoProcessor  # noqa: E402
 from mavi_vision.runtime.profile import load_pipeline_profile  # noqa: E402
-from mavi_vision.storage.artifact_store import StagingArtifactStore  # noqa: E402
+from mavi_vision.storage.artifact_store import StagingArtifactStore, attempt_directory_name  # noqa: E402
 from mavi_vision.tracking.interfaces import TrackerUpdate  # noqa: E402
 from mavi_vision.video.reader import DecodedFrame  # noqa: E402
-from mavi_vision.video.trajectory_spool import DEFAULT_CHUNK_POINTS  # noqa: E402
+from mavi_vision.video.trajectory_spool import DEFAULT_CHUNK_POINTS, RECORD_BYTES as SPOOL_RECORD_BYTES  # noqa: E402
 
 OUTPUT_SCHEMA = "s1-b2-memory-output-v1"
 FRAME_SOURCE = "synthetic-noise-pool-v1"
@@ -300,6 +300,11 @@ def buffered_trajectory_points(accumulator) -> int:
     return spool.point_count - spool.spilled_points
 
 
+def attempt_directory(media_root: Path, job_id: UUID, attempt_count: int) -> Path:
+    """Where ``StagingArtifactStore`` stages one attempt (``staging/<job>/attempt-NNNN``)."""
+    return media_root / "staging" / str(job_id) / attempt_directory_name(attempt_count)
+
+
 def directory_usage(root: Path) -> tuple[int, int]:
     """(bytes, files) under ``root``; staging is attempt-scoped regular files."""
     total = files = 0
@@ -328,7 +333,9 @@ def fit_line(points: list[tuple[float, float]]) -> dict[str, float]:
     intercept = float(y_mean - slope * x_mean)
     residual = float(((ys - (slope * xs + intercept)) ** 2).sum())
     total = float(((ys - y_mean) ** 2).sum())
-    return {"slope": slope, "intercept": intercept, "r2": 1.0 - residual / total if total else 1.0, "points": n}
+    # Standard error of the slope: the resolution a relative comparison needs.
+    stderr = float(np.sqrt(residual / (n - 2) / sxx))
+    return {"slope": slope, "intercept": intercept, "r2": 1.0 - residual / total if total else 1.0, "points": n, "stderr": stderr}
 
 
 def _frame_pool(workload: Workload) -> list[np.ndarray]:
@@ -354,10 +361,15 @@ def run_workload(
     *,
     processor_class: type[VideoProcessor] = ObservedVideoProcessor,
     on_frame: Callable[[int], None] | None = None,
+    job_id: UUID = JOB_ID,
+    attempt_count: int = 1,
+    lease_guard: LeaseGuard | None = None,
 ) -> dict[str, Any]:
     """Run one workload in this process and return its measurement record.
 
-    ``processor_class`` and ``on_frame`` exist for the discrimination tests.
+    ``processor_class`` and ``on_frame`` exist for the discrimination tests;
+    ``job_id``, ``attempt_count`` and ``lease_guard`` for the staging-lifecycle
+    phases, which share one media root across jobs and attempts.
     """
     workload.validate()
     work_root.mkdir(parents=True, exist_ok=True)
@@ -365,11 +377,12 @@ def run_workload(
     profile = load_pipeline_profile(PROFILE_PATH)
     tracker = CountingTracker(_make_tracker(workload, scene))
     detector = SceneDetector(scene)
-    store = StagingArtifactStore(work_root, JOB_ID, 1)
+    store = StagingArtifactStore(work_root, job_id, attempt_count)
     running = _Running()
     pool = _frame_pool(workload)
     tracing = workload.mode == "trace"
-    staging_root = work_root
+    # Only this attempt's staging counts toward its peak and its derived bound.
+    staging_root = attempt_directory(work_root, job_id, attempt_count)
 
     def sample(frame_number: int) -> None:
         gc.collect()
@@ -413,7 +426,8 @@ def run_workload(
     # The declared frame source goes through the processor's qualification seam;
     # ``frames`` reads ``processor`` lazily, once processing has started.
     processor = processor_class(detector, tracker, store, evidence_policy=profile.evidence, frame_reader=frames)
-    source = work_root / "declared-frame-source.txt"
+    source = work_root / "sources" / f"{job_id}-{attempt_count}.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(f"{FRAME_SOURCE}\n{json.dumps(asdict(workload), sort_keys=True)}\n", encoding="utf-8")
     payload = source.read_bytes()
 
@@ -422,12 +436,12 @@ def run_workload(
     started = time.perf_counter()
     try:
         result = processor.process(
-            job_id=JOB_ID,
-            attempt_count=1,
+            job_id=job_id,
+            attempt_count=attempt_count,
             source_path=source,
             expected_source_size_bytes=len(payload),
             expected_source_sha256=hashlib.sha256(payload).hexdigest(),
-            lease_guard=LeaseGuard(datetime.now(timezone.utc) + timedelta(days=7)),
+            lease_guard=lease_guard or LeaseGuard(datetime.now(timezone.utc) + timedelta(days=7)),
         )
         processing_seconds = time.perf_counter() - started
         completion = measure_completion_peak(result) if (tracing and workload.measure_completion) else None
@@ -451,6 +465,22 @@ def run_workload(
             entry["minBytes"] = min(entry["minBytes"], observation.crop.size_bytes)
             entry["maxBytes"] = max(entry["maxBytes"], observation.crop.size_bytes)
             entry["totalBytes"] += observation.crop.size_bytes
+    # §6.3 / ADR-013 §4: staging never exceeds each Track's encoded-evidence
+    # bound plus its trajectory bytes (the finalised msgpack, and the 24-byte
+    # spool records that exist until it is written). Derived from this run.
+    staged_after, _ = directory_usage(staging_root)
+    running.staging_peak = max(running.staging_peak, staged_after)
+    bound_terms = {
+        "tracks": len(result.tracks),
+        "perTrackEvidenceBoundBytes": PER_LIVE_HELD_BOUND_BYTES,
+        "trajectoryArtifactBytes": sum(track.trajectory_artifact.size_bytes for track in result.tracks),
+        "spoolRecordBytes": sum(track.detection_count for track in result.tracks) * SPOOL_RECORD_BYTES,
+    }
+    staging_bound = (
+        bound_terms["tracks"] * bound_terms["perTrackEvidenceBoundBytes"]
+        + bound_terms["trajectoryArtifactBytes"]
+        + bound_terms["spoolRecordBytes"]
+    )
     process_summary = None
     if not tracing:
         post_warmup = [entry["process"] for entry in running.samples if entry["retired"] >= warmup]
@@ -479,11 +509,14 @@ def run_workload(
             "retiredSlope": {
                 "series": "tracemalloc-traced-bytes" if tracing else f"process-{running.samples[-1]['process']['primary_metric']}",
                 "bytesPerRetiredTrack": fit["slope"],
+                "stderr": fit["stderr"],
                 "r2": fit["r2"],
                 "points": fit["points"],
                 "warmupRetirementsExcluded": warmup,
             },
             "stagingPeakBytes": running.staging_peak,
+            "stagingDerivedBoundBytes": staging_bound,
+            "stagingDerivedBoundTerms": bound_terms,
             "completion": completion,
             "process": process_summary,
             "processingSeconds": processing_seconds,
@@ -625,29 +658,107 @@ def runtime_identity() -> dict[str, Any]:
 
 
 def host_identity(work_root: Path) -> dict[str, Any]:
-    """Best-effort host identity (§3). Unknown fields are ``None``, never guessed."""
-    cpu_model = platform_module.processor() or None
-    physical: int | None = None
-    ram: int | None = None
-    filesystem: str | None = None
+    """Host identity (§3) read from the host itself, never typed in.
+
+    Every field the evidence schema binds is measured on both qualified
+    platforms; a field that cannot be read is ``None`` and the checker then
+    refuses to bind it. Storage class (SSD/HDD) cannot be detected reliably
+    and stays a declared field of the record.
+    """
     if sys.platform.startswith("linux"):
-        try:
-            cpuinfo = Path("/proc/cpuinfo").read_text(encoding="ascii", errors="replace")
-            models = [line.split(":", 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith("model name")]
-            cpu_model = models[0] if models else cpu_model
-            cores = {(block.get("physical id"), block.get("core id")) for block in _cpuinfo_blocks(cpuinfo)}
-            physical = len(cores) or None
-            for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
-                if line.startswith("MemTotal:"):
-                    ram = int(line.split()[1]) * 1024
-            filesystem = _linux_filesystem(work_root)
-        except OSError:
-            pass
+        return _linux_host(work_root)
+    if sys.platform == "win32":  # pragma: no cover - exercised on the Windows variant
+        return _windows_host(work_root)
+    return {"cpuModel": None, "physicalCores": None, "logicalCores": os.cpu_count(), "ramBytes": None,
+            "os": platform_module.system(), "osBuild": platform_module.version(), "stagingFilesystem": None}
+
+
+def _linux_host(work_root: Path) -> dict[str, Any]:
+    cpu_model = physical = ram = filesystem = os_name = None
+    try:
+        cpuinfo = Path("/proc/cpuinfo").read_text(encoding="ascii", errors="replace")
+        models = [line.split(":", 1)[1].strip() for line in cpuinfo.splitlines() if line.startswith("model name")]
+        cpu_model = models[0] if models else None
+        cores = {(block.get("physical id"), block.get("core id")) for block in _cpuinfo_blocks(cpuinfo)}
+        physical = len(cores) or None
+        for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
+            if line.startswith("MemTotal:"):
+                ram = int(line.split()[1]) * 1024
+        filesystem = _linux_filesystem(work_root)
+        for line in Path("/etc/os-release").read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("PRETTY_NAME="):
+                os_name = line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
     return {
         "cpuModel": cpu_model,
         "physicalCores": physical,
         "logicalCores": os.cpu_count(),
         "ramBytes": ram,
+        "os": os_name,
+        "osBuild": platform_module.release(),
+        "stagingFilesystem": filesystem,
+    }
+
+
+def _windows_host(work_root: Path) -> dict[str, Any]:  # pragma: no cover - Windows variant
+    import ctypes
+    import struct
+    import winreg
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    cpu_model = None
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0") as key:
+            cpu_model = str(winreg.QueryValueEx(key, "ProcessorNameString")[0]).strip()
+    except OSError:
+        pass
+
+    class MemoryStatusEx(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", wintypes.DWORD), ("dwMemoryLoad", wintypes.DWORD),
+            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    status = MemoryStatusEx()
+    status.dwLength = ctypes.sizeof(MemoryStatusEx)
+    ram = int(status.ullTotalPhys) if kernel32.GlobalMemoryStatusEx(ctypes.byref(status)) else None
+
+    # Physical cores: one RelationProcessorCore (0) record per core.
+    physical = None
+    length = wintypes.DWORD(0)
+    kernel32.GetLogicalProcessorInformationEx(0, None, ctypes.byref(length))
+    if length.value:
+        buffer = (ctypes.c_byte * length.value)()
+        if kernel32.GetLogicalProcessorInformationEx(0, buffer, ctypes.byref(length)):
+            raw, offset, count = bytes(buffer), 0, 0
+            while offset + 8 <= length.value:
+                relationship, size = struct.unpack_from("<II", raw, offset)
+                if size == 0:
+                    break
+                count += relationship == 0
+                offset += size
+            physical = count or None
+
+    filesystem = None
+    drive = os.path.splitdrive(str(work_root.resolve()))[0]
+    if drive:
+        name = ctypes.create_unicode_buffer(64)
+        if kernel32.GetVolumeInformationW(drive + "\\", None, 0, None, None, None, name, len(name)):
+            filesystem = name.value
+
+    return {
+        "cpuModel": cpu_model,
+        "physicalCores": physical,
+        "logicalCores": os.cpu_count(),
+        "ramBytes": ram,
+        "os": f"Windows {platform_module.release()}",
+        "osBuild": platform_module.version(),
         "stagingFilesystem": filesystem,
     }
 
@@ -673,14 +784,117 @@ def _linux_filesystem(path: Path) -> str | None:
     return best[1]
 
 
-# The slope resolution the ±10 % invariance is judged against (§6.2 bound 2). A
-# near-zero baseline would make a relative change pure noise, and a negative one
-# meaningless, so the denominator never falls below 1 KiB per retired Track.
-VARIATION_FLOOR_BYTES = 1024.0
+# §6.2 bound 2: the slope must not change beyond ±10 %, a plain relative change.
+VARIATION_LIMIT = 0.10
 
 
-def _relative_change(baseline: float, variant: float) -> float:
-    return abs(variant - baseline) / max(abs(baseline), VARIATION_FLOOR_BYTES)
+LIFECYCLE_SCHEMA = "s1-b2-staging-lifecycle-v1"
+SIBLING_JOB_ID = UUID("01920000-0000-7000-8000-00000000b2b3")
+LIFECYCLE_WORKLOAD = Workload(
+    "b2-staging-lifecycle", "bytetrack", "trace", 4, 24, 60, _BYTETRACK_GAP, 96, 640, 360,
+    sample_every=6, measure_completion=False,
+)
+
+
+def _tree_digest(root: Path) -> str | None:
+    if not root.exists():
+        return None
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def staging_lifecycle(workload: Workload, media_root: Path) -> dict[str, Any]:
+    """§6.3: staging through a failed attempt, a lost lease, a sibling job and a
+    superseding attempt, on one shared media root.
+
+    Each phase runs the real processor and its real staging backend. The
+    platform janitor's ownership after completion is the .NET
+    ``StagingJanitorTests`` suite, which B2 cites.
+    """
+    failing_frame = workload.cycle_frames  # after the first Tracks have staged
+    phases: dict[str, Any] = {}
+
+    def fail_attempt(frame: int) -> None:
+        if frame == failing_frame:
+            raise RuntimeError("injected_attempt_failure")
+
+    try:
+        run_workload(workload, media_root, job_id=JOB_ID, attempt_count=1, on_frame=fail_attempt)
+        failed_as_expected = False
+    except VideoProcessingError:
+        failed_as_expected = True
+    phases["failedAttempt"] = {
+        "failed": failed_as_expected,
+        "residualBytes": directory_usage(attempt_directory(media_root, JOB_ID, 1))[0],
+    }
+
+    guard = LeaseGuard(datetime.now(timezone.utc) + timedelta(days=7))
+
+    def lose_lease(frame: int) -> None:
+        if frame == failing_frame:
+            guard.mark_lost()
+
+    try:
+        run_workload(workload, media_root, job_id=JOB_ID, attempt_count=2, on_frame=lose_lease, lease_guard=guard)
+        lost_as_expected = False
+    except LeaseLostError:
+        lost_as_expected = True
+    phases["leaseLostAttempt"] = {
+        "leaseLost": lost_as_expected,
+        # A lost lease leaves staging for the next attempt to supersede.
+        "retainedBytes": directory_usage(attempt_directory(media_root, JOB_ID, 2))[0],
+    }
+
+    sibling = run_workload(workload, media_root, job_id=SIBLING_JOB_ID, attempt_count=1)["results"]
+    sibling_digest = _tree_digest(attempt_directory(media_root, SIBLING_JOB_ID, 1))
+    phases["siblingJob"] = {
+        "tracks": sibling["tracks"],
+        "stagingPeakBytes": sibling["stagingPeakBytes"],
+        "stagingDerivedBoundBytes": sibling["stagingDerivedBoundBytes"],
+        "retainedAfterSuccessBytes": directory_usage(attempt_directory(media_root, SIBLING_JOB_ID, 1))[0],
+    }
+
+    superseding = run_workload(workload, media_root, job_id=JOB_ID, attempt_count=3)["results"]
+    phases["supersedingAttempt"] = {
+        "tracks": superseding["tracks"],
+        "stagingPeakBytes": superseding["stagingPeakBytes"],
+        "stagingDerivedBoundBytes": superseding["stagingDerivedBoundBytes"],
+        "supersededAttemptRemaining": attempt_directory(media_root, JOB_ID, 2).exists(),
+        "siblingJobUnchanged": _tree_digest(attempt_directory(media_root, SIBLING_JOB_ID, 1)) == sibling_digest,
+        "retainedAfterSuccessBytes": directory_usage(attempt_directory(media_root, JOB_ID, 3))[0],
+    }
+    checks = {
+        "failedAttemptCleaned": failed_as_expected and phases["failedAttempt"]["residualBytes"] == 0,
+        "leaseLostStagingRetained": lost_as_expected and phases["leaseLostAttempt"]["retainedBytes"] > 0,
+        "supersededAttemptRemoved": not phases["supersedingAttempt"]["supersededAttemptRemaining"],
+        "siblingJobUntouched": phases["supersedingAttempt"]["siblingJobUnchanged"],
+        "successfulStagingRetainedForPlatform": phases["siblingJob"]["retainedAfterSuccessBytes"] > 0
+        and phases["supersedingAttempt"]["retainedAfterSuccessBytes"] > 0,
+        "peaksWithinDerivedBound": all(
+            phase["stagingPeakBytes"] <= phase["stagingDerivedBoundBytes"]
+            for phase in (phases["siblingJob"], phases["supersedingAttempt"])
+        ),
+    }
+    return {"schema": LIFECYCLE_SCHEMA, "workload": asdict(workload), "phases": phases, "checks": checks}
+
+
+def _variation(baseline: dict[str, float], variant: dict[str, float]) -> dict[str, Any]:
+    """|variant - baseline| / baseline, or an explicit ``undefined`` reason.
+
+    A relative change is undefined when the baseline slope is not positive, or
+    when its own standard error is at least the 10 % it is judged against: the
+    measurement then cannot resolve a ±10 % change. That fails closed (the
+    checker reports ``variation_undefined``); it is not a noise tolerance.
+    """
+    slope, stderr = baseline["bytesPerRetiredTrack"], baseline.get("stderr")
+    if slope <= 0:
+        return {"value": None, "unit": "ratio", "undefined": f"baseline slope {slope} B/track is not positive"}
+    if stderr is None or stderr >= VARIATION_LIMIT * slope:
+        return {"value": None, "unit": "ratio", "undefined": f"baseline slope {slope} ± {stderr} B/track cannot resolve a {VARIATION_LIMIT:.0%} change"}
+    return {"value": abs(variant["bytesPerRetiredTrack"] - slope) / slope, "unit": "ratio"}
 
 
 def _require(output: dict[str, Any], preset: str) -> dict[str, Any]:
@@ -722,6 +936,9 @@ def derive(outputs: dict[str, dict[str, Any]]) -> dict[str, Any]:
         if len({json.dumps(output.get(key), sort_keys=True) for output in outputs.values()}) != 1:
             raise ValueError(f"derive_outputs_mixed_{key}")
 
+    def fit_of(preset: str) -> dict[str, float]:
+        return outputs[preset]["results"]["retiredSlope"]
+
     def slope(preset: str) -> float:
         return outputs[preset]["results"]["retiredSlope"]["bytesPerRetiredTrack"]
 
@@ -730,6 +947,13 @@ def derive(outputs: dict[str, dict[str, Any]]) -> dict[str, Any]:
         for level in LIVE_LEVELS
     ]
     live_fit = fit_line(live_points)
+    live_presets = [f"b2-live-{level}" for level in LIVE_LEVELS]
+    accounted_evidence = max(outputs[p]["results"]["perLiveHeldEvidenceBytesMax"] for p in live_presets)
+    accounted_points = max(outputs[p]["results"]["perLiveBufferedTrajectoryPointsMax"] for p in live_presets)
+    staging_ratio = max(
+        output["results"]["stagingPeakBytes"] / output["results"]["stagingDerivedBoundBytes"]
+        for output in outputs.values()
+    )
     trace_presets = ("b2-retained-baseline", "b2-retained-long", "b2-retained-large-crops", "b2-completion-peak")
     return {
         "schema": "s1-b2-memory-derived-v1",
@@ -740,16 +964,34 @@ def derive(outputs: dict[str, dict[str, Any]]) -> dict[str, Any]:
             "b2.per-live-buffered-trajectory-points-max": {"value": max(outputs[p]["results"]["perLiveBufferedTrajectoryPointsMax"] for p in trace_presets), "unit": "count"},
             "b2.per-live-held-evidence-bytes-max": {"value": max(outputs[p]["results"]["perLiveHeldEvidenceBytesMax"] for p in trace_presets), "unit": "bytes"},
             "b2.per-retired-traced-bytes-slope": {"value": max(slope(p) for p in trace_presets[:3]), "unit": "bytes/track"},
-            "b2.retired-slope-duration-variation": {"value": _relative_change(slope("b2-retained-baseline"), slope("b2-retained-long")), "unit": "ratio"},
-            "b2.retired-slope-crop-variation": {"value": _relative_change(slope("b2-retained-baseline"), slope("b2-retained-large-crops")), "unit": "ratio"},
+            "b2.retired-slope-duration-variation": _variation(fit_of("b2-retained-baseline"), fit_of("b2-retained-long")),
+            "b2.retired-slope-crop-variation": _variation(fit_of("b2-retained-baseline"), fit_of("b2-retained-large-crops")),
             "b2.process-memory-retired-slope": {"value": slope("b2-process-memory"), "unit": "bytes/track"},
             "b2.completion-peak-bytes": {"value": outputs["b2-completion-peak"]["results"]["completion"]["tracedPeakBytes"], "unit": "bytes"},
             "b2.staging-peak-bytes": {"value": max(output["results"]["stagingPeakBytes"] for output in outputs.values()), "unit": "bytes"},
+            "b2.staging-peak-to-derived-bound-ratio": {"value": staging_ratio, "unit": "ratio"},
+            # §6.2 bound 3: the empirical per-live-Track process cost. Recorded as
+            # the regression baseline and reconciled with bound 1 below; bound 1
+            # is the encoded-holder bound, not a process-memory ceiling.
+            "b2.process-memory-per-live-track-slope": {"value": live_fit["slope"], "unit": "bytes/track"},
+        },
+        "liveLevelFit": {
+            **{key: value for key, value in live_fit.items() if key != "points"},
+            "n": live_fit["points"],
+            # The five stepped live-level plateaus the checker refits.
+            "points": [[level, mean] for level, mean in live_points],
+        },
+        "boundOneReconciliation": {
+            "perLiveProcessSlopeBytes": live_fit["slope"],
+            "accountedEncodedEvidenceBytesMax": accounted_evidence,
+            "encodedEvidenceBoundBytes": PER_LIVE_HELD_BOUND_BYTES,
+            "accountedTrajectoryPointsMax": accounted_points,
+            "trajectoryChunkPoints": DEFAULT_CHUNK_POINTS,
+            # What bound 1 does not account for: Python objects, tracker and
+            # native-library state, the spool's in-memory chunk. Recorded, not bounded.
+            "unaccountedPerLiveBytes": live_fit["slope"] - accounted_evidence,
         },
         "recorded": {
-            "processMemoryPerLiveTrackSlopeBytes": live_fit["slope"],
-            "processMemoryPerLiveTrackFit": live_fit,
-            "perLiveHeldEvidenceBoundBytes": PER_LIVE_HELD_BOUND_BYTES,
             "completionBodyBytes": outputs["b2-completion-peak"]["results"]["completion"]["bodyBytes"],
         },
     }
@@ -790,12 +1032,28 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--preset", required=True, choices=sorted(PRESETS))
     run.add_argument("--output", required=True, type=Path)
     run.add_argument("--work-root", type=Path, default=None, help="staging root on the filesystem being qualified")
+    lifecycle = commands.add_parser("staging-lifecycle", help="§6.3 staging through failure, lease loss, a sibling job and supersession")
+    lifecycle.add_argument("--output", required=True, type=Path)
+    lifecycle.add_argument("--work-root", type=Path, default=None, help="staging root on the filesystem being qualified")
     combine = commands.add_parser("derive", help="derive the B2 measurements from one output per preset")
     combine.add_argument("outputs", nargs="+", type=Path)
     combine.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
     if args.command == "run":
         return _run_command(args, parser)
+    if args.command == "staging-lifecycle":
+        with tempfile.TemporaryDirectory(dir=args.work_root) as scratch:
+            record = {
+                "identity": source_identity(),
+                "runtime": runtime_identity(),
+                "host": host_identity(Path(scratch)),
+                "command": " ".join([Path(sys.executable).name, *sys.argv]),
+                "startedAtUtc": datetime.now(timezone.utc).isoformat(),
+                **staging_lifecycle(LIFECYCLE_WORKLOAD, Path(scratch)),
+            }
+        _write(args.output, record)
+        print(f"s1-b2-staging-lifecycle: {record['checks']}, output {args.output}")
+        return 0 if all(record["checks"].values()) else 1
     loaded = [json.loads(path.read_text(encoding="utf-8")) for path in args.outputs]
     by_preset = {output["workload"]["name"]: output for output in loaded}
     if len(by_preset) != len(loaded):

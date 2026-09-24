@@ -41,7 +41,7 @@ from typing import Any, Iterable
 SCHEMA_PATH = Path(__file__).resolve().with_name("s1-qualification-evidence.schema.json")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # The worker default (``WorkerSettings.request_timeout_seconds``) and its bound.
-WORKER_SETTINGS_PATH = REPO_ROOT / "src/vision/mavi_vision/common/settings.py"
+WORKER_SETTINGS_PATH = REPO_ROOT / "src/vision/mavi_vision/common/settings.py"  # WORKER_SETTINGS_RELATIVE
 UNITS = ("B1", "B2", "B3", "B4", "B5", "B6", "DISCONNECTED")
 QUALIFIED_CPU_VARIANTS = ("linux-x86_64-cpu", "windows-x86_64-cpu")
 TIMING_UNITS = frozenset({"ms"})
@@ -192,6 +192,23 @@ APPROVED_PAIRED_SKIPS: dict[tuple[str, str], frozenset[str]] = {
 }
 
 
+def is_approved_skip(entry_suite: str, variant: str, test_id: str) -> bool:
+    """Whether §3.1 approves this skip. A suite result is approved against its
+    own list; a Task-10 aggregate result (``task10:<step>``, one XML covering
+    many suites) is approved against the list of the source suite each test
+    case belongs to, found from its classname."""
+    name = test_function_name(test_id)
+    if name in APPROVED_PAIRED_SKIPS.get((entry_suite, variant), frozenset()):
+        return True
+    if not entry_suite.startswith("task10:"):
+        return False
+    classname = test_id.rsplit("::", 1)[0]
+    return any(
+        approved_variant == variant and name in names and case_belongs(classname, suite_key(suite) or ())
+        for (suite, approved_variant), names in APPROVED_PAIRED_SKIPS.items()
+    )
+
+
 def test_function_name(test_id: str) -> str:
     """``tests.test_x::test_name[param]`` -> ``test_name``."""
     return test_id.rsplit("::", 1)[-1].split("[", 1)[0]
@@ -211,6 +228,18 @@ NON_OUTCOME_ARTIFACTS = frozenset({
     "disconnected.isolation-after",
 })
 
+# §11: the reused probe, ``assert_outbound_internet_unavailable`` in
+# ``tools/phase1/qualify_offline_variant.py``: exactly these targets (a test
+# holds the two equal), and the fields its output carries.
+ISOLATION_PROBE_TARGETS = (
+    ("1.1.1.1", 443),
+    ("8.8.8.8", 53),
+    ("pypi.org", 443),
+    ("github.com", 443),
+    ("www.microsoft.com", 443),
+)
+ISOLATION_PROBE_FIELDS = ("passed", "proxyEnvironmentAbsent", "probes")
+
 # §11: every step of the S1 operator path, each passed with named evidence.
 DISCONNECTED_OUTCOMES = (
     "setupVerification",
@@ -223,9 +252,17 @@ DISCONNECTED_OUTCOMES = (
 )
 
 
-def worker_request_timeout_bounds_ms() -> tuple[float, float]:
-    """(default, maximum) of ``WorkerSettings.request_timeout_seconds``, in ms."""
-    text = WORKER_SETTINGS_PATH.read_text(encoding="utf-8")
+def other_variant(variant: str) -> str:
+    return next(other for other in QUALIFIED_CPU_VARIANTS if other != variant)
+
+
+WORKER_SETTINGS_RELATIVE = "src/vision/mavi_vision/common/settings.py"
+
+
+def worker_request_timeout_bounds_ms(text: str | None = None) -> tuple[float, float]:
+    """(default, maximum) of ``WorkerSettings.request_timeout_seconds``, in ms,
+    from ``text`` (the settings source at the measured SHA) or this checkout."""
+    text = WORKER_SETTINGS_PATH.read_text(encoding="utf-8") if text is None else text
     match = re.search(r"request_timeout_seconds: float = Field\(default=([0-9.]+), ge=[0-9.]+, le=([0-9.]+)\)", text)
     if match is None:
         raise RuntimeError("worker_request_timeout_setting_not_found")
@@ -246,6 +283,35 @@ TASK10_JUNIT_STEPS = (
     "s1-qualification-harness",
     "production-processor-runtime",
 )
+# §2.2: what each Task-10 JUnit step runs, so a change to any of it invalidates
+# the units citing the step. A test holds this equal to the workflow's commands.
+TASK10_STEP_SOURCES: dict[str, tuple[str, ...]] = {
+    "runtime-tooling": (
+        "src/vision/tests/test_runtime_probe.py",
+        "src/vision/tests/test_resolve_mmdet_config.py",
+        "src/vision/tests/test_runtime_metadata.py",
+    ),
+    "s1-boundary": tuple(
+        f"src/vision/tests/test_{name}.py"
+        for name in (
+            "rtmdet_colour_space", "mmdetection_runtime", "runtime_errors", "bytetrack_profile_semantics",
+            "bytetrack_adapter", "production_processor", "process_video", "track_lifecycle", "trajectory_spool",
+            "evidence_profile", "evidence_quality", "evidence_encoder", "evidence_selector", "evidence_admission",
+            "evidence_pipeline", "evidence_scripted_corpus", "worker_completion_v3", "completion_contract_bounds",
+            "tracker_update", "track_finalization", "artifact_store", "artifact_store_windows", "artifact_publisher",
+            "analytical_models", "s1_bound_agreement",
+        )
+    ),
+    "runtime-probe-real-torch": ("src/vision/tests/test_runtime_probe.py",),
+    "bytetrack-runtime": ("src/vision/tests/test_bytetrack_runtime.py",),
+    "real-clip-harness": ("src/vision/tests/test_measure_evidence_real_clips.py",),
+    "s1-qualification-harness": ("tools/qualification/tests",),
+    "production-processor-runtime": ("src/vision/tests/test_production_processor_runtime.py",),
+}
+# Records a Task-10 job writes about itself (its head, variant, platform), so
+# the two variants' bytes cannot be equal; the others (``runtime.json`` is a
+# copy of a committed file) legitimately may be.
+TASK10_JOB_RECORDS = frozenset({"bytetrack-qualification.json", "production-composition-qualification.json"})
 TASK10_RECORDS = (
     "runtime-probe.json",
     "resolved-config.json",
@@ -265,6 +331,56 @@ def required_variants(required: UnitRequirement, suite: str) -> tuple[str | None
     if required.variants and suite.startswith(VARIANT_SUITE_PREFIXES):
         return required.variants
     return (None,)
+
+B2_OUTPUT_ARTIFACT = "b2.memory-harness-output"
+B2_LIFECYCLE_ARTIFACT = "b2.staging-lifecycle"
+# §6.3: every lifecycle property the staging-lifecycle harness must show.
+STAGING_LIFECYCLE_CHECKS = (
+    "failedAttemptCleaned",
+    "leaseLostStagingRetained",
+    "supersededAttemptRemoved",
+    "siblingJobUntouched",
+    "successfulStagingRetainedForPlatform",
+    "peaksWithinDerivedBound",
+)
+B2_BASE_MEASUREMENTS = (
+    MeasurementRequirement("b2.per-live-held-evidence-bytes-max", "bytes", "<=", 544 * KIB),
+    # Bound 1, trajectory part: at most one spool chunk buffered per live Track.
+    MeasurementRequirement("b2.per-live-buffered-trajectory-points-max", "count", "<=", TRAJECTORY_CHUNK_POINTS),
+    MeasurementRequirement("b2.per-retired-traced-bytes-slope", "bytes/track", "<=", 16 * KIB),
+    MeasurementRequirement("b2.retired-slope-duration-variation", "ratio", "<=", 0.10),
+    MeasurementRequirement("b2.retired-slope-crop-variation", "ratio", "<=", 0.10),
+    MeasurementRequirement("b2.process-memory-retired-slope", "bytes/track", "<=", 16 * KIB),
+    # Bound 3, live part: mandatory and content-bound, but recorded as the
+    # regression baseline and reconciled with bound 1, never thresholded
+    # against it (bound 1 is the encoded-holder bound, not a process ceiling).
+    MeasurementRequirement("b2.process-memory-per-live-track-slope", "bytes/track"),
+    MeasurementRequirement("b2.completion-peak-bytes", "bytes"),
+    MeasurementRequirement("b2.staging-peak-bytes", "bytes"),
+    # §6.3: the observed staging peak within the run's own ADR-013 derivation.
+    MeasurementRequirement("b2.staging-peak-to-derived-bound-ratio", "ratio", "<=", 1.0),
+)
+# Host fields a harness output must measure and the record's host must equal.
+MEASURED_HOST_FIELDS = ("cpuModel", "physicalCores", "logicalCores", "ramBytes", "os", "osBuild", "stagingFilesystem")
+LIVE_LEVEL_MINIMUM = 5
+# §5.3: each B1 count is derived by tools/qualification/s1_b1.py, never typed in.
+B1_BASELINE_RELATIVE = "docs/qualification/stage2-s1/b1-accepted-real-clip-baseline.json"
+B1_COUNTS = {
+    "b1.within-variant-repeat-mismatches": "withinVariantRepeatMismatches",
+    "b1.cross-variant-untraced-divergences": "untracedCrossVariantDivergences",
+    "b1.real-clip-parameter-note-mismatches": "parameterNoteMismatches",
+    "b1.detector-independent-replay-mismatches": "replayMismatches",
+}
+# §7: the body sizes are proven by these tests, which assert the budgets; the
+# recorded value is informational only once the proving test passed.
+B3_PROVING_TESTS = {
+    "b3.python-worst-shape-body-bytes": ("src/vision/tests/test_worker_completion_v3.py", "test_worst_shape_body_stays_within_the_budget"),
+    "b3.dotnet-worst-shape-body-bytes": ("tests/Mavi.IntegrationTests/WorkerContractV3Tests", "WorstShapeBodyFitsUnderLimit"),
+}
+B5_CLIP_METRIC = "b5.real-video-clips"
+# §9.2: what a real-video clip must have shown to count.
+B5_CLIP_CHECKS = ("completionAccepted", "trackDetailVerified", "evidenceSetVerified")
+SEALING_HOST_FIELDS = ("cpuModel", "logicalCores")
 
 UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
     # §5: deterministic suites on both variants; repeat, cross-variant and
@@ -303,20 +419,20 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
             "src/vision/tests/test_artifact_store.py",
             "src/vision/tests/test_artifact_store_windows.py",
             "tools/qualification/tests",
+            # §6.3: platform janitor ownership of staging after completion.
+            "tests/Mavi.IntegrationTests/StagingJanitorTests",
         ),
         variants=QUALIFIED_CPU_VARIANTS,
-        measurements=(
-            MeasurementRequirement("b2.per-live-held-evidence-bytes-max", "bytes", "<=", 544 * KIB),
-            # Bound 1, trajectory part: at most one spool chunk buffered per live Track.
-            MeasurementRequirement("b2.per-live-buffered-trajectory-points-max", "count", "<=", TRAJECTORY_CHUNK_POINTS),
-            MeasurementRequirement("b2.per-retired-traced-bytes-slope", "bytes/track", "<=", 16 * KIB),
-            MeasurementRequirement("b2.retired-slope-duration-variation", "ratio", "<=", 0.10),
-            MeasurementRequirement("b2.retired-slope-crop-variation", "ratio", "<=", 0.10),
-            MeasurementRequirement("b2.process-memory-retired-slope", "bytes/track", "<=", 16 * KIB),
-            MeasurementRequirement("b2.completion-peak-bytes", "bytes"),
-            MeasurementRequirement("b2.staging-peak-bytes", "bytes"),
+        # §6.2: native and process memory differ per OS build, so every B2
+        # value is measured on each qualified variant.
+        measurements=tuple(
+            MeasurementRequirement(f"{base.metric}.{variant}", base.unit, base.limit_op, base.limit_value, base.timing)
+            for variant in QUALIFIED_CPU_VARIANTS
+            for base in B2_BASE_MEASUREMENTS
         ),
-        artifacts=("b2.memory-harness-output",),
+        artifacts=tuple(
+            f"{artifact}.{variant}" for artifact in (B2_OUTPUT_ARTIFACT, B2_LIFECYCLE_ARTIFACT) for variant in QUALIFIED_CPU_VARIANTS
+        ),
     ),
     # §7: exact edges, existing body budgets, real-store completion time with
     # ≥ 2× headroom against the worker request timeout.
@@ -406,6 +522,15 @@ def is_behavior_bearing(path: str) -> bool:
 
 
 SUITE_SOURCE_SUFFIXES = (".cs", ".py", ".ts", ".tsx")
+SHARED_FIXTURE_ROOT = "tests/fixtures/"
+
+
+def suite_sources(suite: str) -> tuple[str, ...]:
+    """The source paths a cited suite runs: a Task-10 step's test files
+    (``TASK10_STEP_SOURCES``), otherwise the suite path itself."""
+    if suite.startswith("task10:"):
+        return TASK10_STEP_SOURCES.get(suite.split(":", 1)[1], ())
+    return (suite,)
 
 
 def suite_covers(suite: str, path: str) -> bool:
@@ -414,7 +539,10 @@ def suite_covers(suite: str, path: str) -> bool:
     Python suites are cited by file, the web suite by directory, and .NET
     suites by their extension-less class path (``tests/Proj/ClassTests`` is
     ``tests/Proj/ClassTests.cs``, including partial ``ClassTests.*.cs`` files).
+    A Task-10 step covers every file it runs.
     """
+    if suite.startswith("task10:"):
+        return any(suite_covers(source, path) for source in suite_sources(suite))
     suite = suite.rstrip("/")
     if path == suite or path.startswith(suite + "/"):
         return True
@@ -462,9 +590,14 @@ def invalidated_units(changed_paths: Iterable[str], cited: dict[str, set[str]]) 
         shared = is_shared_test_support(path)
         for unit, suites in cited.items():
             if any(
-                suite_covers(suite, path) or (shared and test_project(suite) == test_project(path))
+                suite_covers(suite, path)
+                or (shared and any(test_project(source) == test_project(path) for source in suite_sources(suite)))
                 for suite in suites
             ):
+                units.add(unit)
+            if path.startswith(SHARED_FIXTURE_ROOT) and suites:
+                # Repository fixtures are read by Python, .NET and web suites
+                # alike: every unit resting on any suite may depend on them.
                 units.add(unit)
         if _matches(path, EVIDENCE_TEST_TREES) or not is_behavior_bearing(path):
             # Test trees and non-surface paths invalidate only through the
@@ -505,6 +638,17 @@ def sha256_file(path: Path) -> str:
 WHOLE_FILE_SUITE_PREFIXES = ("src/web/", "task10:")
 
 
+def quality_gate_result_path(suite: str) -> str | None:
+    """The file the Quality Gate writes a .NET or web suite's results to: one
+    TRX per test project (``trx/<Project>.trx``), one Vitest JUnit for the web
+    client (``junit/mavi-web.xml``). ``None`` for any other suite."""
+    if suite.startswith("tests/"):
+        return f"trx/{suite.split('/')[1]}.trx"
+    if suite.startswith("src/web/"):
+        return "junit/mavi-web.xml"
+    return None
+
+
 def suite_key(suite: str) -> tuple[str, ...] | None:
     """The components a test case's ``classname`` must contain to belong to
     ``suite``: its last two path components, extension dropped
@@ -527,8 +671,60 @@ def case_belongs(classname: str, key: tuple[str, ...]) -> bool:
     return any(tuple(components[index:index + width]) == key for index in range(len(components) - width + 1))
 
 
+TRX_NAMESPACE = "{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}"
+# TRX outcomes a result may count; anything else (Timeout, Aborted, ...) is a failure.
+TRX_PASSED = frozenset({"Passed"})
+TRX_SKIPPED = frozenset({"NotExecuted"})  # an xUnit ``Skip``
+TRX_ERROR = frozenset({"Error"})
+
+
+def _junit_cases(root: ElementTree.Element) -> Iterable[tuple[str, str, str]]:
+    for case in root.iter("testcase"):
+        if case.find("failure") is not None:
+            status = "failed"
+        elif case.find("error") is not None:
+            status = "errors"
+        elif case.find("skipped") is not None:
+            status = "skipped"
+        else:
+            status = "passed"
+        yield case.get("classname", ""), case.get("name", ""), status
+
+
+def _trx_cases(root: ElementTree.Element) -> Iterable[tuple[str, str, str]]:
+    """``dotnet test --logger trx`` results: each ``UnitTestResult`` joined to its
+    ``UnitTest`` definition for the class name. The test name is the result's
+    ``testName`` without its class prefix, so theory arguments stay distinct."""
+    classes = {
+        test.get("id"): method.get("className", "")
+        for test in root.iter(f"{TRX_NAMESPACE}UnitTest")
+        for method in test.iter(f"{TRX_NAMESPACE}TestMethod")
+    }
+    for result in root.iter(f"{TRX_NAMESPACE}UnitTestResult"):
+        classname = classes.get(result.get("testId"))
+        if classname is None:
+            raise ValueError(f"trx_result_without_definition:{result.get('testName')}")
+        name = result.get("testName", "")
+        name = name[len(classname) + 1:] if name.startswith(classname + ".") else name
+        outcome = result.get("outcome")
+        if outcome in TRX_PASSED:
+            status = "passed"
+        elif outcome in TRX_SKIPPED:
+            status = "skipped"
+        elif outcome in TRX_ERROR:
+            status = "errors"
+        else:
+            status = "failed"
+        yield classname, name, status
+
+
+def is_trx(root: ElementTree.Element) -> bool:
+    return root.tag == f"{TRX_NAMESPACE}TestRun"
+
+
 def suite_counts_from_junit(xml_path: Path, suite: str | None = None) -> dict[str, Any]:
-    """Pass/skip/fail/error counts of ``suite``'s test cases in a JUnit XML.
+    """Pass/skip/fail/error counts of ``suite``'s test cases in a JUnit XML, or
+    in a .NET TRX (the Quality Gate's built-in ``trx`` logger).
 
     One XML may cover several suites (Task 10's boundary step), so a case is
     counted only when its ``classname`` belongs to the suite (``suite_key``).
@@ -539,22 +735,13 @@ def suite_counts_from_junit(xml_path: Path, suite: str | None = None) -> dict[st
     root = ElementTree.parse(xml_path).getroot()
     counts = {"passed": 0, "skipped": 0, "failed": 0, "errors": 0, "passedTests": [], "skippedTests": []}
     seen = 0
-    for case in root.iter("testcase"):
-        classname = case.get("classname", "")
+    for classname, name, status in (_trx_cases(root) if is_trx(root) else _junit_cases(root)):
         if key is not None and not case_belongs(classname, key):
             continue
         seen += 1
-        name = f"{classname}::{case.get('name', '')}"
-        if case.find("failure") is not None:
-            counts["failed"] += 1
-        elif case.find("error") is not None:
-            counts["errors"] += 1
-        elif case.find("skipped") is not None:
-            counts["skipped"] += 1
-            counts["skippedTests"].append(name)
-        else:
-            counts["passed"] += 1
-            counts["passedTests"].append(name)
+        counts[status] += 1
+        if status in ("passed", "skipped"):
+            counts[f"{status}Tests"].append(f"{classname}::{name}")
     if seen == 0:
         raise ValueError(f"junit_no_matching_testcases:{xml_path}:{suite}")
     return counts
@@ -562,10 +749,21 @@ def suite_counts_from_junit(xml_path: Path, suite: str | None = None) -> dict[st
 
 # --------------------------------------------------------------------------- checks
 class _Checker:
-    def __init__(self, record: dict[str, Any], repo_root: Path | None) -> None:
+    def __init__(self, record: dict[str, Any], repo_root: Path | None, verify_git: bool = False) -> None:
         self.record = record
         self.repo_root = repo_root
+        self.verify_git = verify_git
         self.findings: list[Finding] = []
+
+    def source_at(self, measured_sha: str, relative: str) -> bytes | None:
+        """A committed file as it is at the measured SHA (``git show``), so a
+        later checkout cannot change what the measured code said. Without git
+        verification, the repository's (or this checkout's) working tree."""
+        if self.verify_git and self.repo_root is not None:
+            result = subprocess.run(["git", "show", f"{measured_sha}:{relative}"], cwd=self.repo_root, capture_output=True)
+            return result.stdout if result.returncode == 0 else None
+        path = (self.repo_root or REPO_ROOT) / relative
+        return path.read_bytes() if path.is_file() else None
 
     def fail(self, unit: str, code: str, detail: str) -> None:
         self.findings.append(Finding(unit, code, detail))
@@ -607,6 +805,12 @@ class _Checker:
             self._b2_output(measured_sha)
         if name == "B6":
             self._task10_records(measured_sha)
+        if name == "B1":
+            self._b1_comparison(measured_sha)
+        if name == "B3":
+            self._b3_proving_tests(unit)
+        if name == "B5":
+            self._b5_records(measured_sha)
 
     def _unit_sha(self, name: str) -> str:
         return self.record["units"][name].get("measuredSha", self.record["measuredSha"])
@@ -646,8 +850,9 @@ class _Checker:
             self._junit(name, suite_id, entry, measured_sha)
             if entry["failed"] or entry["errors"]:
                 self.fail(name, "suite_failed", f"suite {suite_id}: {entry['failed']} failed, {entry['errors']} errors")
-            approved_here = APPROVED_PAIRED_SKIPS.get((entry["suite"], entry["variant"]), frozenset())
-            only_approved_skips = entry["skipped"] > 0 and all(test_function_name(t) in approved_here for t in entry["skippedTests"])
+            only_approved_skips = entry["skipped"] > 0 and all(
+                is_approved_skip(entry["suite"], entry["variant"], t) for t in entry["skippedTests"]
+            )
             # A suite whose every test is an approved OS-conditional skip (the
             # Windows store suite on Linux) is legitimately empty; any other
             # empty suite ran nothing.
@@ -656,8 +861,7 @@ class _Checker:
             if entry["skipped"] != len(entry["skippedTests"]) or entry["passed"] != len(entry["passedTests"]):
                 self.fail(name, "count_inconsistent", f"suite {suite_id}: counts do not match the named passed/skipped tests")
             for test in entry["skippedTests"]:
-                approved = APPROVED_PAIRED_SKIPS.get((entry["suite"], entry["variant"]), frozenset())
-                if test_function_name(test) not in approved:
+                if not is_approved_skip(entry["suite"], entry["variant"], test):
                     self.fail(name, "skip_not_approved", f"suite {suite_id} skipped {test} on {entry['variant']}; §3.1 approves no such skip")
                     continue
                 if not self._skip_is_paired(test, entry["variant"], cited, measured_sha):
@@ -687,6 +891,10 @@ class _Checker:
             allowed = {TASK10_WORKFLOW, QUALITY_GATE_WORKFLOW}
         if run["kind"] != "workflow" or run.get("workflow") not in allowed:
             self.fail(name, "suite_provenance_invalid", f"suite {suite_id} cites run {entry['run']!r} ({run['kind']} {run.get('workflow')}), not {sorted(allowed)}")
+        expected = quality_gate_result_path(suite)
+        artifact = self.record["retainedArtifacts"].get(entry["junitArtifact"])
+        if expected is not None and artifact is not None and not artifact["path"].endswith(expected):
+            self.fail(name, "suite_provenance_invalid", f"suite {suite_id} is backed by {artifact['path']}, not the Quality Gate's {expected}")
         if suite.startswith("task10:"):
             step = suite.split(":", 1)[1]
             artifact = self.record["retainedArtifacts"].get(entry["junitArtifact"])
@@ -830,7 +1038,11 @@ class _Checker:
         timeout = by_metric.get("b3.worker-request-timeout-ms")
         if timeout is None:
             return
-        default_ms, maximum_ms = worker_request_timeout_bounds_ms()
+        settings = self.source_at(measured_sha, WORKER_SETTINGS_RELATIVE)
+        if settings is None:
+            self.fail("B3", "worker_timeout_unbound", f"{WORKER_SETTINGS_RELATIVE} is not readable at the measured {measured_sha}")
+            return
+        default_ms, maximum_ms = worker_request_timeout_bounds_ms(settings.decode("utf-8"))
         if not 0 < timeout["value"] <= maximum_ms:
             self.fail("B3", "worker_timeout_out_of_range", f"worker timeout {timeout['value']} ms is outside (0, {maximum_ms}] ms")
         # No supported install path configures the worker timeout (installs set
@@ -864,9 +1076,13 @@ class _Checker:
         try:
             output = json.loads(path.read_text(encoding="utf-8"))
             shape = output["shape"]
+            # The .NET harness measures what it can portably read: CPU model and
+            # logical cores. The rest of the host is bound through B2's harness.
+            self._bind_host("B3", wall, output["host"], artifact_id, SEALING_HOST_FIELDS)
             problems = [
                 label
                 for label, holds in (
+                    ("schema is not s1-b3-sealing-scale-v1", output["schema"] == "s1-b3-sealing-scale-v1"),
                     ("status is not complete", output["status"] == "complete"),
                     ("the run was not authoritative", output["authoritative"] is True),
                     (f"tracks {shape['tracks']} != {MAXIMUM_COMPLETION_TRACKS}", shape["tracks"] == MAXIMUM_COMPLETION_TRACKS),
@@ -937,6 +1153,97 @@ class _Checker:
             self.fail(unit, code, f"{artifact_id} is not readable JSON ({exc})")
             return None
 
+    def _b1_comparison(self, measured_sha: str) -> None:
+        """Each B1 count equals the retained s1_b1 comparison of the retained runs."""
+        comparison = self._retained_json("B1", "b1.cross-variant-comparison", "b1_comparison_invalid")
+        if comparison is None:
+            return
+        problems: list[str] = []
+        try:
+            identity = comparison["identity"]
+            if comparison["schema"] != "s1-b1-comparison-v1":
+                problems.append("its schema is not s1-b1-comparison-v1")
+            if identity["sourceSha"] != measured_sha or identity["cleanTree"] is not True:
+                problems.append(f"it was derived on {identity['sourceSha']} (clean: {identity['cleanTree']}), not a clean {measured_sha}")
+            problems.extend(f"identity: {problem}" for problem in comparison["identityProblems"])
+            measurement = self.record["retainedArtifacts"].get("b1.real-clip-measurement")
+            if measurement is None or comparison["inputs"]["linux"]["sha256"] != measurement["sha256"]:
+                problems.append("its Linux run is not the retained b1.real-clip-measurement")
+            baseline = self.source_at(measured_sha, B1_BASELINE_RELATIVE) if self.repo_root else None
+            if baseline is None or comparison["inputs"]["baseline"]["sha256"] != hashlib.sha256(baseline).hexdigest():
+                problems.append(f"its baseline is not {B1_BASELINE_RELATIVE} at the measured SHA")
+            for trace in comparison["traces"]:
+                if not (trace.get("path") and trace.get("cause") and trace.get("reviewedBy")):
+                    problems.append(f"trace {trace} lacks a path, cause or reviewer")
+            counts = comparison["counts"]
+            for measurement_id in self.record["units"]["B1"]["measurements"]:
+                entry = self.record["measurements"].get(measurement_id)
+                if entry is not None and entry["metric"] in B1_COUNTS and entry["value"] != counts[B1_COUNTS[entry["metric"]]]:
+                    problems.append(f"{entry['metric']} {entry['value']} is not the derived {counts[B1_COUNTS[entry['metric']]]}")
+        except (KeyError, TypeError) as exc:
+            problems.append(f"incomplete ({exc})")
+        for problem in problems:
+            self.fail("B1", "b1_comparison_invalid", f"b1.cross-variant-comparison: {problem}")
+
+    def _b3_proving_tests(self, unit: dict[str, Any]) -> None:
+        cited = [self.record["suites"][sid] for sid in unit["suites"] if sid in self.record["suites"]]
+        for metric, (suite, test) in B3_PROVING_TESTS.items():
+            variants = required_variants(UNIT_REQUIREMENTS["B3"], suite)
+            for variant in variants:
+                if not any(
+                    entry["suite"] == suite
+                    and (variant is None or entry["variant"] == variant)
+                    and any(test_function_name(t) == test for t in entry["passedTests"])
+                    for entry in cited
+                ):
+                    where = f" on {variant}" if variant else ""
+                    self.fail("B3", "proving_test_missing", f"{metric} needs {suite}::{test} to have passed{where}")
+
+    def _b5_records(self, measured_sha: str) -> None:
+        """The real-video clip count is the retained record's verified clips."""
+        video = self._retained_json("B5", "b5.real-video-record", "b5_record_invalid")
+        if video is not None:
+            problems: list[str] = []
+            try:
+                if video["schema"] != "s1-b5-real-video-record-v1":
+                    problems.append("its schema is not s1-b5-real-video-record-v1")
+                if video["sourceCommit"] != measured_sha:
+                    problems.append(f"it ran {video['sourceCommit']}, not the measured {measured_sha}")
+                verified = [
+                    clip for clip in video["clips"]
+                    if clip.get("label") == "real-video"
+                    and re.fullmatch(r"[0-9a-f]{64}", str(clip.get("sha256", "")))
+                    and all(clip.get(key) is True for key in B5_CLIP_CHECKS)
+                ]
+                if len({clip["sha256"] for clip in verified}) != len(verified):
+                    problems.append("a clip is counted twice")
+                count = len({clip["sha256"] for clip in verified})
+                for measurement_id in self.record["units"]["B5"]["measurements"]:
+                    entry = self.record["measurements"].get(measurement_id)
+                    if entry is not None and entry["metric"] == B5_CLIP_METRIC and entry["value"] != count:
+                        problems.append(f"{B5_CLIP_METRIC} {entry['value']} is not the record's {count} verified real-video clips")
+            except (KeyError, TypeError) as exc:
+                problems.append(f"incomplete ({exc})")
+            for problem in problems:
+                self.fail("B5", "b5_record_invalid", f"b5.real-video-record: {problem}")
+        qa = self._retained_json("B5", "b5.visual-qa-record", "b5_record_invalid")
+        if qa is not None:
+            problems = []
+            try:
+                if qa["schema"] != "s1-b5-visual-qa-v1":
+                    problems.append("its schema is not s1-b5-visual-qa-v1")
+                if qa["sourceCommit"] != measured_sha:
+                    problems.append(f"it reviewed {qa['sourceCommit']}, not the measured {measured_sha}")
+                items = qa["items"]
+                if not items or any(item.get("passed") is not True or item.get("label") not in ("real-video", "fixture") for item in items):
+                    problems.append("an item did not pass or is not labelled real-video/fixture")
+                if not any(item.get("label") == "real-video" for item in items):
+                    problems.append("no item is real-video acceptance")
+            except (KeyError, TypeError) as exc:
+                problems.append(f"incomplete ({exc})")
+            for problem in problems:
+                self.fail("B5", "b5_record_invalid", f"b5.visual-qa-record: {problem}")
+
     def _task10_records(self, measured_sha: str) -> None:
         """Each variant's Task-10 records come from a successful Task-10 run on
         the measured SHA, from that variant's job, under their own names."""
@@ -952,47 +1259,136 @@ class _Checker:
                     problems.append("it is not from a Task-10 workflow run")
                 if artifact.get("variant") != variant:
                     problems.append(f"it is not retained as {variant} output")
-                if not artifact["path"].endswith("/" + record_name) and artifact["path"] != record_name:
-                    problems.append(f"its path {artifact['path']} is not {record_name}")
+                expected = f"{variant}/{record_name}"
+                if artifact["path"] != expected and not artifact["path"].endswith("/" + expected):
+                    problems.append(f"its path {artifact['path']} is not the variant's {expected}")
+                twin = self.record["retainedArtifacts"].get(f"b6.{other_variant(variant)}.{record_name}")
+                if record_name in TASK10_JOB_RECORDS and twin is not None and twin.get("sha256") == artifact.get("sha256"):
+                    problems.append("its bytes are the other variant's; each job writes its own")
                 for problem in problems:
                     self.fail("B6", "task10_record_invalid", f"{artifact_id}: {problem}")
         # Task 10's own final step requires the composition record to pass;
         # check the retained bytes say so too.
         for variant in QUALIFIED_CPU_VARIANTS:
             composition = self._retained_json("B6", f"b6.{variant}.production-composition-qualification.json", "task10_record_invalid")
-            if composition is not None and composition.get("status") != "passed":
-                self.fail("B6", "task10_record_invalid", f"{variant} production composition status is {composition.get('status')!r}")
+            if composition is not None:
+                for key, expected in (("status", "passed"), ("headSha", measured_sha)):
+                    if composition.get(key) != expected:
+                        self.fail("B6", "task10_record_invalid", f"{variant} production-composition-qualification.json {key} is {composition.get(key)!r}, not {expected!r}")
+            # The ByteTrack record names the job's variant and executed source head.
+            bytetrack = self._retained_json("B6", f"b6.{variant}.bytetrack-qualification.json", "task10_record_invalid")
+            if bytetrack is not None:
+                for key, expected in (("status", "passed"), ("runtimeVariant", variant), ("headSha", measured_sha)):
+                    if bytetrack.get(key) != expected:
+                        self.fail("B6", "task10_record_invalid", f"{variant} bytetrack-qualification.json {key} is {bytetrack.get(key)!r}, not {expected!r}")
 
     def _b2_output(self, measured_sha: str) -> None:
-        """Every B2 value must be the retained derived harness output's value."""
-        derived = self._retained_json("B2", "b2.memory-harness-output", "b2_output_mismatch")
+        """Every B2 value is its variant's retained derived harness output, and
+        each variant's §6.3 staging lifecycle passed on the measured code."""
+        for variant in QUALIFIED_CPU_VARIANTS:
+            self._b2_variant_output(measured_sha, variant)
+            self._staging_lifecycle(measured_sha, variant)
+
+    def _staging_lifecycle(self, measured_sha: str, variant: str) -> None:
+        artifact_id = f"{B2_LIFECYCLE_ARTIFACT}.{variant}"
+        output = self._retained_json("B2", artifact_id, "staging_lifecycle_invalid")
+        if output is None:
+            return
+        try:
+            identity = output["identity"]
+            problems = [
+                label
+                for label, holds in (
+                    ("its schema is not s1-b2-staging-lifecycle-v1", output["schema"] == "s1-b2-staging-lifecycle-v1"),
+                    (f"it measured {identity['sourceSha']}, not a clean {measured_sha}", identity["sourceSha"] == measured_sha and identity["cleanTree"] is True),
+                    (f"it ran on {output['runtime']['runtimeVariant']!r}, not {variant}", output["runtime"]["runtimeVariant"] == variant),
+                    ("it did not use the native ByteTrack adapter", output["workload"]["tracker"] == "bytetrack"),
+                    *((f"lifecycle check {check} did not hold", output["checks"].get(check) is True) for check in STAGING_LIFECYCLE_CHECKS),
+                )
+                if not holds
+            ]
+        except (KeyError, TypeError) as exc:
+            problems = [f"incomplete ({exc})"]
+        for problem in problems:
+            self.fail("B2", "staging_lifecycle_invalid", f"{artifact_id}: {problem}")
+
+    def _b2_variant_output(self, measured_sha: str, variant: str) -> None:
+        artifact_id = f"{B2_OUTPUT_ARTIFACT}.{variant}"
+        derived = self._retained_json("B2", artifact_id, "b2_output_mismatch")
         if derived is None:
             return
         try:
             if derived["schema"] != "s1-b2-memory-derived-v1":
-                self.fail("B2", "b2_output_mismatch", f"b2.memory-harness-output schema {derived['schema']!r} is not s1-b2-memory-derived-v1")
+                self.fail("B2", "b2_output_mismatch", f"{artifact_id} schema {derived['schema']!r} is not s1-b2-memory-derived-v1")
             identity = derived["identity"]
             if identity["sourceSha"] != measured_sha or identity["cleanTree"] is not True:
-                self.fail("B2", "b2_output_mismatch", f"b2.memory-harness-output measured {identity['sourceSha']} (clean: {identity['cleanTree']}), not a clean {measured_sha}")
+                self.fail("B2", "b2_output_mismatch", f"{artifact_id} measured {identity['sourceSha']} (clean: {identity['cleanTree']}), not a clean {measured_sha}")
             values = derived["measurements"]
             runtime_variant = derived["runtime"]["runtimeVariant"]
             derived_host = derived["host"]
+            live_fit = derived["liveLevelFit"]
+            reconciliation = derived["boundOneReconciliation"]
         except (KeyError, TypeError) as exc:
-            self.fail("B2", "b2_output_mismatch", f"b2.memory-harness-output is incomplete ({exc})")
+            self.fail("B2", "b2_output_mismatch", f"{artifact_id} is incomplete ({exc})")
             return
-        if runtime_variant not in QUALIFIED_CPU_VARIANTS:
-            self.fail("B2", "b2_output_mismatch", f"b2.memory-harness-output ran on {runtime_variant!r}, not a qualified variant")
+        if runtime_variant != variant:
+            self.fail("B2", "b2_output_mismatch", f"{artifact_id} ran on {runtime_variant!r}, not {variant}")
+        self._live_level_fit(artifact_id, values, live_fit, reconciliation)
+        suffix = "." + variant
         for measurement_id in self.record["units"]["B2"]["measurements"]:
             entry = self.record["measurements"].get(measurement_id)
-            if entry is None:
+            if entry is None or not entry["metric"].endswith(suffix):
                 continue
-            source = values.get(entry["metric"])
+            base = entry["metric"][: -len(suffix)]
+            source = values.get(base)
+            if isinstance(source, dict) and source.get("undefined"):
+                # §6.2 bound 2 cannot be judged from this measurement: fail closed.
+                self.fail("B2", "variation_undefined", f"{entry['metric']}: {source['undefined']}")
+                continue
             if source is None or source.get("value") != entry["value"] or source.get("unit") != entry["unit"]:
-                self.fail("B2", "b2_output_mismatch", f"{entry['metric']} {entry['value']} {entry['unit']} is not the harness output's {source}")
-            host = self.record["hosts"].get(entry["host"], {})
-            for key in ("cpuModel", "logicalCores"):
-                if derived_host.get(key) != host.get(key):
-                    self.fail("B2", "b2_output_mismatch", f"{entry['metric']}: the harness host's {key} {derived_host.get(key)!r} is not host {entry['host']}'s {host.get(key)!r}")
+                self.fail("B2", "b2_output_mismatch", f"{entry['metric']} {entry['value']} {entry['unit']} is not {artifact_id}'s {source}")
+            self._bind_host("B2", entry, derived_host, artifact_id)
+
+    def _live_level_fit(self, artifact_id: str, values: dict[str, Any], fit: dict[str, Any], reconciliation: dict[str, Any]) -> None:
+        """The per-live slope is recomputed from its retained plateaus, and its
+        reconciliation with the bound-1 accounting model must be consistent."""
+        try:
+            points = [(float(level), float(mean)) for level, mean in fit["points"]]
+            levels = {level for level, _ in points}
+            xs = [level for level, _ in points]
+            ys = [mean for _, mean in points]
+            x_mean, y_mean = sum(xs) / len(xs), sum(ys) / len(ys)
+            sxx = sum((x - x_mean) ** 2 for x in xs)
+            slope = sum((x - x_mean) * (y - y_mean) for x, y in points) / sxx
+            recorded = values["b2.process-memory-per-live-track-slope"]["value"]
+            problems = [
+                label
+                for label, holds in (
+                    (f"it has {len(levels)} live levels, fewer than {LIVE_LEVEL_MINIMUM}", len(levels) >= LIVE_LEVEL_MINIMUM),
+                    (f"its per-live slope {recorded} is not the fit of its plateaus ({slope})", abs(recorded - slope) <= 1e-6 * max(1.0, abs(slope))),
+                    ("its fit quality is not recorded", isinstance(fit.get("r2"), (int, float))),
+                    ("its reconciliation slope differs from the metric", reconciliation["perLiveProcessSlopeBytes"] == recorded),
+                    (
+                        "its reconciliation does not account the recorded held evidence",
+                        reconciliation["unaccountedPerLiveBytes"] == recorded - reconciliation["accountedEncodedEvidenceBytesMax"],
+                    ),
+                    ("its reconciliation's accounted evidence exceeds the holder bound", reconciliation["accountedEncodedEvidenceBytesMax"] <= reconciliation["encodedEvidenceBoundBytes"]),
+                )
+                if not holds
+            ]
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+            problems = [f"live-level fit is incomplete ({exc})"]
+        for problem in problems:
+            self.fail("B2", "b2_output_mismatch", f"{artifact_id}: {problem}")
+
+    def _bind_host(self, unit: str, entry: dict[str, Any], measured: dict[str, Any], source: str, fields: tuple[str, ...] = MEASURED_HOST_FIELDS) -> None:
+        """§3 host identity is measured by the harness, not typed into the record."""
+        host = self.record["hosts"].get(entry["host"], {})
+        for key in fields:
+            if measured.get(key) is None:
+                self.fail(unit, "host_identity_unmeasured", f"{source} did not measure host {key}")
+            elif measured.get(key) != host.get(key):
+                self.fail(unit, "host_identity_mismatch", f"{entry['metric']}: {source} measured {key} {measured.get(key)!r}, host {entry['host']} says {host.get(key)!r}")
 
     def _disconnected_run(self, measured_sha: str) -> None:
         """The run record must show every §11 outcome succeeded on the measured code."""
@@ -1028,6 +1424,25 @@ class _Checker:
                     problems.append(f"outcome {outcome} does not cite a retained, verified evidence artifact ({evidence!r})")
                     continue
                 self._run("DISCONNECTED", artifact["run"], measured_sha, f"outcome {outcome} evidence {evidence}")
+                # §11 is the operator's own run on the disconnected host: its
+                # evidence comes from the run that retained the run record, a
+                # local run on a declared host, and is no other unit's evidence.
+                record_run = self.record["retainedArtifacts"]["disconnected.run-record"]["run"]
+                source = self.record["runs"].get(artifact["run"])
+                if artifact["run"] != record_run or source is None or source["kind"] != "local":
+                    problems.append(f"outcome {outcome} evidence {evidence} is from run {artifact['run']!r}, not the disconnected local run {record_run!r}")
+                cited_by = sorted(
+                    name for name, unit in self.record["units"].items()
+                    if name != "DISCONNECTED"
+                    and (evidence in unit.get("artifacts", ())
+                         or any(self.record["measurements"].get(mid, {}).get("artifact") == evidence for mid in unit.get("measurements", ())))
+                )
+                if cited_by:
+                    problems.append(f"outcome {outcome} evidence {evidence} is also evidence for {cited_by}")
+            record_run = self.record["runs"].get(self.record["retainedArtifacts"]["disconnected.run-record"]["run"]) or {}
+            host = self.record["hosts"].get(record_run.get("host"), {})
+            if ("windows" in str(host.get("os", "")).lower()) != block["variant"].startswith("windows"):
+                problems.append(f"it ran on host {record_run.get('host')!r} ({host.get('os')}), not a {block['variant']} host")
         except (KeyError, TypeError, AttributeError) as exc:
             problems = [f"incomplete ({exc})"]
         for problem in problems:
@@ -1040,16 +1455,22 @@ class _Checker:
             return
         if record["runtimeBundleSourceCommit"] != measured_sha:
             self.fail("DISCONNECTED", "runtime_bundle_not_measured_code", f"bundle sourceCommit {record['runtimeBundleSourceCommit']} != measured {measured_sha}")
+        if record["variant"] not in QUALIFIED_CPU_VARIANTS:
+            self.fail("DISCONNECTED", "disconnected_variant_unqualified", f"variant {record['variant']!r} is not a qualified CPU variant {QUALIFIED_CPU_VARIANTS}")
         for phase in ("isolationBefore", "isolationAfter"):
             probe = record[phase]
             if not probe["passed"] or not probe["proxyEnvironmentAbsent"] or any(item["reachable"] for item in probe["probes"]):
                 self.fail("DISCONNECTED", "isolation_not_evidenced", f"{phase} does not show an isolated host")
+            targets = [(item.get("host"), item.get("port")) for item in probe["probes"]]
+            if sorted(targets, key=str) != sorted(ISOLATION_PROBE_TARGETS, key=str):
+                self.fail("DISCONNECTED", "isolation_not_evidenced", f"{phase} probed {targets}, not exactly {list(ISOLATION_PROBE_TARGETS)}")
         self._disconnected_run(measured_sha)
         self._bundle_manifest(measured_sha)
         # The probes are retained probe output, not record fields.
         for phase, artifact_id in (("isolationBefore", "disconnected.isolation-before"), ("isolationAfter", "disconnected.isolation-after")):
             probe = self._retained_json("DISCONNECTED", artifact_id, "isolation_not_evidenced")
-            if probe is not None and probe != record[phase]:
+            # The probe's own fields; the retained output may carry more (timestamps).
+            if probe is not None and any(probe.get(key) != record[phase].get(key) for key in ISOLATION_PROBE_FIELDS):
                 self.fail("DISCONNECTED", "isolation_not_evidenced", f"{phase} differs from the retained {artifact_id} probe output")
 
     def _bundle_manifest(self, measured_sha: str) -> None:
@@ -1110,6 +1531,24 @@ class _Checker:
                 if self.record["units"][name]["verdict"] == "PASS" and self._unit_sha(name) != closure["mergeSha"]:
                     self.fail(name, "closure_rerun_required", f"{path} changed between measured and merge SHA; {name} was not re-measured on {closure['mergeSha']}")
 
+    def verify_measured_shas(self) -> None:
+        """Plan §2: every PASS was measured on a real commit reachable from
+        ``main`` (a merge commit, not an unmerged branch head)."""
+        if self.repo_root is None:
+            return
+        git = lambda *args: subprocess.run(["git", *args], cwd=self.repo_root, capture_output=True, text=True)  # noqa: E731
+        main = next((ref for ref in ("refs/heads/main", "refs/remotes/origin/main") if git("rev-parse", "--verify", "-q", ref).returncode == 0), None)
+        for name in UNITS:
+            if self.record["units"][name]["verdict"] != "PASS":
+                continue
+            sha = self._unit_sha(name)
+            if git("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
+                self.fail(name, "measured_sha_unknown", f"{name} was measured on {sha}, which is not a commit in this repository")
+            elif main is None:
+                self.fail(name, "measured_sha_not_on_main", "no main or origin/main ref to verify the measured SHA against")
+            elif git("merge-base", "--is-ancestor", sha, main).returncode != 0:
+                self.fail(name, "measured_sha_not_on_main", f"{name} was measured on {sha}, which is not reachable from {main}")
+
     def verify_git_diff(self) -> None:
         """The closure must be a real merge of the measured code, and its
         changedPaths the real diff, not a hand-written list."""
@@ -1152,7 +1591,8 @@ def check_record(
     recomputed with git. ``structural_only`` skips that and is for tests of the
     rules themselves; a record checked that way is never evidence.
     """
-    checker = _Checker(record, repo_root)
+    verify_git = verify_git if verify_git is not None else repo_root is not None
+    checker = _Checker(record, repo_root, verify_git=verify_git)
     if not checker.schema():
         return sorted(checker.findings)
     if repo_root is None and not structural_only:
@@ -1162,7 +1602,8 @@ def check_record(
     for name in UNITS:
         checker.unit(name)
     checker.closure()
-    if verify_git if verify_git is not None else repo_root is not None:
+    if verify_git:
+        checker.verify_measured_shas()
         checker.verify_git_diff()
     return sorted(set(checker.findings))
 

@@ -91,54 +91,69 @@ public sealed class S1SealingScaleTests
         var runId = QualificationGate.NewRunId();
         QualificationGate.Begin(EvidenceFile, runId, environment);
 
-        var runs = new List<object>();
-        var p50s = new List<double>();
-        var all = new List<double>();
-        object? shape = null;
-        for (var repeat = 0; repeat < repeats; repeat++)
+        // The harness empties its evidence root before every sample, so it works
+        // only in a directory it creates and owns. It never deletes anything else
+        // under MAVI_S1_SEALING_EVIDENCE_ROOT, even when that is a real evidence root.
+        var workRoot = Path.Combine(evidenceRoot!, $"mavi-s1-sealing-{runId}");
+        Directory.CreateDirectory(workRoot);
+        try
         {
-            var completion = new List<double>();
-            var replay = new List<double>();
-            for (var index = 0; index < warmup + samples; index++)
+            var runs = new List<object>();
+            var p50s = new List<double>();
+            var all = new List<double>();
+            object? shape = null;
+            for (var repeat = 0; repeat < repeats; repeat++)
             {
-                var sample = await MeasureOnceAsync(evidenceRoot!, tracks);
-                shape ??= sample.Shape;
-                if (index < warmup) continue;
-                completion.Add(sample.CompletionMs);
-                replay.Add(sample.ReplayMs);
+                var completion = new List<double>();
+                var replay = new List<double>();
+                for (var index = 0; index < warmup + samples; index++)
+                {
+                    var sample = await MeasureOnceAsync(workRoot, tracks);
+                    shape ??= sample.Shape;
+                    if (index < warmup) continue;
+                    completion.Add(sample.CompletionMs);
+                    replay.Add(sample.ReplayMs);
+                }
+
+                p50s.Add(Percentile(completion, 0.50));
+                all.AddRange(completion);
+                runs.Add(new { repeat, completionMs = completion, replayMs = replay, completion = Stats(completion), replay = Stats(replay) });
             }
 
-            p50s.Add(Percentile(completion, 0.50));
-            all.AddRange(completion);
-            runs.Add(new { repeat, completionMs = completion, replayMs = replay, completion = Stats(completion), replay = Stats(replay) });
+            // Any reduced envelope or unqualified environment still produces output,
+            // but never authoritative output; the evidence checker requires it.
+            var nonAuthoritative = NonAuthoritativeReasons(tracks, samples, repeats, warmup, configuredTimeout, environment);
+            var path = QualificationGate.Write(EvidenceFile, new
+            {
+                schema = "s1-b3-sealing-scale-v1",
+                status = "complete",
+                authoritative = nonAuthoritative.Count == 0,
+                nonAuthoritativeReasons = nonAuthoritative,
+                workerRequestTimeoutSource = configuredTimeout is null ? "WorkerSettings default" : "MAVI_REQUEST_TIMEOUT_SECONDS",
+                runId,
+                environment,
+                evidenceRoot,
+                workRoot,
+                evidenceFilesystem = FilesystemOf(workRoot),
+                // The checker requires one output per supported Development OS (§7.4).
+                variant = RuntimeVariant(),
+                // §3 host identity, measured here rather than typed into the record.
+                host = new { cpuModel = CpuModel(), logicalCores = Environment.ProcessorCount },
+                shape,
+                workerRequestTimeoutMs = timeoutSeconds * 1000.0,
+                samples,
+                repeats,
+                warmupExcluded = warmup,
+                completion = Stats(all),
+                p50RunSpreadMs = p50s.Max() - p50s.Min(),
+                runs,
+            });
+            Console.WriteLine($"S1 B3 sealing scale evidence: {path}");
         }
-
-        // Any reduced envelope or unqualified environment still produces output,
-        // but never authoritative output; the evidence checker requires it.
-        var nonAuthoritative = NonAuthoritativeReasons(tracks, samples, repeats, warmup, configuredTimeout, environment);
-        var path = QualificationGate.Write(EvidenceFile, new
+        finally
         {
-            schema = "s1-b3-sealing-scale-v1",
-            status = "complete",
-            authoritative = nonAuthoritative.Count == 0,
-            nonAuthoritativeReasons = nonAuthoritative,
-            workerRequestTimeoutSource = configuredTimeout is null ? "WorkerSettings default" : "MAVI_REQUEST_TIMEOUT_SECONDS",
-            runId,
-            environment,
-            evidenceRoot,
-            evidenceFilesystem = FilesystemOf(evidenceRoot!),
-            // The checker requires one output per supported Development OS (§7.4).
-            variant = RuntimeVariant(),
-            shape,
-            workerRequestTimeoutMs = timeoutSeconds * 1000.0,
-            samples,
-            repeats,
-            warmupExcluded = warmup,
-            completion = Stats(all),
-            p50RunSpreadMs = p50s.Max() - p50s.Min(),
-            runs,
-        });
-        Console.WriteLine($"S1 B3 sealing scale evidence: {path}");
+            if (Directory.Exists(workRoot)) Directory.Delete(workRoot, recursive: true);
+        }
     }
 
     /// <summary>The worker's <c>request_timeout_seconds</c> default (<c>mavi_vision/common/settings.py</c>).</summary>
@@ -286,6 +301,33 @@ public sealed class S1SealingScaleTests
         if (ordered.Length == 0) throw new InvalidOperationException("percentile_of_empty_series");
         var rank = (int)Math.Ceiling(fraction * ordered.Length);
         return ordered[Math.Clamp(rank, 1, ordered.Length) - 1];
+    }
+
+    /// <summary>The CPU model string, read the same way as the Python harness.</summary>
+    internal static string? CpuModel()
+    {
+        try
+        {
+            if (OperatingSystem.IsLinux())
+            {
+                var line = File.ReadLines("/proc/cpuinfo").FirstOrDefault(x => x.StartsWith("model name", StringComparison.Ordinal));
+                return line?.Split(':', 2)[1].Trim();
+            }
+
+            if (OperatingSystem.IsWindows())
+            {
+                using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\CentralProcessor\0");
+                return (key?.GetValue("ProcessorNameString") as string)?.Trim();
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return null;
     }
 
     /// <summary>The qualified CPU variant of this host, or <c>unqualified-*</c>.</summary>

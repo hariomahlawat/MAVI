@@ -242,3 +242,47 @@ def test_occluder_diagnostics_report_the_superseded_proxy_without_replacing_it()
     # ... while the production quality-v2 proxy counts only the credible neighbour.
     production = occlusion_iou(context, candidate, competitor_confidence_floor=0.5)
     assert abs(production - 1 / 3) < 1e-9
+
+
+def test_a_recorded_run_replays_exactly_without_the_detector(tmp_path: Path) -> None:
+    """S1.4 §5.3: the detector's per-frame output, replayed through the real
+    tracker and selector, reproduces the run exactly."""
+    harness = _harness()
+    profile = load_pipeline_profile(PROFILE)
+    runtime = _MovingRuntime(profile.model_id, tuple(profile.allowed_source_classes))
+    video = tmp_path / "clip.mp4"
+    _write_video(video)
+
+    recorded: list = []
+    live, live_rows = harness.measure_clip(runtime, profile, "fixture", video, tmp_path / "live", record=recorded)
+    assert len(recorded) == FRAMES and any(entry["detections"] for entry in recorded)
+    detections = tmp_path / "detections" / "fixture.detections.jsonl"
+    harness.write_detections(detections, recorded)
+
+    replay, replay_rows = harness.measure_clip(
+        None, profile, "fixture", video, tmp_path / "replay", detector=harness.ReplayDetector(harness.read_detections(detections)),
+    )
+    ignore = {"processingSeconds", "peakRssKiB"}
+    assert {k: v for k, v in replay.items() if k not in ignore} == {k: v for k, v in live.items() if k not in ignore}
+    assert replay_rows == live_rows
+
+    # A recording missing one subject for five frames is visibly different, so
+    # the comparison can fail.
+    for entry in recorded[30:35]:
+        entry["detections"] = entry["detections"][1:]
+    harness.write_detections(detections, recorded)
+    perturbed, _ = harness.measure_clip(
+        None, profile, "fixture", video, tmp_path / "perturbed", detector=harness.ReplayDetector(harness.read_detections(detections)),
+    )
+    assert {k: v for k, v in perturbed.items() if k not in ignore} != {k: v for k, v in live.items() if k not in ignore}
+
+
+def test_replay_refuses_a_frame_that_was_not_recorded(tmp_path: Path) -> None:
+    harness = _harness()
+    detector = harness.ReplayDetector([{"frame": 0, "detections": []}])
+
+    class Frame:
+        source_frame_number = 1
+
+    with pytest.raises(RuntimeError, match="replay_frame_not_recorded"):
+        detector.detect(Frame())

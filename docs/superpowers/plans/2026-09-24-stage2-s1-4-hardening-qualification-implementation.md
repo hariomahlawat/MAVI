@@ -317,6 +317,7 @@ The acceptance is therefore **decomposed and quantitative**. Every term is measu
    - Its in-memory trajectory buffer stays within the spool's chunk bound, independent of Track length. The existing `tracemalloc` flat-with-length tests in `test_trajectory_spool.py` and `test_evidence_pipeline.py` are part of this.
 2. **Per-retired-Track retained cost.** With `tracemalloc`, measure the bytes retained per retired Track as the slope over at least 1,000 retirements at a fixed live envelope. Record it as the descriptor budget D. It must be:
    - independent of that Track's duration, trajectory length and crop sizes. Repeat with 10× longer Tracks and larger *supplemental* crops, and the slope must not change beyond measurement noise, predeclared as ±10 %. The Representative stays within its 64 KiB cap, and the encoder ladder shrinks anything larger;
+   - the ±10 % is the plain relative change, |variant slope − baseline slope| / baseline slope, with no floor on the denominator. When the baseline slope is zero or negative, or its standard error is at least 10 % of the slope itself (too close to zero for a 10 % change to be resolved), the variation is **undefined**: the harness reports `variation_undefined` and B2 cannot pass from that measurement. No absolute-noise tolerance applies unless qualification data shows one is needed and this plan is amended to say so;
    - ≤ 16 KiB, a predeclared ceiling. The workload deliberately uses Tracks longer than one trajectory spool chunk (`DEFAULT_CHUNK_POINTS` = 4,096 points) and high-entropy crops of at least 32 KiB each, so a single retained crop or chunk per Track would exceed the ceiling. Real crops can be under 1 KiB, as in the scripted corpus, so a ceiling test on small crops would not discriminate.
    - **Workload feasibility is declared up front.** Crops of that entropy do not survive a lossy video codec, and the frame counts are large: more than 4,096 frames per Track, times 1,000 retirements, divided by the live level L. So the harness declares, in PR A and before execution:
      - its frame source: a lossless or raw fixture, or a declared frame-source seam into `VideoProcessor` that keeps the real tracker, encoder and staging;
@@ -328,7 +329,7 @@ The acceptance is therefore **decomposed and quantitative**. Every term is measu
    - Take each sample after `gc.collect()` and a declared warm-up.
    - Take at least five plateaus at stepped live-Track levels, and at least three plateaus of growing retired history at a fixed live level, fitted over **at least 5,000 retirements**.
    - The fitted slope of process memory against retired count must not exceed an **absolute 16 KiB per retired Track**. A relative "D + 10 %" would sit below allocator and arena granularity. This is the only detector for native (Pillow/PyAV/tracker) retention, which tracemalloc cannot see.
-   - The fitted slope against live count is recorded as the empirical per-live-Track cost and compared with bound 1.
+   - The fitted slope against live count is recorded, on each qualified CPU variant, as the empirical per-live-Track cost, with its five stepped plateau levels and the fit quality. It is a mandatory, content-bound metric, and it is **reconciled** with bound 1, not thresholded by it. Bound 1 limits the encoded bytes a live Track's holders keep (544 KiB); it is not a ceiling on the process memory a live Track costs, which also includes tracker state, frame and decoder buffers and allocator overhead. The reconciliation reports the measured slope beside the largest encoded bytes and trajectory points a live Track was accounted as holding, and the unaccounted remainder, so a divergence is visible and explained rather than hidden. The slope is recorded as the regression baseline (§12). No product limit is derived from it to close S1.
 4. **Completion peak (recorded, not thresholded).** Record peak memory while the 10,000-Track completion is serialised and sent. The body is 24–40 MiB, and this is the process's designed peak. There is no pre-existing limit, so it is recorded as the regression baseline (§12) and does not by itself pass or fail B2.
 
 The workload runs through the **qualified native ByteTrack adapter** (`trackers` backend), the real `VideoProcessor`, the real encoder and staging. `FixtureTracker` parity is a separate structural test. A FixtureTracker-only memory run cannot see native backend state, such as an unpruned lost/removed-track list, so it is not B2 memory evidence.
@@ -346,9 +347,12 @@ Measure staging bytes through:
 
 Record maximum observed staging bytes and prove attempt isolation. Compare the maximum with the ADR-013 §4 staging derivation (≤ 10,000 × 544 KiB ≈ 5.2 GiB plus trajectories) using a near-worst controlled stress run. Measure, rather than assume, that staging stays within the derived bound.
 
+The derivation is applied to each run's own admitted evidence: the bound is the sum, over that run's Tracks, of 544 KiB plus the Track's trajectory artifact bytes and spooled observation records. The run's peak staging bytes divided by that bound must be ≤ 1.0. The 5.2 GiB figure is this bound at 10,000 Tracks; a smaller run is held to its own, smaller bound rather than to the worst case.
+
 **B2 PASS:**
 - lifecycle tests pass with zero skips on the qualified variants, on both the ByteTrack adapter and FixtureTracker;
-- bounds 1–3 above are measured and each is within its stated limit, and bound 4 is recorded;
+- bounds 1–3 above are measured on each qualified CPU variant and each is within its stated limit, the per-live-Track slope is recorded and reconciled with bound 1, and bound 4 is recorded;
+- each run's peak staging bytes are within its derived bound (§6.3);
 - retry and staging cleanup is demonstrated without cross-attempt or cross-job deletion.
 
 ---

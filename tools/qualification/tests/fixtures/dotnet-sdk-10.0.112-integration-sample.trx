@@ -1,0 +1,166 @@
+<?xml version='1.0' encoding='utf-8'?>
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010" id="c160c071-4b90-47ec-9fd3-7ca5c88d4a93" name="@host">
+  <Times creation="2026-09-24T17:19:16.6990664+00:00" queuing="2026-09-24T17:19:16.6990665+00:00" start="2026-09-24T17:19:15.4552658+00:00" finish="2026-09-24T17:22:14.0758464+00:00" />
+  <TestSettings name="default" id="edd5f089-0b27-406e-9050-64043182cbfa">
+    <Deployment runDeploymentRoot="REDACTED" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="551f5074-f16e-4f4e-bcd0-26bf090408d9" testId="9d5ce578-1fdf-27dc-566a-9a9b212a772f" testName="Mavi.IntegrationTests.WorkerContractV3Tests.CanonicalV3ExampleRoundTripsThroughPublicContract" computerName="host" duration="00:00:00.0053663" startTime="2026-09-24T17:19:43.2792126+00:00" endTime="2026-09-24T17:19:43.2845101+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="551f5074-f16e-4f4e-bcd0-26bf090408d9" />
+    <UnitTestResult executionId="cef78ebd-2fd1-479b-b491-e6f3c78a886f" testId="f6da652a-016b-4bb3-0ddd-b7b205e797e5" testName="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;schemaVersion\&quot;:\&quot;2.0\&quot;,\&quot;evidenceAccounting\&quot;:&quot;···)" computerName="host" duration="00:00:00.0000361" startTime="2026-09-24T17:19:42.2781053+00:00" endTime="2026-09-24T17:19:42.2781270+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="cef78ebd-2fd1-479b-b491-e6f3c78a886f" />
+    <UnitTestResult executionId="2a79254c-9a82-42a8-b268-8be9ce4ea727" testId="bd3994a1-9535-06e0-6546-f12cfa456a4b" testName="Mavi.IntegrationTests.WorkerContractV3Tests.CompletionRejectsUnacceptedVersions(version: &quot;3.1&quot;)" computerName="host" duration="00:00:00.2845321" startTime="2026-09-24T17:19:42.6942688+00:00" endTime="2026-09-24T17:19:42.9803524+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="2a79254c-9a82-42a8-b268-8be9ce4ea727" />
+    <UnitTestResult executionId="311b3550-488e-4759-91e1-ea752ac44385" testId="832e3b41-6abe-2c3d-9e72-9bd0570425d8" testName="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.TheMeasuredEnvelopeIsTheEnforcedEnvelope" computerName="host" duration="00:00:00.0004193" startTime="2026-09-24T17:19:22.4603687+00:00" endTime="2026-09-24T17:19:22.4605729+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="311b3550-488e-4759-91e1-ea752ac44385" />
+    <UnitTestResult executionId="58a0b912-7a01-48ea-b947-962fd1deaed3" testId="84c69cb8-7d32-002d-d392-d13e657cdaaf" testName="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.PercentileIsNearestRank(values: [5, 1, 3, 2, 4], fraction: 0.94999999999999996, expected: 5)" computerName="host" duration="00:00:00.0050650" startTime="2026-09-24T17:19:22.4607361+00:00" endTime="2026-09-24T17:19:22.4658757+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="58a0b912-7a01-48ea-b947-962fd1deaed3" />
+    <UnitTestResult executionId="d217b42e-17ef-48ef-89f0-db9e9e7b1c1c" testId="68efcc9b-634d-71db-0fd0-f3da230171ed" testName="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;tracks\&quot;:[{\&quot;observations\&quot;:[{\&quot;role\&quot;:\&quot;repres&quot;···)" computerName="host" duration="00:00:00.0023627" startTime="2026-09-24T17:19:42.2761959+00:00" endTime="2026-09-24T17:19:42.2771015+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="d217b42e-17ef-48ef-89f0-db9e9e7b1c1c" />
+    <UnitTestResult executionId="6dc35d24-fcb9-4cb9-bbbe-d50e860628e5" testId="e6292355-322d-24e3-2d11-74f6b92bd0fb" testName="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.RealStoreCompletionWallTimeAtTheWorstCaseObjectCount" computerName="host" duration="00:00:00.0010000" startTime="2026-09-24T17:19:22.4691824+00:00" endTime="2026-09-24T17:19:22.4699393+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="NotExecuted" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="6dc35d24-fcb9-4cb9-bbbe-d50e860628e5">
+      </UnitTestResult>
+    <UnitTestResult executionId="c8baedd3-8fa5-4842-bd6e-87a684da606e" testId="f216d216-3fcc-50f7-00de-079b95d4bdef" testName="Mavi.IntegrationTests.WorkerContractV3Tests.CompletionRejectsUnacceptedVersions(version: &quot;1.0&quot;)" computerName="host" duration="00:00:00.2989814" startTime="2026-09-24T17:19:42.9805800+00:00" endTime="2026-09-24T17:19:43.2789368+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c8baedd3-8fa5-4842-bd6e-87a684da606e" />
+    <UnitTestResult executionId="863afad8-bbb4-4583-81d7-c6ff2b77c955" testId="5c06e35c-b22d-d4c1-95a7-60e712ea4844" testName="Mavi.IntegrationTests.WorkerContractV3Tests.LeaseHeartbeatAndFailStayOnControlPlaneVersion2" computerName="host" duration="00:00:00.3246953" startTime="2026-09-24T17:19:43.2846926+00:00" endTime="2026-09-24T17:19:43.6102128+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="863afad8-bbb4-4583-81d7-c6ff2b77c955" />
+    <UnitTestResult executionId="d514a8e7-c604-4606-8f88-48d2063f13a2" testId="26da693b-b0de-1be0-5859-84a10786551d" testName="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;tracks\&quot;:[{\&quot;observations\&quot;:[{\&quot;rank\&quot;:0.5}]}]}&quot;)" computerName="host" duration="00:00:00.0001198" startTime="2026-09-24T17:19:42.2778486+00:00" endTime="2026-09-24T17:19:42.2779680+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="d514a8e7-c604-4606-8f88-48d2063f13a2" />
+    <UnitTestResult executionId="1b5110ef-c449-4128-86dd-637e76f8de0c" testId="80b7bbe4-ca7f-06ec-3313-d1b6a28fa956" testName="Mavi.IntegrationTests.WorkerContractV3Tests.ObservationCollectionIsBoundedDuringJsonBinding" computerName="host" duration="00:00:00.0022397" startTime="2026-09-24T17:19:42.2792867+00:00" endTime="2026-09-24T17:19:42.2819867+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="1b5110ef-c449-4128-86dd-637e76f8de0c" />
+    <UnitTestResult executionId="92b4b798-c8e6-464f-bd99-9367babb73ce" testId="eabf2a4f-e2d4-5d15-439d-64da0c48e40f" testName="Mavi.IntegrationTests.WorkerContractV3Tests.FiveObservationsAreRejectedAtTheHttpBoundary" computerName="host" duration="00:00:00.3038535" startTime="2026-09-24T17:19:44.8185966+00:00" endTime="2026-09-24T17:19:45.1206916+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="92b4b798-c8e6-464f-bd99-9367babb73ce" />
+    <UnitTestResult executionId="e059bca1-5dec-4a96-871a-58d75059b9d7" testId="ae560d87-437c-96fc-831c-b17d9c5b627c" testName="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;schemaVersion\&quot;:\&quot;3.0\&quot;,\&quot;tracks\&quot;:[{\&quot;represen&quot;···)" computerName="host" duration="00:00:00.0000706" startTime="2026-09-24T17:19:42.2780400+00:00" endTime="2026-09-24T17:19:42.2780649+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e059bca1-5dec-4a96-871a-58d75059b9d7" />
+    <UnitTestResult executionId="157beddc-d476-4756-b15e-0783330c8531" testId="ceede8e4-d006-8c0b-c26e-4568a13666bd" testName="Mavi.IntegrationTests.WorkerContractV3Tests.CompletionRejectsUnacceptedVersions(version: &quot;4.0&quot;)" computerName="host" duration="00:00:00.3060451" startTime="2026-09-24T17:19:42.3877325+00:00" endTime="2026-09-24T17:19:42.6941118+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="157beddc-d476-4756-b15e-0783330c8531" />
+    <UnitTestResult executionId="f75e1d45-fec5-4e25-bd46-273bfe95c8d8" testId="2b273fd4-da9d-ec7b-b93c-ed988535e239" testName="Mavi.IntegrationTests.WorkerContractV3Tests.CompletionBodyAboveFortyEightMebibytesIsRejectedBeforeBinding" computerName="host" duration="00:00:00.1058068" startTime="2026-09-24T17:19:42.2821115+00:00" endTime="2026-09-24T17:19:42.3875257+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="f75e1d45-fec5-4e25-bd46-273bfe95c8d8" />
+    <UnitTestResult executionId="39b415e3-6389-48c2-a584-9679d1699e40" testId="f8c7ea38-5b66-0c4a-ffa7-c7b9b547e2bc" testName="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;evidenceAccounting\&quot;:{\&quot;representative\&quot;:{\&quot;can&quot;···)" computerName="host" duration="00:00:00.0000620" startTime="2026-09-24T17:19:42.2786775+00:00" endTime="2026-09-24T17:19:42.2786989+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="39b415e3-6389-48c2-a584-9679d1699e40" />
+    <UnitTestResult executionId="da01d167-336d-41e2-acbf-4be1e9b1766c" testId="44d2852b-dbd9-e583-be9c-6904fbdf9569" testName="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;schemaVersion\&quot;:\&quot;2.0\&quot;,\&quot;tracks\&quot;:[{\&quot;observat&quot;···)" computerName="host" duration="00:00:00.0006027" startTime="2026-09-24T17:19:42.2772448+00:00" endTime="2026-09-24T17:19:42.2777746+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="da01d167-336d-41e2-acbf-4be1e9b1766c" />
+    <UnitTestResult executionId="77128d83-cdf7-4a30-83e2-db01a190ac40" testId="602ff58c-89a2-ff9d-76b1-b5e920f03ecd" testName="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.OnlyTheFullEnvelopeInAQualifiedEnvironmentIsAuthoritative" computerName="host" duration="00:00:00.0011194" startTime="2026-09-24T17:19:22.4745813+00:00" endTime="2026-09-24T17:19:22.4746386+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="77128d83-cdf7-4a30-83e2-db01a190ac40" />
+    <UnitTestResult executionId="9707b603-696c-4bb6-8421-cd0eb9fc4a43" testId="410013d4-09bd-df5e-9bb8-e2740cc6fc06" testName="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.PercentileIsNearestRank(values: [7], fraction: 0.94999999999999996, expected: 7)" computerName="host" duration="00:00:00.0004041" startTime="2026-09-24T17:19:22.4688411+00:00" endTime="2026-09-24T17:19:22.4689005+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9707b603-696c-4bb6-8421-cd0eb9fc4a43" />
+    <UnitTestResult executionId="e3a7ff86-02fd-4f4a-8d89-719c73b759f4" testId="b93f7d1c-1938-90cb-c409-b2415636e776" testName="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;evidenceAccounting\&quot;:{\&quot;nearView\&quot;:{}}}&quot;)" computerName="host" duration="00:00:00.0002521" startTime="2026-09-24T17:19:42.2781948+00:00" endTime="2026-09-24T17:19:42.2784774+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e3a7ff86-02fd-4f4a-8d89-719c73b759f4" />
+    <UnitTestResult executionId="73625469-da8d-4ca8-9bc5-f30d1bfa5792" testId="609b098c-803f-6f08-6b0c-b01571318b01" testName="Mavi.IntegrationTests.WorkerContractV3Tests.WorstShapeBodyFitsUnderLimit" computerName="host" duration="00:00:00.9094262" startTime="2026-09-24T17:19:43.9070543+00:00" endTime="2026-09-24T17:19:44.8179622+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="73625469-da8d-4ca8-9bc5-f30d1bfa5792">
+      </UnitTestResult>
+    <UnitTestResult executionId="a3aa0e5f-fb9d-46f9-869e-fbeec995d201" testId="c1cb9f69-27e9-500b-27d4-684e138d5570" testName="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.PercentileIsNearestRank(values: [5, 1, 3, 2, 4], fraction: 0.5, expected: 3)" computerName="host" duration="00:00:00.0000610" startTime="2026-09-24T17:19:22.4690202+00:00" endTime="2026-09-24T17:19:22.4690670+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a3aa0e5f-fb9d-46f9-869e-fbeec995d201" />
+    <UnitTestResult executionId="7d28d585-fcd4-4ae5-93d1-3ad693bc067d" testId="379418fb-abe7-392b-1c77-ecb1289559ed" testName="Mavi.IntegrationTests.WorkerContractV3Tests.ContractProbeAdvertisesControlPlaneAndBothCompletionVersions" computerName="host" duration="00:00:00.2959360" startTime="2026-09-24T17:19:43.6104540+00:00" endTime="2026-09-24T17:19:43.9068566+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="7d28d585-fcd4-4ae5-93d1-3ad693bc067d" />
+    <UnitTestResult executionId="9f072246-f3e9-4a63-8593-1840141d203e" testId="bd241a78-cfbd-3db9-40b0-0262e9909925" testName="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;evidenceAccounting\&quot;:{\&quot;representative\&quot;:{\&quot;can&quot;···)" computerName="host" duration="00:00:00.0001110" startTime="2026-09-24T17:19:42.2786082+00:00" endTime="2026-09-24T17:19:42.2786353+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9f072246-f3e9-4a63-8593-1840141d203e" />
+    </Results>
+  <TestDefinitions>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;evidenceAccounting\&quot;:{\&quot;nearView\&quot;:{}}}&quot;)" storage="REDACTED" id="b93f7d1c-1938-90cb-c409-b2415636e776">
+      <Execution id="e3a7ff86-02fd-4f4a-8d89-719c73b759f4" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="V3MembersRejectUnknownNamesAndFractionalIntegers" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;schemaVersion\&quot;:\&quot;2.0\&quot;,\&quot;tracks\&quot;:[{\&quot;observat&quot;···)" storage="REDACTED" id="44d2852b-dbd9-e583-be9c-6904fbdf9569">
+      <Execution id="da01d167-336d-41e2-acbf-4be1e9b1766c" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="V3MembersRejectUnknownNamesAndFractionalIntegers" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;evidenceAccounting\&quot;:{\&quot;representative\&quot;:{\&quot;can&quot;···)" storage="REDACTED" id="bd241a78-cfbd-3db9-40b0-0262e9909925">
+      <Execution id="9f072246-f3e9-4a63-8593-1840141d203e" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="V3MembersRejectUnknownNamesAndFractionalIntegers" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.CanonicalV3ExampleRoundTripsThroughPublicContract" storage="REDACTED" id="9d5ce578-1fdf-27dc-566a-9a9b212a772f">
+      <Execution id="551f5074-f16e-4f4e-bcd0-26bf090408d9" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="CanonicalV3ExampleRoundTripsThroughPublicContract" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;tracks\&quot;:[{\&quot;observations\&quot;:[{\&quot;role\&quot;:\&quot;repres&quot;···)" storage="REDACTED" id="68efcc9b-634d-71db-0fd0-f3da230171ed">
+      <Execution id="d217b42e-17ef-48ef-89f0-db9e9e7b1c1c" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="V3MembersRejectUnknownNamesAndFractionalIntegers" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.TheMeasuredEnvelopeIsTheEnforcedEnvelope" storage="REDACTED" id="832e3b41-6abe-2c3d-9e72-9bd0570425d8">
+      <Execution id="311b3550-488e-4759-91e1-ea752ac44385" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.Qualification.S1SealingScaleTests" name="TheMeasuredEnvelopeIsTheEnforcedEnvelope" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;schemaVersion\&quot;:\&quot;3.0\&quot;,\&quot;tracks\&quot;:[{\&quot;represen&quot;···)" storage="REDACTED" id="ae560d87-437c-96fc-831c-b17d9c5b627c">
+      <Execution id="e059bca1-5dec-4a96-871a-58d75059b9d7" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="V3MembersRejectUnknownNamesAndFractionalIntegers" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.OnlyTheFullEnvelopeInAQualifiedEnvironmentIsAuthoritative" storage="REDACTED" id="602ff58c-89a2-ff9d-76b1-b5e920f03ecd">
+      <Execution id="77128d83-cdf7-4a30-83e2-db01a190ac40" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.Qualification.S1SealingScaleTests" name="OnlyTheFullEnvelopeInAQualifiedEnvironmentIsAuthoritative" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.WorstShapeBodyFitsUnderLimit" storage="REDACTED" id="609b098c-803f-6f08-6b0c-b01571318b01">
+      <Execution id="73625469-da8d-4ca8-9bc5-f30d1bfa5792" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="WorstShapeBodyFitsUnderLimit" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.FiveObservationsAreRejectedAtTheHttpBoundary" storage="REDACTED" id="eabf2a4f-e2d4-5d15-439d-64da0c48e40f">
+      <Execution id="92b4b798-c8e6-464f-bd99-9367babb73ce" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="FiveObservationsAreRejectedAtTheHttpBoundary" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;evidenceAccounting\&quot;:{\&quot;representative\&quot;:{\&quot;can&quot;···)" storage="REDACTED" id="f8c7ea38-5b66-0c4a-ffa7-c7b9b547e2bc">
+      <Execution id="39b415e3-6389-48c2-a584-9679d1699e40" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="V3MembersRejectUnknownNamesAndFractionalIntegers" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.CompletionRejectsUnacceptedVersions(version: &quot;1.0&quot;)" storage="REDACTED" id="f216d216-3fcc-50f7-00de-079b95d4bdef">
+      <Execution id="c8baedd3-8fa5-4842-bd6e-87a684da606e" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="CompletionRejectsUnacceptedVersions" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.ContractProbeAdvertisesControlPlaneAndBothCompletionVersions" storage="REDACTED" id="379418fb-abe7-392b-1c77-ecb1289559ed">
+      <Execution id="7d28d585-fcd4-4ae5-93d1-3ad693bc067d" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="ContractProbeAdvertisesControlPlaneAndBothCompletionVersions" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;schemaVersion\&quot;:\&quot;2.0\&quot;,\&quot;evidenceAccounting\&quot;:&quot;···)" storage="REDACTED" id="f6da652a-016b-4bb3-0ddd-b7b205e797e5">
+      <Execution id="cef78ebd-2fd1-479b-b491-e6f3c78a886f" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="V3MembersRejectUnknownNamesAndFractionalIntegers" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.V3MembersRejectUnknownNamesAndFractionalIntegers(json: &quot;{\&quot;tracks\&quot;:[{\&quot;observations\&quot;:[{\&quot;rank\&quot;:0.5}]}]}&quot;)" storage="REDACTED" id="26da693b-b0de-1be0-5859-84a10786551d">
+      <Execution id="d514a8e7-c604-4606-8f88-48d2063f13a2" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="V3MembersRejectUnknownNamesAndFractionalIntegers" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.LeaseHeartbeatAndFailStayOnControlPlaneVersion2" storage="REDACTED" id="5c06e35c-b22d-d4c1-95a7-60e712ea4844">
+      <Execution id="863afad8-bbb4-4583-81d7-c6ff2b77c955" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="LeaseHeartbeatAndFailStayOnControlPlaneVersion2" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.CompletionRejectsUnacceptedVersions(version: &quot;4.0&quot;)" storage="REDACTED" id="ceede8e4-d006-8c0b-c26e-4568a13666bd">
+      <Execution id="157beddc-d476-4756-b15e-0783330c8531" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="CompletionRejectsUnacceptedVersions" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.PercentileIsNearestRank(values: [7], fraction: 0.94999999999999996, expected: 7)" storage="REDACTED" id="410013d4-09bd-df5e-9bb8-e2740cc6fc06">
+      <Execution id="9707b603-696c-4bb6-8421-cd0eb9fc4a43" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.Qualification.S1SealingScaleTests" name="PercentileIsNearestRank" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.CompletionBodyAboveFortyEightMebibytesIsRejectedBeforeBinding" storage="REDACTED" id="2b273fd4-da9d-ec7b-b93c-ed988535e239">
+      <Execution id="f75e1d45-fec5-4e25-bd46-273bfe95c8d8" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="CompletionBodyAboveFortyEightMebibytesIsRejectedBeforeBinding" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.CompletionRejectsUnacceptedVersions(version: &quot;3.1&quot;)" storage="REDACTED" id="bd3994a1-9535-06e0-6546-f12cfa456a4b">
+      <Execution id="2a79254c-9a82-42a8-b268-8be9ce4ea727" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="CompletionRejectsUnacceptedVersions" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.WorkerContractV3Tests.ObservationCollectionIsBoundedDuringJsonBinding" storage="REDACTED" id="80b7bbe4-ca7f-06ec-3313-d1b6a28fa956">
+      <Execution id="1b5110ef-c449-4128-86dd-637e76f8de0c" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.WorkerContractV3Tests" name="ObservationCollectionIsBoundedDuringJsonBinding" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.PercentileIsNearestRank(values: [5, 1, 3, 2, 4], fraction: 0.5, expected: 3)" storage="REDACTED" id="c1cb9f69-27e9-500b-27d4-684e138d5570">
+      <Execution id="a3aa0e5f-fb9d-46f9-869e-fbeec995d201" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.Qualification.S1SealingScaleTests" name="PercentileIsNearestRank" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.PercentileIsNearestRank(values: [5, 1, 3, 2, 4], fraction: 0.94999999999999996, expected: 5)" storage="REDACTED" id="84c69cb8-7d32-002d-d392-d13e657cdaaf">
+      <Execution id="58a0b912-7a01-48ea-b947-962fd1deaed3" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.Qualification.S1SealingScaleTests" name="PercentileIsNearestRank" />
+    </UnitTest>
+    <UnitTest name="Mavi.IntegrationTests.Qualification.S1SealingScaleTests.RealStoreCompletionWallTimeAtTheWorstCaseObjectCount" storage="REDACTED" id="e6292355-322d-24e3-2d11-74f6b92bd0fb">
+      <Execution id="6dc35d24-fcb9-4cb9-bbbe-d50e860628e5" />
+      <TestMethod codeBase="REDACTED" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.IntegrationTests.Qualification.S1SealingScaleTests" name="RealStoreCompletionWallTimeAtTheWorstCaseObjectCount" />
+    </UnitTest>
+    </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="9d5ce578-1fdf-27dc-566a-9a9b212a772f" executionId="551f5074-f16e-4f4e-bcd0-26bf090408d9" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="f6da652a-016b-4bb3-0ddd-b7b205e797e5" executionId="cef78ebd-2fd1-479b-b491-e6f3c78a886f" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="bd3994a1-9535-06e0-6546-f12cfa456a4b" executionId="2a79254c-9a82-42a8-b268-8be9ce4ea727" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="832e3b41-6abe-2c3d-9e72-9bd0570425d8" executionId="311b3550-488e-4759-91e1-ea752ac44385" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="84c69cb8-7d32-002d-d392-d13e657cdaaf" executionId="58a0b912-7a01-48ea-b947-962fd1deaed3" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="68efcc9b-634d-71db-0fd0-f3da230171ed" executionId="d217b42e-17ef-48ef-89f0-db9e9e7b1c1c" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="e6292355-322d-24e3-2d11-74f6b92bd0fb" executionId="6dc35d24-fcb9-4cb9-bbbe-d50e860628e5" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="f216d216-3fcc-50f7-00de-079b95d4bdef" executionId="c8baedd3-8fa5-4842-bd6e-87a684da606e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="5c06e35c-b22d-d4c1-95a7-60e712ea4844" executionId="863afad8-bbb4-4583-81d7-c6ff2b77c955" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="26da693b-b0de-1be0-5859-84a10786551d" executionId="d514a8e7-c604-4606-8f88-48d2063f13a2" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="80b7bbe4-ca7f-06ec-3313-d1b6a28fa956" executionId="1b5110ef-c449-4128-86dd-637e76f8de0c" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="eabf2a4f-e2d4-5d15-439d-64da0c48e40f" executionId="92b4b798-c8e6-464f-bd99-9367babb73ce" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="ae560d87-437c-96fc-831c-b17d9c5b627c" executionId="e059bca1-5dec-4a96-871a-58d75059b9d7" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="ceede8e4-d006-8c0b-c26e-4568a13666bd" executionId="157beddc-d476-4756-b15e-0783330c8531" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="2b273fd4-da9d-ec7b-b93c-ed988535e239" executionId="f75e1d45-fec5-4e25-bd46-273bfe95c8d8" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="f8c7ea38-5b66-0c4a-ffa7-c7b9b547e2bc" executionId="39b415e3-6389-48c2-a584-9679d1699e40" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="44d2852b-dbd9-e583-be9c-6904fbdf9569" executionId="da01d167-336d-41e2-acbf-4be1e9b1766c" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="602ff58c-89a2-ff9d-76b1-b5e920f03ecd" executionId="77128d83-cdf7-4a30-83e2-db01a190ac40" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="410013d4-09bd-df5e-9bb8-e2740cc6fc06" executionId="9707b603-696c-4bb6-8421-cd0eb9fc4a43" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="b93f7d1c-1938-90cb-c409-b2415636e776" executionId="e3a7ff86-02fd-4f4a-8d89-719c73b759f4" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="609b098c-803f-6f08-6b0c-b01571318b01" executionId="73625469-da8d-4ca8-9bc5-f30d1bfa5792" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="c1cb9f69-27e9-500b-27d4-684e138d5570" executionId="a3aa0e5f-fb9d-46f9-869e-fbeec995d201" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="379418fb-abe7-392b-1c77-ecb1289559ed" executionId="7d28d585-fcd4-4ae5-93d1-3ad693bc067d" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="bd241a78-cfbd-3db9-40b0-0262e9909925" executionId="9f072246-f3e9-4a63-8593-1840141d203e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Completed">
+    <Counters total="24" executed="23" passed="23" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="1" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    </ResultSummary>
+</TestRun>

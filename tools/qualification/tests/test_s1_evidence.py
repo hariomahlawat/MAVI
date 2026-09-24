@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -38,6 +39,10 @@ def _value_for(requirement: s1_evidence.MeasurementRequirement) -> float:
         ">=": requirement.limit_value,
         ">": requirement.limit_value + 1,
     }[requirement.limit_op]
+
+
+def _isolated_probes() -> list:
+    return [{"host": host, "port": port, "reachable": False} for host, port in s1_evidence.ISOLATION_PROBE_TARGETS]
 
 
 def complete_record() -> dict:
@@ -84,8 +89,8 @@ def complete_record() -> dict:
             "installProfile": "development",
             "variant": "windows-x86_64-cpu",
             "isolationMethod": "adapter disabled",
-            "isolationBefore": {"passed": True, "proxyEnvironmentAbsent": True, "probes": [{"host": "1.1.1.1", "port": 443, "reachable": False}]},
-            "isolationAfter": {"passed": True, "proxyEnvironmentAbsent": True, "probes": [{"host": "1.1.1.1", "port": 443, "reachable": False}]},
+            "isolationBefore": {"passed": True, "proxyEnvironmentAbsent": True, "probes": _isolated_probes()},
+            "isolationAfter": {"passed": True, "proxyEnvironmentAbsent": True, "probes": _isolated_probes()},
         },
     }
     for name in UNITS:
@@ -96,14 +101,14 @@ def complete_record() -> dict:
                 suite_id = f"{name}:{suite}:{variant}"
                 junit = f"junit:{suite_id}"
                 run = "quality" if variant == "any" else "task10"
-                path = f"{variant}/junit/{suite.split(':', 1)[1]}.xml" if suite.startswith("task10:") else f"junit/{abs(hash(suite_id))}.xml"
+                path = f"{variant}/junit/{suite.split(':', 1)[1]}.xml" if suite.startswith("task10:") else _result_path(suite, suite_id)
                 record["retainedArtifacts"][junit] = {"path": path, "sha256": _sha256(suite_id), "run": run}
                 if variant != "any":
                     record["retainedArtifacts"][junit]["variant"] = variant
                 record["suites"][suite_id] = {
                     "suite": suite, "variant": variant, "run": run, "junitArtifact": junit,
-                    "passed": 1, "skipped": 0, "failed": 0, "errors": 0,
-                    "passedTests": [f"{suite}::test_ok"], "skippedTests": [],
+                    "passed": 1 + len(PROVING_TESTS.get(suite, ())), "skipped": 0, "failed": 0, "errors": 0,
+                    "passedTests": [f"{_case_class(suite)}::test_ok", *PROVING_TESTS.get(suite, ())], "skippedTests": [],
                 }
                 unit["suites"].append(suite_id)
         for requirement in required.measurements:
@@ -115,9 +120,14 @@ def complete_record() -> dict:
             for variant in s1_evidence.QUALIFIED_CPU_VARIANTS:
                 if requirement.metric == f"{s1_evidence.SEALING_WALL_METRIC}.{variant}":
                     entry["artifact"] = f"{s1_evidence.SEALING_OUTPUT_ARTIFACT}.{variant}"
-                    entry["host"] = "runner-windows" if variant.startswith("windows") else "runner-linux"
+                if name == "B2" and requirement.metric.endswith("." + variant):
+                    entry["artifact"] = f"{s1_evidence.B2_OUTPUT_ARTIFACT}.{variant}"
+                if requirement.metric.endswith("." + variant):
+                    entry["host"] = HOST_OF[variant]
             if requirement.metric == "b3.worker-request-timeout-ms":
                 entry["value"] = 30000.0
+            if requirement.metric.startswith("b2.process-memory-per-live-track-slope."):
+                entry["value"] = _live_fit(LIVE_POINTS)["slope"]
             record["measurements"][measurement_id] = entry
             unit["measurements"].append(measurement_id)
         for artifact in required.artifacts:
@@ -127,10 +137,68 @@ def complete_record() -> dict:
                 record["retainedArtifacts"][artifact] = {"path": f"task10/{variant}/{record_name}", "sha256": _sha256(artifact), "run": "task10", "variant": variant}
             unit["artifacts"].append(artifact)
         record["units"][name] = unit
+    # §11 runs on the disconnected Windows host, as the operator.
+    record["runs"]["offline"] = {"kind": "local", "host": "runner-windows", "command": "operator path", "cleanTree": True, "headSha": SHA, "conclusion": "success"}
+    for artifact in required_disconnected_artifacts():
+        record["retainedArtifacts"][artifact]["run"] = "offline"
     for outcome in s1_evidence.DISCONNECTED_OUTCOMES:
         artifact = f"disconnected.{outcome}"
-        record["retainedArtifacts"][artifact] = {"path": f"records/{artifact}.log", "sha256": _sha256(artifact), "run": "host"}
+        record["retainedArtifacts"][artifact] = {"path": f"records/{artifact}.log", "sha256": _sha256(artifact), "run": "offline"}
     return record
+
+
+def required_disconnected_artifacts() -> tuple:
+    return UNIT_REQUIREMENTS["DISCONNECTED"].artifacts
+
+
+def on_main_repo(root: Path) -> str:
+    """A git repository at ``root`` whose ``main`` holds one commit; its SHA."""
+    root.mkdir(parents=True, exist_ok=True)
+    git = lambda *args: subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()  # noqa: E731
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.invalid")
+    git("config", "user.name", "t")
+    (root / "measured.txt").write_text("measured", encoding="utf-8")
+    # The committed sources the checker reads at the measured SHA.
+    for relative in MEASURED_SOURCES:
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_bytes((REPO_ROOT / relative).read_bytes())
+    git("add", "measured.txt", *MEASURED_SOURCES)
+    git("commit", "-qm", "measured")
+    return git("rev-parse", "HEAD")
+
+
+MEASURED_SOURCES = (s1_evidence.WORKER_SETTINGS_RELATIVE, s1_evidence.B1_BASELINE_RELATIVE)
+
+
+def with_sha(record: dict, sha: str) -> dict:
+    """The record with every occurrence of the fixture SHA replaced."""
+    return json.loads(json.dumps(record).replace(SHA, sha))
+
+
+# The B3 proving tests, present in their suites' passed tests.
+def _case_class(suite: str) -> str:
+    """The class name a suite's results carry: a .NET TRX names the test class
+    (``Mavi.IntegrationTests.ClassTests``), JUnit the cited file."""
+    return ".".join(suite.split("/")[1:]) if suite.startswith("tests/") else suite
+
+
+def _result_path(suite: str, suite_id: str) -> str:
+    """Where the workflow writes a suite's results (the checker binds the path)."""
+    if suite.startswith("task10:"):
+        raise AssertionError("per-variant path")
+    unique = f"quality/{abs(hash(suite_id))}"
+    if suite.startswith("tests/"):
+        return f"{unique}/trx/{suite.split('/')[1]}.trx"
+    if suite.startswith("src/web/"):
+        return f"{unique}/junit/mavi-web.xml"
+    return f"{unique}/junit/python.xml"
+
+
+PROVING_TESTS = {suite: (f"{_case_class(suite)}::{test}",) for suite, test in s1_evidence.B3_PROVING_TESTS.values()}
+REPO_ROOT = Path(__file__).resolve().parents[3]
+HOST_OF = {"linux-x86_64-cpu": "runner-linux", "windows-x86_64-cpu": "runner-windows"}
+LIVE_POINTS = [[4, 50_000_000.0], [8, 51_000_000.0], [16, 53_000_000.0], [32, 57_000_000.0], [64, 65_000_000.0]]
 
 
 def codes(record: dict, **options) -> set[tuple[str, str]]:
@@ -143,24 +211,79 @@ def structural(record: dict) -> list:
     return check_record(record, structural_only=True)
 
 
+TRX_TEST_TYPE = "13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b"
+
+
+def _trx_for(entry: dict) -> str:
+    """A TRX as ``dotnet test --logger trx`` writes it (xUnit skips are NotExecuted)."""
+    results, definitions = [], []
+    tests = [(t, "Passed") for t in entry["passedTests"]] + [(t, "NotExecuted") for t in entry["skippedTests"]]
+    for index, (test, outcome) in enumerate(tests):
+        classname, name = test.split("::", 1)
+        test_id = f"00000000-0000-0000-0000-{index:012d}"
+        results.append(f'<UnitTestResult testId="{test_id}" testName="{classname}.{name}" testType="{TRX_TEST_TYPE}" outcome="{outcome}" />')
+        definitions.append(
+            f'<UnitTest name="{classname}.{name}" id="{test_id}"><Execution id="{index}" />'
+            f'<TestMethod adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="{classname}" name="{name.split("(", 1)[0]}" /></UnitTest>'
+        )
+    return (
+        '<?xml version="1.0" encoding="utf-8"?><TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">'
+        f'<Results>{"".join(results)}</Results><TestDefinitions>{"".join(definitions)}</TestDefinitions></TestRun>'
+    )
+
+
 def _junit_for(entry: dict) -> str:
+    if entry["suite"].startswith("tests/"):
+        return _trx_for(entry)
     cases = [f'<testcase classname="{t.split("::")[0]}" name="{t.split("::", 1)[1]}"/>' for t in entry["passedTests"]]
     cases += [f'<testcase classname="{t.split("::")[0]}" name="{t.split("::", 1)[1]}"><skipped/></testcase>' for t in entry["skippedTests"]]
     name = "" if entry["variant"] == "any" else f' name="{entry["variant"]}"'
     return f'<?xml version="1.0"?><testsuites><testsuite{name}>' + "".join(cases) + "</testsuite></testsuites>"
 
 
-def _b2_output(record: dict) -> str:
-    values = {
-        record["measurements"][mid]["metric"]: {"value": record["measurements"][mid]["value"], "unit": record["measurements"][mid]["unit"]}
-        for mid in record["units"]["B2"]["measurements"]
-    }
+def _live_fit(points: list) -> dict:
+    xs = [float(level) for level, _ in points]
+    ys = [float(mean) for _, mean in points]
+    x_mean, y_mean = sum(xs) / len(xs), sum(ys) / len(ys)
+    slope = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys)) / sum((x - x_mean) ** 2 for x in xs)
+    return {"points": points, "slope": slope, "intercept": y_mean - slope * x_mean, "r2": 0.99, "stderr": 1.0}
+
+
+def _b2_output(record: dict, variant: str) -> str:
+    suffix = "." + variant
+    values = {}
+    for mid in record["units"]["B2"]["measurements"]:
+        entry = record["measurements"][mid]
+        if entry["metric"].endswith(suffix):
+            values[entry["metric"][: -len(suffix)]] = {"value": entry["value"], "unit": entry["unit"]}
+    fit = _live_fit(LIVE_POINTS)
+    slope = values.get("b2.process-memory-per-live-track-slope", {}).get("value", fit["slope"])
+    held = 100_000
     return json.dumps({
         "schema": "s1-b2-memory-derived-v1",
         "identity": {"sourceSha": record["units"]["B2"].get("measuredSha", record["measuredSha"]), "cleanTree": True},
-        "runtime": {"runtimeVariant": "linux-x86_64-cpu"},
-        "host": {key: record["hosts"]["runner-linux"][key] for key in ("cpuModel", "logicalCores")},
+        "runtime": {"runtimeVariant": variant},
+        "host": {key: record["hosts"][HOST_OF[variant]][key] for key in s1_evidence.MEASURED_HOST_FIELDS},
         "measurements": values,
+        "liveLevelFit": fit,
+        "boundOneReconciliation": {
+            "perLiveProcessSlopeBytes": slope,
+            "accountedEncodedEvidenceBytesMax": held,
+            "encodedEvidenceBoundBytes": 544 * 1024,
+            "accountedTrajectoryPointsMax": 150,
+            "trajectoryChunkPoints": 4096,
+            "unaccountedPerLiveBytes": slope - held,
+        },
+    })
+
+
+def _lifecycle_output(record: dict, variant: str) -> str:
+    return json.dumps({
+        "schema": "s1-b2-staging-lifecycle-v1",
+        "identity": {"sourceSha": record["units"]["B2"].get("measuredSha", record["measuredSha"]), "cleanTree": True},
+        "runtime": {"runtimeVariant": variant},
+        "workload": {"tracker": "bytetrack"},
+        "checks": {check: True for check in s1_evidence.STAGING_LIFECYCLE_CHECKS},
     })
 
 
@@ -179,7 +302,10 @@ def _sealing_output(record: dict, variant: str) -> str:
     wall = next(m for m in record["measurements"].values() if m["metric"] == f"{s1_evidence.SEALING_WALL_METRIC}.{variant}")
     timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
     filesystem = record["hosts"][wall["host"]]["acceptedEvidenceFilesystem"]
+    host = record["hosts"][wall["host"]]
     return json.dumps({
+        "schema": "s1-b3-sealing-scale-v1",
+        "host": {"cpuModel": host["cpuModel"], "logicalCores": host["logicalCores"]},
         "status": "complete", "authoritative": True, "variant": variant,
         "evidenceFilesystem": f"{filesystem} at /",
         "shape": {"tracks": 10_000, "sealedObjects": 50_000},
@@ -212,23 +338,87 @@ def materialize(record: dict, root: Path) -> dict:
         elif artifact_id.startswith(s1_evidence.SEALING_OUTPUT_ARTIFACT + "."):
             content = _sealing_output(record, artifact_id.split(".", 2)[2])
         elif artifact_id.endswith(".production-composition-qualification.json"):
-            content = json.dumps({"status": "passed"})
+            sha = record["units"]["B6"].get("measuredSha", record["measuredSha"])
+            content = json.dumps({"status": "passed", "headSha": sha, "platform": artifact_id.split(".", 2)[1]})
+        elif artifact_id.endswith(".bytetrack-qualification.json"):
+            variant = artifact_id.split(".", 2)[1]
+            sha = record["units"]["B6"].get("measuredSha", record["measuredSha"])
+            content = json.dumps({"status": "passed", "runtimeVariant": variant, "headSha": sha, "testResult": "passed"})
         elif artifact_id in ("disconnected.isolation-before", "disconnected.isolation-after"):
             phase = "isolationBefore" if artifact_id.endswith("before") else "isolationAfter"
             content = json.dumps(record["disconnected"][phase])
-        elif artifact_id == "b2.memory-harness-output":
-            content = _b2_output(record)
+        elif artifact_id.startswith(s1_evidence.B2_LIFECYCLE_ARTIFACT + "."):
+            content = _lifecycle_output(record, artifact_id[len(s1_evidence.B2_LIFECYCLE_ARTIFACT) + 1:])
+        elif artifact_id.startswith(s1_evidence.B2_OUTPUT_ARTIFACT + "."):
+            content = _b2_output(record, artifact_id.split(".", 1)[1].split(".", 1)[1])
         elif artifact_id == "disconnected.run-record":
             content = _disconnected_run(record)
         elif artifact_id == "disconnected.runtime-bundle-manifest":
             content = _bundle_manifest(record)
+        elif artifact_id == "b5.real-video-record":
+            content = _b5_video(record)
+        elif artifact_id == "b5.visual-qa-record":
+            content = _b5_qa(record)
+        elif artifact_id == "b1.cross-variant-comparison":
+            continue  # derived from the others, below
         else:
             content = artifact_id
-        path = root / entry["path"]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        entry["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        _write_artifact(root, entry, content)
+    # The committed sources the checker reads from the repository (the
+    # accepted baseline, the worker settings).
+    for relative in MEASURED_SOURCES:
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_bytes((REPO_ROOT / relative).read_bytes())
+    baseline = root / s1_evidence.B1_BASELINE_RELATIVE
+    if "b1.cross-variant-comparison" in record["retainedArtifacts"]:
+        _write_artifact(root, record["retainedArtifacts"]["b1.cross-variant-comparison"], _b1_comparison(record, baseline))
     return record
+
+
+def _write_artifact(root: Path, entry: dict, content: str) -> None:
+    path = root / entry["path"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    entry["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _b1_comparison(record: dict, baseline: Path) -> str:
+    counts = {
+        key: next(m["value"] for m in record["measurements"].values() if m["metric"] == metric)
+        for metric, key in s1_evidence.B1_COUNTS.items()
+    }
+    return json.dumps({
+        "schema": "s1-b1-comparison-v1",
+        "identity": {"sourceSha": record["units"]["B1"].get("measuredSha", record["measuredSha"]), "cleanTree": True},
+        "identityProblems": [],
+        "inputs": {
+            "linux": {"sha256": record["retainedArtifacts"]["b1.real-clip-measurement"]["sha256"]},
+            "baseline": {"sha256": hashlib.sha256(baseline.read_bytes()).hexdigest()},
+        },
+        "counts": counts,
+        "traces": [],
+    })
+
+
+def _b5_video(record: dict) -> str:
+    count = int(next(m["value"] for m in record["measurements"].values() if m["metric"] == "b5.real-video-clips"))
+    return json.dumps({
+        "schema": "s1-b5-real-video-record-v1",
+        "sourceCommit": record["units"]["B5"].get("measuredSha", record["measuredSha"]),
+        "clips": [
+            {"clip": f"clip-{index}", "sha256": f"{index + 1:064x}", "label": "real-video",
+             **{check: True for check in s1_evidence.B5_CLIP_CHECKS}}
+            for index in range(count)
+        ],
+    })
+
+
+def _b5_qa(record: dict) -> str:
+    return json.dumps({
+        "schema": "s1-b5-visual-qa-v1",
+        "sourceCommit": record["units"]["B5"].get("measuredSha", record["measuredSha"]),
+        "items": [{"id": "evidence-set-review", "label": "real-video", "passed": True}, {"id": "unavailable-crop", "label": "fixture", "passed": True}],
+    })
 
 
 # --------------------------------------------------------------------------- positive
@@ -271,7 +461,7 @@ def test_missing_host_identity_field_is_refused() -> None:
 
 def test_a_measurement_on_an_unknown_host_is_refused() -> None:
     record = complete_record()
-    record["measurements"]["B2:b2.completion-peak-bytes"]["host"] = "somewhere"
+    record["measurements"]["B2:b2.completion-peak-bytes.linux-x86_64-cpu"]["host"] = "somewhere"
     assert ("B2", "host_missing") in codes(record)
 
 
@@ -408,10 +598,10 @@ def test_every_plan_metric_is_required_for_a_pass() -> None:
 @pytest.mark.parametrize(
     ("unit", "metric", "value"),
     [
-        ("B2", "b2.per-retired-traced-bytes-slope", 16 * 1024 + 1),
-        ("B2", "b2.process-memory-retired-slope", 20_000),
-        ("B2", "b2.per-live-held-evidence-bytes-max", 544 * 1024 + 1),
-        ("B2", "b2.retired-slope-crop-variation", 0.11),
+        ("B2", "b2.per-retired-traced-bytes-slope.linux-x86_64-cpu", 16 * 1024 + 1),
+        ("B2", "b2.process-memory-retired-slope.linux-x86_64-cpu", 20_000),
+        ("B2", "b2.per-live-held-evidence-bytes-max.linux-x86_64-cpu", 544 * 1024 + 1),
+        ("B2", "b2.retired-slope-crop-variation.linux-x86_64-cpu", 0.11),
         ("B1", "b1.real-clip-parameter-note-mismatches", 1),
         ("B3", "b3.python-worst-shape-body-bytes", 40 * 1024 * 1024 + 1),
         ("B5", "b5.real-video-clips", 1),
@@ -428,14 +618,14 @@ def test_the_plan_limit_binds_whatever_the_record_declares(unit: str, metric: st
 
 def test_a_declared_limit_is_also_enforced() -> None:
     record = complete_record()
-    entry = record["measurements"]["B2:b2.completion-peak-bytes"]
+    entry = record["measurements"]["B2:b2.completion-peak-bytes.linux-x86_64-cpu"]
     entry["limit"] = {"op": "<=", "value": 10, "source": "recorded baseline"}
     assert ("B2", "limit_violated") in codes(record)
 
 
 def test_a_recorded_only_metric_has_no_threshold() -> None:
     record = complete_record()
-    record["measurements"]["B2:b2.completion-peak-bytes"]["value"] = 10**12
+    record["measurements"]["B2:b2.completion-peak-bytes.linux-x86_64-cpu"]["value"] = 10**12
     assert structural(record) == []
 
 
@@ -467,7 +657,7 @@ def test_b3_completion_time_needs_2x_headroom_against_the_worker_timeout() -> No
 
 def test_a_measurement_unit_must_match_the_plan() -> None:
     record = complete_record()
-    record["measurements"]["B2:b2.per-retired-traced-bytes-slope"]["unit"] = "bytes"
+    record["measurements"]["B2:b2.per-retired-traced-bytes-slope.linux-x86_64-cpu"]["unit"] = "bytes"
     assert ("B2", "measurement_unit_mismatch") in codes(record)
 
 
@@ -484,7 +674,7 @@ def test_every_required_artifact_is_needed() -> None:
 
 def test_an_artifact_without_a_hash_is_refused() -> None:
     record = complete_record()
-    del record["retainedArtifacts"]["b2.memory-harness-output"]["sha256"]
+    del record["retainedArtifacts"]["b2.memory-harness-output.linux-x86_64-cpu"]["sha256"]
     assert ("record", "schema_invalid") in codes(record)
 
 
@@ -692,10 +882,11 @@ def test_junit_counts_come_from_the_test_cases(tmp_path: Path) -> None:
 
 
 def test_the_cli_exits_nonzero_on_a_finding(tmp_path: Path, capsys) -> None:
-    # A closure-free record needs no git history, only the retained files.
+    # A closure-free record needs the measured commit on main and the retained files.
     root = tmp_path / "repo"
+    sha = on_main_repo(root)
     good = tmp_path / "good.json"
-    good.write_text(json.dumps(materialize(complete_record(), root)))
+    good.write_text(json.dumps(materialize(with_sha(complete_record(), sha), root)))
     assert s1_evidence.main(["check", str(good), "--repo-root", str(root)]) == 0
     # Without --repo-root the default is this repository, where the files do not
     # exist: it is verified (and refused), not skipped.
@@ -703,7 +894,7 @@ def test_the_cli_exits_nonzero_on_a_finding(tmp_path: Path, capsys) -> None:
     assert s1_evidence.main(["check", str(good)]) == 1
     output = capsys.readouterr().out
     assert "artifact_file_missing" in output and "repository_not_verified" not in output
-    bad_record = materialize(complete_record(), root)
+    bad_record = materialize(with_sha(complete_record(), sha), root)
     bad_record["runs"]["task10"]["headSha"] = OTHER
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps(bad_record))
@@ -896,9 +1087,9 @@ def _verified_codes(record: dict, root: Path) -> set[tuple[str, str]]:
 
 def test_b2_values_must_be_the_retained_harness_output(tmp_path: Path) -> None:
     record = materialize(complete_record(), tmp_path)
-    slope = next(m for m in record["measurements"].values() if m["metric"] == "b2.per-retired-traced-bytes-slope")
+    slope = next(m for m in record["measurements"].values() if m["metric"] == "b2.per-retired-traced-bytes-slope.linux-x86_64-cpu")
     # The harness measured an over-limit slope; the record shows a low one.
-    _rewrite_json(record, tmp_path, "b2.memory-harness-output",
+    _rewrite_json(record, tmp_path, "b2.memory-harness-output.linux-x86_64-cpu",
                   lambda d: d["measurements"]["b2.per-retired-traced-bytes-slope"].update(value=40_000.0))
     assert slope["value"] <= 16 * 1024
     assert ("B2", "b2_output_mismatch") in _verified_codes(record, tmp_path)
@@ -916,7 +1107,7 @@ def test_b2_values_must_be_the_retained_harness_output(tmp_path: Path) -> None:
 )
 def test_the_b2_harness_output_must_be_complete_and_from_the_measured_clean_source(tmp_path: Path, mutate) -> None:
     record = materialize(complete_record(), tmp_path)
-    _rewrite_json(record, tmp_path, "b2.memory-harness-output", mutate)
+    _rewrite_json(record, tmp_path, "b2.memory-harness-output.linux-x86_64-cpu", mutate)
     assert ("B2", "b2_output_mismatch") in _verified_codes(record, tmp_path)
 
 
@@ -1042,7 +1233,7 @@ def test_a_suite_result_cannot_be_backed_by_another_suites_xml(tmp_path: Path) -
 
 def test_every_measurement_cites_a_retained_artifact_of_its_unit() -> None:
     record = complete_record()
-    slope = next(m for m in record["measurements"].values() if m["metric"] == "b2.per-retired-traced-bytes-slope")
+    slope = next(m for m in record["measurements"].values() if m["metric"] == "b2.per-retired-traced-bytes-slope.linux-x86_64-cpu")
     del slope["artifact"]
     assert ("B2", "measurement_unbound") in codes(record)
     slope["artifact"] = "b1.real-clip-measurement"  # retained, but another unit's
@@ -1129,14 +1320,21 @@ def _os_conditional_tests(repo: Path, suite: str) -> set[str]:
             and any(token in ast.unparse(node.value) for token in _OS_CONDITION)
             for node in tree.body
         )
-        for node in tree.body:
-            if not (isinstance(node, ast.FunctionDef) and node.name.startswith("test")):
-                continue
-            decorated = any(
+        def os_skip(node: ast.AST) -> bool:
+            return any(
                 "skipif" in ast.unparse(d) and any(token in ast.unparse(d) for token in _OS_CONDITION)
-                for d in node.decorator_list
+                for d in getattr(node, "decorator_list", ())
             )
-            if module_skip or decorated:
+
+        functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+        # Module-level tests, and the methods of ``Test*`` classes (a class
+        # ``skipif`` applies to every method).
+        candidates = [(node, False) for node in tree.body if isinstance(node, functions)]
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+                candidates += [(method, os_skip(node)) for method in node.body if isinstance(method, functions)]
+        for node, class_skip in candidates:
+            if node.name.startswith("test") and (module_skip or class_skip or os_skip(node)):
                 found.add(node.name)
     return found
 
@@ -1175,6 +1373,18 @@ def test_the_drift_scan_sees_a_new_os_conditional_test(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert _os_conditional_tests(tmp_path, "tests") == {"test_only_windows"}
+    (suite / "test_classes.py").write_text(
+        "import os, sys, pytest\n"
+        "class TestPosix:\n"
+        "    @pytest.mark.skipif(sys.platform == 'win32', reason='x')\n"
+        "    def test_method_only_posix(self):\n        pass\n"
+        "    def test_unconditional(self):\n        pass\n"
+        "@pytest.mark.skipif(os.name == 'nt', reason='x')\n"
+        "class TestWholeClass:\n"
+        "    async def test_async_in_skipped_class(self):\n        pass\n",
+        encoding="utf-8",
+    )
+    assert _os_conditional_tests(tmp_path, "tests") == {"test_only_windows", "test_method_only_posix", "test_async_in_skipped_class"}
 
 
 def test_the_sealing_output_must_measure_the_b3_sha(tmp_path: Path) -> None:
@@ -1393,6 +1603,8 @@ def test_b6_needs_every_task10_step_and_record_per_variant() -> None:
         lambda a: a.update(run="host"),
         lambda a: a.update(variant="linux-x86_64-cpu"),
         lambda a: a.update(path="task10/windows-x86_64-cpu/runtime.json"),
+        lambda a: a.update(path="task10/linux-x86_64-cpu/bytetrack-qualification.json"),
+        lambda a: a.update(path="bytetrack-qualification.json"),
     ],
 )
 def test_a_task10_record_must_come_from_its_variants_task10_run(mutate) -> None:
@@ -1404,6 +1616,9 @@ def test_a_task10_record_must_come_from_its_variants_task10_run(mutate) -> None:
 def test_a_failed_production_composition_record_blocks_b6(tmp_path: Path) -> None:
     record = materialize(complete_record(), tmp_path)
     _rewrite_json(record, tmp_path, "b6.linux-x86_64-cpu.production-composition-qualification.json", lambda d: d.update(status="failed"))
+    assert ("B6", "task10_record_invalid") in _verified_codes(record, tmp_path)
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b6.linux-x86_64-cpu.production-composition-qualification.json", lambda d: d.update(headSha="c" * 40))
     assert ("B6", "task10_record_invalid") in _verified_codes(record, tmp_path)
 
 
@@ -1432,11 +1647,11 @@ def test_isolation_probes_must_be_the_retained_probe_output(tmp_path: Path) -> N
 
 def test_b2_output_must_come_from_a_qualified_variant_on_the_recorded_host(tmp_path: Path) -> None:
     record = materialize(complete_record(), tmp_path)
-    _rewrite_json(record, tmp_path, "b2.memory-harness-output", lambda d: d["runtime"].update(runtimeVariant=None))
+    _rewrite_json(record, tmp_path, "b2.memory-harness-output.linux-x86_64-cpu", lambda d: d["runtime"].update(runtimeVariant=None))
     assert ("B2", "b2_output_mismatch") in _verified_codes(record, tmp_path)
     record = materialize(complete_record(), tmp_path / "2")
-    _rewrite_json(record, tmp_path / "2", "b2.memory-harness-output", lambda d: d["host"].update(cpuModel="a laptop"))
-    assert ("B2", "b2_output_mismatch") in _verified_codes(record, tmp_path / "2")
+    _rewrite_json(record, tmp_path / "2", "b2.memory-harness-output.linux-x86_64-cpu", lambda d: d["host"].update(cpuModel="a laptop"))
+    assert ("B2", "host_identity_mismatch") in _verified_codes(record, tmp_path / "2")
 
 
 def test_b3_needs_a_sealing_measurement_on_each_supported_os() -> None:
@@ -1483,3 +1698,500 @@ def test_tampered_or_unretained_outcome_evidence_is_refused(tmp_path: Path) -> N
     _rewrite_json(record, tmp_path / "2", "disconnected.run-record", lambda d: d["outcomes"]["trackDetail"].update(evidence="disconnected.never-retained"))
     found = check_record(record, repo_root=tmp_path / "2", verify_git=False)
     assert any("trackDetail does not cite a retained, verified evidence artifact" in f.detail for f in found)
+
+
+# --------------------------------------------------------------------------- repair round
+
+
+def test_a_pass_measured_on_an_unmerged_or_unknown_sha_is_refused(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    on_main = on_main_repo(root)
+    git = lambda *args: subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()  # noqa: E731
+    git("checkout", "-qb", "unmerged")
+    (root / "branch.txt").write_text("b", encoding="utf-8")
+    git("add", "branch.txt")
+    git("commit", "-qm", "unmerged")
+    unmerged = git("rev-parse", "HEAD")
+    git("checkout", "-q", "main")
+    assert codes(materialize(with_sha(complete_record(), on_main), root), repo_root=root) == set()
+    found = codes(materialize(with_sha(complete_record(), unmerged), root), repo_root=root)
+    assert ("B1", "measured_sha_not_on_main") in found
+    found = codes(materialize(with_sha(complete_record(), "f" * 40), root), repo_root=root)
+    assert ("B1", "measured_sha_unknown") in found
+
+
+def test_an_aggregate_task10_skip_is_approved_by_its_testcases_source_suite() -> None:
+    record = complete_record()
+    linux = next(s for s in record["units"]["B6"]["suites"] if "task10:s1-boundary" in s and s.endswith("linux-x86_64-cpu"))
+    windows = linux.replace("linux-x86_64-cpu", "windows-x86_64-cpu")
+    names = sorted(s1_evidence.APPROVED_PAIRED_SKIPS[("src/vision/tests/test_artifact_store_windows.py", "linux-x86_64-cpu")])
+    tests = [f"tests.test_artifact_store_windows::{name}" for name in names]
+    record["suites"][linux].update(skipped=len(tests), skippedTests=tests)
+    record["suites"][windows].update(passed=1 + len(tests), passedTests=record["suites"][windows]["passedTests"] + tests)
+    for test in tests:
+        record["pairedVariantSkips"].append({
+            "test": test, "skipsOn": "linux-x86_64-cpu", "counterpartSuite": "task10:s1-boundary",
+            "counterpartTest": test, "counterpartVariant": "windows-x86_64-cpu",
+        })
+    assert structural(record) == []
+    # The same aggregate may not smuggle in a skip whose source suite does not approve it.
+    record["suites"][linux].update(skipped=len(tests) + 1, skippedTests=tests + ["tests.test_evidence_encoder::test_golden_bytes_per_runtime_variant"])
+    assert ("B6", "skip_not_approved") in codes(record)
+    # Nor a Windows-only name under a classname of another suite.
+    assert not s1_evidence.is_approved_skip("task10:s1-boundary", "linux-x86_64-cpu", f"tests.test_track_lifecycle::{names[0]}")
+    assert not s1_evidence.is_approved_skip("task10:s1-boundary", "windows-x86_64-cpu", tests[0])
+
+
+# --------------------------------------------------------------------------- B2 per variant (repair round)
+
+
+def test_b2_needs_the_memory_evidence_of_both_variants() -> None:
+    record = complete_record()
+    record["units"]["B2"]["measurements"] = [m for m in record["units"]["B2"]["measurements"] if not m.endswith(".windows-x86_64-cpu")]
+    assert ("B2", "measurement_missing") in codes(record)
+    record = complete_record()
+    record["units"]["B2"]["artifacts"].remove("b2.memory-harness-output.windows-x86_64-cpu")
+    assert ("B2", "artifact_missing") in codes(record)
+
+
+def test_a_variants_b2_output_must_be_that_variants_run(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    # The Linux output relabelled as the Windows evidence.
+    _rewrite_json(record, tmp_path, "b2.memory-harness-output.windows-x86_64-cpu", lambda d: d["runtime"].update(runtimeVariant="linux-x86_64-cpu"))
+    assert ("B2", "b2_output_mismatch") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize("field", s1_evidence.MEASURED_HOST_FIELDS)
+def test_every_host_field_is_measured_and_bound(tmp_path: Path, field: str) -> None:
+    record = materialize(complete_record(), tmp_path / "a")
+    _rewrite_json(record, tmp_path / "a", "b2.memory-harness-output.windows-x86_64-cpu", lambda d: d["host"].update({field: None}))
+    assert ("B2", "host_identity_unmeasured") in _verified_codes(record, tmp_path / "a")
+    record = materialize(complete_record(), tmp_path / "b")
+    record["hosts"]["runner-windows"][field] = "typed in" if isinstance(record["hosts"]["runner-windows"][field], str) else 999
+    assert ("B2", "host_identity_mismatch") in _verified_codes(record, tmp_path / "b")
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d["liveLevelFit"].update(points=d["liveLevelFit"]["points"][:4]),
+        lambda d: d["liveLevelFit"]["points"][4].__setitem__(1, 99_000_000.0),
+        lambda d: d["liveLevelFit"].pop("r2"),
+        lambda d: d["boundOneReconciliation"].update(unaccountedPerLiveBytes=0.0),
+        lambda d: d["boundOneReconciliation"].update(perLiveProcessSlopeBytes=1.0),
+        lambda d: d["boundOneReconciliation"].update(accountedEncodedEvidenceBytesMax=10**9, unaccountedPerLiveBytes=d["boundOneReconciliation"]["perLiveProcessSlopeBytes"] - 10**9),
+        lambda d: d.pop("boundOneReconciliation"),
+    ],
+)
+def test_the_per_live_slope_is_recomputed_from_its_plateaus_and_reconciled(tmp_path: Path, mutate) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b2.memory-harness-output.linux-x86_64-cpu", mutate)
+    assert ("B2", "b2_output_mismatch") in _verified_codes(record, tmp_path)
+
+
+def test_the_per_live_slope_is_mandatory_but_not_thresholded() -> None:
+    requirement = next(r for r in UNIT_REQUIREMENTS["B2"].measurements if r.metric.startswith("b2.process-memory-per-live-track-slope."))
+    assert requirement.limit_op is None
+    record = complete_record()
+    record["units"]["B2"]["measurements"].remove("B2:b2.process-memory-per-live-track-slope.windows-x86_64-cpu")
+    assert ("B2", "measurement_missing") in codes(record)
+
+
+def test_an_undefined_variation_blocks_b2(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b2.memory-harness-output.linux-x86_64-cpu", lambda d: d["measurements"]["b2.retired-slope-duration-variation"].update(value=None, undefined="baseline slope 0.0 B/track is not positive"))
+    assert ("B2", "variation_undefined") in _verified_codes(record, tmp_path)
+
+
+def test_the_staging_peak_must_be_within_the_runs_derived_bound() -> None:
+    record = complete_record()
+    record["measurements"]["B2:b2.staging-peak-to-derived-bound-ratio.linux-x86_64-cpu"]["value"] = 1.01
+    assert ("B2", "limit_violated") in codes(record)
+
+
+@pytest.mark.parametrize(("field", "value"), [("cpuModel", "another CPU"), ("logicalCores", 128)])
+def test_the_sealing_output_is_bound_to_its_measured_host(tmp_path: Path, field: str, value) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b3.sealing-scale-output.windows-x86_64-cpu", lambda d: d["host"].update({field: value}))
+    assert ("B3", "host_identity_mismatch") in _verified_codes(record, tmp_path)
+
+
+def test_the_sealing_output_schema_is_checked(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b3.sealing-scale-output.linux-x86_64-cpu", lambda d: d.update(schema="other"))
+    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "sealing_output_mismatch"]
+    assert any("schema" in f.detail for f in findings)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d["checks"].update(failedAttemptCleaned=False),
+        lambda d: d["checks"].pop("supersededAttemptRemoved"),
+        lambda d: d["checks"].update(siblingJobUntouched=False),
+        lambda d: d["checks"].update(peaksWithinDerivedBound=False),
+        lambda d: d["workload"].update(tracker="fixture"),
+        lambda d: d["runtime"].update(runtimeVariant="linux-x86_64-cpu"),
+        lambda d: d["identity"].update(cleanTree=False),
+        lambda d: d.update(schema="other"),
+    ],
+)
+def test_each_variant_needs_a_passed_staging_lifecycle(tmp_path: Path, mutate) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b2.staging-lifecycle.windows-x86_64-cpu", mutate)
+    assert ("B2", "staging_lifecycle_invalid") in _verified_codes(record, tmp_path)
+
+
+def test_b2_cites_the_platform_janitor_suite() -> None:
+    assert "tests/Mavi.IntegrationTests/StagingJanitorTests" in UNIT_REQUIREMENTS["B2"].suites
+
+
+# --------------------------------------------------------------------------- B1 / B3 / B5 content binding
+
+
+def test_a_b1_count_must_be_the_derived_comparisons(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b1.cross-variant-comparison", lambda d: d["counts"].update(parameterNoteMismatches=3))
+    assert ("B1", "b1_comparison_invalid") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d.update(schema="other"),
+        lambda d: d["identity"].update(sourceSha="c" * 40),
+        lambda d: d["identity"].update(cleanTree=False),
+        lambda d: d.update(identityProblems=["windows: ran on 'linux-x86_64-cpu'"]),
+        lambda d: d["inputs"]["linux"].update(sha256="0" * 64),
+        lambda d: d["inputs"]["baseline"].update(sha256="0" * 64),
+        lambda d: d.update(traces=[{"path": "/combined/tracks", "cause": "x"}]),
+    ],
+)
+def test_the_b1_comparison_must_be_of_the_retained_runs_on_the_measured_code(tmp_path: Path, mutate) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b1.cross-variant-comparison", mutate)
+    assert ("B1", "b1_comparison_invalid") in _verified_codes(record, tmp_path)
+
+
+def test_an_arbitrary_b1_artifact_no_longer_supports_a_pass(tmp_path: Path) -> None:
+    # The pre-repair fixture: the comparison artifact's content was just its id.
+    record = materialize(complete_record(), tmp_path)
+    entry = record["retainedArtifacts"]["b1.cross-variant-comparison"]
+    (tmp_path / entry["path"]).write_text("b1.cross-variant-comparison", encoding="utf-8")
+    entry["sha256"] = hashlib.sha256(b"b1.cross-variant-comparison").hexdigest()
+    assert ("B1", "b1_comparison_invalid") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize("metric", sorted(s1_evidence.B3_PROVING_TESTS))
+def test_a_b3_body_size_needs_its_proving_test_to_have_passed(metric: str) -> None:
+    record = complete_record()
+    suite, test = s1_evidence.B3_PROVING_TESTS[metric]
+    for entry in record["suites"].values():
+        if entry["suite"] == suite:
+            entry["passedTests"] = [t for t in entry["passedTests"] if not t.endswith("::" + test)]
+            entry["passed"] = len(entry["passedTests"])
+    assert ("B3", "proving_test_missing") in codes(record)
+
+
+def test_the_b5_clip_count_is_the_records_verified_real_video_clips(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    assert _verified_codes(record, tmp_path) == set()
+    _rewrite_json(record, tmp_path, "b5.real-video-record", lambda d: d["clips"][1].update(label="fixture"))
+    assert ("B5", "b5_record_invalid") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("artifact", "mutate"),
+    [
+        ("b5.real-video-record", lambda d: d["clips"][0].update(trackDetailVerified=False)),
+        ("b5.real-video-record", lambda d: d["clips"][1].update(sha256=d["clips"][0]["sha256"])),
+        ("b5.real-video-record", lambda d: d["clips"][0].update(sha256="not-a-hash")),
+        ("b5.real-video-record", lambda d: d.update(sourceCommit="c" * 40)),
+        ("b5.real-video-record", lambda d: d.update(schema="other")),
+        ("b5.visual-qa-record", lambda d: d["items"][0].update(passed=False)),
+        ("b5.visual-qa-record", lambda d: d.update(items=[i for i in d["items"] if i["label"] != "real-video"])),
+        ("b5.visual-qa-record", lambda d: d.update(sourceCommit="c" * 40)),
+    ],
+)
+def test_b5_records_must_verify_what_they_count(tmp_path: Path, artifact: str, mutate) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, artifact, mutate)
+    assert ("B5", "b5_record_invalid") in _verified_codes(record, tmp_path)
+
+
+# --------------------------------------------------------------------------- .NET TRX / web JUnit (finding #4)
+
+REAL_SHAPED_TRX = """﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="1" name="@vm" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult executionId="e1" testId="t1" testName="Mavi.IntegrationTests.WorkerContractV3Tests.WorstShapeBodyFitsUnderLimit" outcome="Passed" />
+    <UnitTestResult executionId="e2" testId="t2" testName="Mavi.IntegrationTests.WorkerContractV3Tests.Rejects(kind: &quot;a&quot;)" outcome="Passed" />
+    <UnitTestResult executionId="e3" testId="t2" testName="Mavi.IntegrationTests.WorkerContractV3Tests.Rejects(kind: &quot;b&quot;)" outcome="NotExecuted" />
+    <UnitTestResult executionId="e4" testId="t3" testName="Mavi.IntegrationTests.WorkerContractV3TestsExtra.Other" outcome="Failed" />
+    <UnitTestResult executionId="e5" testId="t4" testName="Mavi.IntegrationTests.WorkerContractV3Tests.Hangs" outcome="Timeout" />
+    <UnitTestResult executionId="e6" testId="t5" testName="Mavi.IntegrationTests.WorkerContractV3Tests.Broke" outcome="Error" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="a" id="t1"><Execution id="e1" /><TestMethod className="Mavi.IntegrationTests.WorkerContractV3Tests" name="WorstShapeBodyFitsUnderLimit" /></UnitTest>
+    <UnitTest name="b" id="t2"><Execution id="e2" /><TestMethod className="Mavi.IntegrationTests.WorkerContractV3Tests" name="Rejects" /></UnitTest>
+    <UnitTest name="c" id="t3"><Execution id="e4" /><TestMethod className="Mavi.IntegrationTests.WorkerContractV3TestsExtra" name="Other" /></UnitTest>
+    <UnitTest name="d" id="t4"><Execution id="e5" /><TestMethod className="Mavi.IntegrationTests.WorkerContractV3Tests" name="Hangs" /></UnitTest>
+    <UnitTest name="e" id="t5"><Execution id="e6" /><TestMethod className="Mavi.IntegrationTests.WorkerContractV3Tests" name="Broke" /></UnitTest>
+  </TestDefinitions>
+</TestRun>
+"""
+
+
+def test_a_trx_is_counted_from_its_results_by_test_class(tmp_path: Path) -> None:
+    path = tmp_path / "Mavi.IntegrationTests.trx"
+    path.write_text(REAL_SHAPED_TRX, encoding="utf-8")
+    counts = s1_evidence.suite_counts_from_junit(path, "tests/Mavi.IntegrationTests/WorkerContractV3Tests")
+    assert (counts["passed"], counts["skipped"], counts["failed"], counts["errors"]) == (2, 1, 1, 1)
+    assert counts["passedTests"] == [
+        "Mavi.IntegrationTests.WorkerContractV3Tests::WorstShapeBodyFitsUnderLimit",
+        'Mavi.IntegrationTests.WorkerContractV3Tests::Rejects(kind: "a")',
+    ]
+    assert counts["skippedTests"] == ['Mavi.IntegrationTests.WorkerContractV3Tests::Rejects(kind: "b")']
+    # A class whose name merely extends the suite's is another suite.
+    extra = s1_evidence.suite_counts_from_junit(path, "tests/Mavi.IntegrationTests/WorkerContractV3TestsExtra")
+    assert (extra["passed"], extra["failed"]) == (0, 1)
+
+
+def test_a_trx_result_without_its_definition_is_unreadable(tmp_path: Path) -> None:
+    path = tmp_path / "x.trx"
+    path.write_text(REAL_SHAPED_TRX.replace('id="t5"', 'id="t9"'), encoding="utf-8")
+    with pytest.raises(ValueError, match="trx_result_without_definition"):
+        s1_evidence.suite_counts_from_junit(path, "tests/Mavi.IntegrationTests/WorkerContractV3Tests")
+
+
+def test_the_real_dotnet_trx_logger_output_is_readable() -> None:
+    # Captured from ``dotnet test --logger trx`` (SDK 10.0.112, xUnit 2.9.3) on
+    # Mavi.IntegrationTests, pruned to two classes and with local paths removed.
+    # It holds real theory names and the real NotExecuted form of an xUnit skip.
+    path = Path(__file__).parent / "fixtures/dotnet-sdk-10.0.112-integration-sample.trx"
+    worker = s1_evidence.suite_counts_from_junit(path, "tests/Mavi.IntegrationTests/WorkerContractV3Tests")
+    assert worker["failed"] == worker["errors"] == worker["skipped"] == 0 and worker["passed"] > 1
+    assert "Mavi.IntegrationTests.WorkerContractV3Tests::WorstShapeBodyFitsUnderLimit" in worker["passedTests"]
+    assert 'Mavi.IntegrationTests.WorkerContractV3Tests::CompletionRejectsUnacceptedVersions(version: "3.1")' in worker["passedTests"]
+    # xUnit truncates long theory arguments ("···"), so two cases can share a
+    # display name. Each result is still counted, and the checker compares the
+    # names as sorted lists, so a duplicate can neither vanish nor be invented.
+    assert len(worker["passedTests"]) == worker["passed"] > len(set(worker["passedTests"]))
+    sealing = s1_evidence.suite_counts_from_junit(path, "tests/Mavi.IntegrationTests/Qualification/S1SealingScaleTests")
+    assert sealing["skippedTests"] == [
+        "Mavi.IntegrationTests.Qualification.S1SealingScaleTests::RealStoreCompletionWallTimeAtTheWorstCaseObjectCount"
+    ]
+    assert sealing["passed"] >= 1 and sealing["failed"] == 0
+
+
+@pytest.mark.parametrize(
+    ("suite", "wrong_path"),
+    [
+        ("tests/Mavi.IntegrationTests/WorkerContractV3Tests", "junit/worker.xml"),
+        ("tests/Mavi.IntegrationTests/WorkerContractV3Tests", "trx/Mavi.Application.Tests.trx"),
+        ("src/web/mavi-web", "junit/web-local.xml"),
+    ],
+)
+def test_a_quality_gate_suite_is_backed_by_the_file_the_gate_writes(suite: str, wrong_path: str) -> None:
+    record = complete_record()
+    entry = next(e for e in record["suites"].values() if e["suite"] == suite)
+    record["retainedArtifacts"][entry["junitArtifact"]]["path"] = wrong_path
+    assert any(code == "suite_provenance_invalid" for _, code in codes(record))
+
+
+def test_the_quality_gate_retains_a_trx_per_test_project_and_the_web_junit() -> None:
+    workflow = (REPO_ROOT / ".github/workflows/quality-gate.yml").read_text(encoding="utf-8")
+    # Every test project in the solution, each to its own TRX (built-in logger).
+    assert 'dotnet sln MAVI.sln list' in workflow and "grep '^tests/'" in workflow
+    assert '--logger "trx;LogFileName=${name}.trx" --results-directory qualification-evidence/trx' in workflow
+    assert "--reporter=junit --outputFile.junit=../../../qualification-evidence/junit/mavi-web.xml" in workflow
+    upload = workflow[workflow.index("actions/upload-artifact"):]
+    assert "path: qualification-evidence/" in upload and "if: always()" in workflow[workflow.index("Retain test results"):]
+    assert s1_evidence.quality_gate_result_path("tests/Mavi.Domain.Tests/X") == "trx/Mavi.Domain.Tests.trx"
+    assert s1_evidence.quality_gate_result_path("src/web/mavi-web") == "junit/mavi-web.xml"
+    projects = sorted(path.parent.name for path in (REPO_ROOT / "tests").glob("*/*.csproj"))
+    assert projects == ["Mavi.Application.Tests", "Mavi.Domain.Tests", "Mavi.IntegrationTests"]
+
+
+def test_a_task10_record_is_not_the_other_variants_bytes() -> None:
+    record = complete_record()
+    for name in sorted(s1_evidence.TASK10_JOB_RECORDS):
+        linux = record["retainedArtifacts"][f"b6.linux-x86_64-cpu.{name}"]
+        record["retainedArtifacts"][f"b6.windows-x86_64-cpu.{name}"]["sha256"] = linux["sha256"]
+        assert ("B6", "task10_record_invalid") in codes(record)
+        record = complete_record()
+    # A copied committed file is the same on both variants.
+    record["retainedArtifacts"]["b6.windows-x86_64-cpu.runtime.json"]["sha256"] = record["retainedArtifacts"]["b6.linux-x86_64-cpu.runtime.json"]["sha256"]
+    assert ("B6", "task10_record_invalid") not in codes(record)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d.update(runtimeVariant="linux-x86_64-cpu"),
+        lambda d: d.update(headSha="c" * 40),
+        lambda d: d.update(status="failed"),
+    ],
+)
+def test_the_bytetrack_record_names_its_variant_and_the_measured_head(tmp_path: Path, mutate) -> None:
+    record = materialize(complete_record(), tmp_path)
+    assert _verified_codes(record, tmp_path) == set()
+    _rewrite_json(record, tmp_path, "b6.windows-x86_64-cpu.bytetrack-qualification.json", mutate)
+    assert ("B6", "task10_record_invalid") in _verified_codes(record, tmp_path)
+
+
+# --------------------------------------------------------------------------- R2: Task-10 step sources
+
+
+def _task10_step_commands() -> dict[str, tuple[str, ...]]:
+    """Each Task-10 JUnit step's test paths, as the workflow invokes them."""
+    import re
+
+    workflow = (REPO_ROOT / ".github/workflows/task10-runtime-qualification.yml").read_text(encoding="utf-8")
+    found: dict[str, tuple[str, ...]] = {}
+    for step in re.split(r"\n      - (?=name:|uses:)", workflow):
+        match = re.search(r"--junitxml=\S*junit/([A-Za-z0-9_-]+)\.xml", step)
+        if match is None:
+            continue
+        prefix = "src/vision/" if re.search(r"^        working-directory: src/vision\s*$", step, re.M) else ""
+        paths = re.findall(r"(?<![\w/])((?:src/vision/)?tests/test_\w+\.py|tools/qualification/tests)(?![\w/])", step)
+        found[match.group(1)] = tuple(dict.fromkeys(path if path.startswith(("src/", "tools/")) else prefix + path for path in paths))
+    return found
+
+
+def test_the_task10_step_sources_are_what_the_workflow_runs() -> None:
+    commands = _task10_step_commands()
+    assert set(commands) == set(s1_evidence.TASK10_JUNIT_STEPS)
+    assert commands == s1_evidence.TASK10_STEP_SOURCES
+
+
+def test_a_task10_step_source_change_invalidates_its_units() -> None:
+    cited = {"B6": {"task10:bytetrack-runtime", "task10:s1-boundary"}}
+    assert invalidated_units(["src/vision/tests/test_bytetrack_runtime.py"], cited) == {"src/vision/tests/test_bytetrack_runtime.py": {"B6"}}
+    assert invalidated_units(["src/vision/tests/test_evidence_selector.py"], cited) == {"src/vision/tests/test_evidence_selector.py": {"B6"}}
+    assert invalidated_units(["src/vision/tests/conftest.py"], cited) == {"src/vision/tests/conftest.py": {"B6"}}
+    assert invalidated_units(["tools/qualification/tests/test_s1_memory.py"], {"B2": {"task10:s1-qualification-harness"}}) == {
+        "tools/qualification/tests/test_s1_memory.py": {"B2"}
+    }
+    # A test file no step runs invalidates nothing through the steps.
+    assert invalidated_units(["src/vision/tests/test_unrelated_thing.py"], cited) == {}
+
+
+def test_a_repository_fixture_invalidates_every_unit_resting_on_a_suite() -> None:
+    cited = {"B3": {"tests/Mavi.IntegrationTests/S1BoundAgreementTests"}, "B5": {"src/web/mavi-web"}, "B6": {"task10:s1-boundary"}}
+    assert invalidated_units(["tests/fixtures/contracts/example.json"], cited) == {"tests/fixtures/contracts/example.json": {"B3", "B5", "B6"}}
+
+
+# --------------------------------------------------------------------------- R4 / R6: disconnected isolation
+
+
+def test_the_isolation_targets_are_the_reused_probes() -> None:
+    import re
+
+    source = (REPO_ROOT / "tools/phase1/qualify_offline_variant.py").read_text(encoding="utf-8")
+    body = source[source.index("def assert_outbound_internet_unavailable"):]
+    block = body[body.index("probes = ("):body.index("observations = []")]
+    targets = tuple((host, int(port)) for host, port in re.findall(r'\("([^"]+)", (\d+)\)', block))
+    assert targets == s1_evidence.ISOLATION_PROBE_TARGETS
+
+
+def test_the_disconnected_variant_must_be_a_qualified_cpu_variant() -> None:
+    record = complete_record()
+    record["disconnected"]["variant"] = "windows-x86_64-cuda"
+    assert ("DISCONNECTED", "disconnected_variant_unqualified") in codes(record)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda probes: probes.pop(),
+        lambda probes: probes.append({"host": "example.org", "port": 443, "reachable": False}),
+        lambda probes: probes.__setitem__(0, {"host": "127.0.0.1", "port": 443, "reachable": False}),
+    ],
+)
+def test_isolation_probes_are_exactly_the_five_targets(mutate) -> None:
+    record = complete_record()
+    mutate(record["disconnected"]["isolationAfter"]["probes"])
+    assert ("DISCONNECTED", "isolation_not_evidenced") in codes(record)
+
+
+def test_retained_probe_output_may_carry_more_than_the_probe_fields(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "disconnected.isolation-before", lambda d: d.update(observedAt="2026-10-01T10:00:00Z"))
+    assert _verified_codes(record, tmp_path) == set()
+    _rewrite_json(record, tmp_path, "disconnected.isolation-before", lambda d: d["probes"][2].update(reachable=True))
+    assert ("DISCONNECTED", "isolation_not_evidenced") in _verified_codes(record, tmp_path)
+
+
+# --------------------------------------------------------------------------- R5: disconnected outcome provenance
+
+
+def test_outcome_evidence_comes_from_the_disconnected_local_run(tmp_path: Path) -> None:
+    record = complete_record()
+    record["retainedArtifacts"]["disconnected.trackDetail"]["run"] = "host"
+    record = materialize(record, tmp_path)
+    assert ("DISCONNECTED", "disconnected_run_incomplete") in _verified_codes(record, tmp_path)
+
+
+def test_outcome_evidence_is_no_other_units_evidence(tmp_path: Path) -> None:
+    record = complete_record()
+    record["units"]["B5"]["artifacts"].append("disconnected.trackDetail")
+    record = materialize(record, tmp_path)
+    assert ("DISCONNECTED", "disconnected_run_incomplete") in _verified_codes(record, tmp_path)
+
+
+def test_the_disconnected_run_is_on_a_host_of_its_variant(tmp_path: Path) -> None:
+    record = complete_record()
+    record["runs"]["offline"]["host"] = "runner-linux"
+    record = materialize(record, tmp_path)
+    assert ("DISCONNECTED", "disconnected_run_incomplete") in _verified_codes(record, tmp_path)
+
+
+# --------------------------------------------------------------------------- R8: sources at the measured SHA
+
+
+def _settings_repo(root: Path, default: str) -> str:
+    """A main commit whose settings.py has worker timeout ``default``, then a
+    later working-tree edit back to the checkout's own value."""
+    sha = on_main_repo(root)
+    settings = root / s1_evidence.WORKER_SETTINGS_RELATIVE
+    original = settings.read_text(encoding="utf-8")
+    edited = re.sub(r"(request_timeout_seconds: float = Field\(default=)[0-9.]+", rf"\g<1>{default}", original)
+    assert edited != original
+    settings.write_text(edited, encoding="utf-8")
+    git = lambda *args: subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()  # noqa: E731
+    git("commit", "-qam", "timeout")
+    measured = git("rev-parse", "HEAD")
+    settings.write_text(original, encoding="utf-8")  # the checkout differs from the measured code
+    return measured
+
+
+def test_the_worker_timeout_is_read_at_the_measured_sha(tmp_path: Path) -> None:
+    measured = _settings_repo(tmp_path / "repo", "7.0")
+    record = with_sha(complete_record(), measured)
+    record["units"] = {name: unit for name, unit in record["units"].items()}
+    checker = s1_evidence._Checker(record, tmp_path / "repo", verify_git=True)
+    settings = checker.source_at(measured, s1_evidence.WORKER_SETTINGS_RELATIVE)
+    assert s1_evidence.worker_request_timeout_bounds_ms(settings.decode())[0] == 7000.0
+    # The working tree says otherwise; only the measured commit counts.
+    assert s1_evidence.worker_request_timeout_bounds_ms((tmp_path / "repo" / s1_evidence.WORKER_SETTINGS_RELATIVE).read_text())[0] != 7000.0
+    checker._b3_headroom({"b3.worker-request-timeout-ms": {"value": s1_evidence.worker_request_timeout_bounds_ms()[0]}}, measured)
+    assert any(f.code == "worker_timeout_unbound" for f in checker.findings)
+
+
+def test_unreadable_settings_at_the_measured_sha_refuse_b3(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    sha = on_main_repo(root)
+    subprocess.run(["git", "rm", "-q", s1_evidence.WORKER_SETTINGS_RELATIVE], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "rm"], cwd=root, check=True)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+    checker = s1_evidence._Checker(complete_record(), root, verify_git=True)
+    checker._b3_headroom({"b3.worker-request-timeout-ms": {"value": 1.0}}, head)
+    assert [f.code for f in checker.findings] == ["worker_timeout_unbound"]
+    assert sha != head
+
+
+def test_every_plan_section_3_host_field_is_measured_and_bound() -> None:
+    # §3 host identity: storage class alone is declared (it cannot be detected).
+    assert s1_evidence.MEASURED_HOST_FIELDS == ("cpuModel", "physicalCores", "logicalCores", "ramBytes", "os", "osBuild", "stagingFilesystem")
+    assert s1_evidence.SEALING_HOST_FIELDS == ("cpuModel", "logicalCores")
