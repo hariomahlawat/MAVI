@@ -24,16 +24,22 @@ on:
       - 'tools/vision/dev/measure_evidence_real_clips.py'
       - 'src/vision/tests/test_measure_evidence_real_clips.py'
       - 'tests/fixtures/scene-analytics/scripted-corpus-v1.json'
-      - 'src/vision/mavi_vision/evidence/**'
-      - 'src/vision/mavi_vision/quality/**'
-      - 'src/vision/mavi_vision/video/**'
-      - 'src/vision/mavi_vision/storage/**'
-      - 'src/vision/mavi_vision/runtime/**'
-      - 'src/vision/mavi_vision/pipeline/**'
-      - 'src/vision/mavi_vision/tracking/**'
-      - 'src/vision/mavi_vision/detection/interfaces.py'
+      # S1.4 §10.1: the whole vision package is behavior-bearing. A growing
+      # list of subpackages let worker/**, common/control_plane.py (the v3
+      # completion contract), common/lease.py and detection/rtmdet.py merge
+      # without this workflow running.
+      - 'src/vision/mavi_vision/**'
       - 'src/vision/tests/test_bytetrack_*.py'
-      - 'src/vision/mavi_vision/common/analytical.py'
+      - 'src/vision/tests/test_worker_completion_v3.py'
+      - 'src/vision/tests/test_completion_contract_*.py'
+      - 'src/vision/tests/test_tracker_update.py'
+      - 'src/vision/tests/test_track_finalization.py'
+      - 'src/vision/tests/test_artifact_store*.py'
+      - 'src/vision/tests/test_artifact_publisher.py'
+      - 'src/vision/tests/test_analytical_models.py'
+      - 'contracts/schemas/vision-job-complete-v3.schema.json'
+      - 'contracts/examples/vision-job-complete-v3.example.json'
+      - 'tools/qualification/**'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
       - 'src/vision/config/pipelines/**/*.json'
@@ -66,16 +72,22 @@ on:
       - 'tools/vision/dev/measure_evidence_real_clips.py'
       - 'src/vision/tests/test_measure_evidence_real_clips.py'
       - 'tests/fixtures/scene-analytics/scripted-corpus-v1.json'
-      - 'src/vision/mavi_vision/evidence/**'
-      - 'src/vision/mavi_vision/quality/**'
-      - 'src/vision/mavi_vision/video/**'
-      - 'src/vision/mavi_vision/storage/**'
-      - 'src/vision/mavi_vision/runtime/**'
-      - 'src/vision/mavi_vision/pipeline/**'
-      - 'src/vision/mavi_vision/tracking/**'
-      - 'src/vision/mavi_vision/detection/interfaces.py'
+      # S1.4 §10.1: the whole vision package is behavior-bearing. A growing
+      # list of subpackages let worker/**, common/control_plane.py (the v3
+      # completion contract), common/lease.py and detection/rtmdet.py merge
+      # without this workflow running.
+      - 'src/vision/mavi_vision/**'
       - 'src/vision/tests/test_bytetrack_*.py'
-      - 'src/vision/mavi_vision/common/analytical.py'
+      - 'src/vision/tests/test_worker_completion_v3.py'
+      - 'src/vision/tests/test_completion_contract_*.py'
+      - 'src/vision/tests/test_tracker_update.py'
+      - 'src/vision/tests/test_track_finalization.py'
+      - 'src/vision/tests/test_artifact_store*.py'
+      - 'src/vision/tests/test_artifact_publisher.py'
+      - 'src/vision/tests/test_analytical_models.py'
+      - 'contracts/schemas/vision-job-complete-v3.schema.json'
+      - 'contracts/examples/vision-job-complete-v3.example.json'
+      - 'tools/qualification/**'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
       - 'src/vision/config/pipelines/**/*.json'
@@ -143,7 +155,14 @@ jobs:
           "Pillow==11.3.0"
           "msgpack>=1.1,<2"
           "pydantic>=2.11,<3"
+          "pydantic-settings>=2.10,<3"
+          "httpx>=0.28,<0.29"
+          "packaging>=26,<27"
+          "jsonschema>=4.23,<5"
 
+      # Every evidence-bearing pytest step writes JUnit XML under
+      # qualification-evidence/junit/, uploaded with the other records, so the
+      # S1.4 pass/skip/fail counts (plan §3, §4) never depend on expiring logs.
       - name: Run runtime qualification tooling unit tests
         run: >-
           python -m pytest
@@ -151,6 +170,7 @@ jobs:
           src/vision/tests/test_resolve_mmdet_config.py
           src/vision/tests/test_runtime_metadata.py
           -q
+          --junitxml=qualification-evidence/junit/runtime-tooling.xml
 
       - name: Run production runtime boundary unit tests without ML imports
         working-directory: src/vision
@@ -172,7 +192,16 @@ jobs:
           tests/test_evidence_admission.py
           tests/test_evidence_pipeline.py
           tests/test_evidence_scripted_corpus.py
+          tests/test_worker_completion_v3.py
+          tests/test_completion_contract_bounds.py
+          tests/test_tracker_update.py
+          tests/test_track_finalization.py
+          tests/test_artifact_store.py
+          tests/test_artifact_store_windows.py
+          tests/test_artifact_publisher.py
+          tests/test_analytical_models.py
           -q
+          --junitxml=../../qualification-evidence/junit/s1-boundary.xml
 
       - name: Install candidate PyTorch CPU build
         run: >-
@@ -223,7 +252,7 @@ jobs:
           Pillow==11.3.0
 
       - name: Test real PyTorch restricted checkpoint loading
-        run: python -m pytest src/vision/tests/test_runtime_probe.py -q -k real_torch
+        run: python -m pytest src/vision/tests/test_runtime_probe.py -q -k real_torch --junitxml=qualification-evidence/junit/runtime-probe-real-torch.xml
 
       - name: Verify compiled MMCV ops and dependency imports
         run: >-
@@ -332,7 +361,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p qualification-evidence
-          MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_bytetrack_runtime.py -q
+          MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_bytetrack_runtime.py -q --junitxml=qualification-evidence/junit/bytetrack-runtime.xml
 
           PYTHONPATH=src/vision python - <<'PY'
           import hashlib
@@ -414,12 +443,20 @@ jobs:
         run: >-
           MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1 PYTHONPATH=src/vision
           python -m pytest src/vision/tests/test_measure_evidence_real_clips.py -q
+          --junitxml=qualification-evidence/junit/real-clip-harness.xml
+
+      - name: Run S1.4 qualification harness tests with the native ByteTrack backend
+        shell: bash
+        run: >-
+          MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1 PYTHONPATH=src/vision
+          python -m pytest tools/qualification/tests -q
+          --junitxml=qualification-evidence/junit/s1-qualification-harness.xml
 
       - name: Run exact production attempt composition qualification
         shell: bash
         run: |
           set -euo pipefail
-          MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_production_processor_runtime.py -q
+          MAVI_RUN_QUALIFIED_PRODUCTION_PROCESSOR_TESTS=1 PYTHONPATH=src/vision python -m pytest src/vision/tests/test_production_processor_runtime.py -q --junitxml=qualification-evidence/junit/production-processor-runtime.xml
 
           PYTHONPATH=src/vision python - <<'PY'
           import importlib.metadata
