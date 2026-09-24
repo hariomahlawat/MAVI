@@ -20,6 +20,8 @@ on:
       - 'src/vision/tests/test_evidence_*.py'
       - 'src/vision/tests/evidence_fixtures.py'
       - 'src/vision/tests/profile_fixtures.py'
+      - 'tools/vision/dev/scripted_corpus.py'
+      - 'tests/fixtures/scene-analytics/scripted-corpus-v1.json'
       - 'src/vision/mavi_vision/evidence/**'
       - 'src/vision/mavi_vision/quality/**'
       - 'src/vision/mavi_vision/video/**'
@@ -58,6 +60,8 @@ on:
       - 'src/vision/tests/test_evidence_*.py'
       - 'src/vision/tests/evidence_fixtures.py'
       - 'src/vision/tests/profile_fixtures.py'
+      - 'tools/vision/dev/scripted_corpus.py'
+      - 'tests/fixtures/scene-analytics/scripted-corpus-v1.json'
       - 'src/vision/mavi_vision/evidence/**'
       - 'src/vision/mavi_vision/quality/**'
       - 'src/vision/mavi_vision/video/**'
@@ -163,6 +167,7 @@ jobs:
           tests/test_evidence_selector.py
           tests/test_evidence_admission.py
           tests/test_evidence_pipeline.py
+          tests/test_evidence_scripted_corpus.py
           -q
 
       - name: Install candidate PyTorch CPU build
