@@ -2,6 +2,7 @@
 
 **Status:** Proposed implementation-grade execution plan for S1.4, revision 3. Revision 2 was amended by the second cold-review pass at `82d6a710` (three P1, sixteen P2). Revision 3 is amended by the third, independent pass at `d8ca646d` (one P1, eight P2, ten P3). See `docs/reviews/2026-09-24-stage2-s1-4-plan-cold-review.md`. It is documentation only until accepted.  
 **Date:** 2026-09-24  
+**Harness PR A:** the §13 PR A tooling is recorded in `docs/qualification/2026-09-24-s1-4-harness-a.md`. It is tooling only: nothing is measured on its branch, and B1–B6 and the disconnected unit remain **OPEN**.  
 **Baseline:** `main@81b43dec32bec0c5e876d2df372503016c05dbdf` — PR #83 merged; S1.3 complete.  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §10 / §16.  
 **Governing acceptance:** `docs/reviews/2026-09-23-visual-attributes-acceptance.md` B1–B6.  
