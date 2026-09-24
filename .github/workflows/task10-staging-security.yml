@@ -15,6 +15,9 @@ on:
       - 'src/vision/tests/test_artifact_store.py'
       - 'src/vision/tests/test_artifact_store_windows.py'
       - 'src/vision/tests/test_artifact_publisher.py'
+      - 'src/vision/tests/test_evidence_pipeline.py'
+      - 'src/vision/mavi_vision/evidence/**'
+      - 'src/vision/mavi_vision/pipeline/process_video.py'
       - '.github/workflows/task10-staging-security.yml'
       - 'docs/superpowers/plans/2026-09-11-task-10-rtmdet-bytetrack.md'
   push:
@@ -31,6 +34,9 @@ on:
       - 'src/vision/tests/test_artifact_store.py'
       - 'src/vision/tests/test_artifact_store_windows.py'
       - 'src/vision/tests/test_artifact_publisher.py'
+      - 'src/vision/tests/test_evidence_pipeline.py'
+      - 'src/vision/mavi_vision/evidence/**'
+      - 'src/vision/mavi_vision/pipeline/process_video.py'
       - '.github/workflows/task10-staging-security.yml'
       - 'docs/superpowers/plans/2026-09-11-task-10-rtmdet-bytetrack.md'
   workflow_dispatch:
@@ -72,4 +78,5 @@ jobs:
           tests/test_artifact_store_windows.py
           tests/test_artifact_publisher.py
           tests/test_trajectory_spool.py
+          tests/test_evidence_pipeline.py
           -q

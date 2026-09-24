@@ -17,6 +17,11 @@ on:
       - 'src/vision/tests/test_process_video.py'
       - 'src/vision/tests/test_track_lifecycle.py'
       - 'src/vision/tests/test_trajectory_spool.py'
+      - 'src/vision/tests/test_evidence_*.py'
+      - 'src/vision/tests/evidence_fixtures.py'
+      - 'src/vision/tests/profile_fixtures.py'
+      - 'src/vision/mavi_vision/evidence/**'
+      - 'src/vision/mavi_vision/quality/**'
       - 'src/vision/mavi_vision/video/**'
       - 'src/vision/mavi_vision/storage/**'
       - 'src/vision/mavi_vision/runtime/**'
@@ -50,6 +55,11 @@ on:
       - 'src/vision/tests/test_process_video.py'
       - 'src/vision/tests/test_track_lifecycle.py'
       - 'src/vision/tests/test_trajectory_spool.py'
+      - 'src/vision/tests/test_evidence_*.py'
+      - 'src/vision/tests/evidence_fixtures.py'
+      - 'src/vision/tests/profile_fixtures.py'
+      - 'src/vision/mavi_vision/evidence/**'
+      - 'src/vision/mavi_vision/quality/**'
       - 'src/vision/mavi_vision/video/**'
       - 'src/vision/mavi_vision/storage/**'
       - 'src/vision/mavi_vision/runtime/**'
@@ -147,6 +157,12 @@ jobs:
           tests/test_process_video.py
           tests/test_track_lifecycle.py
           tests/test_trajectory_spool.py
+          tests/test_evidence_profile.py
+          tests/test_evidence_quality.py
+          tests/test_evidence_encoder.py
+          tests/test_evidence_selector.py
+          tests/test_evidence_admission.py
+          tests/test_evidence_pipeline.py
           -q
 
       - name: Install candidate PyTorch CPU build
