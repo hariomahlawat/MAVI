@@ -137,6 +137,8 @@ MAXIMUM_COMPLETION_TRACKS = 10_000
 WORST_CASE_SEALED_OBJECTS = MAXIMUM_COMPLETION_TRACKS * 5
 
 
+WORKER_CONFIGURATION_ARTIFACT = "b3.worker-configuration"
+
 # §11: every step of the S1 operator path, each passed with named evidence.
 DISCONNECTED_OUTCOMES = (
     "setupVerification",
@@ -364,23 +366,51 @@ def sha256_file(path: Path) -> str:
 
 
 # --------------------------------------------------------------------------- JUnit
-def suite_counts_from_junit(xml_path: Path, suite_filter: str | None = None) -> dict[str, Any]:
-    """Pass/skip/fail/error counts from a pytest/xUnit JUnit XML.
+# Suites whose JUnit XML is a dedicated file (the web suite's own report, the
+# Task-10 job record): every test case in it belongs to the suite.
+WHOLE_FILE_SUITE_PREFIXES = ("src/web/", "task10:")
 
-    ``suite_filter`` restricts to test cases whose ``file`` or ``classname``
-    contains it, so one XML covering several suites can yield per-suite counts.
-    Counts come from the test cases themselves, never from summary attributes.
+
+def suite_key(suite: str) -> tuple[str, ...] | None:
+    """The components a test case's ``classname`` must contain to belong to
+    ``suite``: its last two path components, extension dropped
+    (``src/vision/tests/test_x.py`` -> ``tests, test_x``;
+    ``tests/Mavi.IntegrationTests/ClassTests`` -> ``IntegrationTests, ClassTests``).
+    ``None`` for whole-file suites."""
+    if suite.startswith(WHOLE_FILE_SUITE_PREFIXES):
+        return None
+    stem = suite.rstrip("/")
+    stem = stem[:-3] if stem.endswith(".py") else stem
+    parts = tuple(part for part in re.split(r"[/.]", stem) if part)
+    return parts[-2:]
+
+
+def case_belongs(classname: str, key: tuple[str, ...]) -> bool:
+    """Component-boundary containment: ``test_evidence`` never matches
+    ``test_evidence_encoder``."""
+    components = [part for part in re.split(r"[/.]", classname) if part]
+    width = len(key)
+    return any(tuple(components[index:index + width]) == key for index in range(len(components) - width + 1))
+
+
+def suite_counts_from_junit(xml_path: Path, suite: str | None = None) -> dict[str, Any]:
+    """Pass/skip/fail/error counts of ``suite``'s test cases in a JUnit XML.
+
+    One XML may cover several suites (Task 10's boundary step), so a case is
+    counted only when its ``classname`` belongs to the suite (``suite_key``).
+    ``None`` counts every case. Counts come from the test cases themselves,
+    never from summary attributes.
     """
+    key = None if suite is None else suite_key(suite)
     root = ElementTree.parse(xml_path).getroot()
-    cases = root.iter("testcase")
     counts = {"passed": 0, "skipped": 0, "failed": 0, "errors": 0, "passedTests": [], "skippedTests": []}
     seen = 0
-    for case in cases:
-        name = f"{case.get('classname', '')}::{case.get('name', '')}"
-        origin = f"{case.get('file', '')} {case.get('classname', '')}"
-        if suite_filter is not None and suite_filter not in origin:
+    for case in root.iter("testcase"):
+        classname = case.get("classname", "")
+        if key is not None and not case_belongs(classname, key):
             continue
         seen += 1
+        name = f"{classname}::{case.get('name', '')}"
         if case.find("failure") is not None:
             counts["failed"] += 1
         elif case.find("error") is not None:
@@ -392,7 +422,7 @@ def suite_counts_from_junit(xml_path: Path, suite_filter: str | None = None) -> 
             counts["passed"] += 1
             counts["passedTests"].append(name)
     if seen == 0:
-        raise ValueError(f"junit_no_matching_testcases:{xml_path}:{suite_filter}")
+        raise ValueError(f"junit_no_matching_testcases:{xml_path}:{suite}")
     return counts
 
 
@@ -428,6 +458,12 @@ class _Checker:
             return
         required = UNIT_REQUIREMENTS[name]
         measured_sha = self._unit_sha(name)
+        # §2.3 diffs record.measuredSha..closure.mergeSha. A unit measured on any
+        # other SHA would have changes that no verified diff covers.
+        closure = self.record["closure"]
+        allowed = {self.record["measuredSha"]} | ({closure["mergeSha"]} if closure else set())
+        if measured_sha not in allowed:
+            self.fail(name, "unit_sha_unbound", f"{name} was measured on {measured_sha}, neither the record's measured SHA nor the closure merge SHA")
         self._suites(name, unit, required, measured_sha)
         self._measurements(name, unit, required, measured_sha)
         self._artifacts(name, unit, required, measured_sha)
@@ -524,7 +560,7 @@ class _Checker:
             if names != {entry["variant"]}:
                 self.fail(name, "junit_variant_mismatch", f"suite {suite_id}: JUnit test suites are named {sorted(n or '' for n in names)}, not {entry['variant']}")
         try:
-            counts = suite_counts_from_junit(path, entry.get("junitFilter"))
+            counts = suite_counts_from_junit(path, entry["suite"])
         except (ValueError, ElementTree.ParseError) as exc:
             self.fail(name, "junit_unreadable", f"suite {suite_id}: {exc}")
             return
@@ -575,8 +611,11 @@ class _Checker:
                 self.fail(name, "limit_violated", f"{entry['metric']} = {entry['value']} violates {limit['op']} {limit['value']}")
             if entry["unit"] in TIMING_UNITS and entry.get("stats") is not None:
                 self._timing(name, measurement_id, entry)
-            if entry.get("artifact") is not None and entry["artifact"] not in self.record["retainedArtifacts"]:
-                self.fail(name, "artifact_missing", f"measurement {measurement_id} cites unretained artifact {entry['artifact']!r}")
+            # Every value comes from a retained output the unit cites; B2 and the
+            # B3 wall time are further compared with that output's content.
+            source = entry.get("artifact")
+            if source is None or source not in self.record["retainedArtifacts"] or source not in unit["artifacts"]:
+                self.fail(name, "measurement_unbound", f"measurement {measurement_id} does not cite a retained artifact of {name} ({source!r})")
         for requirement in required.measurements:
             entry = by_metric.get(requirement.metric)
             if entry is None:
@@ -620,11 +659,12 @@ class _Checker:
         if not 0 < timeout["value"] <= maximum_ms:
             self.fail("B3", "worker_timeout_out_of_range", f"worker timeout {timeout['value']} ms is outside (0, {maximum_ms}] ms")
         if timeout["value"] != default_ms:
-            artifact = timeout.get("artifact")
-            if artifact is None or artifact not in self.record["retainedArtifacts"]:
-                self.fail("B3", "worker_timeout_unbound", f"worker timeout {timeout['value']} ms is not the {default_ms} ms default and cites no retained install configuration")
+            # Only a retained copy of the install's worker configuration can
+            # justify a non-default timeout; citing any other artifact cannot.
+            if timeout.get("artifact") != WORKER_CONFIGURATION_ARTIFACT or WORKER_CONFIGURATION_ARTIFACT not in self.record["retainedArtifacts"]:
+                self.fail("B3", "worker_timeout_unbound", f"worker timeout {timeout['value']} ms is not the {default_ms} ms default and does not cite {WORKER_CONFIGURATION_ARTIFACT}")
             else:
-                self._verify_file("B3", artifact, self.record["retainedArtifacts"][artifact])
+                self._verify_file("B3", WORKER_CONFIGURATION_ARTIFACT, self.record["retainedArtifacts"][WORKER_CONFIGURATION_ARTIFACT])
         # §7.4: headroom below 2× against the worker request timeout is blocking.
         if wall["stats"]["max"] * 2 > timeout["value"]:
             self.fail("B3", "completion_headroom_insufficient", f"max completion {wall['stats']['max']} ms × 2 > worker timeout {timeout['value']} ms")
@@ -651,8 +691,14 @@ class _Checker:
                     (f"tracks {shape['tracks']} != {MAXIMUM_COMPLETION_TRACKS}", shape["tracks"] == MAXIMUM_COMPLETION_TRACKS),
                     (f"sealed objects {shape['sealedObjects']} != {WORST_CASE_SEALED_OBJECTS}", shape["sealedObjects"] == WORST_CASE_SEALED_OBJECTS),
                     ("its worker timeout differs from the recorded one", output["workerRequestTimeoutMs"] == timeout["value"]),
-                    ("its maximum differs from the recorded one", output["completion"]["max"] == wall["stats"]["max"]),
+                    *(
+                        (f"its {stat} differs from the recorded one", output["completion"][stat] == wall["stats"][stat])
+                        for stat in ("min", "p50", "p95", "max")
+                    ),
                     ("its sample count differs from the recorded one", output["completion"]["n"] == wall.get("samples")),
+                    ("its repeat count differs from the recorded one", output["repeats"] == wall.get("repeats")),
+                    ("its p50 spread differs from the recorded one", output["p50RunSpreadMs"] == wall["stats"].get("p50RunSpread")),
+                    ("it excluded no warm-up", output["warmupExcluded"] >= 1 and wall.get("warmupExcluded") is True),
                 )
                 if not holds
             ]
@@ -746,8 +792,13 @@ class _Checker:
             ]
             for outcome in DISCONNECTED_OUTCOMES:
                 result = run["outcomes"].get(outcome)
-                if not isinstance(result, dict) or result.get("passed") is not True or not result.get("evidence"):
-                    problems.append(f"outcome {outcome} is not a passed, evidenced step")
+                if not isinstance(result, dict) or result.get("passed") is not True:
+                    problems.append(f"outcome {outcome} did not pass")
+                    continue
+                evidence = result.get("evidence")
+                artifact = self.record["retainedArtifacts"].get(evidence) if isinstance(evidence, str) else None
+                if artifact is None or self._verify_file("DISCONNECTED", evidence, artifact) is None:
+                    problems.append(f"outcome {outcome} does not cite a retained, verified evidence artifact ({evidence!r})")
         except (KeyError, TypeError, AttributeError) as exc:
             problems = [f"incomplete ({exc})"]
         for problem in problems:
@@ -855,7 +906,7 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--repo-root", type=Path, default=REPO_ROOT, help="the checkout that holds the retained files (default: this repository)")
     junit = sub.add_parser("junit", help="derive a suite entry's counts from JUnit XML")
     junit.add_argument("xml", type=Path)
-    junit.add_argument("--suite", default=None)
+    junit.add_argument("--suite", default=None, help="the suite path whose test cases to count (default: every case)")
     args = parser.parse_args(argv)
 
     if args.command == "junit":

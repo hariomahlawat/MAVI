@@ -105,7 +105,8 @@ def complete_record() -> dict:
             entry = {"metric": requirement.metric, "value": _value_for(requirement), "unit": requirement.unit, "host": "runner-linux", "run": "host"}
             if requirement.timing:
                 entry.update(samples=30, repeats=3, warmupExcluded=True, stats={"min": 10.0, "p50": 20.0, "p95": 30.0, "max": 40.0, "p50RunSpread": 1.0})
-            if requirement.metric == "b3.real-store-completion-wall-ms":
+            entry["artifact"] = required.artifacts[0]
+            if requirement.metric in ("b3.real-store-completion-wall-ms", "b3.worker-request-timeout-ms"):
                 entry["artifact"] = "b3.sealing-scale-output"
             if requirement.metric == "b3.worker-request-timeout-ms":
                 entry["value"] = 30000.0
@@ -115,6 +116,9 @@ def complete_record() -> dict:
             record["retainedArtifacts"][artifact] = {"path": f"records/{artifact}.json", "sha256": _sha256(artifact), "run": "host"}
             unit["artifacts"].append(artifact)
         record["units"][name] = unit
+    for outcome in s1_evidence.DISCONNECTED_OUTCOMES:
+        artifact = f"disconnected.{outcome}"
+        record["retainedArtifacts"][artifact] = {"path": f"records/{artifact}.log", "sha256": _sha256(artifact), "run": "host"}
     return record
 
 
@@ -154,7 +158,7 @@ def _disconnected_run(record: dict) -> str:
         "variant": record["disconnected"]["variant"],
         "installProfile": "development",
         "outboundConnectionAttempts": [],
-        "outcomes": {name: {"passed": True, "evidence": f"records/{name}.log"} for name in s1_evidence.DISCONNECTED_OUTCOMES},
+        "outcomes": {name: {"passed": True, "evidence": f"disconnected.{name}"} for name in s1_evidence.DISCONNECTED_OUTCOMES},
     })
 
 
@@ -165,7 +169,8 @@ def _sealing_output(record: dict) -> str:
         "status": "complete", "authoritative": True,
         "shape": {"tracks": 10_000, "sealedObjects": 50_000},
         "workerRequestTimeoutMs": timeout["value"],
-        "completion": {"n": wall["samples"], "max": wall["stats"]["max"]},
+        "repeats": wall["repeats"], "warmupExcluded": 1, "p50RunSpreadMs": wall["stats"]["p50RunSpread"],
+        "completion": {"n": wall["samples"], **{k: wall["stats"][k] for k in ("min", "p50", "p95", "max")}},
     })
 
 
@@ -641,11 +646,11 @@ def test_junit_counts_come_from_the_test_cases(tmp_path: Path) -> None:
     path.write_text(JUNIT)
     everything = suite_counts_from_junit(path)
     assert {k: everything[k] for k in ("passed", "skipped", "failed", "errors")} == {"passed": 2, "skipped": 1, "failed": 1, "errors": 1}
-    encoder = suite_counts_from_junit(path, "test_evidence_encoder")
+    encoder = suite_counts_from_junit(path, "src/vision/tests/test_evidence_encoder.py")
     assert encoder["passedTests"] == ["tests.test_evidence_encoder::test_a"]
     assert encoder["skippedTests"] == ["tests.test_evidence_encoder::test_b"]
     with pytest.raises(ValueError, match="junit_no_matching_testcases"):
-        suite_counts_from_junit(path, "test_nothing")
+        suite_counts_from_junit(path, "src/vision/tests/test_nothing.py")
 
 
 def test_the_cli_exits_nonzero_on_a_finding(tmp_path: Path, capsys) -> None:
@@ -754,6 +759,8 @@ def test_the_worker_timeout_is_bound_to_the_worker_default() -> None:
     record = complete_record()
     timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
     timeout["value"] = 90_000.0
+    # Citing the sealing output (or any artifact but the install configuration) is not a binding.
+    assert timeout["artifact"] == "b3.sealing-scale-output"
     assert ("B3", "worker_timeout_unbound") in codes(record)
     timeout["value"] = 600_000.0
     assert ("B3", "worker_timeout_out_of_range") in codes(record)
@@ -764,6 +771,7 @@ def test_a_non_default_timeout_is_accepted_only_with_a_retained_install_configur
     timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
     timeout.update(value=60_000.0, artifact="b3.worker-configuration")
     record["retainedArtifacts"]["b3.worker-configuration"] = {"path": "records/worker.env", "sha256": "e" * 64, "run": "host"}
+    record["units"]["B3"]["artifacts"].append("b3.worker-configuration")
     record = materialize(record, tmp_path)
     assert check_record(record, repo_root=tmp_path, verify_git=False) == []
 
@@ -776,7 +784,13 @@ def test_a_non_default_timeout_is_accepted_only_with_a_retained_install_configur
         (lambda o: o["shape"].update(tracks=200), "tracks"),
         (lambda o: o["shape"].update(sealedObjects=1_000), "sealed objects"),
         (lambda o: o.update(workerRequestTimeoutMs=120_000), "worker timeout"),
-        (lambda o: o["completion"].update(max=1.0), "maximum"),
+        (lambda o: o["completion"].update(max=1.0), "max"),
+        (lambda o: o["completion"].update(min=1.0), "min"),
+        (lambda o: o["completion"].update(p50=1.0), "p50 differs"),
+        (lambda o: o["completion"].update(p95=1.0), "p95"),
+        (lambda o: o.update(repeats=1), "repeat count"),
+        (lambda o: o.update(p50RunSpreadMs=0.0), "p50 spread"),
+        (lambda o: o.update(warmupExcluded=0), "warm-up"),
         (lambda o: o["completion"].update(n=1), "sample count"),
     ],
 )
@@ -808,7 +822,8 @@ def _rewrite_junit(record: dict, root: Path, suite_id: str, xml: str) -> None:
 def test_junit_counts_are_compared_even_when_the_named_tests_agree(tmp_path: Path) -> None:
     record = materialize(complete_record(), tmp_path)
     suite_id = next(iter(record["units"]["B1"]["suites"]))
-    xml = _junit_for(record["suites"][suite_id]).replace("</testsuite>", '<testcase classname="x" name="y"><error/></testcase></testsuite>')
+    classname = record["suites"][suite_id]["passedTests"][0].split("::")[0]
+    xml = _junit_for(record["suites"][suite_id]).replace("</testsuite>", f'<testcase classname="{classname}" name="y"><error/></testcase></testsuite>')
     _rewrite_junit(record, tmp_path, suite_id, xml)
     findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "junit_count_mismatch"]
     assert findings and all("errors" in f.detail for f in findings)
@@ -915,6 +930,7 @@ def test_a_variant_junit_artifact_must_declare_its_variant() -> None:
         lambda d: d["outcomes"].pop("completionV3"),
         lambda d: d["outcomes"]["reviewInvestigationEvidenceSet"].update(passed=False),
         lambda d: d["outcomes"]["sealedTrackEvidence"].update(evidence=""),
+        lambda d: d["outcomes"]["sealedTrackEvidence"].update(evidence="records/not-retained.log"),
         lambda d: d.pop("outcomes"),
     ],
 )
@@ -941,3 +957,62 @@ def test_a_closure_diff_touching_a_cited_dotnet_suite_requires_a_rerun() -> None
     record = complete_record()
     record["closure"] = {"mergeSha": MERGE, "changedPaths": ["tests/Mavi.IntegrationTests/S1BoundAgreementTests.cs"]}
     assert ("B3", "closure_rerun_required") in codes(record)
+
+
+# --------------------------------------------------------------------------- cold review before push
+
+
+def test_junit_membership_is_by_component_not_substring(tmp_path: Path) -> None:
+    path = tmp_path / "j.xml"
+    path.write_text(JUNIT)
+    selector = suite_counts_from_junit(path, "src/vision/tests/test_evidence_selector.py")
+    assert (selector["passed"], selector["failed"], selector["errors"]) == (1, 1, 1)
+    # A prefix of a module name is not that module.
+    with pytest.raises(ValueError, match="junit_no_matching_testcases"):
+        suite_counts_from_junit(path, "src/vision/tests/test_evidence.py")
+    assert s1_evidence.suite_key("tests/Mavi.IntegrationTests/S1BoundAgreementTests") == ("IntegrationTests", "S1BoundAgreementTests")
+    assert s1_evidence.suite_key("tools/qualification/tests") == ("qualification", "tests")
+    assert s1_evidence.suite_key("src/web/mavi-web") is None
+    assert s1_evidence.case_belongs("tools.qualification.tests.test_s1_memory", ("qualification", "tests"))
+    assert s1_evidence.case_belongs("Mavi.IntegrationTests.S1BoundAgreementTests", ("IntegrationTests", "S1BoundAgreementTests"))
+    assert not s1_evidence.case_belongs("Mavi.IntegrationTests.S1BoundAgreementTestsExtra", ("IntegrationTests", "S1BoundAgreementTests"))
+    # The classnames pytest actually writes in Task 10: the boundary step runs
+    # from src/vision, the harness step from the repository root.
+    assert s1_evidence.case_belongs("tests.test_s1_bound_agreement", s1_evidence.suite_key("src/vision/tests/test_s1_bound_agreement.py"))
+    assert s1_evidence.case_belongs("tools.qualification.tests.test_s1_memory", s1_evidence.suite_key("tools/qualification/tests"))
+
+
+def test_a_suite_result_cannot_be_backed_by_another_suites_xml(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    b2 = record["units"]["B2"]["suites"]
+    lifecycle = next(sid for sid in b2 if "test_track_lifecycle.py:linux" in sid)
+    spool = next(sid for sid in b2 if "test_trajectory_spool.py:linux" in sid)
+    # The spool result points at the lifecycle suite's XML, with the lifecycle
+    # suite's counts and names copied in.
+    record["suites"][spool]["junitArtifact"] = record["suites"][lifecycle]["junitArtifact"]
+    record["suites"][spool]["passedTests"] = list(record["suites"][lifecycle]["passedTests"])
+    assert ("B2", "junit_unreadable") in _verified_codes(record, tmp_path)
+
+
+def test_every_measurement_cites_a_retained_artifact_of_its_unit() -> None:
+    record = complete_record()
+    slope = next(m for m in record["measurements"].values() if m["metric"] == "b2.per-retired-traced-bytes-slope")
+    del slope["artifact"]
+    assert ("B2", "measurement_unbound") in codes(record)
+    slope["artifact"] = "b1.real-clip-measurement"  # retained, but another unit's
+    assert ("B2", "measurement_unbound") in codes(record)
+    slope["artifact"] = "not-retained"
+    assert ("B2", "measurement_unbound") in codes(record)
+
+
+def test_a_unit_measured_off_the_diffed_shas_is_refused() -> None:
+    record = complete_record()
+    record["runs"]["older"] = {**record["runs"]["task10"], "headSha": OTHER, "runId": 7}
+    record["units"]["B6"]["measuredSha"] = OTHER
+    for suite_id in record["units"]["B6"]["suites"]:
+        record["suites"][suite_id]["run"] = "older"
+        record["retainedArtifacts"][record["suites"][suite_id]["junitArtifact"]]["run"] = "older"
+    assert ("B6", "unit_sha_unbound") in codes(record)
+    # Re-measured on the closure merge SHA is the one other permitted SHA.
+    record["closure"] = {"mergeSha": OTHER, "changedPaths": []}
+    assert ("B6", "unit_sha_unbound") not in codes(record)

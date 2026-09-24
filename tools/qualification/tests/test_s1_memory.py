@@ -343,6 +343,8 @@ def test_derive_metric_names_are_the_ones_the_checker_binds() -> None:
         (lambda o: o["b2-live-4"].pop("host"), "derive_output_identity_incomplete"),
         (lambda o: o["b2-retained-long"].update(schema="other"), "derive_output_schema_invalid"),
         (lambda o: o["b2-retained-long"]["workload"].update(name="b2-retained-baseline"), "derive_output_preset_mismatch"),
+        (lambda o: o["b2-retained-long"]["workload"].update(track_frames=450), "derive_output_workload_not_declared"),
+        (lambda o: o["b2-retained-large-crops"]["workload"].update(box_px=144), "derive_output_workload_not_declared"),
     ],
 )
 def test_derive_refuses_outputs_that_cannot_be_evidence(mutate, code) -> None:

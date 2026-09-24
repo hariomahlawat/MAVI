@@ -692,6 +692,9 @@ def _require(output: dict[str, Any], preset: str) -> dict[str, Any]:
         raise ValueError(f"derive_output_not_clean_source:{preset}")
     if not output.get("runtime") or not output.get("host"):
         raise ValueError(f"derive_output_identity_incomplete:{preset}")
+    # The workload is the declared preset, parameter for parameter.
+    if output["workload"] != asdict(PRESETS[preset]):
+        raise ValueError(f"derive_output_workload_not_declared:{preset}")
     return output
 
 
