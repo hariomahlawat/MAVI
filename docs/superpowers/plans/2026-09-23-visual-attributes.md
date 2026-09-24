@@ -193,7 +193,7 @@ Maximum candidate roles per Track:
 
 Selection is deterministic and model-neutral.
 
-Quality terms may include area, sharpness, detector confidence, clipping penalty, temporal separation and concurrent-box overlap as an occlusion proxy.
+Quality terms may include area, sharpness, detector confidence, clipping penalty, temporal separation and concurrent-box overlap as an occlusion proxy *(credible concurrent boxes only, confidence ≥ `confidenceFloor`: scorer `quality-v2`, ADR-013 §4 amendment of 2026-09-24)*.
 
 No face/plate/demographic/downstream-model-specific scoring is allowed.
 

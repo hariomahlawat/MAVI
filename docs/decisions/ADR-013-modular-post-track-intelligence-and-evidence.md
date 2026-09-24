@@ -2,7 +2,7 @@
 
 **Status:** Accepted — Stage-2 architecture freeze; amended 2026-09-23 by the second independent cold pass (see *Architecture-freeze gate*)  
 **Date:** 2026-09-23  
-**Amended:** 2026-09-24 — §4 two-tier Representative (S1.2c), ratified by the owner  
+**Amended:** 2026-09-24 — §4 two-tier Representative (S1.2c), ratified by the owner; 2026-09-24 — §4 credible-competitor occlusion proxy (scorer `quality-v2`, S1.2c), decided by the owner  
 **Supersedes:** any Stage-2 planning text that treats attribute inference as part of VisionJob completion or treats Representative as the only analytical image evidence
 
 ## Context
@@ -64,11 +64,11 @@ The maximum candidate set is four roles:
 3. **EarlyDiverse** — an earlier well-separated qualified view.
 4. **LateDiverse** — a later well-separated qualified view.
 
-Selection uses only model-neutral Track/frame information available during raw processing: object area, sharpness, detector confidence, frame-edge clipping, temporal separation and an occlusion proxy derived from overlap with concurrent boxes. No face-oriented, plate-oriented, demographic or downstream-model-specific selector is allowed.
+Selection uses only model-neutral Track/frame information available during raw processing: object area, sharpness, detector confidence, frame-edge clipping, temporal separation and an occlusion proxy derived from overlap with concurrent boxes *(amended 2026-09-24: credible concurrent boxes only; see the occlusion-proxy amendment below)*. No face-oriented, plate-oriented, demographic or downstream-model-specific selector is allowed.
 
 The selection method is frozen; only its numeric parameters are set in S1 after measurement and recorded in the pipeline profile:
 
-- a **qualified candidate** is an observation whose detector confidence, sharpness and frame-edge margin each meet the profile's floors and whose occlusion proxy (maximum IoU with any concurrent box in the same frame) is below the profile's ceiling;
+- a **qualified candidate** is an observation whose detector confidence, sharpness and frame-edge margin each meet the profile's floors and whose occlusion proxy (maximum IoU with any concurrent box in the same frame) is below the profile's ceiling; *(Amended 2026-09-24, S1.2c: a concurrent box counts only if it is a **credible competing detection**, of either class, whose detector confidence is at or above the profile's `confidenceFloor`. This is scorer `quality-v2`; see the occlusion-proxy amendment below.)*
 - **Representative** is the highest-scoring qualified candidate over the whole Track (the current selector rule, now versioned); *(Amended 2026-09-24, S1.2c: before a Track's first qualified admissible candidate, a fallback Representative may hold the role. See the two-tier amendment below.)*
 - **NearView** is the qualified candidate with the largest normalised box area that is not a near-duplicate of Representative;
 - **EarlyDiverse** is the highest-scoring qualified candidate inside the Track's early window — the first `earlyWindowMs` after Track start; **LateDiverse** is the most recent qualified candidate, refreshed at most once per `lateRefreshIntervalMs`, so at retirement it is a view from the Track's final stretch; each must lie at least the profile's minimum separation from every already-selected frame and must not be a near-duplicate of one. *(Amended 2026-09-23 by the S1 plan review: the earlier "first/last temporal third" definition needs the Track's final duration, which a one-pass selector does not know until retirement, and would therefore require retaining candidate pixels for the whole Track. The anchored early window and refreshed trailing view keep the intent — one early and one late well-separated view — with exactly one encoded candidate per role at any time. See `docs/reviews/2026-09-23-stage2-s1-plan-review-resolution.md`.)*
@@ -101,6 +101,32 @@ Ties within a role resolve deterministically: a candidate replaces the current h
 > *Wire boundary (known limitation).* Completion 3.0 carries no per-observation qualified flag. A consumer has the observation's `qualityScore`, the role (supplemental roles are qualified by construction), and the selector version via the pipeline-profile provenance; nothing on the wire says whether a given Representative is a fallback. A later analytical feature that must consume the Representative under a qualification-sensitive rule has to introduce or derive an explicit qualification contract first (for example a contract revision carrying the tier, or its own re-scoring of the crop). Adding such a flag is deliberately not part of S1.2c.
 >
 > *Trade-off accepted.* A Track can carry a Representative that fails a quality floor. In exchange, one hard Track no longer fails the whole run and discards every other Track's evidence, and later analytical coverage still never rests on unqualified supplemental frames.
+
+> **Amendment (S1.2c, 2026-09-24): credible-competitor occlusion proxy (scorer `quality-v2`).**
+>
+> **Status of this amendment:** Accepted 2026-09-24. The owner decided it on the real-clip measurement: option (a) of finding F1 in `docs/qualification/2026-09-24-evidence-selector-parameter-note.md`. Plan `docs/superpowers/plans/2026-09-23-stage2-s1-2-evidence-set-implementation.md` §4.1 and §16.2 (E24) record the implementation.
+>
+> *Problem.* "Any concurrent box" was implemented as every detection the tracker was given, down to the profile's `detectorInferenceFloor` (0.05). RTMDet's NMS runs per source class, so that set includes:
+> - low-confidence part-boxes and duplicates of the subject itself;
+> - same-object `car` / `truck` / `bus` boxes, which all map to `vehicle`.
+>
+> On the 1920×1080 MOT17-02 / MOT17-13 measurement:
+> - 93 % of occlusion rejections came only from boxes below `confidenceFloor`;
+> - 58.7 % of Representatives were fallbacks;
+> - vehicles qualified in 1 frame of 2,801.
+>
+> By the benchmark's ground truth, the persons rejected this way were almost as visible as those accepted (median visibility 1.00). No `occlusionIouCeiling` value separates near-duplicates of the subject from real occlusion.
+>
+> *Rule.*
+> 1. The occlusion proxy is the maximum IoU between the candidate's box and any **credible competing detection** in the same frame.
+> 2. A competing detection is credible when its detector confidence is **at or above** the profile's `confidenceFloor`. That is the floor a detection must itself meet to qualify as evidence. It is inclusive: a detection exactly at the floor counts.
+> 3. Both object classes count, and so do detections the tracker did not confirm.
+> 4. The candidate's own source detection is excluded exactly once (same class, exact box) **before** the credibility filter, because a tracker may confirm a candidate from a sub-floor detection. A candidate whose source detection is absent fails closed.
+> 5. Nothing else changes: the frame-quality formula, quantisation, `occlusionIouCeiling`, `occlusionPenaltyWeight`, the qualification floors and the two-tier Representative.
+>
+> The worker implements the rule as scorer version **`quality-v2`**, and the profile loader refuses `quality-v1`. The scorer version is part of the pipeline profile and therefore of `pipelineProfileSha256` in completion provenance, so quality-v1 and quality-v2 outcomes are never reported under one identity. The competitor floor is not a separate parameter: it is `confidenceFloor`, so the proxy and the qualification floor cannot drift apart.
+>
+> *Trade-off accepted.* A genuinely occluding neighbour that the detector sees only below `confidenceFloor` no longer disqualifies a frame. In the ground-truth sample, 10.1 % of the persons that quality-v1 rejected only through sub-floor boxes were less than half visible, against 3.4 % of those that passed. In exchange, the proxy stops treating the detector's own residue as occlusion. Qualified evidence then becomes the common case on real footage, and vehicles can qualify at all.
 
 Representative remains the primary display summary. Supplemental roles exist to improve later analytical coverage, not to redefine the Track.
 
