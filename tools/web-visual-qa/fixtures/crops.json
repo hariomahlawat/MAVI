@@ -1,0 +1,41 @@
+{
+ "_comment": "Evidence crops the harness cuts from the generated footage at run time: artifact id -> source offset and normalised box. A state that needs an unreadable crop overrides its URL with an explicit 404.",
+ "crops": {
+  "eeeeeee0-eeee-7eee-8eee-eeeeeeeeeee0": {
+   "offsetMs": 1600,
+   "boundingBox": {
+    "x": 0.34,
+    "y": 0.3,
+    "width": 0.16,
+    "height": 0.34
+   }
+  },
+  "eeeeeee1-eeee-7eee-8eee-eeeeeeeeeee1": {
+   "offsetMs": 2200,
+   "boundingBox": {
+    "x": 0.4,
+    "y": 0.28,
+    "width": 0.19,
+    "height": 0.4
+   }
+  },
+  "eeeeeee2-eeee-7eee-8eee-eeeeeeeeeee2": {
+   "offsetMs": 880,
+   "boundingBox": {
+    "x": 0.24,
+    "y": 0.34,
+    "width": 0.13,
+    "height": 0.3
+   }
+  },
+  "eeeeeee3-eeee-7eee-8eee-eeeeeeeeeee3": {
+   "offsetMs": 3120,
+   "boundingBox": {
+    "x": 0.52,
+    "y": 0.31,
+    "width": 0.15,
+    "height": 0.33
+   }
+  }
+ }
+}

@@ -390,6 +390,18 @@ export const WIDTHS = [
   { width: 2560, height: 1080, label: '2560x1080' },
 ];
 
+/**
+ * The visual-QA Track's Evidence Set and its compatibility Representative, as
+ * the base Track-detail fixture carries them (S1.3b). The analytics fixtures
+ * below restate the same Track, so they carry the same evidence.
+ */
+const TRACK_EVIDENCE = (() => {
+  const { representative, observations } = JSON.parse(
+    readFileSync(new URL('./fixtures/tracks_55555550-5555-7555-8555-555555555550.json', import.meta.url), 'utf8'),
+  );
+  return { representative, observations };
+})();
+
 /*
  * Scene Analytics Slice 5 conditions.
  *
@@ -437,22 +449,8 @@ const REVIEW_OVERLAP_2 = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -579,22 +577,8 @@ const REVIEW_OVERLAP_3 = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -735,22 +719,8 @@ const REVIEW_OVERLAP_5 = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -919,22 +889,8 @@ const REVIEW_MULTI_VISIT = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -1051,22 +1007,8 @@ const REVIEW_CROSSING_BTOA = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -1169,22 +1111,8 @@ const REVIEW_DWELL_STATIONARY = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -1298,22 +1226,8 @@ const REVIEW_DENSE_MARKERS = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -1452,22 +1366,8 @@ const REVIEW_ANALYTICS_UNAVAILABLE = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -1526,22 +1426,8 @@ const REVIEW_ANALYTICS_PENDING = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -1600,22 +1486,8 @@ const REVIEW_ANALYTICS_STALE = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -1723,22 +1595,8 @@ const REVIEW_OVERFLOW_SPANS = {
     "frameRateDenominator": 1,
     "videoContentUrl": "/api/videos/22222222-2222-7222-8222-222222222222/content"
   },
-  "representative": {
-    "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
-    "sourceFrameNumber": 40,
-    "videoOffsetMs": 1600,
-    "timestampUtc": "2026-09-14T02:30:01Z",
-    "confidence": 0.962,
-    "qualityScore": 0.88,
-    "boundingBox": {
-      "x": 0.34,
-      "y": 0.3,
-      "width": 0.16,
-      "height": 0.34
-    },
-    "thumbnailArtifactId": null,
-    "thumbnailContentUrl": null
-  },
+  "representative": TRACK_EVIDENCE.representative,
+  "observations": TRACK_EVIDENCE.observations,
   "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
   "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
   "analytics": {
@@ -2081,6 +1939,52 @@ const SPARSE_HEATMAP = (() => {
 const BASE_TRACK_DETAIL = JSON.parse(
   readFileSync(new URL(`./fixtures/tracks_${TRACK}.json`, import.meta.url), 'utf8'),
 );
+/*
+ * S1.3b Evidence Set variants of the one visual-QA Track. The base fixture
+ * carries the full four-role v3 set; these reduce it to the other shapes the
+ * strip must hold without an error or a layout shift.
+ */
+const EVIDENCE_REPRESENTATIVE_ONLY = {
+  ...BASE_TRACK_DETAIL,
+  observations: BASE_TRACK_DETAIL.observations.slice(0, 1),
+};
+
+/** Near view's crop names an artifact the harness cannot serve: a 404 in the browser. */
+const EVIDENCE_CROP_UNAVAILABLE = {
+  ...BASE_TRACK_DETAIL,
+  observations: BASE_TRACK_DETAIL.observations.map((observation) => (observation.evidenceRole === 'NearView'
+    ? {
+      ...observation,
+      evidenceArtifactId: 'eeeeeee9-eeee-7eee-8eee-eeeeeeeeeee9',
+      evidenceContentUrl: '/api/artifacts/eeeeeee9-eeee-7eee-8eee-eeeeeeeeeee9/content',
+    }
+    : observation)),
+};
+
+/**
+ * The crop request the unavailable state asks to fail, declared as an override
+ * so the harness reports it as the requested failure and nothing else.
+ */
+const UNAVAILABLE_CROP = {
+  '/api/artifacts/eeeeeee9-eeee-7eee-8eee-eeeeeeeeeee9/content':
+    { status: 404, body: { status: 404, code: 'artifact_not_found', detail: 'Artifact content was not found.' } },
+};
+
+/** The legacy shape: no Representative relation, no Evidence Set. */
+const EVIDENCE_LEGACY = { ...BASE_TRACK_DETAIL, representative: null, observations: [] };
+
+/** Inspect a supplemental crop through its own control, as an operator would. */
+const INSPECT_LATE_DIVERSE = `(() => {
+  const control = Array.from(document.querySelectorAll('.evidence-set__control'))
+    .find((button) => (button.getAttribute('aria-label') || '').startsWith('Late diverse'));
+  if (!control) return false;
+  control.click();
+  return true;
+})()`;
+
+/** Every §25 width plus the 1600-class one the Evidence Set is accepted at. */
+const EVIDENCE_WIDTHS = [1366, 1600, 1920, 2560];
+
 const BASE_REVISION = JSON.parse(
   readFileSync(new URL(`./fixtures/cameras_${CAM}_scene_revisions_4.json`, import.meta.url), 'utf8'),
 );
@@ -2610,6 +2514,22 @@ export const STATES = [
     expectText: INSPECTOR_LOADED,
   },
   {
+    // S1.3b: the same Evidence Set component in the inspector, uncollapsed in
+    // the old Representative-frame disclosure's place. At 1366 the inspector is
+    // the drawer, the narrowest host the strip has.
+    name: 'search-inspecting-evidence', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2200,
+    archetype: 'investigation', widths: EVIDENCE_WIDTHS,
+    // The inspector's section title is set in capitals by CSS, so the rendered
+    // text is matched through the roles rather than the title.
+    expectText: [...INSPECTOR_LOADED, 'Representative', 'Near view', 'Late diverse'],
+  },
+  {
+    name: 'search-inspecting-evidence-unavailable', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2500,
+    archetype: 'investigation', widths: [1366, 1600],
+    api: { [`/api/tracks/${TRACK}`]: EVIDENCE_CROP_UNAVAILABLE, ...UNAVAILABLE_CROP },
+    expectText: [...INSPECTOR_LOADED, 'Image unavailable'],
+  },
+  {
     // Open decision 4. At 1920 and 2560 the results stay capped and the
     // inspector takes the surplus — asserted as geometry, not by eye.
     name: 'search-ultrawide', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
@@ -2769,6 +2689,14 @@ export const STATES = [
   { name: 'review-crossing-btoa', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_CROSSING_BTOA }, expectText: ['Outbound'] },
   { name: 'review-dwell-stationary', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_DWELL_STATIONARY }, expectText: ['2 intervals'] },
   { name: 'review-dense-markers', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_DENSE_MARKERS }, expectText: ['5 crossings'] },
+  // --- S1.3b: the Track Evidence Set in Review's evidence rail. --------------
+  // The full four-role set at every acceptance width, including 1366x768 where
+  // the player and the primary summary must both still be in the first viewport.
+  { name: 'review-evidence-set', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, expectText: ['Evidence Set', 'Representative', 'Near view', 'Early diverse', 'Late diverse', 'Track summary'] },
+  { name: 'review-evidence-selected', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: INSPECT_LATE_DIVERSE, widths: EVIDENCE_WIDTHS, expectText: ['Late diverse', 'Frame 78'] },
+  { name: 'review-evidence-representative-only', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, api: { [`/api/tracks/${TRACK}`]: EVIDENCE_REPRESENTATIVE_ONLY }, expectText: ['Evidence Set', 'Representative'], forbidText: ['Near view', 'Image unavailable'] },
+  { name: 'review-evidence-crop-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2500, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, api: { [`/api/tracks/${TRACK}`]: EVIDENCE_CROP_UNAVAILABLE, ...UNAVAILABLE_CROP }, expectText: ['Near view', 'Image unavailable'] },
+  { name: 'review-evidence-legacy', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', widths: [1366, 1920], api: { [`/api/tracks/${TRACK}`]: EVIDENCE_LEGACY }, expectText: ['No Evidence Set was persisted for this Track.'], forbidText: ['Image unavailable'] },
   // Geometry that cannot be loaded must not fall back to the active revision.
   { name: 'review-geometry-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2500, footage: 'saturated', prepare: SEEK, api: { '/api/cameras/11111111-1111-7111-8111-111111111111/scene/revisions': 'unavailable' }, expectText: ['could not be loaded'] },
   { name: 'review-analytics-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': SINGLE_SAMPLE_TRACK }, expectText: ['trajectory_too_short'] },

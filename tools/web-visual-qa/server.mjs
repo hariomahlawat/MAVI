@@ -7,9 +7,10 @@
  * answer on. Nothing here requires the application to be altered to make
  * inspection easier (section 26).
  */
+import { execFileSync } from 'node:child_process';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { basename, dirname, extname, join, normalize } from 'node:path';
 import { encodeTrajectory } from './msgpack.mjs';
 
 const TYPES = {
@@ -151,6 +152,28 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
         }
       }
 
+      // An Evidence Set crop: a subject crop cut from the footage the state
+      // plays, at the Observation's own offset and normalised box, so the
+      // strip shows what the worker would have stored rather than a stock
+      // picture. Generated and cached at run time like the footage itself;
+      // nothing binary is committed. An artifact the crop fixture does not
+      // list answers 404, which is how an unreadable crop is modelled.
+      const crop = /^\/api\/artifacts\/([a-z0-9-]+)\/content$/.exec(path);
+      if (crop && existsSync(join(fixtureDir, 'crops.json'))) {
+        const { crops } = JSON.parse(readFileSync(join(fixtureDir, 'crops.json'), 'utf8'));
+        const spec = crops[crop[1]];
+        const clip = footage?.();
+        if (!spec || !clip || !existsSync(clip)) {
+          res.writeHead(404, { 'content-type': 'application/problem+json' });
+          res.end(JSON.stringify({ status: 404, code: 'artifact_not_found', detail: 'Artifact content was not found.' }));
+          return;
+        }
+        const bytes = cropJpeg(clip, crop[1], spec);
+        res.writeHead(200, { 'content-type': TYPES['.jpg'], 'content-length': bytes.length });
+        res.end(bytes);
+        return;
+      }
+
       // Media served through the API route the client actually requests.
       if (path.endsWith('/content')) {
         const clip = footage?.();
@@ -265,4 +288,26 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
       });
     });
   });
+}
+
+/** Crops already cut, per footage condition and artifact. */
+const cropCache = new Map();
+
+function cropJpeg(clip, artifactId, { offsetMs, boundingBox: box }) {
+  const key = `${clip}|${artifactId}`;
+  const cached = cropCache.get(key);
+  if (cached) return cached;
+  const target = join(dirname(clip), `crop-${basename(clip, '.webm')}-${artifactId}.jpg`);
+  if (!existsSync(target)) {
+    const n = (value) => value.toFixed(4);
+    execFileSync('ffmpeg', [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-ss', (offsetMs / 1000).toFixed(3), '-i', clip, '-frames:v', '1',
+      '-vf', `crop=iw*${n(box.width)}:ih*${n(box.height)}:iw*${n(box.x)}:ih*${n(box.y)}`,
+      '-q:v', '4', target,
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  }
+  const bytes = readFileSync(target);
+  cropCache.set(key, bytes);
+  return bytes;
 }

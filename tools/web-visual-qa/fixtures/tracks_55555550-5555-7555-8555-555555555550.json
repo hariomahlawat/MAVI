@@ -40,7 +40,7 @@
   "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
   "sourceFrameNumber": 40,
   "videoOffsetMs": 1600,
-  "timestampUtc": "2026-09-14T02:30:01Z",
+  "timestampUtc": "2026-09-14T02:30:01.6Z",
   "confidence": 0.962,
   "qualityScore": 0.88,
   "boundingBox": {
@@ -49,9 +49,87 @@
    "width": 0.16,
    "height": 0.34
   },
-  "thumbnailArtifactId": null,
-  "thumbnailContentUrl": null
+  "thumbnailArtifactId": "eeeeeee0-eeee-7eee-8eee-eeeeeeeeeee0",
+  "thumbnailContentUrl": "/api/artifacts/eeeeeee0-eeee-7eee-8eee-eeeeeeeeeee0/content"
  },
+ "observations": [
+  {
+   "observationId": "dddddddd-dddd-7ddd-8ddd-dddddddddddd",
+   "evidenceRole": "Representative",
+   "evidenceRank": 0,
+   "sourceFrameNumber": 40,
+   "videoOffsetMs": 1600,
+   "timestampUtc": "2026-09-14T02:30:01.6Z",
+   "confidence": 0.962,
+   "qualityScore": 0.88,
+   "selectionScore": 0.88,
+   "boundingBox": {
+    "x": 0.34,
+    "y": 0.3,
+    "width": 0.16,
+    "height": 0.34
+   },
+   "evidenceArtifactId": "eeeeeee0-eeee-7eee-8eee-eeeeeeeeeee0",
+   "evidenceContentUrl": "/api/artifacts/eeeeeee0-eeee-7eee-8eee-eeeeeeeeeee0/content"
+  },
+  {
+   "observationId": "dddddddd-dddd-7ddd-8ddd-ddddddddddd1",
+   "evidenceRole": "NearView",
+   "evidenceRank": 1,
+   "sourceFrameNumber": 55,
+   "videoOffsetMs": 2200,
+   "timestampUtc": "2026-09-14T02:30:02.2Z",
+   "confidence": 0.941,
+   "qualityScore": 0.83,
+   "selectionScore": 0.79,
+   "boundingBox": {
+    "x": 0.4,
+    "y": 0.28,
+    "width": 0.19,
+    "height": 0.4
+   },
+   "evidenceArtifactId": "eeeeeee1-eeee-7eee-8eee-eeeeeeeeeee1",
+   "evidenceContentUrl": "/api/artifacts/eeeeeee1-eeee-7eee-8eee-eeeeeeeeeee1/content"
+  },
+  {
+   "observationId": "dddddddd-dddd-7ddd-8ddd-ddddddddddd2",
+   "evidenceRole": "EarlyDiverse",
+   "evidenceRank": 2,
+   "sourceFrameNumber": 22,
+   "videoOffsetMs": 880,
+   "timestampUtc": "2026-09-14T02:30:00.88Z",
+   "confidence": 0.874,
+   "qualityScore": 0.71,
+   "selectionScore": 0.64,
+   "boundingBox": {
+    "x": 0.24,
+    "y": 0.34,
+    "width": 0.13,
+    "height": 0.3
+   },
+   "evidenceArtifactId": "eeeeeee2-eeee-7eee-8eee-eeeeeeeeeee2",
+   "evidenceContentUrl": "/api/artifacts/eeeeeee2-eeee-7eee-8eee-eeeeeeeeeee2/content"
+  },
+  {
+   "observationId": "dddddddd-dddd-7ddd-8ddd-ddddddddddd3",
+   "evidenceRole": "LateDiverse",
+   "evidenceRank": 3,
+   "sourceFrameNumber": 78,
+   "videoOffsetMs": 3120,
+   "timestampUtc": "2026-09-14T02:30:03.12Z",
+   "confidence": 0.903,
+   "qualityScore": 0.74,
+   "selectionScore": 0.69,
+   "boundingBox": {
+    "x": 0.52,
+    "y": 0.31,
+    "width": 0.15,
+    "height": 0.33
+   },
+   "evidenceArtifactId": "eeeeeee3-eeee-7eee-8eee-eeeeeeeeeee3",
+   "evidenceContentUrl": "/api/artifacts/eeeeeee3-eeee-7eee-8eee-eeeeeeeeeee3/content"
+  }
+ ],
  "trajectoryArtifactId": "cccccccc-cccc-7ccc-8ccc-cccccccccccc",
  "trajectoryContentUrl": "/api/artifacts/track1/trajectory",
  "analytics": {
