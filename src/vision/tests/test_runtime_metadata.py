@@ -161,6 +161,7 @@ def test_task10_triggers_on_and_qualifies_the_whole_s1_surface() -> None:
             "test_artifact_store*.py",
             "test_artifact_publisher.py",
             "test_analytical_models.py",
+            "test_s1_bound_agreement.py",
         ):
             assert f"- 'src/vision/tests/{suite}'" in trigger, suite
 
@@ -178,8 +179,16 @@ def test_task10_triggers_on_and_qualifies_the_whole_s1_surface() -> None:
         "test_artifact_store_windows.py",
         "test_artifact_publisher.py",
         "test_analytical_models.py",
+        "test_s1_bound_agreement.py",
     ):
         assert f"tests/{suite}" in boundary_step, suite
+
+    # The qualification harness tests run on the qualified runtime with the
+    # native ByteTrack backend, where a missing backend fails instead of skipping.
+    harness_step = workflow.split("- name: Run S1.4 qualification harness tests with the native ByteTrack backend", 1)[1]
+    harness_step = harness_step.split("\n      - name:", 1)[0]
+    assert "MAVI_RUN_QUALIFIED_BYTETRACK_TESTS: '1'" in harness_step or "MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1" in harness_step
+    assert "tools/qualification/tests" in harness_step
 
     # Every pytest invocation in the qualified job writes JUnit XML.
     invocations = [line for line in workflow.splitlines() if "python -m pytest" in line]

@@ -129,6 +129,17 @@ class UnitRequirement:
 KIB = 1024
 MIB = 1024 * 1024
 
+# Suites whose result depends on the Python runtime variant. They are required
+# on every variant a unit names. Platform (.NET) and web suites run once, in the
+# quality gate, and carry no runtime variant.
+VARIANT_SUITE_PREFIXES = ("src/vision/", "tools/qualification/", "task10:")
+
+
+def required_variants(required: UnitRequirement, suite: str) -> tuple[str | None, ...]:
+    if required.variants and suite.startswith(VARIANT_SUITE_PREFIXES):
+        return required.variants
+    return (None,)
+
 UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
     # §5: deterministic suites on both variants; repeat, cross-variant and
     # real-clip comparisons are exact (zero untraced differences).
@@ -188,6 +199,7 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
             "src/vision/tests/test_evidence_pipeline.py",
             "src/vision/tests/test_worker_completion_v3.py",
             "src/vision/tests/test_completion_contract_bounds.py",
+            "src/vision/tests/test_s1_bound_agreement.py",
             "tests/Mavi.IntegrationTests/WorkerContractV3Tests",
             "tests/Mavi.IntegrationTests/S1BoundAgreementTests",
         ),
@@ -421,8 +433,7 @@ class _Checker:
                 if not self._skip_is_paired(test, entry["variant"]):
                     self.fail(name, "skip_not_permitted", f"suite {suite_id} skipped {test} on {entry['variant']} without a paired-variant counterpart")
         for suite in required.suites:
-            variants = required.variants or (None,)
-            for variant in variants:
+            for variant in required_variants(required, suite):
                 if not any(
                     entry["suite"] == suite and (variant is None or entry["variant"] == variant)
                     for entry in cited

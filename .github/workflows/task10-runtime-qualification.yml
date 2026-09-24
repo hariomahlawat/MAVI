@@ -37,6 +37,7 @@ on:
       - 'src/vision/tests/test_artifact_store*.py'
       - 'src/vision/tests/test_artifact_publisher.py'
       - 'src/vision/tests/test_analytical_models.py'
+      - 'src/vision/tests/test_s1_bound_agreement.py'
       - 'contracts/schemas/vision-job-complete-v3.schema.json'
       - 'contracts/examples/vision-job-complete-v3.example.json'
       - 'tools/qualification/**'
@@ -85,6 +86,7 @@ on:
       - 'src/vision/tests/test_artifact_store*.py'
       - 'src/vision/tests/test_artifact_publisher.py'
       - 'src/vision/tests/test_analytical_models.py'
+      - 'src/vision/tests/test_s1_bound_agreement.py'
       - 'contracts/schemas/vision-job-complete-v3.schema.json'
       - 'contracts/examples/vision-job-complete-v3.example.json'
       - 'tools/qualification/**'
@@ -200,6 +202,7 @@ jobs:
           tests/test_artifact_store_windows.py
           tests/test_artifact_publisher.py
           tests/test_analytical_models.py
+          tests/test_s1_bound_agreement.py
           -q
           --junitxml=../../qualification-evidence/junit/s1-boundary.xml
 

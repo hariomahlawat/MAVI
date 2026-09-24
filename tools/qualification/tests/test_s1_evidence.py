@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 import s1_evidence
-from s1_evidence import UNIT_REQUIREMENTS, UNITS, check_record, invalidated_units, suite_counts_from_junit
+from s1_evidence import UNIT_REQUIREMENTS, UNITS, check_record, invalidated_units, required_variants, suite_counts_from_junit
 
 SHA = "a" * 40
 MERGE = "b" * 40
@@ -87,12 +87,13 @@ def complete_record() -> dict:
         required = UNIT_REQUIREMENTS[name]
         unit = {"verdict": "PASS", "suites": [], "measurements": [], "artifacts": [], "nonClaims": []}
         for suite in required.suites:
-            for variant in required.variants or ("any",):
+            for variant in [v or "any" for v in required_variants(required, suite)]:
                 suite_id = f"{name}:{suite}:{variant}"
                 junit = f"junit:{suite_id}"
-                record["retainedArtifacts"][junit] = {"path": f"junit/{abs(hash(suite_id))}.xml", "sha256": _sha256(suite_id), "run": "task10"}
+                run = "quality" if variant == "any" else "task10"
+                record["retainedArtifacts"][junit] = {"path": f"junit/{abs(hash(suite_id))}.xml", "sha256": _sha256(suite_id), "run": run}
                 record["suites"][suite_id] = {
-                    "suite": suite, "variant": variant, "run": "task10", "junitArtifact": junit,
+                    "suite": suite, "variant": variant, "run": run, "junitArtifact": junit,
                     "passed": 1, "skipped": 0, "failed": 0, "errors": 0,
                     "passedTests": [f"{suite}::test_ok"], "skippedTests": [],
                 }
@@ -595,3 +596,19 @@ def test_the_schema_file_is_the_one_the_checker_loads() -> None:
     assert schema["properties"]["schemaVersion"]["const"] == "s1-qualification-evidence-v1"
     assert set(schema["properties"]["units"]["required"]) == set(UNITS)
     assert copy.deepcopy(UNITS) == ("B1", "B2", "B3", "B4", "B5", "B6", "DISCONNECTED")
+
+
+def test_platform_suites_are_required_once_and_worker_suites_on_every_variant() -> None:
+    b3 = UNIT_REQUIREMENTS["B3"]
+    assert required_variants(b3, "tests/Mavi.IntegrationTests/S1BoundAgreementTests") == (None,)
+    assert required_variants(b3, "src/vision/tests/test_s1_bound_agreement.py") == s1_evidence.QUALIFIED_CPU_VARIANTS
+    assert required_variants(UNIT_REQUIREMENTS["B4"], "src/vision/tests/test_worker_completion_v3.py") == (None,)
+
+
+def test_a_worker_suite_missing_on_one_variant_blocks_its_unit() -> None:
+    record = complete_record()
+    suite_id = "B3:src/vision/tests/test_s1_bound_agreement.py:windows-x86_64-cpu"
+    del record["suites"][suite_id]
+    record["units"]["B3"]["suites"].remove(suite_id)
+    failures = check_record(record)
+    assert ("B3", "variant_result_missing") in {(f.unit, f.code) for f in failures}
