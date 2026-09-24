@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 from uuid import UUID
 
 from mavi_vision.common.analytical import (
@@ -92,6 +94,7 @@ class VideoProcessor:
         evidence_encoder: EvidenceEncoder | None = None,
         evidence_quota_bytes: int | None = None,
         trajectory_chunk_points: int = DEFAULT_CHUNK_POINTS,
+        frame_reader: Callable[[BinaryIO], Iterable[DecodedFrame]] = iter_frames,
     ) -> None:
         self._detector = detector
         self._tracker = tracker
@@ -110,6 +113,13 @@ class VideoProcessor:
             else evidence_quota_bytes
         )
         self._trajectory_chunk_points = trajectory_chunk_points
+        # Qualification seam (S1.4 plan §6.2), not operator configuration:
+        # decodes the verified source stream into frames. Production always
+        # uses ``iter_frames``; the B2 memory harness substitutes a declared
+        # synthetic frame source so a long, lossless, high-entropy workload
+        # runs through the real tracker, selector, encoder, staging and
+        # finalisation without a multi-gigabyte video file.
+        self._frame_reader = frame_reader
 
     def process(
         self,
@@ -159,7 +169,7 @@ class VideoProcessor:
                 if progress_sink is not None:
                     progress_sink.mark_processing_started()
 
-                for frame in iter_frames(verified.stream):
+                for frame in self._frame_reader(verified.stream):
                     lease_guard.check_owned()
 
                     detections = self._detector.detect(frame)
