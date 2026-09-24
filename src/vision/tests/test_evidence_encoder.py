@@ -179,6 +179,14 @@ GOLDEN_SHA256 = {
         "smooth-400x300-supplemental": "0e30820563fb84ddf7de44d6a59278cf12a2f184d344cf7d19a1537d678765d2",
         "noise-500x300-representative": "ec2a23be5f16bae00276639984731befb4f70f24b1e5162e01222a98268fd0ca",
     },
+    # Derived on the qualified windows-x86_64-cpu Task-10 job (run 36005519545,
+    # job 107652556538, source 5f26a3a), where the fail-closed test reported the
+    # actual digests. They equal the Linux digests; that is observed, not
+    # assumed, and a future divergence would fail here rather than skip.
+    ("win32", "11.3.0", "3.1.1"): {
+        "smooth-400x300-supplemental": "0e30820563fb84ddf7de44d6a59278cf12a2f184d344cf7d19a1537d678765d2",
+        "noise-500x300-representative": "ec2a23be5f16bae00276639984731befb4f70f24b1e5162e01222a98268fd0ca",
+    },
 }
 
 # The qualified CPU variants (Task 10) and the platform each must run on. In a
