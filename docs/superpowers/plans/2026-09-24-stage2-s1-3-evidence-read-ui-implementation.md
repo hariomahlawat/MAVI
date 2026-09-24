@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.3 Evidence Read Contract and Minimal UI: implementation plan
 
-**Status:** Implementation-ready plan, revision 2 — cold review completed 2026-09-24; no P1, P2 findings resolved (see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`)  
+**Status:** Implementation-ready plan, revision 3 — two independent cold passes completed 2026-09-24; no P1, all P2 findings resolved (see `docs/reviews/2026-09-24-stage2-s1-3-plan-review.md`)  
 **Date:** 2026-09-24  
 **Baseline:** `main@2060599a9786651f36071742034076369520d0ce` — PR #79 merged; S1.2 complete  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §9  
@@ -270,10 +270,14 @@ Do not extend the current one-row Track detail query with a multi-row join that 
 
 Preferred implementation:
 
-1. resolve the Track-detail scalar row once;
-2. if it exists, query its Observations separately with `AsNoTracking()`;
-3. order by `EvidenceRank`;
-4. project only the bounded fields required by the API.
+1. resolve the Track-detail scalar row once **without joining the Representative Observation**;
+2. keep only the Track's direct `RepresentativeObservationId` on that scalar row as the compatibility/integrity pointer;
+3. if the Track exists, query its Observations separately with `AsNoTracking()`;
+4. order by `EvidenceRank`;
+5. project only the bounded fields required by the API;
+6. derive the compatibility `TrackRepresentativeResponse` exclusively from the rank-0 item in that bounded observation result.
+
+**Required cleanup:** remove the current Representative observation join and the duplicated Representative frame/time/confidence/quality/bbox/artifact scalar fields from `TrackDetailRow`. Retaining those fields and also adding `observations[]` would preserve two independent read projections and recreate the drift risk D1 exists to eliminate. `RepresentativeObservationId` itself remains because it is the persisted Track integrity/convenience pointer that must be checked against rank 0.
 
 The second query is bounded to four rows by domain contract.
 
@@ -296,7 +300,7 @@ Do not return EF entities through the Application boundary.
 
 The Track-detail application result carries:
 
-- existing scalar `TrackDetailRow`;
+- the scalar `TrackDetailRow` after removal of the duplicated Representative observation payload fields (retaining `RepresentativeObservationId` only);
 - bounded observation tuple/list;
 - existing analytics detail identity/result.
 
@@ -383,20 +387,18 @@ Pin:
 
 ### 8.1 Placement
 
-Implement a feature-local component such as:
+Implement one feature-local component such as:
 
 `features/video-review/TrackEvidenceSet.tsx`
 
-and compose it from `TrackEvidence.tsx`, so both:
+and **reuse that same component in both hosts**, but place it according to each adopted archetype:
 
-- Review;
-- Investigation inspector
+- **Review:** in the `ReviewLayout` evidence rail, after the primary Track summary so §4.5.1 still keeps the Evidence Player + primary summary visible in the initial 1366×768 viewport. It must not be inserted beneath the player column as a second primary canvas.
+- **Investigation:** in the existing Track inspector body, near the Track evidence/player and before lower-priority provenance/details as space permits.
 
-receive the same Evidence Set behavior.
+“Do not duplicate the strip” means one implementation/component, not one identical DOM location. The UI specification explicitly assigns Stage-2's bounded Evidence Set to Review's evidence rail while Investigation owns it inside the inspector.
 
-Do not duplicate the strip in both hosts.
-
-**Keyboard-scope seam:** today Investigation's window-level J/K navigation is suppressed only for targets under `data-evidence-player`. Because the crop strip is outside the inner `EvidencePlayer` DOM node, `TrackEvidence` must make the **whole Track evidence composition** (player + strip + crop inspector) part of that same evidence subtree, reusing the exported `EVIDENCE_PLAYER_ATTRIBUTE`/`isInsideEvidencePlayer` contract. Do not invent a second shortcut-suppression mechanism. A focused strip button must never move the selected search result when J/K is pressed.
+**Keyboard-scope seam:** Investigation's window-level J/K navigation is suppressed only for targets under the exported `data-evidence-player` boundary. The Evidence Set component itself must therefore reuse `EVIDENCE_PLAYER_ATTRIBUTE` on its own root (or an equivalent wrapper using that exact exported contract), so a focused crop control is recognised as evidence interaction. Do not invent a second shortcut-suppression mechanism and do not wrap the whole inspector merely to obtain suppression. A focused strip button must never move the selected search result when J/K is pressed.
 
 Do not promote the component to `shared/` in S1.3: its semantics are Track-specific and the existing shared Evidence Player remains the correct shared abstraction.
 
@@ -404,7 +406,7 @@ Do not promote the component to `shared/` in S1.3: its semantics are Track-speci
 
 The Evidence Player remains visually dominant.
 
-The Evidence Set renders as a compact bounded strip beneath the Track evidence/player area or in the existing Track evidence details region, with at most four items.
+The Evidence Set renders as a compact bounded strip in the **Review evidence rail** and the **Investigation inspector body**, with at most four items. It is not placed beneath Review's player column.
 
 Each item shows:
 
@@ -446,7 +448,7 @@ Do not open four full-size crops simultaneously.
 
 ### 8.4 Timeline integration
 
-Every accepted observation becomes an Evidence Player timeline marker using its persisted `videoOffsetMs`.
+Every accepted observation becomes an Evidence Player timeline marker using its persisted `videoOffsetMs`. Timeline-marker construction stays in the Track evidence/player adapter (or a pure feature-local helper consumed by it); the rail/inspector crop component does not gain transport ownership.
 
 Marker labels are role-specific, e.g.:
 
@@ -501,7 +503,7 @@ Requirements:
 - image alt text uses the role + offset, not “image”;
 - unavailable image state is textual, not colour-only;
 - DOM order equals EvidenceRank;
-- no keyboard conflict with Evidence Player/result-navigation grammar when focus is inside the strip: strip-specific controls handle only selection activation; the outer Track evidence composition is marked with the existing evidence-player subtree attribute so window-level result navigation refuses those events. J/K/L/arrows are not redefined by the strip.
+- no keyboard conflict with Evidence Player/result-navigation grammar when focus is inside the strip: strip-specific controls handle only selection activation; the Evidence Set root reuses the existing evidence-player subtree attribute so window-level result navigation refuses those events. J/K/L/arrows are not redefined by the strip.
 
 ### 8.8 Responsive behavior
 
@@ -563,11 +565,11 @@ Exit condition:
 Scope:
 
 - typed web contract;
-- `TrackEvidenceSet` feature-local component;
-- observation timeline markers;
+- one reusable feature-local `TrackEvidenceSet` component;
+- Review rail placement and Investigation inspector placement per the UI specification;
+- observation timeline markers in the existing TrackEvidence/EvidencePlayer path;
 - compact crop strip + one inspection region;
 - loading/unavailable/error/accessibility states;
-- Review and Investigation both use the one TrackEvidence composition;
 - visual QA.
 
 Exit condition:
@@ -606,7 +608,9 @@ No migration is expected.
 Web:
 
 - `src/web/mavi-web/src/api/tracks.ts`
-- `src/web/mavi-web/src/features/video-review/TrackEvidence.tsx`
+- `src/web/mavi-web/src/features/video-review/TrackEvidence.tsx` (timeline markers only; no Track-specific crop rail inside the shared player)
+- `src/web/mavi-web/src/features/video-review/VideoReviewPage.tsx` (Review evidence-rail placement)
+- `src/web/mavi-web/src/features/visual-search/TrackInspector.tsx` (Investigation placement)
 - new feature-local Evidence Set component/style as needed
 - Review/Investigation fixtures and tests
 - web visual-QA fixtures/states if those fixtures model Track detail
@@ -647,7 +651,8 @@ Cover:
 - source video remains the only video element;
 - no direct `/api/artifacts/` construction from ids in the new component;
 - keyboard activation and focus state;
-- Review and Investigation composition parity;
+- the same Evidence Set component is reused in Review and Investigation while respecting their different archetype placement;
+- Review keeps the Evidence Set in the evidence rail after the primary summary;
 - focus in the strip suppresses Investigation window-level J/K result navigation via the existing `data-evidence-player` subtree contract.
 
 ### 12.3 Composition guards
@@ -671,7 +676,8 @@ Capture at least:
 2. all four roles;
 3. one supplemental image unavailable;
 4. compact Investigation inspector;
-5. Review wide layout.
+5. Review wide layout with the Evidence Set in the rail;
+6. Review at 1366×768 proving the player and primary summary remain in the initial viewport after the Evidence Set is added.
 
 Check 1366×768 and 1600-class acceptance widths; include an ultra-wide sanity capture.
 
@@ -763,7 +769,7 @@ S1.3 is complete only when all are true:
 
 1. Track detail exposes all accepted observations in canonical rank order.
 2. Representative compatibility is derived from the same rank-0 observation.
-3. historical v2 Track detail still works and returns one observation.
+3. ordinary historical v2 Track detail still works and returns one observation; legacy Track detail with no Representative relation remains readable with an empty observation set.
 4. EvidenceCrop and historical Thumbnail bytes are served only through the existing authorized accepted-evidence route.
 5. Search rows remain Representative-only and unchanged in density/semantics.
 6. Review and Investigation show the same bounded Evidence Set component.
