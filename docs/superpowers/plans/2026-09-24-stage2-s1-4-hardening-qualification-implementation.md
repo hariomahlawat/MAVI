@@ -246,7 +246,7 @@ The comparison is **exact**, not "consistent". `docs/qualification/2026-09-24-ev
 Re-run it on the same inputs, verified by SHA, on the `linux-x86_64-cpu` variant. Every recorded count and rate must match exactly. A difference is a stop condition (§14) until it is explained by a documented, non-behavioural cause and the explanation is reviewed. If an input file cannot be reproduced bit-for-bit, record the new file SHAs and treat the run as a new baseline rather than a confirmation.
 
 **B1 PASS:**
-- all deterministic suites pass with **zero skips** on both qualified CPU variants, except the recorded Windows golden-byte non-claim;
+- all deterministic suites pass with **zero skips** on both qualified CPU variants, including the per-variant golden-byte tests. The temporary Windows golden-byte non-claim is permitted only before the harness PR (§13, A) lands and cannot satisfy final B1 closure;
 - the within-variant repeat is exact;
 - the cross-variant comparison is exact or every divergence is traced;
 - the real-clip re-run matches the parameter note exactly;
