@@ -165,12 +165,18 @@ jobs:
       # Every evidence-bearing pytest step writes JUnit XML under
       # qualification-evidence/junit/, uploaded with the other records, so the
       # S1.4 pass/skip/fail counts (plan §3, §4) never depend on expiring logs.
+      # The three probe tests that need torch or mmengine run after the ML graph
+      # is installed ("Test real PyTorch restricted checkpoint loading"), not
+      # here, so neither step reports a skip for a dependency installed later.
       - name: Run runtime qualification tooling unit tests
         run: >-
           python -m pytest
           src/vision/tests/test_runtime_probe.py
           src/vision/tests/test_resolve_mmdet_config.py
           src/vision/tests/test_runtime_metadata.py
+          --deselect src/vision/tests/test_runtime_probe.py::test_reviewed_checkpoint_globals_cover_legacy_and_numpy2_numpy_aliases
+          --deselect src/vision/tests/test_runtime_probe.py::test_real_torch_scope_allows_reviewed_numpy_metadata_and_restores_globals
+          --deselect src/vision/tests/test_runtime_probe.py::test_real_torch_scope_rejects_unapproved_type_and_restores_globals
           -q
           -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=qualification-evidence/junit/runtime-tooling.xml
 
@@ -255,7 +261,13 @@ jobs:
           Pillow==11.3.0
 
       - name: Test real PyTorch restricted checkpoint loading
-        run: python -m pytest src/vision/tests/test_runtime_probe.py -q -k real_torch -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=qualification-evidence/junit/runtime-probe-real-torch.xml
+        run: >-
+          python -m pytest
+          src/vision/tests/test_runtime_probe.py::test_reviewed_checkpoint_globals_cover_legacy_and_numpy2_numpy_aliases
+          src/vision/tests/test_runtime_probe.py::test_real_torch_scope_allows_reviewed_numpy_metadata_and_restores_globals
+          src/vision/tests/test_runtime_probe.py::test_real_torch_scope_rejects_unapproved_type_and_restores_globals
+          -q
+          -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=qualification-evidence/junit/runtime-probe-real-torch.xml
 
       - name: Verify compiled MMCV ops and dependency imports
         run: >-
