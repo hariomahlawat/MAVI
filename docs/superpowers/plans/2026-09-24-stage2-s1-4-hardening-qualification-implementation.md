@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.4 Track Evidence Set Hardening and Qualification Closure Plan
 
-**Status:** Proposed implementation-grade execution plan for S1.4, revision 2. It was amended by the independent cold review of PR #84 at `82d6a710` (three P1, sixteen P2; see `docs/reviews/2026-09-24-stage2-s1-4-plan-cold-review.md`, second pass). It is documentation only until accepted.  
+**Status:** Proposed implementation-grade execution plan for S1.4, revision 3. Revision 2 was amended by the second cold-review pass at `82d6a710` (three P1, sixteen P2). Revision 3 is amended by the third, independent pass at `d8ca646d` (one P1, eight P2, ten P3). See `docs/reviews/2026-09-24-stage2-s1-4-plan-cold-review.md`. It is documentation only until accepted.  
 **Date:** 2026-09-24  
 **Baseline:** `main@81b43dec32bec0c5e876d2df372503016c05dbdf` — PR #83 merged; S1.3 complete.  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §10 / §16.  
@@ -60,13 +60,15 @@ The measured source SHA must be a commit **on `main`**, reachable from `main`. I
 
 "Behavior-bearing" is a path set, not a judgement. For S1.4 it is:
 
-- `src/vision/**`, except `src/vision/tests/**`. Tests carry evidence, not behavior; see §2.2;
+- `src/vision/**`. `src/vision/tests/**` is included through the evidence-test rule below and §2.2;
 - `src/platform/**`;
 - `src/web/mavi-web/src/**`, `src/web/mavi-web/package*.json`;
 - `contracts/**`;
 - `models/**`, `src/vision/runtime/**`, `src/vision/config/**`;
 - `config/dependencies/**` and any offline lock or Runtime Pack definition;
-- `tools/vision/**`, `tools/phase1/**` and the qualification harnesses used to produce evidence;
+- `tools/vision/**`, `tools/phase1/**`, `tools/setup/**`, `tools/native/**` and the qualification harnesses used to produce evidence;
+- `infrastructure/**` (Runtime Pack inputs), `config/setup/**`, `config/acceptance/**` and the root setup/offline scripts;
+- `tests/**` and `src/vision/tests/**` **when used as evidence**: the platform tests, and `tests/fixtures/scene-analytics/scripted-corpus-v1.json`, on which the B1 expectation depends;
 - the workflows cited as evidence: `task10-runtime-qualification.yml`, `quality-gate.yml`, `task12-offline-bundle.yml`, `task17-acceptance.yml`.
 
 ### 2.2 Invalidation map
@@ -78,8 +80,8 @@ A change after freeze to a path in §2.1 invalidates the B-items it can affect, 
 | `src/vision/mavi_vision/evidence/**`, `quality/**`, pipeline profile | B1, B2, B3, B5 real-video, B6, disconnected run |
 | `src/vision/mavi_vision/tracking/**`, `pipeline/**`, `video/**`, `storage/**`, `detection/**` | B1, B2, B3, B5 real-video, B6, disconnected run |
 | `src/vision/mavi_vision/common/**`, `worker/**`, `contracts/**` | B3, B4, B5 real-video, B6, disconnected run |
-| `src/platform/**` | B3 sealing, B4, B5, disconnected run |
-| `src/web/mavi-web/**` | B5 |
+| `src/platform/**` | B3, B4, B5, disconnected run |
+| `src/web/mavi-web/**` | B5, disconnected run |
 | runtime/model/dependency/offline paths | B1 (encoder bytes), B6, disconnected run |
 | a test or harness that produced evidence | the items that cite it |
 
@@ -116,7 +118,7 @@ Every retained S1.4 evidence record must name, where applicable:
 - result;
 - limitation/non-claim.
 
-A skipped test is not a pass. A B-item whose required test skipped on a variant is not PASS on that variant unless §3.1 names that skip as an explicit variant non-claim. This matters because several S1 tests skip by design outside the qualified job:
+A skipped test is not a pass. One rule applies to every B-item. A required test that skips on a variant is acceptable only if §3.1 lists it as a **paired-variant skip**: the test exists *by design* for one OS, and it or its named counterpart passes on the other qualified variant. Any other skip on a qualified variant blocks that B-item. This matters because several S1 tests skip by design outside the qualified job:
 - `test_golden_bytes_per_runtime_variant` pins only `("linux", "11.3.0")` and skips on `win32`;
 - `test_measure_evidence_real_clips.py` and `test_bytetrack_runtime.py` need `MAVI_RUN_QUALIFIED_*`;
 - one `test_track_lifecycle.py` case is POSIX-only.
@@ -141,6 +143,13 @@ S1.4 records the §8 items it can measure without a model:
 - failure cases by scale, occlusion, blur or crowding where the corpus contains them.
 
 It must not describe itself as §8 closure.
+
+**Paired-variant skips** (the §3 rule), each passing on the other variant:
+- `test_track_lifecycle.py` — the POSIX descriptor-limit case;
+- `test_artifact_store.py` — POSIX-only cases, counterpart `test_artifact_store_windows.py`;
+- `test_evidence_encoder.py::test_golden_bytes_per_runtime_variant` — until PR A pins the Windows golden. After that it must pass on both variants, so final B1 closure admits no golden skip (§5).
+
+PR A extends this list only for further OS-conditional tests, with the counterpart named.
 
 S1.4 may close B1–B6 without claiming any of the following:
 
@@ -172,7 +181,9 @@ Do not commit operational video, private CCTV, binary crops, runtime/model packs
 
 The machine-readable record must make PASS impossible unless every required field for that B-item is present. The schema and a checker that enforces this ship in the harness PR (§13, A). A negative test must show the checker refusing a PASS with a missing field, a skipped required test, a `head_sha` different from the measured SHA, or a §2.3 diff that touches the behavior-bearing surface.
 
-**Retention.** GitHub Actions run artifacts expire, so a run URL alone is not retained evidence. The small JSON records Task 10 uploads are downloaded and committed under `docs/qualification/stage2-s1/`, with their SHA-256, run id and `head_sha`: `bytetrack-qualification.json`, the production-composition record and the runtime-probe record.
+**Retention.** GitHub Actions run artifacts expire, so a run URL alone is not retained evidence.
+- Every JSON record Task 10 uploads is downloaded and committed under `docs/qualification/stage2-s1/`, with its SHA-256, run id and `head_sha`. That includes `bytetrack-qualification.json`, the production-composition, runtime-probe and production-runtime-smoke records, and `resolved-config.json`.
+- The per-suite pass/skip/fail counts required by §3 must not depend on expiring logs either. PR A adds `--junitxml` to every evidence pytest step and uploads the XML, and PR B commits it with its SHA-256.
 
 **Labelling.** Every UI/acceptance item is labelled `real-video` or `fixture`. Fixture-only error-state QA (unavailable crop, legacy shape, corrupt read seam) is never reported as real-video acceptance.
 
@@ -243,7 +254,16 @@ The comparison is **exact**, not "consistent". `docs/qualification/2026-09-24-ev
 - 63 confirmed Tracks and 8,284 candidates;
 - per-role rates and fallback counts.
 
-Re-run it on the same inputs, verified by SHA, on the `linux-x86_64-cpu` variant. Every recorded count and rate must match exactly. A difference is a stop condition (§14) until it is explained by a documented, non-behavioural cause and the explanation is reviewed. If an input file cannot be reproduced bit-for-bit, record the new file SHAs and treat the run as a new baseline rather than a confirmation.
+Re-run it on the `linux-x86_64-cpu` variant with:
+- the **original measured files**, verified by SHA. The MOT17 MP4s are licensed CC BY-NC-SA, are not in Git, and were produced by a remux procedure that is not in the repository, so the originals are retained outside Git;
+- the same locally built `mmcv` wheel, by SHA. The parameter note §4 records it as a non-reproducible local build;
+- recorded CPU model and Torch thread settings, because CPU results can depend on the instruction set and the thread count.
+
+Every recorded count and rate must match exactly. A difference is a stop condition (§14) until it is explained by a documented, non-behavioural cause and the explanation is reviewed.
+
+**Detector-independent replay.** Record the per-frame detector output of the run. Replay it through the tracker and selector, and require an exact match. This separates selector determinism, which B1 claims, from detector numerics, which it does not.
+
+If the original files, the wheel or the host cannot be reproduced, a re-measurement is a **new baseline**. It is recorded as such, but it does **not** satisfy the B1 real-clip criterion.
 
 **B1 PASS:**
 - all deterministic suites pass with **zero skips** on both qualified CPU variants, including the per-variant golden-byte tests. The temporary Windows golden-byte non-claim is permitted only before the harness PR (§13, A) lands and cannot satisfy final B1 closure;
@@ -270,7 +290,7 @@ Re-run the discriminating lifecycle tests proving:
 - trajectory spool and Evidence Set candidate state removed from the live Track accumulator after finalisation;
 - cross-attempt staging cleanup removes only earlier attempts for the same job.
 
-### 6.2 RSS measurement
+### 6.2 Live-memory measurement
 
 Add or use a measurement harness that records process RSS while processing a deterministic synthetic/fixture workload in which:
 
@@ -295,14 +315,20 @@ The acceptance is therefore **decomposed and quantitative**. Every term is measu
    - Encoded bytes held by a live Track's role holders ≤ 64 KiB + 3 × 160 KiB = 544 KiB. This is ADR-013 §4, asserted from the holders' payload sizes.
    - Its in-memory trajectory buffer stays within the spool's chunk bound, independent of Track length. The existing `tracemalloc` flat-with-length tests in `test_trajectory_spool.py` and `test_evidence_pipeline.py` are part of this.
 2. **Per-retired-Track retained cost.** With `tracemalloc`, measure the bytes retained per retired Track as the slope over at least 1,000 retirements at a fixed live envelope. Record it as the descriptor budget D. It must be:
-   - independent of that Track's duration, trajectory length and crop sizes. Repeat with 10× longer Tracks and 4× larger crops, and the slope must not change beyond measurement noise, predeclared as ±10 %;
-   - ≤ 16 KiB, a predeclared ceiling. The workload deliberately uses high-entropy crops of at least 32 KiB each and Tracks long enough to fill more than one trajectory spool chunk. So a single retained crop or trajectory chunk per Track would exceed the ceiling. Real crops can be under 1 KiB, as in the scripted corpus, so a ceiling test on small crops would not discriminate.
+   - independent of that Track's duration, trajectory length and crop sizes. Repeat with 10× longer Tracks and larger *supplemental* crops, and the slope must not change beyond measurement noise, predeclared as ±10 %. The Representative stays within its 64 KiB cap, and the encoder ladder shrinks anything larger;
+   - ≤ 16 KiB, a predeclared ceiling. The workload deliberately uses Tracks longer than one trajectory spool chunk (`DEFAULT_CHUNK_POINTS` = 4,096 points) and high-entropy crops of at least 32 KiB each, so a single retained crop or chunk per Track would exceed the ceiling. Real crops can be under 1 KiB, as in the scripted corpus, so a ceiling test on small crops would not discriminate.
+   - **Workload feasibility is declared up front.** Crops of that entropy do not survive a lossy video codec, and the frame counts are large: more than 4,096 frames per Track, times 1,000 retirements, divided by the live level L. So the harness declares, in PR A and before execution:
+     - its frame source: a lossless or raw fixture, or a declared frame-source seam into `VideoProcessor` that keeps the real tracker, encoder and staging;
+     - its frame count, L and the wall-time budget.
 3. **Process-level corroboration.**
    - Sample RSS and, on Linux, USS/PSS from `/proc/self/smaps_rollup`; on Windows, `PrivateUsage` through `GetProcessMemoryInfo` via `ctypes`. `psutil` is **not** a MAVI dependency and must not be added for this.
+   - Windows `PrivateUsage` is commit charge, not USS, and is named as such in the record.
+   - These runs have **tracemalloc off**, because its bookkeeping inflates process memory. They are separate from the bound-2 runs.
    - Take each sample after `gc.collect()` and a declared warm-up.
-   - Take at least five plateaus at stepped live-Track levels, and at least three plateaus of growing retired history at a fixed live level.
-   - The fitted slope of USS against retired count must not exceed D + 10 %. The fitted slope against live count is recorded as the empirical per-live-Track cost and compared with bound 1.
-4. **Completion peak.** Record peak memory while the 10,000-Track completion is serialised and sent. The body is 24–40 MiB, and this is the process's designed peak.
+   - Take at least five plateaus at stepped live-Track levels, and at least three plateaus of growing retired history at a fixed live level, fitted over **at least 5,000 retirements**.
+   - The fitted slope of process memory against retired count must not exceed an **absolute 16 KiB per retired Track**. A relative "D + 10 %" would sit below allocator and arena granularity. This is the only detector for native (Pillow/PyAV/tracker) retention, which tracemalloc cannot see.
+   - The fitted slope against live count is recorded as the empirical per-live-Track cost and compared with bound 1.
+4. **Completion peak (recorded, not thresholded).** Record peak memory while the 10,000-Track completion is serialised and sent. The body is 24–40 MiB, and this is the process's designed peak. There is no pre-existing limit, so it is recorded as the regression baseline (§12) and does not by itself pass or fail B2.
 
 The workload runs through the **qualified native ByteTrack adapter** (`trackers` backend), the real `VideoProcessor`, the real encoder and staging. `FixtureTracker` parity is a separate structural test. A FixtureTracker-only memory run cannot see native backend state, such as an unpruned lost/removed-track list, so it is not B2 memory evidence.
 
@@ -321,7 +347,7 @@ Record maximum observed staging bytes and prove attempt isolation. Compare the m
 
 **B2 PASS:**
 - lifecycle tests pass with zero skips on the qualified variants, on both the ByteTrack adapter and FixtureTracker;
-- bounds 1–4 above are measured and each is within its stated limit;
+- bounds 1–3 above are measured and each is within its stated limit, and bound 4 is recorded;
 - retry and staging cleanup is demonstrated without cross-attempt or cross-job deletion.
 
 ---
@@ -356,7 +382,7 @@ Use deterministic fake/sparse artifact descriptors to exercise:
 No test needs to allocate 1 GiB of real JPEG bytes merely to prove arithmetic.
 
 Exact edges also cover:
-- **Track count.** 10,000 Tracks complete. The 10,001st distinct Track fails with `track_limit_exceeded` *before* anything is staged for it (`VideoProcessor`), and the attempt's staging is cleaned.
+- **Track count.** 10,000 Tracks complete. The 10,001st distinct Track fails *before* anything is staged for it. The cause is `track_limit_exceeded`; the observable attempt failure is `pipeline_processing_failed` (`VideoProcessor`). The attempt's staging is cleaned.
 - **Per-role cap.** An encoder output of exactly the cap is admitted; one byte over is refused. This is checked on the worker and in the platform validator (`WorkerContractRules.MaximumRepresentativeCropBytes` and `MaximumSupplementalCropBytes`).
 - **Bound agreement.** The profile encoder caps and quota (`representativeCapBytes`, `supplementalCapBytes`, `runEvidenceCropQuotaBytes`) equal the platform constants and the Python control-plane constants.
 
@@ -375,11 +401,22 @@ The accepted S1.2 measurement is ~24.72 MiB; S1.4 records the exact final measur
 
 Exercise a scale harness that uses a sparse/fake content store where appropriate to measure validator/sealing/DB work without producing several GiB of physical test data.
 
-**A fake store cannot supply sealing timing.** Sealing runs inside the completion transaction while the job row is held `FOR UPDATE`. `DurableFilePublication` flushes the file and re-fsyncs the directory chain per published object, and the worst case is about 10,000 trajectories plus the quota-bounded crops. So the sealing-time measurement uses the **real** accepted-evidence store:
-- on the real filesystem of each supported Development OS (NTFS on Windows; ext4 or the declared filesystem on Linux);
-- at the worst-case object *count*. Object bytes may be small, because count and fsync dominate.
+**A fake store cannot supply sealing timing.** Sealing runs inside the completion transaction while the job row is held `FOR UPDATE`. `DurableFilePublication` publishes each object durably:
+- on POSIX, it flushes the file and re-fsyncs the directory chain;
+- on Windows, it uses a write-through `MoveFileEx` with no directory fsync.
 
-Compare the measured wall time with the vision lease (`VisionProcessing:LeaseSeconds`, 900 s by default) and with the API request timeout. Headroom below 2× is a blocking finding. The fake/sparse store remains valid for arithmetic, row-count and N+1 evidence only.
+The worst case is 10,000 trajectories plus up to 40,000 crop descriptors, and quota admission bounds the crops actually sealed. So the sealing-time measurement uses the **real** accepted-evidence store:
+- on the real filesystem of each supported Development OS (NTFS on Windows; ext4 or the declared filesystem on Linux);
+- at the worst-case object *count*, which is stated in the record. Object bytes may be small, because count and publication cost dominate.
+
+**The limit that binds is the worker's completion request timeout, not the lease.** The lease is checked once, under `FOR UPDATE`, before sealing begins (`ProcessingResultStore`). A long seal therefore does not fail the lease. It fails the worker's completion POST, which times out at `request_timeout_seconds`: 30 s by default, at most 120 s (`mavi_vision/common/settings.py`). The server has no request-timeout middleware.
+
+Compare the measured end-to-end completion wall time (validation + sealing + commit) with:
+1. the worker `request_timeout_seconds` configured for the qualified install. **Headroom below 2× is blocking**;
+2. the vision lease (`VisionProcessing:LeaseSeconds`, **120 s** by default; the 900 s value in `appsettings.json` is `SceneAnalytics`), which must leave a timed-out worker time to replay idempotently;
+3. the Npgsql command timeout of the longest single statement.
+
+Also record what the worker observes on a timeout and on its idempotent replay. The fake/sparse store remains valid for arithmetic, row-count and N+1 evidence only.
 
 Record:
 
@@ -392,8 +429,8 @@ Record:
 
 **B3 PASS:**
 - all hard boundaries, including the Track-count and per-role cap edges, discriminate at exact edges;
-- the 10,000-Track body stays below the 48 MiB configured bound with documented headroom. Both figures are recorded: the Python body and the .NET body *without* provenance, which `WorstShapeBodyFitsUnderLimit` bounds separately;
-- the real-store sealing time at worst-case object count has at least 2× headroom against the lease;
+- the 10,000-Track body stays within the existing budgets: the Python worst shape ≤ 40 MiB (`WORST_SHAPE_BODY_BUDGET`), and the .NET worst shape without provenance ≤ 32 MiB and ≤ 48 MiB − 8 MiB (`WorstShapeBodyFitsUnderLimit`). The configured limit is 48 MiB. Both figures and their headroom are recorded;
+- the real-store end-to-end completion time at worst-case object count has at least 2× headroom against the worker `request_timeout_seconds` (§7.4);
 - scale execution reveals no unbounded algorithm and no N+1 artifact-content read.
 
 ---
@@ -423,9 +460,11 @@ Two partial-failure windows are **by design not compensated**, and B4 must prove
 
 1. **Commit ambiguity.** In `ProcessingResultStore`, if `CommitAsync` throws *and* the rollback cannot be confirmed, `compensationSafe` is false. Newly sealed evidence is deliberately retained, because deleting it could orphan a transaction that did commit, and the failure is logged. No test currently exercises either the `CommitAsync` failure or the rollback-confirmation failure. The harness PR adds both:
    - commit throws and rollback succeeds: newly sealed evidence is compensated;
-   - rollback confirmation fails: evidence is retained, the log event is emitted, and a later exact replay is idempotent and reuses it.
+   - rollback confirmation fails: evidence is retained and the log event is emitted. Both real outcomes of an unconfirmed rollback are covered:
+     - the transaction actually committed: an exact replay returns the completed result by digest;
+     - it actually rolled back: an exact replay re-seals within the 120 s lease, meeting the retained object as `DestinationAlreadyExists`/identical content and completing idempotently.
 2. **Process loss between seal and commit.** No in-process compensation can run. The guarantee to prove:
-   - sealed-but-unreferenced accepted objects are **never served**, because `ContentCatalog` requires an Observation of a Completed run;
+   - sealed-but-unreferenced accepted objects are **never served**. They have no Artifact row, and `ContentCatalog` serves crops only through an Observation of a Completed run and trajectories only through their Track;
    - a later exact replay completes idempotently over them;
    - no DB intelligence is published.
 
@@ -530,7 +569,14 @@ The current Task-10 workflow does **not** trigger on every S1 behavior path. Its
 - `common/contracts.py` and `common/lease.py`;
 - `detection/rtmdet.py`.
 
-Its qualified-variant suites also omit `test_worker_completion_v3.py`, `test_completion_contract_bounds.py` and `test_tracker_update.py`. Today these run only in the Quality Gate on Python 3.13.
+Its qualified-variant suites also omit B-evidence suites that today run only in the Quality Gate on Python 3.13:
+- `test_worker_completion_v3.py`;
+- `test_completion_contract_bounds.py`;
+- `test_tracker_update.py`;
+- `test_track_finalization.py`;
+- `test_artifact_store.py` and `test_artifact_store_windows.py`, which cover cross-attempt cleanup;
+- `test_artifact_publisher.py`;
+- `test_analytical_models.py`.
 
 The harness PR (§13, A) therefore:
 - widens the Task-10 filters to `src/vision/mavi_vision/**`;
@@ -595,8 +641,10 @@ After the S1.4 PR merges, verify the resulting `main` head with:
 
 If the merge is documentation/evidence-only and Task 10's path filters do not start a push run, create a dedicated immutable ref (for example `qual/s1-4/<merge-sha>`) at the **merge SHA**, dispatch the existing `workflow_dispatch` against that ref, and verify the resulting run's `head_sha` equals the merge SHA. A dispatch against moving `main` is not sufficient unless `main` still points to that exact SHA at dispatch time and the run's `head_sha` is verified. Record that run as the post-merge B6 evidence. Do not treat an older green run on an ancestor as post-merge verification.
 
+The Quality Gate has **no `workflow_dispatch`**. Its post-merge evidence is the `push` run on the merge SHA. If that run is cancelled or superseded by a later push, re-run *that* run: a re-run keeps its `head_sha`. Where that is not possible, the post-merge Quality Gate is recorded as not obtained, and S1 closure waits for it.
+
 **B6 PASS:**
-- the Task-10 CPU matrix passes with zero unexplained skips, on a run whose verified `head_sha` equals the measured SHA, including the suites the harness PR added;
+- the Task-10 CPU matrix passes with no skip other than the §3.1 paired-variant skips, on a run whose verified `head_sha` equals the measured SHA, including the suites the harness PR added;
 - no qualification record points at a stale pipeline profile, and none was edited by S1.4;
 - unavailable CUDA/E2E evidence is explicitly pending rather than inherited;
 - post-merge CI on the §2.3 merge SHA passes, with each run's `head_sha` verified.
@@ -639,6 +687,7 @@ No package manager, model hub, CDN, checkpoint download or remote API may be req
 **Network isolation is evidenced, not asserted.**
 - Reuse the existing probe, `assert_outbound_internet_unavailable` in `tools/phase1/qualify_offline_variant.py`. It checks there is no proxy environment and probes TCP 1.1.1.1:443, 8.8.8.8:53, pypi.org, github.com and www.microsoft.com.
 - Run it **before and after** the S1 run, and retain both results together with the isolation method (for example an adapter disabled, or a firewall deny-all outbound rule).
+- The probe checks proxy variables only in its own process. Also record the system proxy configuration (WinHTTP `netsh winhttp show proxy` on Windows) and confirm that no LAN package mirror or index is reachable.
 - The probe proves the network was unavailable, so success proves nothing required it. It does not prove nothing *tried* to connect. Optionally record connection attempts during the run (Linux `strace -f -e trace=connect`, or a Windows Firewall dropped-packet log); any attempt observed to a non-loopback address is a finding.
 
 Task 12 hosted CI remains a build/verification gate for Runtime Packs; it is not by itself the disconnected operator-path proof.
@@ -684,7 +733,7 @@ A result is blocking when it violates a frozen bound, demonstrates unbounded gro
 
 Keep S1.4 reviewable. Preferred sequence:
 
-### PR/commit A — qualification harness and plan support
+### PR A — qualification harness and plan support (required)
 
 This PR is **mandatory before authoritative measurement begins**. It contains the code-level prerequisites required to make the S1.4 evidence executable and non-vacuous:
 
@@ -704,7 +753,7 @@ PR A is where every code-level prerequisite named in this plan lands:
 
 Evidence is never measured on PR A's branch; it is measured after PR A merges (§2).
 
-### PR/commit B — execute and record S1 evidence
+### PR B — execute and record S1 evidence
 
 - run bound/resource measurements;
 - run real-video and disconnected acceptance;
@@ -726,7 +775,7 @@ Stop and amend/fix rather than weakening evidence if any occurs:
 
 1. selector output is non-deterministic for the same input/profile/runtime;
 2. profile hash differs from the qualification record unexpectedly;
-3. RSS grows with retired history at fixed live-Track envelope;
+3. a measured §6.2 memory bound (1–3) exceeds its stated limit, or bound 4 regresses against its recorded baseline;
 4. a hard crop/run/body quota can be exceeded;
 5. v2 or v3 replay/digest drifts;
 6. rollback leaves accepted evidence or DB rows partially published;
@@ -738,7 +787,7 @@ Stop and amend/fix rather than weakening evidence if any occurs:
 12. a workflow run's `head_sha` differs from the SHA it is cited for;
 13. the disconnected run's Runtime Bundle `sourceCommit` differs from the measured SHA;
 14. the real-clip re-run differs from the parameter note without a reviewed explanation;
-15. real-store sealing time at the worst-case object count has less than 2× headroom against the lease.
+15. real-store completion time at the worst-case object count has less than 2× headroom against the worker `request_timeout_seconds` (§7.4).
 
 A stop condition does not become a qualification exception. Repair first, then rerun affected evidence.
 
