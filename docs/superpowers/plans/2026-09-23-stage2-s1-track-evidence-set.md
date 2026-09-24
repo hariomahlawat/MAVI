@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1 Track Evidence Set Implementation Plan
 
-**Status:** Implementation-grade plan; independently reviewed 2026-09-23 (see `docs/reviews/2026-09-23-stage2-s1-plan-review-resolution.md`); awaiting final owner review  
+**Status:** Implementation-grade parent plan; independently reviewed 2026-09-23. S1.1 and S1.2 are merged; S1.3 is the active next slice; S1.4 follows.  
 **Date:** 2026-09-23  
 **Baseline:** `main@6809606e596d121186b5244869760073fe82072a` — PR #73 merged; Stage-2 architecture frozen  
 **Governing architecture:** ADR-006, ADR-013, ADR-014, Stage-2 parent plan, Stage-2 acceptance register  
