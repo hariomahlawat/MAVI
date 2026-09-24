@@ -19,7 +19,7 @@ from mavi_vision.evidence.roles import (
 )
 
 
-SELECTOR_VERSION = "evidence-selector-v1"
+SELECTOR_VERSION = "evidence-selector-v1-two-tier"
 SCORER_VERSION = "quality-v1"
 ENCODER_VERSION = "evidence-jpeg-ladder-v1"
 

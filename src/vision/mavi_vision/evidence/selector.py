@@ -188,7 +188,7 @@ class EvidenceSelector:
         A supplemental holder is dropped if it is a near-duplicate of, or not
         separated from, a role already kept (NearView is exempt only from the
         separation test against the Representative). An empty result means the
-        Track never had an admissible qualified Representative.
+        Track never had an admissible Representative candidate (qualified or fallback).
         """
         kept: list[SelectedEvidence] = []
         for holder in self._holders:

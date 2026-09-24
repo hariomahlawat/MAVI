@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Final
 
 import httpx
+from pydantic import ValidationError
 
 from mavi_vision.common.analytical import (
     EvidenceAccounting,
@@ -67,6 +68,14 @@ class PlatformContractUnsupported(WorkerApiError):
 
     Raised by the capability probe and, defensively, when a completion is
     rejected for its version. It is never answered by falling back to 2.0.
+    """
+
+
+class CompletionPayloadInvalid(ValueError):
+    """The worker's own result does not form a valid completion 3.0 body.
+
+    Not a control-plane error: nothing was sent. The attempt is failed
+    explicitly instead of being retried into the same result (a poison job).
     """
 
 
@@ -179,7 +188,23 @@ class WorkerApiClient:
         if processing_duration_ms < 0:
             raise WorkerApiError("vision processing duration is invalid")
 
-        request = VisionJobCompleteV3(
+        try:
+            request = self._completion_request(lease, result, processing_duration_ms, provenance)
+        except ValidationError as exc:
+            raise CompletionPayloadInvalid("vision result is not a valid completion 3.0 body") from exc
+        body = request.model_dump_json(by_alias=True)
+        if authorize_publish is not None:
+            authorize_publish()
+        return await self._send_completion(lease, body)
+
+    def _completion_request(
+        self,
+        lease: VisionJobLease,
+        result: VisionProcessingResult,
+        processing_duration_ms: int,
+        provenance: RuntimeProvenance,
+    ) -> VisionJobCompleteV3:
+        return VisionJobCompleteV3(
             schemaVersion=COMPLETION_SCHEMA_VERSION,
             jobId=lease.job_id,
             workerId=self._settings.worker_id,
@@ -214,9 +239,8 @@ class WorkerApiClient:
             ),
             evidenceAccounting=self._map_accounting(result.evidence_accounting),
         )
-        body = request.model_dump_json(by_alias=True)
-        if authorize_publish is not None:
-            authorize_publish()
+
+    async def _send_completion(self, lease: VisionJobLease, body: str) -> VisionJobCompleteResponse:
         response = await self._post(
             f"/api/vision/jobs/{lease.job_id}/complete",
             body,

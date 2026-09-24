@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import UUID
 
 from mavi_vision.common.analytical import (
+    MAXIMUM_TRACKS_PER_RESULT,
     ObjectClass,
     ProcessedTrack,
     VisionProcessingResult,
@@ -179,6 +180,13 @@ class VideoProcessor:
                             raise TrackerError(
                                 "tracker_track_reappeared_after_retirement"
                             )
+                        if (
+                            candidate.track_id not in live
+                            and len(live) + len(finalised) >= MAXIMUM_TRACKS_PER_RESULT
+                        ):
+                            # Fail before staging anything for a Track the
+                            # completion could never carry (bounds staging disk).
+                            raise ValueError("track_limit_exceeded")
                         self._accumulate(live, context, candidate)
 
                     # Retirement is final: the tracker guarantees these ids can

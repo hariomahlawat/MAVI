@@ -273,6 +273,31 @@ def test_no_admissible_representative_fails_the_attempt_and_cleans_staging(tmp_p
     assert not _attempt(tmp_path).exists()
 
 
+def test_track_beyond_the_contract_limit_fails_before_staging_it(tmp_path: Path, monkeypatch) -> None:
+    """More Tracks than a completion can carry: fail closed at the first extra
+    Track, so staging never grows for a result that could not be sent."""
+    monkeypatch.setattr(process_video_module, "MAXIMUM_TRACKS_PER_RESULT", 2)
+    staged: list[str] = []
+    real_write = StagingArtifactStore.write_bytes
+
+    def recording_write(self, name, *args, **kwargs):
+        staged.append(name)
+        return real_write(self, name, *args, **kwargs)
+
+    monkeypatch.setattr(StagingArtifactStore, "write_bytes", recording_write)
+    walker = Walker(
+        {"person-a": range(0, 5), "person-b": range(0, 5), "person-c": range(3, 8)},
+        retire={4: ("person-a", "person-b")},
+    )
+
+    with pytest.raises(VideoProcessingError, match="pipeline_processing_failed") as raised:
+        _run(tmp_path, walker, 10)
+
+    assert str(raised.value.__cause__) == "track_limit_exceeded"
+    assert not any("person-c" in name for name in staged)
+    assert not _attempt(tmp_path).exists()
+
+
 def test_encoder_failure_fails_the_attempt_and_cleans_staging(tmp_path: Path) -> None:
     class Broken:
         version = "stub"

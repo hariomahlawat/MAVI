@@ -12,6 +12,10 @@ from mavi_vision.evidence.roles import ROLE_ORDER, EvidenceRole, role_cap_bytes
 
 _SHA256_PATTERN = r"[0-9a-f]{64}"
 _TRACK_ID_PATTERN = r"[a-z0-9][a-z0-9._-]{0,63}"
+# The completion contract carries at most this many Tracks (schema maxItems,
+# WorkerContractRules.MaximumCompletionTracks). The pipeline refuses the next
+# Track rather than stage evidence for a result that could never be sent.
+MAXIMUM_TRACKS_PER_RESULT = 10_000
 _STORAGE_SEGMENT_PATTERN = r"[^/\\]+"
 
 
@@ -268,6 +272,8 @@ class VisionProcessingResult:
             raise ValueError("frames_processed_invalid")
         if self.frames_processed == 0 and self.tracks:
             raise ValueError("tracks_require_processed_frames")
+        if len(self.tracks) > MAXIMUM_TRACKS_PER_RESULT:
+            raise ValueError("track_limit_exceeded")
         track_ids = tuple(track.track_id for track in self.tracks)
         if len(track_ids) != len(set(track_ids)):
             raise ValueError("track_id_duplicate")

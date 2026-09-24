@@ -35,6 +35,7 @@ from mavi_vision.runtime.provenance import (
     TrackerParameters,
 )
 from mavi_vision.worker.client import (
+    CompletionPayloadInvalid,
     PlatformContractUnsupported,
     WorkerApiClient,
     WorkerApiError,
@@ -357,6 +358,30 @@ def test_contract_rejection_raises_unsupported_and_sends_nothing_else(tmp_path: 
     assert raised.value.code == "worker_contract_version_unsupported"
     # Exactly one request, and it was 3.0: no retry and no 2.0 fallback.
     assert [body["schemaVersion"] for body in requests] == ["3.0"]
+
+
+def test_an_invalid_local_body_is_refused_before_anything_is_sent(tmp_path: Path, monkeypatch) -> None:
+    requests: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.content)
+        return _response_for(json.loads(request.content))
+
+    # A crop key that is not this attempt's: the platform would refuse it.
+    import mavi_vision.worker.client as client_module
+
+    real = client_module.WorkerApiClient._map_observation
+
+    def wrong_key(observation):
+        mapped = real(observation)
+        return mapped.model_copy(
+            update={"crop": mapped.crop.model_copy(update={"storage_key": "staging/other/attempt-0001/evidence/x.jpg"})}
+        )
+
+    monkeypatch.setattr(client_module.WorkerApiClient, "_map_observation", staticmethod(wrong_key))
+    with pytest.raises(CompletionPayloadInvalid):
+        _complete_golden(tmp_path, handler)
+    assert requests == []
 
 
 def test_other_bad_requests_are_not_contract_rejections(tmp_path: Path) -> None:

@@ -15,7 +15,7 @@ import pytest
 
 from mavi_vision.common.control_plane import VisionJobLease
 from mavi_vision.storage.local_media_store import LocalMediaStore
-from mavi_vision.worker.client import PlatformContractUnsupported, WorkerApiError
+from mavi_vision.worker.client import CompletionPayloadInvalid, PlatformContractUnsupported, WorkerApiError
 from mavi_vision.worker.runner import WorkerRunner
 
 from test_worker_runner import (
@@ -33,7 +33,7 @@ class ProbingApi(FakeWorkerApiClient):
     def __init__(self, leased_job: VisionJobLease | None, probes: list[object]) -> None:
         super().__init__(leased_job)
         self.probes = list(probes)
-        self.complete_error: WorkerApiError | None = None
+        self.complete_error: Exception | None = None
 
     async def get_contract_capabilities(self) -> None:
         self.events.append("probe")
@@ -82,7 +82,7 @@ def test_incompatible_platform_is_never_leased_and_is_reprobed(tmp_path: Path) -
     assert client.completions == [] and client.failures == []
 
 
-def test_capability_confirmation_is_probed_once_then_leases(tmp_path: Path) -> None:
+def test_capability_is_probed_before_every_lease(tmp_path: Path) -> None:
     lease = make_lease()
     _media(tmp_path)
     client = ProbingApi(lease, [None])
@@ -93,9 +93,35 @@ def test_capability_confirmation_is_probed_once_then_leases(tmp_path: Path) -> N
 
     assert asyncio.run(scenario()) == [True, True]
     assert client.events == [
-        "probe", "lease", "heartbeat", "complete", "lease", "heartbeat", "complete"
+        "probe", "lease", "heartbeat", "complete", "probe", "lease", "heartbeat", "complete"
     ]
     assert runner.platform_contract_confirmed is True
+
+
+def test_a_platform_downgrade_between_leases_is_caught_before_leasing(tmp_path: Path) -> None:
+    lease = make_lease()
+    _media(tmp_path)
+    client = ProbingApi(lease, [None, PlatformContractUnsupported("downgraded")])
+    runner = _runner(client, tmp_path, lease)
+
+    async def scenario() -> list[bool]:
+        return [await runner.run_once(), await runner.run_once()]
+
+    assert asyncio.run(scenario()) == [True, False]
+    # The second job is never leased, so it is not burned by a 3.0 rejection.
+    assert client.events == ["probe", "lease", "heartbeat", "complete", "probe"]
+    assert runner.platform_contract_confirmed is False
+
+
+def test_an_invalid_local_completion_fails_the_attempt_instead_of_crashing(tmp_path: Path) -> None:
+    lease = make_lease()
+    _media(tmp_path)
+    client = ProbingApi(lease, [None])
+    client.complete_error = CompletionPayloadInvalid("vision result is not a valid completion 3.0 body")
+    runner = _runner(client, tmp_path, lease)
+
+    assert asyncio.run(runner.run_once()) is True
+    assert client.events == ["probe", "lease", "heartbeat", "complete", "fail:vision_result_invalid"]
 
 
 def test_platform_upgrade_is_picked_up_on_a_later_poll(tmp_path: Path) -> None:

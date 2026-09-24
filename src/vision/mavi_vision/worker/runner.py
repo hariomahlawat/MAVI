@@ -33,7 +33,11 @@ from mavi_vision.runtime.watchdog import (
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import MediaStoreError
 from mavi_vision.worker.attempt_telemetry import AttemptCompletion
-from mavi_vision.worker.client import PlatformContractUnsupported, WorkerApiError
+from mavi_vision.worker.client import (
+    CompletionPayloadInvalid,
+    PlatformContractUnsupported,
+    WorkerApiError,
+)
 from mavi_vision.worker.watchdog_incident import (
     WATCHDOG_FAILURE_CODE,
     WATCHDOG_OBSERVATION_FAILURE_CODE,
@@ -214,15 +218,17 @@ class WorkerRunner:
     async def _confirm_platform_contract(self) -> bool:
         """Plan §23: never lease before the platform lists completion 3.0.
 
-        An incompatible or malformed answer keeps the worker not-ready (no
-        lease, no v2 fallback) and is re-probed on the next poll; a transport
-        failure propagates as the ordinary polling back-off.
+        Probed before **every** lease (one small GET per poll), so a platform
+        swapped for an older one between leases is noticed before a job is
+        leased against it, not after the video has been processed. An
+        incompatible or malformed answer keeps the worker not-ready (no lease,
+        no v2 fallback); a transport failure propagates as the ordinary polling
+        back-off.
         """
-        if self._platform_contract_confirmed:
-            return True
         try:
             await self._api_client.get_contract_capabilities()
         except PlatformContractUnsupported:
+            self._platform_contract_confirmed = False
             if not self._platform_contract_reported:
                 _LOGGER.error(
                     "Vision worker not ready: vision_platform_contract_unsupported "
@@ -409,6 +415,21 @@ class WorkerRunner:
                 lease,
                 "vision_worker_contract_unsupported",
                 "The platform does not accept this worker's completion contract.",
+            )
+            return True
+        except CompletionPayloadInvalid:
+            # Nothing was sent: the worker's own result does not form a valid
+            # 3.0 body (for example more Tracks than the contract carries).
+            # Retrying would rebuild the same body, so the attempt fails.
+            _LOGGER.error(
+                "Vision job %s attempt %s produced an invalid completion body",
+                lease.job_id,
+                lease.attempt_count,
+            )
+            await self._best_effort_fail(
+                lease,
+                "vision_result_invalid",
+                "The vision result could not be expressed as a valid completion.",
             )
             return True
         except LeaseLostError as exc:

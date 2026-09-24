@@ -28,7 +28,7 @@
   },
   "framePolicy": "every-frame",
   "evidence": {
-    "selectorVersion": "evidence-selector-v1",
+    "selectorVersion": "evidence-selector-v1-two-tier",
     "scorerVersion": "quality-v1",
     "confidenceFloor": 0.5,
     "sharpnessFloor": 0.05,

@@ -6,7 +6,7 @@
   "checkpointSha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
   "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
   "pipelineProfileId": "phase1-detection-tracking-v1",
-  "pipelineProfileSha256": "9eb642f85c9c5091e56d0c8acda7efedfa21411f264a19297e56fa10f48f27c7",
+  "pipelineProfileSha256": "47560e0e2f5d9c8c7cb74d990ea11515bc31c7d4a9a30f6f624949aeb7213eba",
   "runtimeProfileId": "mmdetection-phase1-v1",
   "runtimeProfileSha256": "b3c59ac4e535d5e2e7356fef55f5266937e56751207f37a06dd13140b01c6873",
   "requiredGates": {
