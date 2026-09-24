@@ -28,6 +28,8 @@ public sealed class StagingJanitorHostedServiceTests
 
         await host.StopAsync(CancellationToken.None);
         Assert.Equal(3, janitor.Cycles);
+        // The per-cycle DI scopes never owned the test double: only this test disposes it.
+        Assert.False(janitor.IsDisposed);
     }
 
     [Fact]
@@ -48,7 +50,10 @@ public sealed class StagingJanitorHostedServiceTests
     private static StagingJanitorHostedService CreateHost(CountingJanitor janitor, ManualTimerProvider clock, bool enabled)
     {
         var services = new ServiceCollection();
-        services.AddScoped<IStagingJanitor>(_ => janitor);
+        // The container disposes IDisposable instances its factories return when each
+        // cycle's scope ends. The janitor is owned by the test (it holds the semaphore the
+        // test waits on), so the scope gets a non-disposable view of it instead.
+        services.AddScoped<IStagingJanitor>(_ => new NonOwningJanitor(janitor));
         var provider = services.BuildServiceProvider();
         return new StagingJanitorHostedService(
             provider.GetRequiredService<IServiceScopeFactory>(),
@@ -57,9 +62,16 @@ public sealed class StagingJanitorHostedServiceTests
             NullLogger<StagingJanitorHostedService>.Instance);
     }
 
+    private sealed class NonOwningJanitor(IStagingJanitor inner) : IStagingJanitor
+    {
+        public Task<StagingJanitorCycleResult> RunCycleAsync(CancellationToken cancellationToken) =>
+            inner.RunCycleAsync(cancellationToken);
+    }
+
     private sealed class CountingJanitor : IStagingJanitor, IDisposable
     {
         private int _cycles;
+        private int _disposed;
         private readonly SemaphoreSlim _signal = new(0);
 
         public int FailOnCycle { get; init; } = -1;
@@ -74,7 +86,13 @@ public sealed class StagingJanitorHostedServiceTests
             return Task.FromResult(new StagingJanitorCycleResult(0, 0, 0, 0, 0, 0, 0, null, 0, 0, "normal"));
         }
 
-        public void Dispose() => _signal.Dispose();
+        public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _disposed, 1);
+            _signal.Dispose();
+        }
 
         public async Task WaitForCyclesAsync(int count)
         {
