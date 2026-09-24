@@ -10,9 +10,9 @@ Nothing unexecuted is marked PASS.
 
 ## Current verdict
 
-**ARCHITECTURE FROZEN — S1 IMPLEMENTATION IN PROGRESS; S1.2 MERGED.**
+**ARCHITECTURE FROZEN — S1.3 MERGED; S1.4 HARDENING/QUALIFICATION ACTIVE.**
 
-The documentation/architecture gate remains closed. S1.1 and S1.2 are merged. S1.3 is in progress: the plan is accepted (PR #81), S1.3a (read contract) is merged (PR #82), and S1.3b (UI) is implemented in PR #83 and in review. S1.4 supplies the acceptance/qualification evidence. Nothing in section B is marked PASS before that evidence is executed.
+The documentation/architecture gate remains closed. S1.1, S1.2 and S1.3 are merged; S1.3b merged in PR #83 at `main@81b43dec32bec0c5e876d2df372503016c05dbdf`. S1.4 supplies the acceptance/qualification evidence under `docs/superpowers/plans/2026-09-24-stage2-s1-4-hardening-qualification-implementation.md`. Nothing in section B is marked PASS before that evidence is executed.
 
 ## Governing documents
 
@@ -53,7 +53,7 @@ The documentation/architecture gate remains closed. S1.1 and S1.2 are merged. S1
 | B2 | JPEG encoding occurs in-loop; the model-neutral tracker emits exact-once retired Track ids with no post-retirement reappearance (mapping released on retirement, fresh id on backend id reuse); the whole Track — trajectory, Representative, supplemental candidates — is finalised and staged once at retirement/end-of-stream and only descriptors remain; earlier attempts' staging is removed on new lease; retirement/reactivation/no-reappearance/end-of-stream tests, on both the ByteTrack adapter and the fixture tracker, prove the live-Track memory bound | OPEN — in-loop encoding, retirement finalisation (S1.1), bounded trajectory spool (S1.2b) and the bounded Evidence Set (S1.2c / PR #79) are merged; live memory per Track constant by construction; RSS evidence pending S1.4 |
 | B3 | Representative and supplemental byte caps, reduction floors, score-ordered admission and the 1 GiB run EvidenceCrop quota are enforced; body bound re-derived; all contract-tested at the 10,000-Track bound | OPEN — implemented and merged in S1.2c / PR #79, worker worst-shape body 24.72 MiB; evidence pending S1.4 |
 | B4 | Vision completion schema v3, digest v3, validator/store/sealing and Observation evolution pass contract tests | OPEN — platform side merged in S1.2a; worker emission and cross-language vectors merged in S1.2c / PR #79; evidence pending S1.4 |
-| B5 | `TrackDetail.observations[]` and evidence viewer expose accepted roles without breaking Representative behaviour | OPEN. The server read contract is merged in S1.3a (PR #82); the viewer is implemented in S1.3b (PR #83, in review); the acceptance evidence is S1.4 |
+| B5 | `TrackDetail.observations[]` and evidence viewer expose accepted roles without breaking Representative behaviour | OPEN — implementation is merged: server read contract in S1.3a / PR #82 and viewer in S1.3b / PR #83 (`main@81b43dec32bec0c5e876d2df372503016c05dbdf`); real-video/operator acceptance evidence remains S1.4 |
 | B6 | Relevant Task-10 CPU matrices are rerun; CUDA/E2E evidence is rebound when produced; no stale qualification claim remains | OPEN |
 
 ## C. Component-binding v2 acceptance
