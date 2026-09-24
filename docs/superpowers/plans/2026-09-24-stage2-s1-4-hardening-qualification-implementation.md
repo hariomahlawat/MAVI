@@ -296,7 +296,7 @@ The acceptance is therefore **decomposed and quantitative**. Every term is measu
    - Its in-memory trajectory buffer stays within the spool's chunk bound, independent of Track length. The existing `tracemalloc` flat-with-length tests in `test_trajectory_spool.py` and `test_evidence_pipeline.py` are part of this.
 2. **Per-retired-Track retained cost.** With `tracemalloc`, measure the bytes retained per retired Track as the slope over at least 1,000 retirements at a fixed live envelope. Record it as the descriptor budget D. It must be:
    - independent of that Track's duration, trajectory length and crop sizes. Repeat with 10× longer Tracks and 4× larger crops, and the slope must not change beyond measurement noise, predeclared as ±10 %;
-   - ≤ 16 KiB, a predeclared ceiling far below the smallest per-Track payload (one crop or one trajectory chunk). A retained crop or trajectory would exceed it.
+   - ≤ 16 KiB, a predeclared ceiling. The workload deliberately uses high-entropy crops of at least 32 KiB each and Tracks long enough to fill more than one trajectory spool chunk. So a single retained crop or trajectory chunk per Track would exceed the ceiling. Real crops can be under 1 KiB, as in the scripted corpus, so a ceiling test on small crops would not discriminate.
 3. **Process-level corroboration.**
    - Sample RSS and, on Linux, USS/PSS from `/proc/self/smaps_rollup`; on Windows, `PrivateUsage` through `GetProcessMemoryInfo` via `ctypes`. `psutil` is **not** a MAVI dependency and must not be added for this.
    - Take each sample after `gc.collect()` and a declared warm-up.
