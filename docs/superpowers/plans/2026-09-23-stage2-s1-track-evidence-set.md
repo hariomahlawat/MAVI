@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1 Track Evidence Set Implementation Plan
 
-**Status:** Implementation-grade parent plan; independently reviewed 2026-09-23. S1.1 and S1.2 are merged. The S1.3 plan is accepted (PR #81); S1.3a (read contract) is merged (PR #82, `main@eb521172`); S1.3b (UI) is implemented in PR #83, in review; S1.4 is outstanding.  
+**Status:** Implementation-grade parent plan; independently reviewed 2026-09-23. S1.1, S1.2 and S1.3 are merged. S1.3b merged in PR #83 at `main@81b43dec32bec0c5e876d2df372503016c05dbdf`. S1.4 hardening/qualification is the active closure slice; execution plan: `2026-09-24-stage2-s1-4-hardening-qualification-implementation.md`.  
 **Date:** 2026-09-23  
 **Baseline:** `main@6809606e596d121186b5244869760073fe82072a` — PR #73 merged; Stage-2 architecture frozen  
 **Governing architecture:** ADR-006, ADR-013, ADR-014, Stage-2 parent plan, Stage-2 acceptance register  
@@ -1103,7 +1103,7 @@ Keep UI compact and evidence-oriented.
 
 ## PR S1.4 — qualification/hardening closure
 
-Run bound/performance/offline/Task-10 evidence and update acceptance B1–B6.
+Execute `2026-09-24-stage2-s1-4-hardening-qualification-implementation.md`: freeze the final S1 identity; run B1–B6 deterministic, resource, bound, contract, real-video, disconnected and Task-10 evidence; reconcile qualification truth without changing behavior merely to obtain a new identity; then update the authoritative acceptance register.
 
 S1 closes only here.
 
