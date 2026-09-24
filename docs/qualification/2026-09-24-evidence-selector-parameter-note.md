@@ -39,5 +39,42 @@ No default is changed. The corpus cannot justify tuning: lowering `sharpnessFloo
 
 ## 5. Still open (blocks the plan §5 merge condition)
 
-- **≥ 2 real Development clips — not measured; this blocks merge.** The measurement environment had neither Development footage nor the qualified detector: no `torch` / MMDetection runtime and no RTMDet checkpoint are installed. The footage and the weights are deliberately not in Git. `measure_evidence_parameters.py` scripts detection and tracking, so it cannot measure real clips as it stands. Real clips need it driven by the qualified detector and ByteTrack (the production composition, with the same recording scorer and encoder wrappers), on a Development host that has the qualified runtime. Record the results here. Record per confirmed Track: sharpness, area and edge-margin distributions; the share of frames passing each floor; roles filled; encodes; and how many Tracks use a fallback Representative. Then confirm or adjust `sharpnessFloor`, `edgeMarginFloor`, `replaceEpsilon`, `nearViewGrowth`, `earlyWindowMs` and `lateRefreshIntervalMs` in the same PR. Any change alters the profile SHA and the qualification record's `pipelineProfileSha256`, which stays `pending`.
+- **≥ 2 real Development clips — not measured; this blocks merge.** See §6.
 - **Admission rates, peak RSS and staging bytes at volume** belong to S1.4 and are not claimed here.
+
+## 6. Real-clip measurement (prepared; blocked by network access, 2026-09-24)
+
+**Planned corpus.** Public MOTChallenge benchmark sequences, used for qualification only. They are licensed CC BY-NC-SA 3.0 and are never committed or redistributed.
+
+| Sequence | Character | Intended source |
+|---|---|---|
+| MOT17-02-FRCNN | Crowded pedestrian scene, static camera, 1920×1080, 30 fps, 600 frames | `https://motchallenge.net/sequenceVideos/MOT17-02-FRCNN-raw.webm` |
+| MOT17-13-FRCNN | Busy road, moving (bus) camera, 1920×1080, 25 fps, 750 frames | `https://motchallenge.net/sequenceVideos/MOT17-13-FRCNN-raw.webm` |
+
+The intended sources could not be fetched, so no file hash, size or media metadata is recorded yet. The frame counts and rates above are the benchmark's published values, not measurements.
+
+**Harness.** `tools/vision/dev/measure_evidence_real_clips.py` (Development qualification tooling, not a runtime component).
+- It builds the runtime exactly as the worker does: `WorkerSettings` → `RuntimeSupervisor` (it refuses to run unless READY) → the vision execution lane.
+- It composes each clip exactly as `ProductionVisionProcessor` does: `RTMDetDetector` → `ByteTrackTracker` → `VideoProcessor(evidence_policy=profile.evidence)`.
+- The production scorer and encoder are wrapped only to record what they compute. `EvidenceSelector.observe` / `resolve` are tapped read-only, to record the Representative tier after each frame and the holders before resolve.
+- `test_measure_evidence_real_clips.py` proves the instrumented run's Evidence Sets are identical to the plain production processor's: the same Tracks, roles, ranks, frames, scores and crop bytes. It runs in the Task 10 qualified job.
+- Outputs:
+  - `summary.json`: runtime provenance; per clip, the SHA-256, size, codec, resolution, fps and duration, plus processing time and peak RSS; per Track, candidate and qualified frames, Representative tier and fallback→qualified transition, roles held before and after resolve, encodes, unadmissible counts and crop sizes; per clip and combined, the min/p10/p25/p50/p75/p90/max of sharpness, area, edge margin, confidence and occlusion, the per-floor and all-floor pass rates, fallback rate by Track and class, role coverage, NearView resolve drops and encode statistics.
+  - `candidates.csv.gz`: scalar per-candidate rows, no pixels.
+  - Both stay local and are not committed.
+
+**Blocker (exact).** This session's egress policy returned 403 for:
+- `motchallenge.net`: the clips;
+- `download.pytorch.org`: the qualified `torch==2.6.0` / `torchvision==0.21.0` CPU wheels;
+- `download.openmmlab.com`: the RTMDet-m checkpoint `rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth`, SHA-256 `229f527c…792b`.
+
+These are the same sources the Task 10 qualified-runtime job uses. Runtime and model packs are not in Git by design, so the qualified runtime cannot be established here without them. Nothing was substituted: no other runtime, no fixture detector, and no ground-truth boxes.
+
+**To complete the gate.**
+1. On a host with the qualified Development runtime and the RTMDet Model Pack, download both clips.
+2. Record each clip's SHA-256, size and media metadata (the harness also records them).
+3. If the WebM files are not accepted by the MAVI import path, convert them locally with the runtime's FFmpeg without rescaling or changing the frame rate, and record the command and both hashes.
+4. Run from `src/vision`, with the worker settings in the environment:
+   `python ../../tools/vision/dev/measure_evidence_real_clips.py <out> MOT17-02-FRCNN=<file> MOT17-13-FRCNN=<file>`
+5. Complete this section from `summary.json`, and adjudicate each parameter as in §4. Retain the defaults unless the evidence shows over-rejection, churn or role starvation. Any change re-derives the profile SHA and keeps the qualification gates `pending`.
+
