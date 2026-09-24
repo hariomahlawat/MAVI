@@ -1,6 +1,6 @@
 # MAVI Stage 2 — S1.4 Track Evidence Set Hardening and Qualification Closure Plan
 
-**Status:** Proposed implementation-grade execution plan for S1.4; documentation-only until independently reviewed and accepted.  
+**Status:** Proposed implementation-grade execution plan for S1.4, revision 2. It was amended by the independent cold review of PR #84 at `82d6a710` (three P1, sixteen P2; see `docs/reviews/2026-09-24-stage2-s1-4-plan-cold-review.md`, second pass). It is documentation only until accepted.  
 **Date:** 2026-09-24  
 **Baseline:** `main@81b43dec32bec0c5e876d2df372503016c05dbdf` — PR #83 merged; S1.3 complete.  
 **Parent plan:** `docs/superpowers/plans/2026-09-23-stage2-s1-track-evidence-set.md` §10 / §16.  
@@ -32,7 +32,9 @@ The current pipeline profile is already the S1 behavior-bearing identity:
 - supplemental cap: 163,840 B;
 - EvidenceCrop run quota: 1 GiB.
 
-The existing RTMDet qualification record already references the current pipeline-profile SHA and remains explicitly `pending`. S1.4 therefore does **not** change profile values merely to obtain a new hash.
+The existing RTMDet qualification record already references the current pipeline-profile SHA (`503225be736d9622ed110aa69e49a83dde4ae02c858d5e8fa41e527b1c4b23fb`, verified at `main@81b43dec`) and remains explicitly `pending`. S1.4 therefore does **not** change profile values merely to obtain a new hash.
+
+**The qualified S1 identity is this exact profile file, `profileVersion` `1.2.0-candidate` included.** No mechanism in the repository gives the `-candidate` suffix a meaning. Renaming the version later, for example for a release, changes the profile SHA. That is a new identity: it invalidates every S1.4 item that binds the profile SHA (§2.2), and the record in `models/qualifications/` then stops matching. If a release-facing version is wanted, set it **before** the entry gate freezes the head, as a separate reviewed change; never after measurement.
 
 If execution discovers a behavior-bearing defect, stop qualification, repair it in a separate implementation commit/PR, update the identity if required, and rerun every affected evidence item from the repaired head.
 
@@ -52,6 +54,47 @@ S1.4 execution begins only when all are true on one exact source head:
 
 Moving the behavior-bearing head invalidates the entry gate. Documentation-only report edits after measurement may continue only when they cannot affect execution; the measured source SHA remains explicit.
 
+The measured source SHA must be a commit **on `main`**, reachable from `main`. It is a merge commit, not an unmerged branch head that a squash merge would never land. The harness PR (§13, A) therefore merges before authoritative measurement begins.
+
+### 2.1 Behavior-bearing surface
+
+"Behavior-bearing" is a path set, not a judgement. For S1.4 it is:
+
+- `src/vision/**`, except `src/vision/tests/**`. Tests carry evidence, not behavior; see §2.2;
+- `src/platform/**`;
+- `src/web/mavi-web/src/**`, `src/web/mavi-web/package*.json`;
+- `contracts/**`;
+- `models/**`, `src/vision/runtime/**`, `src/vision/config/**`;
+- `config/dependencies/**` and any offline lock or Runtime Pack definition;
+- `tools/vision/**`, `tools/phase1/**` and the qualification harnesses used to produce evidence;
+- the workflows cited as evidence: `task10-runtime-qualification.yml`, `quality-gate.yml`, `task12-offline-bundle.yml`, `task17-acceptance.yml`.
+
+### 2.2 Invalidation map
+
+A change after freeze to a path in §2.1 invalidates the B-items it can affect, and those items are rerun on the new SHA:
+
+| Changed path | Invalidates |
+|---|---|
+| `src/vision/mavi_vision/evidence/**`, `quality/**`, pipeline profile | B1, B2, B3, B5 real-video, B6, disconnected run |
+| `src/vision/mavi_vision/tracking/**`, `pipeline/**`, `video/**`, `storage/**`, `detection/**` | B1, B2, B3, B5 real-video, B6, disconnected run |
+| `src/vision/mavi_vision/common/**`, `worker/**`, `contracts/**` | B3, B4, B5 real-video, B6, disconnected run |
+| `src/platform/**` | B3 sealing, B4, B5, disconnected run |
+| `src/web/mavi-web/**` | B5 |
+| runtime/model/dependency/offline paths | B1 (encoder bytes), B6, disconnected run |
+| a test or harness that produced evidence | the items that cite it |
+
+Documentation-only changes invalidate nothing.
+
+### 2.3 Closure binding
+
+The closure identity is the merge SHA of the evidence PR on `main`. Before B1–B6 may be recorded PASS at that SHA:
+
+1. `git diff --name-only <measured-sha> <merge-sha>` is retained in the evidence record;
+2. it must contain no path from §2.1, or every item that §2.2 maps it to is rerun on the merge SHA;
+3. the post-merge workflows (§10.4) run on the merge SHA itself.
+
+The post-merge Task-10 run re-proves only the CPU suites. It does not re-prove RSS, bounds, sealing scale, real-video or disconnected evidence. Only the §2.3 diff rule does that.
+
 ---
 
 ## 3. Qualification identity and non-claims
@@ -68,8 +111,36 @@ Every retained S1.4 evidence record must name, where applicable:
 - fixture/corpus id and SHA;
 - command or workflow run;
 - timestamp;
+- **host identity** for every measurement: CPU model, physical/logical cores, RAM, OS name/build, filesystem type of staging and accepted-evidence roots, and storage class (SSD/HDD);
+- for every test suite: the workflow run id and its reported `head_sha`, the runtime variant, and the **passed / skipped / failed counts**, with each skip reason;
 - result;
 - limitation/non-claim.
+
+A skipped test is not a pass. A B-item whose required test skipped on a variant is not PASS on that variant unless §3.1 names that skip as an explicit variant non-claim. This matters because several S1 tests skip by design outside the qualified job:
+- `test_golden_bytes_per_runtime_variant` pins only `("linux", "11.3.0")` and skips on `win32`;
+- `test_measure_evidence_real_clips.py` and `test_bytetrack_runtime.py` need `MAVI_RUN_QUALIFIED_*`;
+- one `test_track_lifecycle.py` case is POSIX-only.
+
+The Quality Gate runs `src/vision` tests on Python 3.13, which is not a qualified runtime variant. Its results are correctness evidence, not qualified-variant evidence.
+
+### 3.1 Variant non-claims and deferred qualification-plan items
+
+S1.4 closes B1–B6. It does **not** close qualification-plan §8 ("Evidence-selection qualification"). These §8 items need attribute models and labelled Tracks, so they are deferred to the attribute qualification:
+- the Representative-only versus Evidence-Set inference comparison;
+- the "retained only if it provides material Track-level quality/coverage benefit" decision;
+- the quality impact of byte-cap re-encoding.
+
+S1.4 records the §8 items it can measure without a model:
+- Representative validity rate;
+- admission rates;
+- candidate, admitted and omitted counts by role;
+- bytes and cap utilisation;
+- size distributions;
+- score distributions;
+- redundancy;
+- failure cases by scale, occlusion, blur or crowding where the corpus contains them.
+
+It must not describe itself as §8 closure.
 
 S1.4 may close B1–B6 without claiming any of the following:
 
@@ -99,7 +170,11 @@ with:
 
 Do not commit operational video, private CCTV, binary crops, runtime/model packs, database dumps or multi-megabyte stress outputs.
 
-The machine-readable record must make PASS impossible unless every required field for that B-item is present.
+The machine-readable record must make PASS impossible unless every required field for that B-item is present. The schema and a checker that enforces this ship in the harness PR (§13, A). A negative test must show the checker refusing a PASS with a missing field, a skipped required test, a `head_sha` different from the measured SHA, or a §2.3 diff that touches the behavior-bearing surface.
+
+**Retention.** GitHub Actions run artifacts expire, so a run URL alone is not retained evidence. The small JSON records Task 10 uploads are downloaded and committed under `docs/qualification/stage2-s1/`, with their SHA-256, run id and `head_sha`: `bytetrack-qualification.json`, the production-composition record and the runtime-probe record.
+
+**Labelling.** Every UI/acceptance item is labelled `real-video` or `fixture`. Fixture-only error-state QA (unavailable crop, legacy shape, corrupt read seam) is never reported as real-video acceptance.
 
 ---
 
