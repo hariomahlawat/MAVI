@@ -394,6 +394,8 @@ After the S1.4 PR merges, verify the resulting `main` head with:
 - Task 17 Acceptance Validation;
 - any other workflow triggered by actual S1.4 code/config changes.
 
+If the merge is documentation/evidence-only and Task 10's path filters do not start a push run, invoke its existing `workflow_dispatch` explicitly against the **merge SHA on `main`**, not against the pre-merge PR head. Record that run as the post-merge B6 evidence. Do not treat an older green run on an ancestor as post-merge verification.
+
 **B6 PASS:** current CPU matrices are green on the final S1 identity, no qualification record points at a stale pipeline profile, unavailable CUDA/E2E evidence is explicitly pending rather than inherited, and exact-head/post-merge CI is green.
 
 ---
