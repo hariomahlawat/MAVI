@@ -564,7 +564,14 @@ def measure_completion_peak(result: VisionProcessingResult) -> dict[str, int]:
 
     async def invoke() -> None:
         with tempfile.TemporaryDirectory() as media_root:
-            settings = WorkerSettings(api_base_url="https://mavi-api.local", worker_id=golden["workerId"], media_root=Path(media_root))
+            # The harness exercises the S1.4 B3 F2 hand-off explicitly: the worker
+            # gate is set to 3.1 here, matching the fake platform's acknowledgement.
+            settings = WorkerSettings(
+                api_base_url="https://mavi-api.local",
+                worker_id=golden["workerId"],
+                media_root=Path(media_root),
+                completion_schema_version="3.1",
+            )
             client = WorkerApiClient(settings, httpx.AsyncClient(transport=httpx.MockTransport(handler)))
             try:
                 response = await client.complete(lease, result, 1, provenance)

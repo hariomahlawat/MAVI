@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Contracts.Worker;
+using Microsoft.Extensions.Options;
 
 namespace Mavi.Api.Endpoints;
 
@@ -11,10 +12,13 @@ public static class VisionJobEndpoints
     {
         // Additive capability probe (S1.2a): a worker that emits completion 3.x
         // checks it before becoming ready. Workers that predate it never call it.
-        // Since F2 it lists 2.0 and 3.1; 3.0 is retired (plan §15.2).
-        endpoints.MapGet("/api/vision/contract", () => Results.Ok(new VisionContractCapabilitiesResponse(
-            WorkerContractRules.SchemaVersion,
-            WorkerContractRules.CompletionSchemaVersions)));
+        // The advertised set and the accepted set below derive from the same activation
+        // gate (VisionFinalization:Enabled): 2.0 + 3.0 until the F3 finalizer exists,
+        // 2.0 + 3.1 once it is activated, with 3.0 retired (plan §15.2).
+        endpoints.MapGet("/api/vision/contract", (IOptions<VisionFinalizationOptions> finalization) =>
+            Results.Ok(new VisionContractCapabilitiesResponse(
+                WorkerContractRules.SchemaVersion,
+                WorkerContractRules.CompletionSchemaVersions(finalization.Value.Enabled))));
 
         var jobs = endpoints.MapGroup("/api/vision/jobs");
         jobs.MapPost("/lease", LeaseAsync);
@@ -72,15 +76,20 @@ public static class VisionJobEndpoints
         VisionJobCompleteRequest request,
         IProcessingResultStore resultStore,
         IVisionFinalizationSubmissionStore submissionStore,
+        IOptions<VisionFinalizationOptions> finalization,
         CancellationToken cancellationToken)
     {
-        if (!WorkerContractRules.IsAcceptedCompletionSchemaVersion(request.SchemaVersion)) return CompletionVersionProblem();
+        var asynchronousFinalization = finalization.Value.Enabled;
+        if (!WorkerContractRules.IsAcceptedCompletionSchemaVersion(request.SchemaVersion, asynchronousFinalization))
+            return CompletionVersionProblem(asynchronousFinalization);
         if (!WorkerContractRules.TryNormalizeWorkerId(request.WorkerId, out var workerId)) return WorkerProblem();
         if (!WorkerContractRules.IsCanonicalLeaseToken(request.LeaseToken))
             return Problem(400, "vision_job_completion_invalid", "Completion input is invalid.");
 
         // 3.1 is the durable hand-off (S1.4 B3 plan §6): no sealing, no graph, no completion
-        // in this request. 2.0 keeps the synchronous store unchanged.
+        // in this request. It is reachable only once the gate above admits 3.1, so no job can
+        // enter Finalizing on a platform without the F3 finalizer. 2.0 (and 3.0 while the gate
+        // is off) keep the synchronous store.
         if (WorkerContractRules.IsAsynchronousCompletionSchemaVersion(request.SchemaVersion))
             return await SubmitFinalizationAsync(id, workerId, request, submissionStore, cancellationToken);
 
@@ -145,8 +154,10 @@ public static class VisionJobEndpoints
         lease.SourceSizeBytes, lease.RecordingStartUtc, lease.RecordingEndUtc, lease.DurationMs, lease.Width, lease.Height,
         lease.FrameRateNumerator, lease.FrameRateDenominator, lease.RecordingTimeZoneId, lease.RecordingUtcOffsetMinutes);
     private static IResult VersionProblem() => Problem(400, "worker_contract_version_unsupported", "Worker contract version 2.0 is required.");
-    private static IResult CompletionVersionProblem() => Problem(400, "worker_contract_version_unsupported",
-        "Worker completion contract version 2.0 or 3.1 is required.");
+    private static IResult CompletionVersionProblem(bool asynchronousFinalization) => Problem(400, "worker_contract_version_unsupported",
+        asynchronousFinalization
+            ? "Worker completion contract version 2.0 or 3.1 is required."
+            : "Worker completion contract version 2.0 or 3.0 is required.");
     private static IResult WorkerProblem() => Problem(400, "worker_id_invalid", "A valid worker ID is required.");
     private static IResult Result(OrchestrationResult result) => result.IsSuccess ? Results.Ok() : Problem(
         result.ErrorCode == "vision_job_not_found" ? 404 : 409, result.ErrorCode!, "The vision job operation was rejected.");

@@ -105,6 +105,7 @@ public sealed class VisionResultCompletionCommitFailureTests
     private static ApiTestFactory Factory(CommitBoundaryFaults faults) => new()
     {
         Clock = new MutableTimeProvider(Now),
+        EnableAsynchronousFinalization = true,
         ConfigureDbContext = options => options.AddInterceptors(faults),
     };
 

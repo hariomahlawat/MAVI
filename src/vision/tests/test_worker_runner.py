@@ -8,6 +8,7 @@ import pytest
 
 from mavi_vision.common.analytical import VisionProcessingResult
 from mavi_vision.common.control_plane import (
+    VisionJobCompleteResponse,
     VisionJobFinalizationResponse,
     VisionJobHeartbeatResponse,
     VisionJobLease,
@@ -1034,12 +1035,84 @@ def test_current_attempt_staging_survives_the_hand_off(tmp_path: Path, state: st
     assert any(f"handed off: state={state}" in r.message for r in caplog.records)
 
 
-def test_the_runner_has_no_post_hand_off_staging_cleaner(tmp_path: Path) -> None:
-    """Mutation guard: nothing on the runner or its composition can delete the
-    current attempt after acknowledgement; the only deletions left are the
-    pipeline's superseded-attempt cleanup and the platform janitor."""
-    from types import SimpleNamespace
+class SynchronousWorkerApiClient(FakeWorkerApiClient):
+    """Answers completion with a synchronous 3.0 acknowledgement (gate off)."""
 
+    async def complete(self, lease, result, processing_duration_ms, provenance, *, authorize_publish=None):
+        await super().complete(lease, result, processing_duration_ms, provenance, authorize_publish=authorize_publish)
+        return VisionJobCompleteResponse.model_validate_json(json.dumps({
+            "schemaVersion": "3.0",
+            "jobId": str(lease.job_id),
+            "processingRunId": str(lease.processing_run_id),
+            "tracksAccepted": len(result.tracks),
+            "completedAtUtc": "2026-09-25T08:00:00Z",
+        }))
+
+
+def test_the_cleaner_runs_only_after_a_synchronous_completion(tmp_path: Path) -> None:
+    """Mutation guard for the activation boundary: the same runner with the
+    same cleaner releases the attempt after a 3.0 completion (the platform
+    sealed in the request) and never after a 3.1 hand-off."""
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+
+    def run(client) -> list[tuple[object, int]]:
+        calls: list[tuple[object, int]] = []
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            RecordingProcessor(make_result(client.leased_job)),
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            staging_cleaner=lambda job_id, attempt: (calls.append((job_id, attempt)), client.events.append("cleanup")),
+        )
+        assert asyncio.run(runner.run_once()) is True
+        return calls
+
+    lease = make_lease()
+    synchronous = SynchronousWorkerApiClient(lease)
+    assert run(synchronous) == [(lease.job_id, lease.attempt_count)]
+    assert synchronous.events.index("complete") < synchronous.events.index("cleanup")
+
+    for state in ("finalizing", "completed"):
+        finalizing = FinalizingWorkerApiClient(make_lease(), state)
+        assert run(finalizing) == []
+        assert "cleanup" not in finalizing.events
+
+
+def test_cleanup_failure_after_a_synchronous_completion_does_not_fail_the_attempt(tmp_path: Path, caplog) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+
+    def failing_cleaner(job_id, attempt) -> None:
+        raise OSError("device busy")
+
+    client = SynchronousWorkerApiClient(lease)
+    runner = WorkerRunner(
+        client,
+        LocalMediaStore(tmp_path),
+        2.0,
+        RecordingProcessor(make_result(lease)),
+        runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+        staging_cleaner=failing_cleaner,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        assert asyncio.run(runner.run_once()) is True
+
+    assert "complete" in client.events
+    assert client.failures == []
+    assert any("staging janitor will reclaim" in r.message for r in caplog.records)
+
+
+def test_composed_runner_releases_exactly_the_accepted_attempt(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from mavi_vision.storage.artifact_store import StagingArtifactStore
     from mavi_vision.worker.main import build_runner
 
     settings = SimpleNamespace(
@@ -1049,12 +1122,17 @@ def test_the_runner_has_no_post_hand_off_staging_cleaner(tmp_path: Path) -> None
         request_timeout_seconds=30.0,
         watchdog_grace_seconds=10.0,
     )
-    runner = build_runner(settings, client=None)  # type: ignore[arg-type]
+    job_id, other_job = uuid4(), uuid4()
+    for job, attempt in ((job_id, 1), (job_id, 2), (other_job, 2)):
+        StagingArtifactStore(tmp_path, job, attempt).append_bytes("spool/t.traj", b"x")
 
-    assert not hasattr(runner, "_staging_cleaner")
-    assert not hasattr(runner, "_release_accepted_staging")
-    with pytest.raises(TypeError):
-        WorkerRunner(FakeWorkerApiClient(None), LocalMediaStore(tmp_path), 2.0, None, staging_cleaner=lambda j, a: None)
+    runner = build_runner(settings, client=None)  # type: ignore[arg-type]
+    runner._staging_cleaner(job_id, 2)
+
+    staging = tmp_path / "staging"
+    assert not (staging / str(job_id) / "attempt-0002").exists()
+    assert (staging / str(job_id) / "attempt-0001" / "spool" / "t.traj").exists()
+    assert (staging / str(other_job) / "attempt-0002" / "spool" / "t.traj").exists()
 
 
 def test_staging_is_kept_after_lease_loss_too(tmp_path: Path) -> None:

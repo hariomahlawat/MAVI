@@ -19,7 +19,9 @@ namespace Mavi.IntegrationTests;
 /// <summary>
 /// Completion 3.1 end to end (S1.4 B3 asynchronous finalization plan §5, §6, §10.1–§10.2; slice F2):
 /// the durable hand-off, its replay and conflict rules, its concurrency, the protocol switch, and
-/// the things the request must no longer do.
+/// the things the request must no longer do. Every test here runs with the activation gate on
+/// (<c>VisionFinalization:Enabled</c>), the state the F3 release switches to; the default
+/// (gate off) state is <see cref="VisionFinalizationActivationGateTests"/>.
 /// </summary>
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class VisionFinalizationSubmissionApiTests
@@ -446,6 +448,7 @@ public sealed class VisionFinalizationSubmissionApiTests
     private static ApiTestFactory Factory(TimeProvider clock, IAcceptedEvidenceStore? sealer = null, ILoggerProvider? logs = null) => new()
     {
         Clock = clock,
+        EnableAsynchronousFinalization = true,
         OverrideServices = services =>
         {
             if (sealer is not null)

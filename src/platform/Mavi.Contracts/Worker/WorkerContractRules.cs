@@ -20,21 +20,29 @@ public static class WorkerContractRules
     public const string CompletionSchemaVersionV31 = "3.1";
 
     /// <summary>
-    /// Completion versions this platform accepts at <c>POST …/complete</c> and advertises at
-    /// <c>GET /api/vision/contract</c>, in ascending order. Since F2 of the
-    /// asynchronous-finalization repair this is <see cref="AsynchronousCompletionSchemaVersions"/>:
-    /// 2.0 unchanged (synchronous), 3.1 answered by a durable hand-off, and 3.0 retired
-    /// (plan §15.2). A 3.0 body is refused with <c>worker_contract_version_unsupported</c> and
-    /// is never reinterpreted as 3.1.
+    /// The completion versions accepted at <c>POST …/complete</c> and advertised at
+    /// <c>GET /api/vision/contract</c> while asynchronous finalization is not activated:
+    /// 2.0 and 3.0, both synchronous. This is the only supported live set until the F3
+    /// finalizer exists (S1.4 B3 plan §15.2, F2 deployment note).
     /// </summary>
-    public static IReadOnlyList<string> CompletionSchemaVersions => AsynchronousCompletionSchemaVersions;
+    public static IReadOnlyList<string> SynchronousCompletionSchemaVersions { get; } =
+        [CompletionSchemaVersionV2, CompletionSchemaVersionV3];
 
-    /// <summary>The live set since F2: 2.0 unchanged, 3.1 asynchronous, 3.0 retired.</summary>
+    /// <summary>
+    /// The set activated with the F3 finalizer: 2.0 unchanged, 3.1 answered by a durable
+    /// hand-off, 3.0 retired at that activation (never reinterpreted as 3.1).
+    /// </summary>
     public static IReadOnlyList<string> AsynchronousCompletionSchemaVersions { get; } =
         [CompletionSchemaVersionV2, CompletionSchemaVersionV31];
 
-    public static bool IsAcceptedCompletionSchemaVersion(string? value) =>
-        value is CompletionSchemaVersionV2 or CompletionSchemaVersionV31;
+    /// <summary>The live set for one activation state; advertisement and acceptance both derive from it.</summary>
+    public static IReadOnlyList<string> CompletionSchemaVersions(bool asynchronousFinalizationEnabled) =>
+        asynchronousFinalizationEnabled ? AsynchronousCompletionSchemaVersions : SynchronousCompletionSchemaVersions;
+
+    public static bool IsAcceptedCompletionSchemaVersion(string? value, bool asynchronousFinalizationEnabled) =>
+        asynchronousFinalizationEnabled
+            ? value is CompletionSchemaVersionV2 or CompletionSchemaVersionV31
+            : value is CompletionSchemaVersionV2 or CompletionSchemaVersionV3;
 
     /// <summary>Every completion version the platform can read, accepted or not.</summary>
     public static bool IsKnownCompletionSchemaVersion(string? value) =>

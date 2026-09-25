@@ -7,6 +7,7 @@ using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Mavi.Infrastructure.Persistence.Repositories;
 
@@ -37,6 +38,7 @@ public sealed class VisionFinalizationSubmissionStore(
     TimeProvider timeProvider,
     ILeaseCapabilityService leaseCapabilities,
     VisionResultValidator validator,
+    IOptions<VisionFinalizationOptions> finalizationOptions,
     ILogger<VisionFinalizationSubmissionStore> logger) : IVisionFinalizationSubmissionStore
 {
     private static readonly Action<ILogger, Guid, int, int, long, string, Exception?> LogHandOff =
@@ -53,6 +55,10 @@ public sealed class VisionFinalizationSubmissionStore(
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        // Defence in depth behind the endpoint gate: without the F3 finalizer no job may enter
+        // Finalizing, whatever reached this store (plan §15.2, F2 deployment note).
+        if (!finalizationOptions.Value.Enabled)
+            return VisionFinalizationSubmissionResult.Failure("vision_finalization_disabled");
         var total = Stopwatch.StartNew();
 
         // Only the asynchronous exchange comes here; 2.0 keeps its synchronous store and 3.0

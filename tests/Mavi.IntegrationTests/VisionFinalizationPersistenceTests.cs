@@ -286,9 +286,9 @@ public sealed class VisionFinalizationPersistenceTests(PostgresFixture fixture)
     // -- F1 runtime posture -------------------------------------------------------------------
 
     [Fact]
-    public async Task EndpointRejectsRetired30AndProbeAdvertises20And31()
+    public async Task EndpointRejectsRetired30AndProbeAdvertises20And31WhenActivated()
     {
-        using var factory = new ApiTestFactory { Clock = new MutableTimeProvider(Now) };
+        using var factory = new ApiTestFactory { Clock = new MutableTimeProvider(Now), EnableAsynchronousFinalization = true };
         await factory.ResetAndMigrateAsync();
         var videoId = await VisionResultCompletionApiTests.SeedVideoAsync(factory);
         using var client = factory.CreateClient();
