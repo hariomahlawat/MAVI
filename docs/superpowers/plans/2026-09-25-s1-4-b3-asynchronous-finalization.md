@@ -138,7 +138,7 @@ Fields:
 
 - canonical semantic finalization payload bytes (`bytea`), containing only schema/job/attempt/result/provenance/evidence facts required for deterministic re-validation;
 - byte length;
-- SHA-256 of request bytes;
+- SHA-256 of the retained semantic payload bytes;
 - completion digest;
 - created/accepted timestamp.
 
