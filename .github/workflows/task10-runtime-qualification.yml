@@ -31,6 +31,9 @@ on:
       - 'src/vision/mavi_vision/**'
       - 'src/vision/tests/test_bytetrack_*.py'
       - 'src/vision/tests/test_worker_completion_v3.py'
+      # S1.4 B3 F4 plan §14: the worker client/runner 3.1 behaviour is B4 evidence.
+      - 'src/vision/tests/test_worker_client.py'
+      - 'src/vision/tests/test_worker_runner.py'
       - 'src/vision/tests/test_completion_contract_*.py'
       - 'src/vision/tests/test_tracker_update.py'
       - 'src/vision/tests/test_track_finalization.py'
@@ -80,6 +83,9 @@ on:
       - 'src/vision/mavi_vision/**'
       - 'src/vision/tests/test_bytetrack_*.py'
       - 'src/vision/tests/test_worker_completion_v3.py'
+      # S1.4 B3 F4 plan §14: the worker client/runner 3.1 behaviour is B4 evidence.
+      - 'src/vision/tests/test_worker_client.py'
+      - 'src/vision/tests/test_worker_runner.py'
       - 'src/vision/tests/test_completion_contract_*.py'
       - 'src/vision/tests/test_tracker_update.py'
       - 'src/vision/tests/test_track_finalization.py'
@@ -202,6 +208,8 @@ jobs:
           tests/test_evidence_pipeline.py
           tests/test_evidence_scripted_corpus.py
           tests/test_worker_completion_v3.py
+          tests/test_worker_client.py
+          tests/test_worker_runner.py
           tests/test_completion_contract_bounds.py
           tests/test_tracker_update.py
           tests/test_track_finalization.py

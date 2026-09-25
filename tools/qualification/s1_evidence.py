@@ -28,12 +28,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
+import math
 import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass
+from datetime import datetime
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, Iterable
@@ -85,8 +88,19 @@ ALWAYS_EVIDENCE: dict[str, tuple[str, ...]] = {
     "tests/fixtures/scene-analytics/scripted-corpus-v1.json": ("B1",),
     # The harnesses that produce a unit's retained output are evidence whether
     # or not the record cites them as suites.
+    # The retired synchronous harness (S1.4 B3 F4 plan §22): a later diff that
+    # touches or deletes it still invalidates B3.
     "tests/Mavi.IntegrationTests/Qualification/S1SealingScaleTests.cs": ("B3",),
     "tests/Mavi.IntegrationTests/Qualification/QualificationGate.cs": ("B3",),
+    # F4 plan §8, §9, §11: the B3-A, B3-B and crash harnesses and their instrumentation.
+    "tests/Mavi.IntegrationTests/Qualification/S1HandOffScaleTests.cs": ("B3",),
+    "tests/Mavi.IntegrationTests/Qualification/S1FinalizationEnvelopeTests.cs": ("B3",),
+    "tests/Mavi.IntegrationTests/Qualification/S1FinalizationRecoveryTests.cs": ("B3",),
+    "tests/Mavi.IntegrationTests/Qualification/S1QualificationSupport.cs": ("B3",),
+    "tests/Mavi.IntegrationTests/Qualification/PublicationTimeline.cs": ("B3",),
+    "tests/Mavi.IntegrationTests/Qualification/FinalizationTimingDecorator.cs": ("B3",),
+    "tests/Mavi.IntegrationTests/Qualification/ApiContentionProber.cs": ("B3",),
+    "tests/Mavi.IntegrationTests/Qualification/ChildApiHost.cs": ("B3",),
 }
 
 # --------------------------------------------------------------------------- §2.2
@@ -137,8 +151,9 @@ class UnitRequirement:
 KIB = 1024
 MIB = 1024 * 1024
 MAXIMUM_COMPLETION_TRACKS = 10_000
-# §7.4 worst case: a trajectory plus four crops per Track.
-WORST_CASE_SEALED_OBJECTS = MAXIMUM_COMPLETION_TRACKS * 5
+# The worst case: a trajectory plus four crops per Track (F4 plan §8.2).
+WORST_CASE_OBJECTS = MAXIMUM_COMPLETION_TRACKS * 5
+WORST_CASE_OBSERVATIONS = MAXIMUM_COMPLETION_TRACKS * 4
 
 
 # §3.1: the only skips a PASS admits, each an OS-conditional test that passes
@@ -226,6 +241,9 @@ NON_OUTCOME_ARTIFACTS = frozenset({
     "disconnected.runtime-bundle-manifest",
     "disconnected.isolation-before",
     "disconnected.isolation-after",
+    "disconnected.dependency-diff",
+    "disconnected.connect-trace",
+    "disconnected.runtime-manifests",
 })
 
 # §11: the reused probe, ``assert_outbound_internet_unavailable`` in
@@ -252,6 +270,17 @@ DISCONNECTED_OUTCOMES = (
 )
 
 
+def is_loopback_address(address: str) -> bool:
+    """A connect target that never leaves the host: a loopback IP, localhost, or a
+    local (Unix-domain) socket path."""
+    if address in ("localhost",) or address.startswith("/") or address.startswith("unix:"):
+        return True
+    try:
+        return ipaddress.ip_address(address.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
 def other_variant(variant: str) -> str:
     return next(other for other in QUALIFIED_CPU_VARIANTS if other != variant)
 
@@ -269,8 +298,71 @@ def worker_request_timeout_bounds_ms(text: str | None = None) -> tuple[float, fl
     return float(match.group(1)) * 1000.0, float(match.group(2)) * 1000.0
 
 TRAJECTORY_CHUNK_POINTS = 4096  # mavi_vision.video.trajectory_spool.DEFAULT_CHUNK_POINTS
-SEALING_WALL_METRIC = "b3.real-store-completion-wall-ms"
-SEALING_OUTPUT_ARTIFACT = "b3.sealing-scale-output"
+# --------------------------------------------------------------------------- B3 (F4 plan §8, §9, §11)
+# The retired synchronous criterion (a completion wall time with 2x headroom) is
+# gone: B3 is the durable hand-off (B3-A) plus the asynchronous finalization
+# envelope (B3-B) plus the crash matrix, on both qualified CPU variants.
+HANDOFF_OUTPUT_ARTIFACT = "b3a.hand-off-output"
+FINALIZATION_OUTPUT_ARTIFACT = "b3b.finalization-output"
+CRASH_OUTPUT_ARTIFACT = "b3.crash-matrix-output"
+HANDOFF_WALL_METRIC = "b3a.hand-off-wall-ms"
+HANDOFF_REPLAY_METRIC = "b3a.replay-wall-ms"
+FINALIZATION_TOTAL_METRIC = "b3b.total-hand-off-to-publication-ms"
+BARRIER_HOLD_METRIC = "b3b.visibility-barrier-hold-ms"
+GRAPH_PERSISTENCE_METRIC = "b3b.graph-persistence-ms"
+PUBLISH_TRANSACTION_METRIC = "b3b.publish-transaction-ms"
+# §8.4: the hand-off bound, preserved from the S1.4 plan §7.4 amendment.
+HANDOFF_BOUND_MS = 15_000.0
+HANDOFF_OUTPUT_SCHEMA = "s1-b3a-hand-off-v1"
+FINALIZATION_OUTPUT_SCHEMA = "s1-b3b-finalization-v1"
+CRASH_OUTPUT_SCHEMA = "s1-b3-crash-matrix-v1"
+# Each B3 timing metric, and the harness output that is its only producer.
+B3_TIMINGS: tuple[tuple[str, str, str], ...] = (
+    # (metric base, output artifact base, per-sample field the checker recomputes it from)
+    (HANDOFF_WALL_METRIC, HANDOFF_OUTPUT_ARTIFACT, "handOffMs"),
+    (HANDOFF_REPLAY_METRIC, HANDOFF_OUTPUT_ARTIFACT, "replayMs"),
+    (FINALIZATION_TOTAL_METRIC, FINALIZATION_OUTPUT_ARTIFACT, "totalMs"),
+    (BARRIER_HOLD_METRIC, FINALIZATION_OUTPUT_ARTIFACT, "barrierHoldMs"),
+    (GRAPH_PERSISTENCE_METRIC, FINALIZATION_OUTPUT_ARTIFACT, "graphPersistenceMs"),
+    (PUBLISH_TRANSACTION_METRIC, FINALIZATION_OUTPUT_ARTIFACT, "publishTransactionMs"),
+)
+# §9.2.1: the frozen finalizer configuration lives in the API host's appsettings.
+APPSETTINGS_RELATIVE = "src/platform/Mavi.Api/appsettings.json"
+BARRIER_SOURCE_RELATIVE = "src/platform/Mavi.Infrastructure/Persistence/ProcessingVisibilityBarrier.cs"
+FROZEN_CONFIGURATION_KEYS = (
+    "MaxConcurrentFinalizations",
+    "PollIntervalSeconds",
+    "ClaimSeconds",
+    "ClaimExtensionSeconds",
+    "MaximumFinalizationAttempts",
+    "MaximumFinalizationDurationSeconds",
+    "SealingBatchSize",
+    "PayloadCleanupGraceSeconds",
+)
+# §9.2.1: the per-sample publication timeline, in the order the invariant requires.
+TIMELINE_ORDER = (
+    "rowLockAcquired",
+    "graphPersistenceStart",
+    "graphPersistenceEnd",
+    "barrierCommandStarted",
+    "barrierAcquired",
+    "commitCompleted",
+)
+TIMELINE_REQUIRED = (
+    "transactionBegun", *TIMELINE_ORDER, "graphSavingChanges", "graphSavedChanges", "commitStarted",
+)
+BRACKET_PROOFS = ("graphPersistenceBracketContainsOnlyAddAsync", "graphBuildBracketContainsNoLifecycleCall", "singleBarrierCommand")
+# §9.2: the number of samples the synchronous-path reference needs.
+REFERENCE_MINIMUM_SAMPLES = 5
+# §11: the H rows the crash harness must execute, each converging to one publication.
+CRASH_H_SCENARIOS = (
+    "worker-death-after-hand-off",
+    "host-death-before-first-claim",
+    "host-death-mid-seal",
+    "two-hosts-racing",
+)
+# §17.2 / §18.3: B3 timing may not come from a hosted runner.
+STORAGE_CLASSES = ("ssd", "hdd", "nvme", "network", "virtual", "unknown", "hosted-runner")
 TASK10_WORKFLOW = "task10-runtime-qualification.yml"
 QUALITY_GATE_WORKFLOW = "quality-gate.yml"
 # §10.1 / §4: every JUnit file and JSON record the Task-10 CPU job writes.
@@ -297,7 +389,8 @@ TASK10_STEP_SOURCES: dict[str, tuple[str, ...]] = {
             "rtmdet_colour_space", "mmdetection_runtime", "runtime_errors", "bytetrack_profile_semantics",
             "bytetrack_adapter", "production_processor", "process_video", "track_lifecycle", "trajectory_spool",
             "evidence_profile", "evidence_quality", "evidence_encoder", "evidence_selector", "evidence_admission",
-            "evidence_pipeline", "evidence_scripted_corpus", "worker_completion_v3", "completion_contract_bounds",
+            "evidence_pipeline", "evidence_scripted_corpus", "worker_completion_v3", "worker_client", "worker_runner",
+            "completion_contract_bounds",
             "tracker_update", "track_finalization", "artifact_store", "artifact_store_windows", "artifact_publisher",
             "analytical_models", "s1_bound_agreement",
         )
@@ -361,7 +454,10 @@ B2_BASE_MEASUREMENTS = (
     MeasurementRequirement("b2.staging-peak-to-derived-bound-ratio", "ratio", "<=", 1.0),
 )
 # Host fields a harness output must measure and the record's host must equal.
-MEASURED_HOST_FIELDS = ("cpuModel", "physicalCores", "logicalCores", "ramBytes", "os", "osBuild", "stagingFilesystem")
+MEASURED_HOST_FIELDS = (
+    "cpuModel", "physicalCores", "logicalCores", "ramBytes", "os", "osBuild", "stagingFilesystem",
+    "storageClass", "storageClassEvidence",
+)
 LIVE_LEVEL_MINIMUM = 5
 # §5.3: each B1 count is derived by tools/qualification/s1_b1.py, never typed in.
 B1_BASELINE_RELATIVE = "docs/qualification/stage2-s1/b1-accepted-real-clip-baseline.json"
@@ -373,14 +469,168 @@ B1_COUNTS = {
 }
 # §7: the body sizes are proven by these tests, which assert the budgets; the
 # recorded value is informational only once the proving test passed.
-B3_PROVING_TESTS = {
-    "b3.python-worst-shape-body-bytes": ("src/vision/tests/test_worker_completion_v3.py", "test_worst_shape_body_stays_within_the_budget"),
-    "b3.dotnet-worst-shape-body-bytes": ("tests/Mavi.IntegrationTests/WorkerContractV3Tests", "WorstShapeBodyFitsUnderLimit"),
+# F4 plan §11: the I rows of the crash matrix are these existing tests; each must
+# exist at the measured SHA and have passed in the cited TRX.
+_IT = "tests/Mavi.IntegrationTests/"
+_LIFECYCLE = _IT + "VisionFinalizationLifecycleTests"
+_PUBLICATION = _IT + "VisionFinalizationPublicationTests"
+_EXECUTOR = _IT + "VisionFinalizationExecutorTests"
+_HOST = _IT + "VisionFinalizationHostTests"
+_RECOVERY = _IT + "VisionFinalizationRecoveryTests"
+_JANITOR = _IT + "StagingJanitorTests"
+_SUBMISSION = _IT + "VisionFinalizationSubmissionApiTests"
+_COMMIT = _IT + "VisionResultCompletionCommitFailureTests"
+_DOMAIN = "tests/Mavi.Domain.Tests/VisionFinalizationDomainTests"
+_WORKER_V3 = "src/vision/tests/test_worker_completion_v3.py"
+_WORKER_RUNNER = "src/vision/tests/test_worker_runner.py"
+_WORKER_CLIENT = "src/vision/tests/test_worker_client.py"
+_GOLDEN = "tests/Mavi.Application.Tests/CompletionDigestGoldenTests"
+_EXCHANGE31 = "tests/Mavi.Application.Tests/CompletionExchange31Tests"
+ProvingMap = dict[str, tuple[tuple[str, str], ...]]
+B3_PROVING_TESTS: ProvingMap = {
+    "b3.python-worst-shape-body-bytes": ((_WORKER_V3, "test_worst_shape_body_stays_within_the_budget"),),
+    "b3.dotnet-worst-shape-body-bytes": ((_IT + "WorkerContractV3Tests", "WorstShapeBodyFitsUnderLimit"),),
+    "crash.01-worker-death-after-hand-off": ((_RECOVERY, "WorkerDeathImmediatelyAfterHandOffDoesNotMatter"),),
+    "crash.02-host-death-before-first-claim": (
+        (_RECOVERY, "HostDiesBeforeTheFirstClaimAndTheNextHostFinalizes"), (_HOST, "HostRecoversFinalizingRowsOnStartup"),
+    ),
+    "crash.03-host-death-before-first-seal": (
+        (_RECOVERY, "HostDiesBeforeTheFirstSealAndTheReclaimSealsEverything"),
+        (_LIFECYCLE, "ExpiredClaimIsReclaimedWithARotatedTokenAndTheOldTokenIsDead"),
+    ),
+    "crash.04-host-death-mid-seal": ((_RECOVERY, "HostDiesMidSealAndTheReclaimAdoptsWhatWasSealed"),),
+    "crash.05-claim-expiry-mid-seal": ((_EXECUTOR, "ClaimLostMidSealStopsWithoutWritingAndTheLiveClaimantPublishes"),),
+    "crash.06-stale-claimant-after-reclaim": (
+        (_PUBLICATION, "StaleClaimantCannotPublish"),
+        (_LIFECYCLE, "StaleClaimantCannotExtendFailOrNote"),
+        (_PUBLICATION, "AnExpiredClaimCannotPublishEvenWithoutAReclaim"),
+    ),
+    "crash.07-all-sealed-then-crash": ((_RECOVERY, "HostDiesAfterAllSealsBeforePublicationAndTheReclaimAdoptsAndPublishes"),),
+    "crash.08-db-failure-during-graph": (
+        (_PUBLICATION, "ADatabaseFaultDuringGraphPersistenceIsARetryWithNothingWritten"),
+        (_EXECUTOR, "ADatabaseFaultDuringPublicationIsATransientRetry"),
+    ),
+    "crash.09-ambiguous-commit-succeeded": (
+        (_PUBLICATION, "AmbiguousCommitThatSucceededIsNotRepublishedAndTheNoteWritesNothing"),
+        (_EXECUTOR, "AmbiguousCommitThatSucceededEndsAsLostAndIsNotRepublished"),
+    ),
+    "crash.10-ambiguous-commit-failed": ((_EXECUTOR, "AmbiguousCommitThatFailedIsNotedAndTheRetryPublishesOnce"),),
+    "crash.11-death-after-commit-before-cleanup": (
+        (_RECOVERY, "ProcessDiesAfterCommitBeforeCleanupAndALaterCycleCleansThePayload"),
+        (_LIFECYCLE, "PayloadCleanupIsTerminalOnlyGraceBoundedAndIdempotent"),
+    ),
+    "crash.12-final-permitted-claimant-crash": (
+        (_LIFECYCLE, "FinalPermittedClaimantCrashIsExhaustedByReconciliation"),
+        (_RECOVERY, "FinalPermittedClaimantDiesAndTheHostExhaustsTheJob"),
+        (_DOMAIN, "ExhaustFinalizationTakesNoTokenRetainsHandOffFactsAndCannotPublish"),
+    ),
+    "crash.13-absolute-duration-exhaustion": (
+        (_LIFECYCLE, "DurationExceededLiveClaimIsNotKilledImmediatelyAndIsExhaustedAfterItExpires"),
+        (_EXECUTOR, "ExecutorStopsSealingWhenTheDeadlineIsReached"),
+        (_EXECUTOR, "ExecutorPublishesAfterTheDeadlineIfSealingWasComplete"),
+        (_LIFECYCLE, "ClaimSqlAndDomainAgreeAtTheDeadlineInstant"),
+    ),
+    "crash.14-two-hosts-racing": (
+        (_RECOVERY, "TwoHostsRacingOneJobProduceExactlyOnePublication"), (_LIFECYCLE, "ClaimIsExclusiveUnderConcurrency"),
+    ),
+    "crash.15-reconciliation-racing-publication": ((_LIFECYCLE, "ReconciliationSkipsALiveClaimAndARowLockedByAPublisher"),),
+    "crash.16-janitor-while-finalizing": (
+        (_RECOVERY, "JanitorCyclesDuringFinalizingNeverRemoveTheInputAndTheFinalizerSucceeds"),
+        (_JANITOR, "FinalizingJobCurrentAttemptIsPreservedIndefinitelyAndSupersededAttemptsAreReclaimed"),
+        (_JANITOR, "FinalizingJobLaterAttemptIsPreservedAndReportedOnce"),
+        (_JANITOR, "FinalizingThenTerminalKeepsTheGraceRule"),
+    ),
+    "crash.17-malformed-claim-metadata": (
+        (_LIFECYCLE, "MalformedClaimIsNeverClaimedOrExhaustedAndIsReportedOnce"),
+        (_HOST, "MalformedClaimsAreReportedOncePerHostAndCounted"),
+        (_DOMAIN, "MalformedClaimIsNotClaimableNotExhaustibleNotOwned"),
+    ),
+    "crash.19-publication-ordering": (
+        (_PUBLICATION, "PublicationCommitsTheGraphCompletionSequenceAndVideoTogether"),
+        (_PUBLICATION, "NothingIsVisibleBeforeThePublicationCommit"),
+        (_PUBLICATION, "PublicationRefusesAWrongAttemptOrDigestAsStale"),
+        (_PUBLICATION, "PublicationFailsClosedWhenTheRunIsNotRunningOrAGraphAlreadyExists"),
+    ),
 }
+# F4 plan §14: each B4 property and the tests that prove it.
+B4_PROVING_TESTS: ProvingMap = {
+    "python-dotnet-agreement": (
+        (_WORKER_V3, "test_worker_body_is_byte_equivalent_to_the_golden_example"),
+        (_GOLDEN, "V3ExampleMatchesItsPinnedFileHashAndDigest"),
+        (_GOLDEN, "V3IntegerConformanceCorpusMatchesDotNetBinding"),
+        (_EXCHANGE31, "A31BodyNormalizesToV3AndKeepsTheV3Digest"),
+    ),
+    "v2-replay": (
+        (_IT + "VisionResultCompletionApiTests", "CompletePersistsAuthoritativeIntelligenceAndExactReplayIsIdempotent"),
+        (_GOLDEN, "V2ExampleDigestIsUnchangedByCompletion3"),
+        (_SUBMISSION, "V2CompletionIsStillSynchronousAndEchoesItsOwnVersion"),
+    ),
+    "v3-replay": ((_IT + "VisionResultCompletionV3ApiTests", "EvidenceSetIsPersistedInRankOrderAndExactReplayIsIdempotent"),),
+    "v3-1-replay": (
+        (_SUBMISSION, "ExactReplayWhileFinalizingIsIdempotentAndPreservesTheAcceptedTime"),
+        (_SUBMISSION, "ExactReplayOfACompletedJobReportsCompletedWithTheStoredTime"),
+        (_WORKER_V3, "test_a_completed_acknowledgement_is_an_idempotent_replay"),
+    ),
+    "durable-hand-off": (
+        (_SUBMISSION, "ValidSubmissionHandsOffAtomicallyWithoutSealingOrPublishingAnything"),
+        (_SUBMISSION, "IdenticalConcurrentSubmissionsConvergeOnOneHandOff"),
+        (_WORKER_V3, "test_a_finalizing_acknowledgement_is_the_hand_off"),
+    ),
+    "ambiguous-submission-commit-succeeded": ((_COMMIT, "CommitThatSucceededButReportedFailureIsResolvedByTheIdenticalRetry"),),
+    "ambiguous-submission-commit-failed": (
+        (_COMMIT, "FailureBeforeTheCommitWithAnUnconfirmedRollbackStillLeavesNothingCommitted"),
+        (_COMMIT, "FailureBeforeTheCommitLeavesNeitherTransitionNorPayloadAndTheRetryHandsOff"),
+    ),
+    "publication-commit-ambiguity": (
+        (_PUBLICATION, "AmbiguousCommitThatSucceededIsNotRepublishedAndTheNoteWritesNothing"),
+        (_EXECUTOR, "AmbiguousCommitThatFailedIsNotedAndTheRetryPublishesOnce"),
+    ),
+    "no-duplicate-graph": (
+        (_PUBLICATION, "PublicationFailsClosedWhenTheRunIsNotRunningOrAGraphAlreadyExists"),
+        (_RECOVERY, "TwoHostsRacingOneJobProduceExactlyOnePublication"),
+    ),
+    "no-duplicate-sequence": (
+        (_PUBLICATION, "AmbiguousCommitThatSucceededIsNotRepublishedAndTheNoteWritesNothing"),
+        (_RECOVERY, "HostDiesAfterAllSealsBeforePublicationAndTheReclaimAdoptsAndPublishes"),
+    ),
+    "no-compensation-deletion": (
+        (_EXECUTOR, "NoAsynchronousFinalizationSourceReferencesAcceptedEvidenceDeletion"),
+        (_EXECUTOR, "ConflictingAcceptedObjectFailsClosedAndIsNeverTouched"),
+    ),
+    "identical-evidence-adopted": (
+        (_EXECUTOR, "RetryAdoptsIdenticalAcceptedObjectsWithoutDeletingAnything"),
+        (_RECOVERY, "HostDiesMidSealAndTheReclaimAdoptsWhatWasSealed"),
+    ),
+    "staging-survives-hand-off-and-finalization": (
+        (_WORKER_RUNNER, "test_current_attempt_staging_survives_the_hand_off"),
+        (_RECOVERY, "JanitorCyclesDuringFinalizingNeverRemoveTheInputAndTheFinalizerSucceeds"),
+    ),
+    "stale-claimant-cannot-publish-or-fail": (
+        (_PUBLICATION, "StaleClaimantCannotPublish"),
+        (_LIFECYCLE, "StaleClaimantCannotExtendFailOrNote"),
+        (_DOMAIN, "FailFinalizationRefusesAnExpiredWrongOrRotatedAwayClaim"),
+    ),
+    "final-permitted-claimant-exhaustion": ((_LIFECYCLE, "FinalPermittedClaimantCrashIsExhaustedByReconciliation"),),
+}
+PROVING_TESTS_BY_UNIT: dict[str, ProvingMap] = {"B3": B3_PROVING_TESTS, "B4": B4_PROVING_TESTS}
 B5_CLIP_METRIC = "b5.real-video-clips"
-# §9.2: what a real-video clip must have shown to count.
-B5_CLIP_CHECKS = ("completionAccepted", "trackDetailVerified", "evidenceSetVerified")
-SEALING_HOST_FIELDS = ("cpuModel", "logicalCores")
+B5_VIDEO_SCHEMA = "s1-b5-real-video-record-v2"
+B5_QA_SCHEMA = "s1-b5-visual-qa-v2"
+# §9.2 and F4 plan §15.2: what a real-video clip must have shown to count,
+# including the asynchronous path's Finalizing phase.
+B5_CLIP_CHECKS = (
+    "completionAccepted", "finalizingObserved", "prematureVisibilityAbsent", "completedAfterAsyncPublication",
+    "trackDetailVerified", "evidenceSetVerified",
+)
+# F4 plan §15.3: the operator-UI items a B5 PASS needs, whatever their label.
+B5_QA_REQUIRED_ITEMS = ("finalizingStateDistinct", "failedFinalizationDistinct", "noPrematureCounts")
+# The .NET harness outputs bind these host fields (it can read them portably).
+B3_HOST_FIELDS = ("cpuModel", "logicalCores", "acceptedEvidenceFilesystem", "storageClass", "storageClassEvidence")
+# F4 plan §22: every retained artifact of a PASS lies under the measured SHA's own evidence folder.
+EVIDENCE_ROOT = "docs/qualification/stage2-s1/evidence/"
+# F4 plan §19: the disconnected run exercises the activated asynchronous path.
+DISCONNECTED_RUN_SCHEMA = "s1-disconnected-run-v2"
+DISCONNECTED_ACTIVATION = {"visionFinalizationEnabled": True, "completionSchemaVersion": "3.1"}
 
 UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
     # §5: deterministic suites on both variants; repeat, cross-variant and
@@ -434,8 +684,10 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
             f"{artifact}.{variant}" for artifact in (B2_OUTPUT_ARTIFACT, B2_LIFECYCLE_ARTIFACT) for variant in QUALIFIED_CPU_VARIANTS
         ),
     ),
-    # §7: exact edges, existing body budgets, real-store completion time with
-    # ≥ 2× headroom against the worker request timeout.
+    # §7 and F4 plan §8, §9, §11: exact edges and body budgets; the durable
+    # hand-off (B3-A, max <= 15 s) and the asynchronous finalization envelope
+    # (B3-B, max <= 1/2 of the frozen maximum duration) on each qualified CPU
+    # variant; the crash matrix. B3-A alone, B3-B alone or one OS never passes.
     "B3": UnitRequirement(
         suites=(
             "src/vision/tests/test_evidence_encoder.py",
@@ -446,33 +698,59 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
             "src/vision/tests/test_s1_bound_agreement.py",
             "tests/Mavi.IntegrationTests/WorkerContractV3Tests",
             "tests/Mavi.IntegrationTests/S1BoundAgreementTests",
+            _DOMAIN,
+            _LIFECYCLE,
+            _PUBLICATION,
+            _EXECUTOR,
+            _HOST,
+            _RECOVERY,
+            _JANITOR,
         ),
         variants=QUALIFIED_CPU_VARIANTS,
         measurements=(
             MeasurementRequirement("b3.python-worst-shape-body-bytes", "bytes", "<=", 40 * MIB),
             MeasurementRequirement("b3.dotnet-worst-shape-body-bytes", "bytes", "<=", 32 * MIB),
             MeasurementRequirement("b3.worker-request-timeout-ms", "ms"),
-            # §7.4: on the real filesystem of each supported Development OS.
-            *(MeasurementRequirement(f"{SEALING_WALL_METRIC}.{variant}", "ms", timing=True) for variant in QUALIFIED_CPU_VARIANTS),
+            *(
+                MeasurementRequirement(f"{base}.{variant}", "ms", timing=True)
+                for variant in QUALIFIED_CPU_VARIANTS
+                for base, _, _ in B3_TIMINGS
+            ),
         ),
-        artifacts=tuple(f"{SEALING_OUTPUT_ARTIFACT}.{variant}" for variant in QUALIFIED_CPU_VARIANTS),
+        artifacts=tuple(
+            f"{artifact}.{variant}"
+            for artifact in (HANDOFF_OUTPUT_ARTIFACT, FINALIZATION_OUTPUT_ARTIFACT, CRASH_OUTPUT_ARTIFACT)
+            for variant in QUALIFIED_CPU_VARIANTS
+        ),
     ),
-    # §8: Python/.NET agreement, replay and the commit boundary. Since S1.4 B3 F2 the
-    # synchronous v3 suite covers the default (not activated) platform and the completion
-    # 3.1 hand-off suite the activated one; F4 re-derives the B4 set with the finalizer's
-    # publication and recovery suites.
+    # §8 and F4 plan §14: Python/.NET agreement, replay (2.0, 3.0, 3.1), the
+    # durable hand-off and its commit ambiguity, the publication transaction and
+    # its ambiguity, no duplicate graph or sequence, no compensation deletion,
+    # adoption, staging survival, fencing and exhaustion. Each property is proven
+    # by the named tests of B4_PROVING_TESTS.
     "B4": UnitRequirement(
         suites=(
-            "src/vision/tests/test_worker_completion_v3.py",
-            "tests/Mavi.Application.Tests/CompletionDigestGoldenTests",
-            "tests/Mavi.IntegrationTests/VisionResultCompletionV3ApiTests",
-            "tests/Mavi.IntegrationTests/VisionFinalizationSubmissionApiTests",
-            "tests/Mavi.IntegrationTests/VisionResultCompletionApiTests",
-            "tests/Mavi.IntegrationTests/VisionResultCompletionCommitFailureTests",
+            _WORKER_V3,
+            _WORKER_CLIENT,
+            _WORKER_RUNNER,
+            _GOLDEN,
+            _EXCHANGE31,
+            _DOMAIN,
+            _IT + "VisionResultCompletionV3ApiTests",
+            _IT + "VisionResultCompletionApiTests",
+            _SUBMISSION,
+            _COMMIT,
+            _IT + "VisionFinalizationActivationGateTests",
+            _LIFECYCLE,
+            _PUBLICATION,
+            _EXECUTOR,
+            _HOST,
+            _RECOVERY,
+            _IT + "VisionFinalizationPersistenceTests",
         ),
         variants=(),
         measurements=(),
-        artifacts=("b4.completion-v3-golden",),
+        artifacts=("b4.completion-v3-golden", "b4.completion-v3-1-example"),
     ),
     # §9: automated suites plus at least two real clips.
     "B5": UnitRequirement(
@@ -501,6 +779,11 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
             "disconnected.runtime-bundle-manifest",
             "disconnected.isolation-before",
             "disconnected.isolation-after",
+            # F4 plan §19: the static dependency diff, the dynamic connect trace
+            # and the model/runtime manifests the run used.
+            "disconnected.dependency-diff",
+            "disconnected.connect-trace",
+            "disconnected.runtime-manifests",
         ),
     ),
 }
@@ -634,6 +917,103 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+# --------------------------------------------------------------------------- timing (F4 plan §9.2, §23)
+def nearest_rank(values: list[float], fraction: float) -> float:
+    """Nearest-rank percentile, the same rule as the .NET harnesses."""
+    ordered = sorted(values)
+    if not ordered:
+        raise ValueError("percentile_of_empty_series")
+    rank = math.ceil(fraction * len(ordered))
+    return ordered[min(max(rank, 1), len(ordered)) - 1]
+
+
+def timing_stats(samples: list[dict[str, Any]], field: str) -> dict[str, Any] | None:
+    """n, repeats, min/p50/p95/max and the p50 spread across repeats of ``field``
+    over the non-warm-up samples; ``warmupExcluded`` holds when every repeat has
+    at least one excluded warm-up sample. ``None`` without a measured sample."""
+    by_repeat: dict[Any, list[float]] = {}
+    warmups: set[Any] = set()
+    for sample in samples:
+        if sample["warmup"]:
+            warmups.add(sample["repeat"])
+        else:
+            by_repeat.setdefault(sample["repeat"], []).append(float(sample[field]))
+    values = [value for series in by_repeat.values() for value in series]
+    if not values:
+        return None
+    p50s = [nearest_rank(series, 0.50) for series in by_repeat.values()]
+    return {
+        "n": len(values),
+        "repeats": len(by_repeat),
+        "warmupExcluded": all(repeat in warmups for repeat in by_repeat),
+        "min": min(values),
+        "p50": nearest_rank(values, 0.50),
+        "p95": nearest_rank(values, 0.95),
+        "max": max(values),
+        "p50RunSpread": max(p50s) - min(p50s),
+    }
+
+
+def ticks_ms(start: int, end: int, frequency: int) -> float:
+    return (end - start) * 1000.0 / frequency
+
+
+def iso_milliseconds(start: str, end: str) -> float:
+    parse = lambda text: datetime.fromisoformat(text.replace("Z", "+00:00"))  # noqa: E731
+    return (parse(end) - parse(start)).total_seconds() * 1000.0
+
+
+def timeline_problems(timeline: dict[str, Any] | None, barrier_sql: str | None) -> list[str]:
+    """Why a publication timeline cannot yield a successful hold (F4 plan §9.2.1)."""
+    if not isinstance(timeline, dict):
+        return ["no publication timeline"]
+    ticks = timeline.get("ticks") or {}
+    missing = [name for name in TIMELINE_REQUIRED if not isinstance(ticks.get(name), int)]
+    if missing:
+        return [f"raw timestamps missing: {missing}"]
+    problems = []
+    if not isinstance(timeline.get("stopwatchFrequency"), int) or timeline["stopwatchFrequency"] <= 0:
+        problems.append("no stopwatch frequency")
+    if timeline.get("transition") != "Published" or timeline.get("committed") is not True:
+        problems.append("the transaction did not commit a publication")
+    if barrier_sql is not None and timeline.get("barrierCommandText") != barrier_sql:
+        problems.append(f"barrier command {timeline.get('barrierCommandText')!r} is not the exclusive completion lock")
+    if not timeline.get("transactionId") or not timeline.get("connectionId"):
+        problems.append("the timeline is not bound to one transaction and connection")
+    order = [ticks[name] for name in TIMELINE_ORDER]
+    strict = (True, False, True, False, True)  # rowLock < gpStart <= gpEnd < barrierStart <= barrierAcquired < commit
+    for (earlier, later, is_strict, a, b) in zip(order, order[1:], strict, TIMELINE_ORDER, TIMELINE_ORDER[1:]):
+        if (earlier >= later) if is_strict else (earlier > later):
+            problems.append(f"ordering violated: {a} {'<' if is_strict else '<='} {b} does not hold")
+    for earlier, later in (
+        ("transactionBegun", "rowLockAcquired"),
+        ("graphPersistenceStart", "graphSavingChanges"),
+        ("graphSavingChanges", "graphSavedChanges"),
+        ("graphSavedChanges", "graphPersistenceEnd"),
+        ("barrierAcquired", "commitStarted"),
+    ):
+        if ticks[earlier] > ticks[later]:
+            problems.append(f"ordering violated: {earlier} <= {later} does not hold")
+    # The commit is observed completing after it started: a harness that ends the
+    # interval at TransactionCommitting (the call, not PostgreSQL's acknowledgement)
+    # records the two as one instant.
+    if ticks["commitStarted"] >= ticks["commitCompleted"]:
+        problems.append("ordering violated: commitStarted < commitCompleted does not hold (the commit was not observed completing)")
+    return problems
+
+
+def derive_timeline(timeline: dict[str, Any]) -> dict[str, float]:
+    """Every publication interval, each from two directly observed timestamps."""
+    ticks, frequency = timeline["ticks"], timeline["stopwatchFrequency"]
+    return {
+        "barrierHoldMs": ticks_ms(ticks["barrierAcquired"], ticks["commitCompleted"], frequency),
+        "barrierWaitMs": ticks_ms(ticks["barrierCommandStarted"], ticks["barrierAcquired"], frequency),
+        "publishTransactionMs": ticks_ms(ticks["transactionBegun"], ticks["commitCompleted"], frequency),
+        "graphPersistenceMs": ticks_ms(ticks["graphPersistenceStart"], ticks["graphPersistenceEnd"], frequency),
+        "graphSaveChangesMs": ticks_ms(ticks["graphSavingChanges"], ticks["graphSavedChanges"], frequency),
+    }
 
 
 # --------------------------------------------------------------------------- JUnit
@@ -803,6 +1183,7 @@ class _Checker:
         self._suites(name, unit, required, measured_sha)
         self._measurements(name, unit, required, measured_sha)
         self._artifacts(name, unit, required, measured_sha)
+        self._artifact_paths(name, unit)
         if name == "DISCONNECTED":
             self._disconnected(measured_sha)
         if name == "B2":
@@ -811,8 +1192,10 @@ class _Checker:
             self._task10_records(measured_sha)
         if name == "B1":
             self._b1_comparison(measured_sha)
+        if name in PROVING_TESTS_BY_UNIT:
+            self._proving_tests(name, unit, measured_sha)
         if name == "B3":
-            self._b3_proving_tests(unit)
+            self._b3_outputs(measured_sha)
         if name == "B5":
             self._b5_records(measured_sha)
 
@@ -1023,7 +1406,7 @@ class _Checker:
                 else:
                     self._timing(name, requirement.metric, entry)
         if name == "B3":
-            self._b3_headroom(by_metric, measured_sha)
+            self._b3_bounds(by_metric, measured_sha)
 
     def _timing(self, name: str, label: str, entry: dict[str, Any]) -> None:
         if entry.get("samples", 0) < MINIMUM_TIMING_SAMPLES:
@@ -1038,82 +1421,335 @@ class _Checker:
         if "p50RunSpread" not in stats:
             self.fail(name, "timing_incomplete", f"{label}: run-to-run p50 spread not recorded")
 
-    def _b3_headroom(self, by_metric: dict[str, dict[str, Any]], measured_sha: str) -> None:
+    # -- B3 (F4 plan §8, §9, §11, §22) -----------------------------------------------
+    def _b3_bounds(self, by_metric: dict[str, dict[str, Any]], measured_sha: str) -> None:
+        """The worker timeout is the WorkerSettings default at the measured SHA; the
+        hand-off max is within 15 s and half of it; the finalization max is within
+        half of the frozen maximum duration."""
         timeout = by_metric.get("b3.worker-request-timeout-ms")
-        if timeout is None:
-            return
-        settings = self.source_at(measured_sha, WORKER_SETTINGS_RELATIVE)
-        if settings is None:
-            self.fail("B3", "worker_timeout_unbound", f"{WORKER_SETTINGS_RELATIVE} is not readable at the measured {measured_sha}")
-            return
-        default_ms, maximum_ms = worker_request_timeout_bounds_ms(settings.decode("utf-8"))
-        if not 0 < timeout["value"] <= maximum_ms:
-            self.fail("B3", "worker_timeout_out_of_range", f"worker timeout {timeout['value']} ms is outside (0, {maximum_ms}] ms")
-        # No supported install path configures the worker timeout (installs set
-        # none of MAVI_REQUEST_TIMEOUT_SECONDS), so the qualified value is the
-        # WorkerSettings default. A non-default value needs a checker change
-        # that parses a real install configuration, not a cited file.
-        if timeout["value"] != default_ms:
-            self.fail("B3", "worker_timeout_unbound", f"worker timeout {timeout['value']} ms is not the {default_ms} ms WorkerSettings default the qualified install uses")
+        timeout_ms = None
+        if timeout is not None:
+            settings = self.source_at(measured_sha, WORKER_SETTINGS_RELATIVE)
+            if settings is None:
+                self.fail("B3", "worker_timeout_unbound", f"{WORKER_SETTINGS_RELATIVE} is not readable at the measured {measured_sha}")
+            else:
+                default_ms, maximum_ms = worker_request_timeout_bounds_ms(settings.decode("utf-8"))
+                if not 0 < timeout["value"] <= maximum_ms:
+                    self.fail("B3", "worker_timeout_out_of_range", f"worker timeout {timeout['value']} ms is outside (0, {maximum_ms}] ms")
+                # No supported install path configures the worker timeout, so the
+                # qualified value is the WorkerSettings default.
+                if timeout["value"] != default_ms:
+                    self.fail("B3", "worker_timeout_unbound", f"worker timeout {timeout['value']} ms is not the {default_ms} ms WorkerSettings default the qualified install uses")
+                timeout_ms = timeout["value"]
+        bound = HANDOFF_BOUND_MS if timeout_ms is None else min(HANDOFF_BOUND_MS, timeout_ms / 2)
+        committed = self._frozen_configuration(measured_sha)
         for variant in QUALIFIED_CPU_VARIANTS:
-            wall = by_metric.get(f"{SEALING_WALL_METRIC}.{variant}")
-            if wall is None or wall.get("stats") is None:
-                continue
-            # §7.4: headroom below 2× against the worker request timeout is blocking.
-            if wall["stats"]["max"] * 2 > timeout["value"]:
-                self.fail("B3", "completion_headroom_insufficient", f"{variant}: max completion {wall['stats']['max']} ms × 2 > worker timeout {timeout['value']} ms")
-            self._sealing_output(wall, timeout, measured_sha, variant)
+            hand_off = by_metric.get(f"{HANDOFF_WALL_METRIC}.{variant}")
+            if hand_off is not None and hand_off.get("stats") is not None and hand_off["stats"]["max"] > bound:
+                self.fail("B3", "hand_off_bound_violated", f"{variant}: max hand-off {hand_off['stats']['max']} ms > {bound} ms")
+            total = by_metric.get(f"{FINALIZATION_TOTAL_METRIC}.{variant}")
+            if total is not None and total.get("stats") is not None and committed is not None:
+                limit = committed["MaximumFinalizationDurationSeconds"] * 1000.0 / 2
+                if total["stats"]["max"] > limit:
+                    self.fail("B3", "finalization_bound_violated", f"{variant}: max hand-off-to-publication {total['stats']['max']} ms > 1/2 of the frozen maximum duration ({limit} ms)")
+        for metric, entry in by_metric.items():
+            if metric.startswith(("b3a.", "b3b.")):
+                host = self.record["hosts"].get(entry.get("host"), {})
+                if host.get("storageClass") == "hosted-runner":
+                    self.fail("B3", "storage_class_unbound", f"{metric} was measured on a hosted runner ({entry.get('host')}); B3 timing needs a qualified host")
 
-    def _sealing_output(self, wall: dict[str, Any], timeout: dict[str, Any], measured_sha: str, variant: str) -> None:
-        """The wall time must be the sealing harness's authoritative output, on
-        that variant's OS and on the host's declared evidence filesystem."""
-        expected_id = f"{SEALING_OUTPUT_ARTIFACT}.{variant}"
-        artifact_id = wall.get("artifact")
-        if artifact_id != expected_id:
-            self.fail("B3", "sealing_output_unbound", f"{SEALING_WALL_METRIC}.{variant} must cite the {expected_id} artifact")
-            return
-        host = self.record["hosts"].get(wall["host"], {})
-        artifact = self.record["retainedArtifacts"].get(artifact_id)
-        path = None if artifact is None else self._verify_file("B3", artifact_id, artifact)
-        if path is None:
-            return
+    def _frozen_configuration(self, measured_sha: str) -> dict[str, Any] | None:
+        """The record's frozen finalizer configuration must be the one committed in
+        appsettings.json at the measured SHA; returns the committed section."""
+        block = self.record.get("frozenConfiguration")
+        if block is None:
+            self.fail("B3", "frozen_configuration_missing", "B3 needs the frozenConfiguration block (F4 plan §10)")
+            return None
+        text = self.source_at(measured_sha, APPSETTINGS_RELATIVE)
         try:
-            output = json.loads(path.read_text(encoding="utf-8"))
-            shape = output["shape"]
-            # The .NET harness measures what it can portably read: CPU model and
-            # logical cores. The rest of the host is bound through B2's harness.
-            self._bind_host("B3", wall, output["host"], artifact_id, SEALING_HOST_FIELDS)
+            committed = json.loads(text.decode("utf-8"))["VisionFinalization"] if text is not None else None
+        except (ValueError, KeyError, UnicodeDecodeError):
+            committed = None
+        if committed is None:
+            self.fail("B3", "frozen_configuration_unbound", f"{APPSETTINGS_RELATIVE} has no readable VisionFinalization section at {measured_sha}")
+            return None
+        for key in FROZEN_CONFIGURATION_KEYS:
+            if block["values"].get(key) != committed.get(key):
+                self.fail("B3", "frozen_configuration_mismatch", f"frozenConfiguration {key} = {block['values'].get(key)!r}, committed {committed.get(key)!r}")
+        expected_bound = committed.get("MaximumFinalizationDurationSeconds", 0) + committed.get("ClaimSeconds", 0) + committed.get("PollIntervalSeconds", 0)
+        if block["effectiveBoundSeconds"] != expected_bound:
+            self.fail("B3", "frozen_configuration_mismatch", f"effectiveBoundSeconds {block['effectiveBoundSeconds']} is not Max + Claim + Poll = {expected_bound}")
+        if block["activationDefault"] != committed.get("Enabled"):
+            self.fail("B3", "frozen_configuration_mismatch", f"activationDefault {block['activationDefault']} is not the committed Enabled {committed.get('Enabled')!r}")
+        return committed
+
+    def _b3_outputs(self, measured_sha: str) -> None:
+        unit = self.record["units"]["B3"]
+        committed = self._committed_configuration(measured_sha)
+        barrier_sql = self._barrier_sql(measured_sha)
+        for variant in QUALIFIED_CPU_VARIANTS:
+            hand_off = self._b3_output(HANDOFF_OUTPUT_ARTIFACT, HANDOFF_OUTPUT_SCHEMA, variant, measured_sha)
+            if hand_off is not None:
+                self._b3a_content(hand_off, variant)
+                self._b3_recomputed(unit, hand_off, variant, HANDOFF_OUTPUT_ARTIFACT, hand_off.get("samples", []))
+            finalization = self._b3_output(FINALIZATION_OUTPUT_ARTIFACT, FINALIZATION_OUTPUT_SCHEMA, variant, measured_sha)
+            if finalization is not None:
+                derived = self._b3b_content(finalization, variant, committed, barrier_sql)
+                self._b3_recomputed(unit, finalization, variant, FINALIZATION_OUTPUT_ARTIFACT, derived)
+            crash = self._b3_output(CRASH_OUTPUT_ARTIFACT, CRASH_OUTPUT_SCHEMA, variant, measured_sha)
+            if crash is not None:
+                self._crash_content(crash, variant)
+
+    def _committed_configuration(self, measured_sha: str) -> dict[str, Any] | None:
+        text = self.source_at(measured_sha, APPSETTINGS_RELATIVE)
+        try:
+            return json.loads(text.decode("utf-8"))["VisionFinalization"] if text is not None else None
+        except (ValueError, KeyError, UnicodeDecodeError):
+            return None
+
+    def _barrier_sql(self, measured_sha: str) -> str | None:
+        """The exclusive completion lock, read from the measured source, so a changed
+        key cannot keep matching a stale constant."""
+        text = self.source_at(measured_sha, BARRIER_SOURCE_RELATIVE)
+        match = re.search(r'PublicationExclusiveSql\s*=\s*"([^"]+)"', text.decode("utf-8")) if text is not None else None
+        return match.group(1) if match else None
+
+    def _b3_output(self, base: str, schema: str, variant: str, measured_sha: str) -> dict[str, Any] | None:
+        artifact_id = f"{base}.{variant}"
+        output = self._retained_json("B3", artifact_id, "b3_output_mismatch")
+        if output is None:
+            return None
+        code = {HANDOFF_OUTPUT_ARTIFACT: "b3a_output_mismatch", FINALIZATION_OUTPUT_ARTIFACT: "b3b_output_mismatch"}.get(base, "crash_matrix_incomplete")
+        try:
+            environment = output["environment"]
             problems = [
                 label
                 for label, holds in (
-                    ("schema is not s1-b3-sealing-scale-v1", output["schema"] == "s1-b3-sealing-scale-v1"),
+                    (f"schema is not {schema}", output["schema"] == schema),
                     ("status is not complete", output["status"] == "complete"),
-                    ("the run was not authoritative", output["authoritative"] is True),
-                    (f"tracks {shape['tracks']} != {MAXIMUM_COMPLETION_TRACKS}", shape["tracks"] == MAXIMUM_COMPLETION_TRACKS),
-                    (f"sealed objects {shape['sealedObjects']} != {WORST_CASE_SEALED_OBJECTS}", shape["sealedObjects"] == WORST_CASE_SEALED_OBJECTS),
-                    ("its worker timeout differs from the recorded one", output["workerRequestTimeoutMs"] == timeout["value"]),
-                    (f"it measured {output['environment']['gitSha']}, not {measured_sha}", output["environment"]["gitSha"] == measured_sha),
-                    ("its tree was not clean", output["environment"]["gitWorkingTreeClean"] == "true"),
+                    ("the run was not authoritative", output["authoritative"] is True and output["nonAuthoritativeReasons"] == []),
                     (f"it ran on {output['variant']}, not {variant}", output["variant"] == variant),
-                    (
-                        f"its evidence filesystem {output['evidenceFilesystem']!r} is not the host's {host.get('acceptedEvidenceFilesystem')!r}",
-                        str(output["evidenceFilesystem"]).split(" ", 1)[0].lower() == str(host.get("acceptedEvidenceFilesystem")).lower(),
-                    ),
-                    *(
-                        (f"its {stat} differs from the recorded one", output["completion"][stat] == wall["stats"][stat])
-                        for stat in ("min", "p50", "p95", "max")
-                    ),
-                    ("its sample count differs from the recorded one", output["completion"]["n"] == wall.get("samples")),
-                    ("its repeat count differs from the recorded one", output["repeats"] == wall.get("repeats")),
-                    ("its p50 spread differs from the recorded one", output["p50RunSpreadMs"] == wall["stats"].get("p50RunSpread")),
-                    ("it excluded no warm-up", output["warmupExcluded"] >= 1 and wall.get("warmupExcluded") is True),
+                    (f"it measured {environment['gitSha']}, not {measured_sha}", environment["gitSha"] == measured_sha),
+                    ("its tree was not clean", environment["gitWorkingTreeClean"] == "true"),
+                    ("its commit object is absent", environment["gitCommitObjectPresent"] == "true"),
+                    ("its database is not qualification grade", environment["isQualificationGradeDatabase"] == "true"),
                 )
                 if not holds
             ]
-        except (KeyError, TypeError, ValueError) as exc:
-            problems = [f"unreadable ({exc})"]
+            twin = self.record["retainedArtifacts"].get(f"{base}.{other_variant(variant)}")
+            mine = self.record["retainedArtifacts"][artifact_id]
+            if twin is not None and twin.get("sha256") == mine.get("sha256"):
+                problems.append("its bytes are the other variant's output")
+            run = self.record["runs"].get(mine["run"]) or {}
+            if run.get("kind") != "local" or run.get("harnessRunId") != output["runId"]:
+                self.fail("B3", "artifact_run_mismatch", f"{artifact_id}: harness run {output.get('runId')!r} is not the cited run {mine['run']!r} ({run.get('harnessRunId')!r})")
+            for measurement_id in self.record["units"]["B3"]["measurements"]:
+                entry = self.record["measurements"].get(measurement_id)
+                if entry is not None and entry.get("artifact") == artifact_id:
+                    self._bind_host("B3", entry, output["host"], artifact_id, B3_HOST_FIELDS)
+                    if entry["run"] != mine["run"]:
+                        self.fail("B3", "artifact_run_mismatch", f"{entry['metric']} cites run {entry['run']}, its output was retained from {mine['run']}")
+        except (KeyError, TypeError) as exc:
+            problems = [f"incomplete ({exc})"]
         for problem in problems:
-            self.fail("B3", "sealing_output_mismatch", f"sealing output: {problem}")
+            self.fail("B3", code, f"{artifact_id}: {problem}")
+        return output if not problems else None
+
+    def _b3a_content(self, output: dict[str, Any], variant: str) -> None:
+        artifact_id = f"{HANDOFF_OUTPUT_ARTIFACT}.{variant}"
+        problems: list[str] = []
+        try:
+            shape = output["shape"]
+            if (shape["tracks"], shape["observations"], shape["stagedObjects"]) != (MAXIMUM_COMPLETION_TRACKS, WORST_CASE_OBSERVATIONS, WORST_CASE_OBJECTS):
+                problems.append(f"shape {shape} is not the {MAXIMUM_COMPLETION_TRACKS}-Track worst shape with {WORST_CASE_OBJECTS} staged objects")
+            if output["finalizerHostEnabled"] is not False:
+                problems.append("the finalizer host was enabled, so the hand-off could have waited for finalization")
+            timeout = next((m for m in self.record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms"), None)
+            if timeout is not None and output["workerRequestTimeoutMs"] != timeout["value"]:
+                problems.append("its worker timeout differs from the recorded one")
+            samples = output["samples"]
+            if not samples:
+                problems.append("it retains no raw samples")
+            for sample in samples:
+                sample_problems = [
+                    label
+                    for label, holds in (
+                        ("HTTP status is not 200", sample["httpStatus"] == 200),
+                        ("state is not finalizing", sample["state"] == "finalizing"),
+                        ("tracksSubmitted is not the worst shape", sample["tracksSubmitted"] == MAXIMUM_COMPLETION_TRACKS),
+                        ("the job is not Finalizing", sample["jobStatus"] == "Finalizing"),
+                        ("not exactly one payload row", sample["payloadRows"] == 1),
+                        ("publication rows exist", sample["publishedRows"] == 0),
+                        ("accepted-evidence files exist", sample["acceptedEvidenceFiles"] == 0),
+                        ("no accepted timestamp", sample["acceptedAtPresent"] is True),
+                        ("the claim triple is not null", sample["claimTripleNull"] is True),
+                        ("fewer objects were staged", sample["stagedObjects"] == WORST_CASE_OBJECTS),
+                        ("the replay did not answer finalizing", sample["replayState"] == "finalizing"),
+                    )
+                    if not holds
+                ]
+                problems.extend(f"sample {sample.get('repeat')}/{sample.get('index')}: {label}" for label in sample_problems)
+        except (KeyError, TypeError) as exc:
+            problems.append(f"incomplete ({exc})")
+        for problem in problems:
+            self.fail("B3", "b3a_output_mismatch", f"{artifact_id}: {problem}")
+
+    def _b3b_content(self, output: dict[str, Any], variant: str, committed: dict[str, Any] | None, barrier_sql: str | None) -> list[dict[str, Any]]:
+        """Checks the envelope output and returns its samples with every interval
+        recomputed from the retained raw timestamps."""
+        artifact_id = f"{FINALIZATION_OUTPUT_ARTIFACT}.{variant}"
+        problems: list[tuple[str, str]] = []
+        derived: list[dict[str, Any]] = []
+        try:
+            shape = output["shape"]
+            if (shape["tracks"], shape["observations"], shape["stagedObjects"]) != (MAXIMUM_COMPLETION_TRACKS, WORST_CASE_OBSERVATIONS, WORST_CASE_OBJECTS):
+                problems.append(("b3b_output_mismatch", f"shape {shape} is not the worst shape"))
+            if output["hostedServiceUsed"] is not True or output["optionsSource"] != "appsettings.json":
+                problems.append(("b3b_output_mismatch", "it did not run the hosted finalizer with the options from appsettings.json"))
+            configuration = output["configuration"]
+            if configuration.get("Enabled") is not True:
+                problems.append(("frozen_configuration_mismatch", "the measured configuration was not activated"))
+            if committed is None:
+                problems.append(("frozen_configuration_unbound", f"{APPSETTINGS_RELATIVE} is not readable at the measured SHA"))
+            else:
+                for key in FROZEN_CONFIGURATION_KEYS:
+                    if configuration.get(key) != committed.get(key):
+                        problems.append(("frozen_configuration_mismatch", f"measured {key} = {configuration.get(key)!r}, committed {committed.get(key)!r}"))
+            if barrier_sql is None:
+                problems.append(("barrier_hold_unbound", f"the exclusive barrier SQL is not readable from {BARRIER_SOURCE_RELATIVE}"))
+            elif output["barrierCommandText"] != barrier_sql:
+                problems.append(("barrier_hold_unbound", f"it timed {output['barrierCommandText']!r}, not the exclusive barrier {barrier_sql!r}"))
+            command_timeout_ms = float(output["effectiveCommandTimeoutSeconds"]) * 1000.0
+            if command_timeout_ms <= 0:
+                problems.append(("b3b_output_mismatch", "no effective command timeout was measured"))
+            if output["rejectedTimelines"]:
+                problems.append(("publication_timeline_invalid", f"{len(output['rejectedTimelines'])} publication transaction(s) were rejected in a clean run"))
+            contention = output["apiContention"]
+            if not contention["endpoints"] or any(
+                not isinstance(e.get("baselineP95Ms"), (int, float)) or not isinstance(e.get("duringP95Ms"), (int, float)) for e in contention["endpoints"]
+            ):
+                problems.append(("api_contention_incomplete", "the API-contention baseline/during record is missing"))
+            if contention["errorsDuringFinalization"] != 0:
+                problems.append(("api_contention_incomplete", f"{contention['errorsDuringFinalization']} API error(s) during finalization"))
+            rss = output["apiHostRss"]
+            if not rss["samplesBytes"] or rss["peakBytes"] != max(rss["samplesBytes"]):
+                problems.append(("b3b_output_mismatch", "the API-host RSS series is missing or its peak is not its maximum"))
+            if not isinstance(output["apiProcessCpuSeconds"], (int, float)):
+                problems.append(("b3b_output_mismatch", "the API-process CPU time is missing"))
+            reference = output["reference"]["samples"]
+            if len(reference) < REFERENCE_MINIMUM_SAMPLES:
+                problems.append(("reference_incomplete", f"the synchronous-path reference has {len(reference)} samples, fewer than {REFERENCE_MINIMUM_SAMPLES}"))
+            for index, sample in enumerate(reference):
+                for problem in timeline_problems(sample.get("publicationTimeline"), barrier_sql):
+                    problems.append(("reference_incomplete", f"reference sample {index}: {problem}"))
+            batch = (committed or configuration).get("SealingBatchSize") or 0
+            expected_extensions = -(-WORST_CASE_OBJECTS // batch) + 1 if batch else None
+            if not output["samples"]:
+                problems.append(("b3b_output_mismatch", "it retains no raw samples"))
+            for sample in output["samples"]:
+                where = f"sample {sample.get('repeat')}/{sample.get('index')}"
+                for label, holds in (
+                    ("more or fewer than one publication", sample["publications"] == 1),
+                    ("more or fewer than one visibility sequence", sample["visibilitySequences"] == 1),
+                    ("premature visibility observed", sample["prematureVisibilityObserved"] == 0),
+                    (f"extension count {sample['extensionCount']} is not {expected_extensions}", sample["extensionCount"] == expected_extensions),
+                    ("created + adopted is not the worst shape", sample["createdObjects"] + sample["adoptedObjects"] == WORST_CASE_OBJECTS),
+                    ("its longest statement exceeds the command timeout", sample["longestCommandMs"] <= command_timeout_ms),
+                    ("it did not publish", sample["publicationTimeline"].get("transition") == "Published"),
+                ):
+                    if not holds:
+                        problems.append(("b3b_output_mismatch", f"{where}: {label}"))
+                for proof in BRACKET_PROOFS:
+                    if sample["bracketProofs"].get(proof) is not True:
+                        problems.append(("publication_timeline_invalid", f"{where}: bracket proof {proof} failed"))
+                timeline = sample["publicationTimeline"]
+                timeline_issues = timeline_problems(timeline, barrier_sql)
+                problems.extend(("publication_timeline_invalid", f"{where}: {issue}") for issue in timeline_issues)
+                if timeline_issues:
+                    continue
+                values = derive_timeline(timeline)
+                values["totalMs"] = iso_milliseconds(sample["acceptedAtUtc"], timeline["commitCompletedUtc"])
+                bracket = sample["graphBuildBracket"]
+                values["graphBuildBracketMs"] = ticks_ms(bracket["lastExtensionReturned"], bracket["publishEntered"], timeline["stopwatchFrequency"])
+                if values["graphPersistenceMs"] <= 0:
+                    problems.append(("graph_persistence_unbound", f"{where}: graph persistence is not positive"))
+                for field, value in values.items():
+                    typed = sample.get(field)
+                    if typed is not None and abs(typed - value) > 1e-6:
+                        problems.append(("metric_without_producer", f"{where}: {field} {typed} is not the recomputation {value} from its raw timestamps"))
+                derived.append({"repeat": sample["repeat"], "index": sample["index"], "warmup": sample["warmup"], **values})
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+            problems.append(("b3b_output_mismatch", f"incomplete ({exc})"))
+        for code, problem in problems:
+            self.fail("B3", code, f"{artifact_id}: {problem}")
+        return derived
+
+    def _b3_recomputed(self, unit: dict[str, Any], output: dict[str, Any], variant: str, base: str, samples: list[dict[str, Any]]) -> None:
+        """Every B3 timing metric equals the statistics the checker recomputes from
+        its output's raw samples; a typed-in value that disagrees is refused."""
+        for metric_base, artifact_base, field in B3_TIMINGS:
+            if artifact_base != base:
+                continue
+            metric = f"{metric_base}.{variant}"
+            entry = next((self.record["measurements"][m] for m in unit["measurements"] if self.record["measurements"].get(m, {}).get("metric") == metric), None)
+            if entry is None:
+                continue
+            if entry.get("artifact") != f"{artifact_base}.{variant}":
+                self.fail("B3", "metric_without_producer", f"{metric} cites {entry.get('artifact')!r}; its only producer is {artifact_base}.{variant}")
+                continue
+            try:
+                stats = timing_stats(samples, field)
+            except (KeyError, TypeError, ValueError) as exc:
+                self.fail("B3", "metric_without_producer", f"{metric}: raw samples are unreadable ({exc})")
+                continue
+            if stats is None:
+                self.fail("B3", "metric_without_producer", f"{metric}: its output retains no measured sample")
+                continue
+            recorded = entry.get("stats") or {}
+            mismatched = [
+                key for key, value in (
+                    ("samples", entry.get("samples") == stats["n"]),
+                    ("repeats", entry.get("repeats") == stats["repeats"]),
+                    ("warmupExcluded", entry.get("warmupExcluded") is stats["warmupExcluded"]),
+                    ("value", entry.get("value") == stats["max"]),
+                    *((key, recorded.get(key) == stats[key]) for key in ("min", "p50", "p95", "max")),
+                    ("p50RunSpread", recorded.get("p50RunSpread") == stats["p50RunSpread"]),
+                ) if not value
+            ]
+            if mismatched:
+                self.fail("B3", "metric_without_producer", f"{metric}: {', '.join(mismatched)} differ from the recomputation from {base}.{variant}")
+
+    def _crash_content(self, output: dict[str, Any], variant: str) -> None:
+        artifact_id = f"{CRASH_OUTPUT_ARTIFACT}.{variant}"
+        problems: list[str] = []
+        try:
+            rows = output["rows"]
+            by_scenario: dict[str, list[dict[str, Any]]] = {}
+            for row in rows:
+                by_scenario.setdefault(row["scenario"], []).append(row)
+            for scenario in CRASH_H_SCENARIOS:
+                found = by_scenario.get(scenario, [])
+                if len(found) != 1:
+                    problems.append(f"scenario {scenario} appears {len(found)} times, not once")
+                    continue
+                row = found[0]
+                for label, holds in (
+                    ("did not pass", row["passed"] is True),
+                    (f"ended {row['finalState']}, not Completed", row["finalState"] == "Completed"),
+                    ("did not publish exactly once", row["publications"] == 1),
+                    ("did not allocate exactly one visibility sequence", row["sequenceCount"] == 1),
+                    ("created + adopted is not every expected object", row["expectedObjects"] > 0 and row["createdObjects"] + row["adoptedObjects"] == row["expectedObjects"]),
+                    ("records no kill point", bool(row["killPoint"])),
+                    ("records no restart latency", isinstance(row["restartLatencyMs"], (int, float)) and row["restartLatencyMs"] >= 0),
+                    ("records no orphan bytes", isinstance(row["orphanBytes"], (int, float)) and row["orphanBytes"] >= 0),
+                    ("adopted nothing after a mid-seal kill", scenario != "host-death-mid-seal" or row["adoptedObjects"] > 0),
+                ):
+                    if not holds:
+                        problems.append(f"{scenario} {label}")
+        except (KeyError, TypeError) as exc:
+            problems.append(f"incomplete ({exc})")
+        for problem in problems:
+            self.fail("B3", "crash_matrix_incomplete", f"{artifact_id}: {problem}")
 
     def _artifacts(self, name: str, unit: dict[str, Any], required: UnitRequirement, measured_sha: str) -> None:
         artifacts = self.record["retainedArtifacts"]
@@ -1189,19 +1825,46 @@ class _Checker:
         for problem in problems:
             self.fail("B1", "b1_comparison_invalid", f"b1.cross-variant-comparison: {problem}")
 
-    def _b3_proving_tests(self, unit: dict[str, Any]) -> None:
+    def _proving_tests(self, name: str, unit: dict[str, Any], measured_sha: str) -> None:
+        """Every property of the unit's proving map needs each named test to exist in
+        its suite's source at the measured SHA and to have passed in the cited
+        TRX/JUnit (on every variant the suite is required on)."""
         cited = [self.record["suites"][sid] for sid in unit["suites"] if sid in self.record["suites"]]
-        for metric, (suite, test) in B3_PROVING_TESTS.items():
-            variants = required_variants(UNIT_REQUIREMENTS["B3"], suite)
-            for variant in variants:
-                if not any(
-                    entry["suite"] == suite
-                    and (variant is None or entry["variant"] == variant)
-                    and any(test_function_name(t) == test for t in entry["passedTests"])
-                    for entry in cited
-                ):
-                    where = f" on {variant}" if variant else ""
-                    self.fail("B3", "proving_test_missing", f"{metric} needs {suite}::{test} to have passed{where}")
+        sources: dict[str, str | None] = {}
+        for prop, tests in PROVING_TESTS_BY_UNIT[name].items():
+            for suite, test in tests:
+                for variant in required_variants(UNIT_REQUIREMENTS[name], suite):
+                    if not any(
+                        entry["suite"] == suite
+                        and (variant is None or entry["variant"] == variant)
+                        and any(test_function_name(t) == test for t in entry["passedTests"])
+                        for entry in cited
+                    ):
+                        where = f" on {variant}" if variant else ""
+                        self.fail(name, "proving_test_missing", f"{prop} needs {suite}::{test} to have passed{where}")
+                if self.repo_root is None:
+                    continue
+                if suite not in sources:
+                    relative = suite if suite.endswith(".py") else suite + ".cs"
+                    source = self.source_at(measured_sha, relative)
+                    sources[suite] = None if source is None else source.decode("utf-8", errors="replace")
+                text = sources[suite]
+                if text is None or not re.search(rf"\b(?:def\s+|Task\s+|void\s+){re.escape(test)}\s*\(", text):
+                    self.fail(name, "proving_test_absent_at_sha", f"{prop}: {suite}::{test} does not exist at {measured_sha}")
+
+    def _artifact_paths(self, name: str, unit: dict[str, Any]) -> None:
+        """F4 plan §22: a PASS rests only on files retained for the measured (or
+        closure) SHA, never on another SHA's, historical or exploratory evidence."""
+        closure = self.record["closure"]
+        shas = {self.record["measuredSha"]} | ({closure["mergeSha"]} if closure else set())
+        prefixes = tuple(f"{EVIDENCE_ROOT}{sha[:12]}/" for sha in shas)
+        cited = set(unit["artifacts"])
+        cited.update(self.record["suites"][sid]["junitArtifact"] for sid in unit["suites"] if sid in self.record["suites"])
+        cited.update(self.record["measurements"][mid].get("artifact") for mid in unit["measurements"] if mid in self.record["measurements"])
+        for artifact_id in sorted(a for a in cited if a):
+            artifact = self.record["retainedArtifacts"].get(artifact_id)
+            if artifact is not None and not artifact["path"].startswith(prefixes):
+                self.fail(name, "artifact_not_from_measured_sha", f"{artifact_id} is retained at {artifact['path']}, not under {' or '.join(prefixes)}")
 
     def _b5_records(self, measured_sha: str) -> None:
         """The real-video clip count is the retained record's verified clips."""
@@ -1209,8 +1872,8 @@ class _Checker:
         if video is not None:
             problems: list[str] = []
             try:
-                if video["schema"] != "s1-b5-real-video-record-v1":
-                    problems.append("its schema is not s1-b5-real-video-record-v1")
+                if video["schema"] != B5_VIDEO_SCHEMA:
+                    problems.append(f"its schema is not {B5_VIDEO_SCHEMA}")
                 if video["sourceCommit"] != measured_sha:
                     problems.append(f"it ran {video['sourceCommit']}, not the measured {measured_sha}")
                 verified = [
@@ -1234,8 +1897,8 @@ class _Checker:
         if qa is not None:
             problems = []
             try:
-                if qa["schema"] != "s1-b5-visual-qa-v1":
-                    problems.append("its schema is not s1-b5-visual-qa-v1")
+                if qa["schema"] != B5_QA_SCHEMA:
+                    problems.append(f"its schema is not {B5_QA_SCHEMA}")
                 if qa["sourceCommit"] != measured_sha:
                     problems.append(f"it reviewed {qa['sourceCommit']}, not the measured {measured_sha}")
                 items = qa["items"]
@@ -1243,6 +1906,12 @@ class _Checker:
                     problems.append("an item did not pass or is not labelled real-video/fixture")
                 if not any(item.get("label") == "real-video" for item in items):
                     problems.append("no item is real-video acceptance")
+                # F4 plan §15.3: the operator sees Finalizing, a failed finalization
+                # and the absence of premature counts as distinct states. A fixture
+                # item may prove them, but only on the measured UI bundle.
+                for required_item in B5_QA_REQUIRED_ITEMS:
+                    if not any(item.get("id") == required_item and item.get("passed") is True for item in items):
+                        problems.append(f"required item {required_item} is absent or did not pass")
             except (KeyError, TypeError) as exc:
                 problems.append(f"incomplete ({exc})")
             for problem in problems:
@@ -1404,7 +2073,11 @@ class _Checker:
             problems = [
                 label
                 for label, holds in (
-                    ("schema is not s1-disconnected-run-v1", run["schema"] == "s1-disconnected-run-v1"),
+                    (f"schema is not {DISCONNECTED_RUN_SCHEMA}", run["schema"] == DISCONNECTED_RUN_SCHEMA),
+                    (
+                        "it did not exercise the activated 3.1 / Finalizing path",
+                        run["activation"] == DISCONNECTED_ACTIVATION,
+                    ),
                     (f"sourceCommit {run['sourceCommit']} is not the measured {measured_sha}", run["sourceCommit"] == measured_sha),
                     ("its variant differs from the record's", run["variant"] == block["variant"]),
                     ("it is not a Development install", run["installProfile"] == "development"),
@@ -1470,12 +2143,50 @@ class _Checker:
                 self.fail("DISCONNECTED", "isolation_not_evidenced", f"{phase} probed {targets}, not exactly {list(ISOLATION_PROBE_TARGETS)}")
         self._disconnected_run(measured_sha)
         self._bundle_manifest(measured_sha)
+        self._disconnected_bindings(measured_sha)
         # The probes are retained probe output, not record fields.
         for phase, artifact_id in (("isolationBefore", "disconnected.isolation-before"), ("isolationAfter", "disconnected.isolation-after")):
             probe = self._retained_json("DISCONNECTED", artifact_id, "isolation_not_evidenced")
             # The probe's own fields; the retained output may carry more (timestamps).
             if probe is not None and any(probe.get(key) != record[phase].get(key) for key in ISOLATION_PROBE_FIELDS):
                 self.fail("DISCONNECTED", "isolation_not_evidenced", f"{phase} differs from the retained {artifact_id} probe output")
+
+    def _disconnected_bindings(self, measured_sha: str) -> None:
+        """F4 plan §19: no dependency was added, nothing connected off-host, and the
+        run's model and runtime manifests are hash-bound, all on the measured code."""
+        problems: list[str] = []
+        diff = self._retained_json("DISCONNECTED", "disconnected.dependency-diff", "disconnected_run_incomplete")
+        if diff is not None:
+            try:
+                if diff["schema"] != "s1-disconnected-dependency-diff-v1" or diff["toSha"] != measured_sha:
+                    problems.append("dependency diff is not an s1-disconnected-dependency-diff-v1 ending at the measured SHA")
+                if diff["addedDependencies"]:
+                    problems.append(f"dependency diff adds {diff['addedDependencies']}")
+            except (KeyError, TypeError) as exc:
+                problems.append(f"dependency diff incomplete ({exc})")
+        trace = self._retained_json("DISCONNECTED", "disconnected.connect-trace", "disconnected_run_incomplete")
+        if trace is not None:
+            try:
+                if trace["schema"] != "s1-disconnected-connect-trace-v1" or trace["sourceCommit"] != measured_sha or not trace["method"]:
+                    problems.append("connect trace is not an s1-disconnected-connect-trace-v1 of the measured code")
+                for attempt in trace["attempts"]:
+                    if not is_loopback_address(str(attempt.get("address", ""))):
+                        problems.append(f"connect trace shows a non-loopback attempt to {attempt.get('address')}:{attempt.get('port')}")
+            except (KeyError, TypeError) as exc:
+                problems.append(f"connect trace incomplete ({exc})")
+        manifests = self._retained_json("DISCONNECTED", "disconnected.runtime-manifests", "disconnected_run_incomplete")
+        if manifests is not None:
+            try:
+                if manifests["schema"] != "s1-disconnected-runtime-manifests-v1" or manifests["sourceCommit"] != measured_sha:
+                    problems.append("runtime manifests are not an s1-disconnected-runtime-manifests-v1 of the measured code")
+                if not manifests["manifests"] or any(
+                    not item.get("path") or not re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256", ""))) for item in manifests["manifests"]
+                ):
+                    problems.append("runtime manifests list no hash-bound model/runtime manifest")
+            except (KeyError, TypeError) as exc:
+                problems.append(f"runtime manifests incomplete ({exc})")
+        for problem in problems:
+            self.fail("DISCONNECTED", "disconnected_run_incomplete", problem)
 
     def _bundle_manifest(self, measured_sha: str) -> None:
         """The retained Runtime Bundle manifest, not the record's copy, must show

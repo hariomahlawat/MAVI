@@ -23,6 +23,8 @@ SHA = "a" * 40
 MERGE = "b" * 40
 OTHER = "c" * 40
 PROFILE_SHA = "503225be736d9622ed110aa69e49a83dde4ae02c858d5e8fa41e527b1c4b23fb"
+# Every retained file of the fixture lies under the measured SHA's evidence folder.
+EVIDENCE = f"{s1_evidence.EVIDENCE_ROOT}{SHA[:12]}/"
 
 
 def _sha256(text: str) -> str:
@@ -64,12 +66,14 @@ def complete_record() -> dict:
             "runner-linux": {
                 "cpuModel": "AMD EPYC 7763", "physicalCores": 2, "logicalCores": 4, "ramBytes": 16 * 2**30,
                 "os": "Ubuntu", "osBuild": "24.04", "stagingFilesystem": "ext4",
-                "acceptedEvidenceFilesystem": "ext4", "storageClass": "hosted-runner",
+                "acceptedEvidenceFilesystem": "ext4", "storageClass": "ssd",
+                "storageClassEvidence": "/sys/class/block/sda/queue/rotational=0",
             },
             "runner-windows": {
                 "cpuModel": "AMD EPYC 7763", "physicalCores": 2, "logicalCores": 4, "ramBytes": 16 * 2**30,
                 "os": "Windows Server", "osBuild": "2022", "stagingFilesystem": "NTFS",
-                "acceptedEvidenceFilesystem": "NTFS", "storageClass": "hosted-runner",
+                "acceptedEvidenceFilesystem": "NTFS", "storageClass": "ssd",
+                "storageClassEvidence": "Get-PhysicalDisk MediaType=SSD BusType=SATA",
             },
         },
         "runs": {
@@ -83,6 +87,7 @@ def complete_record() -> dict:
         "measurements": {},
         "units": {},
         "closure": None,
+        "frozenConfiguration": _frozen_configuration(),
         "disconnected": {
             "runtimeBundleSourceCommit": SHA,
             "maviVisionWheelSha256": "d" * 64,
@@ -118,8 +123,13 @@ def complete_record() -> dict:
                 entry.update(samples=30, repeats=3, warmupExcluded=True, stats={"min": 10.0, "p50": 20.0, "p95": 30.0, "max": 40.0, "p50RunSpread": 1.0})
             entry["artifact"] = required.artifacts[0]
             for variant in s1_evidence.QUALIFIED_CPU_VARIANTS:
-                if requirement.metric == f"{s1_evidence.SEALING_WALL_METRIC}.{variant}":
-                    entry["artifact"] = f"{s1_evidence.SEALING_OUTPUT_ARTIFACT}.{variant}"
+                for base, artifact_base, field in s1_evidence.B3_TIMINGS:
+                    if requirement.metric == f"{base}.{variant}":
+                        # Every B3 timing is the recomputation of its producer's raw samples.
+                        entry["artifact"] = f"{artifact_base}.{variant}"
+                        stats = s1_evidence.timing_stats(_b3_derived(artifact_base), field)
+                        entry.update(value=stats["max"], samples=stats["n"], repeats=stats["repeats"], warmupExcluded=stats["warmupExcluded"],
+                                     stats={key: stats[key] for key in ("min", "p50", "p95", "max", "p50RunSpread")})
                 if name == "B2" and requirement.metric.endswith("." + variant):
                     entry["artifact"] = f"{s1_evidence.B2_OUTPUT_ARTIFACT}.{variant}"
                 if requirement.metric.endswith("." + variant):
@@ -144,6 +154,21 @@ def complete_record() -> dict:
     for outcome in s1_evidence.DISCONNECTED_OUTCOMES:
         artifact = f"disconnected.{outcome}"
         record["retainedArtifacts"][artifact] = {"path": f"records/{artifact}.log", "sha256": _sha256(artifact), "run": "offline"}
+    # Each B3 harness output is its own local run, stamped with the harness run id.
+    for variant in s1_evidence.QUALIFIED_CPU_VARIANTS:
+        for base in (s1_evidence.HANDOFF_OUTPUT_ARTIFACT, s1_evidence.FINALIZATION_OUTPUT_ARTIFACT, s1_evidence.CRASH_OUTPUT_ARTIFACT):
+            run_id = f"{base}.{variant}"
+            record["runs"][run_id] = {
+                "kind": "local", "host": HOST_OF[variant], "command": f"dotnet test {base}", "cleanTree": True,
+                "headSha": SHA, "conclusion": "success", "harnessRunId": f"{run_id}.run",
+            }
+            record["retainedArtifacts"][run_id]["run"] = run_id
+    # A measurement comes from the run that retained its artifact.
+    for entry in record["measurements"].values():
+        entry["run"] = record["retainedArtifacts"][entry["artifact"]]["run"]
+    # Every retained file lives under the measured SHA's evidence folder (F4 plan §22).
+    for entry in record["retainedArtifacts"].values():
+        entry["path"] = EVIDENCE + entry["path"]
     return record
 
 
@@ -168,12 +193,23 @@ def on_main_repo(root: Path) -> str:
     return git("rev-parse", "HEAD")
 
 
-MEASURED_SOURCES = (s1_evidence.WORKER_SETTINGS_RELATIVE, s1_evidence.B1_BASELINE_RELATIVE)
+def _proving_sources() -> tuple[str, ...]:
+    suites = {suite for mapping in s1_evidence.PROVING_TESTS_BY_UNIT.values() for tests in mapping.values() for suite, _ in tests}
+    return tuple(sorted(suite if suite.endswith(".py") else suite + ".cs" for suite in suites))
+
+
+MEASURED_SOURCES = (
+    s1_evidence.WORKER_SETTINGS_RELATIVE,
+    s1_evidence.B1_BASELINE_RELATIVE,
+    s1_evidence.APPSETTINGS_RELATIVE,
+    s1_evidence.BARRIER_SOURCE_RELATIVE,
+    *_proving_sources(),
+)
 
 
 def with_sha(record: dict, sha: str) -> dict:
-    """The record with every occurrence of the fixture SHA replaced."""
-    return json.loads(json.dumps(record).replace(SHA, sha))
+    """The record with every occurrence of the fixture SHA replaced, evidence folder included."""
+    return json.loads(json.dumps(record).replace(SHA, sha).replace(EVIDENCE, f"{s1_evidence.EVIDENCE_ROOT}{sha[:12]}/"))
 
 
 # The B3 proving tests, present in their suites' passed tests.
@@ -195,7 +231,19 @@ def _result_path(suite: str, suite_id: str) -> str:
     return f"{unique}/junit/python.xml"
 
 
-PROVING_TESTS = {suite: (f"{_case_class(suite)}::{test}",) for suite, test in s1_evidence.B3_PROVING_TESTS.values()}
+def _proving_cases() -> dict[str, tuple[str, ...]]:
+    """Every proving test of every unit, as the passed case its suite's result names."""
+    cases: dict[str, list[str]] = {}
+    for mapping in s1_evidence.PROVING_TESTS_BY_UNIT.values():
+        for tests in mapping.values():
+            for suite, test in tests:
+                case = f"{_case_class(suite)}::{test}"
+                if case not in cases.setdefault(suite, []):
+                    cases[suite].append(case)
+    return {suite: tuple(names) for suite, names in cases.items()}
+
+
+PROVING_TESTS = _proving_cases()
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HOST_OF = {"linux-x86_64-cpu": "runner-linux", "windows-x86_64-cpu": "runner-windows"}
 LIVE_POINTS = [[4, 50_000_000.0], [8, 51_000_000.0], [16, 53_000_000.0], [32, 57_000_000.0], [64, 65_000_000.0]]
@@ -289,7 +337,8 @@ def _lifecycle_output(record: dict, variant: str) -> str:
 
 def _disconnected_run(record: dict) -> str:
     return json.dumps({
-        "schema": "s1-disconnected-run-v1",
+        "schema": s1_evidence.DISCONNECTED_RUN_SCHEMA,
+        "activation": dict(s1_evidence.DISCONNECTED_ACTIVATION),
         "sourceCommit": record["units"]["DISCONNECTED"].get("measuredSha", record["measuredSha"]),
         "variant": record["disconnected"]["variant"],
         "installProfile": "development",
@@ -298,23 +347,179 @@ def _disconnected_run(record: dict) -> str:
     })
 
 
-def _sealing_output(record: dict, variant: str) -> str:
-    wall = next(m for m in record["measurements"].values() if m["metric"] == f"{s1_evidence.SEALING_WALL_METRIC}.{variant}")
+# --------------------------------------------------------------------------- B3 outputs (F4 plan §8, §9, §11)
+FREQUENCY = 1_000_000  # the fixture's Stopwatch.Frequency: microsecond ticks
+
+
+def _committed_configuration() -> dict:
+    return json.loads((REPO_ROOT / s1_evidence.APPSETTINGS_RELATIVE).read_text(encoding="utf-8"))["VisionFinalization"]
+
+
+def _barrier_sql() -> str:
+    text = (REPO_ROOT / s1_evidence.BARRIER_SOURCE_RELATIVE).read_text(encoding="utf-8")
+    return re.search(r'PublicationExclusiveSql\s*=\s*"([^"]+)"', text).group(1)
+
+
+def _frozen_configuration() -> dict:
+    committed = _committed_configuration()
+    return {
+        "values": {key: committed[key] for key in s1_evidence.FROZEN_CONFIGURATION_KEYS},
+        "effectiveBoundSeconds": committed["MaximumFinalizationDurationSeconds"] + committed["ClaimSeconds"] + committed["PollIntervalSeconds"],
+        "activationDefault": committed["Enabled"],
+        "freezeDecision": "docs/qualification/stage2-s1/f4-configuration-freeze.md",
+    }
+
+
+def _repeats(per_repeat: int = 10):
+    """Three repeats, each one excluded warm-up then ``per_repeat`` measured samples."""
+    for repeat in range(3):
+        for index in range(per_repeat + 1):
+            yield repeat, index, index == 0
+
+
+def _b3a_samples() -> list:
+    return [
+        {
+            "repeat": repeat, "index": index, "warmup": warmup,
+            "handOffMs": 9000.0 if warmup else 2000.0 + repeat * 10 + index * 7.5,
+            "replayMs": 800.0 if warmup else 300.0 + index,
+            "httpStatus": 200, "state": "finalizing", "tracksSubmitted": 10_000, "jobStatus": "Finalizing",
+            "payloadRows": 1, "publishedRows": 0, "acceptedEvidenceFiles": 0, "acceptedAtPresent": True,
+            "claimTripleNull": True, "stagedObjects": 50_000, "replayState": "finalizing",
+            "requestBodyBytes": 25_000_000, "payloadBytes": 24_000_000, "apiRssDeltaBytes": 50_000_000,
+            "submissionTimings": {"validationMs": 900.0, "payloadEncodingMs": 300.0, "persistenceMs": 500.0},
+        }
+        for repeat, index, warmup in _repeats()
+    ]
+
+
+def _timeline(repeat: int, index: int) -> dict:
+    base = 1_000_000_000 * (repeat * 20 + index + 1)
+    persistence = 15_000_000 + index * 1_000
+    ticks = {
+        "transactionBegun": base,
+        "rowLockAcquired": base + 1_000,
+        "graphPersistenceStart": base + 2_000,
+        "graphSavingChanges": base + 2_500_000,
+        "graphSavedChanges": base + 2_000 + persistence - 1_000,
+        "graphPersistenceEnd": base + 2_000 + persistence,
+    }
+    end = ticks["graphPersistenceEnd"]
+    ticks.update(barrierCommandStarted=end + 100, barrierAcquired=end + 150, commitStarted=end + 1_500_000, commitCompleted=end + 1_700_000 + index * 10)
+    return {
+        "stopwatchFrequency": FREQUENCY, "ticks": ticks, "transactionId": f"tx-{repeat}-{index}", "connectionId": f"conn-{repeat}",
+        "barrierCommandText": _barrier_sql(), "transition": "Published", "committed": True,
+        "commitCompletedUtc": f"2026-09-25T08:{2 + repeat:02d}:{index:02d}.500000+00:00",
+    }
+
+
+def _b3b_samples() -> list:
+    batch = _committed_configuration()["SealingBatchSize"]
+    samples = []
+    for repeat, index, warmup in _repeats():
+        timeline = _timeline(repeat, index)
+        base = timeline["ticks"]["transactionBegun"]
+        samples.append({
+            "repeat": repeat, "index": index, "warmup": warmup,
+            "acceptedAtUtc": "2026-09-25T08:00:00+00:00",
+            "publicationTimeline": timeline,
+            "graphBuildBracket": {"lastExtensionReturned": base - 400_000, "publishEntered": base - 100},
+            "bracketProofs": {proof: True for proof in s1_evidence.BRACKET_PROOFS},
+            "publications": 1, "visibilitySequences": 1, "prematureVisibilityObserved": 0,
+            "extensionCount": -(-50_000 // batch) + 1, "createdObjects": 50_000, "adoptedObjects": 0,
+            "longestCommandMs": 1200.0, "claimAcquisitionMs": 4000.0, "payloadLoadMs": 800.0,
+            "payloadRevalidationAndPlanMs": 1500.0, "sealWallMs": 60_000.0, "perBatchWallMs": [240.0, 250.0],
+        })
+    return samples
+
+
+def _b3_derived(base: str) -> list:
+    """The per-sample values the checker recomputes from a harness output."""
+    if base == s1_evidence.HANDOFF_OUTPUT_ARTIFACT:
+        return _b3a_samples()
+    derived = []
+    for sample in _b3b_samples():
+        values = s1_evidence.derive_timeline(sample["publicationTimeline"])
+        values["totalMs"] = s1_evidence.iso_milliseconds(sample["acceptedAtUtc"], sample["publicationTimeline"]["commitCompletedUtc"])
+        derived.append({"repeat": sample["repeat"], "index": sample["index"], "warmup": sample["warmup"], **values})
+    return derived
+
+
+def _b3_common(record: dict, base: str, variant: str, schema: str) -> dict:
+    host = record["hosts"][HOST_OF[variant]]
+    return {
+        "schema": schema, "status": "complete", "authoritative": True, "nonAuthoritativeReasons": [],
+        "runId": record["runs"][f"{base}.{variant}"]["harnessRunId"], "variant": variant,
+        "environment": {
+            "gitSha": record["units"]["B3"].get("measuredSha", record["measuredSha"]), "gitWorkingTreeClean": "true",
+            "gitCommitObjectPresent": "true", "isQualificationGradeDatabase": "true", "postgresVersion": "18.6",
+        },
+        "host": {key: host[key] for key in s1_evidence.B3_HOST_FIELDS},
+    }
+
+
+def _b3a_output(record: dict, variant: str) -> str:
     timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
-    filesystem = record["hosts"][wall["host"]]["acceptedEvidenceFilesystem"]
-    host = record["hosts"][wall["host"]]
     return json.dumps({
-        "schema": "s1-b3-sealing-scale-v1",
-        "host": {"cpuModel": host["cpuModel"], "logicalCores": host["logicalCores"]},
-        "status": "complete", "authoritative": True, "variant": variant,
-        "evidenceFilesystem": f"{filesystem} at /",
-        "shape": {"tracks": 10_000, "sealedObjects": 50_000},
-        "workerRequestTimeoutMs": timeout["value"],
-        "environment": {"gitSha": record["units"]["B3"].get("measuredSha", record["measuredSha"]), "gitWorkingTreeClean": "true"},
-        "repeats": wall["repeats"], "warmupExcluded": 1, "p50RunSpreadMs": wall["stats"]["p50RunSpread"],
-        "completion": {"n": wall["samples"], **{k: wall["stats"][k] for k in ("min", "p50", "p95", "max")}},
+        **_b3_common(record, s1_evidence.HANDOFF_OUTPUT_ARTIFACT, variant, s1_evidence.HANDOFF_OUTPUT_SCHEMA),
+        "shape": {"tracks": 10_000, "observations": 40_000, "stagedObjects": 50_000},
+        "finalizerHostEnabled": False, "workerRequestTimeoutMs": timeout["value"],
+        "samples": _b3a_samples(),
     })
 
+
+def _b3b_output(record: dict, variant: str) -> str:
+    configuration = dict(_committed_configuration(), Enabled=True)
+    return json.dumps({
+        **_b3_common(record, s1_evidence.FINALIZATION_OUTPUT_ARTIFACT, variant, s1_evidence.FINALIZATION_OUTPUT_SCHEMA),
+        "shape": {"tracks": 10_000, "observations": 40_000, "stagedObjects": 50_000},
+        "hostedServiceUsed": True, "optionsSource": "appsettings.json", "configuration": configuration,
+        "barrierCommandText": _barrier_sql(), "effectiveCommandTimeoutSeconds": 30,
+        "rejectedTimelines": [],
+        "apiContention": {
+            "endpoints": [{"endpoint": "/api/health", "baselineP95Ms": 4.0, "duringP95Ms": 9.0, "errors": 0}],
+            "errorsDuringFinalization": 0,
+        },
+        "apiHostRss": {"samplesBytes": [300_000_000, 410_000_000], "peakBytes": 410_000_000},
+        "apiProcessCpuSeconds": 120.5,
+        "reference": {"samples": [{"publicationTimeline": _timeline(9, index)} for index in range(5)]},
+        "samples": _b3b_samples(),
+    })
+
+
+def _crash_output(record: dict, variant: str) -> str:
+    rows = [
+        {
+            "scenario": scenario, "passed": True, "finalState": "Completed", "publications": 1, "sequenceCount": 1,
+            "expectedObjects": 50_000, "createdObjects": 30_000 if scenario == "host-death-mid-seal" else 50_000,
+            "adoptedObjects": 20_000 if scenario == "host-death-mid-seal" else 0,
+            "killPoint": {"afterSealedObjects": 20_000} if scenario == "host-death-mid-seal" else {"phase": scenario},
+            "restartLatencyMs": 2500.0, "orphanBytes": 0,
+        }
+        for scenario in s1_evidence.CRASH_H_SCENARIOS
+    ]
+    return json.dumps({**_b3_common(record, s1_evidence.CRASH_OUTPUT_ARTIFACT, variant, s1_evidence.CRASH_OUTPUT_SCHEMA), "rows": rows})
+
+
+def _dependency_diff(record: dict) -> str:
+    sha = record["units"]["DISCONNECTED"].get("measuredSha", record["measuredSha"])
+    return json.dumps({"schema": "s1-disconnected-dependency-diff-v1", "fromSha": "d" * 40, "toSha": sha, "addedDependencies": []})
+
+
+def _connect_trace(record: dict) -> str:
+    sha = record["units"]["DISCONNECTED"].get("measuredSha", record["measuredSha"])
+    return json.dumps({
+        "schema": "s1-disconnected-connect-trace-v1", "sourceCommit": sha, "method": "strace -f -e trace=connect",
+        "attempts": [{"address": "127.0.0.1", "port": 5432}, {"address": "::1", "port": 62153}, {"address": "/run/postgresql/.s.PGSQL.5432", "port": None}],
+    })
+
+
+def _runtime_manifests(record: dict) -> str:
+    sha = record["units"]["DISCONNECTED"].get("measuredSha", record["measuredSha"])
+    return json.dumps({
+        "schema": "s1-disconnected-runtime-manifests-v1", "sourceCommit": sha,
+        "manifests": [{"path": "models/manifests/rtmdet-m-coco-phase1-v1.json", "sha256": "e" * 64}],
+    })
 
 def _bundle_manifest(record: dict) -> str:
     block = record["disconnected"]
@@ -335,8 +540,18 @@ def materialize(record: dict, root: Path) -> dict:
     for artifact_id, entry in record["retainedArtifacts"].items():
         if artifact_id in by_junit:
             content = _junit_for(by_junit[artifact_id])
-        elif artifact_id.startswith(s1_evidence.SEALING_OUTPUT_ARTIFACT + "."):
-            content = _sealing_output(record, artifact_id.split(".", 2)[2])
+        elif artifact_id.startswith(s1_evidence.HANDOFF_OUTPUT_ARTIFACT + "."):
+            content = _b3a_output(record, artifact_id[len(s1_evidence.HANDOFF_OUTPUT_ARTIFACT) + 1:])
+        elif artifact_id.startswith(s1_evidence.FINALIZATION_OUTPUT_ARTIFACT + "."):
+            content = _b3b_output(record, artifact_id[len(s1_evidence.FINALIZATION_OUTPUT_ARTIFACT) + 1:])
+        elif artifact_id.startswith(s1_evidence.CRASH_OUTPUT_ARTIFACT + "."):
+            content = _crash_output(record, artifact_id[len(s1_evidence.CRASH_OUTPUT_ARTIFACT) + 1:])
+        elif artifact_id == "disconnected.dependency-diff":
+            content = _dependency_diff(record)
+        elif artifact_id == "disconnected.connect-trace":
+            content = _connect_trace(record)
+        elif artifact_id == "disconnected.runtime-manifests":
+            content = _runtime_manifests(record)
         elif artifact_id.endswith(".production-composition-qualification.json"):
             sha = record["units"]["B6"].get("measuredSha", record["measuredSha"])
             content = json.dumps({"status": "passed", "headSha": sha, "platform": artifact_id.split(".", 2)[1]})
@@ -403,7 +618,7 @@ def _b1_comparison(record: dict, baseline: Path) -> str:
 def _b5_video(record: dict) -> str:
     count = int(next(m["value"] for m in record["measurements"].values() if m["metric"] == "b5.real-video-clips"))
     return json.dumps({
-        "schema": "s1-b5-real-video-record-v1",
+        "schema": s1_evidence.B5_VIDEO_SCHEMA,
         "sourceCommit": record["units"]["B5"].get("measuredSha", record["measuredSha"]),
         "clips": [
             {"clip": f"clip-{index}", "sha256": f"{index + 1:064x}", "label": "real-video",
@@ -415,9 +630,13 @@ def _b5_video(record: dict) -> str:
 
 def _b5_qa(record: dict) -> str:
     return json.dumps({
-        "schema": "s1-b5-visual-qa-v1",
+        "schema": s1_evidence.B5_QA_SCHEMA,
         "sourceCommit": record["units"]["B5"].get("measuredSha", record["measuredSha"]),
-        "items": [{"id": "evidence-set-review", "label": "real-video", "passed": True}, {"id": "unavailable-crop", "label": "fixture", "passed": True}],
+        "items": [
+            {"id": "evidence-set-review", "label": "real-video", "passed": True},
+            {"id": "unavailable-crop", "label": "fixture", "passed": True},
+            *({"id": item, "label": "fixture", "passed": True} for item in s1_evidence.B5_QA_REQUIRED_ITEMS),
+        ],
     })
 
 
@@ -642,17 +861,29 @@ def test_a_recorded_only_metric_has_no_threshold() -> None:
 )
 def test_timing_needs_samples_repeats_warmup_percentiles_and_spread(mutate) -> None:
     record = complete_record()
-    mutate(record["measurements"]["B3:b3.real-store-completion-wall-ms.linux-x86_64-cpu"])
+    mutate(record["measurements"]["B3:b3a.hand-off-wall-ms.linux-x86_64-cpu"])
     found = codes(record)
     assert ("B3", "timing_incomplete") in found or ("B3", "timing_inconsistent") in found
 
 
-def test_b3_completion_time_needs_2x_headroom_against_the_worker_timeout() -> None:
+def test_b3a_max_hand_off_above_15_s_is_refused() -> None:
+    # F4 plan §8.4: the hand-off max is at most 15 s (2x headroom against the 30 s worker timeout).
+    for variant in s1_evidence.QUALIFIED_CPU_VARIANTS:
+        record = complete_record()
+        record["measurements"][f"B3:b3a.hand-off-wall-ms.{variant}"]["stats"]["max"] = 15_001.0
+        assert ("B3", "hand_off_bound_violated") in codes(record), variant
+        record["measurements"][f"B3:b3a.hand-off-wall-ms.{variant}"]["stats"]["max"] = 15_000.0
+        assert ("B3", "hand_off_bound_violated") not in codes(record)
+
+
+def test_b3b_max_above_half_the_frozen_maximum_duration_is_refused() -> None:
     record = complete_record()
-    record["measurements"]["B3:b3.real-store-completion-wall-ms.linux-x86_64-cpu"]["stats"]["max"] = 15_001.0
-    assert ("B3", "completion_headroom_insufficient") in codes(record)
-    record["measurements"]["B3:b3.real-store-completion-wall-ms.linux-x86_64-cpu"]["stats"]["max"] = 15_000.0
-    assert ("B3", "completion_headroom_insufficient") not in codes(record)
+    half = record["frozenConfiguration"]["values"]["MaximumFinalizationDurationSeconds"] * 1000.0 / 2
+    entry = record["measurements"]["B3:b3b.total-hand-off-to-publication-ms.windows-x86_64-cpu"]
+    entry["stats"]["max"] = half + 1
+    assert ("B3", "finalization_bound_violated") in codes(record)
+    entry["stats"]["max"] = half
+    assert ("B3", "finalization_bound_violated") not in codes(record)
 
 
 def test_a_measurement_unit_must_match_the_plan() -> None:
@@ -988,8 +1219,8 @@ def test_the_worker_timeout_is_bound_to_the_worker_default() -> None:
     record = complete_record()
     timeout = next(m for m in record["measurements"].values() if m["metric"] == "b3.worker-request-timeout-ms")
     timeout["value"] = 90_000.0
-    # Citing the sealing output (or any artifact but the install configuration) is not a binding.
-    assert timeout["artifact"] == "b3.sealing-scale-output.linux-x86_64-cpu"
+    # Citing a harness output (or any artifact but the install configuration) is not a binding.
+    assert timeout["artifact"] == "b3a.hand-off-output.linux-x86_64-cpu"
     assert ("B3", "worker_timeout_unbound") in codes(record)
     timeout["value"] = 600_000.0
     assert ("B3", "worker_timeout_out_of_range") in codes(record)
@@ -1012,36 +1243,59 @@ def test_a_non_default_timeout_is_refused_even_with_a_cited_configuration(tmp_pa
     [
         (lambda o: o.update(status="smoke"), "status"),
         (lambda o: o.update(authoritative=False), "authoritative"),
-        (lambda o: o["shape"].update(tracks=200), "tracks"),
-        (lambda o: o["shape"].update(sealedObjects=1_000), "sealed objects"),
+        (lambda o: o.update(nonAuthoritativeReasons=["tracks 200"]), "authoritative"),
+        (lambda o: o["shape"].update(tracks=200), "shape"),
+        (lambda o: o["shape"].update(stagedObjects=0), "shape"),
         (lambda o: o.update(workerRequestTimeoutMs=120_000), "worker timeout"),
-        (lambda o: o["completion"].update(max=1.0), "max"),
-        (lambda o: o["completion"].update(min=1.0), "min"),
-        (lambda o: o["completion"].update(p50=1.0), "p50 differs"),
-        (lambda o: o["completion"].update(p95=1.0), "p95"),
-        (lambda o: o.update(repeats=1), "repeat count"),
-        (lambda o: o.update(p50RunSpreadMs=0.0), "p50 spread"),
-        (lambda o: o.update(warmupExcluded=0), "warm-up"),
-        (lambda o: o["completion"].update(n=1), "sample count"),
+        (lambda o: o.update(finalizerHostEnabled=True), "finalizer host was enabled"),
+        (lambda o: o.update(samples=[]), "no raw samples"),
+        (lambda o: o["samples"][3].update(stagedObjects=0), "fewer objects were staged"),
+        (lambda o: o["samples"][3].update(state="completed"), "state is not finalizing"),
+        (lambda o: o["samples"][3].update(jobStatus="Completed"), "not Finalizing"),
+        (lambda o: o["samples"][3].update(publishedRows=40_001), "publication rows exist"),
+        (lambda o: o["samples"][3].update(acceptedEvidenceFiles=1), "accepted-evidence files exist"),
+        (lambda o: o["samples"][3].update(payloadRows=0), "payload row"),
+        (lambda o: o["samples"][3].update(claimTripleNull=False), "claim triple"),
+        (lambda o: o["samples"][3].update(tracksSubmitted=1), "tracksSubmitted"),
+        (lambda o: o["samples"][3].update(httpStatus=409), "HTTP status"),
+        (lambda o: o["samples"][3].update(acceptedAtPresent=False), "accepted timestamp"),
+        (lambda o: o["samples"][3].update(replayState="completed"), "replay"),
     ],
 )
-def test_the_b3_wall_time_must_be_the_authoritative_sealing_output(tmp_path: Path, mutate, detail: str) -> None:
+def test_the_b3a_output_must_be_an_authoritative_worst_shape_hand_off(tmp_path: Path, mutate, detail: str) -> None:
     record = materialize(complete_record(), tmp_path)
-    entry = record["retainedArtifacts"]["b3.sealing-scale-output.linux-x86_64-cpu"]
-    output = json.loads((tmp_path / entry["path"]).read_text(encoding="utf-8"))
-    mutate(output)
-    content = json.dumps(output)
-    (tmp_path / entry["path"]).write_text(content, encoding="utf-8")
-    entry["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
-    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "sealing_output_mismatch"]
-    assert findings and any(detail in f.detail for f in findings)
+    _rewrite_json(record, tmp_path, "b3a.hand-off-output.linux-x86_64-cpu", mutate)
+    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "b3a_output_mismatch"]
+    assert findings and any(detail in f.detail for f in findings), findings
 
 
-def test_the_b3_wall_time_must_cite_the_sealing_output() -> None:
+def test_a_b3_timing_must_cite_its_producer() -> None:
     record = complete_record()
-    wall = next(m for m in record["measurements"].values() if m["metric"] == "b3.real-store-completion-wall-ms.linux-x86_64-cpu")
+    wall = record["measurements"]["B3:b3a.hand-off-wall-ms.linux-x86_64-cpu"]
     del wall["artifact"]
-    assert ("B3", "sealing_output_unbound") in codes(record)
+    assert ("B3", "measurement_unbound") in codes(record)
+
+
+def test_a_b3_timing_cited_from_another_output_is_refused(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    record["measurements"]["B3:b3a.hand-off-wall-ms.linux-x86_64-cpu"]["artifact"] = "b3b.finalization-output.linux-x86_64-cpu"
+    assert ("B3", "metric_without_producer") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize("key", ["max", "min", "p50", "p95", "p50RunSpread"])
+def test_a_b3_statistic_that_is_not_the_recomputation_is_refused(tmp_path: Path, key: str) -> None:
+    for metric in ("b3a.hand-off-wall-ms", "b3b.visibility-barrier-hold-ms", "b3b.graph-persistence-ms"):
+        record = materialize(complete_record(), tmp_path / metric / key)
+        record["measurements"][f"B3:{metric}.linux-x86_64-cpu"]["stats"][key] += 1.0
+        assert ("B3", "metric_without_producer") in _verified_codes(record, tmp_path / metric / key), metric
+
+
+def test_a_b3_sample_count_or_value_that_is_not_the_recomputation_is_refused(tmp_path: Path) -> None:
+    for change in ({"samples": 31}, {"repeats": 4}, {"value": 1.0}, {"warmupExcluded": False}):
+        record = materialize(complete_record(), tmp_path / str(len(str(change))) / next(iter(change)))
+        record["measurements"]["B3:b3b.total-hand-off-to-publication-ms.windows-x86_64-cpu"].update(change)
+        found = _verified_codes(record, tmp_path / str(len(str(change))) / next(iter(change)))
+        assert ("B3", "metric_without_producer") in found or ("B3", "timing_incomplete") in found, change
 
 
 def _rewrite_junit(record: dict, root: Path, suite_id: str, xml: str) -> None:
@@ -1387,12 +1641,19 @@ def test_the_drift_scan_sees_a_new_os_conditional_test(tmp_path: Path) -> None:
     assert _os_conditional_tests(tmp_path, "tests") == {"test_only_windows", "test_method_only_posix", "test_async_in_skipped_class"}
 
 
-def test_the_sealing_output_must_measure_the_b3_sha(tmp_path: Path) -> None:
-    record = materialize(complete_record(), tmp_path)
-    _rewrite_json(record, tmp_path, "b3.sealing-scale-output.linux-x86_64-cpu", lambda d: d["environment"].update(gitSha="c" * 40))
-    assert ("B3", "sealing_output_mismatch") in _verified_codes(record, tmp_path)
-    _rewrite_json(record, tmp_path, "b3.sealing-scale-output.linux-x86_64-cpu", lambda d: d["environment"].update(gitSha=SHA, gitWorkingTreeClean="false"))
-    assert ("B3", "sealing_output_mismatch") in _verified_codes(record, tmp_path)
+@pytest.mark.parametrize("artifact", ["b3a.hand-off-output", "b3b.finalization-output", "b3.crash-matrix-output"])
+def test_every_b3_output_must_measure_the_b3_sha_on_a_clean_qualified_database(tmp_path: Path, artifact: str) -> None:
+    for index, mutate in enumerate((
+        lambda d: d["environment"].update(gitSha="c" * 40),
+        lambda d: d["environment"].update(gitWorkingTreeClean="false"),
+        lambda d: d["environment"].update(gitCommitObjectPresent="false"),
+        lambda d: d["environment"].update(isQualificationGradeDatabase="false"),
+        lambda d: d.update(schema="s1-b3-sealing-scale-v1"),
+    )):
+        record = materialize(complete_record(), tmp_path / str(index))
+        _rewrite_json(record, tmp_path / str(index), f"{artifact}.linux-x86_64-cpu", mutate)
+        found = {c for u, c in _verified_codes(record, tmp_path / str(index)) if u == "B3"}
+        assert found & {"b3a_output_mismatch", "b3b_output_mismatch", "crash_matrix_incomplete"}, (artifact, index)
 
 
 @pytest.mark.parametrize(
@@ -1428,13 +1689,27 @@ def test_a_closure_needs_every_post_merge_workflow_on_the_merge_sha() -> None:
         assert ("record", "post_merge_verification_missing") in codes(broken)
 
 
-def test_a_change_to_the_sealing_harness_invalidates_b3_even_uncited() -> None:
-    assert invalidated_units(["tests/Mavi.IntegrationTests/Qualification/S1SealingScaleTests.cs"], {}) == {
-        "tests/Mavi.IntegrationTests/Qualification/S1SealingScaleTests.cs": {"B3"}
-    }
-    assert "B3" in invalidated_units(["tests/Mavi.IntegrationTests/Qualification/QualificationGate.cs"], {})[
-        "tests/Mavi.IntegrationTests/Qualification/QualificationGate.cs"
-    ]
+@pytest.mark.parametrize(
+    "harness",
+    [
+        "tests/Mavi.IntegrationTests/Qualification/S1SealingScaleTests.cs",
+        "tests/Mavi.IntegrationTests/Qualification/QualificationGate.cs",
+        "tests/Mavi.IntegrationTests/Qualification/S1HandOffScaleTests.cs",
+        "tests/Mavi.IntegrationTests/Qualification/S1FinalizationEnvelopeTests.cs",
+        "tests/Mavi.IntegrationTests/Qualification/S1FinalizationRecoveryTests.cs",
+        "tests/Mavi.IntegrationTests/Qualification/PublicationTimeline.cs",
+        "tests/Mavi.IntegrationTests/Qualification/FinalizationTimingDecorator.cs",
+    ],
+)
+def test_a_change_to_a_b3_harness_invalidates_b3_even_uncited(harness: str) -> None:
+    assert "B3" in invalidated_units([harness], {})[harness]
+
+
+def test_every_b3_harness_file_is_mapped_to_b3() -> None:
+    harness_root = REPO_ROOT / "tests/Mavi.IntegrationTests/Qualification"
+    for name in ("S1HandOffScaleTests.cs", "S1FinalizationEnvelopeTests.cs", "S1FinalizationRecoveryTests.cs", "PublicationTimeline.cs", "FinalizationTimingDecorator.cs"):
+        if (harness_root / name).exists():
+            assert f"tests/Mavi.IntegrationTests/Qualification/{name}" in s1_evidence.ALWAYS_EVIDENCE, name
 
 
 # --------------------------------------------------------------------------- independent review
@@ -1654,24 +1929,43 @@ def test_b2_output_must_come_from_a_qualified_variant_on_the_recorded_host(tmp_p
     assert ("B2", "host_identity_mismatch") in _verified_codes(record, tmp_path / "2")
 
 
-def test_b3_needs_a_sealing_measurement_on_each_supported_os() -> None:
-    record = complete_record()
-    record["units"]["B3"]["measurements"].remove(f"B3:{s1_evidence.SEALING_WALL_METRIC}.windows-x86_64-cpu")
-    assert ("B3", "measurement_missing") in codes(record)
+@pytest.mark.parametrize(("base", "_artifact", "_field"), s1_evidence.B3_TIMINGS)
+def test_b3_needs_every_timing_on_each_supported_os(base: str, _artifact: str, _field: str) -> None:
+    for variant in s1_evidence.QUALIFIED_CPU_VARIANTS:
+        record = complete_record()
+        record["units"]["B3"]["measurements"].remove(f"B3:{base}.{variant}")
+        assert ("B3", "measurement_missing") in codes(record), (base, variant)
 
 
-@pytest.mark.parametrize(
-    ("mutate", "detail"),
-    [
-        (lambda o: o.update(variant="linux-x86_64-cpu"), "ran on"),
-        (lambda o: o.update(evidenceFilesystem="tmpfs at /tmp"), "evidence filesystem"),
-    ],
-)
-def test_each_sealing_output_is_its_os_on_the_hosts_filesystem(tmp_path: Path, mutate, detail: str) -> None:
+@pytest.mark.parametrize("artifact", ["b3a.hand-off-output", "b3b.finalization-output", "b3.crash-matrix-output"])
+def test_b3_needs_every_output_on_each_supported_os(artifact: str) -> None:
+    # B3-A alone, B3-B alone, or one OS never passes B3 (B3 plan §17 guard).
+    for variant in s1_evidence.QUALIFIED_CPU_VARIANTS:
+        record = complete_record()
+        record["units"]["B3"]["artifacts"].remove(f"{artifact}.{variant}")
+        assert ("B3", "artifact_missing") in codes(record), (artifact, variant)
+
+
+@pytest.mark.parametrize("artifact", ["b3a.hand-off-output", "b3b.finalization-output", "b3.crash-matrix-output"])
+def test_a_linux_b3_output_relabelled_as_windows_is_refused(tmp_path: Path, artifact: str) -> None:
     record = materialize(complete_record(), tmp_path)
-    _rewrite_json(record, tmp_path, "b3.sealing-scale-output.windows-x86_64-cpu", mutate)
-    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "sealing_output_mismatch"]
-    assert findings and any(detail in f.detail for f in findings)
+    linux = record["retainedArtifacts"][f"{artifact}.linux-x86_64-cpu"]
+    windows = record["retainedArtifacts"][f"{artifact}.windows-x86_64-cpu"]
+    # The Linux bytes copied under the Windows id: its own variant field betrays it...
+    (tmp_path / windows["path"]).write_bytes((tmp_path / linux["path"]).read_bytes())
+    windows["sha256"] = linux["sha256"]
+    found = _verified_codes(record, tmp_path)
+    assert {c for u, c in found if u == "B3"} & {"b3a_output_mismatch", "b3b_output_mismatch", "crash_matrix_incomplete"}
+    # ... and so do the identical bytes, even with the field rewritten.
+    record = materialize(complete_record(), tmp_path / "2")
+    _rewrite_json(record, tmp_path / "2", f"{artifact}.windows-x86_64-cpu", lambda d: d.update(json.loads((tmp_path / "2" / record["retainedArtifacts"][f"{artifact}.linux-x86_64-cpu"]["path"]).read_text()), variant="windows-x86_64-cpu"))
+    windows = record["retainedArtifacts"][f"{artifact}.windows-x86_64-cpu"]
+    linux = record["retainedArtifacts"][f"{artifact}.linux-x86_64-cpu"]
+    content = (tmp_path / "2" / windows["path"]).read_text()
+    (tmp_path / "2" / linux["path"]).write_text(content)
+    linux["sha256"] = windows["sha256"]
+    findings = [f for f in check_record(record, repo_root=tmp_path / "2", verify_git=False) if "other variant" in f.detail]
+    assert findings
 
 
 def test_the_task10_steps_are_every_junit_file_task10_writes() -> None:
@@ -1767,7 +2061,9 @@ def test_every_host_field_is_measured_and_bound(tmp_path: Path, field: str) -> N
     _rewrite_json(record, tmp_path / "a", "b2.memory-harness-output.windows-x86_64-cpu", lambda d: d["host"].update({field: None}))
     assert ("B2", "host_identity_unmeasured") in _verified_codes(record, tmp_path / "a")
     record = materialize(complete_record(), tmp_path / "b")
-    record["hosts"]["runner-windows"][field] = "typed in" if isinstance(record["hosts"]["runner-windows"][field], str) else 999
+    # A typed-in value (a valid enum member for storageClass, so only the binding can refuse it).
+    typed = "hdd" if field == "storageClass" else ("typed in" if isinstance(record["hosts"]["runner-windows"][field], str) else 999)
+    record["hosts"]["runner-windows"][field] = typed
     assert ("B2", "host_identity_mismatch") in _verified_codes(record, tmp_path / "b")
 
 
@@ -1809,18 +2105,39 @@ def test_the_staging_peak_must_be_within_the_runs_derived_bound() -> None:
     assert ("B2", "limit_violated") in codes(record)
 
 
-@pytest.mark.parametrize(("field", "value"), [("cpuModel", "another CPU"), ("logicalCores", 128)])
-def test_the_sealing_output_is_bound_to_its_measured_host(tmp_path: Path, field: str, value) -> None:
-    record = materialize(complete_record(), tmp_path)
-    _rewrite_json(record, tmp_path, "b3.sealing-scale-output.windows-x86_64-cpu", lambda d: d["host"].update({field: value}))
-    assert ("B3", "host_identity_mismatch") in _verified_codes(record, tmp_path)
+@pytest.mark.parametrize(("field", "value"), [
+    ("cpuModel", "another CPU"), ("logicalCores", 128), ("acceptedEvidenceFilesystem", "tmpfs"),
+    ("storageClass", "nvme"), ("storageClassEvidence", "typed by hand"),
+])
+def test_every_b3_output_is_bound_to_its_measured_host(tmp_path: Path, field: str, value) -> None:
+    for artifact in ("b3a.hand-off-output", "b3b.finalization-output"):
+        record = materialize(complete_record(), tmp_path / artifact)
+        _rewrite_json(record, tmp_path / artifact, f"{artifact}.windows-x86_64-cpu", lambda d: d["host"].update({field: value}))
+        assert ("B3", "host_identity_mismatch") in _verified_codes(record, tmp_path / artifact), artifact
 
 
-def test_the_sealing_output_schema_is_checked(tmp_path: Path) -> None:
+def test_b3_timing_on_a_hosted_runner_is_refused() -> None:
+    record = complete_record()
+    record["hosts"]["runner-windows"]["storageClass"] = "hosted-runner"
+    assert ("B3", "storage_class_unbound") in codes(record)
+
+
+def test_a_host_needs_storage_class_evidence() -> None:
+    record = complete_record()
+    del record["hosts"]["runner-linux"]["storageClassEvidence"]
+    assert ("record", "schema_invalid") in codes(record)
+    record = complete_record()
+    record["hosts"]["runner-linux"]["storageClassEvidence"] = ""
+    assert ("record", "schema_invalid") in codes(record)
+    record = complete_record()
+    record["hosts"]["runner-linux"]["storageClass"] = "fast"
+    assert ("record", "schema_invalid") in codes(record)
+
+
+def test_a_typed_storage_class_that_the_b2_harness_did_not_measure_is_refused(tmp_path: Path) -> None:
     record = materialize(complete_record(), tmp_path)
-    _rewrite_json(record, tmp_path, "b3.sealing-scale-output.linux-x86_64-cpu", lambda d: d.update(schema="other"))
-    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.code == "sealing_output_mismatch"]
-    assert any("schema" in f.detail for f in findings)
+    _rewrite_json(record, tmp_path, "b2.memory-harness-output.linux-x86_64-cpu", lambda d: d["host"].update(storageClass="unknown"))
+    assert ("B2", "host_identity_mismatch") in _verified_codes(record, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -1882,15 +2199,56 @@ def test_an_arbitrary_b1_artifact_no_longer_supports_a_pass(tmp_path: Path) -> N
     assert ("B1", "b1_comparison_invalid") in _verified_codes(record, tmp_path)
 
 
-@pytest.mark.parametrize("metric", sorted(s1_evidence.B3_PROVING_TESTS))
-def test_a_b3_body_size_needs_its_proving_test_to_have_passed(metric: str) -> None:
+def _proving_params():
+    return [
+        (unit, prop, suite, test)
+        for unit, mapping in s1_evidence.PROVING_TESTS_BY_UNIT.items()
+        for prop, tests in mapping.items()
+        for suite, test in tests
+    ]
+
+
+@pytest.mark.parametrize(("unit", "prop", "suite", "test"), _proving_params())
+def test_every_proving_test_must_have_passed_in_its_cited_suite(unit: str, prop: str, suite: str, test: str) -> None:
     record = complete_record()
-    suite, test = s1_evidence.B3_PROVING_TESTS[metric]
     for entry in record["suites"].values():
         if entry["suite"] == suite:
             entry["passedTests"] = [t for t in entry["passedTests"] if not t.endswith("::" + test)]
             entry["passed"] = len(entry["passedTests"])
-    assert ("B3", "proving_test_missing") in codes(record)
+    assert (unit, "proving_test_missing") in codes(record), (prop, test)
+
+
+@pytest.mark.parametrize(("unit", "prop", "suite", "test"), _proving_params())
+def test_every_proving_test_exists_in_the_repository(unit: str, prop: str, suite: str, test: str) -> None:
+    relative = suite if suite.endswith(".py") else suite + ".cs"
+    text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+    assert re.search(rf"\b(?:def\s+|Task\s+|void\s+){re.escape(test)}\s*\(", text), f"{prop}: {relative}::{test}"
+
+
+def test_every_proving_suite_is_a_required_suite_of_its_unit() -> None:
+    for unit, mapping in s1_evidence.PROVING_TESTS_BY_UNIT.items():
+        for prop, tests in mapping.items():
+            for suite, _ in tests:
+                assert suite in UNIT_REQUIREMENTS[unit].suites, (unit, prop, suite)
+
+
+def test_a_proving_test_absent_at_the_measured_sha_is_refused(tmp_path: Path) -> None:
+    # A test renamed or removed after the map was written: its old name may still be
+    # present in a stale TRX, but the source at the measured SHA must hold it.
+    record = materialize(complete_record(), tmp_path)
+    source = tmp_path / "tests/Mavi.IntegrationTests/VisionFinalizationRecoveryTests.cs"
+    source.write_text(source.read_text().replace("TwoHostsRacingOneJobProduceExactlyOnePublication(", "TwoHostsRacingRenamed("))
+    found = _verified_codes(record, tmp_path)
+    assert ("B3", "proving_test_absent_at_sha") in found and ("B4", "proving_test_absent_at_sha") in found
+
+
+def test_the_b4_proving_map_covers_every_f4_plan_property() -> None:
+    assert set(s1_evidence.B4_PROVING_TESTS) == {
+        "python-dotnet-agreement", "v2-replay", "v3-replay", "v3-1-replay", "durable-hand-off",
+        "ambiguous-submission-commit-succeeded", "ambiguous-submission-commit-failed", "publication-commit-ambiguity",
+        "no-duplicate-graph", "no-duplicate-sequence", "no-compensation-deletion", "identical-evidence-adopted",
+        "staging-survives-hand-off-and-finalization", "stale-claimant-cannot-publish-or-fail", "final-permitted-claimant-exhaustion",
+    }
 
 
 def test_the_b5_clip_count_is_the_records_verified_real_video_clips(tmp_path: Path) -> None:
@@ -2176,7 +2534,7 @@ def test_the_worker_timeout_is_read_at_the_measured_sha(tmp_path: Path) -> None:
     assert s1_evidence.worker_request_timeout_bounds_ms(settings.decode())[0] == 7000.0
     # The working tree says otherwise; only the measured commit counts.
     assert s1_evidence.worker_request_timeout_bounds_ms((tmp_path / "repo" / s1_evidence.WORKER_SETTINGS_RELATIVE).read_text())[0] != 7000.0
-    checker._b3_headroom({"b3.worker-request-timeout-ms": {"value": s1_evidence.worker_request_timeout_bounds_ms()[0]}}, measured)
+    checker._b3_bounds({"b3.worker-request-timeout-ms": {"value": s1_evidence.worker_request_timeout_bounds_ms()[0]}}, measured)
     assert any(f.code == "worker_timeout_unbound" for f in checker.findings)
 
 
@@ -2187,12 +2545,310 @@ def test_unreadable_settings_at_the_measured_sha_refuse_b3(tmp_path: Path) -> No
     subprocess.run(["git", "commit", "-qm", "rm"], cwd=root, check=True)
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
     checker = s1_evidence._Checker(complete_record(), root, verify_git=True)
-    checker._b3_headroom({"b3.worker-request-timeout-ms": {"value": 1.0}}, head)
+    checker._b3_bounds({"b3.worker-request-timeout-ms": {"value": 1.0}}, head)
     assert [f.code for f in checker.findings] == ["worker_timeout_unbound"]
     assert sha != head
 
 
 def test_every_plan_section_3_host_field_is_measured_and_bound() -> None:
-    # §3 host identity: storage class alone is declared (it cannot be detected).
-    assert s1_evidence.MEASURED_HOST_FIELDS == ("cpuModel", "physicalCores", "logicalCores", "ramBytes", "os", "osBuild", "stagingFilesystem")
-    assert s1_evidence.SEALING_HOST_FIELDS == ("cpuModel", "logicalCores")
+    # §3 host identity, storage class included since F4 (plan §17.2): measured, never typed in.
+    assert s1_evidence.MEASURED_HOST_FIELDS == (
+        "cpuModel", "physicalCores", "logicalCores", "ramBytes", "os", "osBuild", "stagingFilesystem", "storageClass", "storageClassEvidence",
+    )
+    assert s1_evidence.B3_HOST_FIELDS == ("cpuModel", "logicalCores", "acceptedEvidenceFilesystem", "storageClass", "storageClassEvidence")
+
+
+# --------------------------------------------------------------------------- F4: B3-B envelope (plan §9)
+B3B = "b3b.finalization-output.linux-x86_64-cpu"
+
+
+def _b3b_codes(tmp_path: Path, mutate) -> set:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, B3B, mutate)
+    return {code for unit, code in _verified_codes(record, tmp_path) if unit == "B3"}
+
+
+def _sample(d: dict, index: int = 3) -> dict:
+    return d["samples"][index]
+
+
+def _ticks(d: dict, index: int = 3) -> dict:
+    return d["samples"][index]["publicationTimeline"]["ticks"]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "code"),
+    [
+        (lambda d: d.update(hostedServiceUsed=False), "b3b_output_mismatch"),  # cycles driven by hand
+        (lambda d: d.update(optionsSource="test injection"), "b3b_output_mismatch"),
+        (lambda d: d["shape"].update(stagedObjects=1_000), "b3b_output_mismatch"),
+        (lambda d: d["configuration"].update(Enabled=False), "frozen_configuration_mismatch"),
+        (lambda d: d["configuration"].update(MaximumFinalizationDurationSeconds=d["configuration"]["MaximumFinalizationDurationSeconds"] * 10), "frozen_configuration_mismatch"),
+        (lambda d: d["configuration"].update(ClaimExtensionSeconds=1), "frozen_configuration_mismatch"),
+        (lambda d: d["configuration"].update(SealingBatchSize=5_000), "frozen_configuration_mismatch"),
+        (lambda d: _sample(d).update(extensionCount=0), "b3b_output_mismatch"),  # extension disabled
+        (lambda d: _sample(d).update(extensionCount=_sample(d)["extensionCount"] - 1), "b3b_output_mismatch"),
+        (lambda d: _sample(d).update(prematureVisibilityObserved=1), "b3b_output_mismatch"),
+        (lambda d: _sample(d).update(publications=2), "b3b_output_mismatch"),  # double publish
+        (lambda d: _sample(d).update(visibilitySequences=2), "b3b_output_mismatch"),
+        (lambda d: _sample(d).update(createdObjects=1), "b3b_output_mismatch"),
+        (lambda d: _sample(d).update(longestCommandMs=30_001.0), "b3b_output_mismatch"),
+        (lambda d: d.update(effectiveCommandTimeoutSeconds=0), "b3b_output_mismatch"),
+        (lambda d: d.update(samples=[]), "b3b_output_mismatch"),
+        (lambda d: d["apiHostRss"].update(samplesBytes=[]), "b3b_output_mismatch"),  # RSS absent but PASS
+        (lambda d: d.pop("apiHostRss"), "b3b_output_mismatch"),
+        (lambda d: d.update(apiProcessCpuSeconds=None), "b3b_output_mismatch"),
+        (lambda d: d["apiContention"].update(endpoints=[]), "api_contention_incomplete"),
+        (lambda d: d["apiContention"].update(errorsDuringFinalization=3), "api_contention_incomplete"),
+        (lambda d: d["reference"].update(samples=d["reference"]["samples"][:4]), "reference_incomplete"),
+        (lambda d: d["reference"]["samples"][0]["publicationTimeline"]["ticks"].pop("barrierAcquired"), "reference_incomplete"),
+        (lambda d: d.update(rejectedTimelines=[{"reason": "TransactionRolledBack"}]), "publication_timeline_invalid"),
+        (lambda d: _sample(d)["bracketProofs"].update(graphPersistenceBracketContainsOnlyAddAsync=False), "publication_timeline_invalid"),
+        (lambda d: _sample(d)["bracketProofs"].update(singleBarrierCommand=False), "publication_timeline_invalid"),
+        (lambda d: _sample(d)["publicationTimeline"].update(transition="Ambiguous"), "publication_timeline_invalid"),
+        (lambda d: _sample(d)["publicationTimeline"].update(committed=False), "publication_timeline_invalid"),
+        (lambda d: _sample(d)["publicationTimeline"].update(transactionId=""), "publication_timeline_invalid"),
+        (lambda d: _ticks(d).pop("commitCompleted"), "publication_timeline_invalid"),  # raw timestamps absent
+    ],
+)
+def test_the_b3b_output_must_be_the_real_hosted_worst_shape_envelope(tmp_path: Path, mutate, code: str) -> None:
+    assert code in _b3b_codes(tmp_path, mutate)
+
+
+def test_the_b3b_output_must_time_the_exclusive_barrier_command(tmp_path: Path) -> None:
+    shared = _barrier_sql().replace("pg_advisory_xact_lock(", "pg_advisory_xact_lock_shared(")
+    assert "barrier_hold_unbound" in _b3b_codes(tmp_path / "a", lambda d: d.update(barrierCommandText=shared))
+    assert "publication_timeline_invalid" in _b3b_codes(tmp_path / "b", lambda d: _sample(d)["publicationTimeline"].update(barrierCommandText=shared))
+
+
+def test_the_barrier_sql_is_read_from_the_measured_source(tmp_path: Path) -> None:
+    # A changed lock key in the source makes every timing of the old key unbound.
+    record = materialize(complete_record(), tmp_path)
+    source = tmp_path / s1_evidence.BARRIER_SOURCE_RELATIVE
+    source.write_text(source.read_text().replace("1296127561, 1412505908", "1, 2", 1))
+    assert ("B3", "barrier_hold_unbound") in _verified_codes(record, tmp_path)
+
+
+def test_the_barrier_hold_starts_at_barrier_acquisition_not_the_row_lock(tmp_path: Path) -> None:
+    # Mutant: the harness reports the hold from the job row lock (it would include graph persistence).
+    def from_row_lock(d):
+        timeline = _sample(d)["publicationTimeline"]
+        ticks = timeline["ticks"]
+        _sample(d)["barrierHoldMs"] = (ticks["commitCompleted"] - ticks["rowLockAcquired"]) * 1000.0 / timeline["stopwatchFrequency"]
+    assert "metric_without_producer" in _b3b_codes(tmp_path / "typed", from_row_lock)
+    # Mutant: the barrier-acquired timestamp is the row-lock timestamp.
+    assert "publication_timeline_invalid" in _b3b_codes(tmp_path / "ticks", lambda d: _ticks(d).update(barrierAcquired=_ticks(d)["rowLockAcquired"]))
+    # Mutant: the barrier is acquired before graph persistence ended.
+    assert "publication_timeline_invalid" in _b3b_codes(tmp_path / "early", lambda d: _ticks(d).update(barrierCommandStarted=_ticks(d)["graphPersistenceStart"]))
+
+
+def test_the_barrier_hold_ends_at_the_observed_commit(tmp_path: Path) -> None:
+    # Mutant: the end is TransactionCommitting (the commit call started), not TransactionCommitted.
+    assert "publication_timeline_invalid" in _b3b_codes(tmp_path / "a", lambda d: _ticks(d).update(commitCompleted=_ticks(d)["commitStarted"]))
+    # Mutant: the end is the final SaveChanges, before the commit started.
+    assert "publication_timeline_invalid" in _b3b_codes(tmp_path / "b", lambda d: _ticks(d).update(commitCompleted=_ticks(d)["barrierAcquired"] + 1))
+
+
+def test_graph_persistence_must_be_measured_positive_and_recomputed(tmp_path: Path) -> None:
+    zero = lambda d: _ticks(d).update(graphPersistenceEnd=_ticks(d)["graphPersistenceStart"], graphSavingChanges=_ticks(d)["graphPersistenceStart"], graphSavedChanges=_ticks(d)["graphPersistenceStart"])  # noqa: E731
+    assert "graph_persistence_unbound" in _b3b_codes(tmp_path / "zero", zero)
+    assert "publication_timeline_invalid" in _b3b_codes(tmp_path / "missing", lambda d: _ticks(d).pop("graphPersistenceStart"))
+
+    def by_subtraction(d):
+        timeline = _sample(d)["publicationTimeline"]
+        values = s1_evidence.derive_timeline(timeline)
+        _sample(d)["graphPersistenceMs"] = values["publishTransactionMs"] - values["barrierHoldMs"]
+    assert "metric_without_producer" in _b3b_codes(tmp_path / "subtraction", by_subtraction)
+    # The graph SaveChanges lies inside the persistence bracket.
+    assert "publication_timeline_invalid" in _b3b_codes(tmp_path / "outside", lambda d: _ticks(d).update(graphSavedChanges=_ticks(d)["graphPersistenceEnd"] + 10))
+
+
+def test_every_b3b_interval_is_recomputed_from_two_raw_timestamps() -> None:
+    timeline = _timeline(0, 1)
+    values = s1_evidence.derive_timeline(timeline)
+    ticks = timeline["ticks"]
+    assert values["barrierHoldMs"] == (ticks["commitCompleted"] - ticks["barrierAcquired"]) / 1000.0
+    assert values["barrierWaitMs"] == (ticks["barrierAcquired"] - ticks["barrierCommandStarted"]) / 1000.0
+    assert values["publishTransactionMs"] == (ticks["commitCompleted"] - ticks["transactionBegun"]) / 1000.0
+    assert values["graphPersistenceMs"] == (ticks["graphPersistenceEnd"] - ticks["graphPersistenceStart"]) / 1000.0
+    assert values["graphSaveChangesMs"] == (ticks["graphSavedChanges"] - ticks["graphSavingChanges"]) / 1000.0
+    # The hold never contains graph persistence.
+    assert values["barrierHoldMs"] < values["publishTransactionMs"] - values["graphPersistenceMs"]
+
+
+def test_nearest_rank_matches_the_dotnet_harness() -> None:
+    assert s1_evidence.nearest_rank([5.0, 1.0, 3.0, 2.0, 4.0], 0.50) == 3.0
+    assert s1_evidence.nearest_rank([5.0, 1.0, 3.0, 2.0, 4.0], 0.95) == 5.0
+    assert s1_evidence.nearest_rank([7.0], 0.95) == 7.0
+
+
+# --------------------------------------------------------------------------- F4: frozen configuration (plan §10)
+@pytest.mark.parametrize(
+    ("mutate", "code"),
+    [
+        (lambda r: r.pop("frozenConfiguration"), "frozen_configuration_missing"),
+        (lambda r: r["frozenConfiguration"]["values"].update(MaximumFinalizationDurationSeconds=1), "frozen_configuration_mismatch"),
+        (lambda r: r["frozenConfiguration"]["values"].update(ClaimSeconds=r["frozenConfiguration"]["values"]["ClaimSeconds"] + 1), "frozen_configuration_mismatch"),
+        (lambda r: r["frozenConfiguration"].update(effectiveBoundSeconds=1), "frozen_configuration_mismatch"),
+        (lambda r: r["frozenConfiguration"].update(activationDefault=not r["frozenConfiguration"]["activationDefault"]), "frozen_configuration_mismatch"),
+    ],
+)
+def test_the_frozen_configuration_is_the_committed_appsettings(mutate, code: str) -> None:
+    record = complete_record()
+    mutate(record)
+    assert ("B3", code) in codes(record)
+
+
+def test_the_frozen_configuration_is_read_at_the_measured_sha(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    appsettings = tmp_path / s1_evidence.APPSETTINGS_RELATIVE
+    document = json.loads(appsettings.read_text())
+    document["VisionFinalization"]["SealingBatchSize"] = 17
+    appsettings.write_text(json.dumps(document))
+    found = _verified_codes(record, tmp_path)
+    assert ("B3", "frozen_configuration_mismatch") in found
+    appsettings.unlink()
+    assert ("B3", "frozen_configuration_unbound") in _verified_codes(record, tmp_path)
+
+
+# --------------------------------------------------------------------------- F4: crash matrix (plan §11)
+CRASH = "b3.crash-matrix-output.windows-x86_64-cpu"
+
+
+def _row(d: dict, scenario: str) -> dict:
+    return next(row for row in d["rows"] if row["scenario"] == scenario)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d.update(rows=[row for row in d["rows"] if row["scenario"] != "two-hosts-racing"]),  # an H row missing
+        lambda d: d["rows"].append(dict(d["rows"][0])),  # an H row twice
+        lambda d: _row(d, "worker-death-after-hand-off").update(passed=False),
+        lambda d: _row(d, "host-death-before-first-claim").update(finalState="Failed"),
+        lambda d: _row(d, "two-hosts-racing").update(publications=2),
+        lambda d: _row(d, "two-hosts-racing").update(sequenceCount=2),
+        lambda d: _row(d, "host-death-mid-seal").update(adoptedObjects=0, createdObjects=50_000),  # recreated, never adopted
+        lambda d: _row(d, "host-death-mid-seal").update(createdObjects=10),
+        lambda d: _row(d, "host-death-mid-seal").update(killPoint={}),
+        lambda d: _row(d, "host-death-before-first-claim").update(restartLatencyMs=None),
+        lambda d: _row(d, "host-death-before-first-claim").update(orphanBytes=-1),
+    ],
+)
+def test_every_crash_h_row_must_converge_to_one_publication(tmp_path: Path, mutate) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, CRASH, mutate)
+    assert ("B3", "crash_matrix_incomplete") in _verified_codes(record, tmp_path)
+
+
+def test_the_crash_h_scenarios_are_the_plans_process_kill_rows() -> None:
+    assert s1_evidence.CRASH_H_SCENARIOS == ("worker-death-after-hand-off", "host-death-before-first-claim", "host-death-mid-seal", "two-hosts-racing")
+
+
+# --------------------------------------------------------------------------- F4: provenance of B3 outputs
+def test_a_b3_output_from_another_harness_run_is_refused(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b3a.hand-off-output.windows-x86_64-cpu", lambda d: d.update(runId="another-run"))
+    assert ("B3", "artifact_run_mismatch") in _verified_codes(record, tmp_path)
+    record = materialize(complete_record(), tmp_path / "2")
+    record["measurements"]["B3:b3a.hand-off-wall-ms.windows-x86_64-cpu"]["run"] = "b3b.finalization-output.windows-x86_64-cpu"
+    assert ("B3", "artifact_run_mismatch") in _verified_codes(record, tmp_path / "2")
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "docs/qualification/stage2-s1/evidence/bb331c6/task10/linux-x86_64-cpu/junit/s1-boundary.xml",  # PR #87's superseded evidence
+        "docs/qualification/stage2-s1/exploratory/aaaaaaaaaaaa/b3b/s1-b3b-finalization.json",  # the freeze inputs
+        "docs/qualification/stage2-s1/history/bb331c6/b3/s1-b3-sealing-scale.linux-x86_64-cpu.json",
+        "records/b3b.json",
+    ],
+)
+def test_a_pass_cannot_rest_on_another_shas_historical_or_exploratory_evidence(path: str) -> None:
+    record = complete_record()
+    record["retainedArtifacts"]["b3b.finalization-output.linux-x86_64-cpu"]["path"] = path
+    assert ("B3", "artifact_not_from_measured_sha") in codes(record)
+    record = complete_record()
+    junit = record["suites"][record["units"]["B4"]["suites"][0]]["junitArtifact"]
+    record["retainedArtifacts"][junit]["path"] = path
+    assert ("B4", "artifact_not_from_measured_sha") in codes(record)
+
+
+def test_the_closure_sha_folder_is_accepted_for_units_rerun_on_it() -> None:
+    record = complete_record()
+    record["closure"] = {"mergeSha": MERGE, "changedPaths": []}
+    artifact = record["retainedArtifacts"]["b4.completion-v3-golden"]
+    artifact["path"] = artifact["path"].replace(f"/{SHA[:12]}/", f"/{MERGE[:12]}/")
+    assert ("B4", "artifact_not_from_measured_sha") not in codes(record)
+
+
+# --------------------------------------------------------------------------- F4: B5 (plan §15)
+@pytest.mark.parametrize("check", ["finalizingObserved", "prematureVisibilityAbsent", "completedAfterAsyncPublication"])
+def test_a_real_video_clip_counts_only_if_the_asynchronous_path_was_truthful(tmp_path: Path, check: str) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b5.real-video-record", lambda d: d["clips"][0].update({check: False}))
+    assert ("B5", "b5_record_invalid") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize("item", s1_evidence.B5_QA_REQUIRED_ITEMS)
+def test_b5_needs_every_finalizing_ui_item_to_pass(tmp_path: Path, item: str) -> None:
+    record = materialize(complete_record(), tmp_path / "failed")
+    _rewrite_json(record, tmp_path / "failed", "b5.visual-qa-record", lambda d: next(i for i in d["items"] if i["id"] == item).update(passed=False))
+    assert ("B5", "b5_record_invalid") in _verified_codes(record, tmp_path / "failed")
+    record = materialize(complete_record(), tmp_path / "absent")
+    _rewrite_json(record, tmp_path / "absent", "b5.visual-qa-record", lambda d: d.update(items=[i for i in d["items"] if i["id"] != item]))
+    assert ("B5", "b5_record_invalid") in _verified_codes(record, tmp_path / "absent")
+
+
+def test_fixture_only_b5_evidence_is_not_real_video_acceptance(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, "b5.visual-qa-record", lambda d: [i.update(label="fixture") for i in d["items"]])
+    assert ("B5", "b5_record_invalid") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize(("artifact", "schema"), [("b5.real-video-record", "s1-b5-real-video-record-v1"), ("b5.visual-qa-record", "s1-b5-visual-qa-v1")])
+def test_a_pre_f4_b5_record_is_refused(tmp_path: Path, artifact: str, schema: str) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, artifact, lambda d: d.update(schema=schema))
+    assert ("B5", "b5_record_invalid") in _verified_codes(record, tmp_path)
+
+
+# --------------------------------------------------------------------------- F4: disconnected (plan §19)
+@pytest.mark.parametrize(
+    ("artifact", "mutate"),
+    [
+        ("disconnected.run-record", lambda d: d.update(activation={"visionFinalizationEnabled": False, "completionSchemaVersion": "3.1"})),
+        ("disconnected.run-record", lambda d: d.update(activation={"visionFinalizationEnabled": True, "completionSchemaVersion": "3.0"})),
+        ("disconnected.run-record", lambda d: d.pop("activation")),
+        ("disconnected.run-record", lambda d: d.update(schema="s1-disconnected-run-v1")),
+        ("disconnected.connect-trace", lambda d: d["attempts"].append({"address": "151.101.0.223", "port": 443})),  # pypi
+        ("disconnected.connect-trace", lambda d: d["attempts"].append({"address": "10.0.0.5", "port": 3128})),  # a LAN proxy
+        ("disconnected.connect-trace", lambda d: d["attempts"].append({"address": "pypi.org", "port": 443})),
+        ("disconnected.connect-trace", lambda d: d.update(sourceCommit="c" * 40)),
+        ("disconnected.connect-trace", lambda d: d.update(method="")),
+        ("disconnected.dependency-diff", lambda d: d.update(addedDependencies=["psutil==6.0"])),
+        ("disconnected.dependency-diff", lambda d: d.update(toSha="c" * 40)),
+        ("disconnected.runtime-manifests", lambda d: d.update(manifests=[])),
+        ("disconnected.runtime-manifests", lambda d: d["manifests"][0].update(sha256="not-a-hash")),
+        ("disconnected.runtime-manifests", lambda d: d.update(sourceCommit="c" * 40)),
+    ],
+)
+def test_the_disconnected_run_must_exercise_3_1_with_no_hidden_dependency_or_network(tmp_path: Path, artifact: str, mutate) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, artifact, mutate)
+    assert ("DISCONNECTED", "disconnected_run_incomplete") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize("artifact", ["disconnected.dependency-diff", "disconnected.connect-trace", "disconnected.runtime-manifests"])
+def test_the_disconnected_bindings_are_required(artifact: str) -> None:
+    record = complete_record()
+    record["units"]["DISCONNECTED"]["artifacts"].remove(artifact)
+    assert ("DISCONNECTED", "artifact_missing") in codes(record)
+
+
+@pytest.mark.parametrize(("address", "loopback"), [
+    ("127.0.0.1", True), ("127.8.8.8", True), ("::1", True), ("[::1]", True), ("localhost", True), ("/run/postgresql/.s.PGSQL.5432", True),
+    ("10.0.0.5", False), ("192.168.1.10", False), ("8.8.8.8", False), ("github.com", False), ("", False),
+])
+def test_only_loopback_connect_targets_are_local(address: str, loopback: bool) -> None:
+    assert s1_evidence.is_loopback_address(address) is loopback
